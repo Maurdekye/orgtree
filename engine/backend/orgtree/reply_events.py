@@ -65,6 +65,15 @@ def clear(org, nid):
     return deleted
 
 
+def clear_org(slug):
+    if not (Path(store.DATA_ROOT) / 'reply-events.sqlite3').exists():
+        return 0
+    with _connect() as connection:
+        removed = connection.execute('DELETE FROM events WHERE org=?', (slug,)).rowcount
+    connection.close()
+    return removed
+
+
 def annotate(org, nid, chat):
     incarnation(org,nid)
     with _connect() as connection:

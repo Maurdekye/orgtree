@@ -23,7 +23,12 @@ class ReplySnapshotsTests(unittest.TestCase):
         store.save_org(org)
         eid = reply_events.remember(org,'agent','original','row','private quote')
         ref = {'org':'recreated','agent':'agent','generation':0,'eventId':eid}
+        with patch.object(reply_events,'clear_org',side_effect=OSError('controlled erasure failure')):
+            with self.assertRaises(OSError): store.delete_org('recreated')
+        self.assertEqual(supervisor.resolve_chat_event(store.load_org('recreated'),'agent',ref)[1],'private quote')
         store.delete_org('recreated')
+        with reply_events._connect() as connection:
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM events WHERE org=?', ('recreated',)).fetchone()[0],0)
         replacement = store.create_org('recreated')
         replacement.hire(ledger.USER,None,'haiku',0,'agent')
         store.save_org(replacement)

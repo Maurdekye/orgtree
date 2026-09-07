@@ -2991,6 +2991,15 @@ def delete_org(slug: str) -> None:
                 with contextlib.suppress(OSError):
                     os.replace(dst, src)
 
+        def _remove_reply_snapshots() -> None:
+            from . import reply_events
+            try:
+                reply_events.clear_org(slug)
+            except Exception:
+                _rename_retry(dest, p)
+                _put_back()
+                raise
+
         try:
             for src, suffix in extras:
                 if os.path.exists(src):
@@ -3012,6 +3021,7 @@ def delete_org(slug: str) -> None:
             except OSError:
                 _put_back()
                 raise
+            _remove_reply_snapshots()
             return
         with _POOL.acquire(slug) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -3035,6 +3045,7 @@ def delete_org(slug: str) -> None:
             if os.path.exists(side):
                 with contextlib.suppress(OSError):
                     os.replace(side, dside)
+        _remove_reply_snapshots()
 
 
 # ---------------------------------------------------- external peer sightings
