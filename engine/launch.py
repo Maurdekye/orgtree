@@ -145,7 +145,7 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
 
     @api_app.post("/api/desktop/maintenance/ack")
     def acknowledge_maintenance(body: dict[str, Any]) -> dict[str, bool]:
-        return desktop_maintenance.acknowledge(str(body.get('id') or ''))
+        return desktop_maintenance.acknowledge(str(body.get('id') or ''), str(body.get('outcome') or 'execute'))
 
     @api_app.post("/api/desktop/shutdown")
     def desktop_shutdown() -> dict[str, bool]:

@@ -53,6 +53,9 @@ class MaintenanceTests(unittest.TestCase):
         self.assertIsNone(maintenance.pending())
         force = client.post('/api/agent',json={**payload,'args':{'force':True}},headers=headers)
         self.assertEqual(force.status_code,422)
+        update = maintenance.request('maintenance','boss',action='update')['maintenance']
+        self.assertTrue(client.post('/api/desktop/maintenance/ack',json={'id':update['id'],'outcome':'up-to-date'},headers=operator).json()['accepted'])
+        self.assertTrue(supervisor._deploy_done.is_set())
         store._POOL.close_all('maintenance')
 
 if __name__ == '__main__': unittest.main()

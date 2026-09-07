@@ -62,10 +62,15 @@ def cancel(slug, nid):
         return {'cancelled':bool(current)}
 
 
-def acknowledge(request_id):
+def acknowledge(request_id, outcome='execute'):
     with _lock:
         current = pending()
         if not current or current['id'] != request_id:
+            return {'accepted':False}
+        if outcome == 'up-to-date' and current['action'] == 'update':
+            _write({**current,'state':'up-to-date'})
+            return {'accepted':True}
+        if outcome != 'execute':
             return {'accepted':False}
         hold = supervisor._force_hold_take()
         if hold is None:
