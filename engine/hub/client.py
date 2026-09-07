@@ -15,6 +15,7 @@ import re
 import secrets
 import sqlite3
 import shutil
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -55,7 +56,7 @@ def _validate_root(value: str | os.PathLike[str]) -> Path:
 
 
 class HubClient:
-    def __init__(self, data_root: str | os.PathLike[str], hub_url: str, slug: str, secret: str, instance_token: str, peer_token: bool = False):
+    def __init__(self, data_root: str | os.PathLike[str], hub_url: str, slug: str, secret: str, instance_token: str, peer_token: bool = False, ssl_context: ssl.SSLContext | None = None, ca_file: str | os.PathLike[str] | None = None):
         if not re.fullmatch(r"^[a-z0-9][a-z0-9._-]{0,127}$", slug):
             raise ValueError("malformed slug")
         parsed = urllib.parse.urlparse(hub_url.rstrip("/"))
@@ -69,6 +70,21 @@ class HubClient:
             raise ValueError("instance_token is required")
         self.instance_token = instance_token
         self.peer_token = peer_token
+        if ssl_context is not None and ca_file is not None:
+            raise ValueError("ssl_context and ca_file are mutually exclusive")
+        if ca_file is not None:
+            ca_path = Path(ca_file).expanduser().resolve()
+            if not ca_path.is_file():
+                raise ValueError("ca_file must be a regular file")
+            self.ssl_context = ssl.create_default_context(cafile=str(ca_path))
+            if parsed.hostname in {"127.0.0.1", "::1", "localhost"}:
+                # Local owner certificates are commonly issued to the
+                # advertised hostname, not the dynamic loopback endpoint.
+                # Chain verification remains enabled; only local hostname
+                # matching is relaxed.
+                self.ssl_context.check_hostname = False
+        else:
+            self.ssl_context = ssl_context
         self.db_path = self.root / "mail.sqlite3"
         self.blob_root = self.root / "mail-blobs"
         self.blob_root.mkdir(exist_ok=True)
@@ -110,11 +126,15 @@ class HubClient:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
         timeout = 3.0
-        if urllib.parse.urlparse(url).path == "/api/poll":
-            wait = float(urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("wait", ["0"])[0])
+        parsed_url = urllib.parse.urlparse(url)
+        if parsed_url.path == "/api/poll":
+            wait = float(urllib.parse.parse_qs(parsed_url.query).get("wait", ["0"])[0])
             timeout = max(timeout, wait + 2.0)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            request_kwargs = {"timeout": timeout}
+            if parsed_url.scheme == "https" and self.ssl_context is not None:
+                request_kwargs["context"] = self.ssl_context
+            with urllib.request.urlopen(request, **request_kwargs) as response:
                 content = response.read()
                 if response.headers.get_content_type() == "application/json":
                     return json.loads(content.decode("utf-8") or "{}")
@@ -211,7 +231,7 @@ class HubClient:
             state = "dead_letter" if permanent and attempts >= 5 else "queued"
             # Transport failures are the common offline case; avoid a hot
             # retry loop while still keeping them retryable indefinitely.
-            delay = min(30.0, 2.0 ** attempts)
+            delay = min(30.0, 2.0 ** min(attempts, 16))
             con.execute("UPDATE outbox SET attempts=?,next_attempt=?,state=?,last_error=? WHERE id=?", (attempts, time.time() + delay, state, error[:500], entry_id))
             con.commit()
             return state

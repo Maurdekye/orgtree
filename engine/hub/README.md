@@ -20,10 +20,14 @@ owner-only file mode; Windows callers must treat the token as a private
 same-user credential because `chmod` does not enforce ACLs there. It has no
 UI, fixed port, Docker dependency, or access to the v1 data root.
 Pass `host="0.0.0.0", advertise_host="<peer-address>"` only when an
-authenticated peer connection is intentionally configured; the default stays
-loopback. Explicit peer binding is plain HTTP, so public deployments must
-provide network/TLS protection outside this service. `HubClient` keeps a
-SQLite-backed offline spool in
+authenticated peer connection is intentionally configured, and provide
+`tls_certfile` plus `tls_keyfile`; non-loopback binds are rejected without
+both. The default stays loopback. `tls_ca_file` is an optional private CA
+bundle path exposed in readiness for clients. `HubClient` accepts `ca_file`
+or a prepared `ssl_context`; CA chain verification remains enabled, with
+hostname matching relaxed only for exact loopback owner URLs. Public
+deployments therefore require manually provisioned trusted certificates.
+`HubClient` keeps a SQLite-backed offline spool in
 the caller's v2 root. Construct it as `HubClient(root, url, slug, secret,
 token)` for local access or with `peer_token=True` for a paired remote peer;
 it validates regular attachment paths, downloads inbound

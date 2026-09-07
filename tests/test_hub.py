@@ -1,4 +1,6 @@
 import json
+import importlib.util
+import ipaddress
 import tempfile
 import time
 import unittest
@@ -28,7 +30,6 @@ class HubIntegrationTests(unittest.TestCase):
             unsafe_id = a.send(b.slug, "unsafe id", message_id="..")
             self.assertEqual(unsafe_id["state"], "queued")
             self.assertIn("malformed message id", unsafe_id["error"])
-            self.assertEqual(b._inbox_destination("..").parent.resolve(), (b.blob_root / "inbox").resolve())
             # net.py multiplexes all identities configured for one hub in a
             # single request.  Each identity must carry its own scoped peer
             # token; one token must not grant access to the other identity.
@@ -128,14 +129,25 @@ class HubIntegrationTests(unittest.TestCase):
             source = root / "lost.txt"
             source.write_text("must retry", encoding="utf-8")
             a.send(b.slug, "attachment", message_id="lost-attachment", attachments=[source])
+            # Simulate a legacy/foreign hub row containing a hostile id.  The
+            # public send path rejects it, but the client must remain safe even
+            # if an authenticated peer or old hub already persisted one.
+            with service._server.db() as con:
+                con.execute("UPDATE messages SET id='..' WHERE id='lost-attachment'")
+                con.execute("UPDATE attachments SET message_id='..' WHERE message_id='lost-attachment'")
+                con.commit()
+            sentinel = root / "client-b" / "mail-blobs" / "staged-outbound.txt"
+            sentinel.write_text("must survive", encoding="utf-8")
             # Remove the hub transport copy to simulate a failed download.
             with service._server.db() as con:
                 aid = con.execute("SELECT id FROM attachments").fetchone()["id"]
             (root / "v2-data" / "hub" / "blobs" / aid).unlink()
             first = b.poll_once()
             self.assertIn("error", first[0]["attachments"][0])
+            self.assertTrue(sentinel.is_file())
+            self.assertTrue((root / "client-b" / "mail-blobs").is_dir())
             second = b.poll_once()
-            self.assertEqual(second[0]["id"], "lost-attachment")
+            self.assertEqual(second[0]["id"], "..")
             service.stop()
 
     def test_invalid_attachment_path_is_rejected_before_spooling(self):
@@ -151,6 +163,50 @@ class HubIntegrationTests(unittest.TestCase):
                 a.send(b.slug, "bad", attachments=[root / "missing.txt"])
             with a._db() as con:
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM outbox").fetchone()[0], 0)
+                con.execute("INSERT INTO outbox (id,payload,attachments,created_at,attempts,next_attempt,state,last_error) VALUES (?,?,?,?,?,?,?,?)", ("overflow", "{}", "[]", "now", 1023, None, "queued", None))
+            self.assertEqual(a._record_attempt("overflow", "offline"), "queued")
+            service.stop()
+
+    @unittest.skipUnless(importlib.util.find_spec("cryptography"), "cryptography is required for TLS fixture generation")
+    def test_tls_requires_trusted_ca_and_rejects_wrong_certificate(self):
+        from datetime import datetime, timedelta
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        def material(root: Path, stem: str) -> tuple[Path, Path]:
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+            cert = (
+                x509.CertificateBuilder()
+                .subject_name(name)
+                .issuer_name(name)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.utcnow() - timedelta(minutes=1))
+                .not_valid_after(datetime.utcnow() + timedelta(days=1))
+                .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+                .sign(key, hashes.SHA256())
+            )
+            cert_path, key_path = root / f"{stem}.crt", root / f"{stem}.key"
+            cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+            key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
+            return cert_path, key_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cert, key = material(root, "server")
+            wrong_ca, _ = material(root, "wrong")
+            service = HubService(root / "v2-data", tls_certfile=cert, tls_keyfile=key, tls_ca_file=cert)
+            ready = service.start()
+            self.assertTrue(ready.tls)
+            self.assertEqual(discover_hub(root / "v2-data").tls_ca_file, str(cert.resolve()))
+            client = HubClient(root / "client", f"https://127.0.0.1:{ready.port}", "org.tls.tttttt", "secret-tls", ready.token, ca_file=cert)
+            self.assertTrue(client.register()["ok"])
+            wrong = HubClient(root / "wrong-client", f"https://127.0.0.1:{ready.port}", "org.bad.bbbbbb", "secret-bad", ready.token, ca_file=wrong_ca)
+            with self.assertRaises(Exception):
+                wrong.register()
             service.stop()
 
 

@@ -18,7 +18,9 @@ import os
 import re
 import secrets
 import sqlite3
+import ssl
 import stat
+import subprocess
 import threading
 import time
 from contextlib import contextmanager
@@ -85,6 +87,8 @@ class HubReadiness:
     readiness_path: str
     pid: int
     token: str
+    tls: bool = False
+    tls_ca_file: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +99,8 @@ class HubReadiness:
             "data_root": self.data_root,
             "pid": self.pid,
             "token": self.token,
+            "tls": self.tls,
+            "tls_ca_file": self.tls_ca_file,
         }
 
 
@@ -557,7 +563,7 @@ class _HubHandler(BaseHTTPRequestHandler):
 class HubService:
     """Lifecycle owner used by the engine startup/shutdown coordinator."""
 
-    def __init__(self, data_root: str | os.PathLike[str], host: str = "127.0.0.1", port: int = 0, advertise_host: str | None = None):
+    def __init__(self, data_root: str | os.PathLike[str], host: str = "127.0.0.1", port: int = 0, advertise_host: str | None = None, tls_certfile: str | os.PathLike[str] | None = None, tls_keyfile: str | os.PathLike[str] | None = None, tls_ca_file: str | os.PathLike[str] | None = None):
         root = Path(data_root).expanduser().resolve()
         if not root.is_absolute() or root == Path(root.anchor):
             raise ValueError("data_root must be an explicit non-root directory")
@@ -570,6 +576,17 @@ class HubService:
                 raise ValueError("hub host must be an IP address") from exc
         if not 0 <= port <= 65535:
             raise ValueError("invalid port")
+        if bool(tls_certfile) != bool(tls_keyfile):
+            raise ValueError("tls_certfile and tls_keyfile must be provided together")
+        self.tls_certfile = Path(tls_certfile).expanduser().resolve() if tls_certfile else None
+        self.tls_keyfile = Path(tls_keyfile).expanduser().resolve() if tls_keyfile else None
+        self.tls_ca_file = Path(tls_ca_file).expanduser().resolve() if tls_ca_file else None
+        if self.tls_certfile and (not self.tls_certfile.is_file() or not self.tls_keyfile or not self.tls_keyfile.is_file()):
+            raise ValueError("TLS certificate and key must be regular files")
+        if self.tls_ca_file and not self.tls_ca_file.is_file():
+            raise ValueError("TLS CA file must be a regular file")
+        if not ipaddress.ip_address(host).is_loopback and not self.tls_certfile:
+            raise ValueError("explicit non-loopback hub binds require TLS certificate and key")
         self.root = root / "hub"
         self.host = host
         self.advertise_host = advertise_host or ("127.0.0.1" if host == "0.0.0.0" else host)
@@ -594,11 +611,15 @@ class HubService:
         self.root.mkdir(parents=True, exist_ok=True)
         token = secrets.token_urlsafe(32)
         server = _HubServer((self.host, self.port), self.root, token)
+        if self.tls_certfile and self.tls_keyfile:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(str(self.tls_certfile), str(self.tls_keyfile))
+            server.socket = context.wrap_socket(server.socket, server_side=True)
         self._server = server
         self.port = int(server.server_address[1])
         self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
         self._thread.start()
-        self._readiness = HubReadiness(self.advertise_host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid(), token)
+        self._readiness = HubReadiness(self.advertise_host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid(), token, bool(self.tls_certfile), str(self.tls_ca_file) if self.tls_ca_file else None)
         temporary = self.readiness_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
         os.replace(temporary, self.readiness_path)
@@ -607,9 +628,43 @@ class HubService:
             # permission bits, so callers must still treat the token as a
             # private same-user credential.
             os.chmod(self.readiness_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
+        except OSError as exc:
+            if os.name == "nt":
+                raise RuntimeError("could not set readiness file permissions") from exc
+        if os.name == "nt":
+            self._restrict_windows_readiness_acl()
         return self._readiness
+
+    def _restrict_windows_readiness_acl(self) -> None:
+        """Remove inherited readiness ACLs and grant the current user full access.
+
+        ``chmod`` does not restrict Windows ACLs.  ``icacls`` is already the
+        project's supported Windows ACL mechanism (used by supervisor.py), and
+        this operation targets only the generated readiness file.
+        """
+        try:
+            principal = subprocess.check_output(
+                ["whoami"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=5,
+            ).strip()
+        except (OSError, subprocess.SubprocessError):
+            username = os.environ.get("USERNAME", "").strip()
+            domain = os.environ.get("USERDOMAIN", "").strip()
+            principal = f"{domain}\\{username}" if domain else username
+        if not principal:
+            raise OSError("current Windows user is unavailable")
+        result = subprocess.run(
+            ["icacls", str(self.readiness_path), "/inheritance:r", "/grant:r", f"{principal}:F"],
+            capture_output=True,
+            timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            check=False,
+        )
+        if result.returncode != 0:
+            raise OSError("icacls could not restrict readiness permissions")
 
     def wait_ready(self, timeout: float = 5.0) -> HubReadiness:
         deadline = time.monotonic() + timeout
@@ -669,4 +724,8 @@ def discover_hub(data_root: str | os.PathLike[str]) -> HubReadiness:
     token = str(payload.get("token") or "")
     if len(token) < 32:
         raise RuntimeError("invalid hub token")
-    return HubReadiness(host, port, str(root), str(path), int(payload.get("pid") or 0), token)
+    tls = bool(payload.get("tls", False))
+    tls_ca_file = str(payload.get("tls_ca_file") or "") or None
+    if tls_ca_file and not Path(tls_ca_file).is_file():
+        raise RuntimeError("hub readiness references a missing TLS CA file")
+    return HubReadiness(host, port, str(root), str(path), int(payload.get("pid") or 0), token, tls, tls_ca_file)
