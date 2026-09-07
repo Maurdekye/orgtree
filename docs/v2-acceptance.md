@@ -1,6 +1,6 @@
 # Orgtree v2 integrated acceptance
 
-Updated 2026-09-07 21:37 UTC. This is an independent evidence record, not a declaration of MVP completion. Binding scope is `v2-user-decisions.md` (newest decision wins), the retained requirements in `v2-original-design-brief.md`, and `v1-parity-inventory.md`. Technical wiring is described in `engine-contract.md`.
+Updated 2026-09-07 21:40 UTC. This is an independent evidence record, not a declaration of MVP completion. Binding scope is `v2-user-decisions.md` (newest decision wins), the retained requirements in `v2-original-design-brief.md`, and `v1-parity-inventory.md`. Technical wiring is described in `engine-contract.md`.
 
 ## Evidence levels and commands
 
@@ -28,6 +28,8 @@ The expanded real UI run on the same build found a **blocking integration defect
 
 **Shutdown remains unresolved:** in the expanded run `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-acceptance-vHZQUl`, both phases completed all UI assertions and both Python children exited, but the second Electron process remained until the parent runner's timeout. Its old aggregate `PASS` is **invalid**: the runner failed to fold a second-phase timeout into the overall result. That acceptance-instrument defect is fixed and covered by a regression proving timeout, nonzero exit and surviving child each force FAIL even when every UI assertion passes. Do not cite this run as successful full shutdown. The shell owner has the observation; unload behavior is a hypothesis pending a corrected rerun. The three instrument-control tests pass.
 
+**Shutdown correction independently verified:** at 21:39 UTC, the shell owner's actual built private worktree (`707670b` base **plus its uncommitted explicit-Quit correction**) passed the entire sequence twice with the corrected runner. Every UI assertion passed; both Electron processes returned `processExitCode: 0`, `processError: null`, and both observed Python children exited. Evidence: `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-acceptance-5F4DZE/report.json`. The correction allows explicit quit to override a renderer unload blocker, while normal user-close behavior is retained. The shutdown objection is withdrawn for this tested build; do not attribute the result to base commit `707670b` alone. This remains development Electron with the real bundled runtime, not installer acceptance.
+
 ## Whole-app feature matrix
 
 | Requirement | Acceptance boundary | Current evidence / remaining case |
@@ -36,7 +38,7 @@ The expanded real UI run on the same build found a **blocking integration defect
 | HTTP assets, REST, WebSocket and native bridge share the engine | Actual renderer loads; authenticated API succeeds and unauthenticated request fails | Real home and selected-org REST/WS/native access PASS after `158f545` |
 | Organization create/select/settings/default project folder | Create isolated organization from visible UI, reload and verify persistence/default grant | Actual create + restart persistence + selected-org authority PASS; default folder interaction pending |
 | Graph, desks, eye switchboard, capacity and lifecycle | Actual isolated org/agent graph and live conversation | Copied source only; real agent pending |
-| Main close leaves engine and popouts; explicit Exit closes everything | Close real main, prove engine API still responds, reopen; repeat with actual desk/modal popout | Main close/reopen and actual Settings modal retention/redock PASS on selected org; Python children exit, but final Electron shutdown timed out in expanded run; explicit Exit acceptance unresolved |
+| Main close leaves engine and popouts; explicit Exit closes everything | Close real main, prove engine API still responds, reopen; repeat with actual desk/modal popout | Main close/reopen, actual Settings modal retention/redock, and explicit application quit PASS with shell's corrected private build; both Electron and Python exit cleanly. Clicking tray/toolbar Exit and installer behavior remain separate checks |
 | Popout transfer, redock, reload and monitor layout | Same actual composer node/text/attachments/reply; restored windows on manual reopen | Renderer source only; shell's portal primitive fixture is not whole-renderer evidence |
 | Draft and event reply persistence | Draft text/attachment/reply storage survives two full engine launches; actual source identity/preview/send receipt survives reload/compaction | Actual two-launch storage transport PASS with explicitly seeded values; real composer/source/send/compaction still pending |
 | Pinned overlap fading, opacity/toggle and contextual actions | Open overlapping real pinned surfaces; exercise toggle, slider and right-click operations | Retained requirement; real interaction pending |
