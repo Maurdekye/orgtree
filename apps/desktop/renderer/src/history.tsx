@@ -28,7 +28,7 @@ export function HistoryBrowser({ slug, close }: { slug: string; close: () => voi
     let active = true
     setPage(null); setError('')
     if (!sources || (needsNode && !node)) return
-    const query = new URLSearchParams({ node, cursor: cursors[cursors.length - 1], limit: '50' })
+    const query = new URLSearchParams({ node, cursor: cursors[cursors.length - 1] ?? '', limit: '50' })
     req<Page>(`/api/orgs/${encodeURIComponent(slug)}/history/${section}?${query}`).then(value => {
       if (active) setPage(value)
     }).catch(err => { if (active) setError(String(err)) })
