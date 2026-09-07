@@ -232,6 +232,11 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
+      // A newly opened about:blank document starts in quirks mode. Parse a
+      // static standards-mode shell before adopting any app DOM or listeners.
+      d.open()
+      d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
+      d.close()
       const onGone = () => { if (epoch.current === transaction) redock() }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))

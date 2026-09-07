@@ -95,7 +95,8 @@ test('quiet login defers restoring until manual show, then the same composer DOM
   let shown: (event: { type: string; data: unknown }) => void = () => {}
   native({ getWindowState: async () => ({ visible: false, restoreWindows: false }),
     onEvent: fn => { shown = fn as typeof shown; return () => {} } })
-  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
+  const child = new JSDOM('<html><head></head><body></body></html>', { url: 'http://localhost/' })
+  assert.equal(child.window.document.compatMode, 'BackCompat', 'fixture models a new blank child')
   const cw = child.window as unknown as Window
   Object.defineProperties(cw, { screenX: { value: 200 }, screenY: { value: 180 }, outerWidth: { value: 830 }, outerHeight: { value: 700 } })
   cw.focus = () => {}; cw.requestAnimationFrame = () => 1; cw.cancelAnimationFrame = () => {}
@@ -122,6 +123,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     await inAct(async () => { shown({ type: 'main-window-shown', data: { visible: true, restoreWindows: true } }); await flush(10) })
     const input = cw.document.querySelector<HTMLInputElement>('input')!
     assert.ok(input, 'positive control: the child owns the real composer')
+    assert.equal(cw.document.compatMode, 'CSS1Compat', 'adopted UI uses the same standards mode as main')
     assert.equal(input, initial)
     assert.equal(cw.document.querySelector<HTMLLinkElement>('link[rel=stylesheet]')!.href, new URL('/assets/theme.css', window.location.href).href, 'loaded CSS URL stays anchored before the organization route change')
     assert.equal(input.value, 'draft and reply kept')
