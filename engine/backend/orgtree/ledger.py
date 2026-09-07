@@ -3623,7 +3623,7 @@ class Org:
             try:
                 path = str(locate(Path("."), self.d["slug"], nid,
                     {**n, "session_id": sid, "codex_thread": sid},
-                    {"codex_profile": providers._codex_home()}))
+                    {"codex_profile": n.get("codex_native_home") or providers._codex_home()}))
             except (NativeHeld, ValueError, OSError) as exc:
                 raise LedgerError(str(exc)) from exc
         else:

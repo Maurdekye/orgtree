@@ -352,7 +352,7 @@ Rename alone needs no retirement because storage_node stays stable.
             from .desktop_native_codex import validate
             if node.get("codex_thread") != node["session_id"]:
                 raise NativeHeld("Successor has no matching provider resume handle")
-            profile = Path(providers._codex_home())
+            profile = Path(node.get("codex_native_home") or providers._codex_home())
             target = locate(profile, doc["slug"], nid, node, {"codex_profile": str(profile)})
             validate(_read_native(target)[0], node["session_id"])
         else:

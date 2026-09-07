@@ -11717,6 +11717,18 @@ def _codex_route_persist(slug: str, nid: str, rec: dict[str, Any],
         print(f"[orgtree] {slug}/{nid}: route receipt not persisted: {e!r}")
 
 
+def _record_codex_native_home(org: Org, nid: str, process_spec: dict[str, Any]) -> None:
+    if not org.node(nid).get('desktop_import'):
+        return
+    with store.DOC_LOCK:
+        selected = store.load_org(org.d['slug'])
+        if (selected.node(nid).get('session_id') != org.node(nid).get('session_id')
+                or selected.node(nid).get('generation',0) != org.node(nid).get('generation',0)):
+            raise LedgerError('Native Codex identity changed before process admission')
+        selected.node(nid)['codex_native_home'] = str(process_spec['codex_home'])
+        store.save_org(selected)
+
+
 def _codex_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                text: str, toks: list[str],
                images: list[dict[str, Any]] | None = None,
@@ -12619,6 +12631,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 "is_error": not bool(rec.get("ok"))}]}}])
 
     spawn_t0 = time.monotonic()
+    _record_codex_native_home(org, nid, process_spec)
     turn = codexrun.CodexTurn(
         list(process_spec["argv_head"]), cwd=cwd,
         model=codex_model,
@@ -20195,6 +20208,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             providers.codex_argv(exe), cwd=cwd, model=model,
             thread_id=old_sid, timeout=COMPACT_TIMEOUT,
             resume_path=native_session_path(org, nid),
+            codex_home=n.get('codex_native_home') or providers._codex_home(),
             # THE SAME rule as a normal turn, from the same helper. A fork
             # that computed its own would let one agent run at two different
             # OS privilege levels depending on whether it happened to be

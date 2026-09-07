@@ -32,7 +32,11 @@ class ResolutionTests(unittest.TestCase):
         rows=[{'type':'session_meta','payload':{'id':bearer_sid,'model_provider':'openai'}},
             {'type':'response_item','payload':{'type':'message','role':'user','content':[]}}]
         target.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
-        with patch.dict(os.environ,{'CODEX_HOME':str(profile)}), \
+        store.save_org(org)
+        supervisor._record_codex_native_home(org,'agent',{'codex_home':str(profile)})
+        org=store.load_org('codex-lineage')
+        self.assertEqual(org.node('agent')['codex_native_home'],str(profile))
+        with patch.dict(os.environ,{'CODEX_HOME':str(data/'wrong-profile')}), \
              patch.object(supervisor,'transcript_path',side_effect=AssertionError('display journal forbidden')):
             compact_sid=str(uuid.uuid4())
             compact_rows=json.loads(json.dumps(rows)); compact_rows[0]['payload']['id']=compact_sid
