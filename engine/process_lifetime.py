@@ -55,11 +55,14 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
             if not line:
                 return
     threading.Thread(target=receive, daemon=True).start()
-    def response():
+    def response(phase):
         deadline = time.monotonic() + timeout
         seen = 0
         while True:
-            line = result.get(timeout=max(0, deadline - time.monotonic()))
+            try:
+                line = result.get(timeout=max(0, deadline - time.monotonic()))
+            except queue.Empty as exc:
+                raise RuntimeError(f"guardian {phase} timed out after {timeout:g}s") from exc
             if not line:
                 raise RuntimeError("guardian closed its startup channel")
             seen += len(line)
@@ -73,7 +76,7 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
                 return value
     committed = False
     try:
-        reply = response()
+        reply = response("preparation")
         if reply.get("prepared") is not True or reply.get("guardian") != process.pid:
             raise RuntimeError(reply.get("error", "lifetime guardian refused preparation"))
         # Until this acknowledgment the Job does not contain the engine, so a
@@ -84,7 +87,7 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
         process.stdin.write(b"arm\n")
         process.stdin.flush()
         process.stdin.close()
-        reply = response()
+        reply = response("assignment acknowledgment")
         if reply.get("ready") is not True or reply.get("guardian") != process.pid:
             raise RuntimeError(reply.get("error", "lifetime guardian refused startup"))
     except Exception as exc:
@@ -234,6 +237,8 @@ def watch(root: Path, engine: int, parent: int):
     ready = False
     try:
         lock = RootLock(root)
+        diagnostic = root / ".desktop-engine-status.json"
+        diagnostic.unlink(missing_ok=True)
         if os.name != "nt":
             raise RuntimeError("no native process ownership adapter for this platform")
         tree = WindowsTree(engine, parent)
@@ -247,6 +252,7 @@ def watch(root: Path, engine: int, parent: int):
         tree.terminate(stalled=lambda active: (root / ".desktop-engine-status.json").write_text(
             json.dumps({"state": "termination_pending", "active": active, "guardian": os.getpid(),
                         "message": "Windows has not completed process termination; root lock remains held", "at": time.time()}), encoding="utf-8"))
+        diagnostic.unlink(missing_ok=True)
     except Exception as exc:
         if tree and tree.armed:
             tree.terminate(70)

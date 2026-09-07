@@ -191,6 +191,7 @@ print(json.dumps({'armed':pid}),flush=True)
                 code, out, err = self.arm_fixture((marker, '        time.sleep(.5)\n' + marker))
                 self.assertEqual(code, 3, err)
                 self.assertTrue(json.loads(out)['handled'], 'engine survives to handle timeout and exit nonzero')
+                self.assertIn('preparation' if marker == prepared else 'assignment acknowledgment', json.loads(out)['error'])
 
     def test_armed_helper_failure_is_nonzero_and_stdout_noise_is_ignored(self):
         marker = '        print(json.dumps({"ready": True, "guardian": os.getpid()}), flush=True)'
