@@ -20718,6 +20718,14 @@ def send_message(slug: str, nid: str, text: str,
     # kind: it is accepted, queued: 0, and nothing starts.
     with store.DOC_LOCK:
         _o = store.load_org(slug)
+        if nid in _o.nodes and _o.node(nid).get('desktop_import'):
+            try:
+                from .desktop_native import native_hold_reason
+                native_reason = native_hold_reason(_o,nid)
+            except ImportError:
+                native_reason = 'Imported native session continuity has not been validated'
+            if native_reason:
+                return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
         if nid in _o.nodes and _o.node(nid).get("frozen"):
             return {"accepted": True, "queued": 0, "frozen": True}
         if nid in _o.nodes and _o.node(nid).get("limit_locked"):

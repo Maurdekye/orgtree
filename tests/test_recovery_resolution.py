@@ -37,6 +37,13 @@ class ResolutionTests(unittest.TestCase):
         with patch.object(supervisor.threading.Thread,'start',side_effect=AssertionError('provider thread forbidden')):
             with self.assertRaises(RuntimeError): recovery.resume_import('locked')
         self.assertEqual(recovery.status('locked')['nodes'][0]['phase'],'held')
+        org=store.load_org('locked')
+        org.node('active')['desktop_import']={'continuity':'fresh_session_with_history'}
+        store.save_org(org)
+        with patch.object(supervisor.threading.Thread,'start',side_effect=AssertionError('provider forbidden')):
+            refused=supervisor.send_message('locked','active','do not start')
+        self.assertFalse(refused['accepted'])
+        self.assertTrue(refused['native_context_held'])
         with patch.object(supervisor,'send_message') as drive:
             supervisor.reconcile('locked',active_only=True)
             drive.assert_not_called()
