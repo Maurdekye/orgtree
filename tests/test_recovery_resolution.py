@@ -34,6 +34,15 @@ class ResolutionTests(unittest.TestCase):
         target.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
         with patch.dict(os.environ,{'CODEX_HOME':str(profile)}), \
              patch.object(supervisor,'transcript_path',side_effect=AssertionError('display journal forbidden')):
+            compact_sid=str(uuid.uuid4())
+            compact_rows=json.loads(json.dumps(rows)); compact_rows[0]['payload']['id']=compact_sid
+            (sessions/(compact_sid+'.jsonl')).write_text('\n'.join(json.dumps(r) for r in compact_rows)+'\n')
+            org.node('agent').pop('session_unrun',None)
+            original=json.loads(json.dumps(org.node('agent')['desktop_import']))
+            compact_pred=org.compact_split('agent',compact_sid)
+            self.assertEqual(org.node('agent')['codex_thread'],compact_sid)
+            self.assertEqual(org.node(compact_pred)['desktop_import'],original)
+            self.assertIsNone(supervisor._native_context_hold(org,'agent'))
             pred=org.record_cli_compaction('agent',bearer_sid=bearer_sid)
             self.assertEqual(org.node(pred)['codex_thread'],bearer_sid)
             self.assertIsNone(supervisor._native_context_hold(org,pred))
