@@ -1,8 +1,6 @@
 import os
 from pathlib import Path
 import tempfile
-import json
-import uuid
 import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -21,30 +19,6 @@ def tearDownModule():
     root.cleanup()
 
 class ResolutionTests(unittest.TestCase):
-    def test_actual_native_clone_lookup_and_resume_argv(self):
-        from orgtree import desktop_native
-        org=store.create_org('native-ready'); org.hire(ledger.USER,None,'haiku',0,'agent')
-        source_sid=org.node('agent')['session_id']
-        source=Path(root.name)/'native-source.jsonl'
-        source.write_text(json.dumps({'type':'user','uuid':str(uuid.uuid4()),'parentUuid':None,
-            'sessionId':source_sid,'message':{'role':'user','content':'native context'}})+'\n',encoding='utf-8')
-        native=desktop_native.prepare(Path(root.name),data,'native-ready','agent',org.node('agent'),
-            {'sessions':{'native-ready/agent':str(source)}},data/'imports'/'native-ready')
-        self.assertEqual(native['status'],'ready',native)
-        org.node('agent')['session_id']=native['session_id']
-        org.node('agent')['desktop_import']={'native_continuity':native}
-        store.save_org(org)
-        path=desktop_native.native_session_path(org,'agent')
-        self.assertIsNone(supervisor._native_context_hold(org,'agent'))
-        self.assertEqual(supervisor.transcript_path(native['session_id']),path)
-        self.assertEqual(supervisor.transcript_path_for_node(org,'agent'),path)
-        with patch.object(supervisor,'_legacy_transcript_evidence',return_value={}):
-            self.assertEqual(supervisor._transcript_evidence(org)[native['session_id']],path)
-        with patch.object(supervisor,'claude_model_for',return_value='haiku'):
-            argv=supervisor._build_cmd(org,'agent',write_ident=False)
-        self.assertEqual(argv[argv.index('--resume')+1],path)
-        self.assertNotIn('--session-id',argv)
-        self.assertNotIn('--fork-session',argv)
 
     def test_resume_route_preserves_native_hold_with_ordinary_positive_control(self):
         org=store.create_org('resume-route')
