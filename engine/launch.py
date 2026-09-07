@@ -152,6 +152,11 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
         stop()
         return {"accepted": True}
 
+    @api_app.get("/api/desktop/notifications")
+    def desktop_notifications() -> dict[str, Any]:
+        from orgtree.desktop_notifications import notices
+        return notices()
+
     @api_app.get("/api/desktop/hub")
     def desktop_hub() -> dict[str, Any]:
         from fastapi import HTTPException
