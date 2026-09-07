@@ -108,8 +108,10 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
 def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
     data = validate_data_root(_required_path("ORGTREE_DATA"))
-    v1 = _required_path("ORGTREE_V1_ROOT")
-    backend = v1 / "backend"
+    bundled_backend = Path(__file__).resolve().parent / "backend"
+    configured_root = os.environ.get("ORGTREE_V1_ROOT", "").strip()
+    v1 = Path(configured_root).expanduser().resolve() if configured_root else None
+    backend = (v1 / "backend") if v1 else bundled_backend
     if not (backend / "orgtree" / "api.py").is_file():
         raise RuntimeError(f"ORGTREE_V1_ROOT has no backend/orgtree/api.py: {v1}")
     token = os.environ.get("ORGTREE_V2_TOKEN", "").strip()
