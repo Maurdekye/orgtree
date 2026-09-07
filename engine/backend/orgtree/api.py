@@ -6984,6 +6984,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                  "installation through an operator-controlled path")
     if body.tool in ("orgtree_self_restart", "orgtree_self_update") \
             and _arg_flag(a, "force"):
+        if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
+            raise HTTPException(422, 'Desktop maintenance waits for idle; force is unavailable')
         return _forced_self_restart(body, a)
     if body.tool in ("orgtree_read_transcript", "orgtree_read_scratch",
                      "orgtree_chart", "orgtree_send_file",
@@ -7523,7 +7525,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # stored charter names it.
                 org.self_restart_gate(body.node)
                 result = supervisor.launch_self_restart(
-                    body.org, body.node, str(a.get("target") or "org"))
+                    body.org, body.node, str(a.get("target") or "org"),
+                    **({'action':'update'} if body.tool == 'orgtree_self_update'
+                       and os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1' else {}))
             elif body.tool == "orgtree_prime_restart":
                 # FR-27: arm a restart that fires by itself once the machine
                 # is quiet. The gate + org-log ride this request's save, the

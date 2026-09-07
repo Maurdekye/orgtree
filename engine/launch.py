@@ -128,7 +128,7 @@ class TokenGate:
 
 def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
     """Add the small native-shell control surface to the real V1 app."""
-    from orgtree import store, supervisor  # noqa: PLC0415
+    from orgtree import store, supervisor, desktop_maintenance  # noqa: PLC0415
 
     @api_app.get("/api/desktop/status")
     def desktop_status() -> dict[str, Any]:
@@ -140,7 +140,12 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
             active = sum(bool(s.get("busy")) for s in states)
             idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
                            for s in states)
-        return {"activeAgents": active, "totalAgents": total, "idle": idle}
+        return {"activeAgents": active, "totalAgents": total, "idle": idle,
+                "maintenance": desktop_maintenance.pending()}
+
+    @api_app.post("/api/desktop/maintenance/ack")
+    def acknowledge_maintenance(body: dict[str, Any]) -> dict[str, bool]:
+        return desktop_maintenance.acknowledge(str(body.get('id') or ''))
 
     @api_app.post("/api/desktop/shutdown")
     def desktop_shutdown() -> dict[str, bool]:
@@ -188,7 +193,9 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     from orgtree import agentauth
     agentauth.enable()
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
-    from orgtree import desktop_import, desktop_recovery
+    from orgtree import desktop_import, desktop_recovery, desktop_maintenance
+    desktop_maintenance.install()
+    os.environ['ORGTREE_DESKTOP_MANAGED'] = '1'
     desktop_import.configure(on_imported=desktop_recovery.resume_import)
     api.app.include_router(desktop_import.router)
     stopping = {"value": False}
