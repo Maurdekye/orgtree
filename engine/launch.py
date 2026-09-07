@@ -84,7 +84,28 @@ class TokenGate:
         await self.app(scope, receive, send)
 
 
-def load_app() -> tuple[Any, str, Path, int]:
+def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
+    """Add the small native-shell control surface to the real V1 app."""
+    from orgtree import store  # noqa: PLC0415
+
+    @api_app.get("/api/desktop/status")
+    def desktop_status() -> dict[str, Any]:
+        total = active = 0
+        idle = True
+        for row in store.list_orgs():
+            total += int(row.get("nodes") or 0)
+            active += int(row.get("live") or 0)
+            if int(row.get("live") or 0):
+                idle = False
+        return {"activeAgents": active, "totalAgents": total, "idle": idle}
+
+    @api_app.post("/api/desktop/shutdown")
+    def desktop_shutdown() -> dict[str, bool]:
+        stop()
+        return {"accepted": True}
+
+
+def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     v1 = _required_path("ORGTREE_V1_ROOT")
@@ -98,16 +119,27 @@ def load_app() -> tuple[Any, str, Path, int]:
     os.environ.pop("ORGTREE_V2_TOKEN", None)
     sys.path.insert(0, str(backend))
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
-    return TokenGate(api.app, token), token, data, _port()
+    stopping = {"value": False}
+    _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
+    return TokenGate(api.app, token), token, data, _port(), stopping
 
 
 def main() -> None:
-    app, _token, data, port = load_app()
+    app, _token, data, port, stopping = load_app()
     import uvicorn  # noqa: PLC0415
     print(json.dumps({"type": "ready", "protocol": 1, "port": port,
                       "pid": os.getpid(), "dataRootId": data_root_id(data)},
                      separators=(",", ":")), flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, access_log=False)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
+                                           access_log=False))
+    async def serve() -> None:
+        task = asyncio.create_task(server.serve())
+        while not task.done():
+            if stopping["value"]:
+                server.should_exit = True
+            await asyncio.sleep(0.05)
+        await task
+    asyncio.run(serve())
 
 
 if __name__ == "__main__":
