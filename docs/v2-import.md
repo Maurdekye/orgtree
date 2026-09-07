@@ -96,21 +96,46 @@ recursive cleanup.
 
 ## Provider history and recovery contract
 
-Agent names and generations stay stable. Every imported node receives a new
-provider session ID, and copied Codex thread / Antigravity conversation IDs,
-process IDs, remote-control PID records and cache continuity claims are
-cleared. Reusing those IDs would make V2 resume mutable provider state that
-V1 still owns. Native provider session and prompt-cache continuity are **not
-retained** by this MVP importer.
+Agent names and generations stay stable. Native Claude/OpenRouter JSONL
+conversations are copied under a new UUID into
+`imports/<slug>/native/<node>/<uuid>.jsonl`. Native message content and UUID
+parent chains survive; sessionId and runtime cwd are rebound to the copy.
+The source bytes remain separately archived and unchanged. This replaces the
+initial implementation's unconditional empty-session reset, which was **not
+an accepted scope reduction**. Prompt-cache continuity is not guaranteed.
+
+Both requests accept optional `native_sources` with `claude_profile`,
+`codex_profile`, and/or `sessions` (an `organization/node` to absolute JSONL
+path mapping). These are read-only source locators, never authentication or
+account configuration. Profiles are not copied. Preview exposes per-node
+`native_context` with provider, available/held status, path or reason.
+Invalid relative paths, overlapping destination paths, reparse points,
+ambiguous session matches, malformed identity/parent chains and incomplete
+final records cannot become native-ready imports.
+
+Codex native fork wiring and Antigravity cloning remain unfinished in this
+slice. Missing/unsupported native context has
+`node.desktop_import.native_continuity.status="held"`, and must stay held
+at actual engine admission. Readable history is not an empty-session fallback.
 
 Provider-neutral journal transcripts are copied. For Claude, the importer
 also looks for the exact selected session under the V1 data folder's sibling
 `.claude/projects` directory. It does not copy authentication or an entire
-profile. A custom profile elsewhere is not inferred; an absent transcript is
+profile. A custom profile can be supplied explicitly; an absent transcript is
 explicitly reported as unavailable, while all copied organization history
 and scratch remain readable. Copied history is stored under
 `imports/<slug>/history/<node>.jsonl`, and its path plus original session ID
 are recorded in `node.desktop_import`.
+
+`desktop_native.native_session_path(org,nid)` returns only a ready clone
+whose session identity and destination-owned path agree. The Claude command
+must use `--resume <absolute-jsonl-path>` (without forking that clone again).
+The installed Claude 2.1.241 parser/loader supports this path and adopts its
+sessionId and directory; no CLAUDE_CONFIG_DIR or credential copying is needed.
+`native_path_for_session(sid)` and `native_index()` serve existing transcript
+readers and startup checks. `native_hold_reason(org,nid)` must gate every
+imported-node dispatch. Core owns these narrow integration calls and the
+recovery UI/route; helper existence alone is not assembled acceptance.
 
 The engine owner wires:
 
@@ -123,7 +148,7 @@ The synchronous callback receives only the committed `slug`; it must use
 the existing engine's active-only recovery and uncertain-operation receipt
 reconciliation, and persist the recovery result. No source provider process
 may be resumed or terminated. Saved `inflight` records identify agents that
-were active. Their recovery text states that this is a new session, names the
+were active. Their recovery text identifies the independent clone, names the
 copied transcript when available, and asks them to inspect current work and
 reconcile uncertain effects before any mutation. Merely queued mail does not
 authorize waking an idle agent. Enabled automation remains in the document
@@ -131,7 +156,7 @@ for the V2 engine's normal scheduler to restore after publication.
 
 `desktop_import.imported_history_path(org, nid)` is a read-only history-view
 and recovery seam. It must not be used as a native provider resume path.
-UI history must keep this copied history readable after the fresh session
+UI history must keep this copied history readable after the native clone
 starts. The launcher/supervisor integration is owned by the engine slice;
 this module never invokes a provider.
 

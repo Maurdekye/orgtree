@@ -30,8 +30,9 @@ DUPLICATE_WARNING = (
     "repeat work in the same external projects. The source is copied, never moved."
 )
 CONTINUITY_WARNING = (
-    "Imported agents start independent provider sessions with copied readable "
-    "history. Native provider session and prompt-cache continuity are not retained."
+    "Native conversations are cloned where supported. Missing or unsupported "
+    "native context remains held; readable history alone does not resume an agent. "
+    "Prompt-cache continuity is not guaranteed."
 )
 _LOCK = threading.RLock()
 _on_imported: Callable[[str], Any] | None = None
@@ -47,6 +48,7 @@ class ImportRefused(ValueError):
 class PreviewBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_root: str = Field(min_length=1, max_length=4096)
+    native_sources: dict[str, Any] = Field(default_factory=dict)
 
 
 class ImportBody(PreviewBody):
@@ -326,7 +328,8 @@ def imported_history_path(org: Any, nid: str) -> str | None:
 
 
 def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
-                      stage: Path) -> tuple[dict[str, Any], list[str], list[str]]:
+                      stage: Path, native_sources: dict | None = None) -> tuple[dict[str, Any], list[str], list[str]]:
+    from . import desktop_native
     slug = doc["slug"]
     original = copy.deepcopy(doc)
     doc = copy.deepcopy(doc)
@@ -338,26 +341,37 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     active, warnings = [], [CONTINUITY_WARNING]
     history_dir = stage / "history"
     history_dir.mkdir()
+    (stage / "native").mkdir()
     for nid, node in doc["nodes"].items():
         old = original["nodes"][nid]
         node["scope"] = _remap(node["scope"], source, dest)
         sid = old["session_id"]
+        native = desktop_native.prepare(source, dest, slug, nid, old,
+                                        native_sources or {}, stage)
         metadata: dict[str, Any] = {"source_session_id": sid,
-                                    "continuity": "fresh_session_with_history"}
+                                    "continuity": "native_clone" if native["status"] == "ready" else "native_context_held",
+                                    "native_continuity": native}
         history = _history(source, slug, sid)
+        if native["status"] == "ready":
+            history = stage / "native" / nid / "source.jsonl"
         if history:
             name = f"{nid}.jsonl"
             _copy_file(history, history_dir / name)
             metadata["history"] = str(Path("imports") / slug / "history" / name)
         else:
-            metadata["continuity"] = "fresh_session_history_unavailable"
             warnings.append(f"{nid}: provider transcript unavailable; organization history and scratch retained")
+        if native["status"] != "ready":
+            warnings.append(f"{nid}: native context held: {native['reason']}")
         if node.get("state") == "live" and node.get("inflight"):
             active.append(nid)
         node["desktop_import"] = metadata
-        node["session_id"] = str(uuid.uuid4())
-        node["session_unrun"] = True
-        node["cheap_compacted"] = True
+        node["session_id"] = native["session_id"]
+        if native["status"] == "ready":
+            node.pop("session_unrun", None)
+            node.pop("cheap_compacted", None)
+        else:
+            node["session_unrun"] = True
+            node["cheap_compacted"] = True
         node["pid"] = None
         for key in ("remote_controlled", "codex_thread", "antigravity_conversation",
                     "cache_continuity", "codex_usage_total", "cache_keepalive_at"):
@@ -365,8 +379,11 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
         if isinstance(node.get("inflight"), dict):
             node["inflight"].pop("cache_attempt", None)
             node["inflight"]["text"] = (
-                "[V1 COPY IMPORT] You have an independent provider session. "
-                "Read your copied history and working files first. The V1 source may "
+                ("[V1 COPY IMPORT] Your native conversation was copied into an independent session. "
+                 if native["status"] == "ready" else
+                 "[V1 COPY IMPORT] Native context is held and must be established before this work runs. ")
+                +
+                "Read your copied working files first. The V1 source may "
                 "still be working: reconcile completed/uncertain tool effects before "
                 "any mutation; do not blindly repeat them. "
                 + (f"Copied history: {dest / metadata['history']}. " if metadata.get("history") else "")
@@ -394,8 +411,10 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     return doc, active, warnings
 
 
-def preview_import(source_root: str) -> dict[str, Any]:
+def preview_import(source_root: str, native_sources: dict | None = None) -> dict[str, Any]:
+    from . import desktop_native
     source, dest = _roots(source_root)
+    sources = desktop_native.validate_sources(native_sources, source, dest)
     rows = []
     slugs = sorted({p.stem for p in (source / "orgs").iterdir() if p.suffix in {".db", ".json"}})
     # Preview reads source identity without SQLite side effects; its private
@@ -413,7 +432,9 @@ def preview_import(source_root: str) -> dict[str, Any]:
         except ImportRefused as exc:
             conflict = str(exc)
         rows.append({"slug": slug, "name": doc["name"], "nodes": len(doc["nodes"]),
-                     "conflict": conflict})
+                     "conflict": conflict, "native_context": [
+                         desktop_native.inspect(source, slug, nid, node, sources)
+                         for nid, node in doc["nodes"].items()]})
     return {"organizations": rows, "warnings": [DUPLICATE_WARNING, CONTINUITY_WARNING]}
 
 
@@ -439,12 +460,14 @@ def _write_candidate(path: Path, doc: dict[str, Any]) -> None:
 
 def copy_import(source_root: str, organizations: list[str], *,
                 acknowledge_duplicate_work: bool,
-                on_imported: Callable[[str], Any]) -> dict[str, Any]:
+                on_imported: Callable[[str], Any], native_sources: dict | None = None) -> dict[str, Any]:
+    from . import desktop_native
     if acknowledge_duplicate_work is not True:
         raise ImportRefused("Acknowledge possible duplicate work before importing")
     if not organizations or len(set(organizations)) != len(organizations):
         raise ImportRefused("Choose unique organizations")
     source, dest = _roots(source_root)
+    sources = desktop_native.validate_sources(native_sources, source, dest)
     slugs = [_slug(v) for v in organizations]
     store = _store()
     with _LOCK, store.DOC_LOCK:
@@ -463,7 +486,7 @@ def copy_import(source_root: str, organizations: list[str], *,
             for rel in _areas(slug):
                 if (source / rel).exists():
                     _copy_tree(source / rel, files / rel)
-            doc, active, warnings = _prepare_document(doc, source, dest, stage)
+            doc, active, warnings = _prepare_document(doc, source, dest, stage, sources)
             _write_candidate(stage / "candidate.db", doc)
             prepared.append((slug, stage, doc, active, warnings))
         # Files and exact source history land before the ledger publication.
@@ -510,6 +533,7 @@ def _publish(dest: Path, slug: str, stage: Path) -> None:
     archive.mkdir()
     (stage / "original.json").rename(archive / "original.json")
     (stage / "history").rename(archive / "history")
+    (stage / "native").rename(archive / "native")
     orgs = dest / "orgs"
     orgs.mkdir(exist_ok=True)
     # Exclusive atomic publication, no overwrites even outside DOC_LOCK.
@@ -533,7 +557,7 @@ def _http(call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
 
 @router.post("/preview")
 def preview_route(body: PreviewBody) -> dict[str, Any]:
-    return _http(lambda: preview_import(body.source_root))
+    return _http(lambda: preview_import(body.source_root, body.native_sources))
 
 
 @router.post("")
@@ -543,4 +567,4 @@ def import_route(body: ImportBody) -> dict[str, Any]:
         raise HTTPException(503, "Import recovery hook is not configured")
     return _http(lambda: copy_import(body.source_root, body.organizations,
                                     acknowledge_duplicate_work=body.acknowledge_duplicate_work,
-                                    on_imported=callback))
+                                    on_imported=callback, native_sources=body.native_sources))

@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from unittest.mock import patch
 
 # No store/provider import may precede this binding.
@@ -107,6 +108,92 @@ class DesktopImportTests(unittest.TestCase):
         with closing(sqlite3.connect(self.dest / "orgs" / f"{slug}.db")) as conn:
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone(), ("ok",))
             return store.reconstruct_full(conn)
+
+    def native_fixture(self) -> tuple[dict, Path, dict]:
+        doc = self.fixture(sqlite=False)
+        sid = str(uuid.uuid4())
+        node = doc["nodes"]["worker"]
+        node.update(model="haiku", session_id=sid)
+        node.pop("codex_thread", None)
+        node.pop("antigravity_conversation", None)
+        (self.source / "orgs/acme.json").write_text(json.dumps(doc), encoding="utf-8")
+        profile = self.source / "configured-claude-profile"
+        path = profile / "projects/source-project" / f"{sid}.jsonl"
+        path.parent.mkdir(parents=True)
+        first, second = str(uuid.uuid4()), str(uuid.uuid4())
+        records = [
+            {"type":"user", "uuid":first, "parentUuid":None, "sessionId":sid,
+             "cwd":str(self.source / "scratch/acme/worker"), "message":{"role":"user", "content":"Remember the violet key"}},
+            {"type":"assistant", "uuid":second, "parentUuid":first, "sessionId":sid,
+             "message":{"role":"assistant", "content":[{"type":"text", "text":"I remember violet"}]}},
+        ]
+        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        return doc, path, {"claude_profile":str(profile)}
+
+    def test_native_claude_clone_preserves_context_and_rebinds_only_runtime_identity(self) -> None:
+        from engine.backend.orgtree import desktop_native as native
+        original, source_path, sources = self.native_fixture()
+        before = fingerprint(self.source)
+        preview = imp.preview_import(str(self.source), sources)
+        row = next(r for r in preview["organizations"][0]["native_context"] if r["node"] == "worker")
+        self.assertEqual(row["status"], "available")
+        self.assertEqual(Path(row["source_path"]), source_path)
+        imp.copy_import(str(self.source), ["acme"], acknowledge_duplicate_work=True,
+                        on_imported=self.resumed.append, native_sources=sources)
+        doc = self.read()
+        node = doc["nodes"]["worker"]
+        self.assertNotIn("session_unrun", node)
+        self.assertNotIn("cheap_compacted", node)
+        self.assertIsNone(native.native_hold_reason(doc, "worker"))
+        target = Path(native.native_session_path(doc, "worker"))
+        self.assertTrue(target.is_relative_to(self.dest))
+        rows = [json.loads(v) for v in target.read_text().splitlines()]
+        old = [json.loads(v) for v in source_path.read_text().splitlines()]
+        self.assertEqual([r["message"] for r in rows], [r["message"] for r in old])
+        self.assertEqual([(r["uuid"],r["parentUuid"]) for r in rows], [(r["uuid"],r["parentUuid"]) for r in old])
+        self.assertEqual({r["sessionId"] for r in rows}, {node["session_id"]})
+        self.assertNotEqual(node["session_id"], original["nodes"]["worker"]["session_id"])
+        self.assertEqual(rows[0]["cwd"], str(self.dest / "scratch/acme/worker"))
+        self.assertEqual((target.parent / "source.jsonl").read_bytes(), source_path.read_bytes())
+        target.write_text(target.read_text() + '{"type":"new-destination-record"}\n')
+        self.assertEqual(fingerprint(self.source), before)
+        self.assertIsNotNone(native.native_hold_reason(doc, "idle"), "unsupported native context stays held")
+        node["session_id"] = str(uuid.uuid4())
+        self.assertIsNotNone(native.native_hold_reason(doc, "worker"), "stale binding is refused")
+
+    def test_native_locator_conflicts_and_wrong_format_are_not_native_success(self) -> None:
+        from engine.backend.orgtree import desktop_native as native
+        doc, path, sources = self.native_fixture()
+        with self.assertRaises(imp.ImportRefused):
+            imp.preview_import(str(self.source), {"claude_profile":str(self.dest)})
+        with self.assertRaises(imp.ImportRefused):
+            imp.preview_import(str(self.source), {"sessions":{"acme/worker":"relative.jsonl"}})
+        with self.assertRaises(imp.ImportRefused):
+            imp.preview_import(str(self.source), {"credentials":"never allowed"})
+        path.write_text('{"type":"assistant","message":{"role":"assistant","content":"display journal"}}\n')
+        status = native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)
+        self.assertEqual(status["status"], "held")
+        path.write_text('{"partial":')
+        self.assertIn("incomplete", native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)["reason"])
+
+    def test_native_parent_integrity_source_mutation_and_exclusive_clone(self) -> None:
+        from engine.backend.orgtree import desktop_native as native
+        doc, path, sources = self.native_fixture()
+        rows = [json.loads(v) for v in path.read_text().splitlines()]
+        rows[1]["parentUuid"] = str(uuid.uuid4())
+        with self.assertRaisesRegex(native.NativeHeld, "parent"):
+            native.claude_records(rows, doc["nodes"]["worker"]["session_id"], str(uuid.uuid4()), str(self.dest))
+        with patch.object(imp, "_digest", side_effect=["before","after"]):
+            with self.assertRaisesRegex(native.NativeHeld, "changed"):
+                native._read_native(path)
+        stage = self.dest / "private-native-stage"
+        stage.mkdir()
+        fixed = uuid.UUID("11111111-1111-1111-1111-111111111111")
+        with patch.object(native.uuid, "uuid4", return_value=fixed):
+            first = native.prepare(self.source, self.dest, "acme", "worker", doc["nodes"]["worker"], sources, stage)
+            second = native.prepare(self.source, self.dest, "acme", "worker", doc["nodes"]["worker"], sources, stage)
+        self.assertEqual(first["status"], "ready")
+        self.assertEqual(second["status"], "held", "existing clone is never overwritten")
 
     def test_sqlite_copy_preserves_history_documents_files_and_independence(self) -> None:
         original = self.fixture()
