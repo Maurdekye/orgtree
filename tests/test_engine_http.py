@@ -54,11 +54,13 @@ class EngineHTTPTests(unittest.TestCase):
         root = Path(cls.tmp.name)
         data = root / 'data'; data.mkdir()
         home = root / 'home'; home.mkdir()
+        ui = root / 'ui'; ui.mkdir(); (ui / 'assets').mkdir()
+        (ui / 'index.html').write_text('<!doctype html><title>UI positive control</title>', encoding='utf-8')
         env = dict(os.environ)
         for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_PORT'):
             env.pop(key, None)
         env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                   ORGTREE_V2_TOKEN='test-operator-secret')
+                   ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui))
         cls.log = (root / 'stderr.log').open('w+')
         cls.process = subprocess.Popen([sys.executable, '-c', CHILD], cwd=ROOT / 'engine',
              env=env, stdout=subprocess.PIPE, stderr=cls.log, text=True)
@@ -108,6 +110,8 @@ class EngineHTTPTests(unittest.TestCase):
             data=None if payload is None else json.dumps(payload).encode(), headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
+                if 'application/json' not in r.headers.get('Content-Type',''):
+                    raise AssertionError(f'{path} returned non-JSON content type: {r.headers.get("Content-Type")}')
                 return r.status, json.load(r)
         except urllib.error.HTTPError as e:
             return e.code, json.load(e)
@@ -144,6 +148,20 @@ class EngineHTTPTests(unittest.TestCase):
         kind, body = json.loads(result.stdout)
         self.assertEqual(kind, 'ok', body)
         self.assertIn('chart', json.loads(body))
+
+    def test_packaged_ui_does_not_shadow_desktop_routes(self):
+        request = urllib.request.Request(f'http://127.0.0.1:{self.port}/',
+            headers={'X-Orgtree-Desktop-Token':'test-operator-secret'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertIn(b'UI positive control', response.read())
+        for path, field in (('/api/desktop/status','activeAgents'),
+                            ('/api/desktop/hub','enabled'),('/api/desktop/notifications','notices')):
+            status, body = self.request(path, operator=True)
+            self.assertEqual(status,200,(path,body))
+            self.assertIsInstance(body,dict)
+            self.assertIn(field,body)
+        status, body = self.request('/api/desktop/import-v1/preview', {}, operator=True)
+        self.assertEqual(status,422,body)
 
 if __name__ == '__main__':
     unittest.main()

@@ -207,6 +207,11 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     desktop_policy.install_routes(api.app)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
+    # The copied API installs its SPA fallback during import, before desktop
+    # routers exist. Keep that fallback last when a packaged UI is present.
+    routes = api.app.router.routes
+    routes[:] = ([route for route in routes if getattr(route, 'path', None) != '/{path:path}']
+                 + [route for route in routes if getattr(route, 'path', None) == '/{path:path}'])
     return TokenGate(api.app, token), token, data, port, stopping
 
 
