@@ -13,19 +13,20 @@ const output = path.join(dir, 'history.cjs')
 await build({ entryPoints: ['apps/desktop/renderer/src/history.tsx'], outfile: output,
   bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime'],
   plugins: [{ name: 'history-fixtures', setup(build) {
-    build.onResolve({ filter: /^\.\/api$/ }, () => ({ path: 'api', namespace: 'fixture' }))
+    build.onResolve({ filter: /^\.\/api$/ }, args => args.importer.endsWith('history.tsx') ? ({ path: 'api', namespace: 'fixture' }) : undefined)
     build.onResolve({ filter: /^\.\/canvas\/modalpin$/ }, () => ({ path: 'frame', namespace: 'fixture' }))
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'api'
       ? 'export const req = (...args) => globalThis.historyRequest(...args)'
       : 'import React from "react"; export const PinFrame = ({children}) => React.createElement("section", null, children)',
       resolveDir: process.cwd() }))
   }}] })
-const { HistoryBrowser } = createRequire(import.meta.url)(output)
 
 test('history browse replaces bounded pages, changes collections and recovers from expired cursor', async () => {
   const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost' })
   globalThis.window = dom.window; globalThis.document = dom.window.document
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  globalThis.localStorage = window.localStorage
+  const { HistoryBrowser } = createRequire(import.meta.url)(output)
   const calls = []
   let expired = false
   globalThis.historyRequest = async url => {

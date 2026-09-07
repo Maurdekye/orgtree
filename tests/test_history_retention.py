@@ -148,6 +148,54 @@ class HistoryRetentionTests(unittest.TestCase):
             self.child(root, SEED, 'json')
             self.child(root, CHECK, 'json')
 
+    def test_real_lineage_and_retired_sources_keep_distinct_transcripts_after_restart(self):
+        with tempfile.TemporaryDirectory(prefix='v2-history-lineage-') as temp:
+            root = Path(temp)
+            self.child(root, r'''
+import json
+from pathlib import Path
+from orgtree import store, supervisor
+org=store.create_org('lineage')
+org.hire('@user',None,'haiku',0,'agent')
+org.hire('@user',None,'haiku',0,'retired')
+journal=Path(supervisor.journal_store(),'projects','lineage');journal.mkdir(parents=True,exist_ok=True)
+def transcript(nid, text):
+    session=org.node(nid)['session_id']
+    path=journal/(session+'.jsonl')
+    path.write_text(json.dumps({'type':'assistant','uuid':text,'timestamp':'2026-09-07T20:00:00Z',
+                    'message':{'role':'assistant','content':[{'type':'text','text':text}]}})+'\n',encoding='utf-8')
+transcript('agent','PRIOR GENERATION CONTENT')
+old_session=org.node('agent')['session_id']
+result=org.cheap_compact('@user','agent')
+assert result['bearer']=='agent@0'
+assert org.node('agent@0')['session_id']==old_session
+assert org.node('agent')['session_id']!=old_session
+transcript('agent','CURRENT GENERATION CONTENT')
+transcript('retired','ORDINARY RETIRED CONTENT')
+org.retire('@user','retired')
+store.save_org(org)
+''')
+            self.child(root, r'''
+from fastapi.testclient import TestClient
+from orgtree import api,store
+client=TestClient(api.app)
+sources=client.get('/api/orgs/lineage/history').json()['nodes']
+by_id={row['id']:row for row in sources}
+assert by_id['agent']['generation']==1 and by_id['agent']['state']=='live'
+assert by_id['agent@0']['generation']==0 and by_id['agent@0']['state']=='archived'
+assert by_id['retired']['state']=='archived'
+for node,expected in [('agent','CURRENT GENERATION CONTENT'),('agent@0','PRIOR GENERATION CONTENT'),('retired','ORDINARY RETIRED CONTENT')]:
+    response=client.get('/api/orgs/lineage/history/chat',params={'node':node,'limit':1})
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert len(result['items'])==1 and result['items'][0]['text']==expected,(node,result)
+# The graph's lineage is derived from these same stored node records.
+org=store.load_org('lineage')
+assert org.lineage_stack('agent')==['agent@0']
+assert client.get('/api/orgs/lineage/history/chat',params={'node':'agent@999'}).status_code==404
+print('current agent gen1, archived agent@0 gen0, ordinary retired: exact distinct contents, no generation substitution')
+''')
+
     def test_user_read_routes_keep_overflow_and_old_sqlite_document_blobs(self):
         with tempfile.TemporaryDirectory(prefix='v2-history-read-') as temp:
             self.child(Path(temp), r'''

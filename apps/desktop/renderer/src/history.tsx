@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { req } from './api'
 import { PinFrame } from './canvas/modalpin'
+import { DocumentDownload } from './canvas/download'
+import { MockupOpen } from './canvas/docs'
 
 type Collection = { id: string; label: string; needs_node: boolean }
 type Sources = { collections: Collection[]; nodes: { id: string; state: string; generation: number }[] }
@@ -73,10 +75,10 @@ function HistoryEntry({ row, slug, section }: { row: Record<string, unknown>; sl
       <strong>{title}</strong>{actor && ` · ${actor}`} · {text(row.at) || text(row.ts)}
       {body && <span className="dim"> · {body.slice(0, 120)}</span>}
     </summary>
-    {section === 'documents' && text(row.id) && <p>
-      <a href={`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(text(row.id))}/download`} download>Download document</a>
-      {row.format === 'html' && <> · <a href={`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(text(row.id))}/mockup`} target="_blank" rel="noreferrer">Open HTML</a></>}
-    </p>}
+    {section === 'documents' && text(row.id) && <div>
+      <DocumentDownload slug={slug} id={text(row.id)} title={title} format={text(row.format)} />
+      {row.format === 'html' && <MockupOpen slug={slug} docId={text(row.id)} />}
+    </div>}
     {body && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' }}>{body}</pre>}
     {text(row.a) && <pre style={{ whiteSpace: 'pre-wrap', font: 'inherit' }}>{text(row.a)}</pre>}
     {(!body || Boolean(row.detail) || Boolean(row.events)) && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(row.detail ?? row, null, 2)}</pre>}
