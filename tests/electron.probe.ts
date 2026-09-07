@@ -67,6 +67,21 @@ app.whenReady().then(async () => {
   const childCreated = new Promise<BrowserWindow>(resolve => main.webContents.once('did-create-window', resolve))
   await main.webContents.executeJavaScript(`window.child=window.open('about:blank','owned-portal'); window.node=document.getElementById('draft'); child.document.body.appendChild(node); node.value='same live draft'; true`)
   const child = await childCreated
+  child.show()
+  const visibility = async () => ({ visible: child.isVisible(), value: await child.webContents.executeJavaScript(`Promise.race([new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({visibility:document.visibilityState,raf:true})))),new Promise(resolve=>setTimeout(()=>resolve({visibility:document.visibilityState,raf:false}),1500))])`) })
+  assert.equal((await visibility()).value.raf, true, 'visible adopted portal must receive animation frames')
+  child.hide()
+  assert.equal(child.webContents.getBackgroundThrottling(), true, 'hidden portal restores throttling')
+  child.show()
+  assert.equal(child.webContents.getBackgroundThrottling(), false, 'visible portal disables stale hidden-document throttling')
+  child.hide(); child.show()
+  assert.equal((await visibility()).value.raf, true, 'show resumes frames after hiding')
+  const minimized = new Promise<void>(resolve => child.once('minimize', () => resolve()))
+  child.minimize(); await minimized
+  assert.equal(child.webContents.getBackgroundThrottling(), true, 'minimized portal restores throttling')
+  const restored = new Promise<void>(resolve => child.once('restore', () => resolve()))
+  child.restore(); await restored
+  assert.equal(child.webContents.getBackgroundThrottling(), false, 'restored portal receives frames again')
   assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft") === node'), true)
   assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft").value'), 'same live draft')
   assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')

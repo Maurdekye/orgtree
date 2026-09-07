@@ -35,6 +35,16 @@ export function configureEngineSession(session: Session, origin: string, token: 
 /** Preserve one mounted portal; blank children never boot a second App. */
 export function configureWindow(window: BrowserWindow, origin: string, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void): void {
   register?.(window, !isMain)
+  if (!isMain) {
+    // Chromium can leave an adopted about:blank document "hidden" even while
+    // its native window is visible. Keep that visible portal's frames running.
+    const throttle = () => window.webContents.setBackgroundThrottling(!window.isVisible() || window.isMinimized())
+    window.on('show', throttle)
+    window.on('hide', throttle)
+    window.on('minimize', throttle)
+    window.on('restore', throttle)
+    throttle()
+  }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
   window.webContents.on('will-navigate', (event, url) => { if (!isMain || !trustedUiUrl(url, origin)) event.preventDefault() })
   window.webContents.on('will-redirect', (event, url) => { if (!isMain || !trustedUiUrl(url, origin)) event.preventDefault() })
