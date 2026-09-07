@@ -1,7 +1,7 @@
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { useNativeNotifications } from '../src/notifications'
+import { notificationInboxTarget, useNativeNotifications } from '../src/notifications'
 import type { DesktopNotice } from '../src/notifications'
 import type { NativeNotice } from '../src/desktop'
 import { bumpLive } from '../src/livebus'
@@ -32,6 +32,8 @@ test('global attention reaches other orgs, retains exact click targets and stops
     assert.equal('source_id' in delivered[0]!, false, 'native IPC receives only its declared fields')
     await inAct(() => { click({ type: 'notification-click', data: delivered[0] }) })
     assert.equal(opened[0]!.source_id, 'ask-42')
+    assert.equal(notificationInboxTarget(opened[0]!), 'ask:ask-42', 'question targets the inbox ask row, preserving the complete raw source ID')
+    assert.equal(notificationInboxTarget({ ...opened[0]!, kind: 'urgent-mail' }), 'ask-42', 'mail IDs are not rewritten as ask rows')
     assert.equal(opened[0]!.org, 'other-org')
     notices = []
     bumpLive(); await advance(200)

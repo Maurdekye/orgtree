@@ -28,6 +28,11 @@ export async function notifyOnce(notice: NativeNotice): Promise<boolean> {
 }
 
 export interface DesktopNotice extends NativeNotice { source_id?: string }
+/** Inbox question rows use a namespace so ask IDs cannot collide with mail. */
+export function notificationInboxTarget(notice: DesktopNotice): string {
+  const source = notice.source_id ?? notice.id.replace(/^(mail|ask):/, '')
+  return notice.kind === 'question' ? `ask:${source}` : source
+}
 interface NoticePage { notices: DesktopNotice[]; total: number; truncated: boolean }
 
 /** One bounded engine projection covers every organization. The owner frame

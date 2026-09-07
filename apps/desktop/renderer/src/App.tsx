@@ -1,5 +1,5 @@
 import type { DesktopNotice } from './notifications'
-import { useNativeNotifications } from './notifications'
+import { notificationInboxTarget, useNativeNotifications } from './notifications'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
@@ -359,7 +359,7 @@ export default function App() {
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
     if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true) }
-    else { setShowInbox(true); setInboxJump(jumpTo(nativeTarget.source_id ?? nativeTarget.id.replace(/^(mail|ask):/, ''))) }
+    else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
