@@ -9,6 +9,7 @@ from .ledger import LedgerError, now
 
 _lock = threading.RLock()
 _accepted_hold = None
+_boot_id = uuid.uuid4().hex
 
 
 def _path():
@@ -93,7 +94,7 @@ def acknowledge(request_id, outcome='execute'):
             supervisor._force_hold_settle(hold, release=True)
             return {'accepted':False}
         try:
-            _write({**current,'state':'acknowledged'})
+            _write({**current,'state':'acknowledged','execution_boot':_boot_id})
             _accepted_hold = hold
         except BaseException:
             supervisor._force_hold_settle(hold, release=True)
@@ -117,6 +118,13 @@ def execution_failed(request_id):
 
 
 def install():
+    # A new engine process cannot prove whether an installer completed. Keep
+    # the outcome honest and never replay an execution merely because we booted.
+    with _lock:
+        current = _read()
+        if current and current.get('state') == 'acknowledged' and current.get('execution_boot') != _boot_id:
+            _write({**current,'state':'unknown','observed_boot_at':now(),
+                    'outcome':'Engine restarted after acknowledgment; native execution outcome is not confirmed'})
     # Existing API dispatch retains org gates, actor audit and operation receipts.
     supervisor.launch_self_restart = request
     supervisor.arm_prime_restart = prime

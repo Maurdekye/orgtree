@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -22,6 +24,46 @@ def tearDownModule():
     _temp.cleanup()
 
 class MaintenanceTests(unittest.TestCase):
+    def test_real_process_boot_allows_next_deliberate_cycle(self):
+        with tempfile.TemporaryDirectory(prefix='v2-maint-boots-') as folder:
+            data=Path(folder)/'data'; data.mkdir()
+            home=Path(folder)/'home'; home.mkdir()
+            env=dict(os.environ,ORGTREE_DATA=str(data),HOME=str(home),USERPROFILE=str(home),ORGTREE_V2_TOKEN='boot-test')
+            code='''
+import launch
+launch.load_app()
+from orgtree import desktop_maintenance as m
+old=m.status()
+if old:
+    assert old['state']=='unknown', old
+    assert m.pending() is None
+new=m.request('fixture','node')['maintenance']
+assert not old or new['id'] != old['id']
+assert m.acknowledge(new['id'])['accepted']
+assert m.status()['state']=='acknowledged'
+'''
+            for _ in range(3):
+                result=subprocess.run([sys.executable,'-c',code],cwd=Path(__file__).resolve().parents[1]/'engine',
+                                      env=env,capture_output=True,text=True,timeout=20)
+                self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_two_cycles_and_unknown_outcome_across_boot(self):
+        for cycle in range(2):
+            record=maintenance.request('cycle','node')['maintenance']
+            self.assertTrue(maintenance.acknowledge(record['id'])['accepted'])
+            maintenance.install()
+            self.assertEqual(maintenance.status()['state'],'acknowledged')
+            self.assertTrue(maintenance.request('cycle','node')['already_armed'])
+            # The previous process's admission event dies with that process.
+            supervisor._force_hold_settle(maintenance._accepted_hold,release=True)
+            with patch.object(maintenance,'_boot_id',f'new-boot-{cycle}'):
+                maintenance.install()
+                self.assertIsNone(maintenance.pending())
+                self.assertEqual(maintenance.status()['state'],'unknown')
+                self.assertEqual(maintenance.status()['id'],record['id'])
+                maintenance.install()
+                self.assertEqual(maintenance.status()['state'],'unknown')
+
     def test_authenticated_dispatch_and_atomic_ack_controls(self):
         org = store.create_org('maintenance')
         org.hire(ledger.USER,None,'haiku',2,'boss')
