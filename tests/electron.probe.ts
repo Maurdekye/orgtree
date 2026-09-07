@@ -1,0 +1,62 @@
+import { app, BrowserWindow, ipcMain, session } from 'electron'
+import http from 'node:http'
+import crypto from 'node:crypto'
+import path from 'node:path'
+import assert from 'node:assert/strict'
+import { assertNativeSender, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
+
+app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
+const seen: { url: string; token?: string }[] = [], foreign: (string | undefined)[] = []
+const token = crypto.randomBytes(32).toString('hex')
+let server: http.Server, outsider: http.Server
+app.whenReady().then(async () => {
+  outsider = http.createServer((req, res) => { foreign.push(req.headers['x-orgtree-desktop-token'] as string | undefined); res.setHeader('Access-Control-Allow-Origin', '*'); res.end('outside') })
+  await new Promise<void>(resolve => outsider.listen(0, '127.0.0.1', resolve))
+  const foreignOrigin = `http://127.0.0.1:${(outsider.address() as import('node:net').AddressInfo).port}`
+  server = http.createServer((req, res) => {
+    seen.push({ url: req.url!, token: req.headers['x-orgtree-desktop-token'] as string | undefined })
+    if (req.url === '/redirect') { res.writeHead(302, { Location: foreignOrigin }); res.end(); return }
+    if (req.url === '/asset.css') { res.setHeader('Content-Type', 'text/css'); res.end('body{background:rgb(12,34,56)}'); return }
+    if (req.url === '/api/read') { res.setHeader('Content-Type', 'application/json'); res.end('{"ok":true}'); return }
+    res.setHeader('Content-Type', 'text/html')
+    res.end('<!doctype html><link rel="stylesheet" href="/asset.css"><body><input id="draft" value="retained answer"><div id="mount"></div></body>')
+  })
+  server.on('upgrade', (req, socket) => {
+    seen.push({ url: 'WS', token: req.headers['x-orgtree-desktop-token'] as string | undefined })
+    const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n')
+    setTimeout(() => socket.end(), 100)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`
+  const ses = session.fromPartition('shell-fixture')
+  configureEngineSession(ses, origin, token)
+  const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } }
+  const main = new BrowserWindow(options)
+  configureWindow(main, origin, true)
+  ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
+  await main.loadURL(origin)
+  assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
+  assert.equal(await main.webContents.executeJavaScript('typeof require'), 'undefined')
+  assert.equal(await main.webContents.executeJavaScript('getComputedStyle(document.body).backgroundColor'), 'rgb(12, 34, 56)')
+  await main.webContents.executeJavaScript(`(async()=>{await fetch('/api/read'); await fetch('/redirect'); await fetch(${JSON.stringify(foreignOrigin)}); await new Promise((resolve,reject)=>{ const ws=new WebSocket(${JSON.stringify(origin.replace('http:', 'ws:') + '/ws')}); ws.onopen=()=>{ws.close();resolve(true)};ws.onerror=reject }); })()`)
+  for (const route of ['/', '/asset.css', '/api/read', '/redirect', 'WS']) assert.ok(seen.some(r => r.url === route && r.token === token), 'authenticated ' + route)
+  assert.ok(foreign.length >= 2)
+  assert.ok(foreign.every(t => t === undefined), 'token never follows cross-origin redirect or fetch')
+  const childCreated = new Promise<BrowserWindow>(resolve => main.webContents.once('did-create-window', resolve))
+  await main.webContents.executeJavaScript(`window.child=window.open('about:blank','owned-portal'); window.node=document.getElementById('draft'); child.document.body.appendChild(node); node.value='same live draft'; true`)
+  const child = await childCreated
+  assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft") === node'), true)
+  assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft").value'), 'same live draft')
+  assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
+  assert.equal(await child.webContents.executeJavaScript('typeof require'), 'undefined')
+  await main.webContents.executeJavaScript('document.body.appendChild(node); child.close(); true')
+  assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'), 'same live draft')
+  const impostor = new BrowserWindow(options)
+  await impostor.loadURL(origin)
+  assert.equal(await impostor.webContents.executeJavaScript('window.orgtreeDesktop.getStatus().then(()=>false,()=>true)'), true)
+  assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(foreignOrigin)}) === null`), true)
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true }))
+  for (const w of BrowserWindow.getAllWindows()) w.destroy()
+  server.close(); outsider.close(); app.exit(0)
+}).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

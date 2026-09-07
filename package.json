@@ -16,8 +16,16 @@
     "package:win": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
-    "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@jridgewell/trace-mapping": "^0.3.28",
+    "@mui/icons-material": "^9.2.0",
+    "@mui/material": "^9.2.0",
+    "dompurify": "^3.4.12",
+    "marked": "^18.0.7",
+    "electron-updater": "^6.8.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -27,7 +35,9 @@
     "electron-builder": "26.15.3",
     "esbuild": "^0.28.1",
     "typescript": "7.0.2",
-    "vite": "8.2.2"
+    "vite": "8.2.2",
+    "jsdom": "^30.0.1",
+    "@types/jsdom": "^28.0.3"
   },
   "build": {
     "appId": "com.maurdekye.orgtree",
@@ -36,6 +46,7 @@
     "files": ["dist/**/*", "package.json", "LICENSE"],
     "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }],
     "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true },
+    "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "prerelease" }]
   }
 }

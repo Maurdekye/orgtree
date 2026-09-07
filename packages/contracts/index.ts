@@ -13,13 +13,15 @@ export type EngineStatus =
 export interface DesktopPreferences { exitOnClose: boolean; startAtLogin: boolean }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }
 export interface WindowLease { key: string; epoch: number; owner: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update'; data: unknown }
 export interface DesktopBridge {
   getStatus(): Promise<EngineStatus>
-  request(request: EngineRequest): Promise<EngineReply>
   getPreferences(): Promise<DesktopPreferences>
   setPreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>
-  openView(target: ViewTarget): Promise<WindowLease>
+  // Domain transport stays relative HTTP/WebSocket; no arbitrary path IPC.
+  showMainWindow(): Promise<void>
+  quit(): Promise<void>
+  getHarnesses(): Promise<{ id: 'claude' | 'codex' | 'antigravity'; detected: boolean; url: string }[]>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   onEvent(listener: (event: DesktopEvent) => void): () => void
 }

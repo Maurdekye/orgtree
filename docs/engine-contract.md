@@ -1,20 +1,33 @@
-# Desktop / Python transport v1
+# Desktop and Python engine contract
 
-The Python engine retains existing `/api` domain semantics behind a facade. This seed does not replace those routes with a new domain protocol.
+The Python process retains the real orgtree.api domain and serves the copied existing UI. Relative HTTP, WebSocket, download, image and HTML URLs remain browser transport. IPC is only for native lifecycle/settings/setup operations.
 
-- Main launches `engine/launch.py` with a dedicated Python executable; packaged runtime belongs under `engine/runtime`. Development executable must be explicitly configured.
-- Main sets `ORGTREE_DATA` to the isolated v2 root and `ORGTREE_V2_TOKEN` to a fresh random credential. Engine must verify the root before importing any v1 storage module. Never default to the v1 root.
-- Engine binds IPv4 loopback on an available port and writes one stdout line: `{ "type":"ready", "protocol":1, "port":12345, "pid":123, "dataRootId":"opaque-id" }`. Logs otherwise use stderr; stdout is bounded protocol data.
-- Requests carry `X-Orgtree-Desktop-Token`. Every route validates it before dispatch, including `/api/host`, files and event streams. No public listener. Main brokers HTTP; renderer sees no credential or port.
-- `/api/*` return current domain status/data. Main accepts only validated method/path/body, disallows proxy traversal/arbitrary URLs and returns `{status,data}`. A 2xx send result remains acceptance, not provider acknowledgement.
-- Main owns one engine process per application data root, survives ordinary window closes, and terminates its owned process tree on explicit exit. `Exit on close` defaults OFF.
-- Domain and adapter owners must coordinate any readiness/transport change with the shell owner before editing this contract. No fake success when an engine/harness is missing.
-- Multi-provider support remains. All multi-account management/fallback is deferred. Harness setup detects only and links official installation pages; never installs a CLI.
+## Managed startup
 
-Initial shell event subscription is lifecycle-only. Domain event stream integration will be agreed with the engine owner using existing event identities; do not invent delivery acknowledgements in renderer code.
+- Launch engine/launch.py with an absolute, real Python interpreter (packaged engine/runtime/python.exe). The engine package contains its own backend/orgtree source; v1 repository is never a runtime dependency.
+- Main validates an explicit v2 data root, including existing symlink resolution, before spawning. It rejects the v1 root and ancestor/descendant overlap. Fresh startup uses a separate application data directory; import is a later Settings action owned by the engine.
+- Env: ORGTREE_DATA is the resolved v2 root, ORGTREE_V2_UI_DIR the built renderer directory, ORGTREE_V2_TOKEN a fresh main-only credential. Engine must validate root BEFORE importing legacy storage and REMOVE the token from os.environ before importing modules that spawn children.
+- Engine binds 127.0.0.1 on a dynamic port. Ready line: {"type":"ready","protocol":1,"port":12345,"pid":123,"dataRootId":"resolved absolute data root"}. Main checks PID, root, port and protocol. Other stdout lines are ignored with a bounded line buffer; logs must never carry credentials.
+- Electron main remains alive in tray after normal close. The single-instance lock routes another launch to the existing window; there is no unauthenticated .port discovery or orphan-engine attachment.
 
-## Transport refinement under review
-Preserve v1 browser fetch/WebSocket/artifact URLs. Shell will inject the credential using Electron session webRequest for the exact engine origin, instead of requiring every existing UI request to cross bespoke IPC. Native operations still use validated IPC. Auth compatibility for existing agent/MCP callers requires coordinator approval; do not silently treat missing Origin headers as authorization. The launcher must remove ORGTREE_V2_TOKEN from os.environ BEFORE importing legacy code because provider children inherit the environment. Main uses a single-instance lock and owns engine process lifetime.
+## Browser and native boundaries
 
-## Chat source reply contract
-ReplyContext identifies source by org/agent/generation/eventId with bounded quote. Engine validates identity and source permissions, resolves authoritative text/role, persists source reference with the outgoing mail and returns the durable receipt. A display quote is not source identity or authorization. Unresolvable sources must fail explicitly; do not attach another message. Renderer owner adds removable preview/context menu. Preserve the structured field in drafts/window transfer.
+- Main session hook injects X-Orgtree-Desktop-Token only for exact loopback host+port over HTTP/WS, and strips any retained token before every other destination. Actual Electron probe verifies HTTP, stylesheet, WebSocket handshake and cross-origin redirect/fetch.
+- Every engine browser route validates credentials, including files and WS. Missing Origin is NOT proof of authorization. MCP requires existing or newly scoped per-agent credentials bound to org/node/generation. Desktop operator credential never enters provider/MCP child environment.
+- Preload exposes window.orgtreeDesktop only on the top-level engine UI. Native handlers also verify sender webContents, top frame and UI route. Blank portal children and embedded HTML have no bridge. External HTML resources are allowed by the renderer document sandbox; they do not receive desktop credentials or OS access.
+- Native blank child windows preserve the existing owner-mounted DOM portal. No new React App or engine session is mounted in the child. Actual Electron primitive test preserves the same input node and draft; full renderer integration remains separate evidence.
+
+## Lifecycle and packaging
+
+- Preferences: Start at login ON, Exit on close OFF. Dev builds never register electron.exe at login. Explicit quit asks authenticated POST /api/desktop/shutdown then applies a bounded fallback to its OWN child only.
+- GET /api/desktop/status returns {activeAgents,totalAgents,idle}. Unknown/stale/unavailable state is never interpreted as idle. Idle update application also requires 60 seconds of OS user inactivity, then graceful engine stop. Packaged GitHub prerelease updater is enabled; actual signed update execution is not claimed by fixture tests.
+- Installer defaults current user, permits all-users choice; unsigned prototype accepted. Runtime must preserve a real interpreter directory so sys.executable -m orgtree.mcptool works.
+- Harness setup detects presence only and links official Claude Code, Codex and Antigravity setup. No CLI installation, login, provider calls or multi-account registry.
+
+## Source replies
+
+ReplyContext identifies source by org/agent/generation/eventId and bounded quote. Engine resolves authoritative source/role and validates identity; quote is never authorization. Renderer owns context menu/removable preview/source jump. Preserve replyTo in drafts, reload/popout transfer, outgoing mail and durable receipt.
+
+## Scope and deadline
+
+Deadline is 2026-09-08 01:00 UTC (04:00 Israel), not restarted by approval or seed. Preserve/improve existing UI, SQLite data contracts, integrated Docker-free hub, multi-provider support, history until removed, full copy import including active-work resumption. Deferred/removed: all account management/fallback, mobile, Git management, public/kiosk exposure and all agent-execution sandbox/isolation. Electron renderer isolation remains an OS-bridge boundary, not agent execution isolation.
