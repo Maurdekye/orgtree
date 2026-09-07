@@ -374,7 +374,7 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
             node["cheap_compacted"] = True
         node["pid"] = None
         for key in ("remote_controlled", "codex_thread", "antigravity_conversation",
-                    "cache_continuity", "codex_usage_total", "cache_keepalive_at"):
+                    "cache_continuity", "codex_usage_total", "cache_keepalive_at", "codex_native_home"):
             node.pop(key, None)
         if native["status"] == "ready" and native["provider"] == "codex":
             node["codex_thread"] = node["session_id"]
