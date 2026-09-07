@@ -4113,7 +4113,7 @@ def _document_or_404(org: Org, did: str) -> dict[str, Any]:
 # backend writes, carrying the mockup as an HTML-ESCAPED `srcdoc` inside a
 # sandboxed iframe (opaque origin: no cookies, no storage, no parent/top
 # access, no top navigation, no popups), under a response CSP that forbids
-# every network request and form submission for wrapper and child alike, and
+# frame navigation and form submission while allowing resource loads, and
 # with `<base href="about:blank">` + no-referrer so the child cannot learn
 # this page's URL (and on a kiosk, the token in it) through baseURI,
 # referrer or location — measured by feature-astra in Chromium 2026-09-06:
@@ -4122,10 +4122,15 @@ def _document_or_404(org: Org, did: str) -> dict[str, Any]:
 # is exempt, everything else is a frame navigation the wrapper's policy
 # refuses. Root scope ruling: the preview is OPERATOR-ONLY — a kiosk visitor
 # gets 403, not a script-disabled substitute.
+# V2 retained decision: remote resources are permitted. The dedicated native
+# artifact session authenticates only the initial wrapper GET and denies all
+# subsequent engine destinations; the opaque child never receives app auth.
+# Local snapshot dependencies are embedded, never fetched from engine routes.
 _MOCKUP_CSP = ("sandbox allow-scripts allow-forms allow-modals; "
-               "default-src 'none'; script-src 'unsafe-inline'; "
-               "style-src 'unsafe-inline'; img-src data: blob:; "
-               "font-src data:; media-src data: blob:; "
+               "default-src 'none'; script-src 'unsafe-inline' data: blob: https: http:; "
+               "style-src 'unsafe-inline' data: https: http:; img-src data: blob: https: http:; "
+               "font-src data: https: http:; media-src data: blob: https: http:; "
+               "connect-src https: http: wss: ws:; "
                "form-action 'none'; frame-src 'none'; "
                "frame-ancestors 'none'; base-uri about:")
 _MOCKUP_HEADERS = {

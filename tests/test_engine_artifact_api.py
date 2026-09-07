@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from fastapi.testclient import TestClient
 
 _temp = tempfile.TemporaryDirectory(prefix='v2-artifact-api-')
 os.environ['ORGTREE_DATA'] = _temp.name
@@ -38,6 +39,19 @@ class ArtifactAPITests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
             self.assertEqual(archive.read('style.css'), b'body { color:red }')
             self.assertIn(b'hello', archive.read('page.html'))
+        from engine.launch import TokenGate
+        client=TestClient(TokenGate(api.app,'preview-test-token'))
+        url=f"/api/orgs/download-fixture/documents/{doc['id']}/mockup"
+        self.assertEqual(client.get(url).status_code,401)
+        preview=client.get(url,headers={'X-Orgtree-Desktop-Token':'preview-test-token'})
+        self.assertEqual(preview.status_code,200,preview.text)
+        policy=preview.headers['content-security-policy']
+        self.assertIn('https: http:',policy)
+        self.assertIn("frame-src 'none'",policy)
+        self.assertIn("form-action 'none'",policy)
+        self.assertNotIn('allow-same-origin',policy)
+        self.assertIn('sandbox="allow-scripts allow-forms allow-modals"',preview.text)
+        self.assertNotIn('preview-test-token',preview.text)
         api._agent_present(org, 'author', {'body':'# Exact\r\n','title':'Markdown'})
         store.save_org(org)
         response = api.document_download('download-fixture', org.d['documents'][-1]['id'])
