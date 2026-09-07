@@ -3,31 +3,31 @@
 The v1 hub is a separately hosted UI/API service.  v2 deliberately keeps only
 its correspondence transport semantics: authenticated registrations,
 durable at-least-once queueing, idempotent sends, custody ACKs, receipts and
-file-backed attachments.  This module is an engine-owned loopback service,
-not a public listener and not a Docker entrypoint.
+file-backed attachments. This module is an engine-owned service with a
+loopback default; an explicitly configured authenticated peer bind is also
+supported. It has no UI and is not a Docker entrypoint.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
 import secrets
 import sqlite3
+import stat
 import threading
 import time
-import urllib.error
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, urlparse
-from urllib.request import Request, urlopen
 
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -49,6 +49,10 @@ CREATE INDEX IF NOT EXISTS messages_from_receipts ON messages(from_slug, receipt
 CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY, owner_slug TEXT NOT NULL, name TEXT NOT NULL,
   bytes INTEGER NOT NULL, created_at TEXT NOT NULL, message_id TEXT
+);
+CREATE TABLE IF NOT EXISTS peers (
+  peer_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+  bound_slug TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT
 );
 """
 _MAX_BODY = 20_000
@@ -80,6 +84,7 @@ class HubReadiness:
     data_root: str
     readiness_path: str
     pid: int
+    token: str
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +94,7 @@ class HubReadiness:
             "port": self.port,
             "data_root": self.data_root,
             "pid": self.pid,
+            "token": self.token,
         }
 
 
@@ -96,14 +102,27 @@ class _HubServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: tuple[str, int], root: Path):
+    def __init__(self, address: tuple[str, int], root: Path, token: str):
         super().__init__(address, _HubHandler)
         self.root = root
+        self.instance_token = token
+        self.hub_name = os.environ.get("ORGTREE_HUB_NAME", "orgtree-v2-hub")
+        self.retention_days = None  # user-visible history is retained; only ACKed transport blobs may be cleaned
         self.db_path = root / "hub.sqlite3"
         self.blob_root = root / "blobs"
         self.blob_root.mkdir(parents=True, exist_ok=True)
         with self.db() as con:
             con.executescript(_SCHEMA)
+
+    def cleanup_acked_attachments(self, con: sqlite3.Connection, message_ids: list[str]) -> None:
+        """Remove only transport blob copies after recipient custody ACK."""
+        for message_id in message_ids:
+            rows = con.execute("SELECT id FROM attachments WHERE message_id=?", (message_id,)).fetchall()
+            for row in rows:
+                try:
+                    self.blob_path(str(row["id"])).unlink()
+                except (FileNotFoundError, ValueError):
+                    pass
 
     @contextmanager
     def db(self) -> Any:
@@ -127,6 +146,7 @@ class _HubServer(ThreadingHTTPServer):
 
 class _HubHandler(BaseHTTPRequestHandler):
     server: _HubServer
+    peer_binding: str | None = None
 
     def log_message(self, _format: str, *_args: Any) -> None:
         return
@@ -143,6 +163,21 @@ class _HubHandler(BaseHTTPRequestHandler):
 
     def _error(self, status: int, detail: str) -> None:
         self._send(status, {"detail": detail})
+
+    def _require_access(self) -> bool:
+        local = self.headers.get("X-Hub-Token", "")
+        if local and hmac.compare_digest(local, self.server.instance_token):
+            self.peer_binding = None
+            return True
+        supplied = self.headers.get("X-Hub-Peer-Token", "")
+        if supplied:
+            with self.server.db() as con:
+                row = con.execute("SELECT bound_slug FROM peers WHERE fingerprint=? AND revoked_at IS NULL", (_fingerprint(supplied),)).fetchone()
+            if row:
+                self.peer_binding = str(row["bound_slug"])
+                return True
+        self._error(401, "invalid hub access token")
+        return False
 
     def _json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -170,6 +205,9 @@ class _HubHandler(BaseHTTPRequestHandler):
         for slug in slugs:
             con.execute("UPDATE orgs SET last_seen=? WHERE slug=?", (now, slug))
 
+    def _roster(self, con: sqlite3.Connection) -> list[dict[str, Any]]:
+        return [{"slug": row["slug"], "org_name": row["org_name"], "username": row["username"], "blurb": row["blurb"], "online": True, "last_seen": row["last_seen"]} for row in con.execute("SELECT slug,org_name,username,blurb,last_seen FROM orgs ORDER BY slug").fetchall()]
+
     def _envelope(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -184,23 +222,39 @@ class _HubHandler(BaseHTTPRequestHandler):
         }
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._require_access():
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/healthz":
             with self.server.db() as con:
                 orgs = con.execute("SELECT COUNT(*) AS n FROM orgs").fetchone()["n"]
                 queued = con.execute("SELECT COUNT(*) AS n FROM messages WHERE state='queued'").fetchone()["n"]
-            self._send(200, {"ok": True, "orgs": orgs, "queued": queued})
+            self._send(200, {"ok": True, "name": self.server.hub_name, "orgs": orgs, "queued": queued, "retention_days": self.server.retention_days})
             return
         if parsed.path.startswith("/api/attachments/"):
             self._download(parsed.path.rsplit("/", 1)[-1])
+            return
+        if parsed.path == "/api/roster":
+            with self.server.db() as con:
+                slugs = self._authorized(con)
+                if slugs:
+                    self._mark_seen(con, slugs)
+                    con.commit()
+                    self._send(200, {"name": self.server.hub_name, "roster": self._roster(con)})
             return
         self._error(404, "not found")
 
     def do_POST(self) -> None:  # noqa: N802
         try:
+            if not self._require_access():
+                return
             route = urlparse(self.path).path
             if route == "/api/register":
                 self._register()
+            elif route == "/api/unregister":
+                self._unregister()
+            elif route == "/api/peers":
+                self._create_peer()
             elif route == "/api/send":
                 self._send_message()
             elif route == "/api/poll":
@@ -218,6 +272,17 @@ class _HubHandler(BaseHTTPRequestHandler):
         except sqlite3.Error:
             self._error(503, "hub storage unavailable")
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        if not self._require_access() or self.peer_binding is not None:
+            if self.peer_binding is not None:
+                self._error(403, "peer tokens cannot manage peers")
+            return
+        peer_id = urlparse(self.path).path.rsplit("/", 1)[-1]
+        with self.server.db() as con:
+            changed = con.execute("UPDATE peers SET revoked_at=? WHERE peer_id=? AND revoked_at IS NULL", (_now(), peer_id)).rowcount
+            con.commit()
+        self._send(200, {"revoked": changed == 1, "peer_id": peer_id})
+
     def _register(self) -> None:
         body = self._json()
         slug = str(body.get("slug") or "").strip()
@@ -228,6 +293,9 @@ class _HubHandler(BaseHTTPRequestHandler):
         secret = supplied.get(slug, "")
         if not secret:
             self._error(401, "registration requires X-Org-Auth")
+            return
+        if self.peer_binding is not None and self.peer_binding != slug:
+            self._error(403, "peer token is bound to another identity")
             return
         now = _now()
         with self.server.db() as con:
@@ -241,7 +309,34 @@ class _HubHandler(BaseHTTPRequestHandler):
             else:
                 con.execute("INSERT INTO orgs VALUES (?,?,?,?,?,?,?)", (slug, fp, str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, now))
             con.commit()
-        self._send(200, {"ok": True, "slug": slug})
+            roster = self._roster(con)
+        self._send(200, {"ok": True, "name": self.server.hub_name, "retention_days": self.server.retention_days, "slug": slug, "roster": roster})
+
+    def _create_peer(self) -> None:
+        if self.peer_binding is not None:
+            self._error(403, "peer tokens cannot create peers")
+            return
+        body = self._json()
+        peer_id = str(body.get("peer_id") or "").strip()
+        bound_slug = str(body.get("slug") or "").strip()
+        if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", peer_id) or not _SLUG.fullmatch(bound_slug):
+            self._error(422, "malformed peer binding")
+            return
+        token = secrets.token_urlsafe(32)
+        with self.server.db() as con:
+            con.execute("INSERT OR REPLACE INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)", (peer_id, _fingerprint(token), bound_slug, _now()))
+            con.commit()
+        self._send(200, {"peer_id": peer_id, "slug": bound_slug, "peer_token": token})
+
+    def _unregister(self) -> None:
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            marks = ",".join("?" for _ in slugs)
+            con.execute(f"DELETE FROM orgs WHERE slug IN ({marks})", slugs)
+            con.commit()
+        self._send(200, {"unregistered": slugs})
 
     def _authorized(self, con: sqlite3.Connection) -> list[str]:
         slugs = self._auth(con)
@@ -260,6 +355,9 @@ class _HubHandler(BaseHTTPRequestHandler):
             if sender not in slugs:
                 self._error(401, "sender credentials required")
                 return
+            if self.peer_binding is not None and sender != self.peer_binding:
+                self._error(403, "peer token is bound to another identity")
+                return
             if not con.execute("SELECT 1 FROM orgs WHERE slug=?", (to,)).fetchone():
                 self._error(422, "recipient is not registered")
                 return
@@ -274,12 +372,20 @@ class _HubHandler(BaseHTTPRequestHandler):
             metas: list[dict[str, Any]] = []
             for aid in attachment_ids:
                 row = con.execute("SELECT id,name,bytes,owner_slug,message_id FROM attachments WHERE id=?", (aid,)).fetchone()
-                if not row or row["owner_slug"] != sender or (row["message_id"] and row["message_id"] != message_id):
+                # A v1 net.py client may multiplex identities in one auth
+                # header and uploads under the first identity.  It is allowed
+                # to send as any other identity it proved in that same call;
+                # an unrelated caller still cannot bind the blob.
+                if not row or row["owner_slug"] not in slugs or (row["message_id"] and row["message_id"] != message_id):
                     self._error(422, "unknown or already-bound attachment")
                     return
                 metas.append({"id": row["id"], "name": row["name"], "bytes": row["bytes"]})
+            text = str(body.get("body") or "")
+            if len(text) > _MAX_BODY:
+                self._error(413, f"body exceeds {_MAX_BODY} characters")
+                return
             received = _now()
-            cur = con.execute("INSERT OR IGNORE INTO messages (id,from_slug,to_slug,body,kind,thread_id,sent_at,received_at,attachments) VALUES (?,?,?,?,?,?,?,?,?)", (message_id, sender, to, str(body.get("body") or "")[:_MAX_BODY], body.get("kind"), body.get("thread_id"), body.get("sent_at"), received, json.dumps(metas)))
+            cur = con.execute("INSERT OR IGNORE INTO messages (id,from_slug,to_slug,body,kind,thread_id,sent_at,received_at,attachments) VALUES (?,?,?,?,?,?,?,?,?)", (message_id, sender, to, text, body.get("kind"), body.get("thread_id"), body.get("sent_at"), received, json.dumps(metas)))
             fresh = cur.rowcount == 1
             if fresh:
                 for aid in attachment_ids:
@@ -309,7 +415,7 @@ class _HubHandler(BaseHTTPRequestHandler):
                         con.execute(f"UPDATE messages SET receipts_pushed=1 WHERE id IN ({','.join('?' for _ in ids)})", ids)
                     self._mark_seen(con, slugs)
                     con.commit()
-                    self._send(200, {"messages": [self._envelope(row) for row in rows], "receipts": [{"id": r["id"], "state": "read" if r["read_at"] else "delivered" if r["delivered_at"] else "fetched" if r["fetched_at"] else "received", "fetched_at": r["fetched_at"], "delivered_at": r["delivered_at"], "read_at": r["read_at"]} for r in receipts]})
+                    self._send(200, {"name": self.server.hub_name, "messages": [self._envelope(row) for row in rows], "receipts": [{"id": r["id"], "state": "read" if r["read_at"] else "delivered" if r["delivered_at"] else "fetched" if r["fetched_at"] else "received", "fetched_at": r["fetched_at"], "delivered_at": r["delivered_at"], "read_at": r["read_at"]} for r in receipts], "roster": self._roster(con)})
                     return
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
@@ -322,8 +428,13 @@ class _HubHandler(BaseHTTPRequestHandler):
                 return
             marks = ",".join("?" for _ in slugs)
             count = 0
+            acknowledged: list[str] = []
             for mid in ids:
-                count += con.execute(f"UPDATE messages SET state='fetched',fetched_at=?,receipts_pushed=0 WHERE id=? AND state='queued' AND to_slug IN ({marks})", (_now(), mid, *slugs)).rowcount
+                changed = con.execute(f"UPDATE messages SET state='fetched',fetched_at=?,receipts_pushed=0 WHERE id=? AND state='queued' AND to_slug IN ({marks})", (_now(), mid, *slugs)).rowcount
+                count += changed
+                if changed:
+                    acknowledged.append(mid)
+            self.server.cleanup_acked_attachments(con, acknowledged)
             self._mark_seen(con, slugs)
             con.commit()
         self._send(200, {"acked": count})
@@ -351,17 +462,47 @@ class _HubHandler(BaseHTTPRequestHandler):
             slugs = self._authorized(con)
             if not slugs:
                 return
-            data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            if len(data) > _MAX_ATTACHMENT:
+            try:
+                length = int(self.headers.get("Content-Length", "-1"))
+            except ValueError:
+                length = -1
+            if length < 0:
+                self._error(411, "Content-Length is required")
+                return
+            if length > _MAX_ATTACHMENT:
                 self._error(413, "attachment too large")
                 return
             attachment_id = secrets.token_hex(16)
-            self.server.blob_path(attachment_id).write_bytes(data)
-            name = _safe_name(parse_qs(urlparse(self.path).query).get("name", ["file"])[0])
-            con.execute("INSERT INTO attachments VALUES (?,?,?,?,?,NULL)", (attachment_id, slugs[0], name, len(data), _now()))
-            self._mark_seen(con, slugs)
-            con.commit()
-        self._send(200, {"id": attachment_id, "bytes": len(data), "name": name})
+            path = self.server.blob_path(attachment_id)
+            query = parse_qs(urlparse(self.path).query)
+            owner = query.get("owner", [slugs[0]])[0]
+            if owner not in slugs:
+                self._error(401, "attachment owner credentials required")
+                return
+            if self.peer_binding is not None and owner != self.peer_binding:
+                self._error(403, "peer token is bound to another identity")
+                return
+            name = _safe_name(query.get("name", ["file"])[0])
+            try:
+                remaining, total = length, 0
+                with path.open("wb") as blob:
+                    while remaining:
+                        chunk = self.rfile.read(min(64 * 1024, remaining))
+                        if not chunk:
+                            raise ValueError("truncated attachment")
+                        blob.write(chunk)
+                        total += len(chunk)
+                        remaining -= len(chunk)
+                con.execute("INSERT INTO attachments VALUES (?,?,?,?,?,NULL)", (attachment_id, owner, name, total, _now()))
+                self._mark_seen(con, slugs)
+                con.commit()
+            except Exception:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                raise
+        self._send(200, {"id": attachment_id, "bytes": total, "name": name})
 
     def _download(self, attachment_id: str) -> None:
         try:
@@ -400,16 +541,22 @@ class _HubHandler(BaseHTTPRequestHandler):
 class HubService:
     """Lifecycle owner used by the engine startup/shutdown coordinator."""
 
-    def __init__(self, data_root: str | os.PathLike[str], host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, data_root: str | os.PathLike[str], host: str = "127.0.0.1", port: int = 0, advertise_host: str | None = None):
         root = Path(data_root).expanduser().resolve()
         if not root.is_absolute() or root == Path(root.anchor):
             raise ValueError("data_root must be an explicit non-root directory")
-        if host not in ("127.0.0.1", "localhost"):
-            raise ValueError("v2 hub is loopback-only")
+        if host == "localhost":
+            host = "127.0.0.1"
+        if host != "0.0.0.0":
+            try:
+                ipaddress.ip_address(host)
+            except ValueError as exc:
+                raise ValueError("hub host must be an IP address") from exc
         if not 0 <= port <= 65535:
             raise ValueError("invalid port")
         self.root = root / "hub"
-        self.host = "127.0.0.1" if host == "localhost" else host
+        self.host = host
+        self.advertise_host = advertise_host or ("127.0.0.1" if host == "0.0.0.0" else host)
         self.port = port
         self._server: _HubServer | None = None
         self._thread: threading.Thread | None = None
@@ -429,15 +576,20 @@ class HubService:
                 raise RuntimeError("hub has no readiness")
             return self._readiness
         self.root.mkdir(parents=True, exist_ok=True)
-        server = _HubServer((self.host, self.port), self.root)
+        token = secrets.token_urlsafe(32)
+        server = _HubServer((self.host, self.port), self.root, token)
         self._server = server
         self.port = int(server.server_address[1])
         self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
         self._thread.start()
-        self._readiness = HubReadiness(self.host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid())
+        self._readiness = HubReadiness(self.advertise_host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid(), token)
         temporary = self.readiness_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
         os.replace(temporary, self.readiness_path)
+        try:
+            os.chmod(self.readiness_path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
         return self._readiness
 
     def wait_ready(self, timeout: float = 5.0) -> HubReadiness:
@@ -493,6 +645,9 @@ def discover_hub(data_root: str | os.PathLike[str]) -> HubReadiness:
     if payload.get("data_root") != str(root):
         raise RuntimeError("hub readiness belongs to a different data root")
     host, port = str(payload.get("host") or ""), int(payload.get("port") or 0)
-    if host != "127.0.0.1" or not 1 <= port <= 65535:
-        raise RuntimeError("invalid loopback hub endpoint")
-    return HubReadiness(host, port, str(root), str(path), int(payload.get("pid") or 0))
+    if not host or host in ("0.0.0.0", "::") or not 1 <= port <= 65535:
+        raise RuntimeError("invalid advertised hub endpoint")
+    token = str(payload.get("token") or "")
+    if len(token) < 32:
+        raise RuntimeError("invalid hub token")
+    return HubReadiness(host, port, str(root), str(path), int(payload.get("pid") or 0), token)
