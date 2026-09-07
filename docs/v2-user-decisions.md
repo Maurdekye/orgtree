@@ -6,7 +6,7 @@ All times are UTC on 7 September 2026 unless stated. The hard stop is 2026-09-08
 
 ## Current scope index
 
-Where things stand after the last decision recorded (7 September, 21:22:57 UTC, relayed by the coordinator 21:25 UTC).
+Where things stand after the last decision recorded (7 September, 21:53:11 UTC, relayed by the coordinator 21:55 UTC).
 
 **Foundation (settled):**
 - Electron desktop application, Windows installer first, platform-agnostic for later macOS/Linux builds. Chromium UI stays.
@@ -42,6 +42,8 @@ Where things stand after the last decision recorded (7 September, 21:22:57 UTC, 
 **Phase gate (21:18 UTC, binding now):** none of Git, accounts or mobile may be approached, designed or implemented until the current MVP has full parity with the requested scope. The user's supplied requirements for those phases are recorded in the time-ordered list below only so they are not lost; they are not elaborated here and generate no research or questions.
 
 **Peer mail topology (21:22 UTC):** one Orgtree installation hosts the mail hub and is manually configured for public network exposure; other installations connect to it, as in v1. Authenticated transport with scoped credentials is required. This is an explicit public mail-transport exception and does not reopen public browser UI, API or kiosk exposure. Kiosk and agent isolation stay out for the foreseeable future.
+
+**Process (21:37 and 21:53 UTC):** user-facing updates travel by orgtree mail; every decision answered to an earlier coordinator generation stays binding; iteration includes real screenshots of the running product for the coordinator's visual review.
 
 **Unconditional stop:** at the FIRST of usage-limit exhaustion or 2026-09-08 01:00 UTC, stop all work immediately, regardless of completion. Checkpoint before the deadline. No post-deadline continuation, review or report turns except enforcement.
 
@@ -86,6 +88,9 @@ Explicitly superseded from it by later entries: "no repository, implementation o
 - 21:18:19 UTC, PHASE GATE (binding now): Git, accounts and mobile are POST-MVP phases and are NOT to be approached, designed or implemented until the current MVP has FULL parity with the requested scope. Decisions already supplied are preserved; no further post-MVP questions, research or design. This supersedes the earlier request to keep clarifying future-phase questions. Current work is exclusively MVP; enter Git, then accounts, then mobile only after verified MVP completion, still within the hard stop.
 - 21:19:13 UTC, mobile background: the mobile app stays CONNECTED while running in the background (corrects an earlier "while open" wording), respecting foreground-service OS behaviour and limits; no relay or static infrastructure by implication. At 21:20:13 the user asked for one final question battery before leaving; that authorized final clarification only, not early post-MVP implementation.
 - 21:22:57 UTC, peer topology and mobile endpoint (newest, wins on conflict): desktop peer mail uses the mail hub hosted by ONE Orgtree installation, MANUALLY configured for public network exposure, with other installations connecting to it, the same topology as v1. Host-or-connect configuration is the product flow; no invitation-first onboarding. Authenticated transport and scoped credentials remain required; this public MAIL TRANSPORT exception is explicit and is not a return of any public browser UI, API or kiosk exposure. The Connections area presents hosting, listen and advertised-endpoint configuration and connecting to an existing hub. For mobile, a changed direct endpoint may need a manual update or a new QR scan; an optional user-supplied dynamic-DNS hostname is acceptable; no automatic discovery service or relay is implied. The final question battery is resolved; no further user input is needed now.
+
+- 21:37:56 UTC, communication: all user-facing updates from the coordinator go by orgtree mail from now on, because the transcript is not reliably visible to the user after compaction. Existing work and scope continue; no design question was pending.
+- 21:53:11 UTC, continuity and visual review (newest, wins on conflict): retain and apply every answer given to the previous coordinator generation; no earlier decision changed. While iterating, obtain real screenshots of the running product (Playwright or the existing Electron capture is acceptable) so the coordinator visually reviews the application and uses the findings to improve it. Screenshot capture is assigned to acceptance, visual inspection to the coordinator. This adds visual verification to the existing behaviour checks and changes no settled scope or phase gate.
 
 ## How to use this file
 
