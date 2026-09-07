@@ -9,7 +9,7 @@ import type {
   AudiencesPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
-  InboxPayload, KioskCfgRequest, KioskSaveResult, KioskSpecRequest, MailEntry,
+  InboxPayload, KioskCfgRequest, KioskSaveResult, MailEntry,
   McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
@@ -105,22 +105,16 @@ export const req = <T,>(path: string, init?: RequestInit,
 export const listOrgs = (): Promise<OrgListEntry[]> => req('/api/orgs')
 export const createOrg = (
   name: string, dirs: string[],
-  kiosk: KioskSpecRequest | null = null, sandbox = false,
-  diskMb: number | null = null,
   netAutoconnect = true, netHubs: string[] = [],
 ): Promise<{ slug: string }> =>
-  // provisions a sandbox and can format a disk image — minutes, legitimately
   req<{ slug: string }>('/api/orgs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name, dirs, ...(kiosk ? { kiosk } : {}),
-      ...(sandbox && !kiosk ? { sandbox: true } : {}),
+      name, dirs,
       // F-06: mailserver — local-hub opt-out + typed remote addresses
       ...(netAutoconnect ? {} : { net_autoconnect: false }),
       ...(netHubs.length ? { net_hubs: netHubs } : {}),
-      // sandboxed non-kiosk orgs: virtual-disk size (4096 MB minimum)
-      ...(sandbox && !kiosk && diskMb != null ? { disk_mb: diskMb } : {}),
     }),
   }, SLOW_TIMEOUT_MS)
 export const getTree = (slug: string): Promise<TreePayload> =>

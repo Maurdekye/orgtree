@@ -1,17 +1,15 @@
 import { ImportSettings } from './importsettings'
 import { DesktopSettings } from './desktopsettings'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
-  AccountsPayload, AccountUsage, ProviderInfo, RuntimeSettingsPayload,
+  AccountUsage, ProviderInfo, RuntimeSettingsPayload,
   TierStanding, ToastFn, UsageLimit,
 } from '../types'
 import {
-  addAccountKey, deleteAccountKey, getAccounts, getAccountUsage,
-  getProviders, getRuntimeSettings, setAccountKeyOrder,
-  setIdleDocketRemindersEnabled, setProviderEnabled, setGitPeriodicFetchEnabled,
+  getProviders, getRuntimeSettings,
+  setIdleDocketRemindersEnabled, setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
 } from '../api'
-import { CheckIcon, DataUsageIcon, DeleteIcon } from '../icons'
 import {
   SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
 } from './settingskit'
@@ -20,8 +18,8 @@ import { OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import {
   setCrowdPilesOn, setDeskDpi, setOpenRouterTiers, setStartView, setStartZoomOn,
-  fmtCredits, TIER_LETTER,
-  TIERS, useCrowdPiles, useDeskDpi, useStartView, useStartZoom,
+  TIER_LETTER,
+  useCrowdPiles, useDeskDpi, useStartView, useStartZoom,
 } from './shared'
 import { fmtFull, fmtWhen } from '../timefmt'
 import type { StartView } from './shared'

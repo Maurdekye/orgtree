@@ -13,11 +13,11 @@ import {
   getMailById, getOrgMd,
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
-  getProviders, getSweepPreview, getTree,
+  getProviders, getTree,
   getUsage, getUsagePeek, killAll, listOrgs,
   markRead, openWs,
   probeHub, putOrgMd,
-  resumeFrozen, runOp, saveDefaults, saveSettings, sweepLegacy,
+  resumeFrozen, runOp, saveDefaults, saveSettings,
 } from './api'
 import { fmtClock, fmtFull, localizeFreezeUntil } from './timefmt'
 import { bumpLive } from './livebus'
@@ -49,8 +49,7 @@ import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import type {
   AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
-  KioskSpecRequest,
-  MailEntry, OpRequest, OrgEvent, OrgListEntry, OrgMdPayload, SweepPreview, ToastFn,
+  MailEntry, OpRequest, OrgEvent, OrgListEntry, OrgMdPayload, ToastFn,
   ProvidersPayload,
   AntigravityEstimate as AgyEstimate,
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePeek,
@@ -700,8 +699,8 @@ export default function App() {
         ))}
         {!orgs.length && <div className="dim pad">no organizations yet</div>}
       </nav>
-      {!BASE && <NewOrg onCreate={(name, dirs, kiosk, sandbox, diskMb) =>
-        createOrg(name, dirs, kiosk, sandbox, diskMb)
+      {!BASE && <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
+        createOrg(name, dirs, netAuto, netHubs)
           .then((r) => { refreshOrgs(); pick(r.slug) })
           .catch((e: Error) => toast([`error: ${e.message}`]))} />}
       {/* global default org settings (user spec): every NEW org is born with
@@ -1465,9 +1464,7 @@ export function UsageModal({ close }: { close: () => void }) {
 }
 
 export function NewOrg({ onCreate }: {
-  onCreate: (name: string, dirs: string[], kiosk: KioskSpecRequest | null,
-             sandbox: boolean, diskMb: number | null,
-             netAuto: boolean, netHubs: string[]) => void
+  onCreate: (name: string, dirs: string[], netAuto: boolean, netHubs: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
@@ -1492,7 +1489,6 @@ export function NewOrg({ onCreate }: {
     <form className="stack" onSubmit={(e) => {
       e.preventDefault()
       onCreate(name, dirs.map((s) => s.trim()).filter(Boolean),
-        null, false, null,
         netAuto, netHubs.map((s) => s.trim()).filter(Boolean))
       reset()
     }}>
@@ -2157,102 +2153,6 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
   )
 }
 
-// a ceiling folder row — mode stays `string`: the row is round-tripped from
-// the open max_scope dict, and the selects constrain it to rw/ro anyway
-interface CeilDir { path: string; mode: string }
-
-// the ceiling document the settings panel edits — max_scope is an open dict
-// in types.ts (TreeKiosk); this states the fields read/written here
-interface MaxScope {
-  tools?: { bash?: boolean; web?: boolean; edit?: boolean; subagents?: boolean; mcp?: string[] } | null
-  add_dirs?: CeilDir[] | null
-  org_visibility?: string | null
-  permission_mode?: string | null
-  max_tier?: string | null
-}
-
-// mode-aware folder rows for the kiosk ceiling (DirList is string-only)
-function CeilDirs({ dirs, onChange }: {
-  dirs: CeilDir[]
-  onChange: (dirs: CeilDir[]) => void
-}) {
-  return (
-    <div className="dirlist">
-      {dirs.map((d, i) => (
-        <div className="dirrow" key={i}>
-          <input placeholder="E:\path\to\folder" value={d.path}
-            onChange={(e) => onChange(dirs.map((x, j) =>
-              (j === i ? { ...x, path: e.target.value } : x)))} />
-          <select value={d.mode} onChange={(e) => onChange(dirs.map((x, j) =>
-            (j === i ? { ...x, mode: e.target.value } : x)))}>
-            <option value="rw">rw</option><option value="ro">ro</option>
-          </select>
-          <button type="button" className="iconbtn" title="remove"
-            onClick={() => onChange(dirs.filter((_, j) => j !== i))}>✕</button>
-        </div>
-      ))}
-      <div className="dirrow">
-        <button type="button" className="addrow"
-          onClick={() => onChange([...dirs, { path: '', mode: 'rw' }])}>+ add folder</button>
-      </div>
-    </div>
-  )
-}
-
-// The pre-migration backup sweep (disk orgs): the migration kept the legacy
-// volumes and host-dir copies for rollback — this shows their cost and drops
-// them behind an armed click. Renders nothing once the backup is gone.
-function SweepBlock({ slug, toast }: { slug: string; toast: ToastFn }) {
-  const [prev, setPrev] = useState<SweepPreview | null>(null)
-  const [armed, setArmed] = useState(false)
-
-  // mobile audit §3.3: onMouseLeave never fires on touch, so the armed latch
-  // used to stay live indefinitely — a multi-GB delete degraded to a single
-  // tap. A 3s timeout disarms everywhere (mouse users keep the leave path).
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(false), 3000)
-    return () => clearTimeout(t)
-  }, [armed])
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    getSweepPreview(slug).then(setPrev).catch(() => setPrev(null))
-  }, [slug])
-  if (!prev || (!prev.volumes.length && !prev.host_dirs.length)) return null
-  const mb = (b: number) => `${Math.round(b / 1048576)} MB`
-  return (
-    <>
-      <div className="field-label">pre-migration backup (rollback for the
-        disk migration)</div>
-      <div className="hint">
-        {prev.volumes.length} legacy volume(s) ({mb(prev.volumes_bytes)}) +
-        host copies ({mb(prev.host_bytes)}) = {mb(prev.total_bytes)} held
-        only for rollback — the live data is on the org disk.
-      </div>
-      <button className={'disk-del' + (armed ? ' armed' : '')} disabled={busy}
-        onMouseLeave={() => setArmed(false)}
-        onClick={() => {
-          if (!armed) { setArmed(true); return }
-          setArmed(false)
-          setBusy(true)
-          sweepLegacy(slug)
-            .then((r) => {
-              toast(r.failures.length
-                ? [`swept with ${r.failures.length} failure(s): ${r.failures[0]}`]
-                : [`rollback backup deleted — freed ~${mb(prev.total_bytes)}`])
-              setPrev(null)
-            })
-            .catch((e: Error) => toast([`error: ${e.message}`]))
-            .finally(() => setBusy(false))
-        }}>
-        <DeleteIcon fontSize="inherit" />
-        {armed ? `really delete the rollback (~${mb(prev.total_bytes)})?`
-          : 'delete the pre-migration backup'}
-      </button>
-    </>
-  )
-}
-
 /** D-222: the org settings modal's tab series. "basic" is always first; the
  *  rest are the categories that used to be inside the nested advanced modal,
  *  now siblings of it. `mailserver` and `autonomy` are conditional — see
@@ -2306,8 +2206,8 @@ export function SettingsPanel({ tree, toast, close }: {
     { id: 'policies', label: 'Policies' },
     ...(tree.net != null
       ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
-    ...(!tree.kiosk ? [{ id: 'autonomy' as const, label: 'Autonomy' }] : []),
-  ], [tree.net, tree.kiosk])
+    { id: 'autonomy', label: 'Autonomy' },
+  ], [tree.net])
   // D-204: these are unsaved inputs. The tabs now stay mounted once visited,
   // so a tab switch can no longer destroy them — but close/reopen still
   // unmounts the whole shell, and keeping the only copies here also means a
@@ -2316,11 +2216,6 @@ export function SettingsPanel({ tree, toast, close }: {
   const [netHubDraft, setNetHubDraft] = useState('')
   const [apiKeyDraft, setApiKeyDraft] = useState('')
 
-  // kiosk permission ceiling (consensus spec): admin payload only — the
-  // public tree never carries max_scope
-  const ms = tree.kiosk?.max_scope as MaxScope | null | undefined
-  // const extraction so the kiosk narrowing survives the click closures
-  const kk = tree.kiosk
   // the shadowing pair below keeps every USE SITE unchanged: same name, same
   // setter signature — only where the value comes from has changed
   const maxTop = val<number | string>('maxTop', tree.max_top_grant ?? 1000)
@@ -2357,31 +2252,6 @@ export function SettingsPanel({ tree, toast, close }: {
   // pre-resume cheap compact (2026-08-17): rides the AUTO limit resume only
   const arCompact = val('arCompact', !!tree.auto_resume_compact)
   const setArCompact = set('arCompact', arCompact)
-  const srvCeil = useMemo(() => (ms ? {
-    bash: !!ms.tools?.bash, web: !!ms.tools?.web, edit: !!ms.tools?.edit,
-    subagents: !!ms.tools?.subagents } : null), [ms])
-  const ceil = val('ceil', srvCeil)
-  const setCeil = set('ceil', ceil)
-  const ceilMcp = val('ceilMcp', (ms?.tools?.mcp ?? []).join(', '))
-  const setCeilMcp = set('ceilMcp', ceilMcp)
-  const srvDirs = useMemo(() => ms?.add_dirs ?? [], [ms])
-  const ceilDirs = val<CeilDir[]>('ceilDirs', srvDirs)
-  const setCeilDirs = set('ceilDirs', ceilDirs)
-  const ceilVis = val('ceilVis', ms?.org_visibility ?? 'full')
-  const setCeilVis = set('ceilVis', ceilVis)
-  const ceilPm = val('ceilPm', ms?.permission_mode ?? 'acceptEdits')
-  const setCeilPm = set('ceilPm', ceilPm)
-  const ceilTier = val('ceilTier', ms?.max_tier ?? '')
-  const setCeilTier = set('ceilTier', ceilTier)
-  const autoRaise = val('autoRaise', !!tree.kiosk?.auto_raise)
-  const setAutoRaise = set('autoRaise', autoRaise)
-  // per-kiosk caps (moved here from the retired all-kiosks dashboard)
-  const kkCredits = val<number | string>('kkCredits', tree.kiosk?.credits ?? 0)
-  const setKkCredits = set('kkCredits', kkCredits)
-  const kkSpend = val<number | string>('kkSpend', tree.kiosk?.spend_limit ?? 0)
-  const setKkSpend = set('kkSpend', kkSpend)
-  const kkStorage = val<number | string>('kkStorage', tree.kiosk?.storage_limit_mb ?? 0)
-  const setKkStorage = set('kkStorage', kkStorage)
   useEffect(() => {
     // null = not loaded: the textarea is disabled and save skips the write.
     // ☠ The catch used to set '' — an empty EDITABLE buffer — so a transient
@@ -2533,11 +2403,7 @@ export function SettingsPanel({ tree, toast, close }: {
           {visited('policies') && (<>
             <SetGroup title="Fable tier">
               <SetRow label="weekly-limit policy"
-                hint={tree.fable_api_fallback
-                  ? 'a TRUSTED weekly Fable-tier hit currently bypasses this'
-                    + ' policy — see "also cover the weekly Fable-tier limit"'
-                    + ' on the Autonomy tab'
-                  : 'what happens when the weekly Fable-tier limit is reached'}>
+                hint="what happens when the weekly Fable-tier limit is reached">
                 <select value={fablePolicy} aria-label="fable weekly-limit policy"
                   onChange={(e) => setFablePolicy(e.target.value)}>
                   <option value="halt">halt (default)</option>
@@ -2629,13 +2495,11 @@ export function SettingsPanel({ tree, toast, close }: {
         )}
 
         {/* ── Autonomy — kiosks have none, so the tab is absent for them ── */}
-        {!kk && (
-          <SettingsTabPanel id="autonomy" idBase="org-settings"
+        <SettingsTabPanel id="autonomy" idBase="org-settings"
             active={tab === 'autonomy'}>
             {visited('autonomy') && <AutonomyTab tree={tree} toast={toast}
               keyDraft={apiKeyDraft} setKeyDraft={setApiKeyDraft} />}
           </SettingsTabPanel>
-        )}
 
         {/* ONE save button for the whole modal, on every tab — the panel's
             single save surface, unchanged. It is now visible from whichever
@@ -2643,10 +2507,6 @@ export function SettingsPanel({ tree, toast, close }: {
             with the panel's own save button" notes the nested modal needed. */}
         <div className="row">
           <button className="primary" onClick={() => {
-            // the bottom save applies the WHOLE panel: the kiosk caps and
-            // the permission ceiling have their own inline buttons, but a
-            // ceiling change followed by "save" used to silently revert
-            // (user report 2026-08-01) — so any dirty group rides along here
             const jobs: Promise<{ warnings?: string[]
                                   freezes_cleared?: string[] }>[] = [
               saveSettings(tree.slug,

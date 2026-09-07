@@ -255,3 +255,25 @@ test('⑥  content-filter policy: auto-autopsy reveals model selector without fa
   } finally { await view.unmount(); delete g.fetch }
 })
 
+
+
+test('legacy excluded fields cannot reintroduce kiosk, disk or fallback controls', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  stubFetch(seen)
+  const { view } = await mountOrg({ kiosk: { max_scope: {}, credits: 99 }, sandboxed: true,
+    disk: { size_mb: 4096 }, api_fallback: true, fable_api_fallback: true })
+  try {
+    assert.ok(tabs(view.el).some(t => t.textContent === 'Basic'), 'real settings modal mounted')
+    for (const label of ['Basic', 'Policies', 'Connections', 'Autonomy']) {
+      await open(view.el, label)
+      const active = view.el.querySelector('[role="tabpanel"]:not([hidden])')!
+      assert.ok(active, label + ' panel is visible')
+      assert.doesNotMatch(active.textContent!, /fallback|sandbox|kiosk|virtual disk|permission ceiling|rollback backup/i)
+    }
+    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
+    await inAct(async () => { save.click(); await flush(10) })
+    const body = seen.find(r => r.path.endsWith('/settings') && r.method === 'POST')!.body as Record<string, unknown>
+    assert.equal(body.max_top_grant, 1000, 'ordinary settings still save')
+    assert.equal(Object.keys(body).some(k => /kiosk|sandbox|disk|fallback/.test(k)), false)
+  } finally { await view.unmount(); delete g.fetch }
+})
