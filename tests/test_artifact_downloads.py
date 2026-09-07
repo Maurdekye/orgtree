@@ -181,6 +181,25 @@ class ArtifactDownloadTests(unittest.TestCase):
             with zipfile.ZipFile(io.BytesIO(artifact.bytes)) as archive:
                 self.assertEqual(archive.read("assets/app.js"), b"old")
 
+    def test_bundle_size_cap_covers_source_and_dependencies_before_snapshot_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_dir = root / "project"
+            source_dir.mkdir()
+            (source_dir / "assets").mkdir()
+            (source_dir / "index.html").write_bytes(b'<img src="assets/app.js">')
+            (source_dir / "assets" / "app.js").write_bytes(b"5678")
+            outbox = root / "outbox"
+            outbox.mkdir()
+            with self.assertRaises(ArtifactForbidden):
+                snapshot_html_bundle(source_dir / "index.html", outbox / "bundle",
+                                     source_dir, destination_root=root, max_bytes=28)
+            self.assertFalse((outbox / "bundle").exists())
+            with self.assertRaises(ArtifactForbidden):
+                build_document_download(
+                    "d-cap", {"id": "d-cap", "format": "html", "title": "Cap",
+                              "file": "project/index.html"}, root, max_bytes=28)
+
 
 if __name__ == "__main__":
     unittest.main()

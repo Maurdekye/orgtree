@@ -70,6 +70,7 @@ class HtmlSnapshot:
     file: str
     bytes: int
     assets: tuple[str, ...]
+    total_bytes: int
 
 
 # Fixed archive timestamps make repeated downloads stable and avoid leaking
@@ -78,6 +79,7 @@ _ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 _MARKDOWN_TYPE = "text/markdown; charset=utf-8"
 _HTML_TYPE = "text/html; charset=utf-8"
 _ZIP_TYPE = "application/zip"
+_DEFAULT_BUNDLE_MAX = 25 * 1048576
 _ASSET_KEYS = ("localassets", "local_assets", "assets")
 _SOURCE_KEYS = ("file", "html_file", "path", "source")
 _SENSITIVE_PARTS = {
@@ -87,10 +89,17 @@ _SENSITIVE_PARTS = {
 _SENSITIVE_NAMES = {".env", ".env.local", ".env.production", ".npmrc"}
 
 
+def _validate_limit(max_bytes: int) -> None:
+    if not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ArtifactForbidden("the HTML bundle size limit is invalid")
+
+
 def build_document_download(
     document_id: str,
     presenter: Mapping[str, Any],
     artifact_root: str | os.PathLike[str],
+    *,
+    max_bytes: int = _DEFAULT_BUNDLE_MAX,
 ) -> DownloadArtifact:
     """Build one authorized presented-document download.
 
@@ -106,6 +115,7 @@ def build_document_download(
     """
     if not isinstance(document_id, str) or not document_id:
         raise ArtifactNotFound("presented document was not found")
+    _validate_limit(max_bytes)
     recorded_id = presenter.get("id")
     if recorded_id is not None and str(recorded_id) != document_id:
         raise ArtifactNotFound("presented document was not found")
@@ -121,10 +131,12 @@ def build_document_download(
     root = _authorized_root(artifact_root)
     source_name = _source_name(presenter)
     source_path = _safe_source_path(root, source_name)
-    source_bytes = _read_file(source_path, source_is_required=True)
+    source_bytes = _read_file(source_path, source_is_required=True,
+                               max_bytes=max_bytes)
     assets = _asset_manifest(presenter)
     discovered = _discover_local_assets(source_path, root, source_name,
-                                        source_bytes)
+                                        source_bytes,
+                                        max_bytes=max_bytes)
     if not assets and not discovered:
         return DownloadArtifact("html", _HTML_TYPE, f"{title}.html", source_bytes)
 
@@ -132,18 +144,23 @@ def build_document_download(
     entries: list[tuple[str, bytes]] = [(source_archive_name, source_bytes)]
     seen = {source_archive_name}
     source_parent = _source_parent(source_name)
-    for source_ref, archive_ref in _asset_entries(assets, source_parent):
-        asset_path = _safe_source_path(root, source_ref)
-        asset_bytes = _read_file(asset_path, source_is_required=False)
-        archive_name = _safe_archive_name(archive_ref)
-        if archive_name in seen:
-            raise ArtifactForbidden("the document asset manifest contains a duplicate")
-        seen.add(archive_name)
-        entries.append((archive_name, asset_bytes))
     for archive_name, asset_bytes in discovered:
         if archive_name not in seen:
             seen.add(archive_name)
             entries.append((archive_name, asset_bytes))
+    total_bytes = sum(len(data) for _, data in entries)
+    for source_ref, archive_ref in _asset_entries(assets, source_parent):
+        asset_path = _safe_source_path(root, source_ref)
+        archive_name = _safe_archive_name(archive_ref)
+        if archive_name in seen:
+            # Auto-discovery already read this exact archive entry.  This also
+            # keeps a legacy explicit manifest compatible with new records.
+            continue
+        asset_bytes = _read_file(asset_path, source_is_required=False,
+                                 max_bytes=max_bytes - total_bytes)
+        seen.add(archive_name)
+        entries.append((archive_name, asset_bytes))
+        total_bytes += len(asset_bytes)
 
     archive = _zip_bytes(entries)
     return DownloadArtifact("zip", _ZIP_TYPE, f"{title}.zip", archive)
@@ -153,9 +170,12 @@ def build_download(
     document_id: str,
     presenter: Mapping[str, Any],
     artifact_root: str | os.PathLike[str],
+    *,
+    max_bytes: int = _DEFAULT_BUNDLE_MAX,
 ) -> DownloadArtifact:
     """Short alias for :func:`build_document_download`."""
-    return build_document_download(document_id, presenter, artifact_root)
+    return build_document_download(document_id, presenter, artifact_root,
+                                   max_bytes=max_bytes)
 
 
 def snapshot_html_bundle(
@@ -164,6 +184,7 @@ def snapshot_html_bundle(
     artifact_root: str | os.PathLike[str],
     *,
     destination_root: str | os.PathLike[str] | None = None,
+    max_bytes: int = _DEFAULT_BUNDLE_MAX,
 ) -> HtmlSnapshot:
     """Copy an HTML source and its local dependencies into an immutable folder.
 
@@ -182,12 +203,15 @@ def snapshot_html_bundle(
     is needed. Missing local references raise :class:`ArtifactNotFound` before
     any destination is created.
     """
+    _validate_limit(max_bytes)
     root = _authorized_root(artifact_root)
     output_root = _authorized_root(destination_root or artifact_root)
     source = _absolute_source_path(source_path, root)
-    source_bytes = _read_file(source, source_is_required=True)
+    source_bytes = _read_file(source, source_is_required=True,
+                               max_bytes=max_bytes)
     source_name = _relative_root_name(source, root)
-    discovered = _discover_local_assets(source, root, source_name, source_bytes)
+    discovered = _discover_local_assets(source, root, source_name, source_bytes,
+                                        max_bytes=max_bytes)
 
     try:
         destination = Path(destination_folder).resolve(strict=False)
@@ -220,6 +244,7 @@ def snapshot_html_bundle(
         file=f"{destination_rel}/{source_archive_name}",
         bytes=len(source_bytes),
         assets=tuple(f"{destination_rel}/{name}" for name, _ in discovered),
+        total_bytes=len(source_bytes) + sum(len(data) for _, data in discovered),
     )
 
 
@@ -279,12 +304,19 @@ def _discover_local_assets(
     root: Path,
     source_name: str,
     source_bytes: bytes,
+    *,
+    max_bytes: int,
 ) -> list[tuple[str, bytes]]:
     """Discover a dependency closure from HTML and nested CSS files."""
+    if not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ArtifactForbidden("the HTML bundle size limit is invalid")
     source_parent = (root / Path(*_source_parent(source_name).split("/"))).resolve()
     pending: deque[tuple[Path, bytes]] = deque([(source_path, source_bytes)])
     visited: set[Path] = {source_path}
     found: list[tuple[str, bytes]] = []
+    total_bytes = len(source_bytes)
+    if total_bytes > max_bytes:
+        raise ArtifactForbidden("the HTML bundle exceeds its download size limit")
     while pending:
         current, data = pending.popleft()
         refs = _resource_urls(current, data)
@@ -296,7 +328,10 @@ def _discover_local_assets(
                 raise ArtifactForbidden("the HTML asset escapes its source directory")
             if candidate in visited:
                 continue
-            asset = _read_file(candidate, source_is_required=False)
+            remaining = max_bytes - total_bytes
+            asset = _read_file(candidate, source_is_required=False,
+                               max_bytes=remaining)
+            total_bytes += len(asset)
             visited.add(candidate)
             archive_name = os.path.relpath(candidate, source_parent).replace("\\", "/")
             archive_name = _safe_archive_name(archive_name)
@@ -451,11 +486,22 @@ def _contained(root: Path, candidate: Path) -> bool:
         return False
 
 
-def _read_file(path: Path, *, source_is_required: bool) -> bytes:
+def _read_file(path: Path, *, source_is_required: bool,
+               max_bytes: int | None = None) -> bytes:
     try:
         if not path.is_file():
             raise OSError
-        return path.read_bytes()
+        if max_bytes is not None and max_bytes < 0:
+            raise ArtifactForbidden("the HTML bundle exceeds its download size limit")
+        with path.open("rb") as handle:
+            if max_bytes is None:
+                return handle.read()
+            data = handle.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise ArtifactForbidden("the HTML bundle exceeds its download size limit")
+            return data
+    except ArtifactDownloadError:
+        raise
     except OSError:
         if source_is_required:
             raise ArtifactNotFound("the presented HTML source is no longer available") from None
