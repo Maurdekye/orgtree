@@ -68,6 +68,7 @@ class ImportIntegrationTests(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.write_text('{"type":"assistant","message":{"role":"assistant","content":"copied original"}}\n', encoding='utf-8')
         org.nodes['worker']['desktop_import'] = {'history':'imports/history/history/worker.jsonl', 'source_session_id':'old-session'}
+        store.save_org(org)
         with patch.object(supervisor, 'transcript_path', return_value=None):
             before = supervisor.read_chat(org, 'worker', hold_back=False)
         with patch.object(supervisor, '_read_chat_current', return_value={'messages':[{'text':'new native turn'}], 'total':1}):
