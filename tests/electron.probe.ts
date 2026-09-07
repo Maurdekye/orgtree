@@ -2,8 +2,9 @@ import { app, BrowserWindow, ipcMain, session } from 'electron'
 import http from 'node:http'
 import crypto from 'node:crypto'
 import path from 'node:path'
+import fs from 'node:fs'
 import assert from 'node:assert/strict'
-import { assertNativeSender, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
+import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
 const seen: { url: string; token?: string }[] = [], foreign: (string | undefined)[] = []
@@ -18,6 +19,12 @@ app.whenReady().then(async () => {
     if (req.url === '/redirect') { res.writeHead(302, { Location: foreignOrigin }); res.end(); return }
     if (req.url === '/asset.css') { res.setHeader('Content-Type', 'text/css'); res.end('body{background:rgb(12,34,56)}'); return }
     if (req.url === '/api/read') { res.setHeader('Content-Type', 'application/json'); res.end('{"ok":true}'); return }
+    if (req.url === '/api/orgs/test/documents/sample/mockup') {
+      res.setHeader('Content-Type', 'text/html')
+      // Captured by executing only v1 api._mockup_wrapper AST, no storage imports.
+      res.end(fs.readFileSync('tests/fixtures/mockup-wrapper.html', 'utf8').replaceAll('__ENGINE__', origin).replaceAll('__FOREIGN__', foreignOrigin))
+      return
+    }
     res.setHeader('Content-Type', 'text/html')
     res.end('<!doctype html><link rel="stylesheet" href="/asset.css"><body><input id="draft" value="retained answer"><div id="mount"></div></body>')
   })
@@ -30,10 +37,10 @@ app.whenReady().then(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`
   const ses = session.fromPartition('shell-fixture')
-  configureEngineSession(ses, origin, token)
-  const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } }
+  const register = configureEngineSession(ses, origin, token)
+  const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, additionalArguments: [`--orgtree-ui-origin=${origin}`] } }
   const main = new BrowserWindow(options)
-  configureWindow(main, origin, true)
+  configureWindow(main, origin, true, register)
   ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
   await main.loadURL(origin)
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -43,6 +50,13 @@ app.whenReady().then(async () => {
   for (const route of ['/', '/asset.css', '/api/read', '/redirect', 'WS']) assert.ok(seen.some(r => r.url === route && r.token === token), 'authenticated ' + route)
   assert.ok(foreign.length >= 2)
   assert.ok(foreign.every(t => t === undefined), 'token never follows cross-origin redirect or fetch')
+  await main.webContents.executeJavaScript(`window.attack=document.createElement('iframe'); attack.src=${JSON.stringify(foreignOrigin + '/frame')}; document.body.appendChild(attack); true`)
+  await new Promise(resolve => setTimeout(resolve, 150))
+  assert.equal(foreign.length, 2, 'foreign iframe document is refused before loading')
+  await main.webContents.executeJavaScript(`window.inline=document.createElement('iframe'); inline.sandbox='allow-scripts'; inline.srcdoc=${JSON.stringify(`<script>fetch('${origin}/api/inline-hostile',{method:'POST',mode:'no-cors'}).catch(()=>{});parent.postMessage('inline-ran','*')<\/script>`)}; window.inlineRan=false;window.addEventListener('message',e=>{if(e.data==='inline-ran')window.inlineRan=true}); document.body.appendChild(inline); true`)
+  await new Promise(resolve => setTimeout(resolve, 150))
+  assert.equal(await main.webContents.executeJavaScript('inlineRan'), true)
+  assert.ok(seen.some(r => r.url === '/api/inline-hostile' && !r.token), 'same-origin srcdoc request executes but is unsigned')
   const childCreated = new Promise<BrowserWindow>(resolve => main.webContents.once('did-create-window', resolve))
   await main.webContents.executeJavaScript(`window.child=window.open('about:blank','owned-portal'); window.node=document.getElementById('draft'); child.document.body.appendChild(node); node.value='same live draft'; true`)
   const child = await childCreated
@@ -55,8 +69,21 @@ app.whenReady().then(async () => {
   const impostor = new BrowserWindow(options)
   await impostor.loadURL(origin)
   assert.equal(await impostor.webContents.executeJavaScript('window.orgtreeDesktop.getStatus().then(()=>false,()=>true)'), true)
+  await impostor.loadURL(foreignOrigin)
+  assert.equal(await impostor.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined', 'foreign loopback port never gets a preload bridge')
+  const artifact = origin + '/api/orgs/test/documents/sample/mockup'
+  const artifactSession = session.fromPartition('artifact-probe')
+  configureArtifactSession(artifactSession, artifact, origin, token)
+  const viewer = new BrowserWindow({ show: false, webPreferences: { session: artifactSession, sandbox: true, nodeIntegration: false, contextIsolation: true } })
+  await viewer.loadURL(artifact)
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.ok(seen.some(r => r.url === '/api/orgs/test/documents/sample/mockup' && r.token === token), 'actual presentation route has its one read capability')
+  assert.ok(!seen.some(r => r.url === '/api/hostile'), 'artifact child engine POST refused before send')
+  assert.ok(foreign.length > 2, 'artifact internet resource is permitted')
+  assert.ok(foreign.every(t => !t), 'artifact internet resource never gets desktop auth')
+  assert.equal(await viewer.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(foreignOrigin)}) === null`), true)
-  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true }))
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true }))
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   server.close(); outsider.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

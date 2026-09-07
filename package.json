@@ -12,8 +12,10 @@
     "test": "node --test tests/*.test.mjs",
     "start": "electron .",
     "dev": "npm run build && electron .",
-    "package:dir": "npm run build && electron-builder --dir",
-    "package:win": "npm run build && electron-builder --win nsis"
+    "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",
+    "package:win": "npm run build && node tools/package-preflight.mjs && electron-builder --win nsis",
+    "test:electron": "node tools/test-electron.mjs",
+    "runtime:provision": "python tools/provision-runtime.py"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -44,9 +46,9 @@
     "productName": "Orgtree",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "package.json", "LICENSE"],
-    "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }],
+    "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }],
     "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false },
     "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "prerelease" }]
   }
 }

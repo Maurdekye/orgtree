@@ -12,17 +12,19 @@ async function load(name) {
   await build({ entryPoints: [`apps/desktop/main/${name}.ts`], outfile: out, bundle: true, platform: 'node', format: 'cjs' })
   return req(out)
 }
-const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses')
+const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses'), { NotificationGate } = await load('notifications')
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { exitOnClose: false, startAtLogin: true })
+  assert.deepEqual(prefs.get(), { exitOnClose: false, startAtLogin: true, routineNotifications: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { exitOnClose: true, startAtLogin: false })
+  assert.deepEqual(new Preferences(file).get(), { exitOnClose: true, startAtLogin: false, routineNotifications: false })
   for (const bad of [[], null, { startAtLogin: 'false' }, { token: true }, { toString: true }]) assert.throws(() => prefs.set(bad))
   assert.equal(policy.closeAction(false, false), 'hide')
   assert.equal(policy.closeAction(true, false), 'quit')
   assert.equal(policy.closeAction(false, true), 'close')
+  assert.equal(policy.closeAction(true, false, 1), 'hide', 'closing main cannot quit while another view remains')
+  assert.equal(policy.closeAction(true, false, 0), 'quit', 'last visible view honors preference')
 })
 test('resolved v2 root refuses v1 root and overlap before any engine import', () => {
   const old = path.join(temp, 'v1'); fs.mkdirSync(old)
@@ -51,4 +53,14 @@ test('harness detection has positive fixture and never executes it', () => {
   assert.equal(rows.find(r => r.id === 'codex').detected, true)
   assert.equal(rows.find(r => r.id === 'claude').detected, false)
   assert.equal(rows.length, 3)
+})
+
+test('native notification defaults are attention-only, with bounded validated identity dedup', () => {
+  const gate = new NotificationGate(), base = { id: 'n1', org: 'org', title: 'Title', body: 'Body', kind: 'routine' }
+  assert.equal(gate.take(base, false), null)
+  assert.ok(gate.take(base, true))
+  assert.equal(gate.take(base, true), null)
+  assert.ok(gate.take({ ...base, org: 'other' }, true), 'same local id in another org is distinct')
+  for (const kind of ['question', 'urgent-mail', 'work-attention']) assert.ok(gate.take({ ...base, id: kind, kind }, false))
+  for (const patch of [{ kind: 'arbitrary' }, { icon: 'file:///private' }, { body: 'x'.repeat(2001) }]) assert.throws(() => gate.take({ ...base, ...patch }, true))
 })

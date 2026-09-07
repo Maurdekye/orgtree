@@ -28,9 +28,10 @@ export class Engine extends EventEmitter {
     if (!fs.existsSync(path.join(options.directory, 'launch.py'))) throw new Error('Python engine has not been packaged')
     fs.mkdirSync(root, { recursive: true })
     const realRoot = fs.realpathSync.native(root)
+    validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
     const env = { ...process.env, ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
-      ORGTREE_V2_UI_DIR: options.uiDirectory, PYTHONUNBUFFERED: '1' }
+      ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]
     const child = spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })

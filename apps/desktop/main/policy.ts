@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { exitOnClose: false, startAtLogin: true }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { exitOnClose: false, startAtLogin: true, routineNotifications: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -69,6 +69,6 @@ export function trustedUiUrl(value: string, origin: string): boolean {
   return u.protocol === 'http:' && (u.pathname === '/' || u.pathname === '/index.html')
 }
 
-export function closeAction(exitOnClose: boolean, quitting: boolean): 'hide' | 'quit' | 'close' {
-  return quitting ? 'close' : exitOnClose ? 'quit' : 'hide'
+export function closeAction(exitOnClose: boolean, quitting: boolean, otherVisibleViews = 0): 'hide' | 'quit' | 'close' {
+  return quitting ? 'close' : exitOnClose && otherVisibleViews === 0 ? 'quit' : 'hide'
 }
