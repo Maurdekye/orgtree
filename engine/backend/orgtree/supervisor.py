@@ -41,7 +41,7 @@ from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
 from typing import Any, Final, Protocol, cast
 
-from . import (accounts, appsettings, cachecontinuity, clipin, codex_limits, events,
+from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_limits, events,
                codex_route, deployment, envelope, failfix, handoff, imgblock,
                limits, localtime, net, openrouter, opreceipts, providers,
                sandbox as sbx, store,
@@ -1286,7 +1286,8 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
         st["live_n"] = n = int(st.get("live_n") or 0) + 1
         rows.append({**payload, "at": now_iso(), "n": n,
                      "event_id": (payload.get("event_id") or
-                                   f"live:{slug}:{nid}:{n}")})
+                                   f"live:{_BOOT_TOKEN}:{slug}:{nid}:{n}")})
+        payload = {**payload, "event_id": rows[-1]["event_id"]}
         del rows[:-_LIVE_KEEP]
     # the claude and codex lanes reach the epoch through here, because their
     # text rows go out as live rows (their transcript may lag, so the row holds
@@ -2624,12 +2625,16 @@ def _stable_event_id(org: Org, nid: str, row: Mapping[str, Any]) -> str:
     source = (row.get("event_id") or row.get("id") or
               row.get("request_id") or row.get("requestId") or
               row.get("_source_id"))
-    if source:
+    if source and not str(source).startswith("record:"):
         return str(source)
     payload = json.dumps({"org": org.d["slug"], "agent": nid,
                           "generation": int(node.get("generation") or 0),
+                          "session": node.get("session_id"),
+                          "source": source,
                           "ts": row.get("ts"), "role": row.get("role"),
-                          "text": row.get("text", "")},
+                          "text": row.get("text", ""),
+                          "content": {k: v for k, v in row.items()
+                                      if not k.startswith("_") and k not in {"seq", "event_id"}}},
                          sort_keys=True, ensure_ascii=False,
                          separators=(",", ":"))
     return "evt_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
@@ -2645,20 +2650,20 @@ def resolve_chat_event(org: Org, nid: str, ref: Mapping[str, Any]
     it is kept private and never exposed as ``seq``.
     """
     if not isinstance(ref, Mapping):
-        raise ledger_mod.LedgerError("source_event_ref must be an object")
+        raise LedgerError("source_event_ref must be an object")
     if str(ref.get("org") or "") != str(org.d.get("slug") or ""):
-        raise ledger_mod.LedgerError("source_event_ref.org must be this org")
+        raise LedgerError("source_event_ref.org must be this org")
     if str(ref.get("agent") or "") != nid:
-        raise ledger_mod.LedgerError("source_event_ref.agent must be this node")
+        raise LedgerError("source_event_ref.agent must be this node")
     try:
         generation = int(ref.get("generation"))
     except (TypeError, ValueError):
-        raise ledger_mod.LedgerError("source_event_ref.generation is required")
+        raise LedgerError("source_event_ref.generation is required")
     if generation != int(org.node(nid).get("generation") or 0):
-        raise ledger_mod.LedgerError("source_event_ref generation is stale")
+        raise LedgerError("source_event_ref generation is stale")
     event_id = str(ref.get("eventId") or "")
     if not event_id:
-        raise ledger_mod.LedgerError("source_event_ref.eventId is required")
+        raise LedgerError("source_event_ref.eventId is required")
     chat = read_chat(org, nid, last=None, hold_back=False)
     rows = [*(chat.get("messages") or []), *(chat.get("live") or [])]
     row = next((r for r in rows if str(r.get("event_id") or "") == event_id), None)
@@ -2667,7 +2672,7 @@ def resolve_chat_event(org: Org, nid: str, ref: Mapping[str, Any]
         row = next((m for m in (org.d.get("mail") or {}).get(nid, [])
                     if str(m.get("id") or "") == mid), None)
     if row is None:
-        raise ledger_mod.LedgerError("source event is not present for this node")
+        raise LedgerError("source event is not present for this node")
     text = str(row.get("text") or row.get("body") or row.get("cmd_out") or "")[:4000]
     return ({"org": str(org.d["slug"]), "agent": nid,
              "generation": generation, "eventId": event_id}, text)
@@ -3644,6 +3649,8 @@ def clean_env() -> dict[str, str]:
     # and whether the HOST is reachable off loopback is not the agent's
     # business — strip it here rather than let it ride into every turn.
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
+    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
+        env.pop(secret, None)
     # §9.5 (redteam finding 2026-08-05, measured): a HOST-level Anthropic key
     # silently switched EVERY keyless org — kiosks included — off the
     # subscription and onto the key, with api_key_set reading false the whole
@@ -3704,7 +3711,9 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in ent.items():
         ks = str(k)
-        if ks.startswith("ANTHROPIC_") or ks == "CLAUDE_CODE_OAUTH_TOKEN":
+        if ks.startswith("ANTHROPIC_") or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
+                "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN",
+                "ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
             continue
         out[ks] = str(v)
     return out
@@ -3762,6 +3771,9 @@ def spawn_env(org: Org, tier: str | None = None,
     and setting it on the host-side `docker exec` would leak it into an
     argv/env the container does not own."""
     env = clean_env()
+    if nid is not None:
+        from . import agentauth
+        env.update(agentauth.child_env(org.d["slug"], nid))
     if sbx.is_sandboxed(org):
         return env
     # D-206 (fleet ruling 2026-08-30): turn on the CLI's own prompt-cache
@@ -8127,7 +8139,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
         chosen["orgtree"] = {
             "command": "python3",
             "args": ["/opt/orgtree-backend/orgtree/mcptool.py"],
-            "env": {"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                     "ORGTREE_BASE": sbx.bridge_url(),
                     "ORGTREE_BRIDGE_SECRET": bridge_credential,
                     deployment.PROFILE_ENV:
@@ -8138,7 +8150,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
         chosen["orgtree"] = {
             "command": sys.executable,
             "args": ["-m", "orgtree.mcptool"],
-            "env": {"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                     "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
                     "PYTHONPATH": BACKEND_DIR,
                     deployment.PROFILE_ENV:
@@ -10989,7 +11001,7 @@ def _codex_process_spec(org: Org, nid: str, *,
         "identity": ident,
         "config_overrides": (codexrun.mcp_config_overrides(mcp_chosen)
                              + _codex_tool_config(org.node(nid)["scope"])),
-        "env_extra": {"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env_extra": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
                       **_codex_git_trust_env(org.node(nid)["scope"])},
         "port": port,
@@ -11732,6 +11744,10 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         startup_manifest["cache_tools"]["dynamic_tools"]))
     mcp_overrides = list(process_spec["config_overrides"])
     port = str(process_spec["port"])
+    tool_headers = {"Content-Type": "application/json"}
+    scoped_token = agentauth.child_env(slug, nid).get("ORGTREE_AGENT_TOKEN")
+    if scoped_token:
+        tool_headers["X-Orgtree-Agent-Token"] = scoped_token
 
     def _tool_call(tool: str, args: dict[str, Any]) -> str:
         # the same request the MCP server makes for a claude agent — identity
@@ -11741,7 +11757,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             f"http://127.0.0.1:{port}/api/agent",
             data=json.dumps({"org": slug, "node": nid, "tool": tool,
                              "args": args}).encode(),
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers=tool_headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 out = r.read().decode("utf-8", "replace")
@@ -13362,7 +13378,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         # INHERITED from the CLI process (measured — the parent's
         # ORGTREE_NODE reached the server), so partial specs would
         # identity-confuse mcptool
-        "env": {"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                 "ORGTREE_PORT": port, "PYTHONPATH": BACKEND_DIR,
                 deployment.PROFILE_ENV: deployment.current_policy().name},
     }
@@ -13892,7 +13908,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         model=model_id, effort=effort,
         conversation_id=resume_cid, yolo=True,
         on_event=_on_event,
-        env_extra={"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        env_extra={**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                    "ORGTREE_PORT": port},
         log_file=log_file, turn_timeout=TURN_TIMEOUT)
     # the turn object is the process generation's owner token here: the
@@ -14791,6 +14807,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # resolver call.
             st["ran_as"] = identity_in_env(env)
             env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid
+            env.update(agentauth.child_env(slug, nid))
             env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
             env["PYTHONPATH"] = BACKEND_DIR + os.pathsep + env.get("PYTHONPATH", "")
             # ── D-201: serve this turn from the warm pool when a parked
@@ -20044,7 +20061,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             # compacting — a split nobody would find for weeks.
             sandbox=_codex_sandbox(n["scope"]),
             developer_instructions=identity_prompt(org, nid),
-            env_extra={"ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        env_extra={**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                        "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360")})
         new_sid = str(compacted.get("thread_id") or "")
         token_usage = compacted.get("token_usage")

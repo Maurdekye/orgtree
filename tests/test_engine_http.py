@@ -1,0 +1,141 @@
+"""Real launcher/HTTP boundary with fixture data, no provider turns."""
+import json
+import os
+from pathlib import Path
+import queue
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+import urllib.request
+import urllib.error
+
+ROOT = Path(__file__).resolve().parents[1]
+CHILD = r'''
+import json, launch
+original = launch.load_app
+def seeded():
+    result = original()
+    from orgtree import store, agentauth, supervisor
+    from orgtree.ledger import USER
+    org = store.create_org("auth-fixture")
+    org.hire(USER, None, "haiku", 0, "caller")
+    org.hire(USER, None, "haiku", 0, "old")
+    store.save_org(org)
+    stale = agentauth.child_env('auth-fixture', 'old')['ORGTREE_AGENT_TOKEN']
+    org.node('old')['generation'] = 1
+    store.save_org(org)
+    token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
+    print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
+    import os
+    os.environ['ORGTREE_V2_HUB_TOKEN'] = 'owner-control'
+    safe = supervisor.clean_env()
+    assert 'ORGTREE_V2_HUB_TOKEN' not in safe
+    assert 'ORGTREE_V2_TOKEN' not in safe
+    assert safe['ORGTREE_PORT'] == str(result[3])
+    return result
+launch.load_app = seeded
+launch.main()
+'''
+
+class EngineHTTPTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="v2-http-")
+        root = Path(cls.tmp.name)
+        data = root / 'data'; data.mkdir()
+        home = root / 'home'; home.mkdir()
+        env = dict(os.environ)
+        for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_PORT'):
+            env.pop(key, None)
+        env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
+                   ORGTREE_V2_TOKEN='test-operator-secret')
+        cls.log = (root / 'stderr.log').open('w+')
+        cls.process = subprocess.Popen([sys.executable, '-c', CHILD], cwd=ROOT / 'engine',
+             env=env, stdout=subprocess.PIPE, stderr=cls.log, text=True)
+        lines = queue.Queue()
+        def reader():
+            for line in cls.process.stdout:
+                lines.put(line)
+            lines.put(None)
+        threading.Thread(target=reader, daemon=True).start()
+        cls.token = None
+        try:
+            while True:
+                line = lines.get(timeout=60)
+                if line is None:
+                    cls.log.seek(0)
+                    raise AssertionError('launcher exited: ' + cls.log.read())
+                try: row = json.loads(line)
+                except ValueError: continue
+                if 'fixtureToken' in row:
+                    cls.token = row['fixtureToken']
+                    cls.stale = row['staleToken']
+                if row.get('type') == 'ready':
+                    cls.port = row['port']
+                    assert cls.port != 7360
+                    assert row['dataRootId'] == str(data.resolve())
+                    break
+        except BaseException:
+            cls.process.terminate(); cls.process.wait(timeout=15)
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        try: cls.request('/api/desktop/shutdown', {}, operator=True)
+        finally:
+            try: cls.process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                cls.process.terminate(); cls.process.wait(timeout=15)
+            cls.log.close()
+            cls.tmp.cleanup()
+
+    @classmethod
+    def request(cls, path, payload=None, operator=False, token=None):
+        headers = {'Content-Type':'application/json'}
+        if operator: headers['X-Orgtree-Desktop-Token'] = 'test-operator-secret'
+        if token: headers['X-Orgtree-Agent-Token'] = token
+        req = urllib.request.Request(f'http://127.0.0.1:{cls.port}{path}',
+            data=None if payload is None else json.dumps(payload).encode(), headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.load(r)
+        except urllib.error.HTTPError as e:
+            return e.code, json.load(e)
+
+    def test_scoped_agent_and_operator_controls(self):
+        call = {'org':'auth-fixture','node':'caller','tool':'orgtree_chart','args':{}}
+        status, body = self.request('/api/agent', call, token=self.token)
+        self.assertEqual(status, 200, body)
+        self.assertIn('chart', body)
+        self.assertEqual(self.request('/api/agent', call)[0], 401)
+        self.assertEqual(self.request('/api/agent', call, token=self.token+'x')[0], 401)
+        self.assertEqual(self.request('/api/agent', {**call,'node':'forged'}, token=self.token)[0], 403)
+        self.assertEqual(self.request('/api/agent', {**call,'org':'foreign'}, token=self.token)[0], 403)
+        self.assertEqual(self.request('/api/agent', {**call,'node':'old'}, token=self.stale)[0], 403)
+        self.assertEqual(self.request('/api/desktop/status', token=self.token)[0], 401)
+        status, body = self.request('/api/desktop/status', operator=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(body['activeAgents'], 0)
+        self.assertTrue(body['idle'])
+
+    def test_real_mcptool_post_uses_scoped_token_and_engine_port(self):
+        env = dict(os.environ)
+        env.update(ORGTREE_PORT=str(self.port), ORGTREE_AGENT_TOKEN=self.token,
+                   ORGTREE_DATA=str(Path(self.tmp.name) / 'data'),
+                   HOME=str(Path(self.tmp.name) / 'home'),
+                   USERPROFILE=str(Path(self.tmp.name) / 'home'),
+                   PYTHONPATH=str(ROOT / 'engine' / 'backend'))
+        env.pop('ORGTREE_BASE', None)
+        env.pop('ORGTREE_V2_TOKEN', None)
+        code = "from orgtree.mcptool import _post; import json; print(json.dumps(_post({'org':'auth-fixture','node':'caller','tool':'orgtree_chart','args':{}})))"
+        result = subprocess.run([sys.executable, '-c', code], env=env,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        kind, body = json.loads(result.stdout)
+        self.assertEqual(kind, 'ok', body)
+        self.assertIn('chart', json.loads(body))
+
+if __name__ == '__main__':
+    unittest.main()

@@ -39,8 +39,14 @@ def validate_data_root(root: Path) -> Path:
     root = root.expanduser().resolve()
     if not root.is_dir():
         raise RuntimeError(f"ORGTREE_DATA is not a directory: {root}")
-    if root == Path(os.environ.get("ORGTREE_V1_ROOT", "")).expanduser().resolve():
-        raise RuntimeError("ORGTREE_DATA must not be the V1 source root")
+    forbidden = [Path.home() / "orgtree"]
+    for key in ("ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT"):
+        if os.environ.get(key, "").strip():
+            forbidden.append(Path(os.environ[key]))
+    for path in forbidden:
+        path = path.expanduser().resolve()
+        if root == path or path in root.parents or root in path.parents:
+            raise RuntimeError("ORGTREE_DATA overlaps a V1 root")
     return root
 
 
@@ -99,6 +105,13 @@ class TokenGate:
             return
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
         supplied = headers.get(b"x-orgtree-desktop-token", b"").decode("utf-8")
+        if supplied != self.token and scope.get("type") == "http" and scope.get("path") == "/api/agent" and scope.get("method") == "POST":
+            from orgtree import agentauth
+            identity = agentauth.verify(headers.get(b"x-orgtree-agent-token", b"").decode("utf-8"))
+            if identity is not None:
+                scope.setdefault("state", {})["agent_identity"] = identity
+                await self.app(scope, receive, send)
+                return
         if supplied != self.token:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 4401})
@@ -114,17 +127,18 @@ class TokenGate:
 
 def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
     """Add the small native-shell control surface to the real V1 app."""
-    from orgtree import store  # noqa: PLC0415
+    from orgtree import store, supervisor  # noqa: PLC0415
 
     @api_app.get("/api/desktop/status")
     def desktop_status() -> dict[str, Any]:
-        total = active = 0
-        idle = True
+        total = 0
         for row in store.list_orgs():
             total += int(row.get("nodes") or 0)
-            active += int(row.get("live") or 0)
-            if int(row.get("live") or 0):
-                idle = False
+        with supervisor._state_lock:
+            states = list(supervisor._state.values())
+            active = sum(bool(s.get("busy")) for s in states)
+            idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
+                           for s in states)
         return {"activeAgents": active, "totalAgents": total, "idle": idle}
 
     @api_app.post("/api/desktop/shutdown")
@@ -149,9 +163,12 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     # Child MCP/tool processes inherit this concrete engine port. Never let
     # their copied V1 default (7360) target another installation.
     os.environ["ORGTREE_PORT"] = str(port)
+    os.environ.pop("ORGTREE_BASE", None)
     os.environ["ORGTREE_DATA"] = str(data)
     os.environ.pop("ORGTREE_V2_TOKEN", None)
     sys.path.insert(0, str(backend))
+    from orgtree import agentauth
+    agentauth.enable()
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
@@ -175,14 +192,19 @@ def main() -> None:
     # getattr keeps this launcher importable while that sibling commit lands.
     os.environ["ORGTREE_V2_HUB_TOKEN"] = str(getattr(hub_ready, "token", ""))
     import uvicorn  # noqa: PLC0415
-    print(json.dumps({"type": "ready", "protocol": 1, "port": port,
-                      "pid": os.getpid(), "dataRootId": data_root_id(data),
-                      "hubPort": hub_ready.port},
-                     separators=(",", ":")), flush=True)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
                                            access_log=False))
     async def serve() -> None:
         task = asyncio.create_task(server.serve())
+        while not server.started and not task.done():
+            await asyncio.sleep(0.01)
+        if task.done():
+            await task
+            raise RuntimeError("engine exited before readiness")
+        print(json.dumps({"type": "ready", "protocol": 1, "port": port,
+                          "pid": os.getpid(), "dataRootId": data_root_id(data),
+                          "hubPort": hub_ready.port},
+                         separators=(",", ":")), flush=True)
         while not task.done():
             if stopping["value"]:
                 server.should_exit = True

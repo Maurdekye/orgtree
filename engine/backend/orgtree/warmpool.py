@@ -73,7 +73,7 @@ import threading
 import time
 from typing import Any, Iterator
 
-from . import store
+from . import store, agentauth
 
 # ── knobs ──────────────────────────────────────────────────────────────────
 # how often the keeper re-checks every live agent's hash even with no poke.
@@ -1997,6 +1997,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
             org, nid, cmd=cmd, env=env, overrides=ov)
         env_id = sup.identity_in_env(env)
         env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid
+        env.update(agentauth.child_env(slug, nid))
         env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
         env["PYTHONPATH"] = (sup.BACKEND_DIR + os.pathsep
                              + env.get("PYTHONPATH", ""))

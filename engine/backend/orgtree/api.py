@@ -3558,7 +3558,7 @@ def node_message(slug: str, nid: str, body: Message,
         try:
             org = store.load_org(slug)
             reply_meta: dict[str, Any] | None = None
-            if body.reply_to is not None:
+            if body.reply_to is not None and target is None:
                 raw_ref = body.reply_to.get("source_event_ref")
                 source_ref, quote = supervisor.resolve_chat_event(org, nid, raw_ref)
                 reply_meta = {"source_event_ref": source_ref,
@@ -6882,6 +6882,18 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     entirely: they read the filesystem, not the doc."""
     # a sandboxed container's secret pins it to its OWN org — a compromised
     # sandbox cannot act as another org's agents
+    identity = getattr(request.state, "agent_identity", None)
+    if identity is not None:
+        if (body.org, body.node) != tuple(identity[:2]):
+            raise HTTPException(403, "agent credential identity mismatch")
+        with store.DOC_LOCK:
+            try:
+                caller = store.load_org(body.org).node(body.node)
+                valid = caller.get("state") == "live" and int(caller.get("generation", 0)) == identity[2]
+            except LedgerError:
+                valid = False
+        if not valid:
+            raise HTTPException(403, "agent credential is stale")
     bridge_slug = getattr(request.state, "bridge_slug", None)
     if bridge_slug and body.org != bridge_slug:
         raise HTTPException(403, "bridge secret is scoped to its own org")

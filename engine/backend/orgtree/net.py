@@ -630,6 +630,17 @@ def _auth_header(pairs: list[tuple[str, str]],
     return headers
 
 
+def _is_local_owner(hub: dict[str, Any]) -> bool:
+    from urllib.parse import urlsplit
+    address = str(hub.get("address") or "").rstrip("/")
+    runtime = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").rstrip("/")
+    parsed = urlsplit(address)
+    return (str(hub.get("id")) == LOCAL_HUB_ID and bool(runtime)
+            and address == runtime and parsed.scheme == "http"
+            and parsed.hostname in {"127.0.0.1", "::1"}
+            and parsed.username is None and parsed.password is None)
+
+
 def _hub_headers(hub: dict[str, Any],
                  pairs: list[tuple[str, str]]) -> dict[str, str]:
     """Build private transport headers without exposing hub credentials.
@@ -638,9 +649,9 @@ def _hub_headers(hub: dict[str, Any],
     revocable token bound to the org slug.  Neither value belongs in a tree
     payload or mail envelope.
     """
-    token = str(hub.get("token") or hub.get("peer_token") or "")
-    if str(hub.get("id")) == LOCAL_HUB_ID:
-        return _auth_header(pairs, token)
+    if _is_local_owner(hub):
+        return _auth_header(pairs, str(hub.get("token") or ""))
+    token = str(hub.get("peer_token") or "")
     headers = _auth_header(pairs)
     if token:
         headers["X-Hub-Peer-Token"] = token
@@ -657,10 +668,11 @@ def _group_headers(parts: dict[str, dict[str, Any]],
     for slug, hid in members.items():
         hub = next((h for h in parts[slug]["hubs"]
                     if str(h.get("id")) == str(hid)), {})
-        token = str(hub.get("token") or hub.get("peer_token") or "")
+        local = _is_local_owner(hub)
+        token = str(hub.get("token" if local else "peer_token") or "")
         if not token:
             continue
-        (local_tokens if str(hub.get("id")) == LOCAL_HUB_ID
+        (local_tokens if local
          else peer_tokens).append(token)
     if local_tokens:
         headers["X-Hub-Token"] = local_tokens[0]

@@ -2269,7 +2269,7 @@ class Org:
                 f"{len(lost)} attachment(s) did NOT reach {to}: "
                 + "; ".join(lost))
         rt_gist = " ".join(str((reply_to or {}).get("gist") or "").split())
-        if reply_to and rt_gist:
+        if reply_to and (rt_gist or isinstance(reply_to.get("source_event_ref"), dict)):
             # FR-05: a sanitized SNAPSHOT of the mail being replied to —
             # captured at send so the quote never depends on the original
             # still existing (retraction, archive caps). Redteam round
@@ -2296,7 +2296,7 @@ class Org:
                 entry["reply_to"]["source_event_ref"] = {
                     "org": str(source_ref.get("org") or "")[:120],
                     "agent": str(source_ref.get("agent") or "")[:120],
-                    "generation": str(source_ref.get("generation") or "")[:32],
+                    "generation": int(source_ref.get("generation", 0)),
                     "eventId": str(source_ref.get("eventId") or "")[:160],
                 }
                 entry["reply_to"]["quoted_context"] = str(

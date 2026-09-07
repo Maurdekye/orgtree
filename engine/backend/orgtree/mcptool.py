@@ -1803,6 +1803,8 @@ def _post(payload: dict[str, Any], timeout: float = 30) -> tuple[str, str]:
     way back.
     """
     headers: dict[str, str] = {"Content-Type": "application/json"}
+    if os.environ.get("ORGTREE_AGENT_TOKEN"):
+        headers["X-Orgtree-Agent-Token"] = os.environ["ORGTREE_AGENT_TOKEN"]
     if BRIDGE_SECRET:
         headers["X-Orgtree-Bridge"] = BRIDGE_SECRET
     req = urllib.request.Request(f"{BASE}/api/agent",
