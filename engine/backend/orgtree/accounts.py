@@ -199,6 +199,8 @@ def load(*, strict: bool = False) -> dict[str, Any]:
     hand recovery). A version-1 document is not corrupt: it migrates in
     memory on every load, for readers and writers alike.
     """
+    if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
+        return _blank()
     try:
         with open(registry_path(), encoding="utf-8") as f:
             doc = json.load(f)
@@ -239,6 +241,8 @@ def save(doc: dict[str, Any]) -> None:
     """Atomic tmp+replace, mirroring store.save_org — including the fsync,
     because a half-written registry reads as 'no keys registered' and the
     rows are not re-creatable from anywhere else."""
+    if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
+        raise RegistryUnreadable('Multi-account registry writes are unavailable in desktop MVP')
     _reject_secrets(doc)                       # before anything touches disk
     doc["version"] = VERSION
     blob = json.dumps(doc, indent=2).encode("utf-8")

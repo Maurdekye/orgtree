@@ -189,15 +189,17 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     os.environ.pop("ORGTREE_BASE", None)
     os.environ["ORGTREE_DATA"] = str(data)
     os.environ.pop("ORGTREE_V2_TOKEN", None)
+    os.environ['ORGTREE_DESKTOP_MANAGED'] = '1'
     sys.path.insert(0, str(backend))
     from orgtree import agentauth
     agentauth.enable()
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
-    from orgtree import desktop_import, desktop_recovery, desktop_maintenance
+    from orgtree import desktop_import, desktop_recovery, desktop_maintenance, desktop_policy
     desktop_maintenance.install()
     os.environ['ORGTREE_DESKTOP_MANAGED'] = '1'
     desktop_import.configure(on_imported=desktop_recovery.resume_import)
     api.app.include_router(desktop_import.router)
+    desktop_policy.install_routes(api.app)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
     return TokenGate(api.app, token), token, data, port, stopping

@@ -65,6 +65,8 @@ def kiosk_cfg(org: Org) -> KioskCfg | None:
 
 def _deployment_org_gate(org: Org) -> None:
     """Refuse every agent execution path that cannot prove sandboxing."""
+    from . import desktop_policy
+    desktop_policy.validate(org.d)
     if deployment.current_policy().require_sandboxed_orgs \
             and not sbx.is_sandboxed(org):
         raise RuntimeError(
@@ -4096,6 +4098,8 @@ def api_fallback_active(org: Org, now: float | None = None) -> bool:
     freeze time to the limit's own reset; reverting is pure expiry — no
     writer, no timer: spawn_env and the bridge proxy just stop choosing the
     key. Read wherever billing or readiness needs the answer."""
+    if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
+        return False
     if not (org.d.get("api_fallback") and org.d.get("api_key")):
         return False
     now = time.time() if now is None else now

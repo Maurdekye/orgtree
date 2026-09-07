@@ -1161,6 +1161,12 @@ async def bridge_credential_rotate(
 
 @app.post("/api/orgs")
 def orgs_create(body: OrgCreate) -> dict[str, Any]:
+    from . import desktop_policy
+    try:
+        desktop_policy.validate(body.model_dump())
+        desktop_policy.validate(load_org_defaults())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     policy = deployment.current_policy()
     # Validate global defaults before create_org writes a workspace or doc.
     dflt = load_org_defaults()
@@ -2169,6 +2175,11 @@ def defaults_get() -> dict[str, Any]:
 
 @app.post("/api/defaults")
 def defaults_set(body: Settings) -> dict[str, Any]:
+    from . import desktop_policy
+    try:
+        desktop_policy.validate(body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     d = load_org_defaults()
     if body.max_top_grant is not None and body.max_top_grant > 0:
         d["max_top_grant"] = int(body.max_top_grant)
@@ -2225,6 +2236,11 @@ def defaults_set(body: Settings) -> dict[str, Any]:
 
 @app.post("/api/orgs/{slug}/settings")
 def org_settings(slug: str, body: Settings) -> dict[str, Any]:
+    from . import desktop_policy
+    try:
+        desktop_policy.validate(body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     """Org-level knobs. Folder holdings (org_dirs) are edited from the eye's
     gear panel: the workspace is permanent; additions apply to FUTURE hires;
     removals revoke everywhere; rw→ro downgrades propagate to every grant."""
