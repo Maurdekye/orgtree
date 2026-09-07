@@ -74,6 +74,12 @@ function main() {
     return
   }
   const root = isolatedRoot()
+  if (process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') {
+    const fixture = path.join(root, 'v2-import-fixture-source')
+    const seed = spawnSync(python, [path.join(here, 'seed_import_fixture.py'), target, fixture], { cwd: target, encoding: 'utf8', windowsHide: true })
+    if (seed.status !== 0) throw new Error('Isolated import seed failed')
+    fs.copyFileSync(path.join(fixture, 'manifest.json'), path.join(root, 'import-manifest.json'))
+  }
   const manifest = runtimeManifest(target, packaged)
   fs.writeFileSync(path.join(root, 'runtime-manifest.json'), JSON.stringify(manifest, null, 2))
   const source = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8', windowsHide: true })

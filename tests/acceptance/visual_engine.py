@@ -13,6 +13,10 @@ assert DATA.name == 'data' and DATA.parent.name.startswith('orgtree-v2-acceptanc
 assert DATA == Path(os.environ['ORGTREE_ACCEPTANCE_ROOT']).resolve() / 'data'
 assert os.environ['ORGTREE_ACCEPTANCE_VISUAL_FIXTURE'] == '1'
 sys.path.insert(0, str(ROOT))
+if os.environ.get('ORGTREE_ACCEPTANCE_IMPORT_FIXTURE') == '1':
+    import json
+    manifest = json.loads((DATA.parent / 'import-manifest.json').read_text())
+    os.environ['HOME'] = os.environ['USERPROFILE'] = manifest['home']
 from engine import launch
 
 original = launch.load_app
@@ -29,6 +33,14 @@ def seeded():
     supervisor.start_usage_warm_loop = lambda: None
     supervisor.start_cred_watcher = lambda: None
     warmpool.start_warm_pool = lambda: None
+    if os.environ.get('ORGTREE_ACCEPTANCE_IMPORT_FIXTURE') == '1':
+        def record_admission(slug, nid, text, **kwargs):
+            assert slug == 'import-demo' and nid == 'active', 'Only imported active work may be admitted'
+            with (DATA.parent / 'import-admissions.jsonl').open('a') as output:
+                output.write(json.dumps({'org':slug,'node':nid,'text':text,'view':kwargs.get('view')}) + '\n')
+            return {'accepted': True}
+        supervisor.send_message = record_admission
+        supervisor.start_watchdog_engine = lambda: None
     original_popen = subprocess.Popen
     def refuse_process(command, *args, **kwargs):
         # Real hub startup restricts only its readiness file's Windows ACL.

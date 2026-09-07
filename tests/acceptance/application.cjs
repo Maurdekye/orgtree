@@ -160,6 +160,9 @@ app.on('browser-window-created', (_event, main) => {
     })
     await check('authenticated-api-positive-and-negative-control', async () => {
       assert.equal(await evaluate(`fetch('/api/orgs').then(r=>r.status)`), 200)
+      const stats = await evaluate(`fetch('/api/desktop/status').then(r=>r.json())`)
+      assert.equal(typeof stats.idle, 'boolean')
+      assert.ok(Number.isInteger(stats.totalAgents) && Number.isInteger(stats.activeAgents))
       const response = await fetch(origin + '/api/orgs', { signal: AbortSignal.timeout(5000) })
       assert.ok([401, 403].includes(response.status), 'Unauthenticated engine request must be denied')
     })
@@ -169,6 +172,12 @@ app.on('browser-window-created', (_event, main) => {
         assert.equal(await waitFor(`document.querySelector('input[placeholder="organization name"]')`), true)
         await evaluate(`(()=>{const i=document.querySelector('input[placeholder="organization name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Acceptance Runtime');i.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
         await evaluate(`document.querySelector('input[placeholder="organization name"]').form.requestSubmit();true`)
+      }
+      if (phase === 'restart' && process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') {
+        assert.equal(await waitFor(`document.querySelector('header.orgbar h2')?.textContent==='Import Demo'`),true,'Last selected imported organization is restored')
+        await evaluate(`document.querySelector('header.orgbar button.iconbtn').click();true`)
+        assert.equal(await waitFor(`[...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`),true)
+        await evaluate(`[...document.querySelectorAll('.org')].find(e=>e.textContent.includes('Acceptance Runtime')).click();true`)
       }
       const visibleIdentity = `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime' || [...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
       assert.equal(await waitFor(visibleIdentity), true, 'Created organization must appear in active header or restored home list')
@@ -220,6 +229,18 @@ app.on('browser-window-created', (_event, main) => {
       for (const tab of ['Display', 'Import', 'Runtime']) {
         assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('${tab}'));if(!b)return false;b.click();return true})()`), true)
         await capture(main, 'settings-' + tab.toLowerCase())
+        if (tab === 'Display' && visualFixture) await check('native-theme-selector-keeps-provider-status', async () => {
+          assert.equal(await waitFor(`document.querySelector('select[aria-label="Visual theme"]:not(:disabled)')`), true)
+          const labels = await evaluate(`Array.from(document.querySelectorAll('.sq .name,.sq .status')).map(e=>e.textContent)`)
+          for (const theme of ['orgtree','openrouter']) {
+            await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Visual theme"]');s.value='${theme}';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
+            assert.equal(await waitFor(`!document.querySelector('select[aria-label="Visual theme"]').disabled`), true)
+            assert.equal((await evaluate('window.orgtreeDesktop.getPreferences()')).visualTheme,theme)
+            assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.sq .name,.sq .status')).map(e=>e.textContent)`),labels)
+            await capture(main,'theme-'+theme+'-display')
+          }
+        })
+        if (tab === 'Import' && phase === 'initial' && process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') await check('actual-settings-import-copy', () => require('./import_flow.cjs').copy({root,evaluate,waitFor,capture,main,assert}))
       }
       const before = new Set(BrowserWindow.getAllWindows().map(w => w.id))
       const mainStyle = await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.acct-panel'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})()`)
@@ -287,6 +308,7 @@ app.on('browser-window-created', (_event, main) => {
       await evaluate('window.orgtreeDesktop.showMainWindow()')
       assert.equal(main.isVisible(), true)
     })
+    if (phase === 'initial' && process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') await check('imported-history-and-document-rendering', () => require('./import_flow.cjs').read({root,evaluate,waitFor,capture,main,assert}))
     finish()
   })
 })
