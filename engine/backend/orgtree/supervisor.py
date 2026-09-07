@@ -11868,6 +11868,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                   if not n.get("session_unrun")
                   and str(n.get("session_id") or "")
                   == str(n.get("codex_thread") or "") else None)
+    from .desktop_native import native_session_path
+    native_resume_path = native_session_path(org, nid) if resume_tid else None
     # Use the exact catalogue captured with the cache/process manifest. C4
     # will later stabilize that catalogue; C2 fingerprints and delivers the
     # actual definitions today rather than normalizing them away here.
@@ -12619,6 +12621,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # measured superset of orgtree's low…max (Appendix B.3) — pass-through
         effort=org.effective_effort(nid),
         thread_id=resume_tid,
+        resume_path=native_resume_path,
         codex_home=str(process_spec["codex_home"]),
         # a security boundary — read `_codex_sandbox` before touching this
         sandbox=_codex_sandbox(n["scope"]),

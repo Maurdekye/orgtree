@@ -1058,6 +1058,7 @@ class CodexTurn:
 
     def __init__(self, argv_head: list[str], *, cwd: str, model: str | None,
                  effort: str | None, thread_id: str | None,
+                 resume_path: str | None = None,
                  codex_home: str | None = None,
                  sandbox: str = "workspace-write",
                  approval_policy: str = "on-request",
@@ -1081,6 +1082,7 @@ class CodexTurn:
         self.dynamic_tools = dynamic_tools or []
         self.developer_instructions = developer_instructions
         self.thread_id = thread_id
+        self.resume_path = resume_path
         self.turn_id: str | None = None
         self.agent_text: list[str] = []
         self.token_usage: dict[str, Any] | None = None
@@ -1288,6 +1290,7 @@ class CodexTurn:
             # to when resumed at `workspace-write`. codex-cli 0.153.3.
             res = self.client.request("thread/resume", {
                 "threadId": self.thread_id,
+                **({"path": self.resume_path, "cwd": self.cwd} if self.resume_path else {}),
                 # the ROUTE's model rides the resume too (item 12).
                 # `ThreadResumeParams.model` is in the 0.153.3 schema
                 # ("Configuration overrides for the resumed thread"); the
