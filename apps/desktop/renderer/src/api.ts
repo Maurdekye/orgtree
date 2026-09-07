@@ -181,6 +181,8 @@ export const compactNode = (slug: string, nid: string): Promise<{ started: boole
 export const unstickNode = (slug: string, nid: string):
   Promise<{ released: string[]; status?: string; warnings?: string[] }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/unstick`, { method: 'POST' })
+export const removeReplyEvents = (slug: string, nid: string): Promise<{ removed: number }> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/nodes/${encodeURIComponent(nid)}/reply-events`, { method: 'DELETE' })
 export const creditDecide = (
   slug: string, id: string, action: string,
   // F-05: `granted` = the counter-offer amount; `dry` = validate + stranding

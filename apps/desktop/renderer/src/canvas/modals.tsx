@@ -11,7 +11,7 @@ import type {
   ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
 } from '../types'
 import {
-  dissolveAll, getChat, getMcpServers, remoteControl, saveHireDefaults,
+  dissolveAll, getChat, getMcpServers, removeReplyEvents, saveHireDefaults,
   saveScope, saveSettings, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
@@ -716,7 +716,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
   // PINNED window ignores it the way an agent window does.
   const [asking, setAsking] =
-    useState<'delete' | 'dissolve' | 'retire' | 'rescind' | 'crossprovider' | null>(null)
+    useState<'delete' | 'dissolve' | 'retire' | 'rescind' | 'crossprovider' | 'reply-quotes' | null>(null)
+  const [removingQuotes, setRemovingQuotes] = useState(false)
   // every card that opens a config panel carries a scope (real nodes and
   // bearer stubs both) — only the eye root and drafts lack one
   const scope = node.scope!
@@ -1009,33 +1010,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
         </div>
 
-        {/* FR-01: hand this agent's REAL session to claude.ai / the mobile
-            app. Parked while controlled (mail queues); release resumes.
-            Loopback-only server-side; hidden from kiosk visitors. */}
-        {node.state === 'live' && !tree.public && !node.isBearerOf && (
-          <div className="row" style={{ alignItems: 'center' }}>
-            {node.remote_controlled ? (
-              <>
-                <span className="dim">under remote control — mail queues
-                  until release</span>
-                <button className="primary" onClick={() =>
-                  remoteControl(slug, node.id, 'stop')
-                    .then(() => toast([`${node.id} released`]))
-                    .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                  release</button>
-              </>
-            ) : (
-              <button title={'starts `claude remote-control` on this '
-                + "agent's session — connect from claude.ai/code or the "
-                + 'Claude mobile app; the agent is parked until release'}
-                onClick={() =>
-                  remoteControl(slug, node.id, 'start')
-                    .then((r) => toast([r.note ?? 'remote control started']))
-                    .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                remote control (claude.ai / mobile)</button>
-            )}
-          </div>
-        )}
+        <div className="row">
+          <button className="danger" disabled={removingQuotes}
+            onClick={() => setAsking('reply-quotes')}>Remove retained reply quotes</button>
+        </div>
 
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
             common case plus a per-field line only where the blast radius
@@ -1305,6 +1283,19 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           a pinned panel they would be trapped in its stacking context — see
           ModalOverPins */}
       {asking && <ModalOverPins>
+      {asking === 'reply-quotes' && (
+        <ConfirmModal title={`Remove retained reply quotes for ${node.id}?`}
+          body="Removes this agent's retained reply-source snapshots. Existing references to those snapshots will no longer resolve. Transcripts and sent mail are kept. This cannot be undone."
+          confirmLabel="Remove retained reply quotes"
+          close={() => setAsking(null)}
+          onConfirm={() => {
+            setRemovingQuotes(true)
+            removeReplyEvents(slug, node.id)
+              .then(r => toast([`Removed ${r.removed} retained reply quote${r.removed === 1 ? '' : 's'} for ${node.id}.`]))
+              .catch((e: Error) => toast([`error: ${e.message}`]))
+              .finally(() => setRemovingQuotes(false))
+          }} />
+      )}
       {asking === 'crossprovider' && (
         <ConfirmModal
           title={midTurn
