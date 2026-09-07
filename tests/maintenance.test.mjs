@@ -13,7 +13,7 @@ const request = { id: 'r1', action: 'restart', target: 'org', reason: 'approved 
 const idle = (maintenance = request) => ({ idle: true, maintenance })
 function rig(overrides = {}) {
   const calls = []
-  const gate = new MaintenanceController({ ack: async id => { calls.push(['ack', id]); return true },
+  const gate = new MaintenanceController({ ack: async (id, outcome) => { calls.push(['ack', id, outcome]); return true },
     restart: async () => calls.push(['restart']), apply: async () => calls.push(['apply']),
     check: async () => { calls.push(['check']); return 'up-to-date' },
     report: state => calls.push(['report', state]), ...overrides })
@@ -32,7 +32,7 @@ test('restart requires current engine idle, OS idle and exact acknowledgment bef
     await gate.tick(status, seconds, false)
   assert.deepEqual(calls, [])
   await gate.tick(idle(), 60, false)
-  assert.deepEqual(calls, [['ack', 'r1'], ['restart']])
+  assert.deepEqual(calls, [['ack', 'r1', 'execute'], ['restart']])
   await gate.tick(idle(), 60, false)
   assert.equal(calls.length, 2, 'one request cannot relaunch repeatedly')
   const rejected = rig({ ack: async () => false })
@@ -48,7 +48,7 @@ test('update download needs a fresh idle sample and exact ack; failure preserves
   await gate.tick({ idle: false, maintenance: update }, 60, true)
   assert.equal(calls.length, 1)
   await gate.tick(idle(update), 60, true)
-  assert.deepEqual(calls.slice(1), [['ack', 'r1'], ['apply']])
+  assert.deepEqual(calls.slice(1), [['ack', 'r1', 'execute'], ['apply']])
   let now = 0
   const failed = rig({ now: () => now, check: async () => { throw new Error('offline') } })
   await assert.rejects(failed.gate.tick(idle(update), 60, false), /offline/)
@@ -64,7 +64,7 @@ test('no-update result consumes only on a fresh idle tick and does not restart',
   await gate.tick(idle(update), 10, false)
   assert.equal(calls.length, 2)
   await gate.tick(idle(update), 60, false)
-  assert.deepEqual(calls.slice(2), [['ack', 'r1'], ['report', 'up-to-date']])
+  assert.deepEqual(calls.slice(2), [['ack', 'r1', 'up-to-date'], ['report', 'up-to-date']], 'no-op update must not acquire the shutdown admission hold')
 })
 
 test('overlapping polls cannot acknowledge a request twice', async () => {

@@ -11,7 +11,7 @@ export function maintenanceRequest(value: unknown): MaintenanceRequest | null {
 }
 
 interface Callbacks {
-  ack: (id: string) => Promise<boolean>
+  ack: (id: string, outcome: 'execute' | 'up-to-date') => Promise<boolean>
   restart: () => Promise<void>
   apply: () => Promise<void>
   check: () => Promise<'pending' | 'up-to-date' | 'unavailable'>
@@ -44,10 +44,12 @@ export class MaintenanceController {
         // Consumption/application needs a fresh engine+OS idle sample next tick.
         return
       }
-      if (!await this.callbacks.ack(request.id)) return
+      const outcome = request.action === 'update' && !downloaded ? 'up-to-date' : 'execute'
+      if (!await this.callbacks.ack(request.id, outcome)) return
       this.consumed.add(request.id)
       if (this.consumed.size > 1000) this.consumed.delete(this.consumed.values().next().value!)
       this.checked.delete(request.id)
+      this.currentVersion.delete(request.id)
       if (request.action === 'restart') await this.callbacks.restart()
       else if (downloaded) await this.callbacks.apply()
       else this.callbacks.report('up-to-date')

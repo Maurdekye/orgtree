@@ -68,7 +68,7 @@ else {
     autoUpdater.quitAndInstall(false, true)
   }
   const maintenance = new MaintenanceController({
-    ack: id => engine.acknowledgeMaintenance(id),
+    ack: (id, outcome) => engine.acknowledgeMaintenance(id, outcome),
     restart: async () => {
       if (quitting) return
       // Electron's relaunch helper is outside the Python Job, as is the updater.

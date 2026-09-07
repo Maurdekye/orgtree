@@ -77,12 +77,12 @@ export class Engine extends EventEmitter {
     } catch { return null }
   }
 
-  async acknowledgeMaintenance(id: string): Promise<boolean> {
+  async acknowledgeMaintenance(id: string, outcome: 'execute' | 'up-to-date'): Promise<boolean> {
     if (!this.endpoint) return false
     try {
       const response = await fetch(this.endpoint + '/api/desktop/maintenance/ack', { method: 'POST',
         headers: { [TOKEN_HEADER]: this.credential, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }), signal: AbortSignal.timeout(4000), redirect: 'error' })
+        body: JSON.stringify({ id, outcome }), signal: AbortSignal.timeout(4000), redirect: 'error' })
       if (!response.ok) return false
       const result = await response.json() as { accepted?: boolean }
       return result.accepted === true
