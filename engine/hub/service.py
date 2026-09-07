@@ -618,60 +618,64 @@ class HubService:
         self._server = server
         self.port = int(server.server_address[1])
         self._readiness = HubReadiness(self.advertise_host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid(), token, bool(self.tls_certfile), str(self.tls_ca_file) if self.tls_ca_file else None)
-        temporary = self.readiness_path.with_suffix(".tmp")
+        temporary = self.readiness_path.with_name(f".readiness-{os.getpid()}-{secrets.token_hex(8)}.tmp")
+        readiness_written = False
+        serving_started = False
         try:
-            temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
-            os.replace(temporary, self.readiness_path)
+            temporary.touch(exist_ok=False)
             # POSIX honors this as owner-only (0600). Windows ignores these
             # permission bits, so callers must still treat the token as a
             # private same-user credential.
-            os.chmod(self.readiness_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError as exc:
+            os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
             if os.name == "nt":
-                try:
-                    subprocess.run(["icacls", str(self.readiness_path), "/reset"], capture_output=True, timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
-                except OSError:
-                    pass
-                for path in (self.readiness_path, temporary):
-                    try:
-                        path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    except OSError:
-                        pass
-                server.server_close()
-                self._server = None
-                self._thread = None
-                self._readiness = None
-                raise RuntimeError("could not set readiness file permissions") from exc
-            raise
-        try:
+                self._restrict_windows_readiness_acl(temporary)
+            temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
+            os.replace(temporary, self.readiness_path)
+            readiness_written = True
             if os.name == "nt":
-                self._restrict_windows_readiness_acl()
+                self._restrict_windows_readiness_acl(self.readiness_path)
+            self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
+            self._thread.start()
+            serving_started = True
         except BaseException:
-            for path in (self.readiness_path, temporary):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    pass
-            server.server_close()
-            self._server = None
-            self._thread = None
-            self._readiness = None
+            self._cleanup_failed_start(server, temporary, readiness_written, serving_started)
             raise
-        self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
-        self._thread.start()
         return self._readiness
 
-    def _restrict_windows_readiness_acl(self) -> None:
+    def _cleanup_failed_start(self, server: _HubServer, temporary: Path, readiness_written: bool, serving_started: bool) -> None:
+        if serving_started:
+            server.shutdown()
+        server.server_close()
+        paths = [temporary]
+        if readiness_written:
+            paths.append(self.readiness_path)
+        for path in paths:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                if os.name == "nt":
+                    try:
+                        subprocess.run(["icacls", str(path), "/reset"], capture_output=True, timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+                    except (OSError, subprocess.SubprocessError):
+                        pass
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+        self._server = None
+        self._thread = None
+        self._readiness = None
+
+    def _restrict_windows_readiness_acl(self, path: Path | None = None) -> None:
         """Remove inherited readiness ACLs and grant the current user full access.
 
         ``chmod`` does not restrict Windows ACLs.  ``icacls`` is already the
         project's supported Windows ACL mechanism (used by supervisor.py), and
         this operation targets only the generated readiness file.
         """
+        target = path or self.readiness_path
         try:
             principal = subprocess.check_output(
                 ["whoami"],
@@ -687,7 +691,7 @@ class HubService:
         if not principal:
             raise OSError("current Windows user is unavailable")
         result = subprocess.run(
-            ["icacls", str(self.readiness_path), "/inheritance:r", "/grant:r", f"{principal}:F"],
+            ["icacls", str(target), "/inheritance:r", "/grant:r", f"{principal}:F"],
             capture_output=True,
             timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
