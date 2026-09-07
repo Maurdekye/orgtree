@@ -34,3 +34,7 @@ a local organization. Every route requires the local instance token or a
 revocable identity-bound peer token, plus the caller's org credentials.
 The local token alone may `POST /api/peers` with `{peer_id,slug}` to mint a
 one-time-returned peer token and `DELETE /api/peers/{peer_id}` to revoke it.
+Copied `net.py` callers may send several org credentials and their matching
+peer tokens in one request (space-delimited or repeated
+`X-Hub-Peer-Token` headers); the hub authorizes each identity only against its
+own bound token.

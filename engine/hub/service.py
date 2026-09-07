@@ -147,6 +147,7 @@ class _HubServer(ThreadingHTTPServer):
 class _HubHandler(BaseHTTPRequestHandler):
     server: _HubServer
     peer_binding: str | None = None
+    peer_bindings: set[str] = set()
 
     def log_message(self, _format: str, *_args: Any) -> None:
         return
@@ -165,16 +166,26 @@ class _HubHandler(BaseHTTPRequestHandler):
         self._send(status, {"detail": detail})
 
     def _require_access(self) -> bool:
+        self.peer_binding = None
+        self.peer_bindings = set()
         local = self.headers.get("X-Hub-Token", "")
         if local and hmac.compare_digest(local, self.server.instance_token):
-            self.peer_binding = None
             return True
-        supplied = self.headers.get("X-Hub-Peer-Token", "")
-        if supplied:
+        supplied_values = self.headers.get_all("X-Hub-Peer-Token", [])
+        supplied_tokens = [token for value in supplied_values for token in value.split()]
+        if supplied_tokens:
             with self.server.db() as con:
-                row = con.execute("SELECT bound_slug FROM peers WHERE fingerprint=? AND revoked_at IS NULL", (_fingerprint(supplied),)).fetchone()
-            if row:
-                self.peer_binding = str(row["bound_slug"])
+                fingerprints = [_fingerprint(token) for token in supplied_tokens]
+                marks = ",".join("?" for _ in fingerprints)
+                rows = con.execute(
+                    f"SELECT bound_slug FROM peers WHERE fingerprint IN ({marks}) AND revoked_at IS NULL",
+                    fingerprints,
+                ).fetchall()
+            if rows:
+                self.peer_bindings = {str(row["bound_slug"]) for row in rows}
+                # Keep the singular field for the existing peer-management
+                # checks; a multiplexed request is represented by the set.
+                self.peer_binding = next(iter(self.peer_bindings)) if len(self.peer_bindings) == 1 else None
                 return True
         self._error(401, "invalid hub access token")
         return False
@@ -273,8 +284,8 @@ class _HubHandler(BaseHTTPRequestHandler):
             self._error(503, "hub storage unavailable")
 
     def do_DELETE(self) -> None:  # noqa: N802
-        if not self._require_access() or self.peer_binding is not None:
-            if self.peer_binding is not None:
+        if not self._require_access() or self.peer_bindings:
+            if self.peer_bindings:
                 self._error(403, "peer tokens cannot manage peers")
             return
         peer_id = urlparse(self.path).path.rsplit("/", 1)[-1]
@@ -294,7 +305,7 @@ class _HubHandler(BaseHTTPRequestHandler):
         if not secret:
             self._error(401, "registration requires X-Org-Auth")
             return
-        if self.peer_binding is not None and self.peer_binding != slug:
+        if self.peer_bindings and slug not in self.peer_bindings:
             self._error(403, "peer token is bound to another identity")
             return
         now = _now()
@@ -313,7 +324,7 @@ class _HubHandler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "name": self.server.hub_name, "retention_days": self.server.retention_days, "slug": slug, "roster": roster})
 
     def _create_peer(self) -> None:
-        if self.peer_binding is not None:
+        if self.peer_bindings:
             self._error(403, "peer tokens cannot create peers")
             return
         body = self._json()
@@ -340,6 +351,8 @@ class _HubHandler(BaseHTTPRequestHandler):
 
     def _authorized(self, con: sqlite3.Connection) -> list[str]:
         slugs = self._auth(con)
+        if self.peer_bindings:
+            slugs = [slug for slug in slugs if slug in self.peer_bindings]
         if not slugs:
             self._error(401, "no valid org credentials")
         return slugs
@@ -355,7 +368,7 @@ class _HubHandler(BaseHTTPRequestHandler):
             if sender not in slugs:
                 self._error(401, "sender credentials required")
                 return
-            if self.peer_binding is not None and sender != self.peer_binding:
+            if self.peer_bindings and sender not in self.peer_bindings:
                 self._error(403, "peer token is bound to another identity")
                 return
             if not con.execute("SELECT 1 FROM orgs WHERE slug=?", (to,)).fetchone():
@@ -479,7 +492,7 @@ class _HubHandler(BaseHTTPRequestHandler):
             if owner not in slugs:
                 self._error(401, "attachment owner credentials required")
                 return
-            if self.peer_binding is not None and owner != self.peer_binding:
+            if self.peer_bindings and owner not in self.peer_bindings:
                 self._error(403, "peer token is bound to another identity")
                 return
             name = _safe_name(query.get("name", ["file"])[0])

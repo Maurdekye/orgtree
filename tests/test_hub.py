@@ -24,6 +24,37 @@ class HubIntegrationTests(unittest.TestCase):
             b = HubClient(root / "client-b", f"http://127.0.0.1:{readiness.port}", "org.b.bbbbbb", "secret-b", readiness.token)
             a.register("A")
             b.register("B")
+            # net.py multiplexes all identities configured for one hub in a
+            # single request.  Each identity must carry its own scoped peer
+            # token; one token must not grant access to the other identity.
+            peer_a = a.create_peer("peer-a", a.slug)
+            peer_b = a.create_peer("peer-b", b.slug)
+            multi_headers = {
+                "Content-Type": "application/json",
+                "X-Org-Auth": f"{a.auth} {b.auth}",
+                "X-Hub-Peer-Token": f"{peer_a['peer_token']} {peer_b['peer_token']}",
+            }
+            multi_payload = json.dumps({"from": b.slug, "to": a.slug, "body": "multiplexed", "id": "multiplexed-1"}).encode()
+            with urlopen(Request(f"http://127.0.0.1:{readiness.port}/api/send", data=multi_payload, headers=multi_headers, method="POST")) as response:
+                self.assertFalse(json.loads(response.read())["duplicate"])
+            forged_multi = dict(multi_headers)
+            forged_multi["X-Hub-Peer-Token"] = peer_a["peer_token"]
+            with self.assertRaises(Exception) as forged_multi_error:
+                urlopen(Request(f"http://127.0.0.1:{readiness.port}/api/send", data=multi_payload.replace(b"multiplexed-1", b"multiplexed-2"), headers=forged_multi, method="POST"))
+            self.assertEqual(getattr(forged_multi_error.exception, "code", None), 401)
+            multi_poll = Request(
+                f"http://127.0.0.1:{readiness.port}/api/poll?wait=0",
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Org-Auth": f"{a.auth} {b.auth}",
+                    "X-Hub-Peer-Token": f"{peer_a['peer_token']} {peer_b['peer_token']}",
+                },
+                method="POST",
+            )
+            with urlopen(multi_poll) as response:
+                self.assertEqual(json.loads(response.read())["messages"][0]["id"], "multiplexed-1")
+            a._request("POST", "/api/ack", {"ids": ["multiplexed-1"]})
             pairing = a.create_peer("peer-b", b.slug)
             self.assertEqual(pairing["slug"], b.slug)
             paired = HubClient(root / "client-paired", f"http://127.0.0.1:{readiness.port}", b.slug, "secret-b", pairing["peer_token"], peer_token=True)
