@@ -1,4 +1,4 @@
-import type { NativeNotice } from './desktop'
+import type { DesktopNotice } from './notifications'
 import { useNativeNotifications } from './notifications'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
@@ -334,8 +334,8 @@ export default function App() {
   // fetched once, since it cannot change without a process restart (see
   // supervisor.build_info)
   const [build, setBuild] = useState<HostPayload['build'] | null>(null)
-  const [nativeTarget, setNativeTarget] = useState<NativeNotice | null>(null)
-  useNativeNotifications(tree, notice => {
+  const [nativeTarget, setNativeTarget] = useState<DesktopNotice | null>(null)
+  useNativeNotifications(notice => {
     setNativeTarget(notice)
     if (notice.org !== slug) setSlug(notice.org)
   })
@@ -353,12 +353,13 @@ export default function App() {
     setShowInbox(restoreWindowKind('inbox', slug))
     setShowGallery(restoreWindowKind('gallery', slug))
     setShowDocket(restoreWindowKind('docket', slug))
+    setShowHistory(restoreWindowKind('retained-history', slug))
     setAgentGalleryId(restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
     if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true) }
-    else { setShowInbox(true); setInboxJump(jumpTo(nativeTarget.id.replace(/^(mail|ask):/, ''))) }
+    else { setShowInbox(true); setInboxJump(jumpTo(nativeTarget.source_id ?? nativeTarget.id.replace(/^(mail|ask):/, ''))) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])

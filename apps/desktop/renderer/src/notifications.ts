@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { getInbox, getWorkItems } from './api'
+import { req } from './api'
+import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
 import type { NativeNotice } from './desktop'
-import type { TreePayload } from './types'
 
 const KEY = 'orgtree-native-notices-v1'
 const seen = new Set<string>()
@@ -27,48 +27,42 @@ export async function notifyOnce(notice: NativeNotice): Promise<boolean> {
   finally { inFlight.delete(key) }
 }
 
-/** Polls are already coalesced by App. Fetch detail only when its tree summary
- * changes; no extra timer and no provider work. The native preference decides
- * whether routine notices are enabled. */
-export function useNativeNotifications(tree: TreePayload | null, open: (notice: NativeNotice) => void) {
+export interface DesktopNotice extends NativeNotice { source_id?: string }
+interface NoticePage { notices: DesktopNotice[]; total: number; truncated: boolean }
+
+/** One bounded engine projection covers every organization. The owner frame
+ * performs all reads and deduplicates only notifications actually shown. */
+export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
   const target = useRef(open); target.current = open
+  const sources = useRef(new Map<string, string>())
   const bridge = desktop()
   useEffect(() => bridge?.onEvent(event => {
     if ((event.type as string) !== 'notification-click') return
     const n = event.data as NativeNotice
-    if (n && typeof n.org === 'string' && typeof n.kind === 'string') target.current(n)
+    if (n && typeof n.id === 'string' && typeof n.org === 'string' && typeof n.kind === 'string')
+      target.current({ ...n, source_id: sources.current.get(identity(n)) })
   }), [bridge])
-  const asks = tree?.asks
   useEffect(() => {
-    if (!tree || !bridge?.notify) return
-    for (const ask of asks ?? []) if (ask.status === 'open' || ask.status === 'pending') {
-      void notifyOnce({ id: `ask:${ask.id}`, org: tree.slug, agent: ask.node,
-        title: `${ask.node} needs your answer`, body: ask.question || ask.questions?.[0]?.question || 'A request is waiting in your inbox.', kind: 'question' })
+    if (!bridge?.notify) return
+    let alive = true, running = false
+    const poll = async () => {
+      if (!alive || running) return
+      running = true
+      try {
+        const page = await req<NoticePage>('/api/desktop/notifications')
+        if (!alive) return
+        for (const n of page.notices) {
+          const { source_id, ...notice } = n
+          if (source_id) sources.current.set(identity(notice), source_id)
+          while (sources.current.size > 1000) sources.current.delete(sources.current.keys().next().value!)
+          void notifyOnce(notice)
+        }
+      } catch { /* the next poll retries; no user action is lost */ }
+      finally { running = false }
     }
-  }, [asks, tree?.slug, bridge])
-  useEffect(() => {
-    if (!tree || !bridge?.notify || !tree.user_inbox_count) return
-    let alive = true
-    void getInbox(tree.slug).then(inbox => {
-      if (!alive) return
-      for (const mail of inbox.pending ?? []) void notifyOnce({
-        id: `mail:${mail.id}`, org: tree.slug, agent: mail.from,
-        title: mail.urgent ? `Urgent mail from ${mail.from}` : `Mail from ${mail.from}`,
-        body: mail.urgent_reason || mail.body, kind: mail.urgent ? 'urgent-mail' : 'routine',
-      })
-    }).catch(() => {})
-    return () => { alive = false }
-  }, [tree?.slug, tree?.user_inbox_count, tree?.user_inbox_newest, tree?.urgent_unread, bridge])
-  useEffect(() => {
-    if (!tree || !bridge?.notify || !tree.work_items_summary?.attention) return
-    let alive = true
-    void getWorkItems(tree.slug).then(work => {
-      if (!alive) return
-      for (const item of work.items) if (item.manual_attention) void notifyOnce({
-        id: `work:${item.slug}:${item.manual_attention.set_rev}`, org: tree.slug, item: item.slug,
-        title: item.title, body: item.manual_attention.reason, kind: 'work-attention',
-      })
-    }).catch(() => {})
-    return () => { alive = false }
-  }, [tree?.slug, tree?.work_items_summary, bridge])
+    void poll()
+    const timer = setInterval(() => { void poll() }, 6000)
+    const off = onLiveBump(() => { void poll() })
+    return () => { alive = false; clearInterval(timer); off() }
+  }, [bridge])
 }
