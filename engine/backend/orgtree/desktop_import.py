@@ -352,7 +352,7 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
                                     "continuity": "native_clone" if native["status"] == "ready" else "native_context_held",
                                     "native_continuity": native}
         history = _history(source, slug, sid)
-        if native["status"] == "ready":
+        if native["status"] == "ready" and native["provider"] in {"claude", "openrouter"}:
             history = stage / "native" / nid / "source.jsonl"
         if history:
             name = f"{nid}.jsonl"
@@ -376,6 +376,17 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
         for key in ("remote_controlled", "codex_thread", "antigravity_conversation",
                     "cache_continuity", "codex_usage_total", "cache_keepalive_at"):
             node.pop(key, None)
+        if native["status"] == "ready" and native["provider"] == "codex":
+            node["codex_thread"] = node["session_id"]
+            # Rendered chat uses the engine journal; native Codex resumes the
+            # independent rollout. Give each new SID its own mutable journal.
+            journal = stage / "files" / "journals" / "projects" / slug
+            journal.mkdir(parents=True, exist_ok=True)
+            if history:
+                _copy_file(history, journal / f"{node['session_id']}.jsonl")
+                views = history.with_suffix(".views.ndjson")
+                if views.is_file():
+                    _copy_file(views, journal / f"{node['session_id']}.views.ndjson")
         if isinstance(node.get("inflight"), dict):
             node["inflight"].pop("cache_attempt", None)
             node["inflight"]["text"] = (

@@ -95,7 +95,30 @@ def locate(source: Path, slug: str, nid: str, node: dict, sources: dict) -> Path
             raise NativeHeld("More than one native session matches; supply its exact source file")
         raise NativeHeld("Native Claude transcript missing; select its source profile or exact file")
     if provider == "codex":
-        raise NativeHeld("Codex native fork is not configured yet; copied display history is insufficient")
+        if node.get("codex_thread") != sid:
+            raise NativeHeld("Codex native thread and recorded session identity differ")
+        profile = Path(sources.get("codex_profile") or source.parent / ".codex")
+        _plain(profile)
+        hits, pending, scanned = [], [profile / "sessions", profile / "archived_sessions"], 0
+        while pending:
+            folder = pending.pop()
+            _plain(folder)
+            if not folder.is_dir():
+                continue
+            for path in folder.iterdir():
+                _plain(path)
+                scanned += 1
+                if scanned > 100000:
+                    raise NativeHeld("Native profile search exceeds limit; select an exact session file")
+                if path.is_dir():
+                    pending.append(path)
+                elif path.name.endswith(f"{sid}.jsonl"):
+                    hits.append(path)
+        if len(hits) == 1:
+            return hits[0]
+        if hits:
+            raise NativeHeld("More than one native session matches; supply its exact source file")
+        raise NativeHeld("Native Codex rollout missing; select its source profile or exact file")
     raise NativeHeld("Native conversation cloning is not yet verified for this provider")
 
 
@@ -210,10 +233,16 @@ def inspect(source: Path, slug: str, nid: str, node: dict, sources: dict) -> dic
     try:
         path = locate(source, slug, nid, node, sources)
         records, _ = _read_native(path)
-        if row["provider"] not in {"claude", "openrouter"}:
+        if row["provider"] == "codex":
+            from .desktop_native_codex import validate
+            if node.get("codex_thread") != node["session_id"]:
+                raise NativeHeld("Codex native thread and recorded session identity differ")
+            validate(records, node["session_id"])
+        elif row["provider"] in {"claude", "openrouter"}:
+            _check_dependencies(path, node["session_id"], records)
+            claude_records(records, node["session_id"], str(uuid.uuid4()), "preview-only")
+        else:
             raise NativeHeld("This native provider clone is not configured yet")
-        _check_dependencies(path, node["session_id"], records)
-        claude_records(records, node["session_id"], str(uuid.uuid4()), "preview-only")
         return {**row, "status": "available", "source_path": str(path)}
     except (NativeHeld, OSError) as exc:
         return {**row, "reason": str(exc)}
@@ -227,17 +256,23 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
     try:
         path = locate(source, slug, nid, node, sources)
         records, raw = _read_native(path)
-        if meta["provider"] not in {"claude", "openrouter"}:
-            raise NativeHeld("This native provider clone is not configured yet")
-        _check_dependencies(path, node["session_id"], records)
-        cloned = claude_records(records, node["session_id"], meta["session_id"],
-                                str(dest / "scratch" / slug / nid))
         folder = stage / "native" / nid
         folder.mkdir(parents=True)
+        cwd = str(dest / "scratch" / slug / nid)
+        if meta["provider"] == "codex":
+            from .desktop_native_codex import fork_snapshot
+            if node.get("codex_thread") != node["session_id"]:
+                raise NativeHeld("Codex native thread and recorded session identity differ")
+            meta["session_id"], encoded = fork_snapshot(records, node["session_id"], folder, cwd)
+        elif meta["provider"] in {"claude", "openrouter"}:
+            _check_dependencies(path, node["session_id"], records)
+            cloned = claude_records(records, node["session_id"], meta["session_id"], cwd)
+            encoded = "".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in cloned).encode("utf-8")
+        else:
+            raise NativeHeld("This native provider clone is not configured yet")
         clone = folder / f"{meta['session_id']}.jsonl"
         with clone.open("xb") as f:
-            for row in cloned:
-                f.write((json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+            f.write(encoded)
             f.flush()
             os.fsync(f.fileno())
         # Original native bytes are evidence and remain separate from both the
@@ -260,6 +295,8 @@ def native_session_path(org: Any, nid: str) -> str | None:
     node = doc.get("nodes", {}).get(nid, {})
     native = node.get("desktop_import", {}).get("native_continuity", {})
     if native.get("status") != "ready" or native.get("session_id") != node.get("session_id"):
+        return None
+    if node["session_id"] in native_conflicts():
         return None
     root = Path(_store().DATA_ROOT).resolve()
     storage_node = native.get("storage_node") or nid
@@ -342,7 +379,7 @@ Rename alone needs no retirement because storage_node stays stable.
     return True
 
 
-def native_index() -> dict[str, str]:
+def _native_inventory() -> tuple[dict[str, str], set[str]]:
     """Destination-only SID lookup for existing supervisor transcript readers.
 
 No source profile or org database is consulted. Unexpected paths/duplicates
@@ -352,8 +389,9 @@ refuse rather than selecting a plausible file belonging to somebody else.
     root = Path(_store().DATA_ROOT).resolve() / "imports"
     _plain(root)
     found: dict[str, str] = {}
+    conflicts: set[str] = set()
     if not root.exists():
-        return found
+        return found, conflicts
     for orgdir in root.iterdir():
         _plain(orgdir)
         folder = orgdir / "native"
@@ -368,12 +406,35 @@ refuse rather than selecting a plausible file belonging to somebody else.
                 _plain(path)
                 if path.suffix == ".jsonl" and UUID.fullmatch(path.stem) and path.is_file():
                     if path.stem in found:
-                        raise NativeHeld("Duplicate native session ID in imported storage")
+                        conflicts.add(path.stem)
                     found[path.stem] = str(path)
-    return found
+    return {sid: path for sid, path in found.items() if sid not in conflicts}, conflicts
+
+
+def native_conflicts() -> set[str]:
+    """IDs which must not fall through to a provider's unrelated global file."""
+    return _native_inventory()[1]
+
+
+def native_index() -> dict[str, str]:
+    found, _ = _native_inventory()
+    display = {}
+    for sid, path in found.items():
+        # Codex native rollouts count toward identity collisions, but its chat
+        # reader consumes the separate engine journal, not raw rollout rows.
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                first = json.loads(stream.readline())
+        except (OSError, ValueError):
+            continue
+        if isinstance(first, dict) and first.get("type") != "session_meta":
+            display[sid] = path
+    return display
 
 
 def native_path_for_session(sid: str) -> str | None:
     if not isinstance(sid, str) or not UUID.fullmatch(sid):
         return None
+    if sid in native_conflicts():
+        raise NativeHeld("Duplicate native session ID in imported storage")
     return native_index().get(sid)

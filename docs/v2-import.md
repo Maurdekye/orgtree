@@ -113,8 +113,23 @@ Invalid relative paths, overlapping destination paths, reparse points,
 ambiguous session matches, malformed identity/parent chains and incomplete
 final records cannot become native-ready imports.
 
-Codex native fork wiring and Antigravity cloning remain unfinished in this
-slice. Missing/unsupported native context has
+Codex native rollouts are forked by the local Codex app-server using
+`thread/fork` with a private snapshot path and deferred goal continuation.
+The loader uses an empty temporary profile, blank authentication variables,
+and a closed-loopback provider; it never starts a model turn or compacts.
+The returned independent rollout is stored inside the destination import;
+the engine must resume it using `thread/resume` with its explicit `path`
+and destination `cwd`. Source provider settings are retained in the native
+record, while actual work uses the application's configured connection.
+Readable engine journals are copied separately under the new session ID.
+The source locator searches the selected profile's sessions/archived_sessions
+or accepts an exact file. Ambiguous IDs and local attachment references hold.
+
+Antigravity cloning and native sidecar layouts remain unfinished. The Codex
+loader-only probe has verified native fork and resume with preserved prior
+user/assistant items on installed Codex 0.153.4, without provider turns or auth.
+This does not establish actual engine/Settings resumption; core integration
+and assembled acceptance remain separate. Missing/unsupported native context has
 `node.desktop_import.native_continuity.status="held"`, and must stay held
 at actual engine admission. Readable history is not an empty-session fallback.
 
@@ -133,7 +148,10 @@ must use `--resume <absolute-jsonl-path>` (without forking that clone again).
 The installed Claude 2.1.241 parser/loader supports this path and adopts its
 sessionId and directory; no CLAUDE_CONFIG_DIR or credential copying is needed.
 `native_path_for_session(sid)` and `native_index()` serve existing transcript
-readers and startup checks. `native_hold_reason(org,nid)` must gate every
+readers and startup checks. Duplicate imported IDs are omitted from the index
+and listed by `native_conflicts()`; individual lookup refuses an ambiguous ID
+and must never fall back to a foreign provider file. Unrelated IDs remain usable.
+`native_hold_reason(org,nid)` must gate every
 imported-node dispatch. Core owns these narrow integration calls and the
 recovery UI/route; helper existence alone is not assembled acceptance.
 
