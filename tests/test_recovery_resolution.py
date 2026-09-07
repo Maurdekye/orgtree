@@ -17,10 +17,36 @@ app,*_=load_app()
 from orgtree import store,ledger,supervisor,desktop_recovery as recovery
 
 def tearDownModule():
-    for slug in ('locked','unknown','resume-route','native-ready'): store._POOL.close_all(slug)
+    for slug in ('locked','unknown','resume-route','native-ready','codex-lineage'): store._POOL.close_all(slug)
     root.cleanup()
 
 class ResolutionTests(unittest.TestCase):
+    def test_codex_bearer_recovery_validates_raw_rollout_not_display_journal(self):
+        org=store.create_org('codex-lineage'); org.hire(ledger.USER,None,'luna',0,'agent')
+        sid=org.node('agent')['session_id']
+        org.node('agent')['codex_thread']=sid
+        org.node('agent')['desktop_import']={'native_continuity':{
+            'status':'transitioned','provider':'codex','session_id':sid,'generation':0}}
+        profile=data/'codex-profile'; sessions=profile/'sessions'; sessions.mkdir(parents=True)
+        bearer_sid=str(uuid.uuid4()); target=sessions/(bearer_sid+'.jsonl')
+        rows=[{'type':'session_meta','payload':{'id':bearer_sid,'model_provider':'openai'}},
+            {'type':'response_item','payload':{'type':'message','role':'user','content':[]}}]
+        target.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
+        with patch.dict(os.environ,{'CODEX_HOME':str(profile)}), \
+             patch.object(supervisor,'transcript_path',side_effect=AssertionError('display journal forbidden')):
+            pred=org.record_cli_compaction('agent',bearer_sid=bearer_sid)
+            self.assertEqual(org.node(pred)['codex_thread'],bearer_sid)
+            self.assertIsNone(supervisor._native_context_hold(org,pred))
+            lost=org.record_cli_compaction('agent',boundary_offset=9)
+            org.recover_lost_generation(lost,bearer_sid)
+            self.assertEqual(org.node(lost)['codex_thread'],bearer_sid)
+            self.assertIsNone(supervisor._native_context_hold(org,'agent'))
+            target.write_text('{}\n')
+            before=json.dumps(org.d,sort_keys=True)
+            with self.assertRaises(ledger.LedgerError):
+                org.record_cli_compaction('agent',bearer_sid=bearer_sid)
+            self.assertEqual(json.dumps(org.d,sort_keys=True),before)
+
     def test_actual_native_clone_lookup_resume_and_lineage_route(self):
         from orgtree import desktop_native
         org=store.create_org('native-ready'); org.hire(ledger.USER,None,'haiku',0,'agent')

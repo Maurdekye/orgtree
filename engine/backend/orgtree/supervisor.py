@@ -20190,9 +20190,11 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             raise RuntimeError(
                 "the current session is not a resumable Codex thread")
         cwd = scratch_dir(slug, nid)
+        from .desktop_native import native_session_path
         compacted = codexrun.compact_fork(
             providers.codex_argv(exe), cwd=cwd, model=model,
             thread_id=old_sid, timeout=COMPACT_TIMEOUT,
+            resume_path=native_session_path(org, nid),
             # THE SAME rule as a normal turn, from the same helper. A fork
             # that computed its own would let one agent run at two different
             # OS privilege levels depending on whether it happened to be
@@ -26500,7 +26502,7 @@ def _transcript_evidence(org: Org) -> dict[str, str] | None:
     if seen is None:
         return None
     try:
-        from .desktop_native import native_session_path
+        from .desktop_native import native_session_path, native_conflicts
         native = {}
         ambiguous = set()
         for nid, node in org.nodes.items():
@@ -26513,7 +26515,8 @@ def _transcript_evidence(org: Org) -> dict[str, str] | None:
                 if sid in native and native[sid] != path:
                     ambiguous.add(sid)
                 native[sid] = path
-        return {**seen, **{sid:path for sid,path in native.items() if sid not in ambiguous}}
+        ambiguous.update(native_conflicts())
+        return {sid:path for sid,path in {**seen, **native}.items() if sid not in ambiguous}
     except ImportError:
         return seen
 

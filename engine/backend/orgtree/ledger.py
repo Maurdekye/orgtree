@@ -3617,14 +3617,28 @@ class Org:
         from .desktop_native import _read_native, claude_records, provider_for, NativeHeld
         from pathlib import Path
         provider = provider_for(n)
-        path = supervisor.transcript_path(sid)
+        if provider == "codex":
+            from .desktop_native import locate
+            from . import providers
+            try:
+                path = str(locate(Path("."), self.d["slug"], nid,
+                    {**n, "session_id": sid, "codex_thread": sid},
+                    {"codex_profile": providers._codex_home()}))
+            except (NativeHeld, ValueError, OSError) as exc:
+                raise LedgerError(str(exc)) from exc
+        else:
+            path = supervisor.transcript_path(sid)
         if not path:
             raise LedgerError("Preserved native bearer has no validated transcript")
         try:
             rows, _ = _read_native(Path(path))
-            if provider not in {"claude", "openrouter"}:
+            if provider == "codex":
+                from .desktop_native_codex import validate
+                validate(rows, sid)
+            elif provider in {"claude", "openrouter"}:
+                claude_records(rows, sid, sid, "validation-only")
+            else:
                 raise NativeHeld("Native bearer validation is unavailable for this provider")
-            claude_records(rows, sid, sid, "validation-only")
         except (NativeHeld, ValueError, OSError) as exc:
             raise LedgerError(str(exc)) from exc
         result = copy.deepcopy(imported)
@@ -8894,6 +8908,8 @@ class Org:
         # advertising a capability its holder had no way to reach.
         self._notify_ev([nid], _cp("self"))
         self._log("compact_split", SYSTEM, {"node": nid, "predecessor": pred_id}, [])
+        if n.get("codex_thread") == pred.get("session_id"):
+            n["codex_thread"] = new_session_id
         self._retire_native_import(nid, pred_id)
         return pred_id
 
@@ -8966,6 +8982,8 @@ class Org:
             pred["session_id"] = bearer_sid
             if rebound is not None:
                 pred["desktop_import"] = rebound
+                if rebound["native_continuity"]["provider"] == "codex":
+                    pred["codex_thread"] = bearer_sid
         elif boundary_offset is not None:
             # a LOST row records WHERE its boundary was, so a later recovery
             # reads the cut point instead of re-deriving it. Deriving it is
@@ -9028,6 +9046,8 @@ class Org:
         n["session_id"] = bearer_sid
         if rebound is not None:
             n["desktop_import"] = rebound
+            if rebound["native_continuity"]["provider"] == "codex":
+                n["codex_thread"] = bearer_sid
         # the cut point was a property of being lost inside someone else's
         # file; this row now owns its own session and the offset would only
         # ever mislead a later reader

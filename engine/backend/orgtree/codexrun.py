@@ -908,6 +908,7 @@ def _thread_id_of(result: dict[str, Any]) -> str | None:
 
 def compact_fork(argv_head: list[str], *, cwd: str, model: str | None,
                  thread_id: str, timeout: float,
+                 resume_path: str | None = None,
                  codex_home: str | None = None,
                  sandbox: str = "workspace-write",
                  approval_policy: str = "on-request",
@@ -927,6 +928,7 @@ def compact_fork(argv_head: list[str], *, cwd: str, model: str | None,
         client.initialize()
         forked = client.request("thread/fork", {
             "threadId": thread_id,
+            **({"path": resume_path} if resume_path else {}),
             "model": model,
             "cwd": cwd,
             "sandbox": sandbox,

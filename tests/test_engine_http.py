@@ -63,6 +63,12 @@ def seeded():
     assert supervisor._native_context_hold(good,'worker') is None
     assert supervisor.transcript_path(good_sid)
     assert good_sid in supervisor._transcript_evidence(good)
+    assert duplicate_sid not in supervisor._transcript_evidence(good)
+    missing=store.create_org('ordinary-missing')
+    missing.hire(USER,None,'haiku',0,'worker')
+    missing.node('worker').pop('session_unrun',None)
+    missing.node('worker')['cost_usd']=1
+    store.save_org(missing)
     from orgtree import api
     @api.app.on_event('startup')
     def verify_native_startup_state():
@@ -71,6 +77,7 @@ def seeded():
             assert node['state']=='live' and node['session_id']==duplicate_sid
             assert node['inflight']['text']=='retained ambiguous intent'
         assert store.load_org('unrelated-native').node('worker')['state']=='live'
+        assert store.load_org('ordinary-missing').node('worker')['state']=='unrecoverable'
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
     import os
