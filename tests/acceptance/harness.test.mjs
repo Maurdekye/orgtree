@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { prerequisites, isolatedRoot, phaseResult } from './run.mjs'
+import { prerequisites, isolatedRoot, phaseResult, runtimeManifest } from './run.mjs'
 
 test('missing runtime is inert; complete fixture enables preflight and removing a member disables it', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acceptance-preflight-'))
@@ -35,4 +35,20 @@ test('completed UI assertions cannot mask a timed-out or failed application shut
   }
   assert.equal(phaseResult('restart', report, { status: 0 }, [123]).status, 'FAIL')
   assert.equal(phaseResult('restart', { status: 'FAIL' }, { status: 0 }, []).status, 'FAIL')
+})
+
+test('runtime provenance changes when executable source or compiled resources change', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acceptance-provenance-'))
+  fs.mkdirSync(path.join(fixture, 'engine'))
+  fs.mkdirSync(path.join(fixture, 'dist'))
+  fs.writeFileSync(path.join(fixture, 'engine/launch.py'), 'source one')
+  fs.writeFileSync(path.join(fixture, 'dist/app.cjs'), 'bundle one')
+  const original = runtimeManifest(fixture)
+  assert.equal(Object.keys(original.files).length, 2)
+  assert.deepEqual(runtimeManifest(fixture), original)
+  fs.writeFileSync(path.join(fixture, 'dist/app.cjs'), 'bundle two')
+  assert.notEqual(runtimeManifest(fixture).digest, original.digest)
+  const next = runtimeManifest(fixture)
+  fs.writeFileSync(path.join(fixture, 'engine/launch.py'), 'source two')
+  assert.notEqual(runtimeManifest(fixture).digest, next.digest)
 })

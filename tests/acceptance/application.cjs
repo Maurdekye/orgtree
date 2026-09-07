@@ -5,10 +5,15 @@ const fs = require('node:fs')
 const path = require('node:path')
 const assert = require('node:assert/strict')
 const cp = require('node:child_process')
-const { app, BrowserWindow, dialog } = require('electron')
+const { app, BrowserWindow, dialog, net } = require('electron')
 const root = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_ROOT)
 const target = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_APP)
+const packaged = process.env.ORGTREE_ACCEPTANCE_PACKAGE
+const resources = packaged ? path.join(packaged, 'resources') : target
+const appPath = packaged ? path.join(resources, 'app.asar') : target
+const loginCalls = []
 const phase = process.env.ORGTREE_ACCEPTANCE_PHASE
+const visualFixture = process.env.ORGTREE_ACCEPTANCE_VISUAL_FIXTURE === '1'
 assert.ok(['initial', 'restart'].includes(phase))
 const data = fs.realpathSync.native(path.join(root, 'data'))
 // The shell treats an inherited ORGTREE_DATA as a forbidden v1 root and replaces
@@ -16,8 +21,44 @@ const data = fs.realpathSync.native(path.join(root, 'data'))
 assert.equal(fs.realpathSync.native(process.env.ORGTREE_DATA), fs.realpathSync.native(path.join(root, 'inherited-v1')))
 assert.equal(fs.realpathSync.native(process.env.ORGTREE_V2_DATA), data)
 app.setPath('userData', path.join(root, 'profile'))
-app.setAppPath(target)
+app.setAppPath(appPath)
+if (packaged) {
+  Object.defineProperty(app, 'isPackaged', { value: true })
+  Object.defineProperty(process, 'resourcesPath', { value: resources })
+  app.setLoginItemSettings = settings => { loginCalls.push({ openAtLogin: settings.openAtLogin, args: settings.args }) }
+  // Prevent this engineering package from discovering/downloading/applying an
+  // external update. Preserve loopback browser transport to its real engine.
+  const originalRequest = net.request.bind(net)
+  net.request = options => {
+    const value = typeof options === 'string' ? options : options.url || `https://${options.hostname || options.host}${options.path || '/'}`
+    if (new URL(value).hostname !== '127.0.0.1') throw new Error('Acceptance disables updater network')
+    return originalRequest(options)
+  }
+}
 const rows = [], children = [], handshakes = [], diagnostics = []
+const screenshots = []
+async function capture(window, name) {
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  const output = path.join(root, phase + '-' + name + '.png')
+  try {
+    const page = await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })
+    assert.equal(page.isEmpty(), false, 'Screenshot must contain real rendered pixels')
+    fs.writeFileSync(output, page.toPNG())
+  } catch (error) {
+    if (error.message !== 'UnknownVizError') throw error
+    // Some adopted about:blank portals have no capturable surface in Electron's
+    // API. Ask that same real Chromium view for its screenshot instead.
+    const debuggerClient = window.webContents.debugger
+    debuggerClient.attach('1.3')
+    try {
+      const frame = await debuggerClient.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: false })
+      const bytes = Buffer.from(frame.data, 'base64')
+      assert.ok(bytes.length > 100, 'Chromium screenshot must contain pixels')
+      fs.writeFileSync(output, bytes)
+    } finally { debuggerClient.detach() }
+  }
+  screenshots.push(output)
+}
 let ready = false, finishing = false, launched = false
 const spawn = cp.spawn
 cp.spawn = function(command, args, options) {
@@ -26,15 +67,17 @@ cp.spawn = function(command, args, options) {
       diagnostics.push('Acceptance instrumentation refused mismatched spawn data root')
       throw new Error('Acceptance spawn root mismatch')
     }
-    if (fs.realpathSync.native(args[0]) !== fs.realpathSync.native(path.join(target, 'engine/launch.py'))) {
+    if (fs.realpathSync.native(args[0]) !== fs.realpathSync.native(path.join(resources, 'engine/launch.py'))) {
       diagnostics.push('Acceptance instrumentation refused mismatched launcher path')
       throw new Error('Acceptance launcher mismatch')
     }
     launched = true
+    if (visualFixture) args = [path.join(__dirname, 'visual_engine.py'), ...args.slice(1)]
   }
   const child = spawn.call(this, command, args, options)
   children.push(child)
   child.stderr?.on('data', chunk => {
+    fs.appendFileSync(path.join(root, phase + '-private-engine.log'), chunk)
     const missing = chunk.toString().match(/ModuleNotFoundError: No module named '([A-Za-z0-9_.]+)'/)
     if (missing) diagnostics.push('Missing Python module: ' + missing[1])
   })
@@ -62,14 +105,17 @@ dialog.showMessageBox = async (...args) => {
 }
 async function check(name, action) {
   try { await action(); rows.push({ name, status: 'PASS' }) }
-  catch (error) { rows.push({ name, status: 'FAIL', reason: error instanceof assert.AssertionError ? error.message : 'Runtime operation failed (' + error.name + ')' }) }
+  catch (error) {
+    fs.appendFileSync(path.join(root, 'private-errors.log'), name + '\n' + error.stack + '\n')
+    rows.push({ name, status: 'FAIL', reason: error instanceof assert.AssertionError ? error.message : 'Runtime operation failed (' + error.name + ')' })
+  }
 }
 function finish() {
   if (finishing) return
   finishing = true
   clearTimeout(deadline)
   const status = ready && rows.length > 0 && rows.every(r => r.status === 'PASS') ? 'PASS' : 'FAIL'
-  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
+  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, screenshots, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
   app.quit()
   const cleanup = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -110,6 +156,7 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(prefs.exitOnClose, false)
       assert.equal(prefs.startAtLogin, true)
       assert.equal(await evaluate('typeof require'), 'undefined')
+      if (packaged) assert.deepEqual(loginCalls[0], { openAtLogin: true, args: ['--background'] }, 'Packaged first run requests quiet login by default')
     })
     await check('authenticated-api-positive-and-negative-control', async () => {
       assert.equal(await evaluate(`fetch('/api/orgs').then(r=>r.status)`), 200)
@@ -123,12 +170,12 @@ app.on('browser-window-created', (_event, main) => {
         await evaluate(`(()=>{const i=document.querySelector('input[placeholder="organization name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Acceptance Runtime');i.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
         await evaluate(`document.querySelector('input[placeholder="organization name"]').form.requestSubmit();true`)
       }
-      const visibleIdentity = phase === 'initial' ? `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime'` : `[...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
+      const visibleIdentity = `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime' || [...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
       assert.equal(await waitFor(visibleIdentity), true, 'Created organization must appear in active header or restored home list')
       assert.equal(await evaluate(`fetch('/api/orgs/acceptance-runtime').then(r=>r.status)`), 200)
     })
     await check('selected-organization-route-retains-api-and-native-authority', async () => {
-      if (phase === 'restart') await evaluate(`[...document.querySelectorAll('.org')].find(e=>e.textContent.includes('Acceptance Runtime')).click();true`)
+      if (phase === 'restart' && !await evaluate(`location.pathname === '/o/acceptance-runtime'`)) await evaluate(`[...document.querySelectorAll('.org')].find(e=>e.textContent.includes('Acceptance Runtime')).click();true`)
       assert.equal(await waitFor(`location.pathname === '/o/acceptance-runtime'`), true)
       assert.equal(await evaluate(`fetch('/api/orgs/acceptance-runtime').then(r=>r.status)`), 200)
       assert.equal((await evaluate('window.orgtreeDesktop.getStatus()')).state, 'ready')
@@ -137,6 +184,12 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await evaluate(`new Promise(resolve=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/api/orgs/acceptance-runtime/ws');const timer=setTimeout(()=>{ws.close();resolve(false)},5000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)}})`), true)
     })
     await check('actual-settings-modal-popout-redock-main-close', async () => {
+      await evaluate(`document.querySelector('button[title="fit the whole org"]')?.click();true`)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await evaluate(`document.querySelector('button[title="fit the whole org"]')?.click();true`)
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      await capture(main, 'organization')
+      fs.writeFileSync(path.join(root, phase + '-geometry.json'), JSON.stringify(await evaluate(`(()=>{const rect=e=>e?{x:e.getBoundingClientRect().x,y:e.getBoundingClientRect().y,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}:null;return {innerHeight,innerWidth,viewport:rect(document.querySelector('.viewport')),space:{rect:rect(document.querySelector('.space')),transform:document.querySelector('.space')?getComputedStyle(document.querySelector('.space')).transform:null},nodes:[...document.querySelectorAll('.sq')].map(e=>({name:e.querySelector('.name')?.textContent||e.className,rect:rect(e)}))}})()`), null, 2))
       if (!await evaluate(`Boolean(document.querySelector('button[title="App settings"]'))`)) {
         assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true, 'Active organization menu must be available')
         await evaluate(`document.querySelector('header.orgbar button.iconbtn').click();true`)
@@ -144,12 +197,25 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await waitFor(`document.querySelector('button[title="App settings"]')`), true, 'Organization drawer exposes App settings')
       await evaluate(`document.querySelector('button[title="App settings"]').click();true`)
       assert.equal(await waitFor(`document.querySelector('button[aria-label="Open in new window"]')`), true)
+      for (const tab of ['Display', 'Import', 'Runtime']) {
+        assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('${tab}'));if(!b)return false;b.click();return true})()`), true)
+        await capture(main, 'settings-' + tab.toLowerCase())
+      }
       const before = new Set(BrowserWindow.getAllWindows().map(w => w.id))
+      const mainStyle = await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.acct-panel'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})()`)
       await evaluate(`(()=>{const b=document.querySelector('button[aria-label="Open in new window"]');window.__acceptanceSurface=b.closest('.movable-surface');b.click();return true})()`)
       const child = BrowserWindow.getAllWindows().find(w => !before.has(w.id))
       assert.ok(child, 'Actual modal action must create a native child')
       assert.equal(await waitFor(`window.__acceptanceSurface.ownerDocument !== document`), true)
       assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
+      fs.writeFileSync(path.join(root, phase + '-popout-state.json'), JSON.stringify({visible:child.isVisible(), bounds:child.getBounds(), loading:child.webContents.isLoading(), url:child.webContents.getURL()}))
+      const styleState = await child.webContents.executeJavaScript(`({panel:(()=>{const s=getComputedStyle(document.querySelector('.acct-panel'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})(),bodyStyle:{background:getComputedStyle(document.body).backgroundColor,font:getComputedStyle(document.body).fontFamily},links:[...document.querySelectorAll('link')].map(e=>({href:e.href,rel:e.rel,sheet:Boolean(e.sheet)})),sheets:document.styleSheets.length})`)
+      fs.writeFileSync(path.join(root, phase + '-popout-styles.json'), JSON.stringify(styleState, null, 2))
+      await check('native-popout-retains-stylesheets', async () => {
+        assert.notEqual(mainStyle.font, '"Times New Roman"', 'Main panel positive control must have app styling')
+        assert.deepEqual(styleState.panel, mainStyle, 'Adopted Settings must retain its rendered styles')
+      })
+      await check('capture-native-settings-popout', () => capture(child, 'settings-popout'))
       main.close()
       assert.equal(main.isVisible(), false)
       assert.equal(child.isDestroyed(), false)
@@ -157,6 +223,26 @@ app.on('browser-window-created', (_event, main) => {
       await evaluate('window.orgtreeDesktop.showMainWindow()')
       child.close()
       assert.equal(await waitFor(`window.__acceptanceSurface.ownerDocument === document && document.contains(window.__acceptanceSurface)`), true)
+    })
+    if (visualFixture) await check('populated-graph-desk-document-connections-rendering', async () => {
+      await evaluate(`[...document.querySelectorAll('.acct-panel button')].find(b=>b.textContent==='close')?.click();true`)
+      await evaluate(`document.querySelector('header.orgbar button.iconbtn')?.click();true`)
+      assert.equal(await waitFor(`document.querySelector('[title="open presented documents for planner"]')`), true)
+      await evaluate(`document.querySelector('[title="open presented documents for planner"]').click();true`)
+      assert.equal(await waitFor(`document.querySelector('.doc-gallery-row')`), true)
+      await evaluate(`document.querySelector('.doc-gallery-row').click();true`)
+      assert.equal(await waitFor(`document.querySelector('.mailer-body')?.textContent.includes('isolated synthetic organization')`), true)
+      await capture(main, 'document-reader')
+      await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));true`)
+      await evaluate(`[...document.querySelectorAll('header.orgbar button')].find(b=>b.textContent==='Connections')?.click();true`)
+      assert.equal(await waitFor(`[...document.querySelectorAll('h3')].some(h=>h.textContent==='Connections')`), true)
+      await capture(main, 'connections')
+      await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));true`)
+      assert.equal(await evaluate(`(()=>{const card=[...document.querySelectorAll('.sq')].find(e=>e.querySelector('.name')?.textContent==='planner');if(!card)return false;const r=card.getBoundingClientRect();card.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+30,clientY:r.y+30}));return true})()`), true)
+      await capture(main, 'agent-context-menu')
+      assert.equal(await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Open desk');if(!button)return false;button.click();return true})()`), true)
+      assert.equal(await waitFor(`document.querySelector('.desk-body')`), true)
+      await capture(main, 'agent-desk')
     })
     const key = 'orgtree-draft-v2-' + JSON.stringify(['acceptance', 'idle-fixture', 0])
     const values = { [key]: 'Acceptance unsent draft', [key + '-attachments']: JSON.stringify([{ name: 'retained.txt', path: 'uploads/retained.txt', bytes: 8 }]),
@@ -184,4 +270,4 @@ app.on('browser-window-created', (_event, main) => {
     finish()
   })
 })
-require(path.join(target, 'dist/main/index.cjs'))
+require(path.join(appPath, 'dist/main/index.cjs'))
