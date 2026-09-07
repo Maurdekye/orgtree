@@ -135,6 +135,13 @@ def main() -> None:
     hub = HubService(data)
     hub_ready = hub.start()
     discover_hub(data)
+    # The copied production net client starts in the API startup hook. Give it
+    # the embedded hub's dynamic address without rewriting remote configuration.
+    os.environ["ORGTREE_V2_HUB_ADDRESS"] = (
+        f"http://{hub_ready.host}:{hub_ready.port}")
+    # HubReadiness carries the owner token on the hardened hub contract;
+    # getattr keeps this launcher importable while that sibling commit lands.
+    os.environ["ORGTREE_V2_HUB_TOKEN"] = str(getattr(hub_ready, "token", ""))
     import uvicorn  # noqa: PLC0415
     print(json.dumps({"type": "ready", "protocol": 1, "port": port,
                       "pid": os.getpid(), "dataRootId": data_root_id(data),
