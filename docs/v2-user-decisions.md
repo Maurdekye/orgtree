@@ -1,12 +1,12 @@
 # Orgtree v2.0 user decisions (current, chronological)
 
-This is the binding record of what the user has decided for Orgtree v2. Entries are in time order and the NEWEST ENTRY WINS wherever two conflict. The original 5 September brief is preserved verbatim in `docs/v2-original-design-brief.md` and is historical: everything in it that is not repeated or confirmed below has been superseded. `docs/supplied-design-decisions.md` is the coordinator's earlier working record of the same rulings; this file supersedes it as the reference. Transport, startup and credential mechanics are owned by `docs/engine-contract.md`, and the v1 feature inventory by `docs/v1-parity-inventory.md`; this file does not restate them.
+This is the binding record of what the user has decided for Orgtree v2. Entries are in time order and the NEWEST ENTRY WINS wherever two conflict. The original 5 September brief is preserved verbatim in `docs/v2-original-design-brief.md`. It REMAINS THE REFERENCE FOR REQUIREMENTS except where a newer explicit decision below overrides, defers or removes a point; silence here does not waive anything the brief asks for. The scope index below is a summary of the current state, not an exhaustive list of what is retained. `docs/supplied-design-decisions.md` is the coordinator's earlier working record of the same rulings; this file supersedes it as the reference. Transport, startup and credential mechanics are owned by `docs/engine-contract.md`, and the v1 feature inventory by `docs/v1-parity-inventory.md`; this file does not restate them.
 
 All times are UTC on 7 September 2026 unless stated. The hard stop is 2026-09-08 01:00 UTC (04:00 Israel).
 
 ## Current scope index
 
-Where things stand after the last decision recorded (7 September, 21:07:54 UTC, relayed by the coordinator 21:08 UTC).
+Where things stand after the last decision recorded (7 September, 21:09:23 UTC, relayed by the coordinator 21:09 UTC).
 
 **Foundation (settled):**
 - Electron desktop application, Windows installer first, platform-agnostic for later macOS/Linux builds. Chromium UI stays.
@@ -35,7 +35,7 @@ Where things stand after the last decision recorded (7 September, 21:07:54 UTC, 
 - Mobile application development and integration.
 - ALL agent execution sandboxing and isolation (containers, disks, kiosk sandboxes). Electron renderer isolation, credential boundaries and folder/tool authority remain as application safety controls; they are not agent execution sandboxes.
 
-**Rules already fixed for the later multi-account system (21:06 to 21:08 UTC):** accounts at a limit or without authentication wait by default; moving an existing agent needs an explicit user or supervising-agent decision, never automatic fallback; every registered account is available to every organization by default; accounts remain symmetric and provider-agnostic. New-account setup (21:07 UTC) supports both imported and Orgtree-managed profile directories, validated by Orgtree through each harness's own sign-in flow rather than a recreated provider login UI.
+**Rules already fixed for the later multi-account system (21:06 to 21:09 UTC):** accounts at a limit or without authentication wait by default; moving an existing agent needs an explicit user or supervising-agent decision, never automatic fallback; every registered account is available to every organization by default; accounts remain symmetric and provider-agnostic. New-account setup (21:07 UTC) supports both imported and Orgtree-managed profile directories, validated by Orgtree through each harness's own sign-in flow rather than a recreated provider login UI. Agents on different accounts of the same provider are tinted lighter or darker variants of the provider colour, independent of work status (21:09 UTC).
 
 **After MVP, conditionally, within the same hard stop:** if agreed MVP parity plus the additions above complete early with usage allowance and time remaining, proceed FIRST to integrating the existing Git system, THEN to the provider-agnostic symmetric multi-account system. No new permission is needed to begin these phases once MVP is achieved. This replaces the earlier "stop at parity" instruction.
 
@@ -47,7 +47,7 @@ Where things stand after the last decision recorded (7 September, 21:07:54 UTC, 
 
 The user's discussion draft. Retained from it, as later confirmed: product owns installation and operation; repository and product named `orgtree`; standalone Chromium-based desktop application with a Windows installer; provider- and harness-neutral architecture that shows provider differences honestly and never manufactures equivalence; replaceable themes with a neutral default where a provider theme changes no privileges or routing; separate data for development; copy-based import that never modifies the live v1 root; untrusted agent output, Markdown, HTML and external pages gain no desktop privileges; three responsibilities (desktop interface, organization engine, provider/harness adapters) with explicit boundaries; distinguish provider, model, harness, account and route.
 
-Superseded from it: "no repository, implementation or framework commitment", selective parity with a keep/redesign/defer/omit review, open engine language and framework, and its ordering of design stages. See the entries below.
+Explicitly superseded from it by later entries: "no repository, implementation or framework commitment", selective parity with a keep/redesign/defer/omit review, open engine language and framework, and its ordering of design stages. Explicitly deferred: multi-account management and the mobile app. Every other requirement in the brief still applies unless a dated entry below changes it.
 
 ### 6 September 2026
 
@@ -73,6 +73,8 @@ Superseded from it: "no repository, implementation or framework commitment", sel
 - 21:06:15 UTC, multi-account rules for the later account system (newest, wins on conflict): accounts that reach limits or lose authentication WAIT by default; reassignment requires an explicit decision by the user or an authorized supervising agent, never automatic fallback or rollover. Users AND supervising agents may move existing agents across accounts, within descendant authority boundaries, and any session or cache continuity change must be visible. ALL registered accounts are available to all organizations by default; the proposed per-organization opt-in was rejected. Accounts stay symmetric and provider-agnostic with no main/secondary distinction. New-account setup by importing profile directories or creating managed separate profiles is under discussion and not verified across harnesses.
 
 - 21:07:54 UTC, account setup for the later account system (newest, wins on conflict): BOTH imported account profile directories and Orgtree-managed profile directories are approved, so setup is seamless. Orgtree manages profile setup and connection validation; do not assume provider authentication can or should be recreated inside the Orgtree UI. Prefer each harness's supported sign-in flow, with provider-specific feasibility verified before implementation. The conditional phase order stays: complete MVP, then Git integration, then accounts, all within the 01:00 UTC hard stop.
+
+- 21:09:23 UTC, account visual identity reaffirmed (newest, wins on conflict): agents using different accounts within the SAME provider get lighter or darker variants of that provider's colour, like alternate team colours for the same fighter. This means account distinction within a provider, not a different provider assignment. The provider's base identity stays consistent, and the account tint is independent of work-status colour and symbols. Already required by the original brief; reaffirmed for the conditional multi-account phase after MVP and Git.
 
 ## How to use this file
 
