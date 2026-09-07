@@ -141,11 +141,16 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
             idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
                            for s in states)
         return {"activeAgents": active, "totalAgents": total, "idle": idle,
-                "maintenance": desktop_maintenance.pending()}
+                "maintenance": desktop_maintenance.pending(),
+                "maintenance_outcome": desktop_maintenance.status()}
 
     @api_app.post("/api/desktop/maintenance/ack")
     def acknowledge_maintenance(body: dict[str, Any]) -> dict[str, bool]:
         return desktop_maintenance.acknowledge(str(body.get('id') or ''), str(body.get('outcome') or 'execute'))
+
+    @api_app.post("/api/desktop/maintenance/failure")
+    def maintenance_failure(body: dict[str, Any]) -> dict[str, Any]:
+        return desktop_maintenance.execution_failed(str(body.get('id') or ''))
 
     @api_app.post("/api/desktop/shutdown")
     def desktop_shutdown() -> dict[str, bool]:

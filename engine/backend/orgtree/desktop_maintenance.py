@@ -8,6 +8,7 @@ from . import store, supervisor
 from .ledger import LedgerError, now
 
 _lock = threading.RLock()
+_accepted_hold = None
 
 
 def _path():
@@ -33,12 +34,21 @@ def pending():
         return value if value and value.get('state') == 'pending' else None
 
 
+def status():
+    with _lock:
+        return _read()
+
+
 def request(slug, nid, target='org', reason=None, *, action='restart', **kwargs):
+    if kwargs.get('force') or kwargs.get('quiesced'):
+        quiesced = kwargs.get('quiesced') or {}
+        supervisor._force_hold_settle(quiesced.get('hold_token'), release=True)
+        raise LedgerError('Desktop maintenance cannot force busy turns; request idle maintenance')
     if target not in {'org','mailhub','both'} or action not in {'restart','update'}:
         raise LedgerError('invalid desktop maintenance target/action')
     with _lock:
-        current = pending()
-        if current:
+        current = _read()
+        if current and current.get('state') in {'pending','acknowledged'}:
             return {'armed':True, 'already_armed':True, 'maintenance':current}
         value = {'id':uuid.uuid4().hex, 'action':action, 'target':target,
                  'reason':str(reason or 'agent requested desktop maintenance')[:1000],
@@ -63,6 +73,7 @@ def cancel(slug, nid):
 
 
 def acknowledge(request_id, outcome='execute'):
+    global _accepted_hold
     with _lock:
         current = pending()
         if not current or current['id'] != request_id:
@@ -83,10 +94,26 @@ def acknowledge(request_id, outcome='execute'):
             return {'accepted':False}
         try:
             _write({**current,'state':'acknowledged'})
+            _accepted_hold = hold
         except BaseException:
             supervisor._force_hold_settle(hold, release=True)
             raise
         return {'accepted':True}
+
+
+def execution_failed(request_id):
+    global _accepted_hold
+    with _lock:
+        current = _read()
+        if current and current.get('id') == request_id and current.get('state') == 'failed':
+            return {'released':True, 'state':'failed'}
+        if not current or current.get('id') != request_id or current.get('state') != 'acknowledged':
+            return {'released':False}
+        _write({**current,'state':'failed','failed_at':now(),
+                'failure':'Native execution failed or its acknowledgment was uncertain; no automatic retry'})
+        released = supervisor._force_hold_settle(_accepted_hold,release=True)
+        _accepted_hold = None
+        return {'released':bool(released), 'state':'failed'}
 
 
 def install():
