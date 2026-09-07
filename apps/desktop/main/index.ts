@@ -53,6 +53,9 @@ else {
       try { await main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') } catch { /* Crashed renderer cannot save layout. */ }
     }
   }
+  const quitAfterLastView = () => {
+    if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
+  }
   app.on('second-instance', show)
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
@@ -107,6 +110,7 @@ else {
         configureArtifactSession(artifactSession, url, trustedOrigin, engine.token)
         const viewer = new BrowserWindow({ width: 1000, height: 760, autoHideMenuBar: true,
           webPreferences: { session: artifactSession, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
+        viewer.on('closed', quitAfterLastView)
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
@@ -117,9 +121,7 @@ else {
           sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${trustedOrigin}`] } })
       configureWindow(main, trustedOrigin, true, register, openArtifact)
       main.webContents.on('did-create-window', child => {
-        child.on('closed', () => {
-          if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
-        })
+        child.on('closed', quitAfterLastView)
       })
       main.on('close', event => {
         const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length

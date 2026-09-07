@@ -38,7 +38,7 @@ def main():
             if Path(entry.filename).name != entry.filename or ":" in entry.filename:
                 raise SystemExit("Unexpected archive layout")
         source.extractall(RUNTIME)
-    (RUNTIME / "python313._pth").write_bytes(b"python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../..\r\nimport site\r\n")
+    (RUNTIME / "python313._pth").write_bytes(b"python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../../\r\nimport site\r\n")
     target = RUNTIME / "Lib" / "site-packages"
     report = CACHE / "dependencies.json"
     subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:",
@@ -49,7 +49,7 @@ def main():
             for r in json.loads(report.read_text(encoding="utf-8"))["install"]]}
     (RUNTIME / "runtime-manifest.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     # This imports dependencies only, never the engine/store.
-    subprocess.run([str(RUNTIME / "python.exe"), "-c", "import sys,sqlite3,ssl,fastapi,uvicorn,websockets,httpx,PIL,psutil; print(sys.version); print(sys.executable)"], check=True)
+    subprocess.run([str(RUNTIME / "python.exe"), "-c", "import sys,sqlite3,ssl,fastapi,uvicorn,websockets,httpx,PIL,psutil; import pathlib,importlib.util; assert pathlib.Path(sys.executable).resolve().parents[2] in map(pathlib.Path, sys.path), sys.path; assert importlib.util.find_spec('engine') is not None; print(sys.version); print(sys.executable)"], check=True)
     print("App-local runtime ready:", RUNTIME)
 
 if __name__ == "__main__":
