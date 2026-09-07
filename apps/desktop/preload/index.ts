@@ -1,9 +1,10 @@
+import { isAppPath } from '../../../packages/contracts/ui-route'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopBridge, DesktopEvent } from '../../../packages/contracts/index'
 
 // Blank portals inherit webPreferences but never receive their own bridge.
 const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-origin='))?.slice('--orgtree-ui-origin='.length)
-if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && (location.pathname === '/' || location.pathname === '/index.html')) {
+if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && isAppPath(location.pathname)) {
   const bridge: DesktopBridge = {
     getStatus: () => ipcRenderer.invoke('desktop:status'),
     getPreferences: () => ipcRenderer.invoke('desktop:preferences'),

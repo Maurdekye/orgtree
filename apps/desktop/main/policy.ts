@@ -1,3 +1,4 @@
+import { isAppPath } from '../../../packages/contracts/ui-route'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
@@ -66,7 +67,7 @@ export function scopedHeaders(headers: Record<string, string>, url: string, orig
 export function trustedUiUrl(value: string, origin: string): boolean {
   if (!engineUrl(value, origin)) return false
   const u = new URL(value)
-  return u.protocol === 'http:' && (u.pathname === '/' || u.pathname === '/index.html')
+  return u.protocol === 'http:' && isAppPath(u.pathname)
 }
 
 export function closeAction(exitOnClose: boolean, quitting: boolean, otherVisibleViews = 0): 'hide' | 'quit' | 'close' {
