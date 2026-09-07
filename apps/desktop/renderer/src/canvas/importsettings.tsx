@@ -1,3 +1,4 @@
+import { ImportRecovery } from './importrecovery'
 import { useState } from 'react'
 import { req } from '../api'
 import { pickFolder } from '../picker'
@@ -6,7 +7,7 @@ interface ImportOrg { slug: string; name: string; warnings?: string[]; active_no
 interface Preview { organizations: ImportOrg[]; warnings: string[] }
 interface Imported { imported: ImportOrg[]; warnings: string[]; failed?: { slug: string; error: string; not_attempted?: string[] }[] }
 
-export function ImportSettings() {
+export function ImportSettings({ active = true }: { active?: boolean }) {
   const [source, setSource] = useState('')
   const [preview, setPreview] = useState<Preview | null>(null)
   const [selected, setSelected] = useState<string[]>([])
@@ -55,10 +56,11 @@ export function ImportSettings() {
       </>}
     </>}
     {result && <div role="status"><p>{result.imported.length ? `Imported ${result.imported.map(o => o.name || o.slug).join(', ')}.` : 'No organizations imported.'}</p>
-      {[...result.warnings ?? [], ...result.imported.flatMap(o => o.warnings ?? [])].map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
+      {[...new Set([...result.warnings ?? [], ...result.imported.flatMap(o => o.warnings ?? [])])].map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
       {result.imported.filter(o => o.recovery_pending).map(o => <p className="ask-warn" key={o.slug}>{o.name || o.slug} was copied; resuming its active work is still pending.</p>)}
       {result.failed?.map(f => <div className="ask-warn" key={f.slug}><p>{f.slug}: {f.error}</p>
         {!!f.not_attempted?.length && <p>Not copied: {f.not_attempted.join(', ')}.</p>}</div>)}
     </div>}
+    <ImportRecovery active={active} />
   </section>
 }

@@ -329,7 +329,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
-    <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings /></SettingsTabPanel>
+    <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
     <button onClick={close}>close</button>
   </PinFrame>
 }

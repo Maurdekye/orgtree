@@ -24,6 +24,7 @@ test('copy import requires preview, selected organizations and duplicate-work ac
   const original = globalThis.fetch
   const calls: { url: string; body: unknown }[] = []
   globalThis.fetch = async (url, init) => {
+    if (String(url) === '/api/orgs') return new Response('[]')
     calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
     return new Response(JSON.stringify(String(url).endsWith('/preview')
       ? { organizations: [{ slug: 'first', name: 'First' }, { slug: 'second', name: 'Second' }], warnings: ['Copy retains source data.'] }
@@ -105,6 +106,7 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
   const refresh = () => { refreshes++ }
   window.addEventListener('orgtree:organizations-imported', refresh)
   globalThis.fetch = async url => {
+    if (String(url) === '/api/orgs') return new Response('[]')
     if (String(url).endsWith('/preview')) return new Response(JSON.stringify({ organizations: [
       { slug: 'first', name: 'First', conflict: null }, { slug: 'second', name: 'Second', conflict: null },
       { slug: 'existing', name: 'Existing', conflict: 'Already exists in this installation' },
@@ -112,7 +114,7 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
     copied++
     return new Response(JSON.stringify({ imported: [{ slug: 'first', name: 'First', recovery_pending: true,
       warnings: ['Independent provider sessions will start.', 'Account configuration was skipped.'] }],
-      failed: [{ slug: 'second', error: 'Copy failed', not_attempted: ['third'] }], warnings: ['Original data is untouched.'] }))
+      failed: [{ slug: 'second', error: 'Copy failed', not_attempted: ['third'] }], warnings: ['Original data is untouched.', 'Independent provider sessions will start.'] }))
   }
   const v = await mountView(<ImportSettings />, el => el)
   try {
@@ -125,6 +127,7 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
     await click(v.el, 'Copy selected organizations')
     assert.match(v.el.textContent!, /Imported First/)
     assert.match(v.el.textContent!, /Independent provider sessions/)
+    assert.equal(v.el.textContent!.split('Independent provider sessions will start.').length - 1, 1, 'duplicate continuity warning appears once')
     assert.match(v.el.textContent!, /Account configuration was skipped/)
     assert.match(v.el.textContent!, /resuming its active work is still pending/)
     assert.match(v.el.textContent!, /second: Copy failed/)
