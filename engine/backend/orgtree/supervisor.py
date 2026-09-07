@@ -26628,6 +26628,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                   f"sweep is skipped (nothing condemned)")
         else:
             for nid, n in org.nodes.items():
+                if _native_context_hold(org, nid):
+                    continue  # Ambiguous/unvalidated import is held, not lost.
                 # self-heal, so the never-run pardon can never be permanent:
                 # the transcript EXISTS, therefore the session ran, therefore
                 # the pardon is spent — the same rule spend_unrun_pardon
@@ -26673,6 +26675,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         inflight = []
         dropped_cmd = False
         for nid, n in org.nodes.items():
+            if recovery_observer is None and _native_context_hold(org, nid):
+                continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
                 inf = n.pop("inflight", None)
                 # a command turn can't replay honestly (the restart preamble

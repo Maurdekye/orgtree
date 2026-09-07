@@ -43,6 +43,9 @@ def seeded():
         fixture = store.create_org(slug)
         fixture.hire(USER,None,'haiku',0,'worker')
         node = fixture.node('worker'); node['session_id'] = sid
+        node.pop('session_unrun',None); node['cost_usd']=1
+        if slug.startswith('duplicate'):
+            node['inflight']={'text':'retained ambiguous intent','view':'retained view'}
         relative = f'imports/{slug}/native/worker/{sid}.jsonl'
         path = Path(store.DATA_ROOT)/relative; path.parent.mkdir(parents=True)
         path.write_text(json.dumps({'type':'user','uuid':str(uuid.uuid4()),'parentUuid':None,
@@ -60,6 +63,14 @@ def seeded():
     assert supervisor._native_context_hold(good,'worker') is None
     assert supervisor.transcript_path(good_sid)
     assert good_sid in supervisor._transcript_evidence(good)
+    from orgtree import api
+    @api.app.on_event('startup')
+    def verify_native_startup_state():
+        for slug in ('duplicate-one','duplicate-two'):
+            node=store.load_org(slug).node('worker')
+            assert node['state']=='live' and node['session_id']==duplicate_sid
+            assert node['inflight']['text']=='retained ambiguous intent'
+        assert store.load_org('unrelated-native').node('worker')['state']=='live'
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
     import os
