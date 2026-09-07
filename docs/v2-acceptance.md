@@ -1,6 +1,6 @@
 # Orgtree v2 integrated acceptance
 
-Updated 2026-09-07 22:12 UTC. This is an independent evidence record, not a declaration of MVP completion. Binding scope is `v2-user-decisions.md` (newest decision wins), the retained requirements in `v2-original-design-brief.md`, and `v1-parity-inventory.md`. Technical wiring is described in `engine-contract.md`.
+Updated 2026-09-07 22:25 UTC. This is an independent evidence record, not a declaration of MVP completion. Binding scope is `v2-user-decisions.md` (newest decision wins), the retained requirements in `v2-original-design-brief.md`, and `v1-parity-inventory.md`. Technical wiring is described in `engine-contract.md`.
 
 ## Evidence levels and commands
 
@@ -52,6 +52,16 @@ Measured evidence is `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-acceptan
 
 Those early screenshot runs used an owner's changing worktree, so their end-of-run checkout SHA is not immutable bundle provenance. New runs save hashes of engine source, compiled resources and bundled interpreter before launch, capture build-info separately, and fail if those bytes change during the two phases. Remaining screenshots/behavior include real replies and previews, populated conversation, overlap behavior, History pagination/popout downloads, import preview/copy/recovery and full Host/Connect.
 
+### Verified corrections and actual installer, 22:25 UTC
+
+The native stylesheet defect is **fixed and independently verified**. A clean private build at `07222960d9828d3bc70ad9a25a92ad4f9973cd80` passed both launch phases with identical main/native panel background, color and font, actual transfer/redock, screenshots and clean process shutdown. Its build-info commit matches the source and runtime digest `6ce12c91acbf2748983e0f860734c03cb3c4166ef75b95bcfaa55c64a26186d0` remained unchanged. Before image: `EzF0Wj/initial-settings-popout.png`; after: `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-acceptance-kFnpt6/initial-settings-popout.png`. The fix copies the already-loaded stylesheet URL rather than resolving a relative URL after the organization route changes.
+
+The graph observation is narrower than the earlier report: initial captures genuinely clip the children, but optional `?.click()` did not positively prove the Fit button was present. The renderer owner identified a late org-inbox layout that adds160 world pixels of headroom. The next check must wait for that node, assert the real Fit control and compare before/after geometry before attributing a failure to explicit Fit.
+
+**Actual NSIS install, installed executable and uninstall now pass for the engineering artifact.** Evidence directory: `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-install-1e9bcdd2e0604d8380637e310c1f4c52`. The exact `b7f0ec4` artifact and SHA above were checked; no existing installer GUID, matching shortcut or login registration existed. Per-user installation into the fresh directory exited0. The real installed `Orgtree.exe` launched using a separately proven `--user-data-dir` profile and explicit fresh V2 data. Its actual renderer/native bridge and authenticated API worked, unauthenticated API returned401, its engine port matched the new data file and differed from7360, and the UI created an empty `Installer Acceptance` organization. Native Quit exited0. `installed-app.png` captures this installed application, not a development executable.
+
+Default login created `HKCU Run/com.maurdekye.orgtree` pointing at the exact test executable with `--background`. Both expected shortcuts and both expected HKCU installation keys were recorded. Only the test installation was uninstalled after checking its canonical location and absence of reparse points; uninstall exited0. Any unchanged test-owned login value was removed. Final registration, shortcut and login inventories are empty, the executable is gone, and all8 isolated data files remained byte-identical. Profile/evidence/data remain retained. No provider turns ran. This proves the recorded engineering install path, not the later final package, all-users installation, update execution or complete MVP parity.
+
 ## Whole-app feature matrix
 
 | Requirement | Acceptance boundary | Current evidence / remaining case |
@@ -75,7 +85,7 @@ Those early screenshot runs used an owner's changing worktree, so their end-of-r
 | Needs-attention notifications | Defaults only question/urgent mail/ticket attention; open exact target; optional routine notifications | Shell implementation in progress; actual OS notification navigation unverified |
 | Tray statistics, quiet login, no sleep prevention | Actual count changes and quiet startup; close/reopen; installed login setting | Source/default fixture evidence only; packaged behavior pending |
 | Automatic prerelease update at safe idle point | Active work blocks install; unavailable/stale status blocks install; real downloaded update applies when idle | Source only; no actual update execution evidence |
-| Current-user/default or all-users Windows installer, uninstall retains data | Install packaged artifact, launch bundled engine, uninstall and verify preserved org/history | No installer exercised; unsigned prototype accepted by user and must be disclosed at distribution |
+| Current-user/default or all-users Windows installer, uninstall retains data | Install packaged artifact, launch bundled engine, uninstall and verify preserved org/history | Actual current-user b7f0ec4 engineering installer/installed UI/uninstall PASS;8testdatafiles retained byte-for-byte and test registrations removed. All-users and final-source installer remain unverified; unsigned prototype accepted by user |
 | Provider-neutral themes and honest capability differences | Theme changes preserve authority/routing; status remains identifiable without color; two materially different adapters | Copied source only; whole-app/provider breadth pending |
 
 ## Deliberate exclusions and boundaries
