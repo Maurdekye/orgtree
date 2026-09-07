@@ -1,3 +1,4 @@
+import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
 import { DeskHosts } from './deskhosts'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
@@ -515,6 +516,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const pinnedIds = useMemo(() => new Set(isMobile ? [] : pins.map((p) => p.id)), [pins])
 
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const measure = () => {
+      const rect = el.getBoundingClientRect()
+      setViewportSize(prev => prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  const visibleRect = worldViewport(view, viewportSize.w, viewportSize.h)
   const viewRef = useRef(view); viewRef.current = view
   const animRef = useRef<number | null>(null)
   const animBusyRef = useRef(false)  // a camera animation owns the view
@@ -2224,7 +2239,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       // while the org's own API key is the lane being billed. Whole-canvas,
       // because the fact is org-wide — the per-agent red below says which
       // turns are actually spending it.
-      + (fallbackActive(tree) ? ' onfallback' : '')} ref={viewportRef}
+      + (fallbackActive(tree) ? ' onfallback' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} ref={viewportRef}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
@@ -2268,7 +2283,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
           {[...map.values()].filter((n) => n.parent && !n.isBearerOf
             && !hidden.has(n.id)).map((n) => {
             if (!posOf(n.parent!) || !posOf(n.id)) return null
-            return <path key={n.id} d={segD(treeSeg(n.parent!, n.id))}
+            return <ViewportPath viewport={visibleRect} key={n.id} d={segD(treeSeg(n.parent!, n.id))}
               className={'edge' + (n.state === 'archived' ? ' faded' : '')
                 // dashed on BOTH sides of a draft: its own parent edge, and —
                 // for an insert-superior draft, which wraps its anchor — the
@@ -2278,7 +2293,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
           })}
           {peerLinks.map(([l, r]) => (
             posOf(l) && posOf(r) &&
-            <path key={'p' + l + r} d={segD(peerSeg(l, r))} className="edge peer" />
+            <ViewportPath viewport={visibleRect} key={'p' + l + r} d={segD(peerSeg(l, r))} className="edge peer" />
           ))}
           {(() => {
             const nowT = performance.now()
@@ -2300,7 +2315,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
                 if (t >= 1) anim.delete(k)
                 else dash = 1 - smooth(Math.max(0, t))   // draw toward the grantee
               }
-              out.push(<path key={'a' + k} d={segD(audSeg(a.grantor, a.grantee))}
+              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(a.grantor, a.grantee))}
                 pathLength={dash != null ? 1 : undefined}
                 style={dash != null
                   ? { strokeDasharray: 1, strokeDashoffset: dash } : undefined}
@@ -2324,7 +2339,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
                 anim.delete(k)
                 continue
               }
-              out.push(<path key={'a' + k} d={segD(audSeg(st.grantor, st.grantee))}
+              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(st.grantor, st.grantee))}
                 pathLength={1}
                 style={{ strokeDasharray: 1, strokeDashoffset: smooth(t) }}
                 className={'edge aud-line'
@@ -2335,7 +2350,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
           {[...map.values()].filter((n) => n.isBearerOf).map((n) => {
             const a = posOf(n.isBearerOf!), b = posOf(n.id)
             if (!a || !b) return null
-            return <path key={'t' + n.id}
+            return <ViewportPath viewport={visibleRect} key={'t' + n.id}
               d={`M ${a.x + NODE_W - 10} ${a.y + 8} L ${b.x + 10} ${b.y + NODE_H - 8}`}
               className="edge tether" />
           })}
@@ -2345,7 +2360,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
           {!compact && (tree.watchdogs ?? []).map((w) => {
             const a = posOf('dog:' + w.id), b = posOf(w.owner)
             if (!a || !b) return null
-            return <path key={'w' + w.id}
+            return <ViewportPath viewport={visibleRect} key={'w' + w.id}
               d={`M ${a.x + DOG_W / 2} ${a.y + 4} L ${b.x + NODE_W / 2} ${b.y + NODE_H - 8}`}
               className={'edge tether wd'
                 + (w.state !== 'armed' && !w.spent ? ' off' : '')
@@ -2367,7 +2382,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               const x2 = left ? b.x + gb.w : b.x
               const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
               const bulge = 64 + Math.abs(y2 - y1) * 0.12
-              out.push(<path key={'oi' + h} d={segD({ kind: 'c', pts: [
+              out.push(<ViewportPath viewport={visibleRect} key={'oi' + h} d={segD({ kind: 'c', pts: [
                 { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
                 { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] })}
                 className="edge aud-line" />)
@@ -2380,12 +2395,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             const t = smooth(Math.max(0, Math.min(1, el - i)))
             const seg = sp.segs[i]! // nUIA: i clamped to 0..len-1 and segs is never empty (guarded at push)
             const p = segPoint(seg, seg.rev ? 1 - t : t)
+            if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
             return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
           })}
         </svg>
         {[...map.values()].map((n) => {
           const p = posOf(n.id)
           if (!p) return null
+          // Keep the single eye (its credit bar extends beyond its card), the draft,
+          // focused composer and captured drag alive. Ordinary offscreen cards do not mount.
+          if (n.id !== USER && n.id !== DRAFT && n.id !== focusId && n.id !== nodeDrag.current?.id
+            && !intersectsViewport({ ...p, ...sizeOf(n.id) }, visibleRect)) return null
           if (n.id === USER) {
             if (compact) {
               // §5.1: the switchboard is desktop-idea-shaped (N-up parallel
@@ -2549,7 +2569,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             count-dot and the sheet header carries the list. */}
         {!compact && (tree.watchdogs ?? []).map((w) => {
           const p = posOf('dog:' + w.id)
-          if (!p || hidden.has(w.owner)) return null
+          if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
           return (
             <button key={'dog' + w.id}
               className={'wd-chip ' + w.state
@@ -2638,7 +2658,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
         <button className="hud-eye" title="jump to the switchboard"
           onClick={() => centerOn(USER)}>
           <svg viewBox="0 0 48 26">
-            <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
+            <ViewportPath viewport={visibleRect} d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
             <circle className="iris" cx="24" cy="13" r="6.5" />
             <circle className="pupil" cx="24" cy="13" r="2.6" />
           </svg>

@@ -1,3 +1,7 @@
+import { readReply } from './eventReply'
+import type { ReplyContext } from './eventReply'
+const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments' : key.endsWith('-reply') ? '-reply' : ''
+
 export interface DraftAttachment { name: string; path: string; bytes: number }
 export const draftKey = (slug: string, id: string, generation: number) =>
   `orgtree-draft-v2-${JSON.stringify([slug, id, generation])}`
@@ -23,12 +27,12 @@ export function renameDrafts(slug: string, from: string, to: string) {
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
     for (const key of keys) {
       if (!key?.startsWith(prefix)) continue
-      const attachment = key.endsWith('-attachments')
-      const encoded = key.slice(prefix.length, attachment ? -12 : undefined)
+      const suffix = partSuffix(key)
+      const encoded = key.slice(prefix.length, suffix ? -suffix.length : undefined)
       let identity: unknown
       try { identity = JSON.parse(encoded) } catch { continue }
       if (!Array.isArray(identity) || identity.length !== 3 || identity[0] !== slug || identity[1] !== from) continue
-      const target = `${prefix}${JSON.stringify([slug, to, identity[2]])}${attachment ? '-attachments' : ''}`
+      const target = `${prefix}${JSON.stringify([slug, to, identity[2]])}${suffix}`
       const value = localStorage.getItem(key)
       if (value !== null && localStorage.getItem(target) === null) {
         localStorage.setItem(target, value)
@@ -43,7 +47,7 @@ const activePrefix = 'orgtree-draft-v2-'
 const recoveryPrefix = 'orgtree-draft-recovery-'
 function savedIdentity(key: string, prefix: string): unknown[] | null {
   try {
-    const value = JSON.parse(key.slice(prefix.length, key.endsWith('-attachments') ? -12 : undefined))
+    const value = JSON.parse(key.slice(prefix.length, partSuffix(key) ? -partSuffix(key).length : undefined))
     return Array.isArray(value) && value.length === 3 ? value : null
   } catch { return null }
 }
@@ -63,7 +67,7 @@ export function preserveRemovedDrafts(slug: string, ids: ReadonlyMap<string, unk
   } catch { /* best effort persistence */ }
 }
 export function recoverableDrafts(slug: string, id: string, generation: number | undefined) {
-  const drafts: { key: string; generation: number; text: string; attachments: DraftAttachment[] }[] = []
+  const drafts: { key: string; generation: number; text: string; attachments: DraftAttachment[]; reply: ReplyContext | null }[] = []
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)!
@@ -72,9 +76,9 @@ export function recoverableDrafts(slug: string, id: string, generation: number |
       const identity = savedIdentity(key, prefix)
       if (!identity || identity[0] !== slug || identity[1] !== id || typeof identity[2] !== 'number'
         || (prefix === activePrefix && identity[2] === generation)) continue
-      const textKey = key.endsWith('-attachments') ? key.slice(0, -12) : key
+      const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
       if (drafts.some(d => d.key === textKey)) continue
-      drafts.push({ key: textKey, generation: identity[2], text: localStorage.getItem(textKey) || '', attachments: readAttachments(textKey) })
+      drafts.push({ key: textKey, generation: identity[2], text: localStorage.getItem(textKey) || '', attachments: readAttachments(textKey), reply: readReply(textKey) })
     }
   } catch { /* unavailable storage */ }
   return drafts

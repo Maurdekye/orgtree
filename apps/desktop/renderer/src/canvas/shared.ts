@@ -845,6 +845,7 @@ export interface Pile {
 }
 /** a live-feed row: a StreamEvent copy or a folded thought line */
 export interface LiveRow {
+  event_id?: string
   segments?: unknown
   delivery?: unknown
   kind: string

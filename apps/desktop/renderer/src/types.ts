@@ -1,3 +1,4 @@
+import type { EventReplyWire } from './eventReply'
 import type { TypedReplyReceipt } from './generated/events'
 // API payload types — the frontend's half of the seam (typing wave, docs/typing-plan.md).
 //
@@ -888,6 +889,8 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  event_id?: string
+  reply_to?: EventReplyWire
   /** Validated by the profile-specific segment decoder before rendering. */
   segments?: unknown
   delivery?: unknown
@@ -950,6 +953,8 @@ export interface ChatInit {
 
 // api.py node_chat: the durable pending-mail projection (parity №11)
 export interface PendingMail {
+  event_id?: string
+  reply_to?: EventReplyWire
   ev?: unknown
   ev_public?: unknown
   ev_raw?: unknown
@@ -978,6 +983,8 @@ export interface PendingMail {
 // GET /api/orgs/{slug}/nodes/{nid}/chat — read_chat + node_chat additions
 /** one row of ChatPayload.live — the shape supervisor.live_row records */
 export interface LiveRowPayload {
+  event_id?: string
+  reply_to?: EventReplyWire
   /** Validated by the profile-specific segment decoder before rendering. */
   segments?: unknown
   delivery?: unknown

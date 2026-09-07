@@ -1,3 +1,4 @@
+import type { EventReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
 // kiosk v2: when the SPA is served from a preauthenticated public URL
 // (/k/<token>/…), every API call and the WS must carry the token prefix —
@@ -532,7 +533,7 @@ export const fileUrl = (slug: string, nid: string, path: string): string =>
   fileBase(slug, nid) + encodeURIComponent(path)
 export const sendMessage = (
   slug: string, nid: string, text: string, attachments?: string[],
-  replyTo?: { id?: string; from: string; at?: string; gist: string },
+  replyTo?: { id?: string; from: string; at?: string; gist: string } | EventReplyWire,
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',

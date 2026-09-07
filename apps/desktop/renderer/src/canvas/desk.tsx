@@ -1,3 +1,8 @@
+import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
+import type { ReplyContext } from '../eventReply'
+import { ReplyPreview } from './replypreview'
+import { useContextMenu } from './contextmenu'
+import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, useSurface, useSurfaceDocument } from '../popout'
@@ -35,7 +40,7 @@ import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
-  addPending, bindPendingMail, CHAT_WINDOW, dismissPending, dropPending,
+  addPending, bindPendingMail, failPending, CHAT_WINDOW, dismissPending, dropPending,
   loadOlder as storeLoadOlder, markBusy, markGhostCommand,
   MAX_WINDOW, refreshConvo, useConvo,
 } from '../convo'
@@ -1301,6 +1306,29 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     } catch { /* private mode */ }
     return next
   }), [draftKey])
+  const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
+  const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
+  const replyMenu = useContextMenu()
+  const openReply = (e: ReplyMouseEvent, row: { event_id?: string }) => {
+    const quote = e.currentTarget.textContent || ''
+    const source = replyFromRow(slug, node.id, node.generation ?? 0, row, quote)
+    replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
+      title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
+      onSelect: () => { if (source) { setReply(source); setView('chat') } } }])
+  }
+  const sameReplyIdentity = (r: ReplyContext) => r.org === slug && r.agent === node.id && r.generation === (node.generation ?? 0)
+  const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
+    [...(chat?.messages ?? []), ...live_feed, ...(chat?.pending_mail ?? [])].some(row => row.event_id === r.eventId)
+  const locateReply = (r: ReplyContext) => {
+    if (!sameReplyIdentity(r)) return
+    const element = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
+      .find(el => el.dataset.replyEvent === r.eventId)
+    element?.scrollIntoView?.({ block: 'center' })
+  }
+  const renderReply = (wire: unknown) => {
+    const context = replyContext(wire)
+    return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
+  }
   const recoveryDrafts = recoverableDrafts(slug, node.id, node.generation)
   const [legacyDraft, setLegacyDraft] = useState(() => {
     try { return localStorage.getItem(`orgtree-draft-${slug}-${node.id}`) || '' } catch { return '' }
@@ -1557,7 +1585,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // something different). Kept as a function rather than a component so it
   // keeps closing over this desk's slug/node/refresh exactly as it did inline.
   const pendBubble = (m: PendingMail) => (
-    <div key={m.id ?? m.at} {...eventSurface(m, BASE ? 'public' : 'operator')} className={"msg user pending pendrow " + eventSurface(m, BASE ? 'public' : 'operator').className}>
+    <div key={m.id ?? m.at} data-reply-event={m.event_id} onContextMenu={e => openReply(e, m)} {...eventSurface(m, BASE ? 'public' : 'operator')} className={"msg user pending pendrow " + eventSurface(m, BASE ? 'public' : 'operator').className}>
       {/* ⚠ THIS IS A PREVIEW OF `Msg`, SO IT IS BUILT LIKE `Msg`
           (user, 2026-08-28): text in its own block, then the attachments in an
           `.attach-row` beneath it — a COLUMN. It used to lay text and
@@ -1573,6 +1601,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           what keeps the delivery tag / retract ✕ pinned at the top right where
           it already was, which the user asked for by name. */}
       <div className="pendbody">
+        {renderReply(m.reply_to)}
         {eventSurface(m, BASE ? 'public' : 'operator').className && <header className="event-head"><EventCard part="header" row={m} profile={BASE ? 'public' : 'operator'} org={slug}
           world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />} /></header>}
         <EventCard part="body" row={m} profile={BASE ? 'public' : 'operator'} org={slug} preview
@@ -1627,16 +1656,18 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if ((!t && !attached.length) || !canMail) return
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
+    const sentReply = reply
+    setReply(null)
     setText('')
     setAttached([])
     // optimistic ghost only until the server confirms — the durable copy
     // then renders from chat.pending_mail (№11); a failed send clears the
     // ghost instead of leaving a dimmed bubble forever
-    const ghostId = addPending(slug, node.id, t)
+    const ghostId = addPending(slug, node.id, t, sentReply, attached)
     if (live) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    sendMessage(slug, node.id, t, paths)
+    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
         // review C3: name every real outcome — "delivering" as the fallback
@@ -1674,7 +1705,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         return refresh(true)
       })
       .catch((e: Error) => {
-        dropPending(slug, node.id, t)
+        failPending(slug, node.id, ghostId, e.message)
         toast([`error: ${e.message}`])
       })
   }
@@ -2248,7 +2279,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div key={m.seq ?? i}
+              <div key={m.event_id ?? m.seq ?? i}
+                data-reply-event={m.event_id} onContextMenu={e => openReply(e, m)}
                 // FR-20: scroll-to anchors — every user turn is a potential
                 // chip target now that scrolling past one retargets to the
                 // next up the chain, so each keeps its row in the seq→el map
@@ -2263,6 +2295,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                   <div className="msg sys">— {gapMs > 5400e3
                     ? `${Math.round(gapMs / 3600e3)} h`
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
+                {renderReply(m.reply_to)}
                 <Msg m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
                   onWorkLink={onWorkLink} refs={deskRefs} />
               </div>
@@ -2287,7 +2320,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               from the MIDDLE of this list as the transcript catches up, and an
               index key would rename every row below the one that left */}
           {live_feed.map((f, i) => (
-            f.kind === 'thought'
+            <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} onContextMenu={e => openReply(e, f)}>
+            {f.kind === 'thought'
               ? <div key={f.n ?? 'f' + i} className="msg assistant live">
                   <ThoughtLine text={f.text} secs={f.secs} /></div>
               : f.kind === 'tool'
@@ -2306,6 +2340,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                       {f.truncated && <div className="trunc-note">
                         ✂ shown truncated — the full text follows shortly</div>}
                     </div>
+            }</div>
           ))}
           {thinkSecs !== null && chat?.busy && (thinking
             // haiku streams its reasoning: the text IS the indicator
@@ -2352,19 +2387,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           {pending.map((p) => (
             <div key={'q' + p.id}
               className={'msg user pending pendghost md' + (p.failed ? ' failed' : '')}>
+              {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
               <RefMdBody className="pendbody"
                 world={deskRefs.world} onOpen={deskRefs.onOpen}
                 html={md(p.text, fileBase(slug, node.id))} />
               {p.failed && (
                 <div className="ghost-why">
-                  <WarnIcon fontSize="inherit" /> not delivered — the turn
+                  <WarnIcon fontSize="inherit" /> {p.error ? `Send was not confirmed: ${p.error}. ` : ''}not delivered — the turn
                   ended without running it. If that was a slash command,
                   nothing here or in the CLI answers to that name.
                 </div>)}
               <div className="ghost-acts">
                 {p.failed && !text.trim() && (
                   <button className="chip-x" title="put this text back in the composer"
-                    onClick={() => { setText(p.text); dismissPending(slug, node.id, p.id) }}>
+                    onClick={() => { setText(p.text); setReply(p.reply ?? null); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }}>
                     ↩</button>)}
                 <button className="chip-x"
                   title={p.failed ? 'dismiss' : 'dismiss (removes it from your '
@@ -2478,6 +2514,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       })()}
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the files tab shouldn't cost your place to say so */}
+      {replyMenu.node}
+      {reply && <ReplyPreview reply={reply} available={replyAvailable(reply)}
+        onLocate={() => locateReply(reply)} onRemove={() => setReply(null)} />}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}
       {legacyDraft && !staleIdentity && <div className="popout-error">
         An older saved draft is available. Its generation was not recorded.
@@ -2491,6 +2530,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         <summary>Older unsent drafts ({recoveryDrafts.length})</summary>
         {recoveryDrafts.map(d => <div key={d.key}>
           <p>Generation {d.generation} draft</p><pre>{d.text}</pre>
+          {d.reply && <ReplyPreview reply={d.reply} available={replyAvailable(d.reply)} onLocate={() => locateReply(d.reply!)} />}
           {d.attachments.map(a => <p key={a.path}>{a.name} ({a.bytes} bytes) {a.path}</p>)}
         </div>)}
       </details>}

@@ -5973,3 +5973,8 @@ html.mobile .popout-button { display: none; }
    chips the way a hover at the bottom edge does (cards.tsx: hireReveal) —
    the tier choice and its gating stay in SpawnChips */
 .sq.hire-reveal > .hsof:not(.side) { opacity: 1; pointer-events: auto; }
+
+.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; }
+.reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
+.reply-event { display: contents; }

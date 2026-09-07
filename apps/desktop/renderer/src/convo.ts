@@ -1,3 +1,5 @@
+import type { ReplyContext } from './eventReply'
+import type { DraftAttachment } from './draftstore'
 // convo.ts — ONE conversation model per node, owned outside React.
 //
 // Why this exists (user bug 2026-08-02: "the switchboard desk going out of sync
@@ -56,6 +58,9 @@ export const STALL_MS = 60_000
  *  ghost a moment longer — erring toward showing the message, which is the
  *  direction this whole class of bug wants. */
 export interface PendingGhost {
+  reply?: ReplyContext | null
+  attachments?: DraftAttachment[]
+  error?: string
   /** client-minted identity — the render key. Ghosts retire from the MIDDLE
    *  of the list (dropOne), where an index key renames every ghost below the
    *  one that left. */
@@ -600,7 +605,7 @@ export function loadOlder(slug: string, nid: string): boolean {
   return true
 }
 
-export function addPending(slug: string, nid: string, text: string): number {
+export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[]): number {
   const k = key(slug, nid)
   const e = entry(k)
   // Baseline: everything already ACCOUNTED FOR is not this send. That is the
@@ -614,7 +619,7 @@ export function addPending(slug: string, nid: string, text: string): number {
   patch(k, {
     pending: [...e.s.pending, {
       id: ghostId,
-      text,
+      text, reply, attachments,
       seen: serverCopies(e.s.chat, text)
         + e.s.pending.filter((g) => g.text === text).length,
       // −1 on a LOADED-and-empty transcript: the message will be row 0, so
@@ -881,4 +886,10 @@ export function resetConvos(): void {
     e.s = BLANK
     e.subs.forEach((cb) => cb())
   })
+}
+
+/** A rejected/unknown send keeps its exact quote and attachments for explicit recovery. */
+export function failPending(slug: string, nid: string, id: number, error: string): void {
+  const k = key(slug, nid), e = entry(k)
+  patch(k, { pending: e.s.pending.map(g => g.id === id ? { ...g, failed: true, error } : g) })
 }
