@@ -14,12 +14,28 @@ from orgtree import store, ledger, supervisor, desktop_recovery
 
 
 def tearDownModule():
-    for slug in ('recover', 'history'):
+    for slug in ('recover', 'history', 'failed'):
         store._POOL.close_all(slug)
     _root.cleanup()
 
 
 class ImportIntegrationTests(unittest.TestCase):
+    def test_failed_admission_preserves_intent_and_never_blindly_retries(self):
+        org = store.create_org('failed')
+        org.hire(ledger.USER, None, 'haiku', 0, 'active')
+        org.nodes['active']['inflight'] = {'text':'do not lose this'}
+        org.d['desktop_import'] = {'active_nodes':['active'], 'recovery_pending':True}
+        store.save_org(org)
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, 'send_message', side_effect=RuntimeError('admission rejected')) as drive:
+            with self.assertRaises(RuntimeError): desktop_recovery.resume_import('failed')
+            with self.assertRaisesRegex(RuntimeError, 'uncertain'): desktop_recovery.resume_import('failed')
+            self.assertEqual(drive.call_count, 1)
+        metadata = store.load_org('failed').d['desktop_import']
+        self.assertTrue(metadata['recovery_pending'])
+        self.assertEqual(metadata['recovery_intents']['active']['text'], 'do not lose this')
+
     def test_recovery_drives_only_active_after_saved_release(self):
         org = store.create_org('recover')
         for nid in ('active', 'idle'):
