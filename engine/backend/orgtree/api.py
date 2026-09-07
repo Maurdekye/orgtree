@@ -8908,6 +8908,7 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
             msg["segments"] = events.wire_segments(msg["segments"], public=_pub)
     out["pending_mail"] = [{"id": m.get("id"), "from": m["from"],
                             "kind": m.get("kind") or "message",
+                            **({"reply_to": m["reply_to"]} if m.get("reply_to") else {}),
                             **({"relationship": m["relationship"]}
                                if m.get("relationship") else {}),
                             "body": m["body"][:body_cap], "at": m["at"],
