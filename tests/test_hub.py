@@ -186,13 +186,46 @@ class HubIntegrationTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 socket.create_connection(("127.0.0.1", service.port), timeout=0.2)
             timed = HubService(root / "v2-data-timeout")
-            with patch("engine.hub.service.HubService._restrict_windows_readiness_acl", side_effect=OSError("forced ACL failure")), patch("engine.hub.service.subprocess.run", side_effect=subprocess.TimeoutExpired("icacls", 15)):
+            original_unlink = Path.unlink
+            unlink_state = {"blocked": True}
+
+            def fail_readiness_unlink(path: Path, missing_ok: bool = False):
+                if path.name.startswith(".readiness-") and unlink_state["blocked"]:
+                    unlink_state["blocked"] = False
+                    raise PermissionError("forced cleanup unlink failure")
+                return original_unlink(path, missing_ok=missing_ok)
+
+            with patch("engine.hub.service.HubService._restrict_windows_readiness_acl", side_effect=OSError("forced ACL failure")), patch("engine.hub.service.subprocess.run", side_effect=subprocess.TimeoutExpired("icacls", 15)) as reset_run, patch.object(Path, "unlink", new=fail_readiness_unlink):
                 with self.assertRaises(OSError):
                     timed.start()
+            self.assertEqual(reset_run.call_count, 1)
             self.assertIsNone(timed._server)
             self.assertFalse(timed.readiness_path.exists())
             with self.assertRaises(OSError):
                 socket.create_connection(("127.0.0.1", timed.port), timeout=0.2)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL behavior is platform-specific")
+    def test_readiness_acl_is_effective_and_serving_starts_after_protection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            service = HubService(root / "v2-data")
+            original_acl = service._restrict_windows_readiness_acl
+            checks: list[Path] = []
+
+            def observe_before_serving(path: Path):
+                checks.append(path)
+                with self.assertRaises(Exception):
+                    urlopen(Request(f"http://127.0.0.1:{service.port}/healthz", headers={"X-Hub-Token": "probe"}), timeout=0.2)
+                return original_acl(path)
+
+            with patch.object(service, "_restrict_windows_readiness_acl", side_effect=observe_before_serving):
+                ready = service.start()
+            self.assertEqual(len(checks), 2)
+            principal = subprocess.check_output(["whoami"], text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).strip()
+            acl = subprocess.check_output(["icacls", str(Path(ready.readiness_path))], text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertIn(principal.lower(), acl.lower())
+            self.assertNotIn("(I)", acl)
+            service.stop()
 
     @unittest.skipUnless(importlib.util.find_spec("cryptography"), "cryptography is required for TLS fixture generation")
     def test_tls_requires_trusted_ca_and_rejects_wrong_certificate(self):
@@ -228,11 +261,6 @@ class HubIntegrationTests(unittest.TestCase):
             service = HubService(root / "v2-data", tls_certfile=cert, tls_keyfile=key, tls_ca_file=cert)
             ready = service.start()
             self.assertTrue(ready.tls)
-            if os.name == "nt":
-                principal = subprocess.check_output(["whoami"], text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).strip()
-                acl = subprocess.check_output(["icacls", str(Path(ready.readiness_path))], text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                self.assertIn(principal.lower(), acl.lower())
-                self.assertNotIn("(I)", acl)
             self.assertEqual(discover_hub(root / "v2-data").tls_ca_file, str(cert.resolve()))
             client = HubClient(root / "client", f"https://127.0.0.1:{ready.port}", "org.tls.tttttt", "secret-tls", ready.token, ca_file=cert)
             self.assertTrue(client.register()["ok"])

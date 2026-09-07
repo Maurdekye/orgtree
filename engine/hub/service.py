@@ -166,7 +166,12 @@ class _HubHandler(BaseHTTPRequestHandler):
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(raw)
+        try:
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionAbortedError):
+            # A long-poll or ordering probe may close while the handler is
+            # preparing its response; this must not become an engine error.
+            pass
 
     def _error(self, status: int, detail: str) -> None:
         self._send(status, {"detail": detail})
