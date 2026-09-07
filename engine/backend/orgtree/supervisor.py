@@ -39,6 +39,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
+from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
 from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_limits, events,
@@ -2798,7 +2799,7 @@ def _read_chat_uncached(org: Org, nid: str, last: int | None = None, *,
                           cast("dict[str, Any]", temp["source"]))
 
 
-def read_chat(org: Org, nid: str, last: int | None = None, *,
+def _read_chat_current(org: Org, nid: str, last: int | None = None, *,
               hold_back: bool = True) -> dict[str, Any]:
     """Cached transcript projection with a bounded append-only fast path."""
     n = org.node(nid)
@@ -2848,6 +2849,32 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
             else:
                 _trim_chat_cache(key)
             return result
+
+
+def read_chat(org: Org, nid: str, last: int | None = None, *,
+              hold_back: bool = True) -> dict[str, Any]:
+    """Keep copied import history visible alongside the new native session."""
+    from .desktop_import import imported_history_path
+    history = imported_history_path(org, nid)
+    current = _read_chat_current(org, nid, last=last, hold_back=hold_back)
+    if not history:
+        return current
+    with open(history, encoding="utf-8") as source:
+        archived = _read_chat_source(org, nid, hold_back=False,
+                                     _path=Path(history), _lines=source, _prompt_views={})
+    rows = []
+    origin = str(org.node(nid).get("desktop_import", {}).get("source_session_id") or history)
+    for index, row in enumerate(archived.get("messages") or []):
+        public = dict(row)
+        public["event_id"] = "import:" + hashlib.sha256(
+            (origin + ":" + str(index) + ":" + json.dumps(row, sort_keys=True, default=str)).encode()
+        ).hexdigest()
+        public["imported_history"] = True
+        rows.append(public)
+    combined = rows + list(current.get("messages") or [])
+    return {**current, "messages": combined[-last:] if last else combined,
+            "total": len(rows) + int(current.get("total") or len(current.get("messages") or [])),
+            "imported_history_count": len(rows)}
 
 
 def _limit_cache_result_state(
@@ -26444,7 +26471,7 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
             and n["session_id"] not in seen)
 
 
-def reconcile(slug: str) -> list[str]:
+def reconcile(slug: str, *, active_only: bool = False) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
     not on the next message."""
@@ -26598,7 +26625,7 @@ def reconcile(slug: str) -> list[str]:
                      + (inf.get("text") or ""),
                      view=(str(inf.get("view") or "") if "view" in inf
                            else str(inf.get("text") or "")))
-    for nid in revive:
+    for nid in ([] if active_only else revive):
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,
                      "(orgtree) You have mail above — some of it waited across "
@@ -27326,7 +27353,8 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                       _lines: Iterable[str] | None = None,
                       _prompt_views: dict[str, list[dict[str, Any]]] | None = None,
                       _resume: dict[str, Any] | None = None,
-                      _source_only: bool = False) -> dict[str, Any]:
+                      _source_only: bool = False,
+                      _path: Path | None = None) -> dict[str, Any]:
     """Parse the node's transcript into renderable messages + context occupancy.
 
     Parity waves A+C (2026-07-31): tool chips carry their identifying argument,
@@ -27364,7 +27392,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
            # panel prefers this identity comparison over a timestamp guess
            # and falls back to the timestamp only when this is absent.
            "codex_turn_id": st.get("codex_turn_id")}
-    tpath = transcript_path(n["session_id"], _transcript_root(org))
+    tpath = _path or transcript_path(n["session_id"], _transcript_root(org))
     if not tpath:
         return out
     # Structured source metadata, not marker parsing, decides which parts of

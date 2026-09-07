@@ -171,11 +171,9 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     bundled_backend = Path(__file__).resolve().parent / "backend"
-    configured_root = os.environ.get("ORGTREE_V1_ROOT", "").strip()
-    v1 = Path(configured_root).expanduser().resolve() if configured_root else None
-    backend = (v1 / "backend") if v1 else bundled_backend
+    backend = bundled_backend
     if not (backend / "orgtree" / "api.py").is_file():
-        raise RuntimeError(f"ORGTREE_V1_ROOT has no backend/orgtree/api.py: {v1}")
+        raise RuntimeError("bundled engine/backend/orgtree/api.py is missing")
     token = os.environ.get("ORGTREE_V2_TOKEN", "").strip()
     if not token:
         raise RuntimeError("ORGTREE_V2_TOKEN is required")
@@ -190,6 +188,9 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     from orgtree import agentauth
     agentauth.enable()
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
+    from orgtree import desktop_import, desktop_recovery
+    desktop_import.configure(on_imported=desktop_recovery.resume_import)
+    api.app.include_router(desktop_import.router)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
     return TokenGate(api.app, token), token, data, port, stopping

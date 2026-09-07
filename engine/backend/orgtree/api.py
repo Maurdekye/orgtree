@@ -930,7 +930,7 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
             print(f"[orgtree] {o['slug']}: healed permission_mode "
                   f"'plan' → 'acceptEdits' on {len(healed)} node(s)")
     for o in store.list_orgs():                   # №31 eager reconciliation
-        marked = supervisor.reconcile(o["slug"])
+        marked = supervisor.reconcile(o["slug"], active_only=True)
         if marked:
             print(f"[orgtree] {o['slug']}: marked unrecoverable at startup: {marked}")
     # Durable `working` statuses survive the restart. Start their cache keeper
