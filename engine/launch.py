@@ -197,6 +197,10 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 
 def main() -> None:
     global _HUB_RUNTIME
+    data = validate_data_root(_required_path("ORGTREE_DATA"))
+    from engine.process_lifetime import arm_process_lifetime
+    parent = os.environ.get("ORGTREE_V2_PARENT_PID", "").strip()
+    guardian_pid = arm_process_lifetime(data, parent_pid=int(parent) if parent else None)
     app, _token, data, port, stopping = load_app()
     # The v2 loopback hub is a sibling service, not an alternate API. Start it
     # only after the explicit root has been validated and the real API loaded;
@@ -221,6 +225,7 @@ def main() -> None:
             raise RuntimeError("engine exited before readiness")
         print(json.dumps({"type": "ready", "protocol": 1, "port": port,
                           "pid": os.getpid(), "dataRootId": data_root_id(data),
+                          "guardianPid": guardian_pid,
                           "hubPort": hub_ready.port},
                          separators=(",", ":")), flush=True)
         while not task.done():

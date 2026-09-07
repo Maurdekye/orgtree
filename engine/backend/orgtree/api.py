@@ -8193,7 +8193,7 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
             destination = os.path.join(outdir, "presentation-" + uuid.uuid4().hex)
             try:
                 snapshot = snapshot_html_bundle(src, destination, grant_root,
-                                                destination_root=scratch)
+                                                destination_root=scratch, max_bytes=_SENDFILE_MAX)
             except ArtifactDownloadError as exc:
                 raise LedgerError(str(exc)) from exc
             return snapshot.file.removeprefix("outbox/"), snapshot.bytes
