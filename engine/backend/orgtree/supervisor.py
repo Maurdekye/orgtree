@@ -3389,6 +3389,14 @@ _TPATH_MEMO_CAP = 4096      # ~0.5 MB of strings; cleared wholesale, see below
 
 
 def transcript_path(session_id: str, root: str | None = None) -> str | None:
+    if root is None:
+        try:
+            from .desktop_native import native_path_for_session
+            native_path = native_path_for_session(session_id)
+            if native_path:
+                return native_path
+        except ImportError:
+            pass
     base = root or os.path.expanduser("~/.claude")
     key = (base, session_id)
     known = _TPATH_MEMO.get(key)
@@ -8342,6 +8350,10 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
     if pred_dir and pred_dir not in seen:
         # FR-24: the predecessor's scratch (deny rules above make it ro)
         cmd += ["--add-dir", pred_dir]
+    native_resume = None
+    if n.get('desktop_import'):
+        from .desktop_native import native_session_path
+        native_resume = native_session_path(org,nid)
     if n.get("bearer_state") == "preserving":
         # §8.4: preserving oracle — resume + fork, converse, discard. The canonical
         # session is never written; we simply never record the fork's session id.
@@ -8369,9 +8381,9 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
                 f"there is nothing here to fork. Switch it back to a {lbl} "
                 f"tier to consult it, or read its transcript instead: "
                 f"reading is free and needs no session.")
-        cmd += ["--resume", sid, "--fork-session"]
+        cmd += ["--resume", native_resume or sid, "--fork-session"]
     else:
-        cmd += ["--session-id", sid] if first else ["--resume", sid]
+        cmd += ["--resume", native_resume] if native_resume else (["--session-id", sid] if first else ["--resume", sid])
     return cmd
 
 
@@ -26477,6 +26489,17 @@ def _store_provably_absent(proj: str) -> bool:
 
 
 def _transcript_evidence(org: Org) -> dict[str, str] | None:
+    seen = _legacy_transcript_evidence(org)
+    if seen is None:
+        return None
+    try:
+        from .desktop_native import native_index
+        return {**seen, **native_index()}
+    except ImportError:
+        return seen
+
+
+def _legacy_transcript_evidence(org: Org) -> dict[str, str] | None:
     """This org's `session_id → transcript path` index, or None when the store
     could not be READ AT ALL — in which case it is not evidence and №31 must
     reach no verdict from it (redteam finding 2026-08-18).
