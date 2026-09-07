@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 import zipfile
@@ -11,6 +12,7 @@ from engine.backend.orgtree.artifact_downloads import (
     ArtifactForbidden,
     ArtifactNotFound,
     build_document_download,
+    snapshot_html_bundle,
 )
 
 
@@ -69,7 +71,7 @@ class ArtifactDownloadTests(unittest.TestCase):
             self.assertEqual(artifact.kind, "zip")
             self.assertEqual(artifact.content_type, "application/zip")
             self.assertEqual(artifact.filename, "Nested-demo.zip")
-            with zipfile.ZipFile(__import__("io").BytesIO(artifact.bytes)) as archive:
+            with zipfile.ZipFile(io.BytesIO(artifact.bytes)) as archive:
                 self.assertEqual(archive.namelist(), ["index.html", "assets/css/site.css", "assets/images/logo.svg"])
                 self.assertEqual(archive.read("index.html"), html)
                 self.assertEqual(archive.read("assets/css/site.css"), b"body{color:red}")
@@ -130,6 +132,54 @@ class ArtifactDownloadTests(unittest.TestCase):
                 # application data.  Path.unlink/rmdir avoids recursive cleanup.
                 (outside / "secret.js").unlink(missing_ok=True)
                 outside.rmdir()
+
+    def test_production_record_discovers_local_html_dependencies_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "outbox" / "assets").mkdir(parents=True)
+            (root / "outbox" / "index.html").write_bytes(
+                b'<link rel="stylesheet" href="assets/site.css">'
+                b'<script src="assets/app.js"></script>')
+            (root / "outbox" / "assets" / "site.css").write_bytes(
+                b'body{background:url("images/bg.png")}')
+            (root / "outbox" / "assets" / "app.js").write_bytes(b"console.log(1)")
+            (root / "outbox" / "assets" / "images").mkdir()
+            (root / "outbox" / "assets" / "images" / "bg.png").write_bytes(b"PNG")
+
+            artifact = build_document_download(
+                "d-production", {"id": "d-production", "format": "html",
+                                  "title": "Production", "file": "outbox/index.html"}, root)
+            self.assertEqual(artifact.kind, "zip")
+            with zipfile.ZipFile(io.BytesIO(artifact.bytes)) as archive:
+                self.assertEqual(archive.namelist(), [
+                    "index.html", "assets/site.css", "assets/app.js", "assets/images/bg.png"
+                ])
+                self.assertIsNone(archive.testzip())
+
+    def test_snapshot_helper_copies_immutable_dependency_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_dir = root / "project"
+            source_dir.mkdir()
+            (source_dir / "assets").mkdir()
+            (source_dir / "index.html").write_bytes(b'<script src="assets/app.js"></script>')
+            (source_dir / "assets" / "app.js").write_bytes(b"old")
+            outbox = root / "outbox"
+            outbox.mkdir()
+
+            snapshot = snapshot_html_bundle(source_dir / "index.html",
+                                            outbox / "presentation-1", source_dir,
+                                            destination_root=root)
+            self.assertEqual(snapshot.file, "outbox/presentation-1/index.html")
+            self.assertEqual(snapshot.assets, ("outbox/presentation-1/assets/app.js",))
+            self.assertEqual((outbox / "presentation-1" / "assets" / "app.js").read_bytes(), b"old")
+            (source_dir / "assets" / "app.js").write_bytes(b"new")
+            self.assertEqual((outbox / "presentation-1" / "assets" / "app.js").read_bytes(), b"old")
+            artifact = build_document_download(
+                "d-snapshot", {"id": "d-snapshot", "format": "html", "title": "Snap",
+                               "file": snapshot.file}, root)
+            with zipfile.ZipFile(io.BytesIO(artifact.bytes)) as archive:
+                self.assertEqual(archive.read("assets/app.js"), b"old")
 
 
 if __name__ == "__main__":

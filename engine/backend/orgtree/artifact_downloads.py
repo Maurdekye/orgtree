@@ -15,9 +15,11 @@ an archive whose top-level page is ``index.html``).
 from __future__ import annotations
 
 import io
+import html.parser
 import ntpath
 import os
 import re
+from collections import deque
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +61,15 @@ class DownloadArtifact:
     @property
     def size(self) -> int:
         return len(self.bytes)
+
+
+@dataclass(frozen=True)
+class HtmlSnapshot:
+    """Result of snapshotting an HTML page and its local dependencies."""
+
+    file: str
+    bytes: int
+    assets: tuple[str, ...]
 
 
 # Fixed archive timestamps make repeated downloads stable and avoid leaking
@@ -112,7 +123,9 @@ def build_document_download(
     source_path = _safe_source_path(root, source_name)
     source_bytes = _read_file(source_path, source_is_required=True)
     assets = _asset_manifest(presenter)
-    if not assets:
+    discovered = _discover_local_assets(source_path, root, source_name,
+                                        source_bytes)
+    if not assets and not discovered:
         return DownloadArtifact("html", _HTML_TYPE, f"{title}.html", source_bytes)
 
     source_archive_name = _source_archive_name(source_name)
@@ -127,6 +140,10 @@ def build_document_download(
             raise ArtifactForbidden("the document asset manifest contains a duplicate")
         seen.add(archive_name)
         entries.append((archive_name, asset_bytes))
+    for archive_name, asset_bytes in discovered:
+        if archive_name not in seen:
+            seen.add(archive_name)
+            entries.append((archive_name, asset_bytes))
 
     archive = _zip_bytes(entries)
     return DownloadArtifact("zip", _ZIP_TYPE, f"{title}.zip", archive)
@@ -139,6 +156,216 @@ def build_download(
 ) -> DownloadArtifact:
     """Short alias for :func:`build_document_download`."""
     return build_document_download(document_id, presenter, artifact_root)
+
+
+def snapshot_html_bundle(
+    source_path: str | os.PathLike[str],
+    destination_folder: str | os.PathLike[str],
+    artifact_root: str | os.PathLike[str],
+    *,
+    destination_root: str | os.PathLike[str] | None = None,
+) -> HtmlSnapshot:
+    """Copy an HTML source and its local dependencies into an immutable folder.
+
+    The caller must already have checked that ``source_path`` is permitted by
+    the agent's grants.  This function independently proves that it remains
+    below ``artifact_root`` (including symlink resolution), discovers all
+    local HTML/CSS references before writing, and only then creates the
+    destination folder.  The destination is expected to be a newly selected
+    folder in the presenter's outbox; it is never traversed or swept.
+
+    The returned ``file`` is relative to ``destination_root`` (or
+    ``artifact_root`` when omitted) and can be stored as the document's HTML
+    file.  ``destination_root`` is useful when the source is in a granted
+    workspace but the immutable snapshot belongs in the presenter's scratch.
+    The copied folder keeps the same page-relative layout, so no HTML rewriting
+    is needed. Missing local references raise :class:`ArtifactNotFound` before
+    any destination is created.
+    """
+    root = _authorized_root(artifact_root)
+    output_root = _authorized_root(destination_root or artifact_root)
+    source = _absolute_source_path(source_path, root)
+    source_bytes = _read_file(source, source_is_required=True)
+    source_name = _relative_root_name(source, root)
+    discovered = _discover_local_assets(source, root, source_name, source_bytes)
+
+    try:
+        destination = Path(destination_folder).resolve(strict=False)
+    except (OSError, RuntimeError, TypeError):
+        raise ArtifactForbidden("the HTML snapshot destination is unsafe") from None
+    if not _contained(output_root, destination):
+        raise ArtifactForbidden("the HTML snapshot destination is unauthorized")
+    try:
+        if destination.exists() or destination.is_symlink():
+            raise ArtifactForbidden("the HTML snapshot destination already exists")
+        parent = destination.parent.resolve(strict=True)
+        if not parent.is_dir():
+            raise OSError
+        destination.mkdir()
+        copied = destination / _source_archive_name(source_name)
+        copied.write_bytes(source_bytes)
+        for archive_name, data in discovered:
+            target = destination / Path(*archive_name.split("/"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    except ArtifactDownloadError:
+        raise
+    except OSError:
+        # Do not expose destination paths through a route-facing exception.
+        raise ArtifactForbidden("the HTML snapshot could not be created") from None
+
+    destination_rel = os.path.relpath(destination, output_root).replace("\\", "/")
+    source_archive_name = _source_archive_name(source_name)
+    return HtmlSnapshot(
+        file=f"{destination_rel}/{source_archive_name}",
+        bytes=len(source_bytes),
+        assets=tuple(f"{destination_rel}/{name}" for name, _ in discovered),
+    )
+
+
+class _HtmlReferences(html.parser.HTMLParser):
+    """Collect resource URLs, excluding navigation links."""
+
+    _RESOURCE_ATTRS = {
+        "script": ("src",),
+        "img": ("src", "srcset"),
+        "source": ("src", "srcset"),
+        "video": ("src", "poster"),
+        "audio": ("src",),
+        "track": ("src",),
+        "object": ("data",),
+        "iframe": ("src",),
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lowered = tag.lower()
+        values = dict(attrs)
+        if lowered == "link":
+            rel = (values.get("rel") or "").lower().split()
+            if "stylesheet" in rel:
+                self._add(values.get("href"))
+            return
+        for attr in self._RESOURCE_ATTRS.get(lowered, ()):
+            value = values.get(attr)
+            if attr == "srcset" and value:
+                self.urls.extend(_srcset_urls(value))
+            else:
+                self._add(value)
+
+    def _add(self, value: str | None) -> None:
+        if value:
+            self.urls.append(value.strip())
+
+
+def _srcset_urls(value: str) -> list[str]:
+    urls: list[str] = []
+    for candidate in value.split(","):
+        pieces = candidate.strip().split()
+        if pieces:
+            urls.append(pieces[0])
+    return urls
+
+
+_CSS_URL = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
+_CSS_IMPORT = re.compile(r"@import\s+(?:url\(\s*)?(['\"])(.*?)\1", re.I | re.S)
+
+
+def _discover_local_assets(
+    source_path: Path,
+    root: Path,
+    source_name: str,
+    source_bytes: bytes,
+) -> list[tuple[str, bytes]]:
+    """Discover a dependency closure from HTML and nested CSS files."""
+    source_parent = (root / Path(*_source_parent(source_name).split("/"))).resolve()
+    pending: deque[tuple[Path, bytes]] = deque([(source_path, source_bytes)])
+    visited: set[Path] = {source_path}
+    found: list[tuple[str, bytes]] = []
+    while pending:
+        current, data = pending.popleft()
+        refs = _resource_urls(current, data)
+        for raw in refs:
+            candidate = _resolve_local_reference(current, raw, root)
+            if candidate is None:
+                continue
+            if not _contained(source_parent, candidate):
+                raise ArtifactForbidden("the HTML asset escapes its source directory")
+            if candidate in visited:
+                continue
+            asset = _read_file(candidate, source_is_required=False)
+            visited.add(candidate)
+            archive_name = os.path.relpath(candidate, source_parent).replace("\\", "/")
+            archive_name = _safe_archive_name(archive_name)
+            found.append((archive_name, asset))
+            if candidate.suffix.lower() == ".css":
+                pending.append((candidate, asset))
+    return found
+
+
+def _resource_urls(path: Path, data: bytes) -> list[str]:
+    text = data.decode("utf-8", errors="replace")
+    if path.suffix.lower() == ".css":
+        urls = [match.group(2).strip() for match in _CSS_URL.finditer(text)]
+        urls.extend(match.group(2).strip() for match in _CSS_IMPORT.finditer(text))
+        return urls
+    parser = _HtmlReferences()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (ValueError, AssertionError):
+        # A malformed document can still have useful resource tags; parser
+        # errors should not turn a download into an internal server failure.
+        pass
+    return parser.urls
+
+
+def _resolve_local_reference(base: Path, raw: str, root: Path) -> Path | None:
+    """Resolve a local URL while ignoring network/data references."""
+    value = raw.strip().strip("\"'")
+    if not value or value.startswith(("#", "data:", "blob:", "javascript:", "mailto:")):
+        return None
+    # Protocol-relative URLs and all schemes remain external resources.  HTML
+    # may load those online when viewed; they are not local ZIP dependencies.
+    if value.startswith("//") or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value):
+        return None
+    if "\x00" in value:
+        raise ArtifactForbidden("the HTML asset names an unsafe path")
+    from urllib.parse import unquote, urlsplit
+    split = urlsplit(value)
+    path_text = unquote(split.path)
+    if not path_text or path_text.startswith(("/", "\\")) or ntpath.isabs(path_text):
+        raise ArtifactForbidden("the HTML asset names an unsafe path")
+    try:
+        candidate = (base.parent / Path(*path_text.replace("\\", "/").split("/"))).resolve(strict=False)
+    except (OSError, RuntimeError):
+        raise ArtifactForbidden("the HTML asset names an unsafe path") from None
+    if not _contained(root, candidate):
+        raise ArtifactForbidden("the HTML asset escapes its authorized root")
+    return candidate
+
+
+def _absolute_source_path(raw: str | os.PathLike[str], root: Path) -> Path:
+    try:
+        path = Path(raw)
+        if not path.is_absolute():
+            raise ValueError
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        raise ArtifactForbidden("the HTML source is outside its authorized root") from None
+    if not _contained(root, resolved):
+        raise ArtifactForbidden("the HTML source is outside its authorized root")
+    return resolved
+
+
+def _relative_root_name(path: Path, root: Path) -> str:
+    try:
+        return os.path.relpath(path, root).replace("\\", "/")
+    except ValueError:
+        raise ArtifactForbidden("the HTML source is outside its authorized root") from None
 
 
 def _stored_bytes(document: Mapping[str, Any]) -> bytes:
@@ -329,5 +556,6 @@ def _zip_bytes(entries: Sequence[tuple[str, bytes]]) -> bytes:
 __all__ = [
     "ArtifactDownloadError", "ArtifactNotFound", "ArtifactNotFoundError",
     "ArtifactForbidden", "ArtifactForbiddenError", "DownloadArtifact",
-    "build_document_download", "build_download",
+    "HtmlSnapshot", "build_document_download", "build_download",
+    "snapshot_html_bundle",
 ]
