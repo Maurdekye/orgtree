@@ -15,10 +15,47 @@ app,*_=load_app()
 from orgtree import store,ledger,supervisor,desktop_recovery as recovery
 
 def tearDownModule():
-    for slug in ('locked','unknown'): store._POOL.close_all(slug)
+    for slug in ('locked','unknown','resume-route'): store._POOL.close_all(slug)
     root.cleanup()
 
 class ResolutionTests(unittest.TestCase):
+    def test_resume_route_preserves_native_hold_with_ordinary_positive_control(self):
+        org=store.create_org('resume-route')
+        for nid in ('imported','ordinary'):
+            org.hire(ledger.USER,None,'haiku',0,nid)
+            org.node(nid)['frozen']={'limit':True,'at':'2026-09-07T20:00:00Z','resume_texts':['retained turn']}
+        org.node('imported')['desktop_import']={'continuity':'fresh_session_with_history'}
+        store.save_org(org)
+        started=[]
+        original_start=supervisor.threading.Thread.start
+        def start(thread):
+            if thread._target is supervisor._run_turn: started.append(thread._args[1])
+            else: return original_start(thread)
+        with patch.object(supervisor.threading.Thread,'start',start):
+            response=TestClient(app).post('/api/orgs/resume-route/resume',headers={'X-Orgtree-Desktop-Token':'operator'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['resumed'],['ordinary'])
+        self.assertEqual(started,['ordinary'])
+        saved=store.load_org('resume-route')
+        self.assertIn('frozen',saved.node('imported'))
+        self.assertNotIn('frozen',saved.node('ordinary'))
+        # Positive seam control: the native validator approves the imported
+        # clone. Validator path/auth semantics are tested by its owning module.
+        with patch.object(supervisor,'_native_context_hold',return_value=None), \
+             patch.object(supervisor.threading.Thread,'start',start):
+            allowed=TestClient(app).post('/api/orgs/resume-route/resume',headers={'X-Orgtree-Desktop-Token':'operator'})
+        self.assertEqual(allowed.json()['resumed'],['imported'])
+        self.assertEqual(started,['ordinary','imported'])
+        # Queued/admitted work is checked again immediately before execution.
+        with patch.object(supervisor,'_cancel_working_cache'), \
+             patch.object(supervisor,'_note_working_activity'), \
+             patch.object(supervisor,'_hold_for_deploy'), \
+             patch.object(supervisor,'_run_one_turn',side_effect=AssertionError('provider must not run')):
+            supervisor._run_turn('resume-route','imported',{'text':'queued retained work'})
+        saved=store.load_org('resume-route')
+        self.assertEqual(saved.node('imported')['inflight']['text'],'queued retained work')
+        self.assertFalse(supervisor.state('resume-route','imported')['busy'])
+
     def seed(self,slug):
         org=store.create_org(slug)
         org.hire(ledger.USER,None,'haiku',0,'active')

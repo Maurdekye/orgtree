@@ -75,6 +75,16 @@ def _deployment_org_gate(org: Org) -> None:
             "sandbox enabled before enabling frozen mode")
 
 
+def _native_context_hold(org: Org, nid: str) -> str | None:
+    if not org.node(nid).get('desktop_import'):
+        return None
+    try:
+        from .desktop_native import native_hold_reason
+        return native_hold_reason(org,nid)
+    except ImportError:
+        return 'Imported native session continuity has not been validated'
+
+
 _ws_usage_cache: dict[str, tuple[float, int]] = {}
 
 
@@ -10628,6 +10638,18 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     _hold_for_deploy(slug, nid)
     nxt: str | dict[str, Any] | None = text
     while nxt is not None:
+        with store.DOC_LOCK:
+            current_org = store.load_org(slug)
+            native_reason = _native_context_hold(current_org,nid)
+            if native_reason:
+                carrier = nxt if isinstance(nxt,dict) else {'text':nxt}
+                current_org.node(nid).setdefault('inflight',{
+                    'text':str(carrier.get('text') or ''),'view':str(carrier.get('view') or '')})
+                store.save_org(current_org)
+                with _state_lock:
+                    st['busy'] = False
+                    st['last_error'] = native_reason
+                return
         carrier_probe_token = _carrier_limit_probe_token(nxt)
         # DO NOT WAKE AT ALL, rather than wake quietly: a mail pointer whose
         # box is already empty is dropped BEFORE the CLI is launched, so it
@@ -20718,14 +20740,8 @@ def send_message(slug: str, nid: str, text: str,
     # kind: it is accepted, queued: 0, and nothing starts.
     with store.DOC_LOCK:
         _o = store.load_org(slug)
-        if nid in _o.nodes and _o.node(nid).get('desktop_import'):
-            try:
-                from .desktop_native import native_hold_reason
-                native_reason = native_hold_reason(_o,nid)
-            except ImportError:
-                native_reason = 'Imported native session continuity has not been validated'
-            if native_reason:
-                return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
+        if nid in _o.nodes and (native_reason := _native_context_hold(_o,nid)):
+            return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
         if nid in _o.nodes and _o.node(nid).get("frozen"):
             return {"accepted": True, "queued": 0, "frozen": True}
         if nid in _o.nodes and _o.node(nid).get("limit_locked"):
@@ -21836,6 +21852,8 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
         for nid, n in list(org.nodes.items()):
             if pick is not None and nid not in pick:
                 continue
+            if _native_context_hold(org,nid):
+                continue  # Preserve frozen replay; this button cannot clear native context holds.
             # review C6: the old unconditional pop discarded replay texts for
             # nodes that CANNOT restart. ▶ is now the third participant in the
             # №41 protocol: it skips nodes another mechanism owns (archived —
