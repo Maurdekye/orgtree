@@ -617,22 +617,52 @@ class HubService:
             server.socket = context.wrap_socket(server.socket, server_side=True)
         self._server = server
         self.port = int(server.server_address[1])
-        self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
-        self._thread.start()
         self._readiness = HubReadiness(self.advertise_host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid(), token, bool(self.tls_certfile), str(self.tls_ca_file) if self.tls_ca_file else None)
         temporary = self.readiness_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
-        os.replace(temporary, self.readiness_path)
         try:
+            temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
+            os.replace(temporary, self.readiness_path)
             # POSIX honors this as owner-only (0600). Windows ignores these
             # permission bits, so callers must still treat the token as a
             # private same-user credential.
             os.chmod(self.readiness_path, stat.S_IRUSR | stat.S_IWUSR)
         except OSError as exc:
             if os.name == "nt":
+                try:
+                    subprocess.run(["icacls", str(self.readiness_path), "/reset"], capture_output=True, timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+                except OSError:
+                    pass
+                for path in (self.readiness_path, temporary):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        pass
+                server.server_close()
+                self._server = None
+                self._thread = None
+                self._readiness = None
                 raise RuntimeError("could not set readiness file permissions") from exc
-        if os.name == "nt":
-            self._restrict_windows_readiness_acl()
+            raise
+        try:
+            if os.name == "nt":
+                self._restrict_windows_readiness_acl()
+        except BaseException:
+            for path in (self.readiness_path, temporary):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            server.server_close()
+            self._server = None
+            self._thread = None
+            self._readiness = None
+            raise
+        self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
+        self._thread.start()
         return self._readiness
 
     def _restrict_windows_readiness_acl(self) -> None:

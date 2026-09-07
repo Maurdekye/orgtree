@@ -1,10 +1,13 @@
 import json
 import importlib.util
 import ipaddress
+import os
+import socket
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.request import Request, urlopen
 
 from engine.hub import AttachmentPathError, HubClient, HubService, discover_hub
@@ -164,8 +167,23 @@ class HubIntegrationTests(unittest.TestCase):
             with a._db() as con:
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM outbox").fetchone()[0], 0)
                 con.execute("INSERT INTO outbox (id,payload,attachments,created_at,attempts,next_attempt,state,last_error) VALUES (?,?,?,?,?,?,?,?)", ("overflow", "{}", "[]", "now", 1023, None, "queued", None))
+                con.commit()
             self.assertEqual(a._record_attempt("overflow", "offline"), "queued")
             service.stop()
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL behavior is platform-specific")
+    def test_readiness_acl_failure_closes_listener_and_removes_artifact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            service = HubService(root / "v2-data")
+            with patch("engine.hub.service.HubService._restrict_windows_readiness_acl", side_effect=OSError("forced ACL failure")):
+                with self.assertRaises(OSError):
+                    service.start()
+            self.assertIsNone(service._server)
+            self.assertIsNone(service.readiness)
+            self.assertFalse(service.readiness_path.exists())
+            with self.assertRaises(OSError):
+                socket.create_connection(("127.0.0.1", service.port), timeout=0.2)
 
     @unittest.skipUnless(importlib.util.find_spec("cryptography"), "cryptography is required for TLS fixture generation")
     def test_tls_requires_trusted_ca_and_rejects_wrong_certificate(self):
