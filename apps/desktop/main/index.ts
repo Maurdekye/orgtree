@@ -21,9 +21,11 @@ else {
   let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
+  let restoreWindows = !process.argv.includes('--background')
+  const windowState = () => ({ visible: !!main && !main.isDestroyed() && main.isVisible(), restoreWindows })
   const engine = new Engine()
   const notifications = new NotificationGate()
-  const show = () => { if (main && !main.isDestroyed()) { main.show(); main.restore(); main.focus() } }
+  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); main.restore(); main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} agents` : `Engine ${engine.status.state}`
   const loginPreference = () => {
@@ -37,13 +39,13 @@ else {
   const rebuildTray = () => {
     if (!tray) return
     const prefs = preferences.get()
-    tray.setToolTip(`Orgtree · ${label()}`)
+    tray.setToolTip(`Orgtree - ${label()}`)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Open Orgtree', click: show }, { label: label(), enabled: false }, { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       { label: 'Routine mail and completion notifications', type: 'checkbox', checked: prefs.routineNotifications, click: item => setPreferences({ routineNotifications: item.checked }) },
-      { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} — official setup`, click: () => { void shell.openExternal(h.url) } })) },
+      { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
       { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
     ]))
   }
@@ -56,6 +58,11 @@ else {
   const quitAfterLastView = () => {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
+  // Explicit Quit/update already persisted layout and requests engine shutdown.
+  // Renderer draft guards must not strand a window after its engine has stopped.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-prevent-unload', event => { if (quitting) event.preventDefault() })
+  })
   app.on('second-instance', show)
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
@@ -75,6 +82,7 @@ else {
     tray = new Tray(nativeImage.createFromBitmap(pixels, { width: 16, height: 16 }))
     tray.on('double-click', show); rebuildTray()
     handle('desktop:status', () => engine.status)
+    handle('desktop:window-state', () => windowState())
     handle('desktop:preferences', () => preferences.get())
     handle('desktop:set-preferences', value => setPreferences(value))
     handle('desktop:show', () => show())

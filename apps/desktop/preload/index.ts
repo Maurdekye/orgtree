@@ -7,6 +7,7 @@ const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-ori
 if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && isAppPath(location.pathname)) {
   const bridge: DesktopBridge = {
     getStatus: () => ipcRenderer.invoke('desktop:status'),
+    getWindowState: () => ipcRenderer.invoke('desktop:window-state'),
     getPreferences: () => ipcRenderer.invoke('desktop:preferences'),
     setPreferences: patch => ipcRenderer.invoke('desktop:set-preferences', patch),
     showMainWindow: () => ipcRenderer.invoke('desktop:show'),

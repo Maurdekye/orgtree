@@ -17,9 +17,10 @@ export interface DesktopNotification {
 }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }
 export interface WindowLease { key: string; epoch: number; owner: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'notification-click'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'notification-click' | 'main-window-shown'; data: unknown }
 export interface DesktopBridge {
   getStatus(): Promise<EngineStatus>
+  getWindowState(): Promise<{ visible: boolean; restoreWindows: boolean }>
   getPreferences(): Promise<DesktopPreferences>
   setPreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>
   // Domain transport stays relative HTTP/WebSocket; no arbitrary path IPC.
