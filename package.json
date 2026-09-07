@@ -46,7 +46,7 @@
     "productName": "Orgtree",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "package.json", "LICENSE"],
-    "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }],
+    "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }, { "from": "dist/build-info.json", "to": "build-info.json" }],
     "win": { "target": "nsis" },
     "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false },
     "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "prerelease" }]
