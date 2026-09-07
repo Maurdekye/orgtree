@@ -169,3 +169,44 @@ test('server transient events survive refresh and streamed draft IDs survive dur
     assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Hello', 'saved quote stays the selected context while identity survives growth')
   } finally { await v.unmount(); resetConvos() }
 })
+
+
+test('new immutable stream snapshot IDs do not discard preceding text or rewrite the selected reply', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); server.busy = true; installFetch(server)
+  const v = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'First ', event_id: 'revision-one', reply_quote: 'Exact first snapshot', t: Date.now() }) })
+    const item = await replyOn(v.el.querySelector('[data-reply-event="revision-one"]')!)
+    await inAct(() => { item.click() })
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'second', event_id: 'revision-two', t: Date.now() }) })
+    assert.equal(v.el.querySelector('[data-reply-event="revision-two"]')!.textContent!.trim(), 'First second')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'revision-one')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Exact first snapshot')
+  } finally { await v.unmount(); resetConvos() }
+})
+
+
+test('opening mid-stream preserves the polled prefix and newer websocket source remains visible', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); server.busy = true
+  const chat = server.chat.bind(server)
+  server.chat = n => ({ ...chat(n), transient: [
+    { event_id: 'polled', role: 'assistant', kind: 'draft', text: 'Existing ', reply_quote: 'Existing ' },
+  ] })
+  installFetch(server)
+  const v = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.ok(v.el.querySelector('[data-reply-event="polled"]'), 'polled snapshot is initially visible')
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'continued', event_id: 'newer', reply_quote: 'Existing continued', t: Date.now() }) })
+    const current = v.el.querySelector('[data-reply-event="newer"]')!
+    assert.ok(current, 'newer stream source replaces the stale polled revision')
+    assert.equal(current.textContent!.trim(), 'Existing continued')
+    assert.equal(v.el.querySelector('[data-reply-event="polled"]'), null)
+    const item = await replyOn(current); await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Existing continued')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'newer')
+  } finally { await v.unmount(); resetConvos() }
+})

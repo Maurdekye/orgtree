@@ -553,6 +553,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const visibleRect = worldViewport(view, viewportSize.w, viewportSize.h)
   const viewRef = useRef(view); viewRef.current = view
   const animRef = useRef<number | null>(null)
+  const fitFollowing = useRef(false)
+  const fitGeometry = useRef<{ slug: string; signature: string } | null>(null)
   const animBusyRef = useRef(false)  // a camera animation owns the view
   const focusRef = useRef<string | null>(null)   // №25: the desk the camera rides with
   const followRef = useRef<{ id: string; x: number; y: number } | null>(null)
@@ -1116,6 +1118,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   }, [])
 
   const animateTo = useCallback((to: View, ms = 460) => {
+    fitFollowing.current = false
     cancelAnimationFrame(animRef.current!)
     animBusyRef.current = true
     const from = { ...viewRef.current }
@@ -1421,7 +1424,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       return
     }
     if (animate) animateTo(to, ms)
-    else setView(to)
+    else { viewRef.current = to; setView(to) }
+    fitFollowing.current = true
   }, [animateTo, fitView, regionOf, toast])
   // mobile zoom range (spec §5.1): compact retires Z_DESK — the map never
   // reaches desk zoom, so the camera-derived focusId never fires and the
@@ -1485,6 +1489,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     const eye = targetRef.current.get(USER)
     if (!vp || !eye) { fitAll(false); return }
     const mode = startView()
+    fitFollowing.current = false
     const saved = mode === 'remember' ? savedView(tree.slug) : null
     if (saved) {
       viewRef.current = saved
@@ -1496,6 +1501,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     const dest = (mode === 'switchboard' && !compactRef.current
       ? focusView(USER) : null) ?? fitView()
     if (!dest) return
+    const fitting = mode !== 'switchboard' || compactRef.current
+    fitFollowing.current = fitting
     if (mode !== 'remember' && !startZoomOn()) {
       viewRef.current = dest
       setView(dest)
@@ -1512,9 +1519,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     // from the stale camera instead of the eye
     viewRef.current = v0
     setView(v0)
-    const raf = requestAnimationFrame(() => animateTo(dest, 1700))
+    const raf = requestAnimationFrame(() => { animateTo(dest, 1700); fitFollowing.current = fitting })
     return () => cancelAnimationFrame(raf)
   }, [tree.slug])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A late inbox/roster payload can move the whole tree after its opening
+  // fit. Keep a requested whole-org view fitted as layout or viewport changes;
+  // manual pan/zoom and a focused desk relinquish that camera intent.
+  useEffect(() => {
+    const signature = `${viewportSize.w}:${viewportSize.h}|` + [...target]
+      .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
+    const previous = fitGeometry.current
+    fitGeometry.current = { slug: tree.slug, signature }
+    if (previous?.slug === tree.slug && previous.signature !== signature && fitFollowing.current) fitAll()
+  }, [target, tree.slug, viewportSize.w, viewportSize.h, fitAll])
 
   // …and the camera is REMEMBERED (D-228), whatever the startup mode: the
   // position is saved in every mode so that switching to 'remember' later
@@ -1580,6 +1598,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       // chat zooms the canvas underneath it
       if ((e.target as Element | null)?.closest?.('.pinwin')) return
       e.preventDefault()
+      fitFollowing.current = false
       cancelAnimationFrame(animRef.current!)
       animBusyRef.current = false
       const v = viewRef.current
@@ -1612,6 +1631,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   // background pan (+ mobile pinch/tap — desktop keeps the exact old path)
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
+    fitFollowing.current = false
     cancelAnimationFrame(animRef.current!)
     animBusyRef.current = false
     if (isMobile) {

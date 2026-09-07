@@ -154,8 +154,10 @@ export interface Convo {
   pending: PendingGhost[]
   draft: string
   draftEventId?: string
+  draftReplyQuote?: string
   thinking: string
   thinkingEventId?: string
+  thinkingReplyQuote?: string
   /** elapsed seconds while thinking is in progress; null = not thinking */
   thinkSecs: number | null
   win: number
@@ -558,7 +560,7 @@ export function refreshConvo(slug: string, nid: string,
     const missed = sameBoot && made !== null && Number.isFinite(made)
       && made > e.textSeen && !!e.s.draft
     if ((fresh && e.staleDraft) || idle || missed) {
-      retire.draft = ''; retire.draftEventId = undefined
+      retire.draft = ''; retire.draftEventId = undefined; retire.draftReplyQuote = undefined
       e.staleDraft = false
     }
     // Re-sync when there is nothing on screen to protect, or when the count
@@ -576,11 +578,29 @@ export function refreshConvo(slug: string, nid: string,
       e.textSeen = made
     }
     if ((fresh && e.staleThink) || idle) {
-      retire.thinking = ''; retire.thinkingEventId = undefined
+      retire.thinking = ''; retire.thinkingEventId = undefined; retire.thinkingReplyQuote = undefined
       retire.thinkSecs = null
       e.staleThink = false
     }
     if (idle && e.thinkT0) { e.thinkT0 = 0; stopClock(e) }
+    // Opening a desk mid-stream starts with the server's snapshot. Seed the
+    // accumulator before the next delta arrives, without replacing a newer
+    // websocket revision or resurrecting scaffolding retired above.
+    if (c.busy && startedAt >= e.streamAt) {
+      for (const row of c.transient ?? []) {
+        if (['draft', 'delta'].includes(row.kind) && !e.s.draft && retire.draft === undefined) {
+          retire.draft = row.text
+          retire.draftEventId = row.event_id
+          retire.draftReplyQuote = row.reply_quote
+        }
+        if (['thinking', 'thinking_start', 'thought'].includes(row.kind)
+            && !e.s.thinking && retire.thinking === undefined) {
+          retire.thinking = row.text
+          retire.thinkingEventId = row.event_id
+          retire.thinkingReplyQuote = row.reply_quote
+        }
+      }
+    }
     // normalize, don't cast: LiveRowPayload.text is optional on the wire,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
@@ -716,22 +736,22 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     e.streamAt = e.thinkT0
     startClock(k, e)
     e.staleThink = false
-    patch(k, { thinking: '', thinkSecs: 0, thinkingEventId: ev.event_id })
+    patch(k, { thinking: '', thinkSecs: 0, thinkingEventId: ev.event_id, thinkingReplyQuote: ev.reply_quote })
     return
   }
   if (ev.kind === 'thinking') {
     e.streamAt = Date.now()
     if (!e.thinkT0) { e.thinkT0 = Date.now(); startClock(k, e); patch(k, { thinkSecs: 0 }) }
     // a fresh thought must not continue a superseded one
-    const base = e.staleThink || (ev.event_id && e.s.thinkingEventId && ev.event_id !== e.s.thinkingEventId) ? '' : e.s.thinking
+    const base = e.staleThink ? '' : e.s.thinking
     const eventId = ev.event_id ?? (e.staleThink ? undefined : e.s.thinkingEventId)
     e.staleThink = false
-    patch(k, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId })
+    patch(k, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId, thinkingReplyQuote: ev.reply_quote })
     return
   }
   if (ev.kind === 'delta') {
     e.streamAt = Date.now()
-    const base = e.staleDraft || (ev.event_id && e.s.draftEventId && ev.event_id !== e.s.draftEventId) ? '' : e.s.draft
+    const base = e.staleDraft ? '' : e.s.draft
     // a draft that is STARTING (nothing on screen, or what was there has been
     // superseded) records the epoch it began in — everything the server marks
     // durable from here on supersedes it. A draft that is merely GROWING keeps
@@ -739,7 +759,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     // the draft could never be retired by state at all.
     const eventId = ev.event_id ?? (e.staleDraft ? undefined : e.s.draftEventId)
     e.staleDraft = false
-    patch(k, { draft: (base + ev.text).slice(-12000), draftEventId: eventId })
+    patch(k, { draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
     return
   }
   // A durable row landed (text / tool / sticky output): the thinking phase is

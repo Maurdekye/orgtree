@@ -1312,7 +1312,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const openReply = (e: ReplyMouseEvent, row: { event_id?: string }) => {
     const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-event]')
     const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
-    const quote = exact.textContent || ''
+    const quote = exact.getAttribute('data-reply-quote') ?? exact.textContent ?? ''
     const event_id = exact.hasAttribute('data-reply-event') ? exact.getAttribute('data-reply-event') ?? undefined : row.event_id
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
@@ -1325,7 +1325,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id])]),
     ...live_feed.map(r => r.event_id), ...(chat?.pending_mail ?? []).map(r => r.event_id),
   ].filter(Boolean))
-  const transient = (chat?.transient ?? []).filter(r => r.event_id && !sourceIds.has(r.event_id))
+  const transient = (chat?.transient ?? []).filter(r => {
+    if (!r.event_id || sourceIds.has(r.event_id)) return false
+    // A poll can precede the latest immutable stream revision. Never let its
+    // older snapshot hide the text and source received since that request.
+    if (['draft', 'delta'].includes(r.kind) && convo.draft && convo.draftEventId
+      && r.event_id !== convo.draftEventId) return false
+    if (['thinking', 'thinking_start', 'thought'].includes(r.kind) && convo.thinking && convo.thinkingEventId
+      && r.event_id !== convo.thinkingEventId) return false
+    return true
+  })
   const transientThinking = transient.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))
   const transientDraft = transient.some(r => ['draft', 'delta'].includes(r.kind))
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
@@ -2354,7 +2363,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                     </div>
             }</div>
           ))}
-          {transient.map(row => <div key={row.event_id} data-reply-event={row.event_id}
+          {transient.map(row => <div key={row.event_id} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? <div className="thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text || 'Thinking...'}</div>
@@ -2362,7 +2371,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                   html={md(row.event_id === convo.draftEventId && draft ? draft : row.text, fileBase(slug, node.id))} />}
           </div>)}
           {!transientThinking && thinkSecs !== null && chat?.busy && <div className="reply-event"
-            data-reply-event={convo.thinkingEventId ?? ''} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
+            data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
             // haiku streams its reasoning: the text IS the indicator
             ? <div className="msg live thinking">{thinking}</div>
             // opus/sonnet seal it: nothing to show but the fact and the clock,
@@ -2371,7 +2380,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 <PsychologyIcon fontSize="inherit" />{' '}thinking…
                 {thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}
               </div>)}</div>}
-          {!transientDraft && draft && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''}
+          {!transientDraft && draft && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
             onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
             html={md(draft, fileBase(slug, node.id))} /></div>}

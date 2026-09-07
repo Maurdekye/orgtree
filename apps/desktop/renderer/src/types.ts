@@ -1011,7 +1011,7 @@ export interface LiveRowPayload {
   turnId?: string
 }
 
-export interface ChatTransient { event_id: string; role: string; kind: string; text: string }
+export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
   transient?: ChatTransient[]
