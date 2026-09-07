@@ -34,6 +34,32 @@ def seeded():
     stale = agentauth.child_env('auth-fixture', 'old')['ORGTREE_AGENT_TOKEN']
     org.node('old')['generation'] = 1
     store.save_org(org)
+    from pathlib import Path
+    import uuid
+    from orgtree import desktop_native
+    duplicate_sid = str(uuid.uuid4())
+    good_sid = str(uuid.uuid4())
+    for slug, sid in [('duplicate-one',duplicate_sid),('duplicate-two',duplicate_sid),('unrelated-native',good_sid)]:
+        fixture = store.create_org(slug)
+        fixture.hire(USER,None,'haiku',0,'worker')
+        node = fixture.node('worker'); node['session_id'] = sid
+        relative = f'imports/{slug}/native/worker/{sid}.jsonl'
+        path = Path(store.DATA_ROOT)/relative; path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'type':'user','uuid':str(uuid.uuid4()),'parentUuid':None,
+            'sessionId':sid,'timestamp':'2026-09-07T20:00:00Z',
+            'message':{'role':'user','content':'unrelated native context'}})+'\n')
+        node['desktop_import']={'native_continuity':{'status':'ready','provider':'claude',
+            'session_id':sid,'path':relative,'storage_node':'worker'}}
+        store.save_org(fixture)
+    # Explicit foreign-provider fallback control: it must never be selected.
+    foreign = Path.home()/'.claude'/'projects'/'foreign'/f'{duplicate_sid}.jsonl'
+    foreign.parent.mkdir(parents=True); foreign.write_text('{}\n')
+    assert supervisor.transcript_path(duplicate_sid) is None
+    assert supervisor._native_context_hold(store.load_org('duplicate-one'),'worker')
+    good = store.load_org('unrelated-native')
+    assert supervisor._native_context_hold(good,'worker') is None
+    assert supervisor.transcript_path(good_sid)
+    assert good_sid in supervisor._transcript_evidence(good)
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
     import os
@@ -131,6 +157,14 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body['activeAgents'], 0)
         self.assertTrue(body['idle'])
+
+    def test_duplicate_native_ids_do_not_prevent_real_startup(self):
+        status, body = self.request('/api/orgs',operator=True)
+        self.assertEqual(status,200)
+        self.assertIn('unrelated-native',json.dumps(body))
+        status, body = self.request('/api/orgs/unrelated-native/nodes/worker/chat',operator=True)
+        self.assertEqual(status,200,body)
+        self.assertIn('unrelated native context',json.dumps(body))
 
     def test_real_mcptool_post_uses_scoped_token_and_engine_port(self):
         env = dict(os.environ)

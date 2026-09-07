@@ -3391,12 +3391,16 @@ _TPATH_MEMO_CAP = 4096      # ~0.5 MB of strings; cleared wholesale, see below
 def transcript_path(session_id: str, root: str | None = None) -> str | None:
     if root is None:
         try:
-            from .desktop_native import native_path_for_session
-            native_path = native_path_for_session(session_id)
+            from . import desktop_native
+            native_path = desktop_native.native_path_for_session(session_id)
             if native_path:
                 return native_path
         except ImportError:
             pass
+        except desktop_native.NativeHeld:
+            # Global lookup cannot choose between duplicate imported SIDs.
+            # Do not resume a foreign provider file under that ambiguous ID.
+            return None
     base = root or os.path.expanduser("~/.claude")
     key = (base, session_id)
     known = _TPATH_MEMO.get(key)
@@ -26496,8 +26500,20 @@ def _transcript_evidence(org: Org) -> dict[str, str] | None:
     if seen is None:
         return None
     try:
-        from .desktop_native import native_index
-        return {**seen, **native_index()}
+        from .desktop_native import native_session_path
+        native = {}
+        ambiguous = set()
+        for nid, node in org.nodes.items():
+            binding = (node.get('desktop_import') or {}).get('native_continuity') or {}
+            if binding.get('provider') not in {'claude', 'openrouter'}:
+                continue  # Codex rollout is execution state, not a display transcript.
+            path = native_session_path(org, nid)
+            if path:
+                sid = node['session_id']
+                if sid in native and native[sid] != path:
+                    ambiguous.add(sid)
+                native[sid] = path
+        return {**seen, **{sid:path for sid,path in native.items() if sid not in ambiguous}}
     except ImportError:
         return seen
 
