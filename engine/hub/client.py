@@ -136,6 +136,13 @@ class HubClient:
     def unregister(self) -> dict[str, Any]:
         return self._request("POST", "/api/unregister")
 
+    def create_peer(self, peer_id: str, slug: str) -> dict[str, Any]:
+        """Mint a one-time peer token; local instance-token access only."""
+        return self._request("POST", "/api/peers", {"peer_id": peer_id, "slug": slug})
+
+    def revoke_peer(self, peer_id: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/api/peers/{urllib.parse.quote(peer_id, safe='')}")
+
     def _stage_attachments(self, entry_id: str, paths: list[str | os.PathLike[str]]) -> list[dict[str, str]]:
         staged: list[dict[str, str]] = []
         entry_root = self.blob_root / entry_id

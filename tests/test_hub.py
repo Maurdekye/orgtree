@@ -24,7 +24,7 @@ class HubIntegrationTests(unittest.TestCase):
             b = HubClient(root / "client-b", f"http://127.0.0.1:{readiness.port}", "org.b.bbbbbb", "secret-b", readiness.token)
             a.register("A")
             b.register("B")
-            pairing = a._request("POST", "/api/peers", {"peer_id": "peer-b", "slug": b.slug})
+            pairing = a.create_peer("peer-b", b.slug)
             self.assertEqual(pairing["slug"], b.slug)
             paired = HubClient(root / "client-paired", f"http://127.0.0.1:{readiness.port}", b.slug, "secret-b", pairing["peer_token"], peer_token=True)
             self.assertTrue(paired.roster()["roster"])
