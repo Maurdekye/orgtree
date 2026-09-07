@@ -113,12 +113,12 @@ test('①  ONE modal: a single overlay, no advanced disclosure, and every '
     const labels = tabs(view.el).map((t) => t.textContent?.trim())
     assert.equal(labels[0]?.startsWith('Basic'), true)
     assert.deepEqual(labels,
-      ['Basic', 'Policies', 'Org type', 'Mailserver', 'Autonomy'])
+      ['Basic', 'Policies', 'Connections', 'Autonomy'])
     assert.equal(tabs(view.el)[0]!.getAttribute('aria-selected'), 'true')
 
     // every former advanced category is now reachable in ONE click from the
     // strip, rather than one click to open a modal and another to pick a tab
-    for (const label of ['Policies', 'Org type', 'Mailserver', 'Autonomy']) {
+    for (const label of ['Policies', 'Connections', 'Autonomy']) {
       const t = await open(view.el, label)
       assert.equal(t.getAttribute('aria-selected'), 'true')
       // still one overlay: picking a tab must not open a second surface
@@ -136,7 +136,7 @@ test('②  ONE save surface, on every tab — and none of the four "changes here
   stubFetch(seen)
   const { view } = await mountOrg()
   try {
-    for (const label of ['Basic', 'Policies', 'Org type', 'Autonomy']) {
+    for (const label of ['Basic', 'Policies', 'Autonomy']) {
       await open(view.el, label)
       const saves = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
         .filter((b) => b.textContent?.trim() === 'save')
@@ -169,7 +169,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
 
     // wander, then come back — both edits survive, because the panels are
     // hidden rather than unmounted
-    await open(view.el, 'Org type')
+    await open(view.el, 'Autonomy')
     await open(view.el, 'Basic')
     assert.equal(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="top-level grant cap"]')!.value, '77')
@@ -192,50 +192,19 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('④  the tab set follows the org: a kiosk has no Autonomy tab, and an '
-  + 'org with no mail identity has no Mailserver tab', async () => {
+test('④  the tab set follows the org: an '
+  + 'org with no mail identity has no Connections tab', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
   let m = await mountOrg({ net: null })
   try {
     assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Policies', 'Org type', 'Autonomy'])
+      ['Basic', 'Policies', 'Autonomy'])
   } finally { await m.view.unmount() }
 
-  m = await mountOrg({ kiosk: { enabled: true, credits: 5, spend_limit: 0,
-    storage_limit_mb: 0, sandbox: false, share_url: null, max_scope: null,
-    auto_raise: false } })
-  try {
-    assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Policies', 'Org type', 'Mailserver'])
-    // …and the strip and the panels agree: no orphan panel for a tab that
-    // is not offered
-    assert.equal(m.view.el.querySelector('#org-settings-panel-autonomy'), null)
-  } finally { await m.view.unmount(); delete g.fetch }
 })
 
-test('⑤  the kiosk ceiling calls its MCP field ADDITIONAL, and says the '
-  + 'Orgtree server is always there', async () => {
-  const seen: { method: string; path: string; body: unknown }[] = []
-  stubFetch(seen)
-  const { view } = await mountOrg({
-    kiosk: { enabled: true, credits: 5, spend_limit: 0, storage_limit_mb: 0,
-      sandbox: false, share_url: null, auto_raise: false,
-      max_scope: { tools: { bash: true, web: false, edit: true,
-        subagents: false, mcp: [] }, add_dirs: [], org_visibility: 'full',
-        permission_mode: 'acceptEdits', max_tier: null } },
-  })
-  try {
-    await open(view.el, 'Org type')
-    const panel = view.el.querySelector<HTMLElement>(
-      '#org-settings-panel-orgtype')!
-    const box = panel.querySelector<HTMLInputElement>(
-      'input[aria-label="additional MCP servers"]')
-    assert.ok(box, 'the ceiling MCP field is not labelled "additional"')
-    // an empty box must not read as "zero callable MCP tools"
-    assert.match(panel.textContent ?? '', /always available to every agent/)
-  } finally { await view.unmount(); delete g.fetch }
-})
+// Kiosk ceiling tests are outside the v2 desktop scope.
 
 test('⑥  content-filter policy: auto-autopsy reveals model selector without fable and saves chosen model', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []

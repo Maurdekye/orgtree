@@ -1,3 +1,4 @@
+import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -166,6 +167,9 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   onDetached?: (detached: boolean) => void; flush?: () => void
 }) {
   const parent = useSurface()
+  const layoutKey = windowLayoutKey(kind, org)
+  const restoreAllowed = useRestoreWindows()
+  const restored = useRef(false)
   const placeholder = useRef<HTMLDivElement>(null)
   const [parts] = useState(() => {
     const container = document.createElement('div'); container.className = 'movable-surface'
@@ -204,6 +208,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     pendingRestore.current = null
     epoch.current++
     const w = child.current; child.current = null
+    if (w && !w.closed) captureWindow(layoutKey, kind, org, w)
+    closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
     destination().appendChild(parts.container)
     initialOwner.current = document
@@ -221,14 +227,14 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     let w: Window | null = null
     try {
       // Opening MUST be inside the initiating click, before any await.
-      w = owner.defaultView!.open('', '_blank', 'popup,width=900,height=760')
+      w = owner.defaultView!.open('', '_blank', popupFeatures(layoutKey))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
       const onGone = () => { if (epoch.current === transaction) redock() }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))
-      const poll = window.setInterval(() => { if (w?.closed) onGone() }, 250)
+      const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w) }, 250)
       cleanups.current.push(() => window.clearInterval(poll))
       d.title = typeof title === 'string' ? `${title} · Orgtree` : 'Orgtree'
       const base = d.createElement('base'); base.href = document.baseURI; d.head.appendChild(base)
@@ -293,7 +299,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
-        editable, window: w, redock, flush: () => latest.current.flush?.() }))
+        editable, window: w, redock, flush: () => { captureWindow(layoutKey, kind, org, w!); latest.current.flush?.() } }))
+      captureWindow(layoutKey, kind, org, w)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
       restore(); w.focus()
       pendingRestore.current = restore
@@ -322,7 +329,14 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       }
     }
   }, [anchor, parent?.document, parts])
+  useEffect(() => {
+    if (!ready || !restoreAllowed || restored.current) return
+    restored.current = true
+    if (restoredWindows(org).some(r => r.key === layoutKey)) open()
+  }, [ready, restoreAllowed, layoutKey, org])
   useEffect(() => () => {
+    if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current)
+    closeSavedWindow(layoutKey)
     epoch.current++
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }
     try { child.current?.close() } catch { /* disposed */ }
@@ -356,7 +370,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         onKeyDown={detached ? stop : undefined} onKeyUp={detached ? stop : undefined}
         onDragStart={detached ? stop : undefined} onDragOver={detached ? stop : undefined}
         onDrop={detached ? stop : undefined} onContextMenu={detached ? stop : undefined}>
-        {detached && <><div className="popout-dependency">This window uses the main Orgtree tab. <button onClick={redock}>Return to main window</button></div><RestartNotice /></>}
+        {detached && <><div className="popout-dependency">Orgtree <button onClick={redock}>Return to main window</button></div><RestartNotice /></>}
         {error && <div role="alert" className="popout-error">{error}</div>}
         {children}
       </div>

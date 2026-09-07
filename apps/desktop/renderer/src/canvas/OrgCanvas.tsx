@@ -1,3 +1,4 @@
+import { savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
 import { DeskHosts } from './deskhosts'
@@ -149,6 +150,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     setDogView((current) => isModalPinned('watchdog') && current === id ? null : id)
   }, [])
   const [lineageId, setLineageId] = useState<string | null>(null)
+  const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
+  useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
   const [docView, setDocView] = useState<string | null>(null)   // FR-03 reader
   const [userCfg, setUserCfg] = useState(false)
   const [trayOpen, setTrayOpen] = useState(false)   // the flat agent tray
@@ -3004,6 +3007,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             }} />
         </MaybePortal>
       )}
+      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
+        const n = map.get(id)!
+        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
+          <div className="row"><b>{id} restored desk</b><button onClick={() => {
+            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
+          }}>Return to canvas</button></div>
+          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
+            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
+            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView} onJump={centerOn} />
+        </div>
+      })}
     </div></DeskHosts>
   )
 }

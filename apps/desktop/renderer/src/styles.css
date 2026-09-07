@@ -5978,3 +5978,11 @@ html.mobile .popout-button { display: none; }
 .reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
 .reply-event { display: contents; }
+
+.connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }
+.connection-peers { padding-left: 20px; }
+.connection-setup label { display: grid; gap: 4px; margin: 8px 0; }
+.connection-setup input, .connection-setup textarea { width: 100%; box-sizing: border-box; }
+.connection-setup details { margin-top: 12px; }
+.connection-setup textarea { min-height: 90px; }
+.restored-desk { max-width: 520px; max-height: 70vh; overflow: auto; }

@@ -42,7 +42,7 @@ const stubFetch = (orr: AccountUsage) => {
   const g = globalThis as unknown as Record<string, unknown>
   g.fetch = (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
-    const body = /\/accounts\/usage$/.test(path) ? CLAUDE
+    const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX
       : /\/openrouter\/usage$/.test(path) ? orr : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
@@ -59,7 +59,7 @@ test('usage modal renders OpenRouter uncapped credits honestly without fake bar'
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
     assert.match(text, /usage limits/)
-    assert.match(text, /claude@example\.test/)
+    assert.match(text, /Claude Code/)
     assert.match(text, /OpenRouter · sk-or-v1-d3e\.\.\.22c/)
     assert.match(text, /\$0\.16 spent · no spend cap/)
     // Claude has 1 track, Codex has 1 track; OpenRouter uncapped has NO track and NO 0% badge

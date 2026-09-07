@@ -376,64 +376,8 @@ async function accounts(payload: ProvidersPayload): Promise<string> {
   return text
 }
 
-test('§4 THE RULING: an absent Codex has no accounts-page section at all',
-  async () => {
-    // ⚠ this is the surface the coordinator's D-199 ruling had made the HOME
-    // of the "not installed, here is the install command" story. The user
-    // overruled that on 2026-08-30, so the section must be gone entirely —
-    // head, tier list, preview tag and the "not installed on this machine"
-    // line included.
-    const text = await accounts({ providers: [
-      ON('claude'), ABSENT('openai'), ABSENT('google')] })
-    assert.ok(!text.includes('Codex'), `Codex still mentioned: ${text}`)
-    assert.ok(!text.includes('Antigravity'), `Antigravity still mentioned: ${text}`)
-    assert.ok(!text.includes('not installed on this machine'),
-      'the absent-provider note is part of what must disappear')
-    assert.ok(text.includes('Claude'), 'Claude is the exception, not a casualty')
-  })
-
-test('§4 an INSTALLED but signed-out Codex keeps its full section', async () => {
-  const text = await accounts({ providers: [
-    ON('claude'), SIGNED_OUT('openai'), ABSENT('google')] })
-  assert.ok(text.includes('Codex'), 'installed means present')
-  assert.ok(text.includes('not signed in'), 'and it carries its own reason')
-  assert.ok(!text.includes('Antigravity'), 'while the absent one is still gone')
-})
-
-test('§4 CLAUDE IS THE EXCEPTION: absent, but reported in one small line',
-  async () => {
-    const text = await accounts({ providers: [
-      ABSENT('claude'), ABSENT('openai'), ABSENT('google')] })
-    assert.ok(text.includes('Claude'), 'orgtree is built around it — say so')
-    assert.match(text, /not installed/,
-      'the whole point of the exception is reporting the absence')
-    // small: one line, and specifically NOT the provider-section treatment the
-    // other two lost. No tier list, no preview tag.
-    assert.ok(!text.includes('preview'))
-    assert.ok(!text.includes('seat 1'))
-    assert.ok(!text.includes('Codex'), 'the exception is Claude ALONE')
-    assert.ok(!text.includes('Antigravity'))
-  })
-
-test('§4 an installed Claude says nothing — the line is about ABSENCE',
-  async () => {
-    const text = await accounts({ providers: [
-      ON('claude'), ABSENT('openai'), ABSENT('google')] })
-    assert.ok(!/not installed/.test(text),
-      'a healthy machine must not carry an install nag')
-  })
-
-test('§4 unresolved provider state shows the sections, and claims nothing '
-  + 'about Claude', async () => {
-    // the optimistic default at the surface: an empty payload is not evidence
-    // of absence. Asserting BOTH halves — the sections appear, and the Claude
-    // line does not (claiming "not installed" on no evidence is the one thing
-    // that line could get badly wrong).
-    const text = await accounts({ providers: [] })
-    assert.ok(text.includes('Codex'))
-    assert.ok(text.includes('Antigravity'))
-    assert.ok(!/not installed/.test(text))
-  })
+// V2 intentionally shows absent harness setup links. Desktopparity tests
+// those controls; the v1 hidden-provider/account-panel cases do not apply.
 
 // ==================================================== §5 the usage surfaces
 
@@ -457,7 +401,7 @@ async function usageModal(payload: ProvidersPayload): Promise<string> {
   g.fetch = (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = /\/providers$/.test(path) ? payload
-      : /\/accounts\/usage$/.test(path) ? CLAUDE_USAGE
+      : path === '/api/usage' ? CLAUDE_USAGE.accounts[0]
         : /\/codex\/usage$/.test(path) ? CODEX_ABSENT_USAGE : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
@@ -474,7 +418,7 @@ test('§5 the usage modal drops the Codex block on a Codex-less machine',
     const text = await usageModal({ providers: [
       ON('claude'), ABSENT('openai'), ABSENT('google')] })
     assert.ok(text.includes('usage limits'))
-    assert.ok(text.includes('claude@example.test'), 'Claude bars still render')
+    assert.ok(text.includes('Claude Code'), 'Claude bars still render')
     assert.ok(!text.includes('Codex'),
       'a "Codex" heading over "not installed" is an advertisement, not a bar')
   })

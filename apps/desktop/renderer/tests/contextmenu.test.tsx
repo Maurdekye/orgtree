@@ -535,7 +535,7 @@ uiTest('§B3 presentation card: markdown offers reader/copy/download, HTML offer
   // the mockup card IS a link, so the object's menu applies (not the browser's)
   assert.equal(html!.tagName, 'A')
   assert.equal(await rightClick(html!), true)
-  assert.deepEqual(labels(), ['Open HTML mockup in a new tab', 'Copy title', 'Copy reference'])
+  assert.deepEqual(labels(), ['Open HTML mockup in a new tab', 'Copy title', 'Copy reference', 'Download HTML prototype'])
 })
 
 uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE; an evicted card offers neither dismiss nor download', async (t) => {

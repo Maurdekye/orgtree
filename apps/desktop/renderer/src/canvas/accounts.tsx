@@ -1,3 +1,5 @@
+import { ImportSettings } from './importsettings'
+import { DesktopSettings } from './desktopsettings'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   AccountsPayload, AccountUsage, ProviderInfo, RuntimeSettingsPayload,
@@ -15,7 +17,7 @@ import {
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
-import { PinFrame } from './modalpin'
+import { ModalOverlapSettings, PinFrame } from './modalpin'
 import {
   setCrowdPilesOn, setDeskDpi, setOpenRouterTiers, setStartView, setStartZoomOn,
   fmtCredits, TIER_LETTER,
@@ -144,11 +146,12 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'providers' | 'runtime' | 'display'
+type AppSettingsTab = 'providers' | 'runtime' | 'display' | 'import'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
-  { id: 'display', label: 'Display', note: 'this browser' },
+  { id: 'display', label: 'Display', note: 'this computer' },
+  { id: 'import', label: 'Import' },
 ]
 
 function DeskTextSize() {
@@ -283,8 +286,13 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
-      {providers?.filter(p => p.id !== 'openrouter').map(p => <SetGroup key={p.id} title={p.label}>
-        <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
+      {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className="set-group">
+        <div className={'set-group-head acct-provider-head prov-' + p.id}>
+          {p.label}<span className="set-head-right">
+            {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className="acct-preview-tag">preview</span>}
+            <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
+          </span>
+        </div>
         <p>{!p.status.installed ? 'Not installed' : p.status.connected === true ? 'Connected'
           : p.status.connected === false ? 'Sign-in required' : 'Connection status unknown'}
           {p.status.version && ` · ${p.status.version}`}</p>
@@ -296,12 +304,13 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         {p.reserve && <p className="dim">Reserve capacity: {p.reserve.percent == null ? 'unknown' : `${p.reserve.percent}% used`}
           {p.reserve.resets_at && ` · resets ${fmtFull(p.reserve.resets_at)}`}
           {p.reserve.reason && ` · ${p.reserve.reason}`}</p>}
-      </SetGroup>)}
+      </div>)}
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
         headRight={<ProviderSwitch provider={openrouter} busy={busy} onChange={toggleProvider} />} />
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
+      <DesktopSettings />
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
@@ -317,9 +326,10 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       </SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /></SetGroup>
+      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
+    <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings /></SettingsTabPanel>
     <button onClick={close}>close</button>
   </PinFrame>
 }

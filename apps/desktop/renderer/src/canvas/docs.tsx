@@ -1,4 +1,4 @@
-import { DocumentDownload } from './download'
+import { DocumentDownload, downloadDocument } from './download'
 // canvas/docs.tsx — FR-03: presented documents (user request 2026-08-05).
 // An agent presents a plan/report with orgtree_present; a small card pops
 // out the SIDE of its node, and clicking it opens the markdown in-page for
@@ -32,25 +32,11 @@ export function MockupBadge({ compact = false }: { compact?: boolean }) {
     {!compact && ' HTML mockup'}</span>
 }
 
-/** "Download as Markdown" (context menu, 2026-09-07): the body comes from the
- *  same GET the reader uses; the file is built client-side and saved through
- *  a transient link IN THE ELEMENT'S OWN DOCUMENT (a popped-out surface's
- *  rows belong to another window). Markdown only — an HTML mockup's body is
- *  empty by construction and its page is served through the sandboxed
- *  wrapper, which is what "open in a new tab" is for. */
+/** Both source formats use the engine attachment route and its filename. */
 export function downloadDocMarkdown(el: Element | null, slug: string, docId: string,
   toast?: ToastFn): Promise<void> {
-  return getDocument(slug, docId).then((d) => {
-    const doc = el?.ownerDocument ?? document
-    const win = doc.defaultView ?? window
-    const blob = new win.Blob([d.body ?? ''], { type: 'text/markdown;charset=utf-8' })
-    const url = win.URL.createObjectURL(blob)
-    const a = doc.createElement('a')
-    const name = (d.title || docId).replace(/[\\/:*?"<>|]+/g, '_').trim() || docId
-    a.href = url; a.download = name + '.md'
-    doc.body.appendChild(a); a.click(); a.remove()
-    win.setTimeout(() => win.URL.revokeObjectURL(url), 1000)
-  }).catch((e: Error) => { toast?.([`could not download the document: ${e.message}`]) })
+  return downloadDocument(el?.ownerDocument ?? document, slug, docId, docId, 'markdown')
+    .catch((e: Error) => { toast?.([`could not download the document: ${e.message}`]) })
 }
 
 /** The presentation context menu's entries, shared by every surface that
@@ -88,9 +74,10 @@ export function presentationMenu(el: Element | null, slug: string,
       onSelect: () => { void copyToClipboard(el, doc.title).then(copied('the title')) } },
     { label: 'Copy reference', title: ref,
       onSelect: () => { void copyToClipboard(el, ref).then(copied('the reference ' + ref)) } })
-  if (!html && !gone) {
-    entries.push({ label: 'Download as Markdown',
-      onSelect: () => { void downloadDocMarkdown(el, slug, doc.id, acts.toast) } })
+  if (!gone) {
+    entries.push({ label: html ? 'Download HTML prototype' : 'Download as Markdown',
+      onSelect: () => { void downloadDocument(el?.ownerDocument ?? document, slug, doc.id, doc.title, doc.format)
+        .catch((e: Error) => acts.toast?.([e.message])) } })
   }
   if (acts.dismiss && !gone) {
     entries.push('sep', { label: 'Dismiss', danger: true, onSelect: acts.dismiss,

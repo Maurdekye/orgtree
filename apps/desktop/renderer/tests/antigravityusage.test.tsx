@@ -71,7 +71,7 @@ const stubFetch = (agy: AccountUsage) => {
   const g = globalThis as unknown as Record<string, unknown>
   g.fetch = (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
-    const body = /\/accounts\/usage$/.test(path) ? CLAUDE
+    const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX
       : /\/antigravity\/usage$/.test(path) ? agy : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))

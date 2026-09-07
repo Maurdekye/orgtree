@@ -152,7 +152,7 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
   const slot = entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]
   if (slot && !entry.detached) entry.last = slot
   const props = entry.last.props
-  return <MovableSurface kind={`desk:${entry.key}`} title={`${props.node.id} · desk`}
+  return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}
     org={props.slug} anchor={slot?.anchor ?? null}
     onDetached={(v) => {
       entry.detached = v

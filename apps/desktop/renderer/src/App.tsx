@@ -1,3 +1,8 @@
+import type { NativeNotice } from './desktop'
+import { useNativeNotifications } from './notifications'
+import { restoreWindowKind } from './windowlayout'
+import { desktop } from './desktop'
+import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -8,7 +13,7 @@ import {
   getMailById, getOrgMd,
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
-  getOrgNet, getProviders, getSweepPreview, getTree,
+  getProviders, getSweepPreview, getTree,
   getUsage, getUsagePeek, killAll, listOrgs,
   markRead, openWs,
   probeHub, putOrgMd,
@@ -219,7 +224,7 @@ export default function App() {
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
   const [orgs, setOrgs] = useState<OrgListEntry[]>([])
-  const [slug, commitSlug] = useState<string | null>(slugFromPath)   // /o/<slug> survives refresh
+  const [slug, commitSlug] = useState<string | null>(() => slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
   const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -239,6 +244,7 @@ export default function App() {
   // (api.py annotate(), derived from the live tail), so it self-heals on the
   // same heartbeat as everything else and no event can be missed.
   const [showSettings, setShowSettings] = useState(false)
+  const [showConnections, setShowConnections] = useState(false)
   // the recovery browser: 'largest' = forced triage mode (the alert's path);
   // 'last' = whatever mode was used last (the header chip's path)
   const [showInbox, setShowInbox] = useState(false)
@@ -327,6 +333,30 @@ export default function App() {
   // fetched once, since it cannot change without a process restart (see
   // supervisor.build_info)
   const [build, setBuild] = useState<HostPayload['build'] | null>(null)
+  const [nativeTarget, setNativeTarget] = useState<NativeNotice | null>(null)
+  useNativeNotifications(tree, notice => {
+    setNativeTarget(notice)
+    if (notice.org !== slug) setSlug(notice.org)
+  })
+  const restoredOrg = useRef<string | null>(null)
+  useEffect(() => {
+    if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
+    restoredOrg.current = slug
+    setShowSettings(restoreWindowKind('org-settings', slug))
+    setShowConnections(restoreWindowKind('connections', slug))
+    setShowInbox(restoreWindowKind('inbox', slug))
+    setShowGallery(restoreWindowKind('gallery', slug))
+    setShowDocket(restoreWindowKind('docket', slug))
+    setShowUsage(restoreWindowKind('usage', slug))
+    setShowAccounts(restoreWindowKind('app-settings', slug))
+    setShowDefaults(restoreWindowKind('defaults', slug))
+  }, [tree, slug])
+  useEffect(() => {
+    if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
+    if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true) }
+    else { setShowInbox(true); setInboxJump(jumpTo(nativeTarget.id.replace(/^(mail|ask):/, ''))) }
+    setNativeTarget(null)
+  }, [nativeTarget, tree, slug])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
   const wsRef = useRef<WebSocket | null>(null)
   useEffect(() => {
@@ -410,6 +440,7 @@ export default function App() {
   }, [fetchOk, fetchErr])
 
   useEffect(() => { refreshOrgs() }, [refreshOrgs])
+  useEffect(() => { const imported = () => { void refreshOrgs() }; window.addEventListener('orgtree:organizations-imported', imported); return () => window.removeEventListener('orgtree:organizations-imported', imported) }, [refreshOrgs])
   // G1 — THE TREE HEARTBEAT. Everything on screen that is not the conversation
   // — every card, credit meter, occupancy bar, roster row, resume timer and
   // inbox badge — is rendered from this one payload, and until now it was
@@ -481,6 +512,7 @@ export default function App() {
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
   useEffect(() => { resetConvos() }, [slug])
+  useEffect(() => { if (desktop()) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug])
   useEffect(() => {
     if (!slug) return
     // the WS must SURVIVE backend restarts (updates, redeploys): without
@@ -976,6 +1008,7 @@ export default function App() {
                     title={usageAlert?.title ?? usageTitle(provPresence)}
                     onClick={() => setShowUsage(v => isModalPinned('usage') ? !v : true)}>
                     <DataUsageIcon fontSize="inherit" /></button>}
+                <button onClick={() => setShowConnections(true)}>Connections</button>
                 {!tree.public &&
                   <button onClick={() => setShowSettings(v => isModalPinned('org-settings') ? !v : true)}><SettingsIcon fontSize="inherit" /> settings</button>}
                 <a className="gh-link" href="https://github.com/Maurdekye/claude-orgtree"
@@ -1005,6 +1038,7 @@ export default function App() {
               {/* hard-full is a STATE, not an event: the alert persists (and
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}
+              {showConnections && <ConnectionsPanel tree={tree} toast={toast} close={() => setShowConnections(false)} />}
               {showSettings && (
                 <SettingsPanel tree={tree} toast={toast}
                   close={() => { setShowSettings(false); refreshTree(slug) }} />
@@ -1521,95 +1555,6 @@ export function NewOrg({ onCreate }: {
     </form>
   )
 
-}
-
-function NetTab({ tree, toast, adding, setAdding }: {
-  tree: TreePayload
-  toast: ToastFn
-  adding: string
-  setAdding: (value: string) => void
-}) {
-  const hubs = tree.net?.hubs ?? []
-  const [reveal, setReveal] = useState<string | null>(null)
-  const apply = (next: { id?: string; address: string; enabled?: boolean }[],
-                 note: string) =>
-    saveSettings(tree.slug, { net_hubs: next })
-      .then((r) => toast(r.warnings?.length ? r.warnings : [note]))
-      .catch((e: Error) => toast([`error: ${e.message}`]))
-  return (
-    <>
-      <div className="field-label">this org's network address</div>
-      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <span className="badge dim mono-sm">{tree.net?.slug ?? '—'}</span>
-        {reveal == null
-          ? <button onClick={() => getOrgNet(tree.slug)
-              .then((r) => setReveal(r.identity?.secret ?? '(none)'))
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>
-              reveal secret…</button>
-          : <>
-              <span className="badge dim mono-sm">{reveal}</span>
-              <button onClick={() => { navigator.clipboard?.writeText(reveal)
-                .catch(() => {}); toast(['secret copied']) }}>
-                <CopyIcon fontSize="inherit" /></button>
-            </>}
-      </div>
-      <div className="dim hub-hint">the secret IS the address's ownership —
-        losing it loses the address; nobody can restore it. It never reaches
-        an agent.</div>
-      <label className="checkline"
-        title="being listed means peers can mail this org (and thereby spend its credits)">
-        <input type="checkbox"
-          checked={hubs.some((h) => h.id === 'local')}
-          onChange={(e) => saveSettings(tree.slug,
-            { net_autoconnect: e.target.checked })
-            .then((r) => toast(r.warnings?.length ? r.warnings
-              : [e.target.checked ? 'local hub joined' : 'local hub left']))
-            .catch((err: Error) => toast([`error: ${err.message}`]))} />
-        connect to the mailserver on this computer
-      </label>
-      <div className="field-label">mailservers</div>
-      {hubs.map((h) => (
-        <div className="row" key={h.id} style={{ alignItems: 'center' }}>
-          <span className={'oi-dot' + (h.connected ? ' ok' : '')} />
-          <b>{h.name || (h.id === 'local' ? 'local hub' : 'unnamed')}</b>
-          <span className="dim mono-sm" style={{ flex: 1 }}>{h.address}</span>
-          <span className="dim" style={{ fontSize: '11px' }}>
-            {h.connected ? 'connected'
-              : h.enabled ? (h.error ? `retrying — ${h.error}` : 'connecting…')
-                : 'disabled'}
-            {h.queued > 0 ? ` · ${h.queued} queued` : ''}
-          </span>
-          <label className="checkline" style={{ margin: 0 }}>
-            <input type="checkbox" checked={h.enabled}
-              onChange={(e) => apply(hubs.map((x) => ({ id: x.id,
-                address: x.address, enabled: x.id === h.id
-                  ? e.target.checked : x.enabled })),
-                e.target.checked ? `${h.name || h.address} enabled`
-                  : `${h.name || h.address} disabled`)} />
-            on
-          </label>
-          <button title="remove this mailserver"
-            onClick={() => apply(hubs.filter((x) => x.id !== h.id)
-              .map((x) => ({ id: x.id, address: x.address,
-                             enabled: x.enabled })),
-              `${h.name || h.address} removed`)}>
-            <CloseIcon fontSize="inherit" /></button>
-        </div>
-      ))}
-      <div className="row">
-        <input style={{ flex: 1 }} placeholder="http://host:7370 — add a remote mailserver"
-          value={adding} onChange={(e) => setAdding(e.target.value)} />
-        <button disabled={!adding.trim()}
-          onClick={() => { apply([...hubs.map((x) => ({ id: x.id,
-            address: x.address, enabled: x.enabled })),
-            { address: adding.trim(), enabled: true }], 'mailserver added')
-            setAdding('') }}>add</button>
-      </div>
-      <div className="dim" style={{ fontSize: '11.5px' }}>
-        mailserver changes apply immediately (names are discovered on connect)
-      </div>
-    </>
-  )
 }
 
 /** §9.5/§9.6: per-org API key + headless mode. Saves IMMEDIATELY (the
@@ -2351,7 +2296,7 @@ export function SettingsPanel({ tree, toast, close }: {
     { id: 'basic', label: 'Basic' },
     { id: 'policies', label: 'Policies' },
     ...(tree.net != null
-      ? [{ id: 'mailserver' as const, label: 'Mailserver' }] : []),
+      ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
     ...(!tree.kiosk ? [{ id: 'autonomy' as const, label: 'Autonomy' }] : []),
   ], [tree.net, tree.kiosk])
   // D-204: these are unsaved inputs. The tabs now stay mounted once visited,

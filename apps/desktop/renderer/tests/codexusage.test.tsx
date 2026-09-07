@@ -27,7 +27,7 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
   const g = globalThis as unknown as Record<string, unknown>
   g.fetch = (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
-    const body = /\/accounts\/usage$/.test(path) ? CLAUDE
+    const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
@@ -39,7 +39,7 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
     assert.match(text, /usage limits/)
-    assert.match(text, /claude@example\.test/)
+    assert.match(text, /Claude Code/)
     assert.match(text, /Codex · codex@example\.test/)
     assert.match(text, /Codex Pro Lite/)
     assert.match(text, /GPT-Spark · 5 hours/)

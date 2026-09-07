@@ -1,3 +1,4 @@
+import { SetRow, SetToggle } from './settingskit'
 import { MovableSurface, PopoutButton, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
@@ -77,6 +78,54 @@ export const modalZIndex = (z: number): number =>
 export const MODAL_OVER_PINS_Z = 31
 
 export const MODAL_PINS_KEY = 'orgtree-modal-pins'
+
+export const MODAL_OVERLAP_KEY = 'orgtree-modal-overlap-fade'
+export interface ModalOverlapSetting { enabled: boolean; opacity: number }
+const DEFAULT_OVERLAP: ModalOverlapSetting = { enabled: true, opacity: 0.7 }
+let overlapCache: ModalOverlapSetting | null = null
+const overlapSubs = new Set<() => void>()
+const readOverlap = (): ModalOverlapSetting => {
+  if (overlapCache) return overlapCache
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MODAL_OVERLAP_KEY) || 'null') as Partial<ModalOverlapSetting> | null
+    if (parsed && typeof parsed.enabled === 'boolean' && typeof parsed.opacity === 'number' && Number.isFinite(parsed.opacity)) {
+      overlapCache = { enabled: parsed.enabled, opacity: Math.min(0.9, Math.max(0.2, parsed.opacity)) }
+      return overlapCache
+    }
+  } catch { /* private mode or malformed preference */ }
+  overlapCache = DEFAULT_OVERLAP
+  return overlapCache
+}
+const writeOverlap = (next: ModalOverlapSetting): void => {
+  overlapCache = next
+  try { localStorage.setItem(MODAL_OVERLAP_KEY, JSON.stringify(next)) } catch { /* private mode */ }
+  for (const fn of [...overlapSubs]) fn()
+}
+const subscribeOverlap = (fn: () => void): (() => void) => {
+  overlapSubs.add(fn)
+  const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === MODAL_OVERLAP_KEY) { overlapCache = null; fn() } }
+  window.addEventListener('storage', onStorage)
+  return () => { overlapSubs.delete(fn); window.removeEventListener('storage', onStorage) }
+}
+export const useModalOverlap = (): ModalOverlapSetting =>
+  useSyncExternalStore(subscribeOverlap, readOverlap, () => DEFAULT_OVERLAP)
+export const setModalOverlap = (setting: ModalOverlapSetting): void =>
+  writeOverlap({ enabled: setting.enabled, opacity: Number.isFinite(setting.opacity) ? Math.min(0.9, Math.max(0.2, setting.opacity)) : DEFAULT_OVERLAP.opacity })
+
+/** Browser-local controls for the overlap treatment of pinned modal windows. */
+export function ModalOverlapSettings() {
+  const setting = useModalOverlap()
+  return <>
+    <SetToggle label="fade pinned modals over the focused desk" checked={setting.enabled}
+      onChange={enabled => setModalOverlap({ ...setting, enabled })} />
+    <SetRow label="overlap opacity">
+      <input aria-label="Overlap opacity" type="range" min="0.2" max="0.9" step="0.05" value={setting.opacity}
+        disabled={!setting.enabled}
+        onChange={e => setModalOverlap({ ...setting, opacity: Number(e.target.value) })} />
+      <span className="set-value">{Math.round(setting.opacity * 100)}%</span>
+    </SetRow>
+  </>
+}
 
 /** where a window goes when the panel behind it could not be measured — jsdom
  *  reports every box as 0×0, and so does a panel pinned before first paint.
@@ -330,6 +379,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const ownerWindow = ownerDocument.defaultView ?? window
   const detached = !!surface?.detached
   const pinned = pin !== null && !detached
+  const overlapSetting = useModalOverlap()
+  const [overlapsDesk, setOverlapsDesk] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always
   // called — hooks are not conditional — and is handed a no-op when pinned.
@@ -368,6 +419,21 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   }, [ownerWindow])
 
   const rect = pin && !detached ? clampRect(live ?? pin.rect, winSize()) : null
+
+  useEffect(() => {
+    if (!pinned || detached || !overlapSetting.enabled) { setOverlapsDesk(false); return }
+    const check = () => {
+      const desk = ownerDocument.querySelector<HTMLElement>('.sq.desk')
+      const modal = panelRef.current
+      if (!desk || !modal) { setOverlapsDesk(false); return }
+      const a = desk.getBoundingClientRect(), b = modal.getBoundingClientRect()
+      setOverlapsDesk(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)
+    }
+    check()
+    const timer = ownerWindow.setInterval(check, 120)
+    ownerWindow.addEventListener('resize', check)
+    return () => { ownerWindow.clearInterval(timer); ownerWindow.removeEventListener('resize', check) }
+  }, [detached, ownerDocument, ownerWindow, pinned, overlapSetting.enabled])
 
   const begin = (e: ReactPointerEvent<HTMLElement>, g: GestureShape) => {
     if (e.button !== 0 || gesture.current || !rect) return
@@ -462,7 +528,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           the class list and the inline rect change, so React keeps the whole
           subtree mounted across a pin, an unpin, a drag and a resize. */}
       <div ref={panelRef} role={dialogLabel ? "dialog" : undefined} aria-label={dialogLabel} className={panel + (pinned ? ' modalpin-win' : '')}
-        style={style}
+        style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
+          ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
         onPointerDown={pinned ? () => raiseModal(kind) : undefined}>
         <div className={'modalpin-bar' + (pinned ? ' on' : '')}

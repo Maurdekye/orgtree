@@ -1,3 +1,4 @@
+import { beginWindowExit } from './windowlayout'
 // One opener owns all movable surfaces and the restart decision. No React/API
 // imports: api.ts can consult this without creating an application cycle.
 export interface WindowSurface {
@@ -37,6 +38,7 @@ export function keepWorking() {
 }
 export function reloadWindows() {
   if (reloadStarted) return
+  beginWindowExit()
   flushWindowDrafts()
   reloadStarted = true
   window.location.reload()
@@ -63,12 +65,16 @@ export function initiatingDocument(): Document {
 export function resetActionDocument() { actionDocument = document }
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('orgtree:before-exit', () => {
+    beginWindowExit(); flushWindowDrafts(); reloadStarted = true
+  })
   window.addEventListener('beforeunload', (e) => {
     if (reloadStarted || !openSurfaces().some((s) => s.editable)) return
     flushWindowDrafts()
     e.preventDefault(); e.returnValue = ''
   })
   window.addEventListener('pagehide', () => {
+    beginWindowExit()
     flushWindowDrafts()
     for (const s of openSurfaces()) { try { s.window.close() } catch { /* already gone */ } }
   })

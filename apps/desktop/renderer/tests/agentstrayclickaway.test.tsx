@@ -93,8 +93,8 @@ test('inside and trigger gestures stay inside the portaled click-away boundary',
     try {
       const { toggle, tray } = await openTray()
       const wrap = document.querySelector('.tray-wrap') as HTMLElement | null
-      assert.ok(wrap && !view.el.contains(wrap),
-        'mobile MaybePortal did not move the tray outside the canvas host')
+      assert.ok(wrap && view.el.contains(wrap),
+        'desktop tray escaped its canvas host')
 
       const nested = tray.querySelector('.tray-name') as HTMLElement | null
       assert.ok(nested, 'the nested tray-row target rendered')

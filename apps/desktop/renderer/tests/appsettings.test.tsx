@@ -97,7 +97,7 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Displaythis browser'])
+        ['Providers', 'Runtime', 'Displaythis computer', 'Import'])
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
       await inAct(async () => {
@@ -113,9 +113,9 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[2]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[2])
-      const display = view.el.querySelector('#app-settings-panel-display')!
+      assert.equal(tabs[3]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[3])
+      const display = view.el.querySelector('#app-settings-panel-import')!
       assert.equal(display.hasAttribute('hidden'), false)
     } finally { await view.unmount(); delete g.fetch }
   })
@@ -208,7 +208,7 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       body: { enabled: false },
     })
     const checkup = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="check on working agents after 30 minutes"]')!
+      'input[aria-label="check on working agents after 20 minutes"]')!
     assert.equal(checkup.checked, true, 'checkups default on')
     await inAct(async () => { checkup.click(); await flush(10) })
     assert.equal(checkup.checked, false)
@@ -218,7 +218,6 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       method: 'PUT', path: '/api/app-settings/runtime',
       body: { working_checkups_enabled: false },
     })
-    assert.match(view.el.textContent ?? '', /isolated Claude cache reads instead/)
     const readiness = view.el.querySelector<HTMLInputElement>(
       'input[aria-label="wait until the MCP tool surface is ready"]')!
     assert.equal(readiness.checked, false, 'MCP readiness defaults off')
