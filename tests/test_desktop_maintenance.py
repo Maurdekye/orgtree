@@ -64,6 +64,19 @@ assert m.status()['state']=='acknowledged'
                 maintenance.install()
                 self.assertEqual(maintenance.status()['state'],'unknown')
 
+    def test_pending_and_old_boot_failure_never_release_other_hold(self):
+        for phase in ('pending','unknown'):
+            record=maintenance.request('late','node')['maintenance']
+            if phase=='unknown':
+                maintenance._write({**record,'state':'unknown'})
+            unrelated=supervisor._force_hold_take()
+            self.assertIsNotNone(unrelated)
+            self.assertFalse(maintenance.execution_failed('wrong')['released'])
+            self.assertTrue(maintenance.execution_failed(record['id'])['released'])
+            self.assertEqual(maintenance.status()['state'],'failed')
+            self.assertFalse(supervisor._deploy_done.is_set())
+            supervisor._force_hold_settle(unrelated,release=True)
+
     def test_authenticated_dispatch_and_atomic_ack_controls(self):
         org = store.create_org('maintenance')
         org.hire(ledger.USER,None,'haiku',2,'boss')

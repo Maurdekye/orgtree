@@ -108,6 +108,12 @@ def execution_failed(request_id):
         current = _read()
         if current and current.get('id') == request_id and current.get('state') == 'failed':
             return {'released':True, 'state':'failed'}
+        if current and current.get('id') == request_id and current.get('state') in {'pending','unknown'}:
+            # A lost ACK may never have reached this process, or a late native
+            # failure may arrive after boot reconciliation. Neither owns a hold.
+            _write({**current,'state':'failed','failed_at':now(),
+                    'failure':'Native acknowledgment or execution failed; no automatic retry'})
+            return {'released':True, 'state':'failed'}
         if not current or current.get('id') != request_id or current.get('state') != 'acknowledged':
             return {'released':False}
         _write({**current,'state':'failed','failed_at':now(),
