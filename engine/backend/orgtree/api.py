@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit
 
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
@@ -1393,6 +1394,103 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
     return {"identity": org.d.get("net_identity"),
             "hubs": org.d.get("net_hubs") or [],
             "autoconnect": bool(org.d.get("net_autoconnect", True))}
+
+
+class NetInvitation(Body):
+    peer_id: str
+    peer_slug: str
+
+
+class NetPairing(Body):
+    address: str
+    peer_id: str
+    peer_slug: str
+    peer_token: str
+
+
+def _pairing_org(slug: str, request: Request) -> Any:
+    if _public_slug(request):
+        raise HTTPException(404, "not found")
+    try:
+        org = store.load_org(slug)
+    except LedgerError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if org.d.get("kiosk") is not None:
+        raise HTTPException(403, "kiosk orgs cannot use peer connections")
+    ident = org.d.get("net_identity") or {}
+    if not ident.get("slug") or not ident.get("secret"):
+        raise HTTPException(422, "org has no network identity")
+    return org
+
+
+def _hub_client_for(org: Any, *, address: str | None = None,
+                    peer_token: bool = False) -> Any:
+    from engine.hub import HubClient
+    ident = cast("dict[str, Any]", org.d["net_identity"])
+    hub_address = (address or os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip())
+    owner_token = os.environ.get("ORGTREE_V2_HUB_TOKEN", "").strip()
+    if not hub_address or not owner_token:
+        raise HTTPException(503, "embedded hub is not ready")
+    return HubClient(store.DATA_ROOT, hub_address, str(ident["slug"]),
+                     str(ident["secret"]), owner_token, peer_token=peer_token)
+
+
+@app.post("/api/orgs/{slug}/net/invitations")
+def create_net_invitation(slug: str, body: NetInvitation,
+                          request: Request) -> dict[str, Any]:
+    """Mint a one-time scoped peer credential for manual handoff.
+
+    The returned token is the explicit invitation result only. It is never
+    included in normal org/tree/status payloads or persisted in the response
+    history; the receiving operator must supply it to the pairing action.
+    """
+    org = _pairing_org(slug, request)
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", body.peer_id):
+        raise HTTPException(422, "malformed peer id")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", body.peer_slug):
+        raise HTTPException(422, "malformed peer slug")
+    client = _hub_client_for(org)
+    try:
+        result = client.create_peer(body.peer_id, body.peer_slug)
+    except Exception as exc:  # transport details are not a route contract
+        raise HTTPException(502, "hub invitation failed") from exc
+    address = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip()
+    return {"version": 1, "address": address, "peer_id": body.peer_id,
+            "slug": body.peer_slug, "peer_slug": body.peer_slug,
+            "peer_token": str(result["peer_token"]), "one_time": True}
+
+
+@app.post("/api/orgs/{slug}/net/pair")
+def pair_net_hub(slug: str, body: NetPairing,
+                 request: Request) -> dict[str, Any]:
+    """Store a remote peer credential in private connection configuration."""
+    org = _pairing_org(slug, request)
+    address = net.normalize_hub_address(body.address)
+    if not address or not urlsplit(address).scheme in {"http", "https"}:
+        raise HTTPException(422, "address must be an HTTP(S) hub URL")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", body.peer_id):
+        raise HTTPException(422, "malformed peer id")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", body.peer_slug):
+        raise HTTPException(422, "malformed peer slug")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", body.peer_token):
+        raise HTTPException(422, "malformed peer token")
+    with store.DOC_LOCK:
+        current = store.load_org(slug)
+        hubs = cast("list[dict[str, Any]]", current.d.setdefault("net_hubs", []))
+        existing = next((h for h in hubs
+                         if str(h.get("id")) == body.peer_id
+                         or str(h.get("address")) == address), None)
+        if existing is None:
+            existing = {"id": body.peer_id, "address": address,
+                        "enabled": True}
+            hubs.append(existing)
+        existing.update({"address": address, "enabled": True,
+                         "peer_token": body.peer_token,
+                         "peer_slug": body.peer_slug})
+        current.d["net_hubs"] = hubs
+        store.save_org(current)
+    return {"id": str(existing["id"]), "address": address,
+            "peer_slug": body.peer_slug, "enabled": True, "paired": True}
 
 
 _tree_slow_warned: set[str] = set()

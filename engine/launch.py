@@ -16,6 +16,13 @@ import socket
 import sys
 from typing import Any, Awaitable, Callable
 
+# Running ``python engine/launch.py`` puts only ``engine/`` on sys.path. The
+# desktop launcher uses that script form, so make the bundled package root
+# importable before the copied backend or hub is loaded.
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+if str(_PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PACKAGE_ROOT))
+
 
 def _required_path(name: str) -> Path:
     value = os.environ.get(name, "").strip()
@@ -138,13 +145,17 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     token = os.environ.get("ORGTREE_V2_TOKEN", "").strip()
     if not token:
         raise RuntimeError("ORGTREE_V2_TOKEN is required")
+    port = _port(data)
+    # Child MCP/tool processes inherit this concrete engine port. Never let
+    # their copied V1 default (7360) target another installation.
+    os.environ["ORGTREE_PORT"] = str(port)
     os.environ["ORGTREE_DATA"] = str(data)
     os.environ.pop("ORGTREE_V2_TOKEN", None)
     sys.path.insert(0, str(backend))
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
-    return TokenGate(api.app, token), token, data, _port(data), stopping
+    return TokenGate(api.app, token), token, data, port, stopping
 
 
 def main() -> None:
