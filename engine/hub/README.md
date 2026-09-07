@@ -17,8 +17,9 @@ finally:
 The service owns `<v2-data-root>/hub/hub.sqlite3`, `blobs/`, and an atomic
 `readiness.json`. It has no UI, fixed public listener, Docker dependency, or
 access to the v1 data root. `HubClient` keeps a SQLite-backed offline spool in
-the caller's v2 root, validates regular attachment paths, persists inbound
-messages before ACK, and retries idempotent message IDs.
+the caller's v2 root, validates regular attachment paths, downloads inbound
+attachments below the caller's v2 root, persists messages before ACK, and
+retries idempotent message IDs.
 
 The wire contract retains v1 correspondence behavior: `register`, `send`,
 long/short `poll`, custody `ack`, `receipts`, and owner/recipient-authorized

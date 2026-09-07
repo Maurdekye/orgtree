@@ -33,6 +33,8 @@ class HubIntegrationTests(unittest.TestCase):
             self.assertEqual(len(received), 1)
             self.assertEqual(received[0]["id"], "message-1")
             self.assertEqual(received[0]["attachments"][0]["name"], "note.txt")
+            local_attachment = Path(received[0]["attachments"][0]["path"])
+            self.assertEqual(local_attachment.read_text(encoding="utf-8"), "attachment bytes")
             self.assertEqual(b.poll_once(), [])
             receipt = a.poll_once()
             self.assertEqual(receipt, [])

@@ -208,19 +208,39 @@ class HubClient:
         result = self._request("POST", "/api/poll", query={"wait": str(max(0.0, min(wait, 55.0)))})
         messages = list(result.get("messages") or [])
         ack_ids: list[str] = []
+        returned: list[dict[str, Any]] = []
         with self._db() as con:
             for message in messages:
                 mid = str(message.get("id") or "")
                 if not mid:
                     continue
+                stored = dict(message)
+                local_attachments: list[dict[str, Any]] = []
+                for attachment in list(message.get("attachments") or []):
+                    meta = dict(attachment)
+                    name = os.path.basename(str(meta.get("name") or "file")).replace("\x00", "")[:255] or "file"
+                    try:
+                        content = self._request("GET", f"/api/attachments/{meta['id']}")
+                        if not isinstance(content, bytes):
+                            raise HubClientError("attachment response was not binary")
+                        destination = self.blob_root / "inbox" / mid
+                        destination.mkdir(parents=True, exist_ok=True)
+                        target = destination / name
+                        target.write_bytes(content)
+                        meta["path"] = str(target)
+                    except (HubClientError, OSError, KeyError) as exc:
+                        meta["error"] = str(exc)[:200]
+                    local_attachments.append(meta)
+                stored["attachments"] = local_attachments
+                returned.append(stored)
                 # INSERT happens before ACK.  A duplicate is still safe and
                 # receives custody acknowledgement, but is never re-delivered.
-                con.execute("INSERT OR IGNORE INTO inbox (id,envelope,received_at) VALUES (?,?,?)", (mid, json.dumps(message), _now()))
+                con.execute("INSERT OR IGNORE INTO inbox (id,envelope,received_at) VALUES (?,?,?)", (mid, json.dumps(stored), _now()))
                 ack_ids.append(mid)
             con.commit()
         if ack_ids:
             self._request("POST", "/api/ack", {"ids": ack_ids})
-        return messages
+        return returned
 
     def inbox(self) -> list[dict[str, Any]]:
         with self._db() as con:
