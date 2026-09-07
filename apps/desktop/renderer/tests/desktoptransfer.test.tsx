@@ -20,6 +20,44 @@ const click = async (el: HTMLElement, label: string) => {
   await inAct(async () => { button.click(); await flush(8) })
 }
 
+test('native source profiles are shared by preview and copy and changing them invalidates approval', async () => {
+  const original = globalThis.fetch
+  localStorage.clear()
+  const calls: any[] = []
+  globalThis.fetch = async (url, init) => {
+    if (String(url) === '/api/orgs') return new Response('[]')
+    calls.push(JSON.parse(String(init?.body)))
+    return new Response(JSON.stringify(String(url).endsWith('/preview') ? {
+      organizations: [{ slug: 'native', name: 'Native', native_context: [
+        { node: 'ready', provider: 'claude', status: 'available', source_path: 'C:/source/session.jsonl' },
+        { node: 'held', provider: 'codex', status: 'held', reason: 'Native session file is missing.' },
+      ] }], warnings: [],
+    } : { imported: [{ slug: 'native', name: 'Native' }], warnings: [] }))
+  }
+  const v = await mountView(<ImportSettings />, el => el)
+  try {
+    await type(v.el.querySelector('[aria-label="V1 data folder"]')!, 'C:/synthetic-v1')
+    await type(v.el.querySelector('[aria-label="Source Claude profile"]')!, ' C:/source/claude ')
+    await type(v.el.querySelector('[aria-label="Source Codex profile"]')!, 'C:/source/codex')
+    await click(v.el, 'Preview organizations')
+    assert.match(v.el.textContent!, /native context available/)
+    assert.match(v.el.textContent!, /held - native context unavailable/)
+    assert.match(v.el.textContent!, /Native session file is missing/)
+    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Acknowledge duplicate work"]')!.click() })
+    await type(v.el.querySelector('[aria-label="Source Codex profile"]')!, 'C:/source/codex-other')
+    assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'))
+    await click(v.el, 'Preview organizations')
+    const copy = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Copy selected organizations')!
+    assert.equal(copy.disabled, true, 'changed source requires a fresh acknowledgement')
+    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Acknowledge duplicate work"]')!.click() })
+    await click(v.el, 'Copy selected organizations')
+    const expected = { claude_profile: 'C:/source/claude', codex_profile: 'C:/source/codex-other' }
+    assert.deepEqual(calls[1].native_sources, expected)
+    assert.deepEqual(calls[2].native_sources, expected)
+    assert.equal(localStorage.length, 0, 'source profile paths are not retained in renderer storage')
+  } finally { await v.unmount(); globalThis.fetch = original }
+})
+
 test('copy import requires preview, selected organizations and duplicate-work acknowledgement', async () => {
   const original = globalThis.fetch
   const calls: { url: string; body: unknown }[] = []

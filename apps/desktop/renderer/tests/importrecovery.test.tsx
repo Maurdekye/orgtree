@@ -86,6 +86,15 @@ test('lost resolution response disables actions until explicit GET refresh and r
     assert.equal(seen.posts[0].action, 'mark-handled', 'engine receives no dispatch action')
     assert.match(v.el.textContent!, /outcome is not confirmed.*The request was not repeated/s)
     assert.ok([...agent(v.el, 'agent').querySelectorAll('button')].every(b => b.disabled))
+    const workingFetch = globalThis.fetch
+    globalThis.fetch = async (url, init) => String(url).endsWith('/recovery')
+      ? new Response(JSON.stringify({ detail: 'Recovery temporarily unavailable' }), { status: 503 }) : workingFetch(url, init)
+    await click(v.el, 'Refresh recovery')
+    assert.match(v.el.textContent!, /503|Recovery temporarily unavailable/)
+    assert.ok(![...v.el.querySelectorAll<HTMLButtonElement>('button')].some(b =>
+      ['Retry', 'Mark handled', 'Continue after review'].includes(b.textContent!) && !b.disabled), 'failed GET cannot restore stale actions')
+    assert.equal(seen.posts.length, 1, 'failed refresh never repeats a resolution')
+    globalThis.fetch = workingFetch
     await click(v.el, 'Refresh recovery')
     assert.equal(seen.posts.length, 1, 'refresh is GET only')
     assert.equal(button(agent(v.el, 'agent'), 'Continue after review').disabled, false)
