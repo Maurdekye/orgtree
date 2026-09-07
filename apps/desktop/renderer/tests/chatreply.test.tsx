@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
-import { refreshConvo, resetConvos } from '../src/convo'
+import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
 import { draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts } from '../src/draftstore'
 import { MAX_REPLY_QUOTE, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
@@ -104,4 +104,68 @@ test('unavailable source keeps its quote, remove clears metadata, and failed sen
     assert.equal(readReply(key), null)
     assert.equal(view.el.querySelector<HTMLTextAreaElement>('textarea')!.value, 'Unsent reply')
   } finally { await view.unmount(); resetConvos(); globalThis.fetch = originalFetch }
+})
+
+
+async function replyOn(element: Element) {
+  await inAct(() => { element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
+  const item = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+  assert.ok(item, 'Reply menu opens on this individual event')
+  return item
+}
+
+test('tool call, result and thought select distinct nested sources instead of the containing assistant row', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); installFetch(server)
+  server.messages = [{ role: 'assistant', text: 'Finished', seq: 1, event_id: 'assistant',
+    thinking: 'Visible thought', thinking_event_id: 'thought', tools: [
+      { name: 'Read', id: 'provider-tool', event_id: 'call', result_event_id: 'result', arg: 'a.txt', result: 'same text' },
+      { name: 'Read', id: 'legacy-tool', arg: 'b.txt', result: 'same text' },
+    ] }]
+  const v = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const call = v.el.querySelector<HTMLElement>('[data-reply-event="call"]')!
+    let item = await replyOn(call)
+    await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'call')
+    await inAct(() => { call.click() })
+    const result = v.el.querySelector('[data-reply-event="result"]')!
+    assert.equal(result.textContent, 'same text')
+    item = await replyOn(result); await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'result')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'same text')
+    item = await replyOn(v.el.querySelector('[data-reply-event="thought"]')!)
+    await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'thought')
+    assert.doesNotMatch(v.el.querySelector('.reply-preview')!.textContent!, /unavailable/)
+    item = await replyOn(v.el.querySelectorAll('.tline')[1]!)
+    assert.equal(item.disabled, true, 'legacy nested tool never aliases its assistant parent')
+  } finally { await v.unmount(); resetConvos() }
+})
+
+test('server transient events survive refresh and streamed draft IDs survive durable promotion', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); server.busy = true
+  const chat = server.chat.bind(server)
+  server.chat = n => ({ ...chat(n), transient: [{ event_id: 'transient-error', role: 'system', kind: 'error', text: 'Temporary problem' }] })
+  installFetch(server)
+  const v = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    let item = await replyOn(v.el.querySelector('[data-reply-event="transient-error"]')!)
+    await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'transient-error')
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'Hello', event_id: 'streamed', t: Date.now() }) })
+    item = await replyOn(v.el.querySelector('[data-reply-event="streamed"]')!)
+    await inAct(() => { item.click() })
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: ' again', event_id: 'streamed', t: Date.now() }) })
+    assert.equal(v.el.querySelector('[data-reply-event="streamed"]')!.textContent!.trim(), 'Hello again')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'streamed')
+    server.busy = false; server.messages = [{ role: 'assistant', seq: 1, text: 'Hello again', event_id: 'streamed' }]
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(v.el.querySelectorAll('[data-reply-event="streamed"]').length, 1)
+    assert.doesNotMatch(v.el.querySelector('.reply-preview')!.textContent!, /unavailable/)
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Hello', 'saved quote stays the selected context while identity survives growth')
+  } finally { await v.unmount(); resetConvos() }
 })

@@ -5986,3 +5986,7 @@ html.mobile .popout-button { display: none; }
 .connection-setup details { margin-top: 12px; }
 .connection-setup textarea { min-height: 90px; }
 .restored-desk { max-width: 520px; max-height: 70vh; overflow: auto; }
+
+.host-hub .checkline { display: flex; align-items: center; }
+.host-hub input[type="checkbox"] { width: auto; }
+.host-hub select { width: 100%; }

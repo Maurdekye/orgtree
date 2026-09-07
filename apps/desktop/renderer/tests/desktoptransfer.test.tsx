@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom'
 import { useState } from 'react'
 import { ImportSettings } from '../src/canvas/importsettings'
 import { ConnectHub } from '../src/canvas/connections'
+import { HostHub } from '../src/canvas/hosthub'
 import { downloadDocument, responseFilename } from '../src/canvas/download'
 
 async function type(field: HTMLInputElement, value: string) {
@@ -132,4 +133,52 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
     assert.equal(copied, 1)
     assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'), 'a committed partial copy cannot be blindly retried')
   } finally { await v.unmount(); globalThis.fetch = original; window.removeEventListener('orgtree:organizations-imported', refresh) }
+})
+
+
+test('mail hosting saves explicit network and TLS paths, shows runtime status and retains errors for correction', async () => {
+  localStorage.clear()
+  const original = globalThis.fetch
+  const writes: any[] = []
+  let fail = false
+  const config = { version: 1, enabled: false, bind_host: '127.0.0.1', port: 0, advertise_host: '', tls_configured: false,
+    status: { ready: false, port: 0, address: '', public: false } }
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), '/api/desktop/hub')
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)); writes.push(body)
+      if (fail) return new Response('Port already in use', { status: 409 })
+      return new Response(JSON.stringify({ ...body, tls_configured: true, status: { ready: true, port: 8443,
+        address: 'https://mail.example:8443', public: true }, tls_keyfile: 'must-not-retain-key-path' }))
+    }
+    return new Response(JSON.stringify(config))
+  }
+  const v = await mountView(<HostHub />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    await inAct(() => {
+      v.el.querySelector<HTMLInputElement>('[aria-label="Enable mail hub"]')!.click()
+      const select = v.el.querySelector<HTMLSelectElement>('select')!
+      select.value = '0.0.0.0'; select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save hosting settings')!
+    assert.equal(save.disabled, true, 'public hosting cannot be submitted without configured TLS paths')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '8443')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Advertised mail hub host"]')!, 'mail.example')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="TLS certificate file"]')!, 'C:\\tls\\certificate.pem')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="TLS private key file"]')!, 'C:\\tls\\key.pem')
+    assert.equal(save.disabled, false)
+    await click(v.el, 'Save hosting settings')
+    assert.deepEqual(writes[0], { version: 1, enabled: true, bind_host: '0.0.0.0', port: 8443,
+      advertise_host: 'mail.example', tls_certfile: 'C:\\tls\\certificate.pem', tls_keyfile: 'C:\\tls\\key.pem' })
+    assert.match(v.el.textContent!, /Running at https:\/\/mail.example:8443/)
+    assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="TLS private key file"]')!.value, '')
+    assert.equal(localStorage.length, 0)
+    assert.doesNotMatch(v.el.textContent!, /must-not-retain/)
+    fail = true
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '9000')
+    await click(v.el, 'Save hosting settings')
+    assert.match(v.el.querySelector('[role="alert"]')!.textContent!, /409|Port already in use/)
+    assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!.value, '9000')
+  } finally { await v.unmount(); globalThis.fetch = original }
 })

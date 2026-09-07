@@ -1310,15 +1310,27 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
   const replyMenu = useContextMenu()
   const openReply = (e: ReplyMouseEvent, row: { event_id?: string }) => {
-    const quote = e.currentTarget.textContent || ''
-    const source = replyFromRow(slug, node.id, node.generation ?? 0, row, quote)
+    const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-event]')
+    const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
+    const quote = exact.textContent || ''
+    const event_id = exact.hasAttribute('data-reply-event') ? exact.getAttribute('data-reply-event') ?? undefined : row.event_id
+    const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) { setReply(source); setView('chat') } } }])
   }
   const sameReplyIdentity = (r: ReplyContext) => r.org === slug && r.agent === node.id && r.generation === (node.generation ?? 0)
+  const sourceIds = new Set([
+    ...(chat?.messages ?? []).flatMap(m => [m.event_id, m.thinking_event_id,
+      ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id])]),
+    ...live_feed.map(r => r.event_id), ...(chat?.pending_mail ?? []).map(r => r.event_id),
+  ].filter(Boolean))
+  const transient = (chat?.transient ?? []).filter(r => r.event_id && !sourceIds.has(r.event_id))
+  const transientThinking = transient.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))
+  const transientDraft = transient.some(r => ['draft', 'delta'].includes(r.kind))
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
-    [...(chat?.messages ?? []), ...live_feed, ...(chat?.pending_mail ?? [])].some(row => row.event_id === r.eventId)
+    (sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
+      || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
   const locateReply = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
     const element = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
@@ -2292,7 +2304,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                     else userRowEls.current.delete(seq)
                   } : undefined}>
                 {gapMs > 5 * 60e3 && (
-                  <div className="msg sys">— {gapMs > 5400e3
+                  <div className="msg sys" data-reply-event="">— {gapMs > 5400e3
                     ? `${Math.round(gapMs / 3600e3)} h`
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
                 {renderReply(m.reply_to)}
@@ -2342,7 +2354,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                     </div>
             }</div>
           ))}
-          {thinkSecs !== null && chat?.busy && (thinking
+          {transient.map(row => <div key={row.event_id} data-reply-event={row.event_id}
+            onContextMenu={e => openReply(e, row)} className={'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
+            {['thinking', 'thinking_start', 'thought'].includes(row.kind)
+              ? <div className="thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text || 'Thinking...'}</div>
+              : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
+                  html={md(row.event_id === convo.draftEventId && draft ? draft : row.text, fileBase(slug, node.id))} />}
+          </div>)}
+          {!transientThinking && thinkSecs !== null && chat?.busy && <div className="reply-event"
+            data-reply-event={convo.thinkingEventId ?? ''} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
             // haiku streams its reasoning: the text IS the indicator
             ? <div className="msg live thinking">{thinking}</div>
             // opus/sonnet seal it: nothing to show but the fact and the clock,
@@ -2350,10 +2370,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             : <div className="msg live thinking sealed">
                 <PsychologyIcon fontSize="inherit" />{' '}thinking…
                 {thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}
-              </div>)}
-          {draft && <RefMdBody className="msg assistant live md draft"
+              </div>)}</div>}
+          {!transientDraft && draft && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''}
+            onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
-            html={md(draft, fileBase(slug, node.id))} />}
+            html={md(draft, fileBase(slug, node.id))} /></div>}
           {/* D-29: the turn has begun but the CLI has not produced anything
               yet — process launch, hooks, `init`, roughly six seconds during
               which the panel showed nothing but a spinner in the chrome. This
@@ -2361,11 +2382,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               The latch matters after the first event: the live row is swept
               when its transcript twin lands, and that ordinary caught-up gap
               is NOT the CLI starting again. */}
-          {chat?.busy && !chat.turn_activity && !live_feed.length
+          {!transient.some(r => r.kind === 'starting') && chat?.busy && !chat.turn_activity && !live_feed.length
             && thinkSecs === null && !draft
             && !pending.length && (
-            <TurnStartingMark mcpWaiting={mcpReadinessWaiting}
-              reason={mcpReadinessReason} />)}
+            <div className="reply-event" data-reply-event="" onContextMenu={e => openReply(e, {})}><TurnStartingMark mcpWaiting={mcpReadinessWaiting}
+              reason={mcpReadinessReason} /></div>)}
           {/* №11: pending bubbles render from the DURABLE server copy, each
               retractable until delivery (№17).
               ⚠ Only the ones that are still WAITING render here, at the
@@ -2385,7 +2406,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               and only when the composer is empty — the user's typing is not
               ours to overwrite. */}
           {pending.map((p) => (
-            <div key={'q' + p.id}
+            <div key={'q' + p.id} data-reply-event="" onContextMenu={e => openReply(e, {})}
               className={'msg user pending pendghost md' + (p.failed ? ' failed' : '')}>
               {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
               <RefMdBody className="pendbody"
@@ -2414,8 +2435,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               reads at the end of the stream. It used to render above the whole
               transcript, which put the newest event first (user bug
               2026-08-02: events must appear in the order they occurred). */}
-          {chat?.last_error && (
-            <div className="desk-error"><WarnIcon fontSize="inherit" /> {chat.last_error}</div>)}
+          {chat?.last_error && !transient.some(r => r.kind === 'error') && (
+            <div className="desk-error" data-reply-event="" onContextMenu={e => openReply(e, {})}><WarnIcon fontSize="inherit" /> {chat.last_error}</div>)}
           {/* №7's denials banner is GONE (user bug 2026-08-02). A headless
               auto-deny already writes a tool_result with is_error, so the
               denial renders inline as an errored ToolChip at the point it
@@ -3037,7 +3058,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
     const href = fileUrl(slug, nid, file.path!)
     if (isImg(file.name)) {
       return (
-        <div className="filecard imgcard">
+        <div className="filecard imgcard" data-reply-event={t.result_event_id ?? ''}>
           <img className="imgcard-img" src={href} alt={file.name}
             loading="lazy" title={`${file.name} — click to view`}
             onClick={() => openLightbox(href, { name: file.name, download: href })} />
@@ -3047,7 +3068,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
       )
     }
     return (
-      <a className="filecard" href={href}
+      <a className="filecard" data-reply-event={t.result_event_id ?? ''} href={href}
         download={file.name} title="download">
         <DownloadIcon fontSize="inherit" className="fc-ico" />
         <span className="fc-body">
@@ -3060,7 +3081,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
   }
   return (
     <div className={'tools tchip' + (t.error ? ' terr' : '')}>
-      <span className={'tline' + (expandable ? ' click' : '')}
+      <span data-reply-event={t.event_id ?? ''} className={'tline' + (expandable ? ' click' : '')}
         onClick={expandable ? () => setOpen((o) => !o) : undefined}
         title={expandable ? (open ? 'collapse' : 'expand') : undefined}>
         <DotIcon fontSize="inherit" className="tooldot" />
@@ -3097,7 +3118,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && t.diff && (
-        <CopyablePre><pre className="filepre diffpre">
+        <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''}>
           {t.diff.lines.map((l, i) => (
             <div key={i} className={l.startsWith('@@') ? 'dhunk'
               : l.startsWith('+') ? 'dplus'
@@ -3105,11 +3126,11 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
           {t.diff.truncated && <div className="dim">… truncated</div>}
         </pre></CopyablePre>)}
       {open && !t.diff && t.result && (
-        <CopyablePre><pre className="filepre respre">
+        <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''}>
           {t.result}{t.truncated ? '\n… truncated' : ''}
         </pre></CopyablePre>)}
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
-        <img key={i} className="toolimg" alt="tool result"
+        <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} alt="tool result"
           src={`${BASE}/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
     </div>
   )
@@ -3138,8 +3159,8 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   return (
     <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '')}>
       {(m.thinking || m.thinking_sealed) &&
-        <ThoughtLine text={m.thinking} secs={m.think_secs}
-          sealed={m.thinking_sealed} />}
+        <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
+          sealed={m.thinking_sealed} /></div>}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
       {(m.tools ?? []).map((t, i) => (typeof t === 'string'

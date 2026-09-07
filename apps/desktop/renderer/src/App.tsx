@@ -87,7 +87,7 @@ const SYSTEM = '@system'
 // only triggers the tree refetch) — cast once at the JSON.parse boundary
 type WsEvent =
   | { type: 'mail'; from: string; to: string }
-  | { type: 'node_stream'; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
+  | { type: 'node_stream'; event_id?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
       segments?: unknown; delivery?: unknown;
       count?: number | null; last_turn_count?: number | null; provider?: string;
       source?: string | null; reason?: string | null; emitted_at_ms?: number;
@@ -578,6 +578,7 @@ export default function App() {
         // (user bug 2026-08-02). See convo.ts.
         ingestStream(slug, {
           node: data.node, kind: data.kind, text: data.text ?? '',
+          ...(typeof data.event_id === 'string' ? { event_id: data.event_id } : {}),
           ...(data.segments !== undefined ? { segments: data.segments } : {}),
           ...(data.delivery !== undefined ? { delivery: data.delivery } : {}),
           // sticky rides through: immediate-command output lives in NO

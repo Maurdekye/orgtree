@@ -153,7 +153,9 @@ export interface Convo {
   /** optimistic sent-message ghosts, until the server copy lands */
   pending: PendingGhost[]
   draft: string
+  draftEventId?: string
   thinking: string
+  thinkingEventId?: string
   /** elapsed seconds while thinking is in progress; null = not thinking */
   thinkSecs: number | null
   win: number
@@ -556,7 +558,7 @@ export function refreshConvo(slug: string, nid: string,
     const missed = sameBoot && made !== null && Number.isFinite(made)
       && made > e.textSeen && !!e.s.draft
     if ((fresh && e.staleDraft) || idle || missed) {
-      retire.draft = ''
+      retire.draft = ''; retire.draftEventId = undefined
       e.staleDraft = false
     }
     // Re-sync when there is nothing on screen to protect, or when the count
@@ -574,7 +576,7 @@ export function refreshConvo(slug: string, nid: string,
       e.textSeen = made
     }
     if ((fresh && e.staleThink) || idle) {
-      retire.thinking = ''
+      retire.thinking = ''; retire.thinkingEventId = undefined
       retire.thinkSecs = null
       e.staleThink = false
     }
@@ -714,28 +716,30 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     e.streamAt = e.thinkT0
     startClock(k, e)
     e.staleThink = false
-    patch(k, { thinking: '', thinkSecs: 0 })
+    patch(k, { thinking: '', thinkSecs: 0, thinkingEventId: ev.event_id })
     return
   }
   if (ev.kind === 'thinking') {
     e.streamAt = Date.now()
     if (!e.thinkT0) { e.thinkT0 = Date.now(); startClock(k, e); patch(k, { thinkSecs: 0 }) }
     // a fresh thought must not continue a superseded one
-    const base = e.staleThink ? '' : e.s.thinking
+    const base = e.staleThink || (ev.event_id && e.s.thinkingEventId && ev.event_id !== e.s.thinkingEventId) ? '' : e.s.thinking
+    const eventId = ev.event_id ?? (e.staleThink ? undefined : e.s.thinkingEventId)
     e.staleThink = false
-    patch(k, { thinking: (base + ev.text).slice(-2000) })
+    patch(k, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId })
     return
   }
   if (ev.kind === 'delta') {
     e.streamAt = Date.now()
-    const base = e.staleDraft ? '' : entry(k).s.draft
+    const base = e.staleDraft || (ev.event_id && e.s.draftEventId && ev.event_id !== e.s.draftEventId) ? '' : e.s.draft
     // a draft that is STARTING (nothing on screen, or what was there has been
     // superseded) records the epoch it began in — everything the server marks
     // durable from here on supersedes it. A draft that is merely GROWING keeps
     // its original baseline, or each new token would move the goalposts and
     // the draft could never be retired by state at all.
+    const eventId = ev.event_id ?? (e.staleDraft ? undefined : e.s.draftEventId)
     e.staleDraft = false
-    patch(k, { draft: (base + ev.text).slice(-12000) })
+    patch(k, { draft: (base + ev.text).slice(-12000), draftEventId: eventId })
     return
   }
   // A durable row landed (text / tool / sticky output): the thinking phase is

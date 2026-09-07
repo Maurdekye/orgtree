@@ -58,7 +58,7 @@ test('Connections renders real peers and sends sanitized remote settings without
     assert.doesNotMatch(v.el.textContent!, /must-never-render|reveal secret/)
     const toggles = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
     await inAct(async () => { toggles[1]!.click(); await flush(5) })
-    assert.deepEqual(requests[0]!.body, { net_hubs: [{ id: 'peer', address: 'https://peer.example', enabled: false }] })
+    assert.deepEqual(requests.find(r => r.url !== '/api/desktop/hub')!.body, { net_hubs: [{ id: 'peer', address: 'https://peer.example', enabled: false }] })
     assert.ok(requests.every(r => !r.url.endsWith('/net')))
   } finally { await v.unmount(); globalThis.fetch = original }
 })

@@ -3,6 +3,7 @@ import { req, saveSettings } from '../api'
 import type { TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
 import { PinFrame } from './modalpin'
+import { HostHub } from './hosthub'
 
 export function ConnectionsPanel({ tree, toast, close }: {
   tree: TreePayload; toast: ToastFn; close: () => void
@@ -58,6 +59,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
         {p.blurb && <span className="dim"> · {p.blurb}</span>}
       </li>)}</ul> : <p className="dim">No peers reported.</p>}
     </section>)}
+    <HostHub />
     <ConnectHub slug={tree.slug} address={adding} setAddress={setAdding} identity={tree.net?.slug ?? ''} toast={toast} />
   </>
 }

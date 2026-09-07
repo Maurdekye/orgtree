@@ -864,6 +864,8 @@ export interface OrgListEntry {
 // --------------------------------------------------------------------- chat
 // supervisor.py read_chat: tool chip (correlated by tool_use_id)
 export interface ToolChip {
+  event_id?: string
+  result_event_id?: string
   name: string
   arg?: string                 // _tool_arg (supervisor.py:2611) -> str
   id?: string | null
@@ -906,6 +908,7 @@ export interface ChatMessage {
   /** pre-slice ordinal — the UI's stable row key (supervisor.py:2963) */
   seq?: number
   /** thinking blocks, joined + capped (supervisor.py:2938) */
+  thinking_event_id?: string
   thinking?: string
   /** "thought for Xs" — gap-derived seconds (supervisor.py:2941-2943) */
   think_secs?: number
@@ -1008,7 +1011,10 @@ export interface LiveRowPayload {
   turnId?: string
 }
 
+export interface ChatTransient { event_id: string; role: string; kind: string; text: string }
+
 export interface ChatPayload {
+  transient?: ChatTransient[]
   busy: boolean
   /** The current busy turn has produced at least one observable event.
    *  Missing on an older backend and therefore treated as false. */
