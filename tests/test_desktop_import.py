@@ -23,6 +23,8 @@ from unittest.mock import patch
 _TEST_ROOT = Path(tempfile.mkdtemp(prefix="orgtree-v2-import-tests-")).resolve()
 os.environ["ORGTREE_DATA"] = str(_TEST_ROOT)
 os.environ["ORGTREE_STORE"] = "sqlite"
+os.environ["HOME"] = str(_TEST_ROOT)
+os.environ["USERPROFILE"] = str(_TEST_ROOT)
 
 from engine.backend.orgtree import desktop_import as imp, store
 from engine.backend.orgtree.ledger import Org
@@ -123,8 +125,10 @@ class DesktopImportTests(unittest.TestCase):
         first, second = str(uuid.uuid4()), str(uuid.uuid4())
         records = [
             {"type":"user", "uuid":first, "parentUuid":None, "sessionId":sid,
+             "timestamp":"2026-09-07T20:00:00Z",
              "cwd":str(self.source / "scratch/acme/worker"), "message":{"role":"user", "content":"Remember the violet key"}},
             {"type":"assistant", "uuid":second, "parentUuid":first, "sessionId":sid,
+             "timestamp":"2026-09-07T20:00:01Z",
              "message":{"role":"assistant", "content":[{"type":"text", "text":"I remember violet"}]}},
         ]
         path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
@@ -194,6 +198,75 @@ class DesktopImportTests(unittest.TestCase):
             second = native.prepare(self.source, self.dest, "acme", "worker", doc["nodes"]["worker"], sources, stage)
         self.assertEqual(first["status"], "ready")
         self.assertEqual(second["status"], "held", "existing clone is never overwritten")
+
+    def test_native_inline_tool_cycle_is_preserved_and_external_dependencies_hold(self) -> None:
+        from engine.backend.orgtree import desktop_native as native
+        doc, path, sources = self.native_fixture()
+        rows = [json.loads(v) for v in path.read_text().splitlines()]
+        rows[1]["message"]["content"].append({"type":"tool_use", "id":"tool-1", "name":"Read", "input":{"file_path":"notes.md"}})
+        rows.append({"type":"user", "uuid":str(uuid.uuid4()), "parentUuid":rows[1]["uuid"],
+                     "timestamp":"2026-09-07T20:00:02Z", "sessionId":doc["nodes"]["worker"]["session_id"],
+                     "message":{"role":"user", "content":[{"type":"tool_result", "tool_use_id":"tool-1", "content":"The recorded tool answer is violet."}]}})
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.assertEqual(native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)["status"], "available")
+        clone = native.claude_records(rows, doc["nodes"]["worker"]["session_id"], str(uuid.uuid4()), str(self.dest))
+        self.assertEqual(clone[-1]["message"], rows[-1]["message"])
+        rows[-1]["toolUseResult"] = {"persistedOutputPath":"C:/source/tool-results/answer.txt"}
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.assertEqual(native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)["status"], "held")
+        rows[-1].pop("toolUseResult")
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        sidecar = path.parent / path.stem / "subagents"
+        sidecar.mkdir(parents=True)
+        (sidecar / "agent-example.jsonl").write_text('{"kept":"source only"}\n')
+        self.assertIn("sidecars", native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)["reason"])
+
+    def test_real_ledger_successor_and_rename_preserve_predecessor_binding(self) -> None:
+        from engine.backend.orgtree import desktop_native as native
+        from engine.backend.orgtree.ledger import USER
+        _, _, sources = self.native_fixture()
+        imp.copy_import(str(self.source), ["acme"], acknowledge_duplicate_work=True,
+                        on_imported=self.resumed.append, native_sources=sources)
+        base = self.read()
+        base["nodes"].pop("worker@0")
+        base["nodes"]["worker"].pop("inflight", None)
+        for operation in ("cheap", "switch", "compact", "rename"):
+            with self.subTest(operation=operation):
+                org = Org(copy.deepcopy(base))
+                original = copy.deepcopy(org.nodes["worker"]["desktop_import"])
+                if operation == "rename":
+                    org.rename(USER, "worker", "renamed")
+                    self.assertIsNone(native.native_hold_reason(org, "renamed"))
+                    self.assertTrue(native.native_session_path(org, "renamed"))
+                    continue
+                if operation == "cheap":
+                    pred = org.cheap_compact(USER, "worker")["bearer"]
+                elif operation == "switch":
+                    org.switch_model(USER, "worker", "luna")
+                    pred = org.nodes["worker"]["predecessor"]
+                else:
+                    sid = str(uuid.uuid4())
+                    pred = org.compact_split("worker", sid)
+                    with self.assertRaisesRegex(native.NativeHeld, "no validated"):
+                        native.retire_native_binding(org, "worker", pred)
+                    # A real native successor file is required, not just the
+                    # ledger SID change; patch only lookup to this fixture.
+                    old_path = Path(native.native_session_path(org, pred))
+                    rows = [json.loads(v) for v in old_path.read_text().splitlines()]
+                    for row in rows:
+                        row["sessionId"] = sid
+                    target = self.dest / f"{sid}.jsonl"
+                    target.write_text("".join(json.dumps(r) + "\n" for r in rows))
+                    from engine.backend.orgtree import supervisor
+                    with patch.object(supervisor, "transcript_path", return_value=str(target)):
+                        self.assertTrue(native.retire_native_binding(org, "worker", pred))
+                if operation != "compact":
+                    self.assertTrue(native.retire_native_binding(org, "worker", pred))
+                self.assertEqual(org.nodes[pred]["desktop_import"], original)
+                self.assertIsNone(native.native_hold_reason(org, "worker"))
+                self.assertIsNone(native.native_hold_reason(org, pred))
+                org.nodes["worker"]["session_id"] = str(uuid.uuid4())
+                self.assertIsNotNone(native.native_hold_reason(org, "worker"))
 
     def test_sqlite_copy_preserves_history_documents_files_and_independence(self) -> None:
         original = self.fixture()

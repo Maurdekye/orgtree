@@ -7,7 +7,9 @@ Unsupported native state stays held rather than becoming an empty conversation.
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
 import uuid
@@ -139,9 +141,27 @@ even when resuming an explicit file. Merely renaming a file is insufficient.
                 or not isinstance(msg, dict) or msg.get("role") != row["type"]
                 or not isinstance(msg.get("content"), (str, list))):
             raise NativeHeld("Transcript is not the selected provider's native conversation")
+        try:
+            datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            raise NativeHeld("Native message timestamp is missing or invalid") from exc
         parent = row.get("parentUuid")
         if parent is not None and parent not in known:
             raise NativeHeld("Native conversation parent chain is incomplete")
+    by_id = {r["uuid"]: r for r in rows if r.get("uuid")}
+    walked: set[str] = set()
+    for row in messages:
+        seen: set[str] = set()
+        current = row
+        while current:
+            rid = current.get("uuid")
+            if rid in walked:
+                break
+            if rid in seen:
+                raise NativeHeld("Native conversation parent chain contains a cycle")
+            seen.add(rid)
+            current = by_id.get(current.get("parentUuid"))
+        walked.update(seen)
     # A source worktree/remote session restoration can reconnect to V1 paths.
     # Hold these known special layouts until their complete clone is supported.
     if any(r.get("type") in {"worktree-session", "bridge-session-id", "relocated-cwd"}
@@ -158,6 +178,33 @@ even when resuming an explicit file. Merely renaming a file is insufficient.
     return out
 
 
+def _check_dependencies(path: Path, sid: str, rows: list[dict]) -> None:
+    """Inline tool results are native context; external sidecars need more work.
+
+Do not call a JSONL-only copy ready when the provider will need source-only
+persisted output, subagent transcripts, or file-rewind backup blobs.
+"""
+    from .desktop_import import _plain
+    sidecars = path.parent / sid
+    _plain(sidecars)
+    if sidecars.exists() and (not sidecars.is_dir() or any(sidecars.iterdir())):
+        raise NativeHeld("Native session sidecars require an independent dependency copy")
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"persistedOutputPath", "backupFileName"} and child:
+                    raise NativeHeld("Native output or file-history sidecar is not yet supported")
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str):
+            folded = value.replace("\\", "/").lower()
+            if "/tool-results/" in folded or "/subagents/" in folded or "<persisted-output>" in folded:
+                raise NativeHeld("Native context references an external session sidecar")
+    visit(rows)
+
+
 def inspect(source: Path, slug: str, nid: str, node: dict, sources: dict) -> dict:
     row = {"node": nid, "provider": provider_for(node), "status": "held"}
     try:
@@ -165,6 +212,7 @@ def inspect(source: Path, slug: str, nid: str, node: dict, sources: dict) -> dic
         records, _ = _read_native(path)
         if row["provider"] not in {"claude", "openrouter"}:
             raise NativeHeld("This native provider clone is not configured yet")
+        _check_dependencies(path, node["session_id"], records)
         claude_records(records, node["session_id"], str(uuid.uuid4()), "preview-only")
         return {**row, "status": "available", "source_path": str(path)}
     except (NativeHeld, OSError) as exc:
@@ -181,6 +229,7 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
         records, raw = _read_native(path)
         if meta["provider"] not in {"claude", "openrouter"}:
             raise NativeHeld("This native provider clone is not configured yet")
+        _check_dependencies(path, node["session_id"], records)
         cloned = claude_records(records, node["session_id"], meta["session_id"],
                                 str(dest / "scratch" / slug / nid))
         folder = stage / "native" / nid
@@ -189,10 +238,16 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
         with clone.open("xb") as f:
             for row in cloned:
                 f.write((json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+            f.flush()
+            os.fsync(f.fileno())
         # Original native bytes are evidence and remain separate from both the
         # mutable clone and the rendered provider-neutral archive.
-        (folder / "source.jsonl").write_bytes(raw)
+        with (folder / "source.jsonl").open("xb") as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
         return {**meta, "status": "ready", "source_session_id": node["session_id"],
+                "storage_node": nid,
                 "path": str(Path("imports") / slug / "native" / nid / clone.name),
                 "source_path": str(path)}
     except (NativeHeld, OSError) as exc:
@@ -207,7 +262,10 @@ def native_session_path(org: Any, nid: str) -> str | None:
     if native.get("status") != "ready" or native.get("session_id") != node.get("session_id"):
         return None
     root = Path(_store().DATA_ROOT).resolve()
-    expected = Path("imports") / doc["slug"] / "native" / nid / f"{node['session_id']}.jsonl"
+    storage_node = native.get("storage_node") or nid
+    if not isinstance(storage_node, str) or not re.fullmatch(r"[A-Za-z0-9_@.-]{1,160}", storage_node) or storage_node in {".", ".."}:
+        return None
+    expected = Path("imports") / doc["slug"] / "native" / storage_node / f"{node['session_id']}.jsonl"
     if Path(native.get("path") or "") != expected:
         return None
     path = root / expected
@@ -222,6 +280,12 @@ def native_hold_reason(org: Any, nid: str) -> str | None:
     if not imported:
         return None
     native = imported.get("native_continuity") or {}
+    if native.get("status") == "transitioned":
+        if (native.get("session_id") == node.get("session_id")
+                and native.get("generation") == node.get("generation")
+                and native.get("provider") == provider_for(node)):
+            return None
+        return "Imported successor identity changed without a recorded native transition"
     if native.get("status") != "ready":
         return native.get("reason") or "Imported native session continuity has not been established"
     if native.get("provider") != provider_for(node):
@@ -232,6 +296,50 @@ def native_hold_reason(org: Any, nid: str) -> str | None:
     except (ValueError, OSError):
         return "Imported native session path failed validation"
     return None
+
+
+def retire_native_binding(org: Any, nid: str, predecessor: str) -> bool:
+    """Called inside the real lineage transaction after a sanctioned transition.
+
+An arbitrary SID edit cannot bypass a native hold. Require the actual archived
+predecessor and its old binding; preserve that predecessor's metadata/file.
+Rename alone needs no retirement because storage_node stays stable.
+"""
+    doc = org.d if hasattr(org, "d") else org
+    node = doc.get("nodes", {}).get(nid, {})
+    old = doc.get("nodes", {}).get(predecessor, {})
+    imported = node.get("desktop_import") or {}
+    native = imported.get("native_continuity") or {}
+    if not imported:
+        return False
+    if (native.get("status") not in {"ready", "transitioned"}
+            or old.get("state") != "archived" or old.get("successor") != nid
+            or node.get("predecessor") != predecessor
+            or old.get("session_id") != native.get("session_id")
+            or old.get("lineage") != node.get("lineage")
+            or node.get("generation", 0) != old.get("generation", 0) + 1
+            or node.get("session_id") == old.get("session_id")
+            or not UUID.fullmatch(str(node.get("session_id") or ""))):
+        raise NativeHeld("Native binding can only retire after a verified ledger lineage transition")
+    if not node.get("session_unrun"):
+        from . import supervisor
+        target = supervisor.transcript_path(node["session_id"])
+        if not target:
+            raise NativeHeld("Compacted successor has no validated native transcript")
+        rows, _ = _read_native(Path(target))
+        if provider_for(node) in {"claude", "openrouter"}:
+            claude_records(rows, node["session_id"], node["session_id"], "validation-only")
+        elif node.get("codex_thread") != node["session_id"]:
+            raise NativeHeld("Successor has no matching provider resume handle")
+    # Ledger copies can be shallow; rebinding must not change the predecessor.
+    node["desktop_import"] = copy.deepcopy(imported)
+    node["desktop_import"]["native_continuity"] = {
+        "status": "transitioned", "provider": provider_for(node),
+        "session_id": node["session_id"], "generation": node["generation"],
+        "predecessor": predecessor, "predecessor_session_id": old["session_id"],
+        "reason": "Native import binding retired by an explicit ledger lineage transition",
+    }
+    return True
 
 
 def native_index() -> dict[str, str]:

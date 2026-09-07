@@ -137,6 +137,23 @@ readers and startup checks. `native_hold_reason(org,nid)` must gate every
 imported-node dispatch. Core owns these narrow integration calls and the
 recovery UI/route; helper existence alone is not assembled acceptance.
 
+Inline native tool-use/result records are retained. Source session sidecars,
+persisted tool-output references, file-history backup references and special
+worktree/remote layouts remain explicitly held until their independent
+dependency copying is supported. They are not silently labeled ready.
+`retire_native_binding(org,nid,predecessor)` permits a later legitimate
+lineage transition only after checking the actual archived predecessor and
+generation/session relation. Compacted successors also need a real native
+transcript. Renames keep a stable storage-node locator. The predecessor's
+metadata is deep-copied and retained; an arbitrary SID edit still holds.
+
+Local loader evidence executed only the installed Claude 2.1.241 native
+resume parser/selection functions (`e4s`, `pst`, `mwr`, `uAt`, `ZQi`) with a
+synthetic read-only JSONL adapter and no hooks, authentication or provider
+process. It loaded the independent session ID and complete three-record
+tool-use/result chain. This is a component-level native loader check, not a
+complete CLI/provider turn or general sidecar support claim.
+
 The engine owner wires:
 
 ```python
