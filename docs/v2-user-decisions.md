@@ -6,7 +6,7 @@ All times are UTC on 7 September 2026 unless stated. The hard stop is 2026-09-08
 
 ## Current scope index
 
-Where things stand after the last decision recorded (7 September, 21:06 UTC, relayed by the coordinator 21:07 UTC).
+Where things stand after the last decision recorded (7 September, 21:07:54 UTC, relayed by the coordinator 21:08 UTC).
 
 **Foundation (settled):**
 - Electron desktop application, Windows installer first, platform-agnostic for later macOS/Linux builds. Chromium UI stays.
@@ -35,7 +35,7 @@ Where things stand after the last decision recorded (7 September, 21:06 UTC, rel
 - Mobile application development and integration.
 - ALL agent execution sandboxing and isolation (containers, disks, kiosk sandboxes). Electron renderer isolation, credential boundaries and folder/tool authority remain as application safety controls; they are not agent execution sandboxes.
 
-**Rules already fixed for the later multi-account system (21:06 UTC):** accounts at a limit or without authentication wait by default; moving an existing agent needs an explicit user or supervising-agent decision, never automatic fallback; every registered account is available to every organization by default; accounts remain symmetric and provider-agnostic.
+**Rules already fixed for the later multi-account system (21:06 to 21:08 UTC):** accounts at a limit or without authentication wait by default; moving an existing agent needs an explicit user or supervising-agent decision, never automatic fallback; every registered account is available to every organization by default; accounts remain symmetric and provider-agnostic. New-account setup (21:07 UTC) supports both imported and Orgtree-managed profile directories, validated by Orgtree through each harness's own sign-in flow rather than a recreated provider login UI.
 
 **After MVP, conditionally, within the same hard stop:** if agreed MVP parity plus the additions above complete early with usage allowance and time remaining, proceed FIRST to integrating the existing Git system, THEN to the provider-agnostic symmetric multi-account system. No new permission is needed to begin these phases once MVP is achieved. This replaces the earlier "stop at parity" instruction.
 
@@ -71,6 +71,8 @@ Superseded from it: "no repository, implementation or framework commitment", sel
 - 20:50 to 21:03 UTC (newest, wins on conflict): never prevent system sleep. Uninstall keeps data and history. Retain authenticated peer connections between installations; public browser access stays excluded. Closing the main window leaves popouts open; explicit tray/toolbar Exit closes every window; restore previous popouts and monitor layout on manual reopen; login startup stays quiet in the tray. Connections area for peer pairing, setup and status, with correspondence in the existing Mail views, no separate hub UX. Full parity INCLUDES currently unfinished v1 work (modal overlap fading, contextual actions, supervised unstick, other authorized unfinished features) plus event replies and document/HTML downloads, which must be retained explicitly in the docket. CHANGED STOP POLICY: if MVP parity and additions complete early with allowance and time remaining, proceed first to existing Git system integration, then to the provider-agnostic symmetric multi-account system; usage exhaustion or 01:00 UTC remains the unconditional hard stop. The user asked for remaining post-MVP Git and account choices to be raised before they become unavailable; no new permission is needed to begin those phases once MVP is achieved.
 
 - 21:06:15 UTC, multi-account rules for the later account system (newest, wins on conflict): accounts that reach limits or lose authentication WAIT by default; reassignment requires an explicit decision by the user or an authorized supervising agent, never automatic fallback or rollover. Users AND supervising agents may move existing agents across accounts, within descendant authority boundaries, and any session or cache continuity change must be visible. ALL registered accounts are available to all organizations by default; the proposed per-organization opt-in was rejected. Accounts stay symmetric and provider-agnostic with no main/secondary distinction. New-account setup by importing profile directories or creating managed separate profiles is under discussion and not verified across harnesses.
+
+- 21:07:54 UTC, account setup for the later account system (newest, wins on conflict): BOTH imported account profile directories and Orgtree-managed profile directories are approved, so setup is seamless. Orgtree manages profile setup and connection validation; do not assume provider authentication can or should be recreated inside the Orgtree UI. Prefer each harness's supported sign-in flow, with provider-specific feasibility verified before implementation. The conditional phase order stays: complete MVP, then Git integration, then accounts, all within the 01:00 UTC hard stop.
 
 ## How to use this file
 
