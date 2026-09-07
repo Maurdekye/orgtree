@@ -9,10 +9,11 @@ class NetHubAuthTests(unittest.TestCase):
     def test_private_hub_headers_and_status_secrecy(self) -> None:
         with tempfile.TemporaryDirectory(prefix="orgtree-v2-net-") as root:
             os.environ["ORGTREE_DATA"] = root
+            os.environ["ORGTREE_V2_HUB_ADDRESS"] = "http://127.0.0.1:1"
             from engine.backend.orgtree import net
 
             local = net._hub_headers(
-                {"id": "local", "token": "owner-secret"}, [("a", "s")]
+                {"id": "local", "address": "http://127.0.0.1:1", "token": "owner-secret"}, [("a", "s")]
             )
             self.assertEqual(local["X-Hub-Token"], "owner-secret")
             self.assertNotIn("X-Hub-Peer-Token", local)
