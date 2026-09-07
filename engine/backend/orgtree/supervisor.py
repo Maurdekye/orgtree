@@ -26513,13 +26513,15 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
             and n["session_id"] not in seen)
 
 
-def reconcile(slug: str, *, active_only: bool = False) -> list[str]:
+def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
     not on the next message."""
     marked = []
     with store.DOC_LOCK:
         org = store.load_org(slug)
+        if (org.d.get('desktop_import') or {}).get('recovery_pending') and recovery_observer is None:
+            return []  # Only explicit import recovery may dispatch unresolved work.
         # ONE walk for the whole pass — see transcript_index. The per-node
         # `transcript_path` this replaces re-listed the user's entire
         # `projects/` directory for every node, once per org, at startup.
@@ -26658,7 +26660,10 @@ def reconcile(slug: str, *, active_only: bool = False) -> list[str]:
                   and org.waking_mail(nid)]
     for nid, inf in inflight:
         print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
-        send_message(slug, nid,
+        if recovery_observer:
+            recovery_observer(nid,'before')
+        try:
+            recovery_result = send_message(slug, nid,
                      "[ORGTREE RESTART] orgtree shut down while you were mid-turn "
                      "and is back up. The message that drove your interrupted "
                      "turn is repeated below — you may have already completed "
@@ -26667,6 +26672,12 @@ def reconcile(slug: str, *, active_only: bool = False) -> list[str]:
                      + (inf.get("text") or ""),
                      view=(str(inf.get("view") or "") if "view" in inf
                            else str(inf.get("text") or "")))
+        except Exception:
+            if recovery_observer:
+                recovery_observer(nid,'error')
+            raise
+        if recovery_observer:
+            recovery_observer(nid,'result',recovery_result)
     for nid in ([] if active_only else revive):
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,

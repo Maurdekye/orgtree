@@ -49,6 +49,7 @@ class ImportIntegrationTests(unittest.TestCase):
             persisted = store.load_org(slug)
             self.assertNotIn('inflight', persisted.nodes[nid])
             driven.append((nid, text, kwargs))
+            return {'accepted':True,'queued':0}
         with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
              patch.object(supervisor, '_reconcile_steer_records'), \
              patch.object(supervisor, 'send_message', side_effect=drive):

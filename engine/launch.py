@@ -127,6 +127,22 @@ class TokenGate:
 
 
 def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
+    from orgtree import desktop_recovery
+    from orgtree.ledger import LedgerError
+    from fastapi import HTTPException
+
+    @api_app.get('/api/desktop/import-v1/{slug}/recovery')
+    def import_recovery(slug: str):
+        return desktop_recovery.status(slug)
+
+    @api_app.post('/api/desktop/import-v1/{slug}/resolve')
+    def resolve_import(slug: str, body: dict[str, Any]):
+        try:
+            return desktop_recovery.resolve_import(slug,body.get('nodes'),body.get('action'),
+                body.get('acknowledge_duplicate_work') is True,body.get('note',''))
+        except LedgerError as exc:
+            raise HTTPException(422,str(exc)) from exc
+
     """Add the small native-shell control surface to the real V1 app."""
     from orgtree import store, supervisor, desktop_maintenance  # noqa: PLC0415
 
