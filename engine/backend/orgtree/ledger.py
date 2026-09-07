@@ -3606,6 +3606,35 @@ class Org:
         except NativeHeld as exc:
             raise LedgerError(str(exc)) from exc
 
+    def _native_bearer_binding(self, nid: str, sid: str) -> dict[str, Any] | None:
+        """Validate a preserved native bearer BEFORE changing its ledger identity."""
+        n = self.node(nid)
+        imported = n.get("desktop_import") or {}
+        native = imported.get("native_continuity") or {}
+        if native.get("status") not in {"ready", "transitioned"}:
+            return None  # A held import never gains admission through recovery.
+        from . import supervisor
+        from .desktop_native import _read_native, claude_records, provider_for, NativeHeld
+        from pathlib import Path
+        provider = provider_for(n)
+        path = supervisor.transcript_path(sid)
+        if not path:
+            raise LedgerError("Preserved native bearer has no validated transcript")
+        try:
+            rows, _ = _read_native(Path(path))
+            if provider not in {"claude", "openrouter"}:
+                raise NativeHeld("Native bearer validation is unavailable for this provider")
+            claude_records(rows, sid, sid, "validation-only")
+        except (NativeHeld, ValueError, OSError) as exc:
+            raise LedgerError(str(exc)) from exc
+        result = copy.deepcopy(imported)
+        result["native_continuity"] = {
+            "status": "transitioned", "provider": provider,
+            "session_id": sid, "generation": n.get("generation", 0),
+            "reason": "Native bearer validated by recorded lineage recovery",
+        }
+        return result
+
     def cheap_compact(self, actor: str, nid: str) -> dict[str, Any]:
         """FR-24 (user request 2026-08-10, ruled OPT-IN 2026-08-11; REWORKED
         2026-08-12 to compact_split's in-place shape): replace a cold, heavy
@@ -8898,6 +8927,7 @@ class Org:
         compaction session could not be cut, the org is told the truth it was
         always told, never a bearer that cannot answer."""
         n = self.node(nid)
+        rebound = self._native_bearer_binding(nid, bearer_sid) if bearer_sid else None
         gen = n.get("generation", 0)
         pred_id = f"{nid}@{gen}"
         pred = cast(NodeDoc, dict(n))  # dict() copy loses the TypedDict
@@ -8934,6 +8964,8 @@ class Org:
             # at the successor's live session and "rehire" would resume the
             # successor's post-compaction state under the predecessor's name.
             pred["session_id"] = bearer_sid
+            if rebound is not None:
+                pred["desktop_import"] = rebound
         elif boundary_offset is not None:
             # a LOST row records WHERE its boundary was, so a later recovery
             # reads the cut point instead of re-deriving it. Deriving it is
@@ -8947,6 +8979,11 @@ class Org:
         self.nodes[pred_id] = pred
         n["generation"] = gen + 1
         n["predecessor"] = pred_id
+        imported = n.get("desktop_import") or {}
+        native = imported.get("native_continuity") or {}
+        if native.get("status") == "transitioned" and native.get("session_id") == n.get("session_id") and native.get("generation") == gen:
+            n["desktop_import"] = copy.deepcopy(imported)
+            n["desktop_import"]["native_continuity"]["generation"] = gen + 1
         size = (f'; ~{pre_tokens / 1000:.0f}k tokens summarized'
                 if pre_tokens else '')
         # typed (family lifecycle): lifecycle.compacted with auto=True; `lost`
@@ -8986,8 +9023,11 @@ class Org:
                 f"(bearer_state={n.get('bearer_state')!r})")
         if not bearer_sid or not bearer_sid.strip():
             raise LedgerError("a recovered bearer needs a real session id")
+        rebound = self._native_bearer_binding(pred_id, bearer_sid)
         n["bearer_state"] = "knowledge"
         n["session_id"] = bearer_sid
+        if rebound is not None:
+            n["desktop_import"] = rebound
         # the cut point was a property of being lost inside someone else's
         # file; this row now owns its own session and the offset would only
         # ever mislead a later reader

@@ -56,6 +56,31 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(saved.node('agent@0')['desktop_import']['native_continuity'],native)
         self.assertIsNone(supervisor._native_context_hold(saved,'agent'))
         self.assertEqual(supervisor.transcript_path_for_node(saved,'agent@0'),path)
+        # The CLI compacts in-place: active SID stays, preserved bearer gets
+        # its own validated SID. Neither binding may alias the other.
+        current_sid=saved.node('agent')['session_id']
+        bearer_sid=str(uuid.uuid4())
+        bearer=data/(bearer_sid+'.jsonl')
+        row=json.loads(source.read_text()); row['sessionId']=bearer_sid
+        bearer.write_text(json.dumps(row)+'\n',encoding='utf-8')
+        with patch.object(supervisor,'transcript_path',return_value=None):
+            before=json.dumps(saved.d,sort_keys=True)
+            with self.assertRaises(ledger.LedgerError):
+                saved.record_cli_compaction('agent',bearer_sid=bearer_sid)
+            self.assertEqual(json.dumps(saved.d,sort_keys=True),before)
+        with patch.object(supervisor,'transcript_path',return_value=str(bearer)):
+            pred=saved.record_cli_compaction('agent',bearer_sid=bearer_sid)
+        self.assertEqual(saved.node('agent')['session_id'],current_sid)
+        self.assertIsNone(supervisor._native_context_hold(saved,'agent'))
+        self.assertIsNone(supervisor._native_context_hold(saved,pred))
+        self.assertEqual(saved.node(pred)['desktop_import']['native_continuity']['session_id'],bearer_sid)
+        lost=saved.record_cli_compaction('agent',boundary_offset=12)
+        with patch.object(supervisor,'transcript_path',return_value=str(bearer)):
+            saved.recover_lost_generation(lost,bearer_sid)
+        store.save_org(saved); store._POOL.close_all('native-ready')
+        saved=store.load_org('native-ready')
+        self.assertIsNone(supervisor._native_context_hold(saved,'agent'))
+        self.assertIsNone(supervisor._native_context_hold(saved,lost))
 
     def test_resume_route_preserves_native_hold_with_ordinary_positive_control(self):
         org=store.create_org('resume-route')
