@@ -9,6 +9,7 @@ import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
+import { MaintenanceController } from './maintenance'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 
 app.setName('Orgtree v2')
@@ -58,6 +59,36 @@ else {
   const quitAfterLastView = () => {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
+  const applyDownloadedUpdate = async () => {
+    if (updateApplying || quitting) return
+    updateApplying = true; quitting = true
+    if (poll) clearInterval(poll)
+    await saveWindowLayout(); await engine.stop(); quitComplete = true
+    setTimeout(() => app.exit(1), 15000).unref()
+    autoUpdater.quitAndInstall(false, true)
+  }
+  const maintenance = new MaintenanceController({
+    ack: id => engine.acknowledgeMaintenance(id),
+    restart: async () => {
+      if (quitting) return
+      // Electron's relaunch helper is outside the Python Job, as is the updater.
+      app.relaunch(); app.quit()
+    },
+    apply: applyDownloadedUpdate,
+    check: async () => {
+      if (!app.isPackaged) return 'unavailable'
+      try {
+        const result = await autoUpdater.checkForUpdates()
+        if (!result) return 'unavailable'
+        if (result.downloadPromise) {
+          void result.downloadPromise.catch(() => broadcast({ type: 'update', data: { state: 'unavailable' } }))
+          return 'pending'
+        }
+        return result.updateInfo.version === app.getVersion() ? 'up-to-date' : 'unavailable'
+      } catch { return 'unavailable' }
+    },
+    report: state => broadcast({ type: 'update', data: { state } }),
+  })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.
   app.on('web-contents-created', (_event, contents) => {
@@ -143,12 +174,12 @@ else {
       const refresh = async () => {
         if (quitting) return
         stats = await engine.stats(); rebuildTray()
+        if (stats?.maintenance) {
+          await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
+          return
+        }
         if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying) {
-          updateApplying = true; quitting = true
-          if (poll) clearInterval(poll)
-          await saveWindowLayout(); await engine.stop(); quitComplete = true
-          setTimeout(() => app.exit(1), 15000).unref()
-          autoUpdater.quitAndInstall(false, true)
+          await applyDownloadedUpdate()
         }
       }
       let refreshing = false

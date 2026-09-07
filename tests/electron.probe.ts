@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
   server = http.createServer((req, res) => {
     seen.push({ url: req.url!, token: req.headers['x-orgtree-desktop-token'] as string | undefined })
     if (req.url === '/redirect') { res.writeHead(302, { Location: foreignOrigin }); res.end(); return }
-    if (req.url === '/asset.css') { res.setHeader('Content-Type', 'text/css'); res.end('body{background:rgb(12,34,56)}'); return }
+    if (req.url?.startsWith('/asset.css')) { res.setHeader('Content-Type', 'text/css'); res.end('body{background:rgb(12,34,56)}'); return }
     if (req.url === '/api/read') { res.setHeader('Content-Type', 'application/json'); res.end('{"ok":true}'); return }
     if (req.url === '/api/orgs/test/documents/sample/mockup') {
       res.setHeader('Content-Type', 'text/html')
@@ -71,6 +71,12 @@ app.whenReady().then(async () => {
   assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft").value'), 'same live draft')
   assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await child.webContents.executeJavaScript('typeof require'), 'undefined')
+  await main.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const css=child.document.createElement('link');css.rel='stylesheet';css.href=${JSON.stringify(origin + '/asset.css?portal=1')};css.onload=()=>resolve(true);css.onerror=reject;child.document.head.appendChild(css)})`)
+  assert.equal(await child.webContents.executeJavaScript('getComputedStyle(document.body).backgroundColor'), 'rgb(12, 34, 56)', 'registered portal loads authenticated CSS')
+  await child.webContents.executeJavaScript(`fetch(${JSON.stringify(origin + '/api/portal-fetch')}).then(r=>r.text())`)
+  // Chromium attributes this same-origin adopted portal to the owning App frame.
+  // A portal shares trusted owner authority; artifact sessions are the isolation boundary.
+  assert.ok(seen.some(r => r.url === '/api/portal-fetch' && r.token === token))
   await main.webContents.executeJavaScript('document.body.appendChild(node); child.close(); true')
   assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'), 'same live draft')
   const impostor = new BrowserWindow(options)

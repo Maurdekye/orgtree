@@ -5,9 +5,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseReady, TOKEN_HEADER, validateDataRoot } from './policy'
 import type { EngineStatus } from '../../../packages/contracts/index'
+import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
-export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean }
+export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; maintenance?: MaintenanceRequest }
 
 /** One fresh managed child. Never discovers or attaches by a .port file. */
 export class Engine extends EventEmitter {
@@ -71,8 +72,21 @@ export class Engine extends EventEmitter {
       if (!r.ok) return null
       const value = await r.json() as RuntimeStats
       if (!Number.isInteger(value.activeAgents) || !Number.isInteger(value.totalAgents) || value.activeAgents < 0 || value.totalAgents < value.activeAgents || typeof value.idle !== 'boolean' || (value.idle && value.activeAgents > 0)) return null
-      return value
+      const maintenance = maintenanceRequest(value.maintenance)
+      return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle, ...(maintenance ? { maintenance } : {}) }
     } catch { return null }
+  }
+
+  async acknowledgeMaintenance(id: string): Promise<boolean> {
+    if (!this.endpoint) return false
+    try {
+      const response = await fetch(this.endpoint + '/api/desktop/maintenance/ack', { method: 'POST',
+        headers: { [TOKEN_HEADER]: this.credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }), signal: AbortSignal.timeout(4000), redirect: 'error' })
+      if (!response.ok) return false
+      const result = await response.json() as { accepted?: boolean }
+      return result.accepted === true
+    } catch { return false }
   }
 
   async stop(): Promise<void> {
