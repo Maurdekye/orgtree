@@ -155,10 +155,17 @@ and must never fall back to a foreign provider file. Unrelated IDs remain usable
 imported-node dispatch. Core owns these narrow integration calls and the
 recovery UI/route; helper existence alone is not assembled acceptance.
 
-Inline native tool-use/result records are retained. Source session sidecars,
-persisted tool-output references, file-history backup references and special
-worktree/remote layouts remain explicitly held until their independent
-dependency copying is supported. They are not silently labeled ready.
+Inline native tool-use/result records are retained. Regular files directly
+inside the selected Claude session's `tool-results` directory are copied
+with stable-source checks into the independent session directory. Explicit
+native tool-output paths and persisted-output text are rebound to those
+copied files; unrelated message text is preserved. Missing or mixed external
+references, nested directories, subagent sessions, file-history backups and
+special worktree/remote layouts remain explicitly held until their independent
+restoration is verified. These held layouts are unfinished coverage.
+The Claude parser/selection/output-formatter probe uses extracted installed
+functions and a synthetic filesystem adapter; it is component evidence,
+not a full CLI or provider-turn proof.
 `retire_native_binding(org,nid,predecessor)` permits a later legitimate
 lineage transition only after checking the actual archived predecessor and
 generation/session relation. Compacted successors also need a real native

@@ -202,30 +202,8 @@ even when resuming an explicit file. Merely renaming a file is insufficient.
 
 
 def _check_dependencies(path: Path, sid: str, rows: list[dict]) -> None:
-    """Inline tool results are native context; external sidecars need more work.
-
-Do not call a JSONL-only copy ready when the provider will need source-only
-persisted output, subagent transcripts, or file-rewind backup blobs.
-"""
-    from .desktop_import import _plain
-    sidecars = path.parent / sid
-    _plain(sidecars)
-    if sidecars.exists() and (not sidecars.is_dir() or any(sidecars.iterdir())):
-        raise NativeHeld("Native session sidecars require an independent dependency copy")
-    def visit(value: Any) -> None:
-        if isinstance(value, dict):
-            for key, child in value.items():
-                if key in {"persistedOutputPath", "backupFileName"} and child:
-                    raise NativeHeld("Native output or file-history sidecar is not yet supported")
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-        elif isinstance(value, str):
-            folded = value.replace("\\", "/").lower()
-            if "/tool-results/" in folded or "/subagents/" in folded or "<persisted-output>" in folded:
-                raise NativeHeld("Native context references an external session sidecar")
-    visit(rows)
+    from .desktop_native_claude_dependencies import copy_outputs
+    copy_outputs(path, sid, rows, Path("preview-only"))
 
 
 def inspect(source: Path, slug: str, nid: str, node: dict, sources: dict) -> dict:
@@ -265,8 +243,11 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
                 raise NativeHeld("Codex native thread and recorded session identity differ")
             meta["session_id"], encoded = fork_snapshot(records, node["session_id"], folder, cwd)
         elif meta["provider"] in {"claude", "openrouter"}:
-            _check_dependencies(path, node["session_id"], records)
+            from .desktop_native_claude_dependencies import copy_outputs
             cloned = claude_records(records, node["session_id"], meta["session_id"], cwd)
+            cloned = copy_outputs(path, node["session_id"], cloned,
+                                  dest / "imports" / slug / "native" / nid / meta["session_id"],
+                                  folder / meta["session_id"])
             encoded = "".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in cloned).encode("utf-8")
         else:
             raise NativeHeld("This native provider clone is not configured yet")
@@ -359,15 +340,23 @@ Rename alone needs no retirement because storage_node stays stable.
             or not UUID.fullmatch(str(node.get("session_id") or ""))):
         raise NativeHeld("Native binding can only retire after a verified ledger lineage transition")
     if not node.get("session_unrun"):
-        from . import supervisor
-        target = supervisor.transcript_path(node["session_id"])
-        if not target:
-            raise NativeHeld("Compacted successor has no validated native transcript")
-        rows, _ = _read_native(Path(target))
         if provider_for(node) in {"claude", "openrouter"}:
+            from . import supervisor
+            target = supervisor.transcript_path(node["session_id"])
+            if not target:
+                raise NativeHeld("Compacted successor has no validated native transcript")
+            rows, _ = _read_native(Path(target))
             claude_records(rows, node["session_id"], node["session_id"], "validation-only")
-        elif node.get("codex_thread") != node["session_id"]:
-            raise NativeHeld("Successor has no matching provider resume handle")
+        elif provider_for(node) == "codex":
+            from . import providers
+            from .desktop_native_codex import validate
+            if node.get("codex_thread") != node["session_id"]:
+                raise NativeHeld("Successor has no matching provider resume handle")
+            profile = Path(providers._codex_home())
+            target = locate(profile, doc["slug"], nid, node, {"codex_profile": str(profile)})
+            validate(_read_native(target)[0], node["session_id"])
+        else:
+            raise NativeHeld("Native successor validation is not yet supported for this provider")
     # Ledger copies can be shallow; rebinding must not change the predecessor.
     node["desktop_import"] = copy.deepcopy(imported)
     node["desktop_import"]["native_continuity"] = {
