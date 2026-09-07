@@ -1,0 +1,41 @@
+{
+  "name": "orgtree",
+  "version": "2.0.0-alpha.0",
+  "private": true,
+  "description": "Orgtree desktop application",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main/index.cjs",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "package:dir": "npm run build && electron-builder --dir",
+    "package:win": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  },
+  "build": {
+    "appId": "com.maurdekye.orgtree",
+    "productName": "Orgtree",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "package.json", "LICENSE"],
+    "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+  }
+}
