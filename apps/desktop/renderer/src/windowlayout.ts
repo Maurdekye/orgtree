@@ -9,7 +9,7 @@ export const windowExitStarted = () => exiting
 export const beginWindowExit = () => { exiting = true }
 export function useRestoreWindows() {
   const bridge = desktop()
-  const [allowed, setAllowed] = useState(() => !!bridge && !bridge.getWindowState)
+  const [allowed, setAllowed] = useState<boolean>(() => !!bridge && !bridge.getWindowState)
   useEffect(() => {
     if (!bridge?.getWindowState) return
     let alive = true
