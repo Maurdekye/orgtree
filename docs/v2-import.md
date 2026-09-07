@@ -160,3 +160,15 @@ transaction/publication failure, partial batch receipts, post-commit recovery
 failure and token-gated route positive/negative controls. The reparse guard
 has an injected Windows attribute positive control; no live junction is
 created or recursively removed. No live import or provider turn is used.
+
+`AssembledImportTests` additionally runs the real `launch.load_app()` and its
+installed routes in an isolated child process. It refuses missing and valid
+agent credentials on the import endpoint, imports a synthetic SQLite source,
+checks recovery persistence at the turn-admission boundary, retains idle
+queued mail, and reads the real chat endpoint before and after a fresh native
+transcript appears. The normal watchdog scan observes the imported enabled
+file watcher while leaving a paused control inert. Provider process creation
+is forbidden and turn admission/watchdog delivery are recorded instead of
+calling providers. Source hashes remain unchanged throughout. This is actual
+ASGI engine-route evidence; the separate rendered Settings tests use mocked
+HTTP and are not by themselves proof of a native desktop import.

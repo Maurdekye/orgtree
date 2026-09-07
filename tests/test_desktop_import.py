@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -377,6 +379,121 @@ class DesktopImportTests(unittest.TestCase):
                 self.run_import()
         self.assertFalse((self.dest / "orgs/acme.db").exists())
         self.assertEqual(self.resumed, [])
+
+
+class AssembledImportTests(unittest.TestCase):
+    def test_launcher_authenticated_copy_recovery_and_real_history(self) -> None:
+        script = r'''
+import hashlib, json, os, sys
+from pathlib import Path
+from unittest.mock import patch
+root = Path(sys.argv[1]).resolve()
+home, source, dest = root / 'home', root / 'v1', root / 'v2'
+for path in (home, source / 'orgs', dest):
+    path.mkdir(parents=True)
+for key in list(os.environ):
+    if key.startswith('ORGTREE_'):
+        os.environ.pop(key)
+os.environ.update(ORGTREE_DATA=str(dest), ORGTREE_STORE='sqlite',
+                  ORGTREE_V2_TOKEN='fixture-desktop-token', HOME=str(home), USERPROFILE=str(home))
+def hashes():
+    return {str(p.relative_to(source)):hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in source.rglob('*') if p.is_file()}
+with patch('subprocess.Popen', side_effect=AssertionError('provider/process launch forbidden in fixture')):
+    from engine import launch
+    app, token, _, _, _ = launch.load_app()
+    from orgtree import store, ledger, supervisor, desktop_import, desktop_recovery, agentauth
+    from fastapi.testclient import TestClient
+    assert Path(store.DATA_ROOT).resolve() == dest
+    org = ledger.Org.create('acme', workspace=str(source / 'workspaces/acme'))
+    for nid in ('active', 'idle'):
+        org.hire(ledger.USER, None, 'haiku', 0, nid)
+    old_sid = org.nodes['active']['session_id']
+    org.nodes['active']['inflight'] = {'text':'continue the exact unfinished work', 'view':'original visible prompt'}
+    org.post_mail(ledger.USER, 'idle', 'queued, but was not active')
+    org.d['documents'] = [{'id':'report', 'node':'active', 'title':'Retained report', 'body':'document survives'}]
+    org.d['auto_resume'] = True
+    org.d['watchdogs'] = [
+        {'id':wid, 'name':wid, 'owner':'active', 'state':state, 'kind':'file',
+         'target':str(source / 'scratch/acme/active/output.txt'), 'pattern':'DONE'}
+        for wid,state in [('enabled','armed'),('disabled','paused')]]
+    org.d['op_receipts'] = [{'id':'original-uncertain-effect', 'outcome':'unknown'}]
+    scratch = source / 'scratch/acme/active'
+    scratch.mkdir(parents=True)
+    (scratch / 'output.txt').write_text('DONE\n', encoding='utf-8')
+    journal = source / 'journals/projects/acme'
+    journal.mkdir(parents=True)
+    (journal / (old_sid + '.jsonl')).write_text(
+        '{"type":"assistant","message":{"role":"assistant","content":"copied original history"}}\n', encoding='utf-8')
+    desktop_import._write_candidate(source / 'orgs/acme.db', org.d)
+    before = hashes()
+    auth = store.create_org('authority')
+    auth.hire(ledger.USER, None, 'haiku', 0, 'caller')
+    store.save_org(auth)
+    agent_token = agentauth.child_env('authority', 'caller')['ORGTREE_AGENT_TOKEN']
+    client = TestClient(app)
+    headers = {'x-orgtree-desktop-token':token}
+    payload = {'source_root':str(source)}
+    for invalid in ({}, {'x-orgtree-agent-token':agent_token}):
+        assert client.post('/api/desktop/import-v1/preview',json=payload,headers=invalid).status_code == 401
+    preview = client.post('/api/desktop/import-v1/preview',json=payload,headers=headers)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['organizations'][0]['slug'] == 'acme'
+    assert not (dest / 'orgs/acme.db').exists()
+    admitted = []
+    def record(slug, nid, text, **kwargs):
+        persisted = store.load_org(slug)
+        assert not persisted.nodes[nid].get('inflight'), 'release must be durable before admission'
+        assert persisted.nodes[nid]['session_id'] != old_sid
+        assert hashes() == before
+        admitted.append((nid, text, kwargs))
+    payload.update(organizations=['acme'],acknowledge_duplicate_work=True)
+    with patch.object(supervisor, 'send_message', side_effect=record):
+        result = client.post('/api/desktop/import-v1',json=payload,headers=headers)
+        assert result.status_code == 200, result.text
+        imported = result.json()['imported'][0]
+        assert imported['recovery_pending'] is False, result.text
+        assert [row[0] for row in admitted] == ['active'], admitted
+        assert 'continue the exact unfinished work' in admitted[0][1]
+        assert 'reconcile completed/uncertain' in admitted[0][1]
+        assert admitted[0][2]['view'] == 'original visible prompt'
+        assert desktop_recovery.resume_import('acme')['already_reconciled']
+        assert len(admitted) == 1
+    copied = store.load_org('acme')
+    assert copied.waking_mail('idle')
+    assert copied.d['documents'][0]['body'] == 'document survives'
+    assert copied.d['watchdogs'][0]['state'] == 'armed' and copied.d['auto_resume']
+    assert copied.d['op_receipts'][0]['id'] == 'original-uncertain-effect'
+    fired = []
+    with patch.object(supervisor, '_wd_fire', side_effect=lambda slug,wid,name,lines: fired.append(wid)):
+        supervisor._wd_tick()
+    assert fired == ['enabled'], fired
+    assert supervisor.transcript_path(copied.nodes['active']['session_id']) is None
+    chat_url = '/api/orgs/acme/nodes/active/chat'
+    chat_before = client.get(chat_url,headers=headers)
+    assert chat_before.status_code == 200, chat_before.text
+    archive_before = [row for row in chat_before.json()['messages'] if row.get('imported_history')]
+    assert len(archive_before) == 1 and archive_before[0]['text'] == 'copied original history', chat_before.text
+    native = dest / 'journals/projects/acme' / (copied.nodes['active']['session_id'] + '.jsonl')
+    native.write_text('{"type":"assistant","message":{"role":"assistant","content":"new native history"}}\n', encoding='utf-8')
+    chat_after = client.get(chat_url,headers=headers)
+    assert chat_after.status_code == 200, chat_after.text
+    archive_after = [row for row in chat_after.json()['messages'] if row.get('imported_history')]
+    assert archive_after[0]['event_id'] == archive_before[0]['event_id']
+    assert any(row.get('text') == 'new native history' for row in chat_after.json()['messages']), chat_after.text
+    assert hashes() == before, 'assembled route or recovery mutated V1'
+    for slug in ('acme', 'authority'):
+        store._POOL.close_all(slug)
+    print(json.dumps({'authenticated_route':True,'agent_token_refused':True,'active_only':['active'],
+                      'idle_mail_preserved':True,'copied_history_before_after_native':True,
+                      'source_hashes_unchanged':True,'enabled_automation_only':fired,'provider_processes':0}))
+'''
+        root = Path(tempfile.mkdtemp(prefix="assembled-", dir=_TEST_ROOT))
+        result = subprocess.run([sys.executable, "-c", script, str(root)],
+                                cwd=Path(__file__).resolve().parents[1],
+                                text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('"copied_history_before_after_native": true', result.stdout)
 
 
 if __name__ == "__main__":
