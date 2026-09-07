@@ -164,10 +164,20 @@ class HubClient:
     def _deliver(self, entry_id: str, payload: dict[str, Any], attachments: list[dict[str, str]]) -> dict[str, Any]:
         remote_ids: list[str] = []
         for item in attachments:
-            data = Path(item["path"]).read_bytes()
-            result = self._request("POST", "/api/attachments?" + urllib.parse.urlencode({"name": item["name"]}), raw=data)
-            remote_ids.append(str(result["id"]))
+            remote_id = str(item.get("remote_id") or "")
+            if not remote_id:
+                data = Path(item["path"]).read_bytes()
+                result = self._request("POST", "/api/attachments?" + urllib.parse.urlencode({"name": item["name"]}), raw=data)
+                remote_id = str(result["id"])
+                item["remote_id"] = remote_id
+                self._save_attachments(entry_id, attachments)
+            remote_ids.append(remote_id)
         return self._request("POST", "/api/send", {**payload, "attachments": remote_ids})
+
+    def _save_attachments(self, entry_id: str, attachments: list[dict[str, str]]) -> None:
+        with self._db() as con:
+            con.execute("UPDATE outbox SET attachments=? WHERE id=?", (json.dumps(attachments), entry_id))
+            con.commit()
 
     def _record_attempt(self, entry_id: str, error: str) -> None:
         with self._db() as con:
