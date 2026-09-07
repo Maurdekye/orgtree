@@ -62,6 +62,16 @@ The graph observation is narrower than the earlier report: initial captures genu
 
 Default login created `HKCU Run/com.maurdekye.orgtree` pointing at the exact test executable with `--background`. Both expected shortcuts and both expected HKCU installation keys were recorded. Only the test installation was uninstalled after checking its canonical location and absence of reparse points; uninstall exited0. Any unchanged test-owned login value was removed. Final registration, shortcut and login inventories are empty, the executable is gone, and all8 isolated data files remained byte-identical. Profile/evidence/data remain retained. No provider turns ran. This proves the recorded engineering install path, not the later final package, all-users installation, update execution or complete MVP parity.
 
+### Second real provider path, 22:36 UTC
+
+The coordinator authorized one Claude subscription task and then one replacement after a test configuration error. First attempt `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-provider-ytsn3_36` used the Codex fixture's `plan` mode. Real Haiku computed42 but Claude Code refused even the read-only chart in plan mode before HTTP. Its completed provider receipt and zero chart requests remain retained; this is not evidence of a transport failure. Engine14272 exited0 and later independent process inventory found no descendants or matching processes.
+
+The explicitly authorized replacement used a new root, `C:/Users/ncola_k8bx/AppData/Local/Temp/orgtree-v2-provider-wxs6eviy`, with `acceptEdits` but bash/edit/web/subagent switches disabled and a chart-only transport observer/guard. Actual Claude CLI auth status was `loggedIn:true`, `authMethod:claude.ai`, `subscriptionType:max`. Source `82ee0335b5062fc4b54e43c125415a201725241d`, bundled Python, engine port51828, organization `v2-claude-acceptance`, node `probe`, generation0. Actual CLI MCP configuration used the bundled interpreter, exact engine port and a verified scoped token. The observed provider spawn had no injected API key or alternate account token and its cwd was inside the test root.
+
+**Replacement PASS:** one actual chart HTTP200 and assistant `V2_ACCEPTANCE_RESULT 42 organization=v2-claude-acceptance node=probe`. Durable receipt `data/turnlog/v2-claude-acceptance/probe/1788820473323-0002-claude-completed.json` records laneclaude, tierhaiku, outcomecompleted, warmfalse and a successful result. Its route field is null; subscription attribution comes from the separately observed CLI auth method and spawn environment, not an invented receipt route. Engine42264 exited0; independent process inventory found zero descendants/matching processes. `report.json`, `mcp-target.json`, `provider-spawn.json`, `tool-observations.jsonl` and `cleanup-check.json` retain the evidence. Neither attempt is authorization for another turn.
+
+Sequencing limitation disclosed to the coordinator: the first engine's exit0 was known before the replacement, but an independent PowerShell descendant verifier stalled on an empty-array loop and the replacement was launched before that verifier returned. The corrected verifier later confirmed no first-root descendants; the replacement's cleanup verifier completed normally. No overlapping provider process was observed, but the stricter requested pre-launch independent receipt was not obtained on time.
+
 ## Whole-app feature matrix
 
 | Requirement | Acceptance boundary | Current evidence / remaining case |
@@ -86,7 +96,7 @@ Default login created `HKCU Run/com.maurdekye.orgtree` pointing at the exact tes
 | Tray statistics, quiet login, no sleep prevention | Actual count changes and quiet startup; close/reopen; installed login setting | Source/default fixture evidence only; packaged behavior pending |
 | Automatic prerelease update at safe idle point | Active work blocks install; unavailable/stale status blocks install; real downloaded update applies when idle | Source only; no actual update execution evidence |
 | Current-user/default or all-users Windows installer, uninstall retains data | Install packaged artifact, launch bundled engine, uninstall and verify preserved org/history | Actual current-user b7f0ec4 engineering installer/installed UI/uninstall PASS;8testdatafiles retained byte-for-byte and test registrations removed. All-users and final-source installer remain unverified; unsigned prototype accepted by user |
-| Provider-neutral themes and honest capability differences | Theme changes preserve authority/routing; status remains identifiable without color; two materially different adapters | Copied source only; whole-app/provider breadth pending |
+| Provider-neutral themes and honest capability differences | Theme changes preserve authority/routing; status remains identifiable without color; two materially different adapters | Actual Codex Luna reserve and Claude Haiku subscription tasks each completed arithmetic and scoped chart; theme UI integrated visual acceptance still pending |
 
 ## Deliberate exclusions and boundaries
 
@@ -95,3 +105,5 @@ MVP excludes kiosk/public browser access, mobile, all agent execution sandbox/is
 The acceptance harness never uses a real provider by default. The coordinator's MCP HOLD was cleared only after the independently verified controls described above, and the authorized single arithmetic/chart turn has now succeeded. One optional interrupt/resume case is permitted after that success but has not been run. No additional provider run is implied by adding later UI/import/download checks. Fixtures cannot establish provider execution, session continuity or uncertain mutation recovery.
 
 Hard stop: 2026-09-08 01:00 UTC or usage exhaustion, whichever comes first. Incomplete rows remain incomplete at the checkpoint.
+
+Fresh-start fit correction: immutable82ee033 runtime (includes c45629d), evidence Temp/orgtree-v2-acceptance-4R0KYf, independently fits all five rendered cards before and after an asserted real Fit-button click. The entire run is FAIL because its restart phase restores the previously focused desk and violates the new whole-graph precondition; fresh-start fit and restart storage/style/shutdown results are recorded separately.

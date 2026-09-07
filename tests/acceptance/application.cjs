@@ -183,13 +183,33 @@ app.on('browser-window-created', (_event, main) => {
     await check('actual-engine-websocket-handshake', async () => {
       assert.equal(await evaluate(`new Promise(resolve=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/api/orgs/acceptance-runtime/ws');const timer=setTimeout(()=>{ws.close();resolve(false)},5000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)}})`), true)
     })
+    const geometry = () => evaluate(`(()=>{const rect=e=>e?{x:e.getBoundingClientRect().x,y:e.getBoundingClientRect().y,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}:null;return {innerHeight,innerWidth,viewport:rect(document.querySelector('.viewport')),space:{rect:rect(document.querySelector('.space')),transform:document.querySelector('.space')?getComputedStyle(document.querySelector('.space')).transform:null},nodes:[...document.querySelectorAll('.sq')].map(e=>({name:e.querySelector('.name')?.textContent||e.className,rect:rect(e)}))}})()`)
+    function assertVisible(measured) {
+      assert.ok(measured.nodes.length >= 5, 'Positive control: user, three agents and org inbox must be rendered')
+      for(const node of measured.nodes) {
+        assert.ok(node.rect.x >= measured.viewport.x - 1 && node.rect.y >= measured.viewport.y - 1 && node.rect.x + node.rect.width <= measured.viewport.x + measured.viewport.width + 1 && node.rect.y + node.rect.height <= measured.viewport.y + measured.viewport.height + 1, `${node.name} must fit inside the graph viewport`)
+      }
+    }
+    if (visualFixture && phase === 'initial') {
+      await check('startup-fit-includes-late-org-inbox', async () => {
+        assert.equal(await waitFor(`document.querySelector('.sq.orginbox') && [...document.querySelectorAll('.sq .name')].some(e=>e.textContent==='reviewer')`), true)
+        await new Promise(resolve => setTimeout(resolve, 1200))
+        const before = await geometry()
+        fs.writeFileSync(path.join(root, phase + '-geometry-before-fit.json'), JSON.stringify(before,null,2))
+        await capture(main, 'organization-before-fit')
+        assertVisible(before)
+      })
+      await check('explicit-fit-positive-control', async () => {
+        assert.equal(await evaluate(`(()=>{const button=document.querySelector('button[title="fit the whole org"]');if(!button)return false;button.click();return true})()`), true, 'Actual Fit button must be present and clicked')
+        await new Promise(resolve => setTimeout(resolve, 1200))
+        const after = await geometry()
+        fs.writeFileSync(path.join(root, phase + '-geometry.json'),JSON.stringify(after,null,2))
+        await capture(main, 'organization')
+        assertVisible(after)
+      })
+    }
     await check('actual-settings-modal-popout-redock-main-close', async () => {
-      await evaluate(`document.querySelector('button[title="fit the whole org"]')?.click();true`)
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      await evaluate(`document.querySelector('button[title="fit the whole org"]')?.click();true`)
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      await capture(main, 'organization')
-      fs.writeFileSync(path.join(root, phase + '-geometry.json'), JSON.stringify(await evaluate(`(()=>{const rect=e=>e?{x:e.getBoundingClientRect().x,y:e.getBoundingClientRect().y,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}:null;return {innerHeight,innerWidth,viewport:rect(document.querySelector('.viewport')),space:{rect:rect(document.querySelector('.space')),transform:document.querySelector('.space')?getComputedStyle(document.querySelector('.space')).transform:null},nodes:[...document.querySelectorAll('.sq')].map(e=>({name:e.querySelector('.name')?.textContent||e.className,rect:rect(e)}))}})()`), null, 2))
+      if(!visualFixture) await capture(main, 'organization')
       if (!await evaluate(`Boolean(document.querySelector('button[title="App settings"]'))`)) {
         assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true, 'Active organization menu must be available')
         await evaluate(`document.querySelector('header.orgbar button.iconbtn').click();true`)
