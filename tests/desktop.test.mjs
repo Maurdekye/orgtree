@@ -51,10 +51,14 @@ test('auth covers HTTP WS assets and strips credentials on all other destination
 test('harness detection has positive fixture and never executes it', () => {
   const name = process.platform === 'win32' ? 'codex.cmd' : 'codex'
   fs.writeFileSync(path.join(temp, name), 'must never execute')
-  const rows = detectHarnesses(temp)
+  const rows = detectHarnesses(temp, {})
   assert.equal(rows.find(r => r.id === 'codex').detected, true)
   assert.equal(rows.find(r => r.id === 'claude').detected, false)
   assert.equal(rows.length, 3)
+  assert.equal(rows.find(r => r.id === 'antigravity').detected, false)
+  fs.writeFileSync(path.join(temp, process.platform === 'win32' ? 'agy.exe' : 'agy'), 'presence only')
+  assert.equal(detectHarnesses(temp, {}).find(r => r.id === 'antigravity').detected, true, 'actual AGY executable name')
+  assert.equal(detectHarnesses('', { antigravity: path.join(temp, name) }).find(r => r.id === 'antigravity').detected, true, 'known native install location outside PATH')
 })
 
 test('native notification defaults are attention-only, with bounded validated identity dedup', () => {
