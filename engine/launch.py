@@ -128,9 +128,17 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 
 def main() -> None:
     app, _token, data, port, stopping = load_app()
+    # The v2 loopback hub is a sibling service, not an alternate API. Start it
+    # only after the explicit root has been validated and the real API loaded;
+    # shutdown is idempotent and always runs even when uvicorn exits early.
+    from engine.hub import HubService, discover_hub
+    hub = HubService(data)
+    hub_ready = hub.start()
+    discover_hub(data)
     import uvicorn  # noqa: PLC0415
     print(json.dumps({"type": "ready", "protocol": 1, "port": port,
-                      "pid": os.getpid(), "dataRootId": data_root_id(data)},
+                      "pid": os.getpid(), "dataRootId": data_root_id(data),
+                      "hubPort": hub_ready.port},
                      separators=(",", ":")), flush=True)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
                                            access_log=False))
@@ -141,7 +149,10 @@ def main() -> None:
                 server.should_exit = True
             await asyncio.sleep(0.05)
         await task
-    asyncio.run(serve())
+    try:
+        asyncio.run(serve())
+    finally:
+        hub.stop()
 
 
 if __name__ == "__main__":
