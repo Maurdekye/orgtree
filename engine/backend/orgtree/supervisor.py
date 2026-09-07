@@ -2665,7 +2665,7 @@ def resolve_chat_event(org: Org, nid: str, ref: Mapping[str, Any]
         raise LedgerError("source_event_ref.eventId is required")
     if event_id.startswith("reply_"):
         from . import reply_events
-        retained = reply_events.lookup(str(org.d['slug']), nid, generation, event_id)
+        retained = reply_events.lookup(str(org.d['slug']), nid, generation, event_id, reply_events.incarnation(org,nid))
         if retained is not None:
             return ({"org": str(org.d['slug']), "agent": nid,
                      "generation": generation, "eventId": event_id}, retained)
@@ -2895,6 +2895,7 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
     from . import reply_events
     with store.DOC_LOCK:
         org = store.load_org(slug)
+        reply_events.incarnation(org,nid)
     st = state(slug, nid)
     group = 'draft' if kind in {'draft', 'delta'} else 'thinking' if kind in {'thinking','thinking_start','thought'} else kind
     epoch = draft_epoch(slug, nid)

@@ -14,6 +14,32 @@ from orgtree import ledger, reply_events, supervisor, store
 
 
 class ReplySnapshotsTests(unittest.TestCase):
+    def test_removal_route_and_recreated_org_cannot_resolve_old_quote(self):
+        from fastapi.testclient import TestClient
+        from engine.launch import TokenGate
+        from orgtree import api
+        org = store.create_org('recreated')
+        org.hire(ledger.USER,None,'haiku',0,'agent')
+        store.save_org(org)
+        eid = reply_events.remember(org,'agent','original','row','private quote')
+        ref = {'org':'recreated','agent':'agent','generation':0,'eventId':eid}
+        store.delete_org('recreated')
+        replacement = store.create_org('recreated')
+        replacement.hire(ledger.USER,None,'haiku',0,'agent')
+        store.save_org(replacement)
+        with patch.object(supervisor,'read_chat',return_value={'messages':[]}):
+            with self.assertRaises(ledger.LedgerError): supervisor.resolve_chat_event(replacement,'agent',ref)
+        new = reply_events.remember(replacement,'agent','new','row','new private quote')
+        client = TestClient(TokenGate(api.app,'operator'))
+        route = '/api/orgs/recreated/nodes/agent/reply-events'
+        self.assertEqual(client.delete(route).status_code,401)
+        result = client.delete(route,headers={'X-Orgtree-Desktop-Token':'operator'})
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertGreaterEqual(result.json()['removed'],1)
+        with patch.object(supervisor,'read_chat',return_value={'messages':[]}):
+            with self.assertRaises(ledger.LedgerError): supervisor.resolve_chat_event(store.load_org('recreated'),'agent',{**ref,'eventId':new})
+        store._POOL.close_all('recreated')
+
     def test_transient_delta_ids_resolve_exact_revision_after_sweep(self):
         org = store.create_org('stream-fixture')
         org.hire(ledger.USER, None, 'haiku', 0, 'agent')
@@ -48,8 +74,8 @@ class ReplySnapshotsTests(unittest.TestCase):
                 self.assertEqual(supervisor.resolve_chat_event(org,'agent',ref)[1], expected)
             with self.assertRaises(ledger.LedgerError):
                 supervisor.resolve_chat_event(org,'agent',{**ref,'eventId':'reply_forged'})
-        self.assertIsNone(reply_events.lookup('different','agent',0,ids[0]))
-        self.assertIsNone(reply_events.lookup('snapshot','different',0,ids[0]))
+        self.assertIsNone(reply_events.lookup('different','agent',0,ids[0],reply_events.incarnation(org,'agent')))
+        self.assertIsNone(reply_events.lookup('snapshot','different',0,ids[0],reply_events.incarnation(org,'agent')))
 
     def test_updated_event_keeps_old_snapshot_and_issues_new_reference(self):
         org = ledger.Org.create('versions')
@@ -57,7 +83,7 @@ class ReplySnapshotsTests(unittest.TestCase):
         old = reply_events.remember(org,'agent','stream-id','row','partial')
         new = reply_events.remember(org,'agent','stream-id','row','complete')
         self.assertNotEqual(old,new)
-        self.assertEqual(reply_events.lookup('versions','agent',0,old),'partial')
-        self.assertEqual(reply_events.lookup('versions','agent',0,new),'complete')
+        self.assertEqual(reply_events.lookup('versions','agent',0,old,reply_events.incarnation(org,'agent')),'partial')
+        self.assertEqual(reply_events.lookup('versions','agent',0,new,reply_events.incarnation(org,'agent')),'complete')
 
 if __name__ == '__main__': unittest.main()

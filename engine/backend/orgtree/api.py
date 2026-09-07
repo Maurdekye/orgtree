@@ -8919,6 +8919,17 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     return out
 
 
+@app.delete("/api/orgs/{slug}/nodes/{nid}/reply-events")
+def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
+    """Explicit operator removal of retained reply quotes for one agent."""
+    from . import reply_events
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        org.node(nid)
+        count = reply_events.clear(org, nid)
+    return {'removed':count}
+
+
 @app.delete("/api/orgs/{slug}/nodes/{nid}/mail/{mid}")
 async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
     """Parity №17: retract one UNDRAINED mail entry — the only correction
