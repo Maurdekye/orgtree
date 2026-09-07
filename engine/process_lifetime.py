@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import queue
-import signal
 import subprocess
 import sys
 import threading
@@ -19,13 +18,17 @@ import time
 _guardian: subprocess.Popen | None = None
 
 
-def arm_process_lifetime(root: str | Path, parent_pid: int | None = None) -> int:
+def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, timeout: float = 15) -> int:
     """Return guardian PID after exclusive root and process ownership is proven.
 
     No explicit close is needed: normal engine exit and parent death both trigger
     cleanup. Do not kill the guardian to detach it; doing so kills its owned tree.
     """
     global _guardian
+    if os.name != "nt":
+        raise RuntimeError("process ownership is currently supported on Windows only; a native platform adapter is required")
+    if timeout <= 0:
+        raise ValueError("guardian timeout must be positive")
     if _guardian is not None:
         raise RuntimeError("engine lifetime is already armed")
     candidate = Path(root)
@@ -34,35 +37,70 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None) -> int
     candidate = candidate.resolve(strict=True)
     if parent_pid is not None and (not isinstance(parent_pid, int) or parent_pid <= 0):
         raise RuntimeError("invalid desktop parent PID")
-    if os.name != "nt" and os.getpgid(0) != os.getpid():
-        os.setsid()
     # Only platform plumbing is inherited, never the desktop/provider credentials.
     allowed = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "SYSTEMDRIVE", "COMSPEC"}
     env = {k: v for k, v in os.environ.items() if k.upper() in allowed}
     env["ORGTREE_DATA"] = str(candidate)
     args = [sys.executable, str(Path(__file__).resolve()), "--watch", str(candidate), str(os.getpid()), str(parent_pid or 0)]
-    process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+    process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, env=env,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                                start_new_session=os.name != "nt")
     result: queue.Queue = queue.Queue()
     def receive():
         assert process.stdout is not None
-        result.put(process.stdout.readline(8192))
+        while True:
+            line = process.stdout.readline(8192)
+            result.put(line)
+            if not line:
+                return
     threading.Thread(target=receive, daemon=True).start()
+    def response():
+        deadline = time.monotonic() + timeout
+        seen = 0
+        while True:
+            line = result.get(timeout=max(0, deadline - time.monotonic()))
+            if not line:
+                raise RuntimeError("guardian closed its startup channel")
+            seen += len(line)
+            if seen > 65536:
+                raise RuntimeError("guardian startup channel exceeded size limit")
+            try:
+                value = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if isinstance(value, dict) and (value.get("guardian") == process.pid or "error" in value):
+                return value
+    committed = False
     try:
-        line = result.get(timeout=15)
-        reply = json.loads(line)
+        reply = response()
+        if reply.get("prepared") is not True or reply.get("guardian") != process.pid:
+            raise RuntimeError(reply.get("error", "lifetime guardian refused preparation"))
+        # Until this acknowledgment the Job does not contain the engine, so a
+        # slow preparation can be cancelled without killing its caller.
+        committed = True
+        _guardian = process
+        assert process.stdin is not None
+        process.stdin.write(b"arm\n")
+        process.stdin.flush()
+        process.stdin.close()
+        reply = response()
         if reply.get("ready") is not True or reply.get("guardian") != process.pid:
             raise RuntimeError(reply.get("error", "lifetime guardian refused startup"))
     except Exception as exc:
-        if process.poll() is None:
-            process.kill()
-        process.wait(timeout=5)
+        if not committed:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+        # After acknowledgment, never kill the guardian to report a timeout:
+        # its Job may already own us. The launcher receives this startup error
+        # and exits nonzero, while the guardian retains tree/root ownership.
         raise RuntimeError(f"engine lifetime unavailable: {exc}") from exc
     finally:
-        if process.stdout is not None:
-            process.stdout.close()
+        if not committed:
+            for pipe in (process.stdin, process.stdout):
+                if pipe is not None:
+                    pipe.close()
     _guardian = process
     return process.pid
 
@@ -86,7 +124,7 @@ class RootLock:
                 fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             self.file.close()
-            raise RuntimeError("another engine owns this data root") from exc
+            raise RuntimeError("another engine owns this data root; inspect .desktop-engine-status.json for pending cleanup") from exc
 
     def close(self):
         self.file.close()
@@ -130,6 +168,7 @@ class WindowsTree:
         self.Accounting = Accounting
         self.job = None
         self.handles = []
+        self.armed = False
         try:
             # Open process handles first, pinning identities rather than polling reusable PIDs.
             engine = k.OpenProcess(0x00100000 | 0x0100 | 0x0001, False, engine_pid)
@@ -148,11 +187,14 @@ class WindowsTree:
             info.basic.flags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if not k.SetInformationJobObject(self.job, 9, ctypes.byref(info), ctypes.sizeof(info)):
                 raise ctypes.WinError(ctypes.get_last_error())
-            if not k.AssignProcessToJobObject(self.job, engine):
-                raise ctypes.WinError(ctypes.get_last_error())
         except Exception:
             self.close()
             raise
+
+    def arm(self):
+        if not self.k.AssignProcessToJobObject(self.job, self.handles[0]):
+            raise ctypes.WinError(ctypes.get_last_error())
+        self.armed = True
 
     def wait(self):
         from ctypes import wintypes as w
@@ -161,16 +203,21 @@ class WindowsTree:
         if result == 0xFFFFFFFF:
             raise ctypes.WinError(ctypes.get_last_error())
 
-    def terminate(self):
-        if not self.k.TerminateJobObject(self.job, 0):
+    def terminate(self, code=0, stalled=None):
+        if not self.k.TerminateJobObject(self.job, code):
             raise ctypes.WinError(ctypes.get_last_error())
         # Keep root ownership while Windows is completing descendant termination.
+        deadline = time.monotonic() + 10
         while True:
             info = self.Accounting()
             if not self.k.QueryInformationJobObject(self.job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
                 raise ctypes.WinError(ctypes.get_last_error())
             if not info.active:
                 return
+            if time.monotonic() >= deadline:
+                if stalled:
+                    stalled(info.active)
+                deadline = time.monotonic() + 10
             time.sleep(0.02)
 
     def close(self):
@@ -182,46 +229,27 @@ class WindowsTree:
         self.handles = []
 
 
-class PosixTree:
-    def __init__(self, engine_pid: int, parent_pid: int):
-        self.engine, self.parent = engine_pid, parent_pid
-        if os.getpgid(engine_pid) != engine_pid:
-            raise RuntimeError("engine does not own its process group")
-
-    def wait(self):
-        while True:
-            for pid in (self.engine, self.parent):
-                if not pid:
-                    continue
-                try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    return
-            if os.getppid() != self.engine:
-                return
-            time.sleep(0.1)
-
-    def terminate(self):
-        try:
-            os.killpg(self.engine, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-
-    def close(self):
-        pass
-
-
 def watch(root: Path, engine: int, parent: int):
     lock = tree = None
     ready = False
     try:
         lock = RootLock(root)
-        tree = WindowsTree(engine, parent) if os.name == "nt" else PosixTree(engine, parent)
+        if os.name != "nt":
+            raise RuntimeError("no native process ownership adapter for this platform")
+        tree = WindowsTree(engine, parent)
+        print(json.dumps({"prepared": True, "guardian": os.getpid()}), flush=True)
+        if sys.stdin.readline(16).strip() != "arm":
+            raise RuntimeError("engine did not acknowledge guardian preparation")
+        tree.arm()
         print(json.dumps({"ready": True, "guardian": os.getpid()}), flush=True)
         ready = True
         tree.wait()
-        tree.terminate()
+        tree.terminate(stalled=lambda active: (root / ".desktop-engine-status.json").write_text(
+            json.dumps({"state": "termination_pending", "active": active, "guardian": os.getpid(),
+                        "message": "Windows has not completed process termination; root lock remains held", "at": time.time()}), encoding="utf-8"))
     except Exception as exc:
+        if tree and tree.armed:
+            tree.terminate(70)
         if not ready:
             print(json.dumps({"error": str(exc)}), flush=True)
         raise
