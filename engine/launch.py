@@ -43,19 +43,40 @@ def data_root_id(root: Path) -> str:
     return str(root.resolve())
 
 
-def _port() -> int:
+def _port(data: Path) -> int:
     raw = os.environ.get("ORGTREE_V2_PORT", "0").strip()
     try:
         requested = int(raw or "0")
     except ValueError as exc:
         raise RuntimeError(f"ORGTREE_V2_PORT is not an integer: {raw}") from exc
+    config = data / "engine-port.json"
     if requested:
         if not 1 <= requested <= 65535:
             raise RuntimeError("ORGTREE_V2_PORT must be between 1 and 65535")
-        return requested
+        port = requested
+    elif config.exists():
+        try:
+            saved = json.loads(config.read_text(encoding="utf-8"))
+            port = int(saved.get("port"))
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            raise RuntimeError(f"invalid persisted engine port: {config}") from exc
+        if not 1 <= port <= 65535:
+            raise RuntimeError(f"invalid persisted engine port: {port}")
+    else:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = int(probe.getsockname()[1])
+        temporary = config.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"port": port}) + "\n", encoding="utf-8")
+        os.replace(temporary, config)
+    # A stored port belongs to this fresh engine only; refuse a collision
+    # instead of silently changing the UI origin or attaching to a listener.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            raise RuntimeError(f"engine port {port} is occupied") from exc
+    return port
 
 
 class TokenGate:
@@ -123,7 +144,7 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     from orgtree import api  # noqa: PLC0415  (import must follow validation)
     stopping = {"value": False}
     _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
-    return TokenGate(api.app, token), token, data, _port(), stopping
+    return TokenGate(api.app, token), token, data, _port(data), stopping
 
 
 def main() -> None:

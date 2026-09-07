@@ -1,9 +1,10 @@
 import os
+import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from engine.launch import data_root_id, validate_data_root
+from engine.launch import _port, data_root_id, validate_data_root
 
 
 class EngineLaunchTests(unittest.TestCase):
@@ -18,6 +19,13 @@ class EngineLaunchTests(unittest.TestCase):
             os.environ["ORGTREE_V1_ROOT"] = root
             with self.assertRaises(RuntimeError):
                 validate_data_root(Path(root) / "missing")
+
+    def test_port_is_persisted_and_reused(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            first = _port(path)
+            self.assertEqual(_port(path), first)
+            self.assertEqual(json.loads((path / "engine-port.json").read_text())["port"], first)
 
 
 if __name__ == "__main__":
