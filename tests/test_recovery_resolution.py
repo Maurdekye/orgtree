@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import tempfile
+import json
+import uuid
 import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -15,10 +17,35 @@ app,*_=load_app()
 from orgtree import store,ledger,supervisor,desktop_recovery as recovery
 
 def tearDownModule():
-    for slug in ('locked','unknown','resume-route'): store._POOL.close_all(slug)
+    for slug in ('locked','unknown','resume-route','native-ready'): store._POOL.close_all(slug)
     root.cleanup()
 
 class ResolutionTests(unittest.TestCase):
+    def test_actual_native_clone_lookup_and_resume_argv(self):
+        from orgtree import desktop_native
+        org=store.create_org('native-ready'); org.hire(ledger.USER,None,'haiku',0,'agent')
+        source_sid=org.node('agent')['session_id']
+        source=Path(root.name)/'native-source.jsonl'
+        source.write_text(json.dumps({'type':'user','uuid':str(uuid.uuid4()),'parentUuid':None,
+            'sessionId':source_sid,'message':{'role':'user','content':'native context'}})+'\n',encoding='utf-8')
+        native=desktop_native.prepare(Path(root.name),data,'native-ready','agent',org.node('agent'),
+            {'sessions':{'native-ready/agent':str(source)}},data/'imports'/'native-ready')
+        self.assertEqual(native['status'],'ready',native)
+        org.node('agent')['session_id']=native['session_id']
+        org.node('agent')['desktop_import']={'native_continuity':native}
+        store.save_org(org)
+        path=desktop_native.native_session_path(org,'agent')
+        self.assertIsNone(supervisor._native_context_hold(org,'agent'))
+        self.assertEqual(supervisor.transcript_path(native['session_id']),path)
+        self.assertEqual(supervisor.transcript_path_for_node(org,'agent'),path)
+        with patch.object(supervisor,'_legacy_transcript_evidence',return_value={}):
+            self.assertEqual(supervisor._transcript_evidence(org)[native['session_id']],path)
+        with patch.object(supervisor,'claude_model_for',return_value='haiku'):
+            argv=supervisor._build_cmd(org,'agent',write_ident=False)
+        self.assertEqual(argv[argv.index('--resume')+1],path)
+        self.assertNotIn('--session-id',argv)
+        self.assertNotIn('--fork-session',argv)
+
     def test_resume_route_preserves_native_hold_with_ordinary_positive_control(self):
         org=store.create_org('resume-route')
         for nid in ('imported','ordinary'):
@@ -55,6 +82,29 @@ class ResolutionTests(unittest.TestCase):
         saved=store.load_org('resume-route')
         self.assertEqual(saved.node('imported')['inflight']['text'],'queued retained work')
         self.assertFalse(supervisor.state('resume-route','imported')['busy'])
+        st=supervisor.state('resume-route','imported')
+        st['queue']=[{'text':'third carrier'}]
+        with patch.object(supervisor,'_cancel_working_cache'), \
+             patch.object(supervisor,'_note_working_activity'), \
+             patch.object(supervisor,'_hold_for_deploy'), \
+             patch.object(supervisor,'_run_one_turn',side_effect=AssertionError('provider must not run')):
+            supervisor._run_turn('resume-route','imported',{'text':'second carrier','view':'second view'})
+        self.assertEqual([c['text'] for c in st['queue']],['second carrier','third carrier'])
+        self.assertEqual(st['queue'][0]['view'],'second view')
+        self.assertEqual(store.load_org('resume-route').node('imported')['inflight']['text'],'queued retained work')
+        retained=store.load_org('resume-route').node('imported')['native_held_carriers']
+        self.assertEqual([(c['text'],c['view']) for c in retained],[('second carrier','second view')])
+        # A replacement process has no queue: the next explicitly admitted
+        # original turn restores the retained carrier exactly once.
+        st['queue']=[]
+        with patch.object(supervisor,'_cancel_working_cache'), \
+             patch.object(supervisor,'_note_working_activity'), \
+             patch.object(supervisor,'_hold_for_deploy'), \
+             patch.object(supervisor,'_native_context_hold',return_value=None), \
+             patch.object(supervisor,'_run_one_turn',side_effect=RuntimeError('stop before provider')):
+            with self.assertRaises(RuntimeError):
+                supervisor._run_turn('resume-route','imported',{'text':'original resumed'})
+        self.assertEqual([c['text'] for c in st['queue']],['second carrier'])
 
     def seed(self,slug):
         org=store.create_org(slug)

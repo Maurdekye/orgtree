@@ -10643,13 +10643,35 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
             native_reason = _native_context_hold(current_org,nid)
             if native_reason:
                 carrier = nxt if isinstance(nxt,dict) else {'text':nxt}
+                already_retained = bool(current_org.node(nid).get('inflight'))
+                if already_retained:
+                    carrier = dict(carrier)
+                    carrier.setdefault('_native_hold_id',uuid.uuid4().hex)
+                    held = current_org.node(nid).setdefault('native_held_carriers',[])
+                    if not any(c.get('_native_hold_id') == carrier['_native_hold_id'] for c in held):
+                        held.append(carrier)
                 current_org.node(nid).setdefault('inflight',{
                     'text':str(carrier.get('text') or ''),'view':str(carrier.get('view') or '')})
                 store.save_org(current_org)
                 with _state_lock:
+                    if already_retained:
+                        if not any(isinstance(c,dict) and c.get('_native_hold_id') == carrier['_native_hold_id'] for c in st['queue']):
+                            st['queue'].insert(0,carrier)
                     st['busy'] = False
                     st['last_error'] = native_reason
                 return
+            # Restore held carriers once after a restart, preserving the
+            # original in-flight turn first. A carrier's stable marker avoids
+            # adding it twice when the same process still owns its queue.
+            held = current_org.node(nid).get('native_held_carriers') or []
+            current_id = nxt.get('_native_hold_id') if isinstance(nxt,dict) else None
+            with _state_lock:
+                queued_ids = {c.get('_native_hold_id') for c in st['queue'] if isinstance(c,dict)}
+                st['queue'].extend(dict(c) for c in held if c.get('_native_hold_id') not in queued_ids and c.get('_native_hold_id') != current_id)
+            if current_id:
+                current_org.node(nid)['inflight'] = dict(nxt)
+                current_org.node(nid)['native_held_carriers'] = [c for c in held if c.get('_native_hold_id') != current_id]
+                store.save_org(current_org)
         carrier_probe_token = _carrier_limit_probe_token(nxt)
         # DO NOT WAKE AT ALL, rather than wake quietly: a mail pointer whose
         # box is already empty is dropped BEFORE the CLI is launched, so it
