@@ -61,6 +61,51 @@ class NativeDependencyTests(fixtures.DesktopImportTests):
         with self.assertRaisesRegex(native.NativeHeld, "Nested"):
             copy_outputs(path, path.stem, rows, self.dest)
 
+    def test_flat_subagent_native_chain_and_parent_references_are_independent(self):
+        import copy
+        doc, path, sources, rows, output = self.output_fixture()
+        child = path.parent / path.stem / "subagents/agent-fixture.jsonl"
+        child.parent.mkdir()
+        subrows = copy.deepcopy(rows)
+        for row in subrows:
+            row["agentId"] = "fixture"
+            row["isSidechain"] = True
+        child.write_text("".join(json.dumps(row) + "\n" for row in subrows), encoding="utf-8")
+        rows[-1]["message"]["content"][0]["content"] += "\nChild transcript: " + str(child) + "\n"
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        before = fixtures.fingerprint(self.source)
+        imp.copy_import(str(self.source), ["acme"], acknowledge_duplicate_work=True,
+                        on_imported=self.resumed.append, native_sources=sources)
+        copied = self.read()
+        clone = Path(native.native_session_path(copied, "worker"))
+        parent_sid = copied["nodes"]["worker"]["session_id"]
+        cloned_child = clone.parent / parent_sid / "subagents/agent-fixture.jsonl"
+        loaded = [json.loads(line) for line in cloned_child.read_text().splitlines()]
+        self.assertTrue(all(row["sessionId"] == parent_sid for row in loaded))
+        self.assertTrue(all(row["agentId"] == "fixture" and row["isSidechain"] for row in loaded))
+        self.assertEqual([row["uuid"] for row in loaded], [row["uuid"] for row in subrows])
+        self.assertTrue(Path(loaded[-1]["toolUseResult"]["persistedOutputPath"]).is_relative_to(self.dest))
+        parent_text = json.loads(clone.read_text().splitlines()[-1])["message"]["content"][0]["content"]
+        self.assertIn(str(cloned_child), parent_text)
+        self.assertNotIn(str(child), parent_text)
+        cloned_child.write_bytes(cloned_child.read_bytes() + b'{"destination":"only"}\n')
+        self.assertEqual(fixtures.fingerprint(self.source), before)
+
+    def test_subagent_wrong_identity_and_source_parent_remain_held(self):
+        doc, path, sources, rows, output = self.output_fixture()
+        child = path.parent / path.stem / "subagents/agent-fixture.jsonl"
+        child.parent.mkdir()
+        for row in rows:
+            row.update(agentId="other", isSidechain=True)
+        child.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        with self.assertRaisesRegex(native.NativeHeld, "identity"):
+            copy_outputs(path, path.stem, rows, self.dest / str(uuid.uuid4()))
+        for row in rows:
+            row.update(agentId="fixture", sessionId=str(uuid.uuid4()))
+        child.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        with self.assertRaisesRegex(native.NativeHeld, "native conversation"):
+            copy_outputs(path, path.stem, rows, self.dest / str(uuid.uuid4()))
+
 
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeDependencyTests.__dict__:

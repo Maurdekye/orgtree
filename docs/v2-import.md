@@ -160,12 +160,19 @@ inside the selected Claude session's `tool-results` directory are copied
 with stable-source checks into the independent session directory. Explicit
 native tool-output paths and persisted-output text are rebound to those
 copied files; unrelated message text is preserved. Missing or mixed external
-references, nested directories, subagent sessions, file-history backups and
+references, nested directories, unknown subagent metadata, file-history backups and
 special worktree/remote layouts remain explicitly held until their independent
 restoration is verified. These held layouts are unfinished coverage.
 The Claude parser/selection/output-formatter probe uses extracted installed
 functions and a synthetic filesystem adapter; it is component evidence,
 not a full CLI or provider-turn proof.
+Flat `subagents/agent-<id>.jsonl` native sidechains are validated and copied
+under the new parent session directory. Their agent IDs and message UUID/parent
+chains are preserved; parent session identity, runtime cwd and explicit copied
+dependency references are rebound. The installed Claude subagent path/listing
+functions use the explicit resume directory and new parent ID; a component
+probe verifies discovery and native chain traversal of the copied child.
+Unknown filenames, mismatched agent/session identities and nested layouts hold.
 `retire_native_binding(org,nid,predecessor)` permits a later legitimate
 lineage transition only after checking the actual archived predecessor and
 generation/session relation. Compacted successors also need a real native
