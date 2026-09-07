@@ -69,6 +69,7 @@ else {
   }
   const maintenance = new MaintenanceController({
     ack: (id, outcome) => engine.acknowledgeMaintenance(id, outcome),
+    failure: id => engine.reportMaintenanceFailure(id),
     restart: async () => {
       if (quitting) return
       // Electron's relaunch helper is outside the Python Job, as is the updater.
@@ -87,8 +88,15 @@ else {
         return result.updateInfo.version === app.getVersion() ? 'up-to-date' : 'unavailable'
       } catch { return 'unavailable' }
     },
-    report: state => broadcast({ type: 'update', data: { state } }),
-  })
+    report: state => {
+      broadcast({ type: 'update', data: { state } })
+      if (state === 'failed' || state === 'failure-record-unavailable') {
+        void dialog.showMessageBox({ type: 'error', message: 'Orgtree maintenance did not complete.',
+          detail: state === 'failed' ? 'The request failed and will not be executed again automatically. Automatic update application is paused until a new update request. Reopen Orgtree if its engine stopped.'
+            : 'The maintenance failure could not be saved. Check the application data folder before requesting another restart or update.' }).catch(() => {})
+      }
+    },
+  }, path.join(app.getPath('userData'), 'maintenance-failures.json'))
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.
   app.on('web-contents-created', (_event, contents) => {
@@ -174,11 +182,11 @@ else {
       const refresh = async () => {
         if (quitting) return
         stats = await engine.stats(); rebuildTray()
-        if (stats?.maintenance) {
+        if (stats?.maintenance || maintenance.hasFailures()) {
           await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
           return
         }
-        if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying) {
+        if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
           await applyDownloadedUpdate()
         }
       }

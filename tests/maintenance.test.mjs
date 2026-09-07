@@ -16,6 +16,7 @@ function rig(overrides = {}) {
   const gate = new MaintenanceController({ ack: async (id, outcome) => { calls.push(['ack', id, outcome]); return true },
     restart: async () => calls.push(['restart']), apply: async () => calls.push(['apply']),
     check: async () => { calls.push(['check']); return 'up-to-date' },
+    failure: async id => { calls.push(['failure', id]); return true },
     report: state => calls.push(['report', state]), ...overrides })
   return { calls, gate }
 }
@@ -75,4 +76,65 @@ test('overlapping polls cannot acknowledge a request twice', async () => {
   await gate.tick(idle(), 60, false)
   release(); await first
   assert.deepEqual(calls, [['restart']])
+})
+
+test('throwing native restart and update release only the acknowledged request and never retry execution', async () => {
+  for (const action of ['restart', 'update']) {
+    let hold = null, executions = 0
+    const row = { ...request, id: `failed-${action}`, action }
+    const { gate, calls } = rig({
+      ack: async id => { hold = id; return true },
+      [action === 'restart' ? 'restart' : 'apply']: async () => { executions++; throw new Error('native failure') },
+      failure: async id => { assert.equal(id, row.id); assert.equal(hold, id); hold = null; return true },
+    })
+    await gate.tick(idle(row), 60, true)
+    assert.equal(executions, 1, 'native operation must actually have been attempted')
+    assert.equal(hold, null, 'failure releases the admission hold')
+    assert.deepEqual(calls, [['report', 'failed']])
+    assert.equal(gate.automaticUpdatesAllowed(), false)
+    await gate.tick(idle(row), 60, true)
+    assert.equal(executions, 1, 'uncertain execution cannot be repeated')
+  }
+})
+
+test('lost acknowledgment response resolves its possible hold without running the native operation', async () => {
+  let hold = null, released = 0
+  const { gate, calls } = rig({
+    ack: async id => { hold = id; throw new Error('response lost') },
+    failure: async id => { assert.equal(hold, id); hold = null; released++; return true },
+  })
+  await gate.tick(idle(), 60, false)
+  assert.equal(released, 1)
+  assert.equal(hold, null)
+  assert.deepEqual(calls, [['report', 'failed']], 'neither restart nor apply may run after uncertain acknowledgment')
+})
+
+test('unavailable failure reporting persists across restart and retries only the report, even while busy', async () => {
+  const failureFile = path.join(root, 'failed-maintenance.json')
+  let executions = 0, reports = 0
+  const callbacks = {
+    ack: async () => true,
+    restart: async () => { executions++; throw new Error('engine already stopped') },
+    apply: async () => { executions++ }, check: async () => 'up-to-date', report: () => {},
+    failure: async () => { reports++; return false },
+  }
+  const first = new MaintenanceController(callbacks, failureFile)
+  await first.tick(idle(), 60, false)
+  assert.equal(first.hasFailures(), true)
+  assert.deepEqual(JSON.parse(fs.readFileSync(failureFile)), { pending: ['r1'], automaticBlocked: true })
+  const restarted = new MaintenanceController({ ...callbacks,
+    failure: async id => { assert.equal(id, 'r1'); reports++; return true },
+  }, failureFile)
+  await restarted.tick({ idle: false }, 0, false)
+  assert.equal(reports, 2, 'recovery does not require the failed request to remain pending in status')
+  assert.equal(executions, 1)
+  assert.equal(restarted.hasFailures(), false)
+  assert.deepEqual(JSON.parse(fs.readFileSync(failureFile)), { pending: [], automaticBlocked: true })
+  await restarted.tick(idle(), 60, true)
+  assert.equal(executions, 1, 'a recovered failure must remain consumed')
+  const nextLaunch = new MaintenanceController(callbacks, failureFile)
+  assert.equal(nextLaunch.automaticUpdatesAllowed(), false, 'automatic application stays paused across launches')
+  await nextLaunch.tick(idle({ ...request, id: 'new-explicit-update', action: 'update' }), 60, true)
+  assert.equal(executions, 2, 'a new explicit request remains usable')
+  assert.equal(nextLaunch.automaticUpdatesAllowed(), true)
 })

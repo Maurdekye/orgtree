@@ -86,6 +86,17 @@ export class Engine extends EventEmitter {
       if (!response.ok) return false
       const result = await response.json() as { accepted?: boolean }
       return result.accepted === true
+    } catch { throw new Error('Maintenance acknowledgment could not be confirmed') }
+  }
+
+  async reportMaintenanceFailure(id: string): Promise<boolean> {
+    if (!this.endpoint) return false
+    try {
+      const response = await fetch(this.endpoint + '/api/desktop/maintenance/failure', { method: 'POST',
+        headers: { [TOKEN_HEADER]: this.credential, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }), signal: AbortSignal.timeout(4000), redirect: 'error' })
+      if (!response.ok) return false
+      return (await response.json() as { released?: boolean }).released === true
     } catch { return false }
   }
 
