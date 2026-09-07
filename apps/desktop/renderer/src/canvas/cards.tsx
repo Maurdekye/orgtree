@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { audienceAction, getCharters, saveKiosk, unstickNode } from '../api'
+import { audienceAction, getCharters, unstickNode } from '../api'
 import {
   CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, DocIcon,
@@ -91,9 +91,6 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
   pinnedIds, onShowPin }: UserNodeProps) {
-  // const extraction: the kiosk-credits narrowing must survive the commit
-  // closure below (a property check alone would not)
-  const kioskCredits = kiosk?.credits
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
   // other node's (NodeSquare's expandedHireEdge) — the eye has one static
   // edge (soleHire), so a plain boolean stands in for that per-edge map.
@@ -143,20 +140,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
           (the tip is a sibling — the fade mask would swallow a child).
           It stays rendered at switchboard focus (user ruling): anchored to
           the card's left edge, it glides outward as the square expands. */}
-      {kioskCredits
-        ? /* kiosk: the pool is FINITE — a fixed-size bar with per-child slabs,
-             exactly like an agent's, and (user spec 2026-07-31) draggable BY
-             THE ADMIN to adjust the org's total credit cap; the public
-             gateway never gets the handle (and the /kiosk endpoint it would
-             need is deny-listed anyway) */
-          <CreditBar seat={0} grant={kioskCredits} committed={stats.circ}
-            segments={kioskSegs ?? []} zoom={zoom} pxc={pxc} capMode
-            min={stats.circ}
-            onCommit={pub ? undefined : (delta) =>
-              saveKiosk(slug, { credits: kioskCredits + delta })
-                .then(() => toast?.([`kiosk credit cap: ${fmtCredits(kioskCredits + delta)}`]))
-                .catch((e: Error) => toast?.([`error: ${e.message}`]))} />
-        : <div className="cbar-inf-wrap">
+      <div className="cbar-inf-wrap">
             <div className="cbar-infinite" />
             <div className="cbar-tip">
               {/* fmtCredits: these three are SUMS of per-node holdings, so
@@ -166,7 +150,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
               <div>seats <b className="n-seat">{fmtCredits(stats.seats)}</b></div>
               <div>free <b className="n-free">{fmtCredits(stats.free)}</b></div>
             </div>
-          </div>}
+          </div>
       <svg className="eye" viewBox="0 0 48 26">
         <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
         <circle className="iris" cx="24" cy="13" r="6.5" />
