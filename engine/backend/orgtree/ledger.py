@@ -3593,7 +3593,18 @@ class Org:
         # breadcrumbs.md into its system prompt until a normal compaction
         # (which carries its own summary) clears the marker
         n["cheap_compacted"] = True
+        self._retire_native_import(nid, pred_id)
         return pred_id, old_sid
+
+    def _retire_native_import(self, nid: str, predecessor: str) -> None:
+        native = (self.node(nid).get("desktop_import") or {}).get("native_continuity") or {}
+        if native.get("status") not in {"ready", "transitioned"}:
+            return  # Missing/unvalidated imported context remains held.
+        from .desktop_native import retire_native_binding, NativeHeld
+        try:
+            retire_native_binding(self, nid, predecessor)
+        except NativeHeld as exc:
+            raise LedgerError(str(exc)) from exc
 
     def cheap_compact(self, actor: str, nid: str) -> dict[str, Any]:
         """FR-24 (user request 2026-08-10, ruled OPT-IN 2026-08-11; REWORKED
@@ -8854,6 +8865,7 @@ class Org:
         # advertising a capability its holder had no way to reach.
         self._notify_ev([nid], _cp("self"))
         self._log("compact_split", SYSTEM, {"node": nid, "predecessor": pred_id}, [])
+        self._retire_native_import(nid, pred_id)
         return pred_id
 
     def record_cli_compaction(self, nid: str,

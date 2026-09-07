@@ -246,12 +246,12 @@ class DesktopImportTests(unittest.TestCase):
                     pred = org.nodes["worker"]["predecessor"]
                 else:
                     sid = str(uuid.uuid4())
-                    pred = org.compact_split("worker", sid)
-                    with self.assertRaisesRegex(native.NativeHeld, "no validated"):
-                        native.retire_native_binding(org, "worker", pred)
+                    from engine.backend.orgtree.ledger import LedgerError
+                    with self.assertRaisesRegex(LedgerError, "no validated"):
+                        Org(copy.deepcopy(base)).compact_split("worker", sid)
                     # A real native successor file is required, not just the
                     # ledger SID change; patch only lookup to this fixture.
-                    old_path = Path(native.native_session_path(org, pred))
+                    old_path = Path(native.native_session_path(org, "worker"))
                     rows = [json.loads(v) for v in old_path.read_text().splitlines()]
                     for row in rows:
                         row["sessionId"] = sid
@@ -259,9 +259,8 @@ class DesktopImportTests(unittest.TestCase):
                     target.write_text("".join(json.dumps(r) + "\n" for r in rows))
                     from engine.backend.orgtree import supervisor
                     with patch.object(supervisor, "transcript_path", return_value=str(target)):
-                        self.assertTrue(native.retire_native_binding(org, "worker", pred))
-                if operation != "compact":
-                    self.assertTrue(native.retire_native_binding(org, "worker", pred))
+                        pred = org.compact_split("worker", sid)
+                self.assertEqual(org.nodes["worker"]["desktop_import"]["native_continuity"]["status"], "transitioned")
                 self.assertEqual(org.nodes[pred]["desktop_import"], original)
                 self.assertIsNone(native.native_hold_reason(org, "worker"))
                 self.assertIsNone(native.native_hold_reason(org, pred))
@@ -607,6 +606,7 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
         assert persisted.nodes[nid]['session_id'] != old_sid
         assert hashes() == before
         admitted.append((nid, text, kwargs))
+        return {'accepted':True,'queued':0}  # This recorder models admission, not native validation.
     payload.update(organizations=['acme'],acknowledge_duplicate_work=True)
     with patch.object(supervisor, 'send_message', side_effect=record):
         result = client.post('/api/desktop/import-v1',json=payload,headers=headers)
