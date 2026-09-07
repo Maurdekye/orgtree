@@ -219,5 +219,3 @@ assert len(client.get(url,params={'limit':9999}).json()['items'])<=100
 
 if __name__ == '__main__':
     unittest.main()
-
-
