@@ -8,6 +8,7 @@ pretends that a send succeeded merely because a local listener exists.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -208,7 +209,9 @@ class HubClient:
             row = con.execute("SELECT attempts FROM outbox WHERE id=?", (entry_id,)).fetchone()
             attempts = int(row["attempts"] if row else 0) + 1
             state = "dead_letter" if permanent and attempts >= 5 else "queued"
-            delay = min(30.0, 2.0 ** attempts) if permanent else 0.0
+            # Transport failures are the common offline case; avoid a hot
+            # retry loop while still keeping them retryable indefinitely.
+            delay = min(30.0, 2.0 ** attempts)
             con.execute("UPDATE outbox SET attempts=?,next_attempt=?,state=?,last_error=? WHERE id=?", (attempts, time.time() + delay, state, error[:500], entry_id))
             con.commit()
             return state
@@ -226,6 +229,16 @@ class HubClient:
             Path(attachments[0]["path"]).parent.rmdir() if attachments else None
         except OSError:
             pass
+
+    def _inbox_destination(self, message_id: str) -> Path:
+        """Return a private directory for a remote message.
+
+        Message IDs are sender-controlled protocol data.  Hashing them before
+        using them as a path component prevents traversal, drive-qualified
+        paths, and collisions with the inbox root itself.
+        """
+        safe_id = hashlib.sha256(message_id.encode("utf-8")).hexdigest()
+        return self.blob_root / "inbox" / safe_id
 
     def flush(self) -> list[dict[str, Any]]:
         delivered: list[dict[str, Any]] = []
@@ -256,7 +269,7 @@ class HubClient:
                 stored = dict(message)
                 local_attachments: list[dict[str, Any]] = []
                 failed_attachment = False
-                destination = self.blob_root / "inbox" / mid
+                destination = self._inbox_destination(mid)
                 used_names: set[str] = set()
                 for attachment in list(message.get("attachments") or []):
                     meta = dict(attachment)

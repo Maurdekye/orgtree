@@ -335,7 +335,10 @@ class _HubHandler(BaseHTTPRequestHandler):
             return
         token = secrets.token_urlsafe(32)
         with self.server.db() as con:
-            con.execute("INSERT OR REPLACE INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)", (peer_id, _fingerprint(token), bound_slug, _now()))
+            if con.execute("SELECT 1 FROM peers WHERE peer_id=?", (peer_id,)).fetchone():
+                self._error(409, "peer id already exists; choose a new id")
+                return
+            con.execute("INSERT INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)", (peer_id, _fingerprint(token), bound_slug, _now()))
             con.commit()
         self._send(200, {"peer_id": peer_id, "slug": bound_slug, "peer_token": token})
 
@@ -375,7 +378,7 @@ class _HubHandler(BaseHTTPRequestHandler):
                 self._error(422, "recipient is not registered")
                 return
             message_id = str(body.get("id") or secrets.token_hex(16))
-            if not re.fullmatch(r"[0-9A-Za-z._:-]{1,200}", message_id):
+            if not re.fullmatch(r"[0-9A-Za-z_-][0-9A-Za-z._-]{0,199}", message_id):
                 self._error(422, "malformed message id")
                 return
             attachment_ids = [str(x) for x in (body.get("attachments") or [])]
@@ -600,6 +603,9 @@ class HubService:
         temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
         os.replace(temporary, self.readiness_path)
         try:
+            # POSIX honors this as owner-only (0600). Windows ignores these
+            # permission bits, so callers must still treat the token as a
+            # private same-user credential.
             os.chmod(self.readiness_path, stat.S_IRUSR | stat.S_IWUSR)
         except OSError:
             pass

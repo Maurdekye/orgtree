@@ -14,12 +14,16 @@ finally:
     hub.stop()                  # removes readiness.json after shutdown
 ```
 
-The service owns `<v2-data-root>/hub/hub.sqlite3`, `blobs/`, and an atomic,
-owner-readable `readiness.json` containing a per-instance token. It has no UI,
-fixed public listener, Docker dependency, or access to the v1 data root.
+The service owns `<v2-data-root>/hub/hub.sqlite3`, `blobs/`, and an atomic
+`readiness.json` containing a per-instance token. POSIX hosts receive
+owner-only file mode; Windows callers must treat the token as a private
+same-user credential because `chmod` does not enforce ACLs there. It has no
+UI, fixed port, Docker dependency, or access to the v1 data root.
 Pass `host="0.0.0.0", advertise_host="<peer-address>"` only when an
 authenticated peer connection is intentionally configured; the default stays
-loopback. `HubClient` keeps a SQLite-backed offline spool in
+loopback. Explicit peer binding is plain HTTP, so public deployments must
+provide network/TLS protection outside this service. `HubClient` keeps a
+SQLite-backed offline spool in
 the caller's v2 root. Construct it as `HubClient(root, url, slug, secret,
 token)` for local access or with `peer_token=True` for a paired remote peer;
 it validates regular attachment paths, downloads inbound

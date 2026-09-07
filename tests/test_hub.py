@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -24,11 +25,18 @@ class HubIntegrationTests(unittest.TestCase):
             b = HubClient(root / "client-b", f"http://127.0.0.1:{readiness.port}", "org.b.bbbbbb", "secret-b", readiness.token)
             a.register("A")
             b.register("B")
+            unsafe_id = a.send(b.slug, "unsafe id", message_id="..")
+            self.assertEqual(unsafe_id["state"], "queued")
+            self.assertIn("malformed message id", unsafe_id["error"])
+            self.assertEqual(b._inbox_destination("..").parent.resolve(), (b.blob_root / "inbox").resolve())
             # net.py multiplexes all identities configured for one hub in a
             # single request.  Each identity must carry its own scoped peer
             # token; one token must not grant access to the other identity.
             peer_a = a.create_peer("peer-a", a.slug)
             peer_b = a.create_peer("peer-b", b.slug)
+            with self.assertRaises(Exception) as duplicate_peer:
+                a.create_peer("peer-a", a.slug)
+            self.assertEqual(getattr(duplicate_peer.exception, "status", None), 409)
             multi_headers = {
                 "Content-Type": "application/json",
                 "X-Org-Auth": f"{a.auth} {b.auth}",
@@ -55,7 +63,7 @@ class HubIntegrationTests(unittest.TestCase):
             with urlopen(multi_poll) as response:
                 self.assertEqual(json.loads(response.read())["messages"][0]["id"], "multiplexed-1")
             a._request("POST", "/api/ack", {"ids": ["multiplexed-1"]})
-            pairing = a.create_peer("peer-b", b.slug)
+            pairing = a.create_peer("peer-b-again", b.slug)
             self.assertEqual(pairing["slug"], b.slug)
             paired = HubClient(root / "client-paired", f"http://127.0.0.1:{readiness.port}", b.slug, "secret-b", pairing["peer_token"], peer_token=True)
             self.assertTrue(paired.roster()["roster"])
@@ -98,6 +106,7 @@ class HubIntegrationTests(unittest.TestCase):
             a.hub_url = f"http://127.0.0.1:{service.readiness.port}"
             b.hub_url = a.hub_url
             a.instance_token = b.instance_token = service.readiness.token
+            time.sleep(2.1)  # first offline retry is deliberately backoff-delayed
             self.assertEqual(len(a.flush()), 1)
             self.assertEqual(b.poll_once()[0]["id"], "message-2")
             service.stop()
