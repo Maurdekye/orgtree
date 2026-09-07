@@ -154,7 +154,7 @@ _status: dict[tuple[str, str], dict[str, Any]] = {}
 _status_lock = threading.Lock()
 _rosters: dict[str, list[dict[str, Any]]] = {}
 _hub_names: dict[str, str] = {}
-_hub_tokens: dict[str, tuple[str, str]] = {}
+_hub_tokens: dict[str, dict[str, str]] = {}
 # read receipts queued by _confirm_delivered (supervisor) until the sender
 # thread flushes them; restart loses at most a pending "read" — the far end
 # self-heals to "delivered", which is honest
@@ -363,7 +363,7 @@ def probe_peer(target: str) -> bool:
                 continue
             with _client() as c:
                 r = c.get(f"{addr}/api/roster",
-                          headers={credential[0]: credential[1]})
+                          headers=credential)
             if r.status_code != 200:
                 continue
             body = cast("dict[str, Any]", r.json() or {})
@@ -466,9 +466,8 @@ def _participants() -> dict[str, dict[str, Any]]:
             for h in hubs:
                 token = str(h.get("token") or h.get("peer_token") or "")
                 if token:
-                    header = ("X-Hub-Token" if str(h.get("id")) == LOCAL_HUB_ID
-                              else "X-Hub-Peer-Token")
-                    _hub_tokens[str(h["address"])] = (header, token)
+                    _hub_tokens[str(h["address"])] = _hub_headers(h, [(
+                        str(ident.get("slug") or ""), str(ident.get("secret") or ""))])
         if not ident.get("secret"):
             continue
         # RECONCILE per-hub state with the hub list (redteam second wave —
@@ -611,15 +610,29 @@ def _default_address() -> str:
             else DEFAULT_HUB_ADDRESS)
 
 
+def _local_tls_mounts() -> dict[str, Any]:
+    import ssl
+    import httpx
+    from urllib.parse import urlsplit
+    address = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").rstrip("/")
+    ca = os.environ.get("ORGTREE_V2_HUB_CA_FILE", "")
+    parsed = urlsplit(address)
+    if ca and parsed.scheme == "https" and parsed.hostname in {"127.0.0.1", "::1"}:
+        context = ssl.create_default_context(cafile=ca)
+        context.check_hostname = False  # exact owner loopback origin only; chain verification stays on
+        return {address: httpx.HTTPTransport(verify=context)}
+    return {}
+
+
 def _client() -> Any:
     import httpx
-    return httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0))
+    return httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), mounts=_local_tls_mounts())
 
 
 def _poll_client() -> Any:
     import httpx
     return httpx.Client(timeout=httpx.Timeout(POLL_WAIT_S + 10.0,
-                                              connect=5.0))
+                                              connect=5.0), mounts=_local_tls_mounts())
 
 
 def _auth_header(pairs: list[tuple[str, str]],
@@ -636,7 +649,7 @@ def _is_local_owner(hub: dict[str, Any]) -> bool:
     runtime = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").rstrip("/")
     parsed = urlsplit(address)
     return (str(hub.get("id")) == LOCAL_HUB_ID and bool(runtime)
-            and address == runtime and parsed.scheme == "http"
+            and address == runtime and parsed.scheme in {"http", "https"}
             and parsed.hostname in {"127.0.0.1", "::1"}
             and parsed.username is None and parsed.password is None)
 
@@ -1209,7 +1222,8 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
                         with _client() as c:
                             r = c.get(f"{addr}/api/attachments/{a['id']}",
                                       headers=_hub_headers(
-                                          h, [(p["net_slug"], p["secret"])]))
+                                          next((h for h in p["hubs"] if str(h["id"]) == str(hub_id)), {}),
+                                          [(p["net_slug"], p["secret"])]))
                         if r.status_code != 200:
                             raise RuntimeError(f"HTTP {r.status_code}")
                         name = os.path.basename(

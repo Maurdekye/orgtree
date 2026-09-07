@@ -1437,7 +1437,8 @@ def _hub_client_for(org: Any, *, address: str | None = None,
     if not hub_address or not owner_token:
         raise HTTPException(503, "embedded hub is not ready")
     return HubClient(store.DATA_ROOT, hub_address, str(ident["slug"]),
-                     str(ident["secret"]), owner_token, peer_token=peer_token)
+                     str(ident["secret"]), owner_token, peer_token=peer_token,
+                     ca_file=os.environ.get("ORGTREE_V2_HUB_CA_FILE") or None)
 
 
 @app.post("/api/orgs/{slug}/net/invitations")

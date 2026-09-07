@@ -22,6 +22,51 @@ def tearDownModule():
     _temp.cleanup()
 
 class HubAPITests(unittest.TestCase):
+    def test_tls_runtime_owner_client_and_sanitized_config(self):
+        from datetime import datetime, timedelta
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        from engine.hub_runtime import validate_config
+        with tempfile.TemporaryDirectory(prefix='v2-tls-') as folder:
+            root = Path(folder)
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'advertised.example')])
+            cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
+                    .not_valid_before(datetime.utcnow()-timedelta(minutes=1))
+                    .not_valid_after(datetime.utcnow()+timedelta(days=1))
+                    .sign(key, hashes.SHA256()))
+            cp, kp = root/'cert.pem', root/'key.pem'
+            cp.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+            kp.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
+            with self.assertRaises(ValueError):
+                validate_config({'enabled':True,'bind_host':'0.0.0.0','advertise_host':'host.example'})
+            runtime = HubRuntime(root)
+            runtime.start()
+            try:
+                status = runtime.configure({'version':1,'enabled':True,'bind_host':'127.0.0.1',
+                    'port':0,'advertise_host':'advertised.example','tls_certfile':str(cp),
+                    'tls_keyfile':str(kp),'tls_ca_file':str(cp)})
+                self.assertTrue(status['tls_configured'])
+                self.assertNotIn(str(kp), json.dumps(status))
+                address = os.environ['ORGTREE_V2_HUB_ADDRESS']
+                self.assertTrue(address.startswith('https://127.0.0.1:'))
+                from engine.hub import HubClient
+                owner = HubClient(root, address, 'tls.fixture', 'test-secret', runtime.ready.token, ca_file=cp)
+                owner.register()
+                headers = {'X-Hub-Token':runtime.ready.token, 'X-Org-Auth':'tls.fixture:test-secret'}
+                with net._client() as client:
+                    response = client.get(address+'/api/roster', headers=headers)
+                    self.assertEqual(response.status_code, 200)
+                with patch.dict(os.environ, {'ORGTREE_V2_HUB_CA_FILE':''}):
+                    with net._client() as client, self.assertRaises(Exception):
+                        client.get(address+'/api/roster',headers=headers)
+            finally:
+                runtime.stop()
+
     def test_runtime_config_and_actual_scoped_pairing(self):
         runtime = HubRuntime(_temp.name)
         runtime.start()
