@@ -21,6 +21,10 @@ class ReplySnapshotsTests(unittest.TestCase):
         first = supervisor.capture_reply_stream('stream-fixture','agent',{'kind':'delta','text':'hello'})
         second = supervisor.capture_reply_stream('stream-fixture','agent',{'kind':'delta','text':' world'})
         self.assertNotEqual(first['event_id'],second['event_id'])
+        self.assertEqual(second['reply_quote'], 'hello world')
+        polled = reply_events.annotate(org,'agent',{'transient':list(supervisor.state('stream-fixture','agent')['reply_transient'].values())})
+        self.assertEqual(polled['transient'][0]['event_id'],second['event_id'])
+        self.assertEqual(polled['transient'][0]['reply_quote'],second['reply_quote'])
         supervisor.state('stream-fixture','agent')['reply_transient'] = {}
         for payload, expected in ((first,'hello'),(second,'hello world')):
             ref = {'org':'stream-fixture','agent':'agent','generation':0,'eventId':payload['event_id']}

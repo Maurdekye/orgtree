@@ -56,6 +56,10 @@ def _annotate(org, nid, chat, connection):
             row = dict(original)
             source = row.get('event_id')
             if source:
+                if field == 'transient' and str(source).startswith('reply_'):
+                    row['reply_quote'] = row.get('text') or ''
+                    rows.append(row)
+                    continue
                 row['event_id'] = save(source, 'row', row.get('text') or row.get('body') or row.get('cmd_out'))
                 if row.get('thinking') is not None:
                     row['thinking_event_id'] = save(source, 'thinking', row['thinking'])

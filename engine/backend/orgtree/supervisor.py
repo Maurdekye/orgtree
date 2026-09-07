@@ -2911,7 +2911,7 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
         eid = reply_events.remember(org, nid, f'{epoch}:{group}', kind, text)
         rows[group] = {'kind':kind, 'role':'system' if kind in {'starting','error'} else 'assistant',
                        'text':text, 'event_id':eid}
-    return {**payload, 'event_id':eid}
+    return {**payload, 'event_id':eid, 'reply_quote':text}
 
 
 def _limit_cache_result_state(
