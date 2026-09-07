@@ -2679,7 +2679,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
         <button className="hud-eye" title="jump to the switchboard"
           onClick={() => centerOn(USER)}>
           <svg viewBox="0 0 48 26">
-            <ViewportPath viewport={visibleRect} d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
+            <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
             <circle className="iris" cx="24" cy="13" r="6.5" />
             <circle className="pupil" cx="24" cy="13" r="2.6" />
           </svg>

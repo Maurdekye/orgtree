@@ -100,6 +100,11 @@ test('quiet login defers restoring until manual show, then the same composer DOM
   Object.defineProperties(cw, { screenX: { value: 200 }, screenY: { value: 180 }, outerWidth: { value: 830 }, outerHeight: { value: 700 } })
   cw.focus = () => {}; cw.requestAnimationFrame = () => 1; cw.cancelAnimationFrame = () => {}
   const originalOpen = window.open
+  const previousRoute = window.location.pathname
+  const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = './assets/theme.css'
+  Object.defineProperty(stylesheet, 'sheet', { value: { href: new URL('/assets/theme.css', window.location.href).href }, configurable: true })
+  document.head.appendChild(stylesheet)
+  window.history.pushState(null, '', '/o/restored-org')
   let features = ''
   window.open = (_u, _n, f) => { features = f ?? ''; return cw }
   const originalObserver = globalThis.MutationObserver
@@ -118,6 +123,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     const input = cw.document.querySelector<HTMLInputElement>('input')!
     assert.ok(input, 'positive control: the child owns the real composer')
     assert.equal(input, initial)
+    assert.equal(cw.document.querySelector<HTMLLinkElement>('link[rel=stylesheet]')!.href, new URL('/assets/theme.css', window.location.href).href, 'loaded CSS URL stays anchored before the organization route change')
     assert.equal(input.value, 'draft and reply kept')
     assert.deepEqual(savedWindows()[0]!.restore, { document: 'doc-original' })
     assert.match(features, /left=200,top=180,width=830,height=700/)
@@ -125,7 +131,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     await inAct(async () => { back.click(); await flush(5) })
     assert.equal(v.el.querySelector('input'), input, 'same DOM node returns; no second composer')
     assert.equal(savedWindows()[0]!.open, false)
-  } finally { await v.unmount(); window.open = originalOpen; globalThis.MutationObserver = originalObserver; native(); child.window.close() }
+  } finally { await v.unmount(); window.open = originalOpen; globalThis.MutationObserver = originalObserver; stylesheet.remove(); window.history.replaceState(null, '', previousRoute); native(); child.window.close() }
 })
 
 test('pinned modal fades only over the focused desk; toggle, amount and non-overlap change real style', async () => {

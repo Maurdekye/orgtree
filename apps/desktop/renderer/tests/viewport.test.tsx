@@ -54,6 +54,7 @@ test('real graph removes offscreen cards and restores them on viewport resize', 
       right: size, bottom: size, toJSON: () => ({}) })
     await inAct(async () => { fireResize(viewport) })
     assert.equal(viewport.dataset.culling, 'active')
+    assert.ok(view.el.querySelector('.hud-eye path'), 'screen-space HUD artwork must never be culled using world coordinates')
     const culled = count()
     assert.ok(culled < initial, 'cards really leave the DOM outside the viewport')
     assert.ok(view.el.querySelector('.sq.user'), 'single eye remains for its outboard credit controls')

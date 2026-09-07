@@ -246,6 +246,13 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         for (const original of document.head.querySelectorAll('style, link[rel="stylesheet"]')) {
           const previous = clones.get(original)
           const copy = original.cloneNode(true) as Element
+          if (original.tagName === 'LINK') {
+            // A history route changes the resolution of a relative href even
+            // though the already-loaded stylesheet keeps its original URL.
+            // Clone that loaded URL, so /assets never becomes /o/assets.
+            const link = original as HTMLLinkElement
+            ;(copy as HTMLLinkElement).href = link.sheet?.href || link.href
+          }
           if (original.tagName === 'STYLE') {
             // Emotion and other CSS-in-JS writers use insertRule, which does
             // not change textContent and does not notify MutationObserver.
