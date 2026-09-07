@@ -2291,6 +2291,16 @@ class Org:
             rt_from = " ".join(str(reply_to.get("from") or "").split())[:64]
             if rt_from and rt_from != to:
                 entry["reply_to"]["from"] = rt_from
+            source_ref = reply_to.get("source_event_ref")
+            if isinstance(source_ref, dict):
+                entry["reply_to"]["source_event_ref"] = {
+                    "org": str(source_ref.get("org") or "")[:120],
+                    "agent": str(source_ref.get("agent") or "")[:120],
+                    "generation": str(source_ref.get("generation") or "")[:32],
+                    "eventId": str(source_ref.get("eventId") or "")[:160],
+                }
+                entry["reply_to"]["quoted_context"] = str(
+                    reply_to.get("quoted_context") or "")[:4000]
         box.setdefault(to, []).append(entry)
         # full-body archive for the node's inbox view (the event log keeps only
         # a gist) — capped per node

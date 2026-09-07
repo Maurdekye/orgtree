@@ -1284,7 +1284,9 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
         # thought line. The durable rows solved this with `seq`; this is the
         # same fix on the live side.
         st["live_n"] = n = int(st.get("live_n") or 0) + 1
-        rows.append({**payload, "at": now_iso(), "n": n})
+        rows.append({**payload, "at": now_iso(), "n": n,
+                     "event_id": (payload.get("event_id") or
+                                   f"live:{slug}:{nid}:{n}")})
         del rows[:-_LIVE_KEEP]
     # the claude and codex lanes reach the epoch through here, because their
     # text rows go out as live rows (their transcript may lag, so the row holds
@@ -2612,13 +2614,16 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
     out = copy.deepcopy(row)
     out.pop("_prompt_unresolved", None)
     out.pop("_prompt_raw", None)
+    out.pop("_source_id", None)
     return out
 
 
 def _stable_event_id(org: Org, nid: str, row: Mapping[str, Any]) -> str:
     """Stable server-owned identity for a chat row; never derive it from seq."""
     node = org.node(nid)
-    source = row.get("event_id") or row.get("id")
+    source = (row.get("event_id") or row.get("id") or
+              row.get("request_id") or row.get("requestId") or
+              row.get("_source_id"))
     if source:
         return str(source)
     payload = json.dumps({"org": org.d["slug"], "agent": nid,
@@ -2628,6 +2633,44 @@ def _stable_event_id(org: Org, nid: str, row: Mapping[str, Any]) -> str:
                          sort_keys=True, ensure_ascii=False,
                          separators=(",", ":"))
     return "evt_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def resolve_chat_event(org: Org, nid: str, ref: Mapping[str, Any]
+                       ) -> tuple[dict[str, Any], str]:
+    """Resolve a renderer reply reference against this node's source truth.
+
+    The client may quote text for display, but identity and quoted text come
+    from the server's durable/live projection.  The fallback source ordinal is
+    only used for legacy transcript records that carry no provider identity;
+    it is kept private and never exposed as ``seq``.
+    """
+    if not isinstance(ref, Mapping):
+        raise ledger_mod.LedgerError("source_event_ref must be an object")
+    if str(ref.get("org") or "") != str(org.d.get("slug") or ""):
+        raise ledger_mod.LedgerError("source_event_ref.org must be this org")
+    if str(ref.get("agent") or "") != nid:
+        raise ledger_mod.LedgerError("source_event_ref.agent must be this node")
+    try:
+        generation = int(ref.get("generation"))
+    except (TypeError, ValueError):
+        raise ledger_mod.LedgerError("source_event_ref.generation is required")
+    if generation != int(org.node(nid).get("generation") or 0):
+        raise ledger_mod.LedgerError("source_event_ref generation is stale")
+    event_id = str(ref.get("eventId") or "")
+    if not event_id:
+        raise ledger_mod.LedgerError("source_event_ref.eventId is required")
+    chat = read_chat(org, nid, last=None, hold_back=False)
+    rows = [*(chat.get("messages") or []), *(chat.get("live") or [])]
+    row = next((r for r in rows if str(r.get("event_id") or "") == event_id), None)
+    if row is None and event_id.startswith(f"mail:{org.d['slug']}:{nid}:"):
+        mid = event_id.rsplit(":", 1)[-1]
+        row = next((m for m in (org.d.get("mail") or {}).get(nid, [])
+                    if str(m.get("id") or "") == mid), None)
+    if row is None:
+        raise ledger_mod.LedgerError("source event is not present for this node")
+    text = str(row.get("text") or row.get("body") or row.get("cmd_out") or "")[:4000]
+    return ({"org": str(org.d["slug"]), "agent": nid,
+             "generation": generation, "eventId": event_id}, text)
 
 
 def _assemble_chat(org: Org, nid: str, last: int | None,
@@ -2678,9 +2721,10 @@ def _assemble_chat(org: Org, nid: str, last: int | None,
     seq0 = total - len(selected)
     messages = []
     for i, row in enumerate(selected):
+        event_id = _stable_event_id(org, nid, row)
         public = _public_row(row)
         public["seq"] = seq0 + i
-        public["event_id"] = _stable_event_id(org, nid, row)
+        public["event_id"] = event_id
         messages.append(public)
 
     # Whole-history evidence remains separate from the viewer's page. A held
@@ -27723,6 +27767,12 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
         msgs.append(mrow)
         if think_only and mid:
             prev_think = (len(msgs) - 1, mid)
+    # Legacy transcript records are not guaranteed to carry a provider id.
+    # Give each projected source row a private occurrence key so two
+    # byte-identical records cannot alias one reply target. This is never sent
+    # to clients and is distinct from the viewer's ``seq``.
+    for i, row in enumerate(msgs):
+        row.setdefault("_source_id", f"record:{i}")
     if _source_only:
         return {"out": out, "source": {
             "messages": msgs,

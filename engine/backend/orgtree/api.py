@@ -3459,6 +3459,13 @@ def node_message(slug: str, nid: str, body: Message,
     with store.DOC_LOCK:
         try:
             org = store.load_org(slug)
+            reply_meta: dict[str, Any] | None = None
+            if body.reply_to is not None:
+                raw_ref = body.reply_to.get("source_event_ref")
+                source_ref, quote = supervisor.resolve_chat_event(org, nid, raw_ref)
+                reply_meta = {"source_event_ref": source_ref,
+                              "quoted_context": quote,
+                              "gist": " ".join(quote.split())[:200]}
             if target is not None:
                 ref, extra = org.resolve_reply_target(target, nid)
                 # a literal per kind: the coverage scan (test_events_ledger §7)
@@ -3478,7 +3485,7 @@ def node_message(slug: str, nid: str, body: Message,
                                   reply_to=legacy_rt, missing=missing or None, ev=rev)
             else:
                 r = org.post_mail(USER, nid, body.text, attachments=metas or None,
-                                  reply_to=body.reply_to, missing=missing or None,
+                                  reply_to=reply_meta, missing=missing or None,
                                   typed=True)
             receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
             # 80 chars truncated most instructions mid-clause; the notice is a
@@ -8744,6 +8751,9 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
                             **({"attachments": m["attachments"]}  # type: ignore[typeddict-item]  # guard proves the key
                                if m.get("attachments") else {})}
                            for m in pending]
+    for _pending_row in out["pending_mail"]:
+        _pending_row["event_id"] = (
+            f"mail:{slug}:{nid}:{_pending_row.get('id') or 'unknown'}")
     return out
 
 
