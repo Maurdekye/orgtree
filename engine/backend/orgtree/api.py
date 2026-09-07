@@ -1394,8 +1394,10 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
                 org.d["net_hubs"] = net.hub_entries(
                     bool(org.d.get("net_autoconnect", True)), [], addr)
             store.save_org(org)
-    return {"identity": org.d.get("net_identity"),
-            "hubs": org.d.get("net_hubs") or [],
+    return {"identity": {k: v for k, v in (org.d.get("net_identity") or {}).items()
+                         if k != "secret"},
+            "hubs": [{k: v for k, v in h.items() if k not in {"token", "peer_token"}}
+                     for h in org.d.get("net_hubs") or []],
             "autoconnect": bool(org.d.get("net_autoconnect", True))}
 
 
@@ -1457,7 +1459,7 @@ def create_net_invitation(slug: str, body: NetInvitation,
         result = client.create_peer(body.peer_id, body.peer_slug)
     except Exception as exc:  # transport details are not a route contract
         raise HTTPException(502, "hub invitation failed") from exc
-    address = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip()
+    address = os.environ.get("ORGTREE_V2_HUB_ADVERTISED", "").strip() or os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip()
     return {"version": 1, "address": address, "peer_id": body.peer_id,
             "slug": body.peer_slug, "peer_slug": body.peer_slug,
             "peer_token": str(result["peer_token"]), "one_time": True}
@@ -1477,6 +1479,21 @@ def pair_net_hub(slug: str, body: NetPairing,
         raise HTTPException(422, "malformed peer slug")
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", body.peer_token):
         raise HTTPException(422, "malformed peer token")
+    ident = org.d["net_identity"]
+    if body.peer_slug != str(ident["slug"]):
+        raise HTTPException(422, "peer_slug must equal this connecting org's network identity")
+    if body.peer_id == net.LOCAL_HUB_ID:
+        raise HTTPException(422, "peer_id is reserved for the embedded hub")
+    parsed = urlsplit(address)
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(422, "hub address must not contain credentials, query or fragment")
+    from engine.hub import HubClient
+    try:
+        client = HubClient(store.DATA_ROOT, address, str(ident["slug"]),
+                           str(ident["secret"]), body.peer_token, peer_token=True)
+        client.register(org_name=str(org.d.get("name") or slug))
+    except Exception as exc:
+        raise HTTPException(502, "remote hub refused pairing or is unavailable") from exc
     with store.DOC_LOCK:
         current = store.load_org(slug)
         hubs = cast("list[dict[str, Any]]", current.d.setdefault("net_hubs", []))
@@ -1494,6 +1511,18 @@ def pair_net_hub(slug: str, body: NetPairing,
         store.save_org(current)
     return {"id": str(existing["id"]), "address": address,
             "peer_slug": body.peer_slug, "enabled": True, "paired": True}
+
+
+@app.delete("/api/orgs/{slug}/net/invitations/{peer_id}")
+def revoke_net_invitation(slug: str, peer_id: str, request: Request) -> dict[str, Any]:
+    org = _pairing_org(slug, request)
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", peer_id):
+        raise HTTPException(422, "malformed peer id")
+    try:
+        _hub_client_for(org).revoke_peer(peer_id)
+    except Exception as exc:
+        raise HTTPException(502, "hub invitation revocation failed") from exc
+    return {"revoked": peer_id}
 
 
 _tree_slow_warned: set[str] = set()
@@ -2464,6 +2493,8 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
                 or uuid.uuid4().hex[:8]
             new_hubs.append({"id": hid, "address": addr,
                              "enabled": bool(hd.get("enabled", True)),
+                             **({k: kept[k] for k in ("peer_token", "peer_slug") if k in kept}
+                                if str(kept.get("address")) == addr else {}),
                              **({"name": kept["name"]}
                                 if kept.get("name") else {})})
         org.d["net_hubs"] = new_hubs
@@ -4030,25 +4061,18 @@ def document_download(slug: str, did: str) -> Response:
     except LedgerError as e:
         raise HTTPException(404, str(e))
     doc = _document_or_404(org, did)
-    title = re.sub(r"[^A-Za-z0-9._-]+", "-", str(doc.get("title") or "document"))
-    title = title.strip("-._") or "document"
-    if doc.get("format") != "html":
-        return Response(str(doc.get("body") or ""),
-                        media_type="text/markdown; charset=utf-8",
-                        headers={"Content-Disposition":
-                                 f'attachment; filename="{title}.md"'})
-    rel = str(doc.get("file") or "")
-    base = os.path.realpath(supervisor.scratch_dir(slug, str(doc["node"])))
-    full = os.path.realpath(os.path.join(base, rel.replace("/", os.sep)))
-    if not rel.startswith("outbox/") or not full.startswith(
-            os.path.join(base, "outbox") + os.sep):
-        raise HTTPException(422, "the document record does not point into the "
-                            "presenter's outbox")
-    if not os.path.isfile(full):
-        raise HTTPException(410, f"the document file for {did!r} is no longer "
-                            "in the presenter's outbox")
-    return FileResponse(full, filename=f"{title}.html",
-                        media_type="text/html")
+    from .artifact_downloads import build_document_download, ArtifactNotFound, ArtifactForbidden
+    if doc.get("format") == "html" and not str(doc.get("file") or "").startswith("outbox/"):
+        raise HTTPException(422, "document is not an outbox snapshot")
+    try:
+        artifact = build_document_download(did, doc,
+            supervisor.scratch_dir(slug, str(doc["node"])))
+    except ArtifactNotFound as exc:
+        raise HTTPException(410, str(exc)) from exc
+    except ArtifactForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return Response(artifact.bytes, media_type=artifact.content_type,
+                    headers={"Content-Disposition": f'attachment; filename="{artifact.filename}"'})
 
 
 def _document_or_404(org: Org, did: str) -> dict[str, Any]:
@@ -8082,7 +8106,8 @@ def _require_net_peer(target: str) -> None:
 
 def _outbox_snapshot(org: Org, nid: str, raw: str, *,
                      max_bytes: int = _SENDFILE_MAX,
-                     always_copy: bool = False) -> tuple[str, int]:
+                     always_copy: bool = False,
+                     html_bundle: bool = False) -> tuple[str, int]:
     """Resolve `raw` as the NODE sees it, prove the node may reach it, and
     copy it into the node's outbox/ — the orgtree_send_file rule, shared with
     present-by-path (HTML mockups, 2026-09-06) so both verbs have ONE
@@ -8160,6 +8185,18 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
     new_outdir = not os.path.isdir(outdir)
     try:
         os.makedirs(outdir, exist_ok=True)
+        if html_bundle:
+            from .artifact_downloads import snapshot_html_bundle, ArtifactDownloadError
+            permitted = [r for r in roots if src_key == os.path.normcase(r).rstrip("\\/")
+                         or src_key.startswith(os.path.normcase(r).rstrip("\\/") + os.sep)]
+            grant_root = max(permitted, key=len)
+            destination = os.path.join(outdir, "presentation-" + uuid.uuid4().hex)
+            try:
+                snapshot = snapshot_html_bundle(src, destination, grant_root,
+                                                destination_root=scratch)
+            except ArtifactDownloadError as exc:
+                raise LedgerError(str(exc)) from exc
+            return snapshot.file.removeprefix("outbox/"), snapshot.bytes
         if new_outdir:
             # backend-minted = root-owned inside a sandbox — the agent is then
             # TOLD its file is in outbox/ and finds a dir it cannot write
@@ -8212,7 +8249,7 @@ def _agent_present(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
     # copy, so a refused present leaves no outbox residue behind
     org.present_gate(nid, title)
     final, size = _outbox_snapshot(org, nid, raw, max_bytes=_MOCKUP_MAX,
-                                   always_copy=True)
+                                   always_copy=True, html_bundle=True)
     return org.present_document(nid, title, "", a.get("replaces"),
                                 html_file=f"outbox/{final}", html_bytes=size)
 

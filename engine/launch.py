@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable
 # desktop launcher uses that script form, so make the bundled package root
 # importable before the copied backend or hub is loaded.
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+_HUB_RUNTIME: Any = None
 if str(_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_ROOT))
 
@@ -146,6 +147,25 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
         stop()
         return {"accepted": True}
 
+    @api_app.get("/api/desktop/hub")
+    def desktop_hub() -> dict[str, Any]:
+        from fastapi import HTTPException
+        if _HUB_RUNTIME is None:
+            raise HTTPException(503, "hub runtime is not ready")
+        return _HUB_RUNTIME.status()
+
+    @api_app.put("/api/desktop/hub")
+    def configure_desktop_hub(body: dict[str, Any]) -> dict[str, Any]:
+        from fastapi import HTTPException
+        if _HUB_RUNTIME is None:
+            raise HTTPException(503, "hub runtime is not ready")
+        try:
+            return _HUB_RUNTIME.configure(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
 
 def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
@@ -176,21 +196,19 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 
 
 def main() -> None:
+    global _HUB_RUNTIME
     app, _token, data, port, stopping = load_app()
     # The v2 loopback hub is a sibling service, not an alternate API. Start it
     # only after the explicit root has been validated and the real API loaded;
     # shutdown is idempotent and always runs even when uvicorn exits early.
-    from engine.hub import HubService, discover_hub
-    hub = HubService(data)
+    from engine.hub_runtime import HubRuntime
+    hub = HubRuntime(data)
+    _HUB_RUNTIME = hub
     hub_ready = hub.start()
-    discover_hub(data)
     # The copied production net client starts in the API startup hook. Give it
     # the embedded hub's dynamic address without rewriting remote configuration.
-    os.environ["ORGTREE_V2_HUB_ADDRESS"] = (
-        f"http://{hub_ready.host}:{hub_ready.port}")
     # HubReadiness carries the owner token on the hardened hub contract;
     # getattr keeps this launcher importable while that sibling commit lands.
-    os.environ["ORGTREE_V2_HUB_TOKEN"] = str(getattr(hub_ready, "token", ""))
     import uvicorn  # noqa: PLC0415
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
                                            access_log=False))
