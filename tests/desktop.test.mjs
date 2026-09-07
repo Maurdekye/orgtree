@@ -16,9 +16,9 @@ const policy = await load('policy'), { Preferences } = await load('preferences')
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { exitOnClose: false, startAtLogin: true, routineNotifications: false })
+  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true, routineNotifications: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { exitOnClose: true, startAtLogin: false, routineNotifications: false })
+  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', exitOnClose: true, startAtLogin: false, routineNotifications: false })
   for (const bad of [[], null, { startAtLogin: 'false' }, { token: true }, { toString: true }]) assert.throws(() => prefs.set(bad))
   assert.equal(policy.closeAction(false, false), 'hide')
   assert.equal(policy.closeAction(true, false), 'quit')
@@ -69,4 +69,21 @@ test('native notification defaults are attention-only, with bounded validated id
   assert.ok(gate.take({ ...base, org: 'other' }, true), 'same local id in another org is distinct')
   for (const kind of ['question', 'urgent-mail', 'work-attention']) assert.ok(gate.take({ ...base, id: kind, kind }, false))
   for (const patch of [{ kind: 'arbitrary' }, { icon: 'file:///private' }, { body: 'x'.repeat(2001) }]) assert.throws(() => gate.take({ ...base, ...patch }, true))
+})
+
+
+test('all themes persist; invalid themes reject atomically and old preferences migrate', () => {
+  const file = path.join(temp, 'theme-prefs.json')
+  fs.writeFileSync(file, JSON.stringify({startAtLogin:false,exitOnClose:true}))
+  const prefs = new Preferences(file)
+  assert.equal(prefs.get().visualTheme, 'orgtree')
+  for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
+    prefs.set({visualTheme})
+    assert.deepEqual(new Preferences(file).get(), {visualTheme,startAtLogin:false,exitOnClose:true,routineNotifications:false})
+  }
+  const bytes = fs.readFileSync(file, 'utf8')
+  for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {
+    assert.throws(() => prefs.set({startAtLogin:true, visualTheme}))
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes)
+  }
 })

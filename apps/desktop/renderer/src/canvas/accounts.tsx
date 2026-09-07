@@ -1,4 +1,5 @@
 import { ImportSettings } from './importsettings'
+import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
 import { useEffect, useState } from 'react'
 import type {
@@ -324,6 +325,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       </SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
+      <ThemeSetting />
       <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>

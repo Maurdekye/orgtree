@@ -10,6 +10,9 @@ import CrashBoundary, { CrashTestRenderTrigger } from './CrashBoundary'
 import { installFreezeLog } from './freezelog'
 import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
 import './styles.css'
+import { startThemeSync } from './themes'
+
+startThemeSync()
 
 flushPendingReports()
 
