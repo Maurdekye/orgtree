@@ -123,7 +123,8 @@ app.on('browser-window-created', (_event, main) => {
         await evaluate(`(()=>{const i=document.querySelector('input[placeholder="organization name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Acceptance Runtime');i.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
         await evaluate(`document.querySelector('input[placeholder="organization name"]').form.requestSubmit();true`)
       }
-      assert.equal(await waitFor(`[...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`), true)
+      const visibleIdentity = phase === 'initial' ? `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime'` : `[...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
+      assert.equal(await waitFor(visibleIdentity), true, 'Created organization must appear in active header or restored home list')
       assert.equal(await evaluate(`fetch('/api/orgs/acceptance-runtime').then(r=>r.status)`), 200)
     })
     await check('selected-organization-route-retains-api-and-native-authority', async () => {
@@ -136,7 +137,12 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await evaluate(`new Promise(resolve=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/api/orgs/acceptance-runtime/ws');const timer=setTimeout(()=>{ws.close();resolve(false)},5000);ws.onopen=()=>{clearTimeout(timer);ws.close();resolve(true)};ws.onerror=()=>{clearTimeout(timer);resolve(false)}})`), true)
     })
     await check('actual-settings-modal-popout-redock-main-close', async () => {
-      assert.equal(await evaluate(`(()=>{const b=document.querySelector('button[title="App settings"]');if(!b)return false;b.click();return true})()`), true)
+      if (!await evaluate(`Boolean(document.querySelector('button[title="App settings"]'))`)) {
+        assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true, 'Active organization menu must be available')
+        await evaluate(`document.querySelector('header.orgbar button.iconbtn').click();true`)
+      }
+      assert.equal(await waitFor(`document.querySelector('button[title="App settings"]')`), true, 'Organization drawer exposes App settings')
+      await evaluate(`document.querySelector('button[title="App settings"]').click();true`)
       assert.equal(await waitFor(`document.querySelector('button[aria-label="Open in new window"]')`), true)
       const before = new Set(BrowserWindow.getAllWindows().map(w => w.id))
       await evaluate(`(()=>{const b=document.querySelector('button[aria-label="Open in new window"]');window.__acceptanceSurface=b.closest('.movable-surface');b.click();return true})()`)

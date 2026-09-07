@@ -28,6 +28,13 @@ export function isolatedRoot(base = os.tmpdir()) {
   return root
 }
 
+export function phaseResult(phase, report, result, survivors) {
+  return { phase, ...report,
+    status: report.status === 'PASS' && result.status === 0 && !result.error && survivors.length === 0 ? 'PASS' : 'FAIL',
+    processExitCode: result.status, processError: result.error?.code || null,
+    childProcessesExited: survivors.length === 0 }
+}
+
 function main() {
   const here = path.dirname(fileURLToPath(import.meta.url))
   const target = path.resolve(process.env.ORGTREE_ACCEPTANCE_APP || path.join(here, '../..'))
@@ -46,6 +53,7 @@ function main() {
     ORGTREE_V2_PORT: '0', ORGTREE_NET_HUB_ADDRESS: 'http://127.0.0.1:9' }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ORGTREE_PORT
+  delete env.ORGTREE_V1_ROOT
   delete env.ORGTREE_V2_TOKEN
   const phases = []
   for (const phase of ['initial', 'restart']) {
@@ -59,10 +67,10 @@ function main() {
     const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, 'utf8')) :
       { status: 'FAIL', reason: 'Application produced no acceptance report', processStatus: result.status }
     const survivors = (report.childPids || []).filter(pid => {
-      try { process.kill(pid, 0); return true } catch { return false }
+      try { process.kill(pid, 0); return true } catch (error) { return error.code !== 'ESRCH' }
     })
-    phases.push({ phase, ...report, childProcessesExited: survivors.length === 0 })
-    if (survivors.length) { phases.at(-1).status = 'FAIL'; break }
+    phases.push(phaseResult(phase, report, result, survivors))
+    if (survivors.length) break
     if (result.error || !report.ready || result.status !== 0) break
   }
   const status = phases.length === 2 && phases.every(p => p.status === 'PASS') ? 'PASS' : 'FAIL'
