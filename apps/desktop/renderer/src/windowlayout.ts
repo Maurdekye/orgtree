@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 
 export const WINDOW_LAYOUT_KEY = 'orgtree-desktop-windows-v1'
 export interface WindowRect { x: number; y: number; width: number; height: number }
-export interface SavedWindow { key: string; kind: string; org: string | null; open: boolean; rect: WindowRect }
+export interface WindowRestore { agent?: string; generation?: number; document?: string; watchdog?: string }
+export interface SavedWindow { restore?: WindowRestore; key: string; kind: string; org: string | null; open: boolean; rect: WindowRect }
 let exiting = false
 export const windowExitStarted = () => exiting
 export const beginWindowExit = () => { exiting = true }
@@ -24,11 +25,23 @@ export function useRestoreWindows() {
   return allowed
 }
 export const windowLayoutKey = (kind: string, org: string | null) => JSON.stringify([org, kind])
+const validRestore = (v: unknown): v is WindowRestore => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  return Object.entries(v).every(([key, value]) => key === 'generation'
+    ? Number.isSafeInteger(value) && Number(value) >= 0
+    : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
+}
+export function restoredAgent(row: SavedWindow | undefined, nodes: Map<string, { generation?: number }>): string | null {
+  const target = row?.restore
+  if (!target?.agent || !Number.isSafeInteger(target.generation)) return null
+  return nodes.get(target.agent)?.generation === target.generation ? target.agent : null
+}
 const valid = (v: unknown): v is SavedWindow => {
   if (!v || typeof v !== 'object') return false
   const r = v as SavedWindow
   return typeof r.key === 'string' && r.key.length < 1024 && typeof r.kind === 'string'
     && (r.org === null || typeof r.org === 'string') && typeof r.open === 'boolean'
+    && (r.restore === undefined || validRestore(r.restore))
     && !!r.rect && [r.rect.x, r.rect.y, r.rect.width, r.rect.height].every(Number.isFinite)
     && r.rect.width >= 200 && r.rect.height >= 150 && r.rect.width <= 20000 && r.rect.height <= 20000
 }
@@ -53,10 +66,10 @@ export const restoredWindows = (org: string | null) =>
   desktop() ? savedWindows().filter(r => r.open && r.org === org) : []
 export const restoreWindowKind = (kind: string, org: string | null) =>
   restoredWindows(org).some(r => r.kind === kind)
-export function captureWindow(key: string, kind: string, org: string | null, w: Window, open = true) {
+export function captureWindow(key: string, kind: string, org: string | null, w: Window, open = true, restore?: WindowRestore) {
   if (!desktop()) return
   try {
-    saveWindow({ key, kind, org, open, rect: {
+    saveWindow({ key, kind, org, open, ...(restore ? { restore } : {}), rect: {
       x: w.screenX, y: w.screenY, width: w.outerWidth || 900, height: w.outerHeight || 760,
     } })
   } catch { /* a closing native window can lose its document first */ }

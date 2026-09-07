@@ -227,7 +227,7 @@ export function DocReader({ slug, docId, toast, close, refs,
     // an eligible image opens from `onPanelClick`, which the frame runs
     // BEFORE the stopPropagation every panel has (that one keeps a click
     // inside the reader from reaching `.overlay`'s backdrop-close).
-    <PinFrame kind={pinKind} title={doc?.title ?? 'document'}
+    <PinFrame kind={pinKind} restore={{ document: docId }} title={doc?.title ?? 'document'}
       panel="settings doc-reader" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
         <div className="doc-reader-head">

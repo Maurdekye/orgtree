@@ -2836,7 +2836,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   const gens = [...(node.lineage ?? [])].sort(
     (a, b) => (b.generation ?? 0) - (a.generation ?? 0))
   return (
-    <PinFrame kind="lineage" title={`${node.id} — lineage`}
+    <PinFrame kind="lineage" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} — lineage`}
       panel="settings lineage-panel" close={close}>
         <h3><LayersIcon fontSize="inherit" /> {node.id} — lineage</h3>
         <div className="dim lin-blurb">

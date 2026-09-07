@@ -6,7 +6,7 @@ import { DesktopSettings } from '../src/canvas/desktopsettings'
 import { Connections } from '../src/canvas/connections'
 import { MovableSurface, PopoutButton } from '../src/popout'
 import { notifyOnce } from '../src/notifications'
-import { captureWindow, closeSavedWindow, popupFeatures, savedDeskIdentities, savedWindows, saveWindow, WINDOW_LAYOUT_KEY, windowLayoutKey } from '../src/windowlayout'
+import { captureWindow, closeSavedWindow, popupFeatures, restoredAgent, savedDeskIdentities, savedWindows, saveWindow, WINDOW_LAYOUT_KEY, windowLayoutKey } from '../src/windowlayout'
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { TreePayload } from '../src/types'
 import { forgetModalPins, ModalOverlapSettings, MODAL_OVERLAP_KEY, PinFrame, pinModal, setModalOverlap } from '../src/canvas/modalpin'
@@ -105,8 +105,8 @@ test('quiet login defers restoring until manual show, then the same composer DOM
   const originalObserver = globalThis.MutationObserver
   globalThis.MutationObserver = child.window.MutationObserver
   const key = windowLayoutKey('fixture', 'org')
-  captureWindow(key, 'fixture', 'org', cw)
-  const v = await mountView(<MovableSurface kind="fixture" org="org" title="Fixture">
+  captureWindow(key, 'fixture', 'org', cw, true, { document: 'doc-original' })
+  const v = await mountView(<MovableSurface kind="fixture" org="org" title="Fixture" restore={{ document: 'doc-original' }}>
     <input aria-label="saved composer" defaultValue="draft and reply kept" /><PopoutButton />
   </MovableSurface>, el => el)
   try {
@@ -119,6 +119,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     assert.ok(input, 'positive control: the child owns the real composer')
     assert.equal(input, initial)
     assert.equal(input.value, 'draft and reply kept')
+    assert.deepEqual(savedWindows()[0]!.restore, { document: 'doc-original' })
     assert.match(features, /left=200,top=180,width=830,height=700/)
     const back = cw.document.querySelector<HTMLButtonElement>('button[aria-label="Return to main window"]')!
     await inAct(async () => { back.click(); await flush(5) })
@@ -153,4 +154,20 @@ test('pinned modal fades only over the focused desk; toggle, amount and non-over
     await inAct(() => { setModalOverlap({ enabled: true, opacity: 0.7 }); window.dispatchEvent(new Event('resize')) })
     assert.equal(panel.style.opacity, '')
   } finally { await v.unmount(); desk.remove(); window.HTMLElement.prototype.getBoundingClientRect = original; forgetModalPins() }
+})
+
+
+test('saved agent windows restore only their exact generation and reject malformed target metadata', () => {
+  localStorage.clear(); native({})
+  const row = { key: windowLayoutKey('node-inbox', 'org'), kind: 'node-inbox', org: 'org', open: true,
+    restore: { agent: 'writer', generation: 3 }, rect: { x: 10, y: 20, width: 700, height: 600 } }
+  saveWindow(row)
+  const loaded = savedWindows()[0]!
+  assert.equal(restoredAgent(loaded, new Map([['writer', { generation: 3 }]])), 'writer')
+  assert.equal(restoredAgent(loaded, new Map([['writer', { generation: 4 }]])), null)
+  assert.equal(restoredAgent(loaded, new Map()), null)
+  assert.equal(restoredAgent({ ...loaded, restore: { agent: 'writer' } }, new Map([['writer', { generation: 3 }]])), null)
+  saveWindow({ ...row, restore: { agent: 'writer', generation: -1 } })
+  assert.deepEqual(savedWindows()[0]!.restore, row.restore, 'invalid overwrite cannot poison the saved source')
+  native()
 })

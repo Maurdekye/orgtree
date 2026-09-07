@@ -1071,7 +1071,7 @@ interface NodeInboxModalProps {
 export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgent,
   tierOf, hasAgent, refs, toast }: NodeInboxModalProps) {
   return (
-    <PinFrame kind="node-inbox" title={`${node.id} · inbox`} panel="settings wide"
+    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · inbox`} panel="settings wide"
       close={close}>
         <h3><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· inbox</span></h3>
         {/* ⚠ A REFERENCE CLOSES THIS MODAL ON THE WAY OUT, as the name beside

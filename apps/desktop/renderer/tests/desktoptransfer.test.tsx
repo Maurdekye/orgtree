@@ -96,3 +96,40 @@ test('a child download uses main fetch and the engine ZIP filename, with no exec
     globalThis.fetch = original; window.URL.createObjectURL = create; window.URL.revokeObjectURL = revoke; window.setTimeout = timeout; child.window.close()
   }
 })
+
+
+test('partial import shows committed copies, recovery and per-org warnings, and refreshes without retrying', async () => {
+  const original = globalThis.fetch
+  let copied = 0, refreshes = 0
+  const refresh = () => { refreshes++ }
+  window.addEventListener('orgtree:organizations-imported', refresh)
+  globalThis.fetch = async url => {
+    if (String(url).endsWith('/preview')) return new Response(JSON.stringify({ organizations: [
+      { slug: 'first', name: 'First', conflict: null }, { slug: 'second', name: 'Second', conflict: null },
+      { slug: 'existing', name: 'Existing', conflict: 'Already exists in this installation' },
+    ], warnings: ['Readable history is copied.'] }))
+    copied++
+    return new Response(JSON.stringify({ imported: [{ slug: 'first', name: 'First', recovery_pending: true,
+      warnings: ['Independent provider sessions will start.', 'Account configuration was skipped.'] }],
+      failed: [{ slug: 'second', error: 'Copy failed', not_attempted: ['third'] }], warnings: ['Original data is untouched.'] }))
+  }
+  const v = await mountView(<ImportSettings />, el => el)
+  try {
+    await type(v.el.querySelector('input')!, 'C:\\synthetic-partial')
+    await click(v.el, 'Preview organizations')
+    const checkboxes = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+    assert.equal(checkboxes[2]!.disabled, true)
+    assert.equal(checkboxes[2]!.checked, false)
+    await inAct(() => { v.el.querySelector<HTMLInputElement>('input[aria-label="Acknowledge duplicate work"]')!.click() })
+    await click(v.el, 'Copy selected organizations')
+    assert.match(v.el.textContent!, /Imported First/)
+    assert.match(v.el.textContent!, /Independent provider sessions/)
+    assert.match(v.el.textContent!, /Account configuration was skipped/)
+    assert.match(v.el.textContent!, /resuming its active work is still pending/)
+    assert.match(v.el.textContent!, /second: Copy failed/)
+    assert.match(v.el.textContent!, /Not copied: third/)
+    assert.equal(refreshes, 1)
+    assert.equal(copied, 1)
+    assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'), 'a committed partial copy cannot be blindly retried')
+  } finally { await v.unmount(); globalThis.fetch = original; window.removeEventListener('orgtree:organizations-imported', refresh) }
+})

@@ -156,7 +156,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
       .catch((e: Error) => toast([`error: ${e.message}`]))
   return (
-    <PinFrame kind="watchdog" title={`${dog.name} · watchdog`} panel="settings content-height"
+    <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height"
       close={close}>
         <h3>🐕 {dog.name}</h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
@@ -947,7 +947,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   return (
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
-    <PinFrame kind="node-config" title={`${node.id} · configuration`}
+    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · configuration`}
       panel="settings cfg" close={close}>
         <h3><SettingsIcon fontSize="inherit" /> {node.id}</h3>
         {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this

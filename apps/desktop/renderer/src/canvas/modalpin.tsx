@@ -331,6 +331,7 @@ type Gesture = GestureShape & { pointerId: number; moved: boolean; capture: HTML
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 export interface PinFrameProps {
+  restore?: import('../windowlayout').WindowRestore
   pinnable?: boolean
   dialogLabel?: string
   /** the window's identity in storage — stable, and unique per surface */
@@ -368,7 +369,7 @@ export interface PinFrameProps {
 export function PinFrame(props: PinFrameProps) {
   const org = useCurrentOrg()
   const scope = ['usage', 'defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
-  return <MovableSurface key={scope} org={scope} kind={props.kind} title={props.title}><PinFrameInner {...props} /></MovableSurface>
+  return <MovableSurface key={scope} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,

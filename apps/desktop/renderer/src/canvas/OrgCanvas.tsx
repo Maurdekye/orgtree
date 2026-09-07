@@ -1,4 +1,4 @@
-import { savedDeskIdentities } from '../windowlayout'
+import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
 import { DeskHosts } from './deskhosts'
@@ -152,6 +152,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
   useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
+  const [restoredDocs, setRestoredDocs] = useState(() => restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document))
+  const restoredModalOrg = useRef<string | null>(null)
   const [docView, setDocView] = useState<string | null>(null)   // FR-03 reader
   const [userCfg, setUserCfg] = useState(false)
   const [trayOpen, setTrayOpen] = useState(false)   // the flat agent tray
@@ -298,6 +300,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const vroot = useMemo(() => canonPiles(withDraftTree(tree, draft)),
     [tree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   const map = useMemo(() => flatten(vroot, seats), [vroot])   // eslint-disable-line
+  useEffect(() => {
+    if (restoredModalOrg.current === slug) return
+    restoredModalOrg.current = slug
+    const rows = restoredWindows(slug)
+    const agent = (kind: string) => restoredAgent(rows.find(r => r.kind === kind), map)
+    setConfigId(agent('node-config')); setLineageId(agent('lineage'))
+    setInboxId(agent('node-inbox')); setAgentDocketId(agent('agent-docket'))
+    setUserCfg(rows.some(r => r.kind === 'user-config'))
+    setOiOpen(rows.some(r => r.kind === 'org-inbox'))
+    const watchdog = rows.find(r => r.kind === 'watchdog')?.restore?.watchdog
+    setDogView(watchdog && tree.watchdogs?.some(w => w.id === watchdog) ? watchdog : null)
+    setDocView(rows.find(r => r.kind === 'doc')?.restore?.document ?? null)
+    setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
+    const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
+    if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])
+  }, [slug, map])
   // the mail-link router — STABLE identity (Msg is memoized on its props;
   // the ref carries the fresh closure). user_inbox → the eye's mailbox
   // (marking the glow seen, same as its ✉); @ext:/@org:/@mcp: → the org
@@ -2871,6 +2889,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
           dog={(tree.watchdogs ?? []).find((w) => w.id === dogView)!}
           close={() => setDogView(null)} /></MaybePortal>
       )}
+      {restoredDocs.map(row => <DocReader key={row.key} slug={slug} docId={row.restore!.document!}
+        pinKind={row.kind} toast={toast} refs={docRefs} close={() => {
+          closeSavedWindow(row.key); setRestoredDocs(old => old.filter(r => r.key !== row.key))
+        }} />)}
       {docView && (
         <MaybePortal><DocReader slug={slug} docId={docView} toast={toast}
           refs={docRefs}

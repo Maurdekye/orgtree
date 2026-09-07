@@ -1,6 +1,6 @@
 import type { NativeNotice } from './desktop'
 import { useNativeNotifications } from './notifications'
-import { restoreWindowKind } from './windowlayout'
+import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
@@ -338,6 +338,11 @@ export default function App() {
     setNativeTarget(notice)
     if (notice.org !== slug) setSlug(notice.org)
   })
+  useEffect(() => {
+    setShowUsage(restoreWindowKind('usage', null))
+    setShowAccounts(restoreWindowKind('app-settings', null))
+    setShowDefaults(restoreWindowKind('defaults', null))
+  }, [])
   const restoredOrg = useRef<string | null>(null)
   useEffect(() => {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
@@ -347,9 +352,7 @@ export default function App() {
     setShowInbox(restoreWindowKind('inbox', slug))
     setShowGallery(restoreWindowKind('gallery', slug))
     setShowDocket(restoreWindowKind('docket', slug))
-    setShowUsage(restoreWindowKind('usage', slug))
-    setShowAccounts(restoreWindowKind('app-settings', slug))
-    setShowDefaults(restoreWindowKind('defaults', slug))
+    setAgentGalleryId(restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return

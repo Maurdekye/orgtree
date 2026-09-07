@@ -4,7 +4,7 @@ import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
 import { AgentDocketView, agentItems, buildNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
-import { usePolled } from './shared'
+import { flatten, withDraftTree, usePolled } from './shared'
 import type { RefRoutes } from './reflinks'
 import { resolveRef } from './reflinks'
 
@@ -22,7 +22,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
     closeIfCentred('agent-docket', close)
     refs.onOpen(r)
   } }
-  return <PinFrame kind="agent-docket" title={`${nid} · Docket`} panel="settings wide" close={close}>
+  return <PinFrame kind="agent-docket" restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation }} title={`${nid} · Docket`} panel="settings wide" close={close}>
     <h3><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· Docket</span></h3>
     <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
       showArchived={showArchived} onShowArchived={setShowArchived}

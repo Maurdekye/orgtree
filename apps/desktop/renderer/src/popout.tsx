@@ -1,3 +1,4 @@
+import type { WindowRestore } from './windowlayout'
 import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
@@ -161,9 +162,9 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, flush }: {
+  anchor, onDetached, flush, restore }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
-  children: ReactNode; anchor?: HTMLElement | null
+  children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean) => void; flush?: () => void
 }) {
   const parent = useSurface()
@@ -186,8 +187,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const pendingRestore = useRef<(() => void) | null>(null)
   const cleanups = useRef<(() => void)[]>([])
   const epoch = useRef(0)
-  const latest = useRef({ anchor, parent, onDetached, flush, org, title })
-  latest.current = { anchor, parent, onDetached, flush, org, title }
+  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore })
+  latest.current = { anchor, parent, onDetached, flush, org, title, restore }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
 
@@ -208,7 +209,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     pendingRestore.current = null
     epoch.current++
     const w = child.current; child.current = null
-    if (w && !w.closed) captureWindow(layoutKey, kind, org, w)
+    if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
     closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
     destination().appendChild(parts.container)
@@ -234,7 +235,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       const onGone = () => { if (epoch.current === transaction) redock() }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))
-      const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w) }, 250)
+      const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w, true, latest.current.restore) }, 250)
       cleanups.current.push(() => window.clearInterval(poll))
       d.title = typeof title === 'string' ? `${title} · Orgtree` : 'Orgtree'
       const base = d.createElement('base'); base.href = document.baseURI; d.head.appendChild(base)
@@ -299,8 +300,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
-        editable, window: w, redock, flush: () => { captureWindow(layoutKey, kind, org, w!); latest.current.flush?.() } }))
-      captureWindow(layoutKey, kind, org, w)
+        editable, window: w, redock, flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
+      captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
       restore(); w.focus()
       pendingRestore.current = restore
@@ -335,7 +336,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (restoredWindows(org).some(r => r.key === layoutKey)) open()
   }, [ready, restoreAllowed, layoutKey, org])
   useEffect(() => () => {
-    if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current)
+    if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current, true, latest.current.restore)
     closeSavedWindow(layoutKey)
     epoch.current++
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }
