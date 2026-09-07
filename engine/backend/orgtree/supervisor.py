@@ -10669,6 +10669,12 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
                 queued_ids = {c.get('_native_hold_id') for c in st['queue'] if isinstance(c,dict)}
                 st['queue'].extend(dict(c) for c in held if c.get('_native_hold_id') not in queued_ids and c.get('_native_hold_id') != current_id)
             if current_id:
+                prior = current_org.node(nid).get('inflight')
+                if prior and prior.get('_native_hold_id') != current_id:
+                    # Recovery UI/status is lazy. Preserve the original intent
+                    # before this transfer even if neither has been opened.
+                    metadata = current_org.d.setdefault('desktop_import',{})
+                    metadata.setdefault('recovery_intents',{}).setdefault(nid,dict(prior))
                 current_org.node(nid)['inflight'] = dict(nxt)
                 current_org.node(nid)['native_held_carriers'] = [c for c in held if c.get('_native_hold_id') != current_id]
                 store.save_org(current_org)

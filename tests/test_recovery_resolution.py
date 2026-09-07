@@ -79,6 +79,22 @@ class ResolutionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 supervisor._run_turn('resume-route','imported',{'text':'original resumed'})
         self.assertEqual([c['text'] for c in st['queue']],['second carrier'])
+        # No recovery status/panel has run: transfer must preserve the older
+        # interrupted intent itself before replacing the inflight slot.
+        carrier=st['queue'].pop(0)
+        with patch.object(supervisor,'_cancel_working_cache'), \
+             patch.object(supervisor,'_note_working_activity'), \
+             patch.object(supervisor,'_hold_for_deploy'), \
+             patch.object(supervisor,'_native_context_hold',return_value=None), \
+             patch.object(supervisor,'_run_one_turn',side_effect=RuntimeError('stop before provider')):
+            with self.assertRaises(RuntimeError):
+                supervisor._run_turn('resume-route','imported',carrier)
+        store._POOL.close_all('resume-route')
+        saved=store.load_org('resume-route')
+        self.assertEqual(saved.d['desktop_import']['recovery_intents']['imported']['text'],'queued retained work')
+        self.assertEqual(saved.node('imported')['inflight'],carrier)
+        self.assertEqual(saved.node('imported')['native_held_carriers'],[])
+        self.assertEqual(st['queue'],[])
 
     def seed(self,slug):
         org=store.create_org(slug)
