@@ -1488,6 +1488,8 @@ def pair_net_hub(slug: str, body: NetPairing,
     parsed = urlsplit(address)
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise HTTPException(422, "hub address must not contain credentials, query or fragment")
+    if parsed.scheme != "https" and parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
+        raise HTTPException(422, "remote hub connections require HTTPS; HTTP is allowed only on loopback")
     from engine.hub import HubClient
     try:
         client = HubClient(store.DATA_ROOT, address, str(ident["slug"]),

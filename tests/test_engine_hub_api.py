@@ -89,6 +89,14 @@ class HubAPITests(unittest.TestCase):
                 address=invitation['address'],peer_id='connection',
                 peer_slug=ident['slug'],peer_token=invitation['peer_token']), request)
             self.assertTrue(paired['paired'])
+            with patch('engine.hub.HubClient') as transport:
+                with self.assertRaises(HTTPException) as caught:
+                    api.pair_net_hub('client-org', api.NetPairing(
+                        address='http://remote.example:7370', peer_id='remote',
+                        peer_slug=ident['slug'], peer_token=invitation['peer_token']), request)
+                self.assertEqual(caught.exception.status_code, 422)
+                self.assertIn('require HTTPS', caught.exception.detail)
+                transport.assert_not_called()
             public = api.org_net('client-org', request)
             self.assertNotIn(invitation['peer_token'], json.dumps(public))
             self.assertNotIn(ident['secret'], json.dumps(public))
