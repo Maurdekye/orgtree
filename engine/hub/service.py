@@ -1,0 +1,498 @@
+"""A small integrated v2 mail hub.
+
+The v1 hub is a separately hosted UI/API service.  v2 deliberately keeps only
+its correspondence transport semantics: authenticated registrations,
+durable at-least-once queueing, idempotent sends, custody ACKs, receipts and
+file-backed attachments.  This module is an engine-owned loopback service,
+not a public listener and not a Docker entrypoint.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import sqlite3
+import threading
+import time
+import urllib.error
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Callable
+from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
+
+
+_SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS orgs (
+  slug TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, org_name TEXT NOT NULL,
+  username TEXT NOT NULL, blurb TEXT NOT NULL, registered_at TEXT NOT NULL,
+  last_seen TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY, from_slug TEXT NOT NULL, to_slug TEXT NOT NULL,
+  body TEXT NOT NULL, kind TEXT, thread_id TEXT, sent_at TEXT,
+  received_at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued',
+  fetched_at TEXT, delivered_at TEXT, read_at TEXT,
+  receipts_pushed INTEGER NOT NULL DEFAULT 1, attachments TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_to_state ON messages(to_slug, state);
+CREATE INDEX IF NOT EXISTS messages_from_receipts ON messages(from_slug, receipts_pushed);
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY, owner_slug TEXT NOT NULL, name TEXT NOT NULL,
+  bytes INTEGER NOT NULL, created_at TEXT NOT NULL, message_id TEXT
+);
+"""
+_MAX_BODY = 20_000
+_MAX_ATTACHMENT = 25 * 1024 * 1024
+_MAX_ATTACHMENTS = 10
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _fingerprint(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _safe_name(name: str) -> str:
+    # Attachment names are display metadata only; never permit a path to cross
+    # the blob root or to be used as a filesystem destination.
+    value = os.path.basename(name).replace("\x00", "")[:255]
+    return value or "file"
+
+
+@dataclass(frozen=True)
+class HubReadiness:
+    host: str
+    port: int
+    data_root: str
+    readiness_path: str
+    pid: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "protocol": 1,
+            "host": self.host,
+            "port": self.port,
+            "data_root": self.data_root,
+            "pid": self.pid,
+        }
+
+
+class _HubServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, address: tuple[str, int], root: Path):
+        super().__init__(address, _HubHandler)
+        self.root = root
+        self.db_path = root / "hub.sqlite3"
+        self.blob_root = root / "blobs"
+        self.blob_root.mkdir(parents=True, exist_ok=True)
+        with self.db() as con:
+            con.executescript(_SCHEMA)
+
+    @contextmanager
+    def db(self) -> Any:
+        con = sqlite3.connect(self.db_path, timeout=5.0)
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=5000")
+        con.execute("PRAGMA synchronous=NORMAL")
+        try:
+            yield con
+        finally:
+            con.close()
+
+    def blob_path(self, attachment_id: str) -> Path:
+        # IDs are generated locally; reject anything that is not an ID-shaped
+        # value before it can become a path even if a caller is compromised.
+        if not re.fullmatch(r"[0-9a-f]{32}", attachment_id):
+            raise ValueError("invalid attachment id")
+        return self.blob_root / attachment_id
+
+
+class _HubHandler(BaseHTTPRequestHandler):
+    server: _HubServer
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+    def _send(self, status: int, body: Any, headers: dict[str, str] | None = None) -> None:
+        raw = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _error(self, status: int, detail: str) -> None:
+        self._send(status, {"detail": detail})
+
+    def _json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length > 2 * 1024 * 1024:
+            raise ValueError("request body too large")
+        raw = self.rfile.read(length)
+        value = json.loads(raw.decode("utf-8") or "{}")
+        if not isinstance(value, dict):
+            raise ValueError("body must be an object")
+        return value
+
+    def _auth(self, con: sqlite3.Connection) -> list[str]:
+        result: list[str] = []
+        for pair in self.headers.get("X-Org-Auth", "").split():
+            slug, separator, secret = pair.partition(":")
+            if not separator or not slug or not secret:
+                continue
+            row = con.execute("SELECT fingerprint FROM orgs WHERE slug=?", (slug,)).fetchone()
+            if row and hmac.compare_digest(str(row["fingerprint"]), _fingerprint(secret)):
+                result.append(slug)
+        return result
+
+    def _mark_seen(self, con: sqlite3.Connection, slugs: list[str]) -> None:
+        now = _now()
+        for slug in slugs:
+            con.execute("UPDATE orgs SET last_seen=? WHERE slug=?", (now, slug))
+
+    def _envelope(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "from": row["from_slug"],
+            "to": row["to_slug"],
+            "body": row["body"],
+            "kind": row["kind"],
+            "thread_id": row["thread_id"],
+            "sent_at": row["sent_at"],
+            "received_at": row["received_at"],
+            "attachments": json.loads(row["attachments"] or "[]"),
+        }
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            with self.server.db() as con:
+                orgs = con.execute("SELECT COUNT(*) AS n FROM orgs").fetchone()["n"]
+                queued = con.execute("SELECT COUNT(*) AS n FROM messages WHERE state='queued'").fetchone()["n"]
+            self._send(200, {"ok": True, "orgs": orgs, "queued": queued})
+            return
+        if parsed.path.startswith("/api/attachments/"):
+            self._download(parsed.path.rsplit("/", 1)[-1])
+            return
+        self._error(404, "not found")
+
+    def do_POST(self) -> None:  # noqa: N802
+        try:
+            route = urlparse(self.path).path
+            if route == "/api/register":
+                self._register()
+            elif route == "/api/send":
+                self._send_message()
+            elif route == "/api/poll":
+                self._poll()
+            elif route == "/api/ack":
+                self._ack()
+            elif route == "/api/receipts":
+                self._receipts()
+            elif route == "/api/attachments":
+                self._upload()
+            else:
+                self._error(404, "not found")
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._error(400, str(exc))
+        except sqlite3.Error:
+            self._error(503, "hub storage unavailable")
+
+    def _register(self) -> None:
+        body = self._json()
+        slug = str(body.get("slug") or "").strip()
+        if not _SLUG.fullmatch(slug):
+            self._error(422, "malformed slug")
+            return
+        supplied = {p.partition(":")[0]: p.partition(":")[2] for p in self.headers.get("X-Org-Auth", "").split()}
+        secret = supplied.get(slug, "")
+        if not secret:
+            self._error(401, "registration requires X-Org-Auth")
+            return
+        now = _now()
+        with self.server.db() as con:
+            row = con.execute("SELECT fingerprint FROM orgs WHERE slug=?", (slug,)).fetchone()
+            fp = _fingerprint(secret)
+            if row and not hmac.compare_digest(str(row["fingerprint"]), fp):
+                self._error(403, "slug is owned by another identity")
+                return
+            if row:
+                con.execute("UPDATE orgs SET org_name=?, username=?, blurb=?, last_seen=? WHERE slug=?", (str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, slug))
+            else:
+                con.execute("INSERT INTO orgs VALUES (?,?,?,?,?,?,?)", (slug, fp, str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, now))
+            con.commit()
+        self._send(200, {"ok": True, "slug": slug})
+
+    def _authorized(self, con: sqlite3.Connection) -> list[str]:
+        slugs = self._auth(con)
+        if not slugs:
+            self._error(401, "no valid org credentials")
+        return slugs
+
+    def _send_message(self) -> None:
+        body = self._json()
+        to = str(body.get("to") or "").strip()
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            sender = str(body.get("from") or (slugs[0] if slugs else ""))
+            if sender not in slugs:
+                self._error(401, "sender credentials required")
+                return
+            if not con.execute("SELECT 1 FROM orgs WHERE slug=?", (to,)).fetchone():
+                self._error(422, "recipient is not registered")
+                return
+            message_id = str(body.get("id") or secrets.token_hex(16))
+            if not re.fullmatch(r"[0-9A-Za-z._:-]{1,200}", message_id):
+                self._error(422, "malformed message id")
+                return
+            attachment_ids = [str(x) for x in (body.get("attachments") or [])]
+            if len(attachment_ids) > _MAX_ATTACHMENTS:
+                self._error(422, "too many attachments")
+                return
+            metas: list[dict[str, Any]] = []
+            for aid in attachment_ids:
+                row = con.execute("SELECT id,name,bytes,owner_slug,message_id FROM attachments WHERE id=?", (aid,)).fetchone()
+                if not row or row["owner_slug"] != sender or (row["message_id"] and row["message_id"] != message_id):
+                    self._error(422, "unknown or already-bound attachment")
+                    return
+                metas.append({"id": row["id"], "name": row["name"], "bytes": row["bytes"]})
+            received = _now()
+            cur = con.execute("INSERT OR IGNORE INTO messages (id,from_slug,to_slug,body,kind,thread_id,sent_at,received_at,attachments) VALUES (?,?,?,?,?,?,?,?,?)", (message_id, sender, to, str(body.get("body") or "")[:_MAX_BODY], body.get("kind"), body.get("thread_id"), body.get("sent_at"), received, json.dumps(metas)))
+            fresh = cur.rowcount == 1
+            if fresh:
+                for aid in attachment_ids:
+                    con.execute("UPDATE attachments SET message_id=? WHERE id=?", (message_id, aid))
+            else:
+                received = str(con.execute("SELECT received_at FROM messages WHERE id=?", (message_id,)).fetchone()["received_at"])
+            self._mark_seen(con, [sender])
+            con.commit()
+        self._send(200, {"id": message_id, "received_at": received, "duplicate": not fresh})
+
+    def _poll(self) -> None:
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        wait = min(max(float(query.get("wait", ["0"])[0]), 0.0), 55.0)
+        deadline = time.monotonic() + wait
+        while True:
+            with self.server.db() as con:
+                slugs = self._authorized(con)
+                if not slugs:
+                    return
+                marks = ",".join("?" for _ in slugs)
+                rows = con.execute(f"SELECT * FROM messages WHERE state='queued' AND to_slug IN ({marks}) ORDER BY received_at,rowid", slugs).fetchall()
+                receipts = con.execute(f"SELECT id,state,fetched_at,delivered_at,read_at FROM messages WHERE receipts_pushed=0 AND from_slug IN ({marks})", slugs).fetchall()
+                if rows or receipts or time.monotonic() >= deadline:
+                    if receipts:
+                        ids = [r["id"] for r in receipts]
+                        con.execute(f"UPDATE messages SET receipts_pushed=1 WHERE id IN ({','.join('?' for _ in ids)})", ids)
+                    self._mark_seen(con, slugs)
+                    con.commit()
+                    self._send(200, {"messages": [self._envelope(row) for row in rows], "receipts": [{"id": r["id"], "state": "read" if r["read_at"] else "delivered" if r["delivered_at"] else "fetched" if r["fetched_at"] else "received", "fetched_at": r["fetched_at"], "delivered_at": r["delivered_at"], "read_at": r["read_at"]} for r in receipts]})
+                    return
+            time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+
+    def _ack(self) -> None:
+        body = self._json()
+        ids = [str(x) for x in (body.get("ids") or [])]
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            marks = ",".join("?" for _ in slugs)
+            count = 0
+            for mid in ids:
+                count += con.execute(f"UPDATE messages SET state='fetched',fetched_at=?,receipts_pushed=0 WHERE id=? AND state='queued' AND to_slug IN ({marks})", (_now(), mid, *slugs)).rowcount
+            self._mark_seen(con, slugs)
+            con.commit()
+        self._send(200, {"acked": count})
+
+    def _receipts(self) -> None:
+        body = self._json()
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            marks = ",".join("?" for _ in slugs)
+            recorded = 0
+            for receipt in body.get("receipts") or []:
+                state = str(receipt.get("state") or "")
+                if state not in ("delivered", "read"):
+                    continue
+                column = "delivered_at" if state == "delivered" else "read_at"
+                recorded += con.execute(f"UPDATE messages SET {column}=?,receipts_pushed=0 WHERE id=? AND {column} IS NULL AND to_slug IN ({marks})", (str(receipt.get("at") or _now()), str(receipt.get("id") or ""), *slugs)).rowcount
+            self._mark_seen(con, slugs)
+            con.commit()
+        self._send(200, {"recorded": recorded})
+
+    def _upload(self) -> None:
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            if len(data) > _MAX_ATTACHMENT:
+                self._error(413, "attachment too large")
+                return
+            attachment_id = secrets.token_hex(16)
+            self.server.blob_path(attachment_id).write_bytes(data)
+            name = _safe_name(parse_qs(urlparse(self.path).query).get("name", ["file"])[0])
+            con.execute("INSERT INTO attachments VALUES (?,?,?,?,?,NULL)", (attachment_id, slugs[0], name, len(data), _now()))
+            self._mark_seen(con, slugs)
+            con.commit()
+        self._send(200, {"id": attachment_id, "bytes": len(data), "name": name})
+
+    def _download(self, attachment_id: str) -> None:
+        try:
+            path = self.server.blob_path(attachment_id)
+        except ValueError:
+            self._error(404, "no such attachment")
+            return
+        with self.server.db() as con:
+            slugs = self._authorized(con)
+            if not slugs:
+                return
+            row = con.execute("SELECT owner_slug,name,message_id FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+            if not row:
+                self._error(404, "no such attachment")
+                return
+            allowed = row["owner_slug"] in slugs
+            if not allowed and row["message_id"]:
+                msg = con.execute("SELECT to_slug FROM messages WHERE id=?", (row["message_id"],)).fetchone()
+                allowed = bool(msg and msg["to_slug"] in slugs)
+            if not allowed:
+                self._error(403, "not yours")
+                return
+            if not path.is_file():
+                self._error(410, "blob expired")
+                return
+            data = path.read_bytes()
+            self._mark_seen(con, slugs)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Disposition", f"attachment; filename={json.dumps(str(row['name']))}")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+class HubService:
+    """Lifecycle owner used by the engine startup/shutdown coordinator."""
+
+    def __init__(self, data_root: str | os.PathLike[str], host: str = "127.0.0.1", port: int = 0):
+        root = Path(data_root).expanduser().resolve()
+        if not root.is_absolute() or root == Path(root.anchor):
+            raise ValueError("data_root must be an explicit non-root directory")
+        if host not in ("127.0.0.1", "localhost"):
+            raise ValueError("v2 hub is loopback-only")
+        if not 0 <= port <= 65535:
+            raise ValueError("invalid port")
+        self.root = root / "hub"
+        self.host = "127.0.0.1" if host == "localhost" else host
+        self.port = port
+        self._server: _HubServer | None = None
+        self._thread: threading.Thread | None = None
+        self._readiness: HubReadiness | None = None
+
+    @property
+    def readiness_path(self) -> Path:
+        return self.root / "readiness.json"
+
+    @property
+    def readiness(self) -> HubReadiness | None:
+        return self._readiness
+
+    def start(self) -> HubReadiness:
+        if self._server is not None:
+            if self._readiness is None:
+                raise RuntimeError("hub has no readiness")
+            return self._readiness
+        self.root.mkdir(parents=True, exist_ok=True)
+        server = _HubServer((self.host, self.port), self.root)
+        self._server = server
+        self.port = int(server.server_address[1])
+        self._thread = threading.Thread(target=server.serve_forever, name="orgtree-v2-hub", daemon=True)
+        self._thread.start()
+        self._readiness = HubReadiness(self.host, self.port, str(self.root.parent), str(self.readiness_path), os.getpid())
+        temporary = self.readiness_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self._readiness.as_dict()) + "\n", encoding="utf-8")
+        os.replace(temporary, self.readiness_path)
+        return self._readiness
+
+    def wait_ready(self, timeout: float = 5.0) -> HubReadiness:
+        deadline = time.monotonic() + timeout
+        while self._readiness is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if self._readiness is None:
+            raise TimeoutError("v2 hub did not become ready")
+        return self._readiness
+
+    def stop(self) -> None:
+        server, thread = self._server, self._thread
+        self._server = None
+        self._thread = None
+        self._readiness = None
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if thread is not None:
+            thread.join(timeout=5)
+        try:
+            self.readiness_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def __enter__(self) -> "HubService":
+        self.start()
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        self.stop()
+
+
+HubLifecycle = HubService
+
+
+def start_hub(data_root: str | os.PathLike[str], **kwargs: Any) -> HubService:
+    service = HubService(data_root, **kwargs)
+    service.start()
+    return service
+
+
+def discover_hub(data_root: str | os.PathLike[str]) -> HubReadiness:
+    """Read and validate the current engine-owned dynamic endpoint."""
+    root = Path(data_root).expanduser().resolve()
+    path = root / "hub" / "readiness.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise RuntimeError("v2 hub is not ready") from exc
+    if payload.get("protocol") != 1 or payload.get("ready") is not True:
+        raise RuntimeError("invalid v2 hub readiness record")
+    if payload.get("data_root") != str(root):
+        raise RuntimeError("hub readiness belongs to a different data root")
+    host, port = str(payload.get("host") or ""), int(payload.get("port") or 0)
+    if host != "127.0.0.1" or not 1 <= port <= 65535:
+        raise RuntimeError("invalid loopback hub endpoint")
+    return HubReadiness(host, port, str(root), str(path), int(payload.get("pid") or 0))
