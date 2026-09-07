@@ -1,0 +1,88 @@
+{
+  "variant": "context.notice_digest",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.notice_digest",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": null,
+    "engine_authored": true,
+    "groups": [
+      {
+        "variant": "lifecycle.retired",
+        "object_kind": "node",
+        "members": [
+          {
+            "at": "2026-09-06T00:00:00Z",
+            "event": {
+              "v": 1,
+              "variant": "lifecycle.retired",
+              "actor": {
+                "kind": "user",
+                "id": "@user"
+              },
+              "object": {
+                "kind": "node",
+                "org": "lifecycle.retired·object.org",
+                "id": "lifecycle.retired·object.id",
+                "name": "lifecycle.retired·object.name",
+                "generation": 3
+              },
+              "engine_authored": false,
+              "node": "lifecycle.retired·node",
+              "by": "lifecycle.retired·by",
+              "relation": "report",
+              "freed": 2.5
+            }
+          }
+        ]
+      }
+    ],
+    "untyped": 0
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.notice_digest",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": null,
+    "groups": [
+      {
+        "variant": "lifecycle.retired",
+        "object_kind": "node",
+        "members": [
+          {
+            "at": "2026-09-06T00:00:00Z",
+            "event": {
+              "v": 1,
+              "variant": "lifecycle.retired",
+              "projection": "public",
+              "actor": {
+                "kind": "user",
+                "id": "@user"
+              },
+              "object": {
+                "kind": "node",
+                "id": "lifecycle.retired·object.id",
+                "name": "lifecycle.retired·object.name",
+                "generation": 3
+              },
+              "node": "lifecycle.retired·node",
+              "by": "lifecycle.retired·by",
+              "relation": "report",
+              "freed": 2.5
+            }
+          }
+        ]
+      }
+    ],
+    "untyped": 0
+  },
+  "body": "1 notice(s) since your last turn, grouped by kind — every one is listed in full below:\n■ lifecycle.retired · node × 1\n  - 2026-09-06T00:00:00Z: Your report \"lifecycle.retired·node\" was retired by \"lifecycle.retired·by\" (freed 2.5 credits)."
+}

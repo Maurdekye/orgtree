@@ -1,0 +1,46 @@
+{
+  "variant": "policy.limit_reset",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "policy.limit_reset",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.limit_reset·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "policy.limit_reset·object.org",
+      "id": "policy.limit_reset·object.id",
+      "name": "policy.limit_reset·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "relation": "report",
+    "node": "policy.limit_reset·node",
+    "released": [
+      "policy.limit_reset·released[0]"
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "policy.limit_reset",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.limit_reset·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "policy.limit_reset·object.id",
+      "name": "policy.limit_reset·object.name",
+      "generation": 3
+    },
+    "relation": "report",
+    "node": "policy.limit_reset·node",
+    "released": [
+      "policy.limit_reset·released[0]"
+    ]
+  },
+  "body": "\"policy.limit_reset·node\" is RELEASED from the weekly-Fable halt — the limit reset. It runs again; no need to keep covering its work."
+}

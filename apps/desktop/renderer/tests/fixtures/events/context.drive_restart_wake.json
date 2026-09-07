@@ -1,0 +1,41 @@
+{
+  "variant": "context.drive_restart_wake",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.drive_restart_wake",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "build",
+      "commit": "context.drive_restart_wake·object.commit",
+      "short": "context.drive_restart_wake·object.short",
+      "dirty": false,
+      "pid": 3
+    },
+    "engine_authored": true,
+    "text": "context.drive_restart_wake·text",
+    "reason": "context.drive_restart_wake·reason",
+    "armed_by_pid": 3,
+    "mode": "one_shot"
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.drive_restart_wake",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "build",
+      "commit": "context.drive_restart_wake·object.commit",
+      "short": "context.drive_restart_wake·object.short",
+      "dirty": false,
+      "pid": 3
+    }
+  },
+  "body": "context.drive_restart_wake·text"
+}

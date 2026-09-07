@@ -1,0 +1,38 @@
+{
+  "variant": "lifecycle.bearer_lost",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.bearer_lost",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.bearer_lost·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.bearer_lost·object.org",
+      "id": "lifecycle.bearer_lost·object.id",
+      "name": "lifecycle.bearer_lost·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "bearer": "lifecycle.bearer_lost·bearer"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.bearer_lost",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.bearer_lost·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.bearer_lost·object.id",
+      "name": "lifecycle.bearer_lost·object.name",
+      "generation": 3
+    },
+    "bearer": "lifecycle.bearer_lost·bearer"
+  },
+  "body": "Knowledge bearer \"lifecycle.bearer_lost·bearer\" lost its transcript and is now a LOST generation — it can no longer be consulted; what it held survives only in what was already written down."
+}

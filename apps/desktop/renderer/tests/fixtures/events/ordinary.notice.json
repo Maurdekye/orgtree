@@ -1,0 +1,27 @@
+{
+  "variant": "ordinary.notice",
+  "family": "ordinary",
+  "private": {
+    "v": 1,
+    "variant": "ordinary.notice",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.notice·actor"
+    },
+    "object": null,
+    "engine_authored": false,
+    "body": "ordinary.notice·body"
+  },
+  "public": {
+    "v": 1,
+    "variant": "ordinary.notice",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.notice·actor"
+    },
+    "object": null,
+    "body": "ordinary.notice·body"
+  },
+  "body": "ordinary.notice·body"
+}

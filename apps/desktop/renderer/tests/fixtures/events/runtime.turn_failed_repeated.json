@@ -1,0 +1,39 @@
+{
+  "variant": "runtime.turn_failed_repeated",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.turn_failed_repeated",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "org": "runtime.turn_failed_repeated·object.org",
+      "node": "runtime.turn_failed_repeated·object.node",
+      "session_id": "runtime.turn_failed_repeated·object.session_id"
+    },
+    "engine_authored": true,
+    "attempts": 3,
+    "classified": "runtime.turn_failed_repeated·classified",
+    "err": "runtime.turn_failed_repeated·err"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.turn_failed_repeated",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "node": "runtime.turn_failed_repeated·object.node"
+    },
+    "attempts": 3,
+    "classified": "runtime.turn_failed_repeated·classified",
+    "err": "runtime.turn_failed_repeated·err"
+  },
+  "body": "[TURN FAILED REPEATEDLY — 3 attempts, giving up]\nClassified as: runtime.turn_failed_repeated·classified\nLast error: runtime.turn_failed_repeated·err\n\norgtree retried this turn automatically and has now stopped. You are no longer frozen, so this message is itself a live turn — you are running right now.\n\n⚠ WORK MAY BE UNFINISHED AND UNSAVED. A turn died part-way through, possibly more than once. Anything it had already done — files edited, mail sent, commands run — DID happen and was not undone; anything it was about to do did not. Before redoing work, CHECK THE ACTUAL STATE: your working folder, `git status` if you are in a repo, and your own last messages. Then finish what was interrupted, or report that you cannot."
+}

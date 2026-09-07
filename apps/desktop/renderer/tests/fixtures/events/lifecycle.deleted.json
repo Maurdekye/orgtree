@@ -1,0 +1,42 @@
+{
+  "variant": "lifecycle.deleted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.deleted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.deleted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.deleted·object.org",
+      "id": "lifecycle.deleted·object.id",
+      "name": "lifecycle.deleted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.deleted·node",
+    "relation": "report",
+    "extra": 2
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.deleted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.deleted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.deleted·object.id",
+      "name": "lifecycle.deleted·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.deleted·node",
+    "relation": "report",
+    "extra": 2
+  },
+  "body": "The user permanently DELETED your report \"lifecycle.deleted·node\" and its suborganization (2 more node(s)). Its records are gone from the org."
+}

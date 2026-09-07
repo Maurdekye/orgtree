@@ -1,0 +1,42 @@
+{
+  "variant": "lifecycle.switch_cancelled",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.switch_cancelled",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_cancelled·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.switch_cancelled·object.org",
+      "id": "lifecycle.switch_cancelled·object.id",
+      "name": "lifecycle.switch_cancelled·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.switch_cancelled·node",
+    "target": "lifecycle.switch_cancelled·target",
+    "by": "lifecycle.switch_cancelled·by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.switch_cancelled",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_cancelled·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.switch_cancelled·object.id",
+      "name": "lifecycle.switch_cancelled·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.switch_cancelled·node",
+    "target": "lifecycle.switch_cancelled·target",
+    "by": "lifecycle.switch_cancelled·by"
+  },
+  "body": "lifecycle.switch_cancelled·by cancelled the queued switch of \"lifecycle.switch_cancelled·node\" to lifecycle.switch_cancelled·target."
+}

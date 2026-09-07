@@ -1,0 +1,42 @@
+{
+  "variant": "access.kiosk_clamped",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.kiosk_clamped",
+    "actor": {
+      "kind": "agent",
+      "id": "access.kiosk_clamped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "access.kiosk_clamped·object.org",
+      "id": "access.kiosk_clamped·object.id",
+      "name": "access.kiosk_clamped·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "lost": [
+      "access.kiosk_clamped·lost[0]"
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.kiosk_clamped",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.kiosk_clamped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "access.kiosk_clamped·object.id",
+      "name": "access.kiosk_clamped·object.name",
+      "generation": 3
+    },
+    "lost": [
+      "access.kiosk_clamped·lost[0]"
+    ]
+  },
+  "body": "The kiosk permission ceiling was adjusted; your grants were clamped to fit: access.kiosk_clamped·lost[0]."
+}

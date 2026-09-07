@@ -1,0 +1,27 @@
+{
+  "variant": "ordinary.status",
+  "family": "ordinary",
+  "private": {
+    "v": 1,
+    "variant": "ordinary.status",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.status·actor"
+    },
+    "object": null,
+    "engine_authored": false,
+    "body": "ordinary.status·body"
+  },
+  "public": {
+    "v": 1,
+    "variant": "ordinary.status",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.status·actor"
+    },
+    "object": null,
+    "body": "ordinary.status·body"
+  },
+  "body": "ordinary.status·body"
+}

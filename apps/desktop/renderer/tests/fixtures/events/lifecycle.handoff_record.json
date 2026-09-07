@@ -1,0 +1,38 @@
+{
+  "variant": "lifecycle.handoff_record",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.handoff_record",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.handoff_record·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.handoff_record·object.org",
+      "id": "lifecycle.handoff_record·object.id",
+      "name": "lifecycle.handoff_record·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "generation": 3
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.handoff_record",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.handoff_record·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.handoff_record·object.id",
+      "name": "lifecycle.handoff_record·object.name",
+      "generation": 3
+    },
+    "generation": 3
+  },
+  "body": "A handoff record for this boundary is at handoff-g3/record.md in your working folder: a citation index of instructions, tool calls, artifacts and mail built from files, with line refs into transcript.jsonl — not memory, and not evidence that any provider context carried over."
+}

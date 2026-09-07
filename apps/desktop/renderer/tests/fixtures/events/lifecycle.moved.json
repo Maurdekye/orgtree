@@ -1,0 +1,48 @@
+{
+  "variant": "lifecycle.moved",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.moved",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.moved·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.moved·object.org",
+      "id": "lifecycle.moved·object.id",
+      "name": "lifecycle.moved·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.moved·node",
+    "from_parent": "lifecycle.moved·from_parent",
+    "to_parent": "lifecycle.moved·to_parent",
+    "role": "old_parent",
+    "by": "lifecycle.moved·by",
+    "tail": "lifecycle.moved·tail"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.moved",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.moved·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.moved·object.id",
+      "name": "lifecycle.moved·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.moved·node",
+    "from_parent": "lifecycle.moved·from_parent",
+    "to_parent": "lifecycle.moved·to_parent",
+    "role": "old_parent",
+    "by": "lifecycle.moved·by",
+    "tail": "lifecycle.moved·tail"
+  },
+  "body": "\"lifecycle.moved·by\" moved your report \"lifecycle.moved·node\" away — it now reports to lifecycle.moved·to_parent.lifecycle.moved·tail"
+}

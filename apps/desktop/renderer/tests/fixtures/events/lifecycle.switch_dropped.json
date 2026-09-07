@@ -1,0 +1,44 @@
+{
+  "variant": "lifecycle.switch_dropped",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.switch_dropped",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_dropped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.switch_dropped·object.org",
+      "id": "lifecycle.switch_dropped·object.id",
+      "name": "lifecycle.switch_dropped·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.switch_dropped·node",
+    "target": "lifecycle.switch_dropped·target",
+    "kept": "lifecycle.switch_dropped·kept",
+    "reason": "lifecycle.switch_dropped·reason"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.switch_dropped",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_dropped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.switch_dropped·object.id",
+      "name": "lifecycle.switch_dropped·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.switch_dropped·node",
+    "target": "lifecycle.switch_dropped·target",
+    "kept": "lifecycle.switch_dropped·kept",
+    "reason": "lifecycle.switch_dropped·reason"
+  },
+  "body": "the queued switch of lifecycle.switch_dropped·node to lifecycle.switch_dropped·target was DROPPED at the end of its turn: lifecycle.switch_dropped·reason. It stays on lifecycle.switch_dropped·kept; ask again once that is resolved."
+}

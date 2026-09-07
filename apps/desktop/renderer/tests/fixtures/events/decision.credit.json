@@ -1,0 +1,44 @@
+{
+  "variant": "decision.credit",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "decision.credit",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.credit·actor"
+    },
+    "object": {
+      "kind": "credit_request",
+      "org": "decision.credit·object.org",
+      "id": "decision.credit·object.id",
+      "node": "decision.credit·object.node"
+    },
+    "engine_authored": false,
+    "outcome": "counter",
+    "old": 2.0,
+    "asked": 10.0,
+    "granted": 5.0,
+    "now": 5.0
+  },
+  "public": {
+    "v": 1,
+    "variant": "decision.credit",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.credit·actor"
+    },
+    "object": {
+      "kind": "credit_request",
+      "id": "decision.credit·object.id",
+      "node": "decision.credit·object.node"
+    },
+    "outcome": "counter",
+    "old": 2.0,
+    "asked": 10.0,
+    "granted": 5.0,
+    "now": 5.0
+  },
+  "body": "The user COUNTER-OFFERED: you asked 2 → 10; granted 2 → 5 (+3). You may take this as-is, request more later, or find another way within it."
+}

@@ -1,0 +1,42 @@
+{
+  "variant": "docket.review_approved",
+  "family": "review",
+  "private": {
+    "v": 1,
+    "variant": "docket.review_approved",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_approved·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.review_approved·object.org",
+      "slug": "docket.review_approved·object.slug",
+      "title": "docket.review_approved·object.title"
+    },
+    "engine_authored": false,
+    "reviewer": "docket.review_approved·reviewer",
+    "owner": "docket.review_approved·owner",
+    "note": "docket.review_approved·note",
+    "relayed": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.review_approved",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_approved·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.review_approved·object.slug",
+      "title": "docket.review_approved·object.title"
+    },
+    "reviewer": "docket.review_approved·reviewer",
+    "owner": "docket.review_approved·owner",
+    "note": "docket.review_approved·note",
+    "relayed": false
+  },
+  "body": "[DOCKET REVIEW · docket.review_approved·object.slug \"docket.review_approved·object.title\"] REVIEW PASSED — docket.review_approved·reviewer approved this item and it is now DONE. Nothing further is needed on it.\nReviewer's note: docket.review_approved·note"
+}

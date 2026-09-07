@@ -1,0 +1,39 @@
+{
+  "variant": "runtime.ui_crash_report",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.ui_crash_report",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "runtime.ui_crash_report·object.org"
+    },
+    "engine_authored": true,
+    "summary": "runtime.ui_crash_report·summary",
+    "report": {
+      "kind": "runtime.ui_crash_report·report.kind",
+      "message": "runtime.ui_crash_report·report.message",
+      "stack": "runtime.ui_crash_report·report.stack",
+      "url": "runtime.ui_crash_report·report.url",
+      "at": "runtime.ui_crash_report·report.at"
+    }
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.ui_crash_report",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    },
+    "summary": "runtime.ui_crash_report·summary"
+  },
+  "body": "runtime.ui_crash_report·summary"
+}

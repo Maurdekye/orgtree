@@ -1,0 +1,48 @@
+{
+  "variant": "runtime.report_limited",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.report_limited",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "runtime.report_limited·object.org",
+      "id": "runtime.report_limited·object.id",
+      "name": "runtime.report_limited·object.name",
+      "generation": 3
+    },
+    "engine_authored": true,
+    "report": "runtime.report_limited·report",
+    "report_name": "runtime.report_limited·report_name",
+    "audience": "superior",
+    "lane": "runtime.report_limited·lane",
+    "reset_at": "runtime.report_limited·reset_at",
+    "err": "runtime.report_limited·err"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.report_limited",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "runtime.report_limited·object.id",
+      "name": "runtime.report_limited·object.name",
+      "generation": 3
+    },
+    "report": "runtime.report_limited·report",
+    "report_name": "runtime.report_limited·report_name",
+    "audience": "superior",
+    "lane": "runtime.report_limited·lane",
+    "reset_at": "runtime.report_limited·reset_at",
+    "err": "runtime.report_limited·err"
+  },
+  "body": "[REPORT LIMITED — runtime.report_limited·report_name (runtime.report_limited·report) is out of provider capacity]\nIts provider refused the turn on a usage limit, so it stopped mid-task and is now FROZEN.\nLane: runtime.report_limited·lane\nLimit lifts: runtime.report_limited·reset_at\nProvider said: runtime.report_limited·err\n\nIt is blocked, not broken — the work it was doing is held and will be replayed when it runs again. Whether it wakes by itself when the window lifts depends on this org's auto-resume setting; ▶ resume works either way.\n\nYou have NOT been woken for this, and you will not hear about this wall again: it is one notice per episode, and the next one comes only after it has run a turn and been walled afresh. If the work cannot wait for the reset, move it to another agent or another lane."
+}

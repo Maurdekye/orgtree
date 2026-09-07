@@ -1,0 +1,44 @@
+{
+  "variant": "lifecycle.switch_queued",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.switch_queued",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_queued·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.switch_queued·object.org",
+      "id": "lifecycle.switch_queued·object.id",
+      "name": "lifecycle.switch_queued·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.switch_queued·node",
+    "old": "lifecycle.switch_queued·old",
+    "new": "lifecycle.switch_queued·new",
+    "by": "lifecycle.switch_queued·by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.switch_queued",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.switch_queued·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.switch_queued·object.id",
+      "name": "lifecycle.switch_queued·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.switch_queued·node",
+    "old": "lifecycle.switch_queued·old",
+    "new": "lifecycle.switch_queued·new",
+    "by": "lifecycle.switch_queued·by"
+  },
+  "body": "\"lifecycle.switch_queued·by\" queued a model switch for \"lifecycle.switch_queued·node\": lifecycle.switch_queued·old→lifecycle.switch_queued·new, applied when its current turn ends."
+}

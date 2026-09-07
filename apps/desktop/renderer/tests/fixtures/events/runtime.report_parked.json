@@ -1,0 +1,50 @@
+{
+  "variant": "runtime.report_parked",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.report_parked",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "runtime.report_parked·object.org",
+      "id": "runtime.report_parked·object.id",
+      "name": "runtime.report_parked·object.name",
+      "generation": 3
+    },
+    "engine_authored": true,
+    "report": "runtime.report_parked·report",
+    "report_name": "runtime.report_parked·report_name",
+    "audience": "superior",
+    "headline": "runtime.report_parked·headline",
+    "detail": "runtime.report_parked·detail",
+    "lane": "runtime.report_parked·lane",
+    "err": "runtime.report_parked·err"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.report_parked",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "runtime.report_parked·object.id",
+      "name": "runtime.report_parked·object.name",
+      "generation": 3
+    },
+    "report": "runtime.report_parked·report",
+    "report_name": "runtime.report_parked·report_name",
+    "audience": "superior",
+    "headline": "runtime.report_parked·headline",
+    "detail": "runtime.report_parked·detail",
+    "lane": "runtime.report_parked·lane",
+    "err": "runtime.report_parked·err"
+  },
+  "body": "[REPORT STOPPED — runtime.report_parked·report_name (runtime.report_parked·report) runtime.report_parked·headline]\nruntime.report_parked·detail\n\nLane: runtime.report_parked·lane\nWhat it said: runtime.report_parked·err\n\nIt is not frozen on a timer and orgtree will not re-drive it, so nothing changes until someone acts. It may also be holding unfinished work from the turn that stopped.\n\nYou have NOT been woken for this, and you will not hear about it again until it has completed a turn and got stuck afresh."
+}

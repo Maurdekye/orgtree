@@ -1,0 +1,40 @@
+{
+  "variant": "lifecycle.unrecoverable",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.unrecoverable",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.unrecoverable·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.unrecoverable·object.org",
+      "id": "lifecycle.unrecoverable·object.id",
+      "name": "lifecycle.unrecoverable·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.unrecoverable·node",
+    "reason": "lifecycle.unrecoverable·reason"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.unrecoverable",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.unrecoverable·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.unrecoverable·object.id",
+      "name": "lifecycle.unrecoverable·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.unrecoverable·node",
+    "reason": "lifecycle.unrecoverable·reason"
+  },
+  "body": "⚠ Your report \"lifecycle.unrecoverable·node\" is UNRECOVERABLE — its session failed to resume (lifecycle.unrecoverable·reason). Its seat is still held; rehire it to RE-SEED it (fresh session, same identity and credits), or retire it to free the credits."
+}

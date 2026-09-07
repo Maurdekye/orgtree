@@ -1,0 +1,117 @@
+{
+  "variant": "answer.batch",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "answer.batch",
+    "actor": {
+      "kind": "agent",
+      "id": "answer.batch·actor"
+    },
+    "object": {
+      "kind": "batch",
+      "org": "answer.batch·object.org",
+      "id": "answer.batch·object.id",
+      "node": "answer.batch·object.node"
+    },
+    "engine_authored": false,
+    "sections": [
+      {
+        "kind": "ask",
+        "ask_id": "a1",
+        "questions": [
+          {
+            "label": "Q1",
+            "question": "answer.batch·q1",
+            "answer": "answer.batch·a1"
+          },
+          {
+            "label": "Q2",
+            "question": "answer.batch·q2",
+            "answer": null
+          }
+        ]
+      },
+      {
+        "kind": "credit",
+        "outcome": "counter",
+        "old": 2.0,
+        "asked": 10.0,
+        "granted": 5.0,
+        "now": 5.0
+      },
+      {
+        "kind": "scope",
+        "lines": [
+          "answer.batch·scope-line"
+        ],
+        "decisions": [
+          {
+            "label": "answer.batch·dlabel",
+            "decision": "approve"
+          }
+        ]
+      },
+      {
+        "kind": "skipped",
+        "ask_id": "a2",
+        "question": "answer.batch·skipped-q"
+      }
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "answer.batch",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "answer.batch·actor"
+    },
+    "object": {
+      "kind": "batch",
+      "id": "answer.batch·object.id",
+      "node": "answer.batch·object.node"
+    },
+    "sections": [
+      {
+        "kind": "ask",
+        "questions": [
+          {
+            "label": "Q1",
+            "question": "answer.batch·q1",
+            "answer": "answer.batch·a1"
+          },
+          {
+            "label": "Q2",
+            "question": "answer.batch·q2",
+            "answer": null
+          }
+        ]
+      },
+      {
+        "kind": "credit",
+        "outcome": "counter",
+        "old": 2.0,
+        "asked": 10.0,
+        "granted": 5.0,
+        "now": 5.0
+      },
+      {
+        "kind": "scope",
+        "lines": [
+          "answer.batch·scope-line"
+        ],
+        "decisions": [
+          {
+            "decision": "approve"
+          }
+        ]
+      },
+      {
+        "kind": "skipped",
+        "question": "answer.batch·skipped-q"
+      }
+    ]
+  },
+  "body": "[ANSWERS to your questions]\nQ1 — answer.batch·q1\n→ answer.batch·a1\nQ2 — answer.batch·q2\n→ (skipped — the user left this one unanswered)\n\nThe user COUNTER-OFFERED: you asked 2 → 10; granted 2 → 5 (+3). You may take this as-is, request more later, or find another way within it.\n\nanswer.batch·scope-line\n\n[QUESTION skipped] answer.batch·skipped-q"
+}

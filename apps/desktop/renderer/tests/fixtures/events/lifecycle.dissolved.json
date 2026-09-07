@@ -1,0 +1,46 @@
+{
+  "variant": "lifecycle.dissolved",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.dissolved",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.dissolved·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.dissolved·object.org",
+      "id": "lifecycle.dissolved·object.id",
+      "name": "lifecycle.dissolved·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.dissolved·node",
+    "by": "lifecycle.dissolved·by",
+    "relation": "report",
+    "nodes": 3,
+    "freed": 2.5
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.dissolved",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.dissolved·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.dissolved·object.id",
+      "name": "lifecycle.dissolved·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.dissolved·node",
+    "by": "lifecycle.dissolved·by",
+    "relation": "report",
+    "nodes": 3,
+    "freed": 2.5
+  },
+  "body": "\"lifecycle.dissolved·by\" dissolved your report \"lifecycle.dissolved·node\" and its whole suborganization (3 node(s), freed 2.5 credits)."
+}

@@ -1,0 +1,46 @@
+{
+  "variant": "runtime.delivery_unread",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.delivery_unread",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "mail",
+      "org": "runtime.delivery_unread·object.org",
+      "box": "user",
+      "node": "runtime.delivery_unread·object.node",
+      "id": "runtime.delivery_unread·object.id",
+      "sender": "runtime.delivery_unread·object.sender",
+      "at": "runtime.delivery_unread·object.at"
+    },
+    "engine_authored": true,
+    "to": "runtime.delivery_unread·to",
+    "waited": "runtime.delivery_unread·waited",
+    "boundary_for": "4s"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.delivery_unread",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "mail",
+      "box": "user",
+      "node": "runtime.delivery_unread·object.node",
+      "id": "runtime.delivery_unread·object.id",
+      "sender": "runtime.delivery_unread·object.sender",
+      "at": "runtime.delivery_unread·object.at"
+    },
+    "to": "runtime.delivery_unread·to",
+    "waited": "runtime.delivery_unread·waited",
+    "boundary_for": "4s"
+  },
+  "body": "Your mid-turn message to \"runtime.delivery_unread·to\" has NOT been read yet — it has been waiting runtime.delivery_unread·waited in its steer store. Mid-turn mail is injected when the recipient's current tool call returns, and runtime.delivery_unread·to has been inside one call for 4s. Nothing is lost — it is delivered at that boundary, or at runtime.delivery_unread·to's next turn if the turn ends first. If it cannot wait that long, orgtree_interrupt (⏸) on runtime.delivery_unread·to creates a boundary immediately without ending its session."
+}

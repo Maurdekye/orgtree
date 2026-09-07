@@ -1,0 +1,44 @@
+{
+  "variant": "context.provider_usage",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.provider_usage",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "context.provider_usage·object.org"
+    },
+    "engine_authored": true,
+    "text": "context.provider_usage·text",
+    "rows": [
+      {
+        "provider": "context.provider_usage·rows[0].provider",
+        "lane": "context.provider_usage·rows[0].lane",
+        "window": "context.provider_usage·rows[0].window",
+        "used_pct": 2.5,
+        "amount": "context.provider_usage·rows[0].amount",
+        "reset_at": "context.provider_usage·rows[0].reset_at",
+        "observed_at": "context.provider_usage·rows[0].observed_at",
+        "state": "context.provider_usage·rows[0].state"
+      }
+    ],
+    "seq": 3
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.provider_usage",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    }
+  },
+  "body": "context.provider_usage·text"
+}

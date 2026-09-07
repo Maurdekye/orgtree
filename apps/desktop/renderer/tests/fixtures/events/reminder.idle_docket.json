@@ -1,0 +1,54 @@
+{
+  "variant": "reminder.idle_docket",
+  "family": "reminder",
+  "private": {
+    "v": 1,
+    "variant": "reminder.idle_docket",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "reminder.idle_docket·object.org",
+      "id": "reminder.idle_docket·object.id",
+      "name": "reminder.idle_docket·object.name",
+      "generation": 3
+    },
+    "engine_authored": true,
+    "items": [
+      {
+        "slug": "reminder.idle_docket·items[0].slug",
+        "title": "reminder.idle_docket·items[0].title",
+        "status": "reminder.idle_docket·items[0].status",
+        "role": "owner"
+      }
+    ],
+    "more": 1
+  },
+  "public": {
+    "v": 1,
+    "variant": "reminder.idle_docket",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "reminder.idle_docket·object.id",
+      "name": "reminder.idle_docket·object.name",
+      "generation": 3
+    },
+    "items": [
+      {
+        "slug": "reminder.idle_docket·items[0].slug",
+        "title": "reminder.idle_docket·items[0].title",
+        "status": "reminder.idle_docket·items[0].status",
+        "role": "owner"
+      }
+    ],
+    "more": 1
+  },
+  "body": "[AUTOMATIC IDLE DOCKET REMINDER]\nYou have been idle for 20 minutes and these docket items are waiting on YOU for their next action:\n- reminder.idle_docket·items[0].slug (reminder.idle_docket·items[0].status): reminder.idle_docket·items[0].title\n- …and 1 more item(s) waiting on you; orgtree_work list shows them all\nPick the work back up: read each one with orgtree_work get, take the next concrete step, and leave an honest orgtree_work update. Assert review only if an item is really finished; blocked (with a blocked_reason) if it truly cannot move; waiting (with a waiting_reason naming the external event and how you will hear of it) if its next step is not yours to take. Items that are backlogged, already waiting on an external event, or waiting on the user through an attention flag or an open question are deliberately not listed here — and nor is anything whose next action belongs to somebody else."
+}

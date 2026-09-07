@@ -1,0 +1,56 @@
+{
+  "variant": "context.org_state",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.org_state",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "context.org_state·object.org"
+    },
+    "engine_authored": true,
+    "text": "context.org_state·text",
+    "snapshot": {
+      "seq": 3,
+      "at": "context.org_state·snapshot.at",
+      "reports": [
+        {
+          "id": "context.org_state·snapshot.reports[0].id",
+          "name": "context.org_state·snapshot.reports[0].name",
+          "tier": "context.org_state·snapshot.reports[0].tier",
+          "state": "context.org_state·snapshot.reports[0].state"
+        }
+      ],
+      "peers": [
+        "context.org_state·snapshot.peers[0]"
+      ],
+      "chart": "context.org_state·snapshot.chart",
+      "chart_ref": 3,
+      "credits": {
+        "seat": 2.5,
+        "grant": 2.5,
+        "free": 2.5
+      },
+      "notes": [
+        "context.org_state·snapshot.notes[0]"
+      ]
+    }
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.org_state",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    }
+  },
+  "body": "context.org_state·text"
+}

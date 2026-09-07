@@ -1,0 +1,44 @@
+{
+  "variant": "access.audience_changed",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.audience_changed",
+    "actor": {
+      "kind": "agent",
+      "id": "access.audience_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "access.audience_changed·object.org",
+      "id": "access.audience_changed·object.id",
+      "name": "access.audience_changed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "outcome": "audience_with",
+    "by": "access.audience_changed·by",
+    "target": "access.audience_changed·target",
+    "other": "access.audience_changed·other"
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.audience_changed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.audience_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "access.audience_changed·object.id",
+      "name": "access.audience_changed·object.name",
+      "generation": 3
+    },
+    "outcome": "audience_with",
+    "by": "access.audience_changed·by",
+    "target": "access.audience_changed·target",
+    "other": "access.audience_changed·other"
+  },
+  "body": "\"access.audience_changed·by\" granted you an audience with \"access.audience_changed·target\" — you may message them directly until it is rescinded."
+}

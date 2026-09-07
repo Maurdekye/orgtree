@@ -1,0 +1,30 @@
+{
+  "variant": "access.kiosk_ceiling",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.kiosk_ceiling",
+    "actor": {
+      "kind": "agent",
+      "id": "access.kiosk_ceiling·actor"
+    },
+    "object": {
+      "kind": "org",
+      "org": "access.kiosk_ceiling·object.org"
+    },
+    "engine_authored": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.kiosk_ceiling",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.kiosk_ceiling·actor"
+    },
+    "object": {
+      "kind": "org"
+    }
+  },
+  "body": "This kiosk now carries a PERMISSION CEILING — the maximum layer grantable to any agent in it. It was minted from what the org already does, so nothing changed today; review and tighten it in the kiosk panel. Retooling within the ceiling is now open to visitors (the /scope freeze is lifted)."
+}

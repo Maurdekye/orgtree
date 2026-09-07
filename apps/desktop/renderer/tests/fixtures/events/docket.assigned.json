@@ -1,0 +1,56 @@
+{
+  "variant": "docket.assigned",
+  "family": "assignment",
+  "private": {
+    "v": 1,
+    "variant": "docket.assigned",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.assigned·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.assigned·object.org",
+      "slug": "docket.assigned·object.slug",
+      "title": "docket.assigned·object.title"
+    },
+    "engine_authored": false,
+    "owner": "docket.assigned·owner",
+    "previous_owner": "docket.assigned·previous_owner",
+    "assigner": "docket.assigned·assigner",
+    "status": "backlogged",
+    "objective": "docket.assigned·objective",
+    "done_so_far": [
+      "docket.assigned·done_so_far[0]"
+    ],
+    "working_on_next": [
+      "docket.assigned·working_on_next[0]"
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.assigned",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.assigned·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.assigned·object.slug",
+      "title": "docket.assigned·object.title"
+    },
+    "owner": "docket.assigned·owner",
+    "previous_owner": "docket.assigned·previous_owner",
+    "assigner": "docket.assigned·assigner",
+    "status": "backlogged",
+    "objective": "docket.assigned·objective",
+    "done_so_far": [
+      "docket.assigned·done_so_far[0]"
+    ],
+    "working_on_next": [
+      "docket.assigned·working_on_next[0]"
+    ]
+  },
+  "body": "[DOCKET ASSIGNMENT · docket.assigned·object.slug \"docket.assigned·object.title\"] You are now the ASSIGNMENT on this docket item — that is OWNERSHIP: you hold its management rights, the user's replies on it come to you, and you are who the docket names as responsible.\nAssigned by docket.assigned·assigner (previously docket.assigned·previous_owner).\nDescription: docket.assigned·objective\nLatest status — done so far: docket.assigned·done_so_far[0]\nWorking on / next: docket.assigned·working_on_next[0]\nRead it in full with orgtree_work get slug=docket.assigned·object.slug, and `update` it at the next meaningful boundary — your update is what the user reads."
+}

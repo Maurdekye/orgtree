@@ -1,0 +1,50 @@
+{
+  "variant": "runtime.subagent_died",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.subagent_died",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "org": "runtime.subagent_died·object.org",
+      "node": "runtime.subagent_died·object.node",
+      "session_id": "runtime.subagent_died·object.session_id"
+    },
+    "engine_authored": true,
+    "orphans": [
+      {
+        "id": "runtime.subagent_died·orphans[0].id",
+        "description": "runtime.subagent_died·orphans[0].description",
+        "output_file": "runtime.subagent_died·orphans[0].output_file"
+      }
+    ],
+    "count": 1,
+    "reason": "runtime.subagent_died·reason"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.subagent_died",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "node": "runtime.subagent_died·object.node"
+    },
+    "orphans": [
+      {
+        "id": "runtime.subagent_died·orphans[0].id",
+        "description": "runtime.subagent_died·orphans[0].description"
+      }
+    ],
+    "count": 1,
+    "reason": "runtime.subagent_died·reason"
+  },
+  "body": "[SUBAGENT DIED — 1 background subagent(s) were killed before finishing]\nReason: runtime.subagent_died·reason\n\n- \"runtime.subagent_died·orphans[0].description\" (task runtime.subagent_died·orphans[0].id)\n  partial output: runtime.subagent_died·orphans[0].output_file\n\nNo completion record exists for these — do NOT keep waiting on them, and do not assume their work landed. The partial output files named above are real and may hold most of the work — READ THEM before redoing anything. To retry, relaunch — and prefer run_in_background:false, which fails loudly instead of silently if it happens again."
+}

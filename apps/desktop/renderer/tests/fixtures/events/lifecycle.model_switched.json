@@ -1,0 +1,60 @@
+{
+  "variant": "lifecycle.model_switched",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.model_switched",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.model_switched·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.model_switched·object.org",
+      "id": "lifecycle.model_switched·object.id",
+      "name": "lifecycle.model_switched·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.model_switched·node",
+    "relation": "self",
+    "old": "lifecycle.model_switched·old",
+    "new": "lifecycle.model_switched·new",
+    "seat_old": 2.5,
+    "seat_new": 2.5,
+    "by": "lifecycle.model_switched·by",
+    "queued": true,
+    "crossed": true,
+    "old_provider": "claude",
+    "new_provider": "codex",
+    "predecessor": "lifecycle.model_switched·pred"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.model_switched",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.model_switched·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.model_switched·object.id",
+      "name": "lifecycle.model_switched·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.model_switched·node",
+    "relation": "self",
+    "old": "lifecycle.model_switched·old",
+    "new": "lifecycle.model_switched·new",
+    "seat_old": 2.5,
+    "seat_new": 2.5,
+    "by": "lifecycle.model_switched·by",
+    "queued": true,
+    "crossed": true,
+    "old_provider": "claude",
+    "new_provider": "codex",
+    "predecessor": "lifecycle.model_switched·pred"
+  },
+  "body": "\"lifecycle.model_switched·by\" switched your model lifecycle.model_switched·old→lifecycle.model_switched·new (seat 2.5→2.5) — queued while you were mid-turn, applied when that turn ended. That is a different PROVIDER (claude→codex), so your conversation could NOT be carried over: this session is FRESH and you have no memory of your predecessor's work. Your predecessor is archived as \"lifecycle.model_switched·pred\" — its full transcript is at transcript.jsonl beside your breadcrumbs.md (Grep/Read the parts you need instead of reading it whole), and you may orgtree_rehire \"lifecycle.model_switched·pred\" as your own subordinate to interrogate it directly. Your warm process and prompt cache are gone with it, so this turn is a cold open and costs far more than a normal one — expect it, and do not switch back and forth. Check your scratch CLAUDE.md, and your breadcrumbs and mail are untouched; read them to pick up where you left off."
+}

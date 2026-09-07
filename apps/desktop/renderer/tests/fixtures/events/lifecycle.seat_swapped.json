@@ -1,0 +1,52 @@
+{
+  "variant": "lifecycle.seat_swapped",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.seat_swapped",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.seat_swapped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.seat_swapped·object.org",
+      "id": "lifecycle.seat_swapped·object.id",
+      "name": "lifecycle.seat_swapped·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "a": "lifecycle.seat_swapped·a",
+    "b": "b",
+    "role": "a",
+    "nested": false,
+    "by": "lifecycle.seat_swapped·by",
+    "reports_to_after": "lifecycle.seat_swapped·rta",
+    "grant_after": "7",
+    "audience_note": " You keep a standing audience with \"b\"."
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.seat_swapped",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.seat_swapped·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.seat_swapped·object.id",
+      "name": "lifecycle.seat_swapped·object.name",
+      "generation": 3
+    },
+    "a": "lifecycle.seat_swapped·a",
+    "b": "b",
+    "role": "a",
+    "nested": false,
+    "by": "lifecycle.seat_swapped·by",
+    "reports_to_after": "lifecycle.seat_swapped·rta",
+    "grant_after": "7",
+    "audience_note": " You keep a standing audience with \"b\"."
+  },
+  "body": "\"lifecycle.seat_swapped·by\" swapped your seat with \"b\": you now report to \"lifecycle.seat_swapped·rta\" and hold that seat's team, grant (7) and scope; your identity, charter and mailbox are unchanged. You keep a standing audience with \"b\"."
+}

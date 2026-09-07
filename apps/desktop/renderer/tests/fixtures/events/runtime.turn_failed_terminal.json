@@ -1,0 +1,37 @@
+{
+  "variant": "runtime.turn_failed_terminal",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.turn_failed_terminal",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "org": "runtime.turn_failed_terminal·object.org",
+      "node": "runtime.turn_failed_terminal·object.node",
+      "session_id": "runtime.turn_failed_terminal·object.session_id"
+    },
+    "engine_authored": true,
+    "door": "runtime.turn_failed_terminal·door",
+    "err": "runtime.turn_failed_terminal·err"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.turn_failed_terminal",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "session",
+      "node": "runtime.turn_failed_terminal·object.node"
+    },
+    "door": "runtime.turn_failed_terminal·door",
+    "err": "runtime.turn_failed_terminal·err"
+  },
+  "body": "[TURN FAILED TERMINALLY — nothing will retry it]\nHow it died: runtime.turn_failed_terminal·door\nError: runtime.turn_failed_terminal·err\n\norgtree classified this as NOT retryable and stopped. You were not driven for it — if the failure is in your CLI or your environment, another turn would die the same way — so this mail is waiting for you rather than waking you.\n\n⚠ WORK MAY BE UNFINISHED. Anything the dead turn had already done was NOT undone; anything it was about to do did not happen. Do not trust your own last message as a record of what ran — a turn can announce an edit in prose and die before the tool call. Check the disk."
+}

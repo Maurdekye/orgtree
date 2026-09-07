@@ -1,0 +1,40 @@
+{
+  "variant": "docket.participant_added",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "docket.participant_added",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.participant_added·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.participant_added·object.org",
+      "slug": "docket.participant_added·object.slug",
+      "title": "docket.participant_added·object.title"
+    },
+    "engine_authored": false,
+    "added_by": "docket.participant_added·added_by",
+    "owner": "docket.participant_added·owner",
+    "objective": "docket.participant_added·objective"
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.participant_added",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.participant_added·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.participant_added·object.slug",
+      "title": "docket.participant_added·object.title"
+    },
+    "added_by": "docket.participant_added·added_by",
+    "owner": "docket.participant_added·owner",
+    "objective": "docket.participant_added·objective"
+  },
+  "body": "[DOCKET PARTICIPATION · docket.participant_added·object.slug \"docket.participant_added·object.title\"] You are now a PARTICIPANT on this docket item — not its assignment. The item is owned by docket.participant_added·owner; you may read it, update it, add evidence and attach questions, and the user's replies addressed to you on it arrive as item-linked mail. Added by docket.participant_added·added_by.\nDescription: docket.participant_added·objective\nRead it with orgtree_work get slug=docket.participant_added·object.slug when your work touches it; no reply is expected to this notice."
+}

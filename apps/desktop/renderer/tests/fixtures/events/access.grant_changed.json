@@ -1,0 +1,48 @@
+{
+  "variant": "access.grant_changed",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.grant_changed",
+    "actor": {
+      "kind": "agent",
+      "id": "access.grant_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "access.grant_changed·object.org",
+      "id": "access.grant_changed·object.id",
+      "name": "access.grant_changed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "relation": "self",
+    "node": "access.grant_changed·node",
+    "delta": 2.5,
+    "now": 2.5,
+    "free": 2.5,
+    "by": "access.grant_changed·by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.grant_changed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.grant_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "access.grant_changed·object.id",
+      "name": "access.grant_changed·object.name",
+      "generation": 3
+    },
+    "relation": "self",
+    "node": "access.grant_changed·node",
+    "delta": 2.5,
+    "now": 2.5,
+    "free": 2.5,
+    "by": "access.grant_changed·by"
+  },
+  "body": "\"access.grant_changed·by\" adjusted your grant by +2.5 (now 2.5, free 2.5)."
+}

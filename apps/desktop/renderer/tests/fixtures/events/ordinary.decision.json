@@ -1,0 +1,27 @@
+{
+  "variant": "ordinary.decision",
+  "family": "ordinary",
+  "private": {
+    "v": 1,
+    "variant": "ordinary.decision",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.decision·actor"
+    },
+    "object": null,
+    "engine_authored": false,
+    "body": "ordinary.decision·body"
+  },
+  "public": {
+    "v": 1,
+    "variant": "ordinary.decision",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.decision·actor"
+    },
+    "object": null,
+    "body": "ordinary.decision·body"
+  },
+  "body": "ordinary.decision·body"
+}

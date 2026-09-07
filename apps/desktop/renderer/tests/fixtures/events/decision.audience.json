@@ -1,0 +1,40 @@
+{
+  "variant": "decision.audience",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "decision.audience",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.audience·actor"
+    },
+    "object": {
+      "kind": "audience_request",
+      "org": "decision.audience·object.org",
+      "node": "decision.audience·object.node",
+      "target": "decision.audience·object.target"
+    },
+    "engine_authored": false,
+    "granted": false,
+    "target": "decision.audience·target",
+    "decided_by": "decision.audience·by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "decision.audience",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.audience·actor"
+    },
+    "object": {
+      "kind": "audience_request",
+      "node": "decision.audience·object.node",
+      "target": "decision.audience·object.target"
+    },
+    "granted": false,
+    "target": "decision.audience·target",
+    "decided_by": "decision.audience·by"
+  },
+  "body": "Your audience request to reach decision.audience·target was declined at decision.audience·by."
+}

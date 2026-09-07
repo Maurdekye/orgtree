@@ -1,0 +1,50 @@
+{
+  "variant": "lifecycle.compacted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.compacted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.compacted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.compacted·object.org",
+      "id": "lifecycle.compacted·object.id",
+      "name": "lifecycle.compacted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.compacted·node",
+    "relation": "report",
+    "generation": 3,
+    "predecessor": "lifecycle.compacted·predecessor",
+    "auto": true,
+    "lost": false,
+    "size_note": "; ~12k tokens summarized"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.compacted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.compacted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.compacted·object.id",
+      "name": "lifecycle.compacted·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.compacted·node",
+    "relation": "report",
+    "generation": 3,
+    "predecessor": "lifecycle.compacted·predecessor",
+    "auto": true,
+    "lost": false,
+    "size_note": "; ~12k tokens summarized"
+  },
+  "body": "\"lifecycle.compacted·node\" was auto-compacted BY THE CLI (now generation 3; ~12k tokens summarized). Its pre-compaction self is preserved as \"lifecycle.compacted·predecessor\" — rehire it to consult the full detail the summary flattened."
+}

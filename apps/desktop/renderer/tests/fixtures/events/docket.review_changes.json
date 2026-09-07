@@ -1,0 +1,42 @@
+{
+  "variant": "docket.review_changes",
+  "family": "review",
+  "private": {
+    "v": 1,
+    "variant": "docket.review_changes",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_changes·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.review_changes·object.org",
+      "slug": "docket.review_changes·object.slug",
+      "title": "docket.review_changes·object.title"
+    },
+    "engine_authored": false,
+    "reviewer": "docket.review_changes·reviewer",
+    "owner": "docket.review_changes·owner",
+    "note": "docket.review_changes·note",
+    "relayed": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.review_changes",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_changes·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.review_changes·object.slug",
+      "title": "docket.review_changes·object.title"
+    },
+    "reviewer": "docket.review_changes·reviewer",
+    "owner": "docket.review_changes·owner",
+    "note": "docket.review_changes·note",
+    "relayed": false
+  },
+  "body": "[DOCKET REVIEW · docket.review_changes·object.slug \"docket.review_changes·object.title\"] CHANGES REQUESTED by docket.review_changes·reviewer — the item is back with you as in_progress and the next action is yours.\nWhat the reviewer asked for: docket.review_changes·note"
+}

@@ -1,0 +1,40 @@
+{
+  "variant": "lifecycle.phantom_removed",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.phantom_removed",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.phantom_removed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.phantom_removed·object.org",
+      "id": "lifecycle.phantom_removed·object.id",
+      "name": "lifecycle.phantom_removed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "predecessor": "lifecycle.phantom_removed·predecessor",
+    "holder": "lifecycle.phantom_removed·holder"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.phantom_removed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.phantom_removed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.phantom_removed·object.id",
+      "name": "lifecycle.phantom_removed·object.name",
+      "generation": 3
+    },
+    "predecessor": "lifecycle.phantom_removed·predecessor",
+    "holder": "lifecycle.phantom_removed·holder"
+  },
+  "body": "The lineage entry \"lifecycle.phantom_removed·predecessor\" has been removed: it was a PHANTOM. It recorded a generation that never existed — orgtree logged its own §8 compaction a second time, as a loss. Every record it named is held, in full, by \"lifecycle.phantom_removed·holder\". Nothing was deleted but a false row."
+}

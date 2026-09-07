@@ -1,0 +1,52 @@
+{
+  "variant": "lifecycle.inserted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.inserted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.inserted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.inserted·object.org",
+      "id": "lifecycle.inserted·object.id",
+      "name": "lifecycle.inserted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.inserted·node",
+    "above": "lifecycle.inserted·above",
+    "parent": "lifecycle.inserted·parent",
+    "role": "self",
+    "by": "lifecycle.inserted·by",
+    "grant_target": "4",
+    "grant_new": "9",
+    "committed": "4"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.inserted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.inserted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.inserted·object.id",
+      "name": "lifecycle.inserted·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.inserted·node",
+    "above": "lifecycle.inserted·above",
+    "parent": "lifecycle.inserted·parent",
+    "role": "self",
+    "by": "lifecycle.inserted·by",
+    "grant_target": "4",
+    "grant_new": "9",
+    "committed": "4"
+  },
+  "body": "\"lifecycle.inserted·by\" placed you in \"lifecycle.inserted·above\"'s position: you report to lifecycle.inserted·parent, \"lifecycle.inserted·above\" and its whole team now report to YOU, and you hold that seat's scope with a grant of 9 (of which 4 is committed to \"lifecycle.inserted·above\")."
+}

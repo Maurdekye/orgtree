@@ -1,0 +1,36 @@
+{
+  "variant": "reminder.working_checkup",
+  "family": "reminder",
+  "private": {
+    "v": 1,
+    "variant": "reminder.working_checkup",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "reminder.working_checkup·object.org",
+      "id": "reminder.working_checkup·object.id",
+      "name": "reminder.working_checkup·object.name",
+      "generation": 3
+    },
+    "engine_authored": true
+  },
+  "public": {
+    "v": 1,
+    "variant": "reminder.working_checkup",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "reminder.working_checkup·object.id",
+      "name": "reminder.working_checkup·object.name",
+      "generation": 3
+    }
+  },
+  "body": "[AUTOMATIC 20-MINUTE WORKING-STATUS CHECK]\nYou previously reported that you were working, but Orgtree has not woken you for 20 minutes. Check the actual work, files, processes, and messages. If useful work remains, make concrete progress now. Then report honestly with orgtree_status: use working only if work is still in progress, done if it is complete, or blocked if you truly cannot proceed. Do not claim that work is continuing without verifying it."
+}

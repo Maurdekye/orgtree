@@ -1,0 +1,31 @@
+{
+  "variant": "context.cache_continuity",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.cache_continuity",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "context.cache_continuity·object.org"
+    },
+    "engine_authored": true,
+    "text": "context.cache_continuity·text"
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.cache_continuity",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    }
+  },
+  "body": "context.cache_continuity·text"
+}

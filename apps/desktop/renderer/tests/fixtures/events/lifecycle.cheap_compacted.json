@@ -1,0 +1,46 @@
+{
+  "variant": "lifecycle.cheap_compacted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.cheap_compacted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.cheap_compacted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.cheap_compacted·object.org",
+      "id": "lifecycle.cheap_compacted·object.id",
+      "name": "lifecycle.cheap_compacted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.cheap_compacted·node",
+    "relation": "report",
+    "by": "lifecycle.cheap_compacted·by",
+    "predecessor": "lifecycle.cheap_compacted·predecessor",
+    "team_note": "lifecycle.cheap_compacted·team_note"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.cheap_compacted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.cheap_compacted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.cheap_compacted·object.id",
+      "name": "lifecycle.cheap_compacted·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.cheap_compacted·node",
+    "relation": "report",
+    "by": "lifecycle.cheap_compacted·by",
+    "predecessor": "lifecycle.cheap_compacted·predecessor",
+    "team_note": "lifecycle.cheap_compacted·team_note"
+  },
+  "body": "Your report \"lifecycle.cheap_compacted·node\" was cheap-compacted by lifecycle.cheap_compacted·by: same seat and team, fresh session — its prior self is consultable as \"lifecycle.cheap_compacted·predecessor\"."
+}

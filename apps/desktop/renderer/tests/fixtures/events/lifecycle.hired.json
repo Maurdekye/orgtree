@@ -1,0 +1,50 @@
+{
+  "variant": "lifecycle.hired",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.hired",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.hired·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.hired·object.org",
+      "id": "lifecycle.hired·object.id",
+      "name": "lifecycle.hired·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.hired·node",
+    "by": "lifecycle.hired·by",
+    "relation": "report",
+    "tier": "lifecycle.hired·tier",
+    "grant": 4.0,
+    "parent": "lifecycle.hired·parent",
+    "why": "lifecycle.hired·why"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.hired",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.hired·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.hired·object.id",
+      "name": "lifecycle.hired·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.hired·node",
+    "by": "lifecycle.hired·by",
+    "relation": "report",
+    "tier": "lifecycle.hired·tier",
+    "grant": 4.0,
+    "parent": "lifecycle.hired·parent",
+    "why": "lifecycle.hired·why"
+  },
+  "body": "\"lifecycle.hired·by\" hired \"lifecycle.hired·node\" (lifecycle.hired·tier, grant 4) under you. Role: lifecycle.hired·why"
+}

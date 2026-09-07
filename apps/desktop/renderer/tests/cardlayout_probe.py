@@ -1,0 +1,255 @@
+"""Real Edge render/cascade check for the three-row zoomed-out cards.
+
+The fixture bundles the real NodeSquare and uses the real styles.css. It checks
+normal and mini LODs, actual action centers inside their cards, expand routing,
+duplicate suppression for pinned cards, left-aligned Row 3, and distinct
+computed top accents for working Claude/Codex/Antigravity cards.
+"""
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+from playwright.sync_api import sync_playwright
+
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+HERE = pathlib.Path(__file__).resolve().parent
+FRONTEND = HERE.parent
+BUILD = HERE / "cardlayout-build.mjs"
+CARDS = FRONTEND / "src" / "canvas" / "cards.tsx"
+CSS = FRONTEND / "src" / "styles.css"
+
+
+def age_failures(lod: str, row: dict) -> list[str]:
+    """The idle age sits BESIDE the state word (user 2026-09-05), and is really
+    on screen there. `.sq-workstate` clips, so a time that is present in the DOM
+    can still be scrolled out of its own seat by the word beside it — which is
+    exactly the "present, plausible and inert" result a DOM test would call a
+    pass. Every check here is geometric for that reason.
+
+    A BUSY card is the built-in negative: it must have neither, so a green run
+    is not one where the selectors simply match nothing everywhere."""
+    who, bad = f"{lod}/{row['id']}", []
+    if row["strayAge"]:
+        bad.append(f"{who}: the separate age badge is still on the card")
+    busy = ".busy" in row["classes"] or " busy" in f" {row['classes']}"
+    if busy:
+        if row["time"]:
+            bad.append(f"{who}: a busy card shows an idle age")
+        return bad
+    word, time, seat = row["word"], row["time"], row["seat"]
+    if not word:
+        return [f"{who}: an idle card has no state word"]
+    if not time:
+        return [f"{who}: the idle age is not beside the word"]
+    if time["w"] < 8 or time["h"] < 4:
+        bad.append(f"{who}: the age renders {time['w']:.0f}x{time['h']:.0f} — not readable")
+    if not (row["timeText"] or "").strip():
+        bad.append(f"{who}: the age element is empty")
+    # BESIDE: after the word horizontally, and on the same line as it
+    if time["x"] < word["x"] + word["w"] - 1:
+        bad.append(f"{who}: the age is not after the word")
+    if abs(time["y"] + time["h"] / 2 - (word["y"] + word["h"] / 2)) > 6:
+        bad.append(f"{who}: the age is on a different line from the word")
+    # VISIBLE: inside the seat that clips, with a pixel of tolerance
+    if seat and (time["x"] < seat["x"] - 1
+                 or time["x"] + time["w"] > seat["x"] + seat["w"] + 1):
+        bad.append(f"{who}: the age is clipped out of its own seat")
+    return bad
+
+
+def main() -> int:
+    src = CARDS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    for marker in ("className=\"sq-title\"", "className=\"sq-meta\"",
+                   "className=\"expandbtn\"", "aria-label=\"Expand agent window\""):
+        if marker not in src:
+            raise SystemExit(f"fixture guard: cards.tsx no longer emits {marker}")
+    for marker in ("justify-content: flex-start", ".sq.prov-openai.busy:not(.desk)",
+                   ".sq.prov-google.busy:not(.desk)"):
+        if marker not in css:
+            raise SystemExit(f"fixture guard: styles.css no longer contains {marker}")
+    with tempfile.TemporaryDirectory(prefix="orgtree-cardlayout-") as tmp:
+        out = pathlib.Path(tmp)
+        subprocess.run(["node", str(BUILD), str(out)], cwd=FRONTEND, check=True)
+        shot = HERE / "gear-browser-evidence.png"
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge", headless=True)
+            page = browser.new_page(viewport={"width": 1200, "height": 600}, device_scale_factor=1)
+            page.goto((out / "probe.html").as_uri())
+            page.wait_for_selector("#normal .sq")
+            page.evaluate("() => document.documentElement.style.setProperty('--invzf', '1.818')")
+            values = page.evaluate("""() => {
+              const read = (root) => [...document.querySelectorAll(`${root} .sq`)].map((card) => {
+                const r = card.getBoundingClientRect();
+                const rows = [...card.children].filter((e) =>
+                  e.matches('.sq-head, .sq-actions, .sq-badges'));
+                const b = card.querySelector('.expandbtn');
+                const br = b?.getBoundingClientRect();
+                const badges = card.querySelector('.sq-badges')?.getBoundingClientRect();
+                const actionEl = card.querySelector('.sq-actions');
+                const actions = actionEl?.getBoundingClientRect();
+                // the idle age: where it sits, and whether it is really visible
+                const seatEl = card.querySelector('.sq-workstate');
+                const wordEl = card.querySelector('.sq-workstate .sq-idle');
+                const timeEl = card.querySelector('.sq-workstate .sq-idle-time');
+                const box = (e) => { if (!e) return null; const q = e.getBoundingClientRect();
+                  return {x:q.x,y:q.y,w:q.width,h:q.height} };
+                return { id: card.querySelector('.sq-title .name')?.textContent.trim(),
+                  seat: box(seatEl), word: box(wordEl), time: box(timeEl),
+                  timeText: timeEl?.textContent ?? null,
+                  strayAge: Boolean(card.querySelector('.turnago')),
+                  classes: card.className, top: getComputedStyle(card).borderTopColor,
+                  card: {x:r.x,y:r.y,w:r.width,h:r.height},
+                  button: br && {x:br.x,y:br.y,w:br.width,h:br.height},
+                  badges: badges && {x:badges.x,y:badges.y,w:badges.width,h:badges.height},
+                  actions: actions && {x:actions.x,y:actions.y,w:actions.width,h:actions.height},
+                  actionOrder: actionEl && [...actionEl.children].map((el) =>
+                    [...el.classList].find((name) => name.endsWith('btn')) ?? el.tagName),
+                  rows: rows.map((e) => e.className), actionJustify:
+                    getComputedStyle(card.querySelector('.sq-actions')).justifyContent };
+              });
+              const references = {};
+              for (const tier of ['haiku', 'terra', 'sol', 'luna', 'flash']) {
+                const ref = document.createElement('div');
+                ref.className = `sq norm tier-${tier}`;
+                document.body.appendChild(ref);
+                references[tier] = getComputedStyle(ref).borderTopColor;
+                ref.remove();
+              }
+              return { normal: read('#normal'), mini: read('#mini'), references,
+                pinned: document.querySelector('#pinned .expandbtn') === null,
+                pinnedActions: [...document.querySelectorAll('#pinned .sq-actions > button')]
+                  .map((el) => [...el.classList].find((name) => name.endsWith('btn')) ?? el.tagName) };
+            }""")
+            # Capture a real hover state: the existing card design deliberately
+            # reveals its action row only while the pointer is over a card.
+            page.locator("#normal .sq").nth(1).hover()
+            # First fixture has all six production actions and uses the real
+            # pointer route for the gear callback.
+            page.locator("#normal .sq").nth(0).hover()
+            page.locator("#normal .sq").nth(0).locator(".gearbtn").click()
+            values["gearConfigured"] = page.evaluate("() => window.configured")
+            values["allActionButtons"] = page.evaluate("() => [...document.querySelectorAll('#normal .sq')].map(el => el.querySelectorAll('.sq-actions > button').length)")
+            values["allActionGeometry"] = page.evaluate("""() => {
+              const card = document.querySelector('#normal .sq');
+              const cr = card.getBoundingClientRect();
+              return [...card.querySelectorAll('.sq-actions > button')].map(el => {
+                const r = el.getBoundingClientRect();
+                return {className: el.className, inside: r.left >= cr.left && r.right <= cr.right
+                  && r.top >= cr.top && r.bottom <= cr.bottom};
+              });
+            }""")
+            # Negative control: restore the original single-line rule and
+            # require this same mounted component to overflow.
+            values["originalOverflow"] = page.evaluate("""() => {
+              const style = document.createElement('style');
+              style.textContent = '.sq-actions { max-width: none !important; flex-wrap: nowrap !important; }';
+              document.head.appendChild(style);
+              const card = document.querySelector('#normal .sq');
+              const cr = card.getBoundingClientRect();
+              const gear = card.querySelector('.gearbtn').getBoundingClientRect();
+              const ar = card.querySelector('.sq-actions').getBoundingClientRect();
+              const actions = card.querySelector('.sq-actions');
+              return {gearRight: gear.right, cardRight: cr.right, actionsRight: ar.right,
+                buttonWidth: gear.width, scrollWidth: actions.scrollWidth, clientWidth: actions.clientWidth,
+                outside: gear.right >= cr.right - .5 && actions.scrollWidth > actions.clientWidth};
+            }""")
+            page.reload()
+            page.wait_for_selector("#normal .sq")
+            page.evaluate("() => document.documentElement.style.setProperty('--invzf', '1')")
+            page.locator("#normal .sq").nth(0).hover()
+            values["normalZoom"] = page.evaluate("""() => {
+              const card = document.querySelector('#normal .sq');
+              const cr = card.getBoundingClientRect();
+              const gear = card.querySelector('.gearbtn').getBoundingClientRect();
+              return {inside: gear.left >= cr.left && gear.right <= cr.right
+                && gear.top >= cr.top && gear.bottom <= cr.bottom};
+            }""")
+            page.screenshot(path=str(shot))
+            mobile = browser.new_page(viewport={"width": 480, "height": 600}, device_scale_factor=1)
+            mobile.goto((out / "probe.html").as_uri())
+            mobile.wait_for_selector("#mini .sq")
+            mobile.evaluate("() => document.documentElement.classList.add('mobile')")
+            values["mobileActionsHidden"] = mobile.evaluate("""() =>
+              [...document.querySelectorAll('.sq-actions')]
+                .every((el) => getComputedStyle(el).display === 'none')""")
+            mobile.close()
+            page.locator("#normal .sq").nth(1).hover()
+            page.locator("#normal .expandbtn").nth(1).click()
+            page.locator("#mini .sq").nth(4).hover()
+            page.locator("#mini .expandbtn").nth(4).click()
+            opened = page.evaluate("() => window.opened")
+            browser.close()
+    failures = []
+    for lod in ("normal", "mini"):
+        rows = values[lod]
+        if len(rows) != 7:
+            failures.append(f"{lod}: expected 7 cards, got {len(rows)}")
+        for row in rows:
+            if not row["button"]:
+                failures.append(f"{lod}/{row['id']}: missing expand hitbox")
+                continue
+            b, c = row["button"], row["card"]
+            if not (c["x"] <= b["x"] + b["w"] / 2 <= c["x"] + c["w"]
+                    and c["y"] <= b["y"] + b["h"] / 2 <= c["y"] + c["h"]):
+                failures.append(f"{lod}/{row['id']}: expand center outside card")
+            if row["actionJustify"] != "flex-start":
+                failures.append(f"{lod}/{row['id']}: actions justify {row['actionJustify']}")
+            if not row["actionOrder"] or row["actionOrder"][0] != "mailbtn":
+                failures.append(f"{lod}/{row['id']}: mail action is not leftmost: {row['actionOrder']!r}")
+            if "sq-head" not in row["rows"] or "sq-actions" not in row["rows"]:
+                failures.append(f"{lod}/{row['id']}: row structure missing")
+            for part in (row.get("actions"), row.get("badges")):
+                if part and (part["y"] < row["card"]["y"]
+                             or part["y"] + part["h"] > row["card"]["y"] + row["card"]["h"]):
+                    failures.append(f"{lod}/{row['id']}: row clips outside fixed card")
+            failures += age_failures(lod, row)
+    by_id = {row["id"]: row for row in values["normal"]}
+    for node_id, tier in (("claude-agent", "haiku"), ("codex-terra-agent", "terra"),
+                          ("codex-sol-agent", "sol"), ("luna-agent", "luna"),
+                          ("agy-agent", "flash")):
+        if by_id[node_id]["top"] != values["references"][tier]:
+            failures.append(f"{node_id}: busy top {by_id[node_id]['top']} != {tier} tier {values['references'][tier]}")
+    if by_id["agy-agent"]["top"] != by_id["idle-flash-agent"]["top"]:
+        failures.append("AGY busy top differs from idle Flash tier positive control")
+    if by_id["luna-agent"]["top"] != by_id["idle-luna-agent"]["top"]:
+        failures.append("Luna busy top differs from idle Luna tier positive control")
+    if opened != ["codex-terra-agent", "agy-agent"]:
+        failures.append(f"expand routed to {opened!r}, expected codex-terra then agy")
+    if not values["pinned"]:
+        failures.append("pinned card still exposes duplicate expand action")
+    if not values["pinnedActions"] or values["pinnedActions"][0] != "mailbtn":
+        failures.append(f"pinned card mail action is not leftmost: {values['pinnedActions']!r}")
+    if not values["mobileActionsHidden"]:
+        failures.append("mobile card controls are hidden without removing the action row")
+    if values.get("gearConfigured") != ["claude-agent"]:
+        failures.append(f"real gear pointer callback routed to {values.get('gearConfigured')!r}")
+    if values.get("allActionButtons", [0])[0] != 6:
+        failures.append(f"all-action fixture rendered {values.get('allActionButtons')!r} buttons")
+    if not values.get("allActionGeometry") or not all(b["inside"] for b in values["allActionGeometry"]):
+        failures.append(f"all-action control escaped card: {values.get('allActionGeometry')!r}")
+    if not values.get("originalOverflow", {}).get("outside"):
+        failures.append(f"original no-wrap rule did not overflow: {values.get('originalOverflow')!r}")
+    if values.get("normal", [{}])[0].get("button", {}).get("w") != 24:
+        failures.append(f"minimum-zoom button did not reach 24px: {values.get('normal', [{}])[0].get('button')!r}")
+    if not values.get("normalZoom", {}).get("inside"):
+        failures.append("normal-zoom gear escaped card")
+    print(json.dumps({"measurements": values, "opened": opened, "screenshot": str(shot)}, indent=2))
+    if failures:
+        print("FAIL:", " | ".join(failures), file=sys.stderr)
+        return 1
+    print("PASS: browser rendered normal+mini rows, hit centers, routing, pin suppression, and computed tier accents")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

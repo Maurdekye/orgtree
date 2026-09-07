@@ -1,0 +1,76 @@
+{
+  "variant": "access.scope_requested",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.scope_requested",
+    "actor": {
+      "kind": "agent",
+      "id": "access.scope_requested·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "access.scope_requested·object.org",
+      "id": "access.scope_requested·object.id",
+      "name": "access.scope_requested·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "items": [
+      "access.scope_requested·items[0]"
+    ],
+    "reason": "access.scope_requested·reason",
+    "wanted": {
+      "folders": [
+        {
+          "path": "access.scope_requested·wanted.folders[0].path",
+          "mode": "ro"
+        }
+      ],
+      "tools": {
+        "bash": false,
+        "web": false,
+        "edit": false,
+        "subagents": false,
+        "mcp": [
+          "access.scope_requested·wanted.tools.mcp[0]"
+        ]
+      },
+      "permission_mode": "access.scope_requested·wanted.permission_mode",
+      "org_visibility": "access.scope_requested·wanted.org_visibility"
+    }
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.scope_requested",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.scope_requested·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "access.scope_requested·object.id",
+      "name": "access.scope_requested·object.name",
+      "generation": 3
+    },
+    "items": [
+      "access.scope_requested·items[0]"
+    ],
+    "reason": "access.scope_requested·reason",
+    "wanted": {
+      "folders": [
+        {
+          "mode": "ro"
+        }
+      ],
+      "tools": {
+        "bash": false,
+        "web": false,
+        "edit": false,
+        "subagents": false
+      }
+    }
+  },
+  "body": "[SCOPE REQUEST — needs a grant or an escalation]\n- access.scope_requested·items[0]\nReason: access.scope_requested·reason\nIf you hold these, grant them directly with orgtree_retool; otherwise escalate up your chain — only the user can grant past your own scope."
+}

@@ -1,0 +1,42 @@
+{
+  "variant": "lifecycle.renamed",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.renamed",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.renamed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.renamed·object.org",
+      "id": "lifecycle.renamed·object.id",
+      "name": "lifecycle.renamed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "old": "lifecycle.renamed·old",
+    "new": "lifecycle.renamed·new",
+    "by": "lifecycle.renamed·by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.renamed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.renamed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.renamed·object.id",
+      "name": "lifecycle.renamed·object.name",
+      "generation": 3
+    },
+    "old": "lifecycle.renamed·old",
+    "new": "lifecycle.renamed·new",
+    "by": "lifecycle.renamed·by"
+  },
+  "body": "You have been renamed: lifecycle.renamed·old → lifecycle.renamed·new (by lifecycle.renamed·by). Sign and refer to yourself as 'lifecycle.renamed·new' from now on."
+}

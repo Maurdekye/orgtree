@@ -1,0 +1,39 @@
+{
+  "variant": "runtime.background_task_stopped",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.background_task_stopped",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "task",
+      "org": "runtime.background_task_stopped·object.org",
+      "id": "runtime.background_task_stopped·object.id",
+      "node": "runtime.background_task_stopped·object.node",
+      "description": "runtime.background_task_stopped·object.description"
+    },
+    "engine_authored": true,
+    "summary": "runtime.background_task_stopped·summary",
+    "output_file": "runtime.background_task_stopped·output_file"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.background_task_stopped",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "task",
+      "id": "runtime.background_task_stopped·object.id",
+      "node": "runtime.background_task_stopped·object.node",
+      "description": "runtime.background_task_stopped·object.description"
+    },
+    "summary": "runtime.background_task_stopped·summary"
+  },
+  "body": "[BACKGROUND TASK STOPPED — \"runtime.background_task_stopped·object.description\" did not complete]\ntask id: runtime.background_task_stopped·object.id\nCLI summary: runtime.background_task_stopped·summary\npartial output: runtime.background_task_stopped·output_file\n\nThis was reported by the CLI itself while your process was still alive — it did not die and nothing killed it. Whatever you were waiting for did not finish. Do NOT assume the work landed; check the actual state before continuing."
+}

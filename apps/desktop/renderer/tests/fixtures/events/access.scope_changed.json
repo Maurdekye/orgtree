@@ -1,0 +1,44 @@
+{
+  "variant": "access.scope_changed",
+  "family": "access_resources",
+  "private": {
+    "v": 1,
+    "variant": "access.scope_changed",
+    "actor": {
+      "kind": "agent",
+      "id": "access.scope_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "access.scope_changed·object.org",
+      "id": "access.scope_changed·object.id",
+      "name": "access.scope_changed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "by": "access.scope_changed·by",
+    "changed": [
+      "folders"
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "access.scope_changed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "access.scope_changed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "access.scope_changed·object.id",
+      "name": "access.scope_changed·object.name",
+      "generation": 3
+    },
+    "by": "access.scope_changed·by",
+    "changed": [
+      "folders"
+    ]
+  },
+  "body": "Your superior \"access.scope_changed·by\" changed your configuration (folders, tools, charter, or org visibility). Your current scope is stated in your system prompt each turn."
+}

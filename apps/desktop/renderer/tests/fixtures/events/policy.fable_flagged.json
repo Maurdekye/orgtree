@@ -1,0 +1,52 @@
+{
+  "variant": "policy.fable_flagged",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "policy.fable_flagged",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.fable_flagged·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "policy.fable_flagged·object.org",
+      "id": "policy.fable_flagged·object.id",
+      "name": "policy.fable_flagged·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "audience": "parent",
+    "node": "policy.fable_flagged·node",
+    "outcome": "autopsy",
+    "autopsy": "policy.fable_flagged·autopsy",
+    "autopsy_model": "policy.fable_flagged·autopsy_model",
+    "replacement": "policy.fable_flagged·replacement",
+    "reason": "policy.fable_flagged·reason",
+    "detail": "policy.fable_flagged·detail"
+  },
+  "public": {
+    "v": 1,
+    "variant": "policy.fable_flagged",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.fable_flagged·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "policy.fable_flagged·object.id",
+      "name": "policy.fable_flagged·object.name",
+      "generation": 3
+    },
+    "audience": "parent",
+    "node": "policy.fable_flagged·node",
+    "outcome": "autopsy",
+    "autopsy": "policy.fable_flagged·autopsy",
+    "autopsy_model": "policy.fable_flagged·autopsy_model",
+    "replacement": "policy.fable_flagged·replacement",
+    "reason": "policy.fable_flagged·reason",
+    "detail": "policy.fable_flagged·detail"
+  },
+  "body": "Your report \"policy.fable_flagged·node\" had a message FLAGGED by Fable's content filters. Auto-autopsy invoked: hired \"policy.fable_flagged·autopsy\" (policy.fable_flagged·autopsy_model), replacement \"policy.fable_flagged·replacement\" (fable), and retired \"policy.fable_flagged·node\"."
+}

@@ -1,0 +1,46 @@
+{
+  "variant": "monitor.watchdog_quiet",
+  "family": "monitor",
+  "private": {
+    "v": 1,
+    "variant": "monitor.watchdog_quiet",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "watchdog",
+      "org": "monitor.watchdog_quiet·object.org",
+      "id": "monitor.watchdog_quiet·object.id",
+      "name": "monitor.watchdog_quiet·object.name",
+      "owner": "monitor.watchdog_quiet·object.owner"
+    },
+    "engine_authored": true,
+    "headline": "monitor.watchdog_quiet·headline",
+    "facts": [
+      "monitor.watchdog_quiet·facts[0]"
+    ],
+    "advice": "monitor.watchdog_quiet·advice"
+  },
+  "public": {
+    "v": 1,
+    "variant": "monitor.watchdog_quiet",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "watchdog",
+      "id": "monitor.watchdog_quiet·object.id",
+      "name": "monitor.watchdog_quiet·object.name",
+      "owner": "monitor.watchdog_quiet·object.owner"
+    },
+    "headline": "monitor.watchdog_quiet·headline",
+    "facts": [
+      "monitor.watchdog_quiet·facts[0]"
+    ],
+    "advice": "monitor.watchdog_quiet·advice"
+  },
+  "body": "[WATCHDOG monitor.watchdog_quiet·object.name] ⚠ MONITOR.WATCHDOG_QUIET·HEADLINE\n\nmonitor.watchdog_quiet·facts[0]\n\nmonitor.watchdog_quiet·advice\n\n⚠ This is about the THING BEING WATCHED, not about orgtree. Restarts and deploys do not produce this message: the counter above only advances on checks that actually ran (D-176)."
+}

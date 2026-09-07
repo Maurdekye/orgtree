@@ -1,0 +1,32 @@
+{
+  "variant": "runtime.token_expiry",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.token_expiry",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "runtime.token_expiry·object.org"
+    },
+    "engine_authored": true,
+    "days": 2.5
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.token_expiry",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    },
+    "days": 2.5
+  },
+  "body": "⚠ The Claude subscription's refresh token expires in ~2.5 days. When it lapses, re-login is INTERACTIVE and every turn fails until someone signs in — open Claude Code on this machine soon, or give the org an API key (settings → autonomy)."
+}

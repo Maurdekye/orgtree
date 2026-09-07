@@ -1,0 +1,39 @@
+{
+  "variant": "decision.attention_dismissed",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "decision.attention_dismissed",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.attention_dismissed·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "decision.attention_dismissed·object.org",
+      "slug": "decision.attention_dismissed·object.slug",
+      "title": "decision.attention_dismissed·object.title"
+    },
+    "engine_authored": false,
+    "reason": "decision.attention_dismissed·reason",
+    "pending_questions": 3,
+    "dismissed_by": "decision.attention_dismissed·dismissed_by"
+  },
+  "public": {
+    "v": 1,
+    "variant": "decision.attention_dismissed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "decision.attention_dismissed·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "decision.attention_dismissed·object.slug",
+      "title": "decision.attention_dismissed·object.title"
+    },
+    "reason": "decision.attention_dismissed·reason",
+    "pending_questions": 3
+  },
+  "body": "[DOCKET · decision.attention_dismissed·object.slug] The user DISMISSED your attention flag (\"decision.attention_dismissed·reason\") — the item is now BLOCKED. Do not re-raise the same reason without material new information; 3 question(s) on the item are still pending."
+}

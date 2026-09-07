@@ -1,0 +1,58 @@
+{
+  "variant": "answer.ask",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "answer.ask",
+    "actor": {
+      "kind": "agent",
+      "id": "answer.ask·actor"
+    },
+    "object": {
+      "kind": "ask",
+      "org": "answer.ask·object.org",
+      "id": "answer.ask·object.id",
+      "node": "answer.ask·object.node"
+    },
+    "engine_authored": false,
+    "questions": [
+      {
+        "label": null,
+        "question": "answer.ask·q",
+        "selected": [
+          "answer.ask·sel"
+        ]
+      }
+    ],
+    "text": "answer.ask·text",
+    "dismissed": false,
+    "single": true
+  },
+  "public": {
+    "v": 1,
+    "variant": "answer.ask",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "answer.ask·actor"
+    },
+    "object": {
+      "kind": "ask",
+      "id": "answer.ask·object.id",
+      "node": "answer.ask·object.node"
+    },
+    "questions": [
+      {
+        "label": null,
+        "question": "answer.ask·q",
+        "selected": [
+          "answer.ask·sel"
+        ]
+      }
+    ],
+    "text": "answer.ask·text",
+    "dismissed": false,
+    "single": true
+  },
+  "body": "[ANSWER to your question]\nQ: answer.ask·q\nSelected: answer.ask·sel\nAlso: answer.ask·text"
+}

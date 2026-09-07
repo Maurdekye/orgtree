@@ -1,0 +1,44 @@
+{
+  "variant": "lifecycle.reseeded",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.reseeded",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.reseeded·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.reseeded·object.org",
+      "id": "lifecycle.reseeded·object.id",
+      "name": "lifecycle.reseeded·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.reseeded·node",
+    "relation": "report",
+    "by": "lifecycle.reseeded·by",
+    "predecessor": "lifecycle.reseeded·predecessor"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.reseeded",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.reseeded·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.reseeded·object.id",
+      "name": "lifecycle.reseeded·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.reseeded·node",
+    "relation": "report",
+    "by": "lifecycle.reseeded·by",
+    "predecessor": "lifecycle.reseeded·predecessor"
+  },
+  "body": "Your report \"lifecycle.reseeded·node\" was RE-SEEDED by \"lifecycle.reseeded·by\": its dead session is archived as \"lifecycle.reseeded·predecessor\" (a lost generation) and it starts fresh — same role, credits and reports, empty memory."
+}

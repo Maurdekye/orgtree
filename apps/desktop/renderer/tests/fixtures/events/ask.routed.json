@@ -1,0 +1,59 @@
+{
+  "variant": "ask.routed",
+  "family": "answer_decision",
+  "private": {
+    "v": 1,
+    "variant": "ask.routed",
+    "actor": {
+      "kind": "agent",
+      "id": "ask.routed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "ask.routed·object.org",
+      "id": "ask.routed·object.id",
+      "name": "ask.routed·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "from_node": "ask.routed·from_node",
+    "questions": [
+      {
+        "header": "ask.routed·questions[0].header",
+        "text": "ask.routed·questions[0].text",
+        "work_item": "ask.routed·questions[0].work_item",
+        "options": [
+          "ask.routed·questions[0].options[0]"
+        ],
+        "multi": false
+      }
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "ask.routed",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "ask.routed·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "ask.routed·object.id",
+      "name": "ask.routed·object.name",
+      "generation": 3
+    },
+    "questions": [
+      {
+        "header": "ask.routed·questions[0].header",
+        "text": "ask.routed·questions[0].text",
+        "work_item": "ask.routed·questions[0].work_item",
+        "options": [
+          "ask.routed·questions[0].options[0]"
+        ],
+        "multi": false
+      }
+    ]
+  },
+  "body": "[QUESTION — needs an answer]\n(docket item ask.routed·questions[0].work_item) [ask.routed·questions[0].header] ask.routed·questions[0].text\nOptions: ask.routed·questions[0].options[0]"
+}

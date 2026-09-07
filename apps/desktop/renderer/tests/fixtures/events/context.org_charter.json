@@ -1,0 +1,32 @@
+{
+  "variant": "context.org_charter",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.org_charter",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "context.org_charter·object.org"
+    },
+    "engine_authored": true,
+    "text": "context.org_charter·text",
+    "readable": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.org_charter",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    }
+  },
+  "body": "context.org_charter·text"
+}

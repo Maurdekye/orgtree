@@ -1,0 +1,48 @@
+{
+  "variant": "monitor.watchdog_fired",
+  "family": "monitor",
+  "private": {
+    "v": 1,
+    "variant": "monitor.watchdog_fired",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "watchdog",
+      "org": "monitor.watchdog_fired·object.org",
+      "id": "monitor.watchdog_fired·object.id",
+      "name": "monitor.watchdog_fired·object.name",
+      "owner": "monitor.watchdog_fired·object.owner"
+    },
+    "engine_authored": true,
+    "prefix": "monitor.watchdog_fired·prefix",
+    "lines": [
+      "monitor.watchdog_fired·lines[0]"
+    ],
+    "count": 1,
+    "once": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "monitor.watchdog_fired",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "watchdog",
+      "id": "monitor.watchdog_fired·object.id",
+      "name": "monitor.watchdog_fired·object.name",
+      "owner": "monitor.watchdog_fired·object.owner"
+    },
+    "prefix": "monitor.watchdog_fired·prefix",
+    "lines": [
+      "monitor.watchdog_fired·lines[0]"
+    ],
+    "count": 1,
+    "once": false
+  },
+  "body": "[WATCHDOG monitor.watchdog_fired·object.name]monitor.watchdog_fired·prefix 1 event(s):\nmonitor.watchdog_fired·lines[0]"
+}

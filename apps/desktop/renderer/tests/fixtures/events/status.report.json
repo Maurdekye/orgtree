@@ -1,0 +1,40 @@
+{
+  "variant": "status.report",
+  "family": "status",
+  "private": {
+    "v": 1,
+    "variant": "status.report",
+    "actor": {
+      "kind": "agent",
+      "id": "status.report·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "status.report·object.org",
+      "id": "status.report·object.id",
+      "name": "status.report·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "state": "done",
+    "summary": "status.report·summary"
+  },
+  "public": {
+    "v": 1,
+    "variant": "status.report",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "status.report·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "status.report·object.id",
+      "name": "status.report·object.name",
+      "generation": 3
+    },
+    "state": "done",
+    "summary": "status.report·summary"
+  },
+  "body": "[DONE] status.report·summary"
+}

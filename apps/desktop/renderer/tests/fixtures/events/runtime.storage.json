@@ -1,0 +1,38 @@
+{
+  "variant": "runtime.storage",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.storage",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "runtime.storage·object.org"
+    },
+    "engine_authored": true,
+    "level": "over",
+    "used_mb": 920.0,
+    "cap_mb": 1000.0,
+    "scope": "disk"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.storage",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    },
+    "level": "over",
+    "used_mb": 920.0,
+    "cap_mb": 1000.0,
+    "scope": "disk"
+  },
+  "body": "⚠ The org disk is at 920 of 1000 MB (past the 90% soft cap). New turns are PAUSED until usage drops under 85% — the remaining space is the reserve that keeps session journaling alive. Delete files (the admin can also use the recovery browser or grow the disk); at 100% every write fails with ENOSPC."
+}

@@ -1,0 +1,56 @@
+{
+  "variant": "policy.weekly_limit",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "policy.weekly_limit",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.weekly_limit·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "policy.weekly_limit·object.org",
+      "id": "policy.weekly_limit·object.id",
+      "name": "policy.weekly_limit·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "relation": "report",
+    "node": "policy.weekly_limit·node",
+    "outcome": "dissolved",
+    "nodes": 2,
+    "freed": "6",
+    "policy": "policy.weekly_limit·policy",
+    "detected_at": "policy.weekly_limit·detected_at",
+    "halted": "policy.weekly_limit·halted",
+    "dissolved": "policy.weekly_limit·dissolved",
+    "converted": "policy.weekly_limit·converted"
+  },
+  "public": {
+    "v": 1,
+    "variant": "policy.weekly_limit",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.weekly_limit·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "policy.weekly_limit·object.id",
+      "name": "policy.weekly_limit·object.name",
+      "generation": 3
+    },
+    "relation": "report",
+    "node": "policy.weekly_limit·node",
+    "outcome": "dissolved",
+    "nodes": 2,
+    "freed": "6",
+    "policy": "policy.weekly_limit·policy",
+    "detected_at": "policy.weekly_limit·detected_at",
+    "halted": "policy.weekly_limit·halted",
+    "dissolved": "policy.weekly_limit·dissolved",
+    "converted": "policy.weekly_limit·converted"
+  },
+  "body": "Your report \"policy.weekly_limit·node\" and its entire suborganization (2 node(s)) were dissolved: weekly Fable usage limit exhausted (org policy). 6 credits returned to you."
+}

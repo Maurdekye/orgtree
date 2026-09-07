@@ -1,0 +1,38 @@
+{
+  "variant": "lifecycle.bearer_exhausted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.bearer_exhausted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.bearer_exhausted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.bearer_exhausted·object.org",
+      "id": "lifecycle.bearer_exhausted·object.id",
+      "name": "lifecycle.bearer_exhausted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "bearer": "lifecycle.bearer_exhausted·bearer"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.bearer_exhausted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.bearer_exhausted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.bearer_exhausted·object.id",
+      "name": "lifecycle.bearer_exhausted·object.name",
+      "generation": 3
+    },
+    "bearer": "lifecycle.bearer_exhausted·bearer"
+  },
+  "body": "Knowledge bearer \"lifecycle.bearer_exhausted·bearer\" has exhausted its headroom and is now a PRESERVING ORACLE — it still answers, but exchanges are no longer retained by it."
+}

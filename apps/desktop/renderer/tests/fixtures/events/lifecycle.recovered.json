@@ -1,0 +1,39 @@
+{
+  "variant": "lifecycle.recovered",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.recovered",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.recovered·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.recovered·object.org",
+      "id": "lifecycle.recovered·object.id",
+      "name": "lifecycle.recovered·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "predecessor": "lifecycle.recovered·predecessor",
+    "successor": "lifecycle.recovered·successor"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.recovered",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.recovered·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.recovered·object.id",
+      "name": "lifecycle.recovered·object.name",
+      "generation": 3
+    },
+    "predecessor": "lifecycle.recovered·predecessor"
+  },
+  "body": "\"lifecycle.recovered·predecessor\" is RECOVERED — the generation recorded as lost was never actually gone, and it is now a consultable knowledge bearer. Rehire it to reach the context that compaction summarized away."
+}

@@ -1,0 +1,40 @@
+{
+  "variant": "lifecycle.rescinded",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.rescinded",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.rescinded·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.rescinded·object.org",
+      "id": "lifecycle.rescinded·object.id",
+      "name": "lifecycle.rescinded·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.rescinded·node",
+    "clawed": 2.5
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.rescinded",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.rescinded·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.rescinded·object.id",
+      "name": "lifecycle.rescinded·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.rescinded·node",
+    "clawed": 2.5
+  },
+  "body": "Your report \"lifecycle.rescinded·node\" was RESCINDED by the user: it is archived and your grant was reduced by 2.5 — rehiring it (or replacing the seat) needs new capacity from above, not the freed headroom."
+}

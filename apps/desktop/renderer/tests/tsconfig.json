@@ -1,0 +1,9 @@
+{
+  "//": "The app's tsconfig deliberately includes only `src`, so the suites are type-checked here instead of widening it. Same strictness as the app — a test that only compiles under looser rules is not testing the app.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["../src", "."]
+}

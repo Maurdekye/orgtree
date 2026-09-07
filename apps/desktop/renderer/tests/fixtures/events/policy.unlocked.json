@@ -1,0 +1,40 @@
+{
+  "variant": "policy.unlocked",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "policy.unlocked",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.unlocked·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "policy.unlocked·object.org",
+      "id": "policy.unlocked·object.id",
+      "name": "policy.unlocked·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "policy.unlocked·node",
+    "relation": "report"
+  },
+  "public": {
+    "v": 1,
+    "variant": "policy.unlocked",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.unlocked·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "policy.unlocked·object.id",
+      "name": "policy.unlocked·object.name",
+      "generation": 3
+    },
+    "node": "policy.unlocked·node",
+    "relation": "report"
+  },
+  "body": "\"policy.unlocked·node\" is RELEASED from the weekly-Fable halt (the user cleared it). It runs again; no need to keep covering its work."
+}

@@ -1,0 +1,44 @@
+{
+  "variant": "lifecycle.retired",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.retired",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.retired·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.retired·object.org",
+      "id": "lifecycle.retired·object.id",
+      "name": "lifecycle.retired·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.retired·node",
+    "by": "lifecycle.retired·by",
+    "relation": "report",
+    "freed": 2.5
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.retired",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.retired·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.retired·object.id",
+      "name": "lifecycle.retired·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.retired·node",
+    "by": "lifecycle.retired·by",
+    "relation": "report",
+    "freed": 2.5
+  },
+  "body": "Your report \"lifecycle.retired·node\" was retired by \"lifecycle.retired·by\" (freed 2.5 credits)."
+}

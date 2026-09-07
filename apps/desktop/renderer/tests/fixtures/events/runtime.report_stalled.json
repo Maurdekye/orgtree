@@ -1,0 +1,52 @@
+{
+  "variant": "runtime.report_stalled",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.report_stalled",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "runtime.report_stalled·object.org",
+      "id": "runtime.report_stalled·object.id",
+      "name": "runtime.report_stalled·object.name",
+      "generation": 3
+    },
+    "engine_authored": true,
+    "report": "runtime.report_stalled·report",
+    "report_name": "runtime.report_stalled·report_name",
+    "cause": "terminal",
+    "audience": "superior",
+    "attempts": 3,
+    "classified": "runtime.report_stalled·classified",
+    "door": "runtime.report_stalled·door",
+    "err": "runtime.report_stalled·err"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.report_stalled",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "runtime.report_stalled·object.id",
+      "name": "runtime.report_stalled·object.name",
+      "generation": 3
+    },
+    "report": "runtime.report_stalled·report",
+    "report_name": "runtime.report_stalled·report_name",
+    "cause": "terminal",
+    "audience": "superior",
+    "attempts": 3,
+    "classified": "runtime.report_stalled·classified",
+    "door": "runtime.report_stalled·door",
+    "err": "runtime.report_stalled·err"
+  },
+  "body": "[REPORT STALLED — runtime.report_stalled·report_name (runtime.report_stalled·report) is not running]\nIts turn failed in a way orgtree does not retry, and nothing will re-drive it.\nHow it died: runtime.report_stalled·door\nError: runtime.report_stalled·err\n\nIt has NOT been driven — if the fault is its CLI or its environment, waking it would just kill another turn. It is idle now and will stay idle until something changes. It may also be holding unfinished work from the turn that died.\n\nYou are the one who can act: fix the cause, or message it once you have."
+}

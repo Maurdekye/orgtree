@@ -1,0 +1,27 @@
+{
+  "variant": "ordinary.request",
+  "family": "ordinary",
+  "private": {
+    "v": 1,
+    "variant": "ordinary.request",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.request·actor"
+    },
+    "object": null,
+    "engine_authored": false,
+    "body": "ordinary.request·body"
+  },
+  "public": {
+    "v": 1,
+    "variant": "ordinary.request",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "ordinary.request·actor"
+    },
+    "object": null,
+    "body": "ordinary.request·body"
+  },
+  "body": "ordinary.request·body"
+}

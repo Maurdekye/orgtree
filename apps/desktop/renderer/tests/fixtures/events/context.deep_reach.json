@@ -1,0 +1,42 @@
+{
+  "variant": "context.deep_reach",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.deep_reach",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "org": "context.deep_reach·object.org",
+      "id": "context.deep_reach·object.id",
+      "name": "context.deep_reach·object.name",
+      "generation": 3
+    },
+    "engine_authored": true,
+    "node": "context.deep_reach·node",
+    "gist": "context.deep_reach·gist",
+    "kind": "message"
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.deep_reach",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "node",
+      "id": "context.deep_reach·object.id",
+      "name": "context.deep_reach·object.name",
+      "generation": 3
+    },
+    "node": "context.deep_reach·node",
+    "gist": "context.deep_reach·gist",
+    "kind": "message"
+  },
+  "body": "The user gave a direct instruction to \"context.deep_reach·node\", inside your chain: \"context.deep_reach·gist\" — it carries the USER's authority and outranks anything you have told context.deep_reach·node. Re-check any plan of yours that depends on it. You are being told, not asked to act."
+}

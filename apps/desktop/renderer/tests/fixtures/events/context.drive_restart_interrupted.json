@@ -1,0 +1,38 @@
+{
+  "variant": "context.drive_restart_interrupted",
+  "family": "context_change",
+  "private": {
+    "v": 1,
+    "variant": "context.drive_restart_interrupted",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "build",
+      "commit": "context.drive_restart_interrupted·object.commit",
+      "short": "context.drive_restart_interrupted·object.short",
+      "dirty": false,
+      "pid": 3
+    },
+    "engine_authored": true,
+    "text": "context.drive_restart_interrupted·text"
+  },
+  "public": {
+    "v": 1,
+    "variant": "context.drive_restart_interrupted",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "build",
+      "commit": "context.drive_restart_interrupted·object.commit",
+      "short": "context.drive_restart_interrupted·object.short",
+      "dirty": false,
+      "pid": 3
+    }
+  },
+  "body": "context.drive_restart_interrupted·text"
+}

@@ -1,0 +1,36 @@
+{
+  "variant": "policy.unstuck",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "policy.unstuck",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.unstuck·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "policy.unstuck·object.org",
+      "id": "policy.unstuck·object.id",
+      "name": "policy.unstuck·object.name",
+      "generation": 3
+    },
+    "engine_authored": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "policy.unstuck",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "policy.unstuck·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "policy.unstuck·object.id",
+      "name": "policy.unstuck·object.name",
+      "generation": 3
+    }
+  },
+  "body": "The user manually UNSTUCK you (override) — any limit that held you is released; continue."
+}

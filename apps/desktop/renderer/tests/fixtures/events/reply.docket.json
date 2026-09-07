@@ -1,0 +1,40 @@
+{
+  "variant": "reply.docket",
+  "family": "linked_reply",
+  "private": {
+    "v": 1,
+    "variant": "reply.docket",
+    "actor": {
+      "kind": "agent",
+      "id": "reply.docket·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "reply.docket·object.org",
+      "slug": "reply.docket·object.slug",
+      "title": "reply.docket·object.title"
+    },
+    "engine_authored": false,
+    "body": "reply.docket·body",
+    "role": "owner",
+    "owner": "reply.docket·owner"
+  },
+  "public": {
+    "v": 1,
+    "variant": "reply.docket",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "reply.docket·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "reply.docket·object.slug",
+      "title": "reply.docket·object.title"
+    },
+    "body": "reply.docket·body",
+    "role": "owner",
+    "owner": "reply.docket·owner"
+  },
+  "body": "[DOCKET REPLY · reply.docket·object.slug \"reply.docket·object.title\"] (the user replied on this docket item — treat it as item-linked mail and update the item if it changes the work)\nreply.docket·body"
+}

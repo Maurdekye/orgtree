@@ -1,0 +1,34 @@
+{
+  "variant": "runtime.external_unroutable",
+  "family": "runtime_recovery",
+  "private": {
+    "v": 1,
+    "variant": "runtime.external_unroutable",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org",
+      "org": "runtime.external_unroutable·object.org"
+    },
+    "engine_authored": true,
+    "peer": "runtime.external_unroutable·peer",
+    "excerpt": "runtime.external_unroutable·excerpt"
+  },
+  "public": {
+    "v": 1,
+    "variant": "runtime.external_unroutable",
+    "projection": "public",
+    "actor": {
+      "kind": "system",
+      "id": "@system"
+    },
+    "object": {
+      "kind": "org"
+    },
+    "peer": "runtime.external_unroutable·peer",
+    "excerpt": "runtime.external_unroutable·excerpt"
+  },
+  "body": "Outside party runtime.external_unroutable·peer messaged this org, but no top-level agents are live to receive it:\n\nruntime.external_unroutable·excerpt"
+}

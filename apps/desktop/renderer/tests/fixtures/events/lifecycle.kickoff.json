@@ -1,0 +1,44 @@
+{
+  "variant": "lifecycle.kickoff",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.kickoff",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.kickoff·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.kickoff·object.org",
+      "id": "lifecycle.kickoff·object.id",
+      "name": "lifecycle.kickoff·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "body": "lifecycle.kickoff·body",
+    "hired_by": "lifecycle.kickoff·hired_by",
+    "reason": "hire",
+    "tier": "lifecycle.kickoff·tier",
+    "grant": 2.5
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.kickoff",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.kickoff·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.kickoff·object.id",
+      "name": "lifecycle.kickoff·object.name",
+      "generation": 3
+    },
+    "body": "lifecycle.kickoff·body",
+    "reason": "hire",
+    "grant": 2.5
+  },
+  "body": "lifecycle.kickoff·body"
+}

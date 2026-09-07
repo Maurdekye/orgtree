@@ -1,0 +1,38 @@
+{
+  "variant": "reply.document",
+  "family": "linked_reply",
+  "private": {
+    "v": 1,
+    "variant": "reply.document",
+    "actor": {
+      "kind": "agent",
+      "id": "reply.document·actor"
+    },
+    "object": {
+      "kind": "document",
+      "org": "reply.document·object.org",
+      "id": "reply.document·object.id",
+      "title": "reply.document·object.title",
+      "node": "reply.document·object.node"
+    },
+    "engine_authored": false,
+    "body": "reply.document·body"
+  },
+  "public": {
+    "v": 1,
+    "variant": "reply.document",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "reply.document·actor"
+    },
+    "object": {
+      "kind": "document",
+      "id": "reply.document·object.id",
+      "title": "reply.document·object.title",
+      "node": "reply.document·object.node"
+    },
+    "body": "reply.document·body"
+  },
+  "body": "reply.document·body"
+}

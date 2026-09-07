@@ -1,0 +1,48 @@
+{
+  "variant": "docket.review_requested",
+  "family": "review",
+  "private": {
+    "v": 1,
+    "variant": "docket.review_requested",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_requested·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.review_requested·object.org",
+      "slug": "docket.review_requested·object.slug",
+      "title": "docket.review_requested·object.title"
+    },
+    "engine_authored": false,
+    "reviewer": "docket.review_requested·reviewer",
+    "requested_by": "docket.review_requested·requested_by",
+    "owner": "docket.review_requested·owner",
+    "objective": "docket.review_requested·objective",
+    "done_so_far": [
+      "docket.review_requested·done_so_far[0]"
+    ]
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.review_requested",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_requested·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.review_requested·object.slug",
+      "title": "docket.review_requested·object.title"
+    },
+    "reviewer": "docket.review_requested·reviewer",
+    "requested_by": "docket.review_requested·requested_by",
+    "owner": "docket.review_requested·owner",
+    "objective": "docket.review_requested·objective",
+    "done_so_far": [
+      "docket.review_requested·done_so_far[0]"
+    ]
+  },
+  "body": "[DOCKET REVIEW REQUEST · docket.review_requested·object.slug \"docket.review_requested·object.title\"] You are named as the REVIEWER of this docket item. THIS IS NOT OWNERSHIP: docket.review_requested·owner keeps the work and the responsibility for delivering it. You hold exactly three things — read it, add `evidence`, and record ONE decision with orgtree_work action='review': `approve` (the check passed — that COMPLETES the item) or `changes` (it goes back to the owner as in_progress, and your note is what they act on). Until you decide, the next action on this item is yours.\nRequested by docket.review_requested·requested_by.\nDescription: docket.review_requested·objective\nWhat the owner says is done: docket.review_requested·done_so_far[0]"
+}
