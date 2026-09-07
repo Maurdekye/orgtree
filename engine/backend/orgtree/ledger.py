@@ -1902,10 +1902,10 @@ class Org:
             log = self.d.setdefault("user_mail_log", [])
             log.append(entry)
             # the archive's own invariants, mirrored from the read endpoint:
-            # CHRONOLOGICAL (the reader renders by list position) and bounded.
+            # CHRONOLOGICAL (the reader renders by list position).
             # `at` is ISO-8601 Z, so a string sort is a time sort.
             log.sort(key=lambda m: m.get("at") or "")
-            del log[:-100]
+
         else:
             self.d.setdefault("user_inbox", []).append(entry)
         return entry
@@ -2303,16 +2303,16 @@ class Org:
                     reply_to.get("quoted_context") or "")[:4000]
         box.setdefault(to, []).append(entry)
         # full-body archive for the node's inbox view (the event log keeps only
-        # a gist) — capped per node
+        # a gist) — retained until manual removal
         log = self.d.setdefault("mail_log", {}).setdefault(to, [])
         log.append(cast(MailEntry, dict(entry)))  # dict() copy loses the TypedDict
-        del log[:-100]
+
         if sender == USER:
             # the user's Sent folder: every user message IS mail (user ruling —
             # the direct-message channel was folded into the mail system)
             out = self.d.setdefault("user_outbox", [])
             out.append({**entry, "to": to})
-            del out[:-100]
+
         # ⚠ `or [""]`: a body that is entirely whitespace strips to "" and
         # `"".splitlines()` is the EMPTY LIST, so this line raised IndexError
         # and the whole send 500ed. The composer trims and refuses empty, but
@@ -2359,7 +2359,7 @@ class Org:
         box.setdefault(to, []).append(cast(MailEntry, dict(entry)))
         log = self.d.setdefault("mail_log", {}).setdefault(to, [])
         log.append(cast(MailEntry, dict(entry)))
-        del log[:-100]
+
         return entry
 
     def extern_recipients_preview(self) -> list[str]:
@@ -2430,7 +2430,7 @@ class Org:
             box.setdefault(t, []).append(entry)
             log = self.d.setdefault("mail_log", {}).setdefault(t, [])
             log.append(cast(MailEntry, dict(entry)))  # dict() copy loses the TypedDict
-            del log[:-100]
+
         if not tops:
             # nobody to receive it: surface to the user instead of losing it
             uev = _mint("runtime.external_unroutable", actor_of(SYSTEM), self.org_ref(),
@@ -2555,7 +2555,7 @@ class Org:
         if attributed:
             e["attributed"] = True  # held-handle send: the peer MAY see `by`
         log.append(e)
-        del log[:-200]
+
         return e["id"]
 
     def org_inbox_mark_read(self) -> None:
@@ -2918,7 +2918,7 @@ class Org:
         for nid in {n for n in nids if n and n in self.nodes}:
             box.setdefault(nid, []).append({"at": now(), "text": text})
             log.append({"node": nid, "at": now(), "text": text})
-        del log[:-800]
+
 
     def _notify_ev(self, nids: Iterable[str | None], ev: Mapping[str, Any]) -> None:
         """`_notify` for a TYPED notice: the text is the frozen agent rendering and
@@ -2934,7 +2934,7 @@ class Org:
             row["ev"] = events.encode_row_ev(ev, row)
             box.setdefault(nid, []).append(cast(NoticeEntry, row))
             log.append(cast(NoticeLogEntry, {"node": nid, **row}))
-        del log[:-800]
+
 
     def _fold_notices(self, nid: str) -> int:
         """A fresh session (cheap compact, re-seed, provider switch) inherits its
@@ -6821,7 +6821,12 @@ class Org:
         w["fired"] = int(w.get("fired") or 0) + 1
         w["last_fired"] = now()
         ring = cast("list[dict[str, Any]]", w.setdefault("events", []))
-        ring.append({"at": now(), "gist": gist[:200]})
+        fire = {"at": now(), "gist": gist[:200]}
+        history = self.d.setdefault("watchdog_history", [])
+        if not w.get("history_retained"):
+            history.extend({**old, "watchdog": wid, "node": owner} for old in ring)
+            w["history_retained"] = True
+        ring.append(fire)
         del ring[:-self.WATCHDOG_EVENTS_KEEP]
         ev: dict[str, Any] | None = None
         if lines is not None:
@@ -6841,6 +6846,7 @@ class Org:
             # a long event body can never push the "it removed itself"
             # sentence off the end of the mail that explains its absence
             body = events_render.watchdog_once_note(body)
+        history.append({**fire, "watchdog": wid, "node": owner, "body": body})
         entry: MailEntry = {
             "id": uuid.uuid4().hex[:12], "from": str(w["name"]),
             "kind": "watchdog", "body": body[:8000], "at": now(),
@@ -6857,7 +6863,7 @@ class Org:
         # the queued copy, or node_inbox's (at, from, body) dedup breaks.
         log = self.d.setdefault("mail_log", {}).setdefault(owner, [])
         log.append(cast(MailEntry, dict(entry)))
-        del log[:-100]
+
         self._log("watchdog_fire", owner, {"id": wid, "gist": gist[:80],
                                            **({"once": True} if one_shot
                                               else {})}, [])
@@ -6974,7 +6980,7 @@ class Org:
         # turn drains would otherwise vanish from the panel entirely
         log = self.d.setdefault("mail_log", {}).setdefault(owner, [])
         log.append(cast(MailEntry, dict(entry)))
-        del log[:-100]
+
         self._log("watchdog_alert", owner, {"id": wid, "why": body[:80]}, [])
         return owner
 
@@ -7907,27 +7913,7 @@ class Org:
             # erroring: the user may have dismissed the original meanwhile
         did = "d" + uuid.uuid4().hex[:8]
         docs.append({"id": did, "node": nid, **fields})
-        # both prunes log what they drop (redteam gap 2026-08-05): the
-        # reader fetches the body by id on open, so an eviction can 404 a
-        # document the user is reading — the log entry is the trace. Only
-        # the presenter's OWN evicted cards are named in its result: the
-        # org-wide prune evicts OTHER agents' cards, and handing their ids
-        # and titles to whoever happened to present the 101st document is a
-        # cross-agent disclosure (redteam finding on ff33072) — those stay
-        # log-only.
-        evicted: list[dict[str, Any]] = []
-        mine = [x for x in docs if x["node"] == nid]
-        for x in mine[:-10]:                  # newest 10 per node…
-            docs.remove(x)
-            evicted.append(x)
-        foreign = list(docs[:-100])           # …100 org-wide
-        del docs[:-100]
-        for x in evicted + foreign:
-            self._log("present_evicted", x["node"],
-                      {"id": x["id"], "title": str(x["title"])[:60],
-                       "by": did,
-                       **({"format": "html"} if x.get("format") == "html"
-                          else {})}, [])
+        # v2 retains documents until the user dismisses them.
         self._log("present", nid, {"id": did, "title": t[:60],
                                    **({"format": "html"} if html_file else {})},
                   [])
@@ -7941,13 +7927,7 @@ class Org:
                            "the document is on the user's screen as a card "
                            "beside your desk — non-blocking, keep working. ")
                           + "Present again with replaces set to this id to "
-                            "update it in place."
-                          + (f" ⚠ this pushed {len(evicted)} of your older "
-                             f"card(s) off the screen (newest 10 per agent "
-                             f"are kept): "
-                             + ", ".join(f"{x['id']} “{str(x['title'])[:40]}”"
-                                         for x in evicted)
-                             if evicted else "")}
+                            "update it in place."}
 
     def dismiss_document(self, did: str) -> dict[str, Any]:
         """The card's ✕ — the user removes a presented document."""
@@ -7973,10 +7953,9 @@ class Org:
         gone. Dismissed cards are omitted — the user removed those. Newest
         first. Metadata only; the reader still fetches the body by id.
 
-        No extra gallery cap: live `documents` is already bounded (10/node,
-        100 org-wide). Evicted log lines ride along because they are the
-        reachable record of a card the user already saw; inventing a third
-        prune here would hide them again."""
+        Retention is unlimited; API readers page metadata and the tree only
+        carries the newest ten cards per node. Legacy eviction stubs remain
+        visible because their already-removed bodies cannot be recovered."""
         docs = list(self.d.get("documents") or [])
         seen: set[str] = set()
         rows: list[dict[str, Any]] = []
@@ -9369,11 +9348,12 @@ class Org:
                 # FR-03: presented documents — METADATA only (the reader
                 # fetches the body on open; bodies are up to 64 KB and would
                 # bloat every tree payload)
+                "documents_count": sum(1 for x in self.d.get("documents", []) if x["node"] == nid),
                 "documents": [{"id": x["id"], "title": x["title"],
                                "at": x["at"],
                                "format": x.get("format") or "markdown"}
                               for x in self.d.get("documents", [])
-                              if x["node"] == nid] or None,
+                              if x["node"] == nid][-10:] or None,
                 "bearer_state": n["bearer_state"],
                 "generation": n["generation"],
                 "children": [build(c) for c in self.org_children(nid, _kids)],

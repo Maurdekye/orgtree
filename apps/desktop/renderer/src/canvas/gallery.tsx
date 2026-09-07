@@ -21,7 +21,7 @@ import { DocumentDownload } from './download'
 // The BODY half is shared for real: `useDoc` + `dismissDoc` from docs.tsx
 // are the same fetch and the same dismiss the overlay reader uses.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
 import { BASE, fileBase, getDocuments, mockupUrl } from '../api'
@@ -85,7 +85,9 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
    *  what it does not supply reads as "not opened from here". */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
-  const data = usePolled(() => getDocuments(slug), [slug])
+  const [pageOffset, setPageOffset] = useState(0)
+  useEffect(() => setPageOffset(0), [slug])
+  const data = usePolled(() => getDocuments(slug, pageOffset), [slug, pageOffset])
   const all = useMemo(() => data?.documents.filter(r => !r.evicted), [data])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
@@ -162,6 +164,11 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
             show retired agents
             {retiredCt > 0 && <span className="dim"> · {retiredCt}</span>}
           </label>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <button disabled={pageOffset === 0} onClick={() => setPageOffset(v => Math.max(0, v - 100))}>Newer</button>
+          <span>{data?.total ?? 0} documents</span>
+          <button disabled={data?.next_offset == null} onClick={() => setPageOffset(data!.next_offset!)}>Older</button>
         </div>
         <div className="mailpane">
           {all == null
@@ -334,7 +341,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
 export interface AgentGalleryViewProps {
   slug: string
   nid: string
-  node?: TreeNode | { id: string; documents?: any[] | null; state?: string; tier?: string | null }
+  node?: TreeNode | { id: string; documents?: any[] | null; state?: string; tier?: string | null; generation?: number }
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
   onReply?: (node: string, text: string, target: ReplyTarget) => Promise<unknown> | void
@@ -349,6 +356,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   onReply, refs, onChanged }: AgentGalleryViewProps & { close: () => void }) {
   return (
     <PinFrame kind="agent-gallery" title={`presented documents for ${nid}`}
+      restore={{ agent: nid, generation: node?.generation }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
@@ -365,7 +373,9 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
   refs, onChanged }: AgentGalleryViewProps) {
-  const data = usePolled(() => getDocuments(slug), [slug])
+  const [pageOffset, setPageOffset] = useState(0)
+  useEffect(() => setPageOffset(0), [slug, nid])
+  const data = usePolled(() => getDocuments(slug, pageOffset, nid), [slug, pageOffset, nid])
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
@@ -425,6 +435,11 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       <div className="gallery-head desk-presented-head">
         <b>Presented</b>
         <span className="dim">documents and HTML previews from {nid}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <button disabled={pageOffset === 0} onClick={() => setPageOffset(v => Math.max(0, v - 100))}>Newer</button>
+        <span>{data?.total ?? 0} documents</span>
+        <button disabled={data?.next_offset == null} onClick={() => setPageOffset(data!.next_offset!)}>Older</button>
       </div>
       {rows.length === 0 ? (
         <div className="dim pad desk-presented-empty">No presented documents.</div>

@@ -225,7 +225,6 @@ class Recorder:
         try:
             d = self._dir()
             os.makedirs(d, exist_ok=True)
-            _evict(d, RING - 1)
             rec = self._record(partial=True, outcome=None, outcome_ms=None,
                                error_class=None, paid_booked=None, cost_usd=None)
             rec["events"] = []
@@ -299,7 +298,6 @@ class Recorder:
                     os.remove(self._stub)
                 except OSError:
                     pass
-            _evict(d, RING)
             return path
         except Exception:                                    # noqa: BLE001
             self._errors += 1
@@ -316,17 +314,8 @@ def _write(path: str, rec: Any) -> None:
     os.replace(tmp, path)
 
 
-def _evict(d: str, keep: int) -> None:
-    """Oldest records AND stubs beyond `keep` go — so repeated unfinalized
-    attempts cannot accumulate stubs without bound."""
-    names = sorted(n for n in os.listdir(d)
-                   if _RECORD_RE.match(n) or _STUB_RE.match(n))
-    for old in (names[:-keep] if keep > 0 and len(names) > keep else
-                names if keep <= 0 else []):
-        try:
-            os.remove(os.path.join(d, old))
-        except OSError:
-            pass
+# Turn records are retained until manual removal; per-record telemetry
+# bounds still apply. A completed record replaces only its own partial stub.
 
 
 def enabled() -> bool:

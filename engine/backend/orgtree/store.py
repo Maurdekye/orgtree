@@ -565,6 +565,7 @@ ROWED: tuple[str, ...] = ("nodes",)
 DICT_LOGS: tuple[str, ...] = ("mail_log", "steered_log", "turn_error_log")
 LIST_LOGS: tuple[str, ...] = ("events", "org_inbox", "notice_log",
                               "user_mail_log", "user_outbox",
+                              "documents", "watchdog_history",
                               # operation receipts (opreceipts.py): append-only
                               # and capped, and LAZY is the point — a call
                               # that carries no `op_key` never touches it, so

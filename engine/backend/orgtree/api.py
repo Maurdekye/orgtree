@@ -97,6 +97,9 @@ if TYPE_CHECKING:
 
 app = FastAPI(title="orgtree", version="1.0.0")
 
+from .history import router as history_router
+app.include_router(history_router)
+
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
 #: A redeploy replaces both halves of the app, but only the server half
@@ -3970,7 +3973,7 @@ def remote_control(slug: str, nid: str, body: RemoteControl,
 
 
 @app.get("/api/orgs/{slug}/documents")
-def documents_list(slug: str) -> dict[str, Any]:
+def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "") -> dict[str, Any]:
     """FR-03 gallery: every presented document in the org, newest first.
     Reads `documents` directly (not the tree walk) so a retired, rehired or
     deleted presenter still has its cards. Evicted bodies surface as rows
@@ -3982,10 +3985,15 @@ def documents_list(slug: str) -> dict[str, Any]:
     except LedgerError as e:
         raise HTTPException(404, str(e))
     gallery = org.document_gallery()
+    if node:
+        gallery = [row for row in gallery if row["node"] == node]
     for d in gallery:
         if isinstance(d, dict) and d.get("id"):
             d["ref"] = refs.doc(slug, str(d["id"]))
-    return {"documents": gallery}
+    offset = max(0, offset)
+    limit = max(1, min(limit, 100))
+    return {"documents": gallery[offset:offset + limit], "total": len(gallery),
+            "next_offset": offset + limit if offset + limit < len(gallery) else None}
 
 
 @app.get("/api/orgs/{slug}/documents/{did}")
@@ -4047,9 +4055,8 @@ def _document_or_404(org: Org, did: str) -> dict[str, Any]:
     doc = next((x for x in org.d.get("documents", []) if x["id"] == did), None)
     if doc is None:
         raise HTTPException(
-            404, f"no document {did!r} — it was dismissed, or evicted by "
-                 f"later presentations (newest 10 per agent are kept; "
-                 f"evictions are in the org log)")
+            404, f"no document {did!r} — it was removed or is unavailable "
+                 f"in the imported history")
     return doc
 
 
@@ -4961,7 +4968,7 @@ async def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             # second outranks one sent later (user bug 2026-08-02). `at` is
             # ISO-8601 Z, so a string sort is a time sort.
             log.sort(key=lambda m: m.get("at") or "")
-            del log[:-100]
+
             store.save_org(org)
     await hub.changed(slug)
     return {"read": len(read)}
@@ -5347,7 +5354,7 @@ async def user_inbox_clear(slug: str) -> dict[str, Any]:
             raise HTTPException(404, str(e))
         log = org.d.setdefault("user_mail_log", [])
         log.extend(org.d.get("user_inbox", []))
-        del log[:-100]
+
         org.d["user_inbox"] = []
         store.save_org(org)
     await hub.changed(slug)

@@ -36,6 +36,7 @@ import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { AccountsPanel, UsageBars } from './canvas/accounts'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
+import { HistoryBrowser } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
 import { closeIfCentred, isModalPinned, PinFrame } from './canvas/modalpin'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
@@ -261,6 +262,7 @@ export default function App() {
   // idiom the user asked for), so nothing about the canvas's reader is
   // lifted up here — that panel owns its selection.
   const [showGallery, setShowGallery] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   // The card's document shortcut opens the same list/reader layout scoped to
   // that agent, independently of whether its desk is currently pinned.
   const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
@@ -992,6 +994,7 @@ export default function App() {
                     </button>
                   )
                 })()}
+                <button className="iconbtn" title="Browse retained history" onClick={() => setShowHistory(true)}>History</button>
                 {/* the work docket sits beside the gallery — same "standing
                     pile, read in a list+pane panel" family. Badge counts ride
                     the tree poll (docket-final-spec.md — no separate timer):
@@ -1103,6 +1106,7 @@ export default function App() {
       {showUsage && (
         <UsageModal close={() => setShowUsage(false)} />
       )}
+      {showHistory && slug && <HistoryBrowser key={slug} slug={slug} close={() => setShowHistory(false)} />}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
           onFocusAgent={(id) => {

@@ -444,6 +444,7 @@ export interface TreeNode {
    *  nulled (ledger.node_ask; null once the linger window passes) */
   ask?: AskInfo | null
   /** FR-03: presented documents (metadata; body via getDocument) */
+  documents_count?: number
   documents?: { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }[] | null
   /** FR-01: parked while the user drives this session from another device */
   remote_controlled?: { at?: string } | null

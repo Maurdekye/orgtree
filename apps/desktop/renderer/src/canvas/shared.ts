@@ -712,6 +712,7 @@ export interface CanvasNode {
   ask?: AskInfo | null
   /** FR-03: presented documents — metadata only; the reader fetches the
    *  body on open */
+  documents_count?: number
   documents?: { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }[] | null
   /** FR-01: parked while the user drives this session from another device */
   remote_controlled?: { at?: string } | null
@@ -1643,6 +1644,7 @@ export const attentionPip = (t: {
  *    counts mail you can open. A tombstone is a record, not an errand. */
 export interface DocCountNode {
   state?: string | null
+  documents_count?: number
   documents?: { id: string }[] | null
   children?: DocCountNode[] | null
 }
@@ -1651,7 +1653,7 @@ export const activeDocCount = (roots: DocCountNode[] | null | undefined): number
   let n = 0
   const walk = (list: DocCountNode[] | null | undefined): void => {
     for (const node of list ?? []) {
-      if (node.state === 'live') n += (node.documents ?? []).length
+      if (node.state === 'live') n += node.documents_count ?? (node.documents ?? []).length
       walk(node.children)
     }
   }

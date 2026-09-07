@@ -9663,7 +9663,7 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
         box.setdefault(nid, []).append(cast(MailEntry, dict(entry)))
         log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
         log.append(cast(MailEntry, dict(entry)))
-        del log[:-100]
+
         store.save_org(org)
         return mid
 
@@ -9772,7 +9772,7 @@ def _idle_docket_reminder_reserve(
         box.setdefault(nid, []).append(cast(MailEntry, dict(entry)))
         log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
         log.append(cast(MailEntry, dict(entry)))
-        del log[:-100]
+
         store.save_org(org)
         return mid, items
 
@@ -17424,7 +17424,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     log = o2.node(nid).setdefault("oracle_exchanges", [])
                     log.append({"q": text[-1500:], "a": str(res.get("result", ""))[:4000],
                                 "at": now_iso()})
-                    del log[:-40]
+
                     store.save_org(o2)
             # ⚠ the success path needs `turn_paid` just as much as the failure
             # path does, and this is where the loop's third round found the
@@ -18431,7 +18431,7 @@ def _charge_killed_turn(slug: str, nid: str, out_toks: int,
                 entry["estimated"] = True
             _stamp_ran_as(entry, slug, nid)
             ring.append(entry)
-            del ring[:-20]
+
             store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass          # accounting must never turn a killed turn into a crash
@@ -18602,7 +18602,7 @@ def _charge_reported_spend(slug: str, nid: str, paid: float,
                     n["cost_usd_unknown"] = True
             _stamp_ran_as(paid_entry, slug, nid)
             ring.append(paid_entry)
-            del ring[:-20]
+
             store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass          # accounting must never turn a failed turn into a crash
@@ -18642,7 +18642,7 @@ def _log_turn_error(slug: str, nid: str, text: str) -> None:
             if ran:
                 row["ran_as"] = ran
             rows.append(row)
-            del rows[:-30]
+
             store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass
@@ -19031,7 +19031,7 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                         cache_attempt, str(_route_rec.get("model") or ""),
                         pool=str(_route_rec.get("pool") or ""))
             ring.append(entry)
-            del ring[:-20]
+
             try:
                 cache_event = _cache_finish_turn(
                     o2, nid, cache_attempt, res.get("_cache_usage") or {})
@@ -23754,16 +23754,7 @@ def _steer_fold_log(slug: str, nid: str, n: int, where: str,
                             f"{n} mid-turn message(s) missed the steer "
                             f"window ({where}: {why}) — "
                             f"delivered at the next turn")})
-            # Fold rows are RECEIPTS; the `steered` rows beside them are the
-            # only durable home of delivered mid-turn mail (see commit_steer).
-            # They share this 40-row ring, and a lane that folds often — the
-            # antigravity pump refuses every steer, and both pumps now fold at
-            # turn exit — could evict every steered row with receipts. Keep
-            # only the newest few folds before the ring trims (D-229).
-            fold_idx = [i for i, e in enumerate(log) if e.get("fold")]
-            for i in reversed(fold_idx[:-FOLD_ROWS_KEEP]):
-                log.pop(i)
-            del log[:-40]
+            # Keep receipts and delivered text until manual removal.
             store.save_org(org)
     except Exception:                                        # noqa: BLE001
         pass
@@ -23858,10 +23849,7 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                                    if len(s) > 100000 else {}),
                                 **({"segments": per_carrier[i]}
                                    if per_carrier[i] else {})})
-                del log[:-40]
-                while (len(log) > 5
-                       and sum(len(e.get("text") or "") for e in log) > 300000):
-                    log.pop(0)
+
             drop = set(toks)
             if dl and drop:
                 keep = [b for b in dl if b.get("tok") not in drop]
@@ -24279,9 +24267,7 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
         if not s:
             continue
         log.append({**row, "text": s[:100000], **({"truncated": True} if len(s) > 100000 else {})})
-    del log[:-40]
-    while len(log) > 5 and sum(len(e.get("text") or "") for e in log) > 300000:
-        log.pop(0)
+
     att["recorded_at"] = stamp
     net_ids = [str(m["net_id"]) for b in batches for m in (b.get("mail") or []) if m.get("net_id")]
     return net_ids, row
@@ -26584,7 +26570,7 @@ def reconcile(slug: str) -> list[str]:
                     "text": f"{unk} message(s) whose mid-turn delivery had an "
                             f"UNKNOWN outcome were returned to the mailbox at "
                             f"restart — the agent may see them twice"})
-                del log[:-40]
+
         if dlv:
             store.save_org(org)
         # drain-on-start (user clarification 2026-08-06 — an earlier reading
