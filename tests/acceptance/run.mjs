@@ -24,7 +24,7 @@ export function isolatedRoot(base = os.tmpdir()) {
     throw new Error('Acceptance data must be outside the live v1 tree')
   }
   const root = fs.mkdtempSync(path.join(canonicalBase, 'orgtree-v2-acceptance-'))
-  for (const name of ['data', 'profile', 'project']) fs.mkdirSync(path.join(root, name))
+  for (const name of ['data', 'profile', 'project', 'inherited-v1']) fs.mkdirSync(path.join(root, name))
   return root
 }
 
@@ -41,7 +41,7 @@ function main() {
   }
   const root = isolatedRoot()
   const env = { ...process.env, ORGTREE_ACCEPTANCE_ROOT: root, ORGTREE_ACCEPTANCE_APP: target,
-    ORGTREE_DATA: path.join(root, 'data'), ORGTREE_V2_DATA: path.join(root, 'data'),
+    ORGTREE_DATA: path.join(root, 'inherited-v1'), ORGTREE_V2_DATA: path.join(root, 'data'),
     ORGTREE_V2_PROFILE: path.join(root, 'profile'), ORGTREE_V2_PYTHON: python,
     ORGTREE_V2_PORT: '0', ORGTREE_NET_HUB_ADDRESS: 'http://127.0.0.1:9' }
   delete env.ELECTRON_RUN_AS_NODE
