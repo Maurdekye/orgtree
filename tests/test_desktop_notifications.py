@@ -19,13 +19,15 @@ def tearDownModule():
 class NotificationsTests(unittest.TestCase):
     def test_cross_org_projection_dismissal_and_gate(self):
         first=store.create_org('one'); second=store.create_org('two')
-        first.d['asks']=[{'id':'q1','node':'agent','status':'open','question':'answer me'}]
+        first.d['asks']=[{'id':'q1','node':'agent','status':'open','questions':[{'question':'answer me'}]}]
         second.d['user_inbox']=[{'id':'m1','from':'peer','urgent':True,'body':'urgent detail'}]
         store.save_org(first); store.save_org(second)
         client=TestClient(app)
         self.assertEqual(client.get('/api/desktop/notifications').status_code,401)
         rows=client.get('/api/desktop/notifications',headers={'X-Orgtree-Desktop-Token':'operator'}).json()['notices']
         self.assertEqual({r['org'] for r in rows},{'one','two'})
+        self.assertEqual({r['source_id'] for r in rows},{'q1','m1'})
+        self.assertEqual(next(r['body'] for r in rows if r['source_id']=='q1'),'answer me')
         self.assertEqual(rows,desktop_notifications.notices()['notices'])
         self.assertTrue(desktop_notifications.notices(limit=1)['truncated'])
         first.d['asks'][0]['status']='answered'; store.save_org(first)

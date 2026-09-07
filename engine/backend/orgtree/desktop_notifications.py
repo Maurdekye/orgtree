@@ -5,19 +5,20 @@ from . import store
 
 def notices(limit=200):
     rows = []
-    def add(org, key, kind, title, body, agent=None, item=None):
+    def add(org, key, kind, title, body, agent=None, item=None, source_id=None):
         identity = f"{org.d['slug']}:{org.d.get('created')}:{key}"
         rows.append({'id':hashlib.sha256(identity.encode()).hexdigest(), 'org':org.d['slug'],
                      'kind':kind, 'title':str(title)[:200], 'body':str(body or '')[:500],
+                     **({'source_id':str(source_id)} if source_id is not None else {}),
                      **({'agent':str(agent)} if agent else {}), **({'item':str(item)} if item else {})})
     for _, org in store.list_orgs_with_docs():
         for ask in org.d.get('asks') or []:
             if ask.get('status') == 'open':
                 add(org, 'ask:'+str(ask.get('id')), 'question', 'Question from '+str(ask.get('node')),
-                    ask.get('question'), ask.get('node'))
+                    ask.get('question') or next((q.get('question') for q in ask.get('questions',[]) if q.get('question')), ''), ask.get('node'), source_id=ask.get('id'))
         for mail in org.d.get('user_inbox') or []:
             add(org,'mail:'+str(mail.get('id')), 'urgent-mail' if mail.get('urgent') else 'routine',
-                'Message from '+str(mail.get('from') or org.d.get('name')), mail.get('body') or mail.get('text'), mail.get('from'))
+                'Message from '+str(mail.get('from') or org.d.get('name')), mail.get('body') or mail.get('text'), mail.get('from'), source_id=mail.get('id'))
         for item in org.d.get('work_items') or []:
             attention = item.get('manual_attention')
             if attention:
