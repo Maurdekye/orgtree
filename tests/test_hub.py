@@ -9,6 +9,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from engine.hub import AttachmentPathError, HubClient, HubService, discover_hub
@@ -214,8 +215,13 @@ class HubIntegrationTests(unittest.TestCase):
 
             def observe_before_serving(path: Path):
                 checks.append(path)
-                with self.assertRaises(Exception):
-                    urlopen(Request(f"http://127.0.0.1:{service.port}/healthz", headers={"X-Hub-Token": "probe"}), timeout=0.2)
+                try:
+                    with urlopen(Request(f"http://127.0.0.1:{service.port}/healthz", headers={"X-Hub-Token": "probe"}), timeout=0.2):
+                        self.fail("hub served an HTTP response before readiness protection completed")
+                except HTTPError as exc:
+                    self.fail(f"hub served HTTP {exc.code} before readiness protection completed")
+                except (OSError, TimeoutError, URLError):
+                    pass
                 return original_acl(path)
 
             with patch.object(service, "_restrict_windows_readiness_acl", side_effect=observe_before_serving):
