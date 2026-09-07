@@ -6,26 +6,30 @@ const path = require('node:path')
 const assert = require('node:assert/strict')
 const cp = require('node:child_process')
 const { app, BrowserWindow, dialog } = require('electron')
-const root = fs.realpathSync(process.env.ORGTREE_ACCEPTANCE_ROOT)
-const target = fs.realpathSync(process.env.ORGTREE_ACCEPTANCE_APP)
+const root = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_ROOT)
+const target = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_APP)
 const phase = process.env.ORGTREE_ACCEPTANCE_PHASE
 assert.ok(['initial', 'restart'].includes(phase))
-const data = fs.realpathSync(path.join(root, 'data'))
-assert.equal(fs.realpathSync(process.env.ORGTREE_DATA), data)
-assert.equal(fs.realpathSync(process.env.ORGTREE_V2_DATA), data)
+const data = fs.realpathSync.native(path.join(root, 'data'))
+assert.equal(fs.realpathSync.native(process.env.ORGTREE_DATA), data)
+assert.equal(fs.realpathSync.native(process.env.ORGTREE_V2_DATA), data)
 app.setPath('userData', path.join(root, 'profile'))
 app.setAppPath(target)
-const rows = [], children = [], handshakes = []
+const rows = [], children = [], handshakes = [], diagnostics = []
 let ready = false, finishing = false, launched = false
 const spawn = cp.spawn
 cp.spawn = function(command, args, options) {
   if (args?.some(arg => String(arg).endsWith('launch.py'))) {
-    assert.equal(fs.realpathSync(options.env.ORGTREE_DATA), data)
-    assert.equal(fs.realpathSync(args[0]), fs.realpathSync(path.join(target, 'engine/launch.py')))
+    assert.equal(fs.realpathSync.native(options.env.ORGTREE_DATA), data)
+    assert.equal(fs.realpathSync.native(args[0]), fs.realpathSync.native(path.join(target, 'engine/launch.py')))
     launched = true
   }
   const child = spawn.call(this, command, args, options)
   children.push(child)
+  child.stderr?.on('data', chunk => {
+    const missing = chunk.toString().match(/ModuleNotFoundError: No module named '([A-Za-z0-9_.]+)'/)
+    if (missing) diagnostics.push('Missing Python module: ' + missing[1])
+  })
   let buffered = ''
   child.stdout?.on('data', chunk => {
     buffered = (buffered + chunk.toString()).slice(-65536)
@@ -42,7 +46,8 @@ cp.spawn = function(command, args, options) {
 dialog.showMessageBox = async (...args) => {
   const options = args.at(-1)
   if (options.type === 'error') {
-    rows.push({ name: 'native-startup-dialog', status: 'FAIL', reason: 'Application displayed an error dialog' })
+    const known = ['Python engine has not been packaged', 'Python engine exited before readiness', 'Engine did not become ready in time', 'Python engine could not start', 'Python runtime is missing. Configure ORGTREE_V2_PYTHON for development.']
+    rows.push({ name: 'native-startup-dialog', status: 'FAIL', reason: known.includes(options.detail) ? options.detail : 'Application displayed an error dialog' })
     setImmediate(finish)
   }
   return { response: 0, checkboxChecked: false }
@@ -56,7 +61,7 @@ function finish() {
   finishing = true
   clearTimeout(deadline)
   const status = ready && rows.length > 0 && rows.every(r => r.status === 'PASS') ? 'PASS' : 'FAIL'
-  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows }, null, 2))
+  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
   app.quit()
   const cleanup = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -79,7 +84,7 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(handshakes.length, 1)
       const h = handshakes[0]
       assert.equal(h.protocol, 1)
-      assert.equal(fs.realpathSync(h.dataRootId), data)
+      assert.equal(fs.realpathSync.native(h.dataRootId), data)
       assert.ok(children.some(c => c.pid === h.pid))
       assert.equal(Number(new URL(origin).port), h.port)
       assert.notEqual(h.port, 7360)

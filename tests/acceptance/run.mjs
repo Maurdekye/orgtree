@@ -12,16 +12,18 @@ export function prerequisites(target, electron, python) {
     ['built main', path.join(target, 'dist/main/index.cjs')],
     ['built preload', path.join(target, 'dist/preload/index.cjs')],
     ['built renderer', path.join(target, 'dist/renderer/index.html')],
-  ].filter(([, file]) => !file || !fs.existsSync(file)).map(([name]) => name)
+  ].filter(([, file]) => !file || !fs.existsSync(file) || !fs.statSync(file).isFile()).map(([name]) => name)
 }
 
 export function isolatedRoot(base = os.tmpdir()) {
-  const root = fs.mkdtempSync(path.join(fs.realpathSync(base), 'orgtree-v2-acceptance-'))
-  const forbidden = path.resolve(os.homedir(), 'orgtree')
-  const relative = path.relative(forbidden, root)
+  const canonicalBase = fs.realpathSync.native(base)
+  const forbiddenPath = path.resolve(os.homedir(), 'orgtree')
+  const forbidden = fs.existsSync(forbiddenPath) ? fs.realpathSync.native(forbiddenPath) : forbiddenPath
+  const relative = path.relative(forbidden, canonicalBase)
   if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
     throw new Error('Acceptance data must be outside the live v1 tree')
   }
+  const root = fs.mkdtempSync(path.join(canonicalBase, 'orgtree-v2-acceptance-'))
   for (const name of ['data', 'profile', 'project']) fs.mkdirSync(path.join(root, name))
   return root
 }
@@ -56,11 +58,16 @@ function main() {
     const reportFile = path.join(root, phase + '.json')
     const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, 'utf8')) :
       { status: 'FAIL', reason: 'Application produced no acceptance report', processStatus: result.status }
-    phases.push({ phase, ...report })
+    const survivors = (report.childPids || []).filter(pid => {
+      try { process.kill(pid, 0); return true } catch { return false }
+    })
+    phases.push({ phase, ...report, childProcessesExited: survivors.length === 0 })
+    if (survivors.length) { phases.at(-1).status = 'FAIL'; break }
     if (result.error || !report.ready || result.status !== 0) break
   }
   const status = phases.length === 2 && phases.every(p => p.status === 'PASS') ? 'PASS' : 'FAIL'
-  const summary = { status, evidence: 'instrumented-real-application', target, root, phases,
+  const source = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8', windowsHide: true })
+  const summary = { status, evidence: 'instrumented-real-application', target, python, sourceCommit: source.status === 0 ? source.stdout.trim() : null, root, phases,
     limits: ['No real provider turn in this suite', 'Draft values seeded through storage; composer interactions remain separate', 'Not an installer or update execution test'] }
   fs.writeFileSync(path.join(root, 'report.json'), JSON.stringify(summary, null, 2))
   console.log(JSON.stringify(summary, null, 2))
