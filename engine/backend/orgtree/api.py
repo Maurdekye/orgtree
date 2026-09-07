@@ -839,6 +839,7 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     mail_notify = _mail
 
     def stream(slug: str, node: str, payload: dict[str, Any]) -> None:
+        payload = supervisor.capture_reply_stream(slug, node, payload)
         asyncio.run_coroutine_threadsafe(
             hub._send(slug, {"type": "node_stream", "org": slug, "node": node,
                              **payload}), loop)

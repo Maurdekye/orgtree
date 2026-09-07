@@ -1,0 +1,77 @@
+"""Immutable reply snapshots: references never relocate to another event."""
+import hashlib
+import json
+from pathlib import Path
+import sqlite3
+from . import store
+
+
+def _connect():
+    path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
+    connection = sqlite3.connect(path, timeout=15)
+    connection.execute('CREATE TABLE IF NOT EXISTS events (org TEXT, agent TEXT, generation INTEGER, id TEXT, text TEXT, PRIMARY KEY(org,agent,generation,id))')
+    return connection
+
+
+def remember(org, nid, source, kind, text, *, connection=None):
+    generation = int(org.node(nid).get('generation') or 0)
+    quote = str(text or '')[:4000]
+    identity = json.dumps([str(source), kind, quote], ensure_ascii=False)
+    eid = 'reply_' + hashlib.sha256(identity.encode()).hexdigest()
+    owned = connection is None
+    connection = connection or _connect()
+    try:
+        connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?)',
+                           (org.d['slug'], nid, generation, eid, quote))
+        if owned:
+            connection.commit()
+    finally:
+        if owned:
+            connection.close()
+    return eid
+
+
+def lookup(slug, nid, generation, eid):
+    with _connect() as connection:
+        row = connection.execute('SELECT text FROM events WHERE org=? AND agent=? AND generation=? AND id=?',
+                                 (slug, nid, generation, eid)).fetchone()
+    connection.close()
+    return row[0] if row is not None else None
+
+
+def annotate(org, nid, chat):
+    with _connect() as connection:
+        result = _annotate(org, nid, chat, connection)
+    connection.close()
+    return result
+
+
+def _annotate(org, nid, chat, connection):
+    def save(source, kind, text):
+        return remember(org, nid, source, kind, text, connection=connection)
+    result = dict(chat)
+    for field in ('messages', 'live', 'transient'):
+        rows = []
+        for original in chat.get(field) or []:
+            row = dict(original)
+            source = row.get('event_id')
+            if source:
+                row['event_id'] = save(source, 'row', row.get('text') or row.get('body') or row.get('cmd_out'))
+                if row.get('thinking') is not None:
+                    row['thinking_event_id'] = save(source, 'thinking', row['thinking'])
+                tools = []
+                for index, original_tool in enumerate(row.get('tools') or []):
+                    if not isinstance(original_tool, dict):
+                        tools.append(original_tool)
+                        continue
+                    tool = dict(original_tool)
+                    tool_source = str(source) + ':tool:' + str(tool.get('id') or index)
+                    tool['event_id'] = save(tool_source, 'call',
+                        str(tool.get('name') or '') + ' ' + str(tool.get('input') or tool.get('arg') or ''))
+                    if 'result' in tool:
+                        tool['result_event_id'] = save(tool_source, 'result', tool['result'])
+                    tools.append(tool)
+                row['tools'] = tools
+            rows.append(row)
+        result[field] = rows
+    return result

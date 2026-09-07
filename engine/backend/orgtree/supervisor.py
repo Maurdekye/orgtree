@@ -2660,11 +2660,17 @@ def resolve_chat_event(org: Org, nid: str, ref: Mapping[str, Any]
         generation = int(ref.get("generation"))
     except (TypeError, ValueError):
         raise LedgerError("source_event_ref.generation is required")
-    if generation != int(org.node(nid).get("generation") or 0):
-        raise LedgerError("source_event_ref generation is stale")
     event_id = str(ref.get("eventId") or "")
     if not event_id:
         raise LedgerError("source_event_ref.eventId is required")
+    if event_id.startswith("reply_"):
+        from . import reply_events
+        retained = reply_events.lookup(str(org.d['slug']), nid, generation, event_id)
+        if retained is not None:
+            return ({"org": str(org.d['slug']), "agent": nid,
+                     "generation": generation, "eventId": event_id}, retained)
+    if generation != int(org.node(nid).get("generation") or 0):
+        raise LedgerError("source_event_ref generation is stale")
     chat = read_chat(org, nid, last=None, hold_back=False)
     rows = [*(chat.get("messages") or []), *(chat.get("live") or [])]
     row = next((r for r in rows if str(r.get("event_id") or "") == event_id), None)
@@ -2855,10 +2861,14 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
               hold_back: bool = True) -> dict[str, Any]:
     """Keep copied import history visible alongside the new native session."""
     from .desktop_import import imported_history_path
+    from . import reply_events
     history = imported_history_path(org, nid)
     current = _read_chat_current(org, nid, last=last, hold_back=hold_back)
+    current_state = state(org.d['slug'], nid)
+    with _state_lock:
+        current['transient'] = list(current_state.get('reply_transient', {}).values())
     if not history:
-        return current
+        return reply_events.annotate(org, nid, current)
     with open(history, encoding="utf-8") as source:
         archived = _read_chat_source(org, nid, hold_back=False,
                                      _path=Path(history), _lines=source, _prompt_views={})
@@ -2872,9 +2882,36 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
         public["imported_history"] = True
         rows.append(public)
     combined = rows + list(current.get("messages") or [])
-    return {**current, "messages": combined[-last:] if last else combined,
+    return reply_events.annotate(org, nid, {**current, "messages": combined[-last:] if last else combined,
             "total": len(rows) + int(current.get("total") or len(current.get("messages") or [])),
-            "imported_history_count": len(rows)}
+            "imported_history_count": len(rows)})
+
+
+def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist exact transient quote revisions before emitting their IDs."""
+    kind = str(payload.get('kind') or '')
+    if kind not in {'draft', 'delta', 'thinking', 'thinking_start', 'thought', 'starting', 'error'}:
+        return payload
+    from . import reply_events
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+    st = state(slug, nid)
+    group = 'draft' if kind in {'draft', 'delta'} else 'thinking' if kind in {'thinking','thinking_start','thought'} else kind
+    epoch = draft_epoch(slug, nid)
+    with _state_lock:
+        rows = st.setdefault('reply_transient', {})
+        if st.get('reply_transient_epoch') != epoch:
+            rows.clear()
+            st['reply_transient_epoch'] = epoch
+        previous = rows.get(group, {})
+        text = str(payload.get('text') or '')
+        if kind in {'delta', 'thinking'}:
+            text = str(previous.get('text') or '') + text
+        text = text[-4000:]
+        eid = reply_events.remember(org, nid, f'{epoch}:{group}', kind, text)
+        rows[group] = {'kind':kind, 'role':'system' if kind in {'starting','error'} else 'assistant',
+                       'text':text, 'event_id':eid}
+    return {**payload, 'event_id':eid}
 
 
 def _limit_cache_result_state(
