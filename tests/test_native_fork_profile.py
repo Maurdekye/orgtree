@@ -39,6 +39,15 @@ class ForkProfileTests(unittest.TestCase):
         node=org.node('worker')
         node['desktop_import']={'native_continuity':{'status':'ready'}}
         sid=node['session_id']
+        from orgtree import desktop_native_claude_rewind as rewind
+        profile=Path(_root.name)/'bearer-profile'
+        backups=profile/'file-history'/sid
+        backups.mkdir(parents=True)
+        backup='a'*16+'@v1'
+        (backups/backup).write_bytes(b'original backup')
+        node['desktop_import']['native_continuity'].update(
+            session_id=sid,provider='claude',rewind={
+                'session_id':sid,'profile':str(profile),'files':[backup]})
         source=Path(_root.name)/'bearer-source.jsonl'
         rid=str(uuid.uuid4())
         row={'type':'user','uuid':rid,'parentUuid':None,'sessionId':sid,
@@ -54,6 +63,14 @@ class ForkProfileTests(unittest.TestCase):
         self.assertEqual(clone['message'],row['message'])
         self.assertEqual(source.read_bytes(),original)
         desktop_native.claude_records([clone],new_sid,new_sid,'validation')
+        clone_path=source.parent/f'{new_sid}.jsonl'
+        with patch.object(supervisor,'transcript_path',return_value=clone_path), \
+             patch.object(rewind,'selected_profile',return_value=profile):
+            predecessor=org.record_cli_compaction('worker',bearer_sid=new_sid,boundary_offset=1)
+        self.assertEqual(org.node(predecessor)['desktop_import']['native_continuity']['rewind']['session_id'],new_sid)
+        self.assertEqual((profile/'file-history'/new_sid/backup).read_bytes(),b'original backup')
+        self.assertEqual((backups/backup).read_bytes(),b'original backup')
+        self.assertEqual(source.read_bytes(),original)
 
     def test_actual_compact_uses_imported_resume_and_node_environment(self):
         org = store.create_org('fork-profile')

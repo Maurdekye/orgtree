@@ -211,11 +211,14 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         backup = self.profile / "file-history" / sid / binding["rewind"]["files"][0]
         backup.write_bytes(b"a different pre-existing backup")
         other = Org(copy.deepcopy(base))
+        fixtures.store.save_org(other)
+        persisted_before = json.dumps(fixtures.store.load_org(other.d['slug']).d,sort_keys=True)
         unchanged = copy.deepcopy(other.d)
         with patch.object(supervisor, "transcript_path", return_value=str(target)):
             with self.assertRaisesRegex(LedgerError, "missing or differs"):
                 other.compact_split("worker", sid)
         self.assertEqual(other.d, unchanged)
+        self.assertEqual(json.dumps(fixtures.store.load_org(other.d['slug']).d,sort_keys=True),persisted_before)
         with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.root / "changed-profile")}):
             self.assertIn("different destination profile", native.native_hold_reason(org, "worker"))
 

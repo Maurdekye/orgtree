@@ -3641,12 +3641,21 @@ class Org:
                 raise NativeHeld("Native bearer validation is unavailable for this provider")
         except (NativeHeld, ValueError, OSError) as exc:
             raise LedgerError(str(exc)) from exc
+        rewind = None
+        if provider in {'claude', 'openrouter'} and native.get('rewind'):
+            from .desktop_native_claude_rewind import successor
+            try:
+                rewind = successor(self, nid, native, sid)
+            except (NativeHeld, ValueError, OSError) as exc:
+                raise LedgerError(str(exc)) from exc
         result = copy.deepcopy(imported)
         result["native_continuity"] = {
             "status": "transitioned", "provider": provider,
             "session_id": sid, "generation": n.get("generation", 0),
             "reason": "Native bearer validated by recorded lineage recovery",
         }
+        if rewind:
+            result['native_continuity']['rewind'] = rewind
         return result
 
     def cheap_compact(self, actor: str, nid: str) -> dict[str, Any]:
