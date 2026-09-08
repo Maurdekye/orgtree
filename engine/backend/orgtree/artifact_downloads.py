@@ -209,9 +209,11 @@ def build_document_preview(
     source_path = _safe_source_path(root, source_name)
     source_bytes = _read_file(source_path, source_is_required=True,
                                max_bytes=max_bytes)
-    dependencies = _dependency_closure(source_path, root, source_bytes,
-                                       max_bytes=max_bytes)
-    rendered = _rewrite_html(source_path, source_bytes, dependencies, root)
+    dependencies = {source_path: source_bytes}
+    dependencies.update(_dependency_closure(source_path, root, source_bytes,
+                                            max_bytes=max_bytes))
+    rendered = _rewrite_html(source_path, source_bytes, dependencies, root,
+                             max_output_bytes=max_bytes * 4)
     # Base64 expands binary resources by roughly a third; leave a bounded
     # margin for markup and escaping without permitting an unbounded response.
     if len(rendered.encode("utf-8")) > max_bytes * 4:
@@ -420,9 +422,39 @@ _HTML_TAG = re.compile(r"<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)(?P<attrs>[^>]*?)(?P<cl
                        re.I | re.S)
 _HTML_ATTR = re.compile(
     r"(?P<prefix>\s+)(?P<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"
-    r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)", re.I | re.S)
+    r"(?:(?P<quote>[\"'])(?P<value>.*?)(?P=quote)|"
+    r"(?P<unquoted>[^\s\"'`=<>]+))", re.I | re.S)
 _STYLE_BLOCK = re.compile(r"<style(?P<attrs>[^>]*)>(?P<body>.*?)</style\s*>",
                           re.I | re.S)
+
+
+def _attribute_value(match: re.Match[str]) -> str:
+    return match.group("value") if match.group("quote") else match.group("unquoted")
+
+
+def _bounded_sub(
+    pattern: re.Pattern[str],
+    replace: Any,
+    text: str,
+    max_output_bytes: int,
+) -> str:
+    """Apply substitutions while bounding intermediate output growth."""
+    chunks: list[str] = []
+    total = 0
+    cursor = 0
+    for match in pattern.finditer(text):
+        unchanged = text[cursor:match.start()]
+        replacement = replace(match)
+        chunks.extend((unchanged, replacement))
+        total += len(unchanged.encode("utf-8")) + len(replacement.encode("utf-8"))
+        if total > max_output_bytes:
+            raise ArtifactForbidden("the HTML preview exceeds its size limit")
+        cursor = match.end()
+    tail = text[cursor:]
+    chunks.append(tail)
+    if total + len(tail.encode("utf-8")) > max_output_bytes:
+        raise ArtifactForbidden("the HTML preview exceeds its size limit")
+    return "".join(chunks)
 
 
 def _dependency_for(
@@ -461,8 +493,14 @@ def _rewrite_css(
     data: bytes,
     dependencies: Mapping[Path, bytes],
     root: Path,
+    *,
+    stack: frozenset[Path] = frozenset(),
+    max_output_bytes: int,
 ) -> str:
     """Inline CSS imports and local URL resources relative to ``path``."""
+    if path in stack:
+        return ""
+    stack = stack | {path}
     text = data.decode("utf-8", errors="replace")
 
     def replace_import(match: re.Match[str]) -> str:
@@ -470,10 +508,11 @@ def _rewrite_css(
         if found is None:
             return match.group(0)
         imported_path, imported_data = found
-        imported = _rewrite_css(imported_path, imported_data, dependencies, root)
+        imported = _rewrite_css(imported_path, imported_data, dependencies, root,
+                                stack=stack, max_output_bytes=max_output_bytes)
         return "/* orgtree local stylesheet */\n" + imported
 
-    text = _CSS_IMPORT.sub(replace_import, text)
+    text = _bounded_sub(_CSS_IMPORT, replace_import, text, max_output_bytes)
 
     def replace_url(match: re.Match[str]) -> str:
         found = _dependency_for(path, match.group(2).strip(), dependencies, root)
@@ -482,7 +521,7 @@ def _rewrite_css(
         resource_path, resource_data = found
         return "url(\"" + _data_uri(resource_path, resource_data) + "\")"
 
-    return _CSS_URL.sub(replace_url, text)
+    return _bounded_sub(_CSS_URL, replace_url, text, max_output_bytes)
 
 
 def _rewrite_srcset(
@@ -507,24 +546,26 @@ def _rewrite_html(
     source_bytes: bytes,
     dependencies: Mapping[Path, bytes],
     root: Path,
+    *,
+    max_output_bytes: int,
 ) -> str:
     """Inline local HTML resources while retaining external resources."""
     text = source_bytes.decode("utf-8", errors="replace")
 
     def replace_style(match: re.Match[str]) -> str:
         body = _rewrite_css(source_path, match.group("body").encode("utf-8"),
-                            dependencies, root)
+                            dependencies, root, max_output_bytes=max_output_bytes)
         # Prevent an asset containing a closing style marker from escaping the
         # preview document's inline style element.
         body = re.sub(r"</style", "<\\/style", body, flags=re.I)
         return "<style" + match.group("attrs") + ">" + body + "</style>"
 
-    text = _STYLE_BLOCK.sub(replace_style, text)
+    text = _bounded_sub(_STYLE_BLOCK, replace_style, text, max_output_bytes)
 
     def replace_tag(match: re.Match[str]) -> str:
         tag = match.group("tag").lower()
         attrs = match.group("attrs")
-        values = {item.group("name").lower(): item.group("value")
+        values = {item.group("name").lower(): _attribute_value(item)
                   for item in _HTML_ATTR.finditer(attrs)}
 
         if tag == "link" and "stylesheet" in values.get("rel", "").lower().split():
@@ -533,7 +574,8 @@ def _rewrite_html(
                 found = _dependency_for(source_path, href, dependencies, root)
                 if found is not None:
                     css_path, css_data = found
-                    body = _rewrite_css(css_path, css_data, dependencies, root)
+                    body = _rewrite_css(css_path, css_data, dependencies, root,
+                                        max_output_bytes=max_output_bytes)
                     body = re.sub(r"</style", "<\\/style", body, flags=re.I)
                     media = ""
                     media_match = re.search(
@@ -568,7 +610,7 @@ def _rewrite_html(
             name = item.group("name").lower()
             if name not in allowed:
                 return item.group(0)
-            value = item.group("value")
+            value = _attribute_value(item)
             if name == "srcset":
                 replacement = _rewrite_srcset(source_path, value, dependencies, root)
             else:
@@ -578,7 +620,7 @@ def _rewrite_html(
 
         return "<" + match.group("tag") + _HTML_ATTR.sub(replace_attr, attrs) + match.group("close")
 
-    return _HTML_TAG.sub(replace_tag, text)
+    return _bounded_sub(_HTML_TAG, replace_tag, text, max_output_bytes)
 
 
 def _resolve_local_reference(base: Path, raw: str, root: Path) -> Path | None:

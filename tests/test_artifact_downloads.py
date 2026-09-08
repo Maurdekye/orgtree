@@ -211,7 +211,7 @@ class ArtifactDownloadTests(unittest.TestCase):
             (root / "outbox" / "index.html").write_text(
                 '<link rel="stylesheet" href="assets/css/site.css">'
                 '<script src="assets/app.js"></script>'
-                '<img src="assets/images/logo.svg">'
+                '<img src=assets/images/logo.svg>'
                 '<img src="https://cdn.example.test/remote.png">', encoding="utf-8")
             (assets / "css" / "site.css").write_text(
                 '@import "more.css"; body{background:url("../images/bg.svg")} '
@@ -232,6 +232,28 @@ class ArtifactDownloadTests(unittest.TestCase):
             self.assertIn("https://cdn.example.test/remote.png", preview)
             self.assertNotIn('href="assets/css/site.css"', preview)
             self.assertNotIn('src="assets/app.js"', preview)
+
+    def test_preview_handles_cyclic_and_repeated_css_imports_with_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            css = root / "outbox" / "assets"
+            css.mkdir(parents=True)
+            (root / "outbox" / "index.html").write_text(
+                '<link rel="stylesheet" href="assets/a.css">', encoding="utf-8")
+            (css / "a.css").write_text('@import "b.css"; a{color:red}', encoding="utf-8")
+            (css / "b.css").write_text('@import "a.css"; b{color:blue}', encoding="utf-8")
+            preview = build_document_preview(
+                "d-cycle", {"id": "d-cycle", "format": "html",
+                             "file": "outbox/index.html"}, root, max_bytes=4096)
+            self.assertIn("a{color:red}", preview)
+            self.assertIn("b{color:blue}", preview)
+            self.assertLessEqual(len(preview.encode("utf-8")), 4096 * 4)
+
+            (css / "a.css").write_text('@import "b.css"; ' * 400, encoding="utf-8")
+            with self.assertRaises(ArtifactForbidden):
+                build_document_preview(
+                    "d-cycle", {"id": "d-cycle", "format": "html",
+                                 "file": "outbox/index.html"}, root, max_bytes=4096)
 
     def test_preview_missing_local_asset_is_truthful(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
