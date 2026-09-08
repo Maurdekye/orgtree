@@ -99,6 +99,9 @@ def _interrupt(root, job):
         job["error"] = ("Import engine stopped before a terminal result was recorded. "
                         "Publication or recovery may be incomplete or uncertain; inspect retained "
                         "receipts and imported organizations before any new import. Nothing was replayed.")
+        if not job.get("publications"):
+            job["error"] = ("Import engine stopped during preparation. No publication was recorded. "
+                            "Staging is retained; nothing was replayed.")
         _write(root / (job["id"] + ".json"), job)
     return job
 
@@ -135,7 +138,14 @@ def current():
     with _guard:
         root = _root()
         pointer = _read(root / "current.json")
-        return _public(_get(root, pointer["id"])) if pointer else None
+        if not pointer:
+            return None
+        try:
+            return _public(_get(root, pointer["id"]))
+        except imp.ImportRefused as exc:
+            if exc.status == 404:
+                return None
+            raise
 
 
 @contextmanager

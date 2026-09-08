@@ -80,7 +80,9 @@ class ImportJobsTests(unittest.TestCase):
                 changed = dict(body, source_root=str(self.source / "different"))
                 self.assertEqual(client.post("/api/desktop/import-v1/jobs", json=changed, headers=self.headers).status_code, 409)
                 another = dict(body, request_id=str(uuid.uuid4()))
-                self.assertEqual(client.post("/api/desktop/import-v1/jobs", json=another, headers=self.headers).status_code, 409)
+                competing = client.post("/api/desktop/import-v1/jobs", json=another, headers=self.headers)
+                self.assertEqual(competing.status_code, 409)
+                self.assertEqual(competing.json()["detail"], "An import is already running for this destination. Check its status.")
                 self.assertEqual(client.get("/api/desktop/import-v1/jobs/current").status_code, 401)
                 self.assertEqual(client.get("/api/desktop/import-v1/jobs/" + body["request_id"]).status_code, 401)
                 self.assertEqual(client.post("/api/desktop/import-v1", json=body, headers=self.headers).status_code, 422)
@@ -124,6 +126,33 @@ class ImportJobsTests(unittest.TestCase):
         other = str(uuid.uuid4())
         jobs._write(root / (other + ".json"), dict(active, id=other))
         self.assertEqual(jobs.get(other)["state"], "interrupted")
+        self.assertIn("No publication was recorded", jobs.get(other)["error"])
+
+    def test_lease_excludes_and_release_reacquires(self):
+        root = jobs._root()
+        first = jobs._lease(root)
+        self.assertIsNotNone(first)
+        second = None
+        try:
+            second = jobs._lease(root)
+            self.assertIsNone(second, "lease must exclude a competing handle")
+        finally:
+            jobs._release(second)
+            jobs._release(first)
+        third = jobs._lease(root)
+        try:
+            self.assertIsNotNone(third, "released lease must become available")
+        finally:
+            jobs._release(third)
+
+    def test_current_missing_record_is_null_but_exact_is_404(self):
+        root = jobs._root()
+        identifier = str(uuid.uuid4())
+        jobs._write(root / "current.json", {"id": identifier})
+        self.assertIsNone(jobs.current())
+        with self.assertRaises(imp.ImportRefused) as error:
+            jobs.get(identifier)
+        self.assertEqual(error.exception.status, 404)
 
     def test_source_refusal_terminal_and_unknown_get_no_work(self):
         self.fixture()
