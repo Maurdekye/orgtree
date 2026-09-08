@@ -19,11 +19,13 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
   const [error, setError] = useState('')
   const [action, setAction] = useState<'Preview' | 'Import'>('Preview')
   const [result, setResult] = useState<Imported | null>(null)
-  const feedback = useRef<HTMLDivElement>(null)
+  const errorFeedback = useRef<HTMLDivElement>(null)
+  const resultFeedback = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!error && !result) return
-    feedback.current?.focus({ preventScroll: true })
-    feedback.current?.scrollIntoView?.({ block: 'nearest' })
+    const feedback = error ? errorFeedback.current : resultFeedback.current
+    feedback?.focus({ preventScroll: true })
+    feedback?.scrollIntoView?.({ block: 'nearest' })
   }, [error, result])
   const invalidatePreview = () => { setPreview(null); setSelected([]); setAck(false); setResult(null); setError('') }
   const changeSource = (value: string) => { setSource(value); invalidatePreview() }
@@ -59,10 +61,10 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
         <label className="checkline"><input type="checkbox" disabled={busy || !!org.conflict} checked={selected.includes(org.slug)}
           onChange={e => setSelected(old => e.target.checked ? [...old, org.slug] : old.filter(s => s !== org.slug))} />
           {org.name} <span className="dim">{org.slug}</span></label>
-        {(org.nodes != null || org.native_context) && <p className="dim">{org.nodes ?? org.native_context!.length} {(org.nodes ?? org.native_context!.length) === 1 ? 'agent' : 'agents'}</p>}
+        {org.nodes != null && <p className="dim">{org.nodes} {org.nodes === 1 ? 'agent' : 'agents'}</p>}
         {org.warnings?.map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
         {!!org.native_context?.length && <details>
-          <summary>Agent details ({org.native_context.length})</summary>
+          <summary>Agent details ({org.native_context.length}{org.native_context.some(c => c.status === 'held') && `; ${org.native_context.filter(c => c.status === 'held').length} held`})</summary>
           {org.native_context.map(context => <div key={`${context.provider}:${context.node}`} className={context.status === 'held' ? 'ask-warn' : 'dim'}>
           <b>{context.node}</b> ({context.provider}): {context.status === 'held' ? 'held - native context unavailable' : 'native context available'}
           {context.reason && <p>{context.reason}</p>}
@@ -81,15 +83,18 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
             const value = await post<Imported>('/api/desktop/import-v1', { source_root: source.trim(), organizations: selected, acknowledge_duplicate_work: true, ...sourceOptions })
             setResult(value); setPreview(null); setAck(false)
             window.dispatchEvent(new Event('orgtree:organizations-imported'))
-          } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+          } catch (e) {
+            setError((e as Error).message)
+            window.dispatchEvent(new Event('orgtree:organizations-imported'))
+          } finally { setBusy(false) }
         }}>Copy selected organizations</button>
       </>}
     </>}
-    {error && <div ref={feedback} tabIndex={-1} role="alert" className="ask-warn">
+    {error && <div ref={errorFeedback} tabIndex={-1} role="alert" className="ask-warn">
       <p><b>{action} failed</b></p><p>{error}</p>
       {action === 'Import' && <p>Check the organization list before trying again; a lost response can leave completed copies.</p>}
     </div>}
-    {result && <div ref={feedback} tabIndex={-1} role="status">
+    {result && <div ref={resultFeedback} tabIndex={-1} role="status">
       <p><b>{result.failed?.length ? 'Import finished with errors' : result.imported.length ? 'Import complete' : 'Import finished'}</b></p>
       <p>{result.imported.length ? `Imported ${result.imported.map(o => o.name || o.slug).join(', ')}.` : 'No organizations imported.'}</p>
       {[...new Set([...result.warnings ?? [], ...result.imported.flatMap(o => o.warnings ?? [])])].map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}

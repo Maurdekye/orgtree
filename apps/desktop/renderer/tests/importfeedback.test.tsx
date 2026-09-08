@@ -50,10 +50,10 @@ test('all organization summaries remain visible while 522 native agent details a
   try {
     await v.preview()
     for (const org of organizations) assert.match(v.el.textContent!, new RegExp(org.name))
-    assert.match(v.el.textContent!, /522 agents/)
+    assert.ok([...v.el.querySelectorAll('p')].some(p => p.textContent === '522 agents'))
     assert.ok([...v.el.querySelectorAll('p')].some(p => p.textContent === '1 agent'))
-    assert.match(v.el.textContent!, /0 agents/)
-    const details = [...v.el.querySelectorAll('details')].find(d => d.querySelector('summary')?.textContent === 'Agent details (522)')!
+    assert.ok([...v.el.querySelectorAll('p')].some(p => p.textContent === '0 agents'))
+    const details = [...v.el.querySelectorAll('details')].find(d => d.querySelector('summary')?.textContent === 'Agent details (522; 522 held)')!
     assert.ok(details)
     assert.equal(details.open, false)
     assert.equal(details.querySelectorAll('b').length, 522, 'details remain available, not discarded')
@@ -69,6 +69,9 @@ test('all organization summaries remain visible while 522 native agent details a
 })
 
 for (const kind of ['HTTP', 'network'] as const) test(`${kind} import failure reaches the focused feedback after the action with exact error text`, async () => {
+  let refreshes = 0
+  const refresh = () => { refreshes++ }
+  window.addEventListener('orgtree:organizations-imported', refresh)
   const message = kind === 'HTTP' ? 'Links and reparse points are not imported: C:/synthetic/link' : 'Failed to fetch'
   const v = await fixture(async () => {
     if (kind === 'network') throw new TypeError(message)
@@ -86,7 +89,8 @@ for (const kind of ['HTTP', 'network'] as const) test(`${kind} import failure re
     assert.match(feedback.textContent!, /lost response can leave completed copies/)
     assert.doesNotMatch(feedback.textContent!, /No organizations imported/)
     assert.equal(v.calls.filter(c => !c.endsWith('/preview')).length, 1, 'no automatic retry')
-  } finally { await v.close() }
+    assert.equal(refreshes, 1, 'the organization and recovery lists refresh even if a committed response was lost')
+  } finally { await v.close(); window.removeEventListener('orgtree:organizations-imported', refresh) }
 })
 
 test('Preview failure identifies the action and focuses its exact server detail', async () => {
