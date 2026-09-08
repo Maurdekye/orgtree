@@ -14,8 +14,10 @@ an archive whose top-level page is ``index.html``).
 
 from __future__ import annotations
 
+import base64
 import io
 import html.parser
+import mimetypes
 import ntpath
 import os
 import re
@@ -178,6 +180,45 @@ def build_download(
                                    max_bytes=max_bytes)
 
 
+def build_document_preview(
+    document_id: str,
+    document: Mapping[str, Any],
+    artifact_root: str | os.PathLike[str],
+    *,
+    max_bytes: int = _DEFAULT_BUNDLE_MAX,
+) -> str:
+    """Return HTML suitable for the existing sandboxed preview wrapper.
+
+    Local resources are read from the bounded artifact root and inlined into
+    the returned HTML; CSS imports and ``url(...)`` references are rewritten
+    recursively. External URLs are left untouched, so this helper never makes
+    a network request or constructs an authenticated engine URL. Missing
+    local resources and containment failures use the same truthful errors as
+    downloads. ``max_bytes`` bounds the uncompressed source/dependency reads.
+    """
+    if not isinstance(document_id, str) or not document_id:
+        raise ArtifactNotFound("the presented document was not found")
+    _validate_limit(max_bytes)
+    recorded_id = document.get("id")
+    if recorded_id is not None and str(recorded_id) != document_id:
+        raise ArtifactNotFound("the presented document was not found")
+    if str(document.get("format") or "markdown").lower() != "html":
+        raise ArtifactNotFound("the presented document was not found")
+    root = _authorized_root(artifact_root)
+    source_name = _source_name(document)
+    source_path = _safe_source_path(root, source_name)
+    source_bytes = _read_file(source_path, source_is_required=True,
+                               max_bytes=max_bytes)
+    dependencies = _dependency_closure(source_path, root, source_bytes,
+                                       max_bytes=max_bytes)
+    rendered = _rewrite_html(source_path, source_bytes, dependencies, root)
+    # Base64 expands binary resources by roughly a third; leave a bounded
+    # margin for markup and escaping without permitting an unbounded response.
+    if len(rendered.encode("utf-8")) > max_bytes * 4:
+        raise ArtifactForbidden("the HTML preview exceeds its size limit")
+    return rendered
+
+
 def snapshot_html_bundle(
     source_path: str | os.PathLike[str],
     destination_folder: str | os.PathLike[str],
@@ -308,19 +349,33 @@ def _discover_local_assets(
     max_bytes: int,
 ) -> list[tuple[str, bytes]]:
     """Discover a dependency closure from HTML and nested CSS files."""
+    source_parent = (root / Path(*_source_parent(source_name).split("/"))).resolve()
+    dependencies = _dependency_closure(source_path, root, source_bytes,
+                                        max_bytes=max_bytes)
+    return [(_safe_archive_name(os.path.relpath(path, source_parent).replace("\\", "/")), data)
+            for path, data in dependencies.items()]
+
+
+def _dependency_closure(
+    source_path: Path,
+    root: Path,
+    source_bytes: bytes,
+    *,
+    max_bytes: int,
+) -> dict[Path, bytes]:
+    """Read every local dependency once, within one aggregate byte budget."""
     if not isinstance(max_bytes, int) or max_bytes <= 0:
         raise ArtifactForbidden("the HTML bundle size limit is invalid")
-    source_parent = (root / Path(*_source_parent(source_name).split("/"))).resolve()
+    source_parent = source_path.parent.resolve(strict=False)
     pending: deque[tuple[Path, bytes]] = deque([(source_path, source_bytes)])
     visited: set[Path] = {source_path}
-    found: list[tuple[str, bytes]] = []
+    found: dict[Path, bytes] = {}
     total_bytes = len(source_bytes)
     if total_bytes > max_bytes:
         raise ArtifactForbidden("the HTML bundle exceeds its download size limit")
     while pending:
         current, data = pending.popleft()
-        refs = _resource_urls(current, data)
-        for raw in refs:
+        for raw in _resource_urls(current, data):
             candidate = _resolve_local_reference(current, raw, root)
             if candidate is None:
                 continue
@@ -328,14 +383,11 @@ def _discover_local_assets(
                 raise ArtifactForbidden("the HTML asset escapes its source directory")
             if candidate in visited:
                 continue
-            remaining = max_bytes - total_bytes
             asset = _read_file(candidate, source_is_required=False,
-                               max_bytes=remaining)
+                               max_bytes=max_bytes - total_bytes)
             total_bytes += len(asset)
             visited.add(candidate)
-            archive_name = os.path.relpath(candidate, source_parent).replace("\\", "/")
-            archive_name = _safe_archive_name(archive_name)
-            found.append((archive_name, asset))
+            found[candidate] = asset
             if candidate.suffix.lower() == ".css":
                 pending.append((candidate, asset))
     return found
@@ -355,7 +407,178 @@ def _resource_urls(path: Path, data: bytes) -> list[str]:
         # A malformed document can still have useful resource tags; parser
         # errors should not turn a download into an internal server failure.
         pass
-    return parser.urls
+    urls = list(parser.urls)
+    for match in re.finditer(r"<style\b[^>]*>(.*?)</style\s*>", text,
+                             re.I | re.S):
+        style = match.group(1)
+        urls.extend(item.group(2).strip() for item in _CSS_URL.finditer(style))
+        urls.extend(item.group(2).strip() for item in _CSS_IMPORT.finditer(style))
+    return urls
+
+
+_HTML_TAG = re.compile(r"<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)(?P<attrs>[^>]*?)(?P<close>/?>)",
+                       re.I | re.S)
+_HTML_ATTR = re.compile(
+    r"(?P<prefix>\s+)(?P<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"
+    r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)", re.I | re.S)
+_STYLE_BLOCK = re.compile(r"<style(?P<attrs>[^>]*)>(?P<body>.*?)</style\s*>",
+                          re.I | re.S)
+
+
+def _dependency_for(
+    base: Path,
+    raw: str,
+    dependencies: Mapping[Path, bytes],
+    root: Path,
+) -> tuple[Path, bytes] | None:
+    candidate = _resolve_local_reference(base, raw, root)
+    if candidate is None:
+        return None
+    data = dependencies.get(candidate)
+    if data is None:
+        # The closure is authoritative. This branch catches a future caller
+        # that supplies an incomplete closure rather than silently leaving a
+        # local authenticated/scratch reference in the preview.
+        raise ArtifactNotFound("a presented HTML local asset is no longer available")
+    return candidate, data
+
+
+def _data_uri(path: Path, data: bytes) -> str:
+    content_type, _ = mimetypes.guess_type(path.name)
+    content_type = {
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf": "font/ttf",
+        ".otf": "font/otf",
+    }.get(path.suffix.lower(), content_type)
+    if not content_type:
+        content_type = "application/octet-stream"
+    return "data:%s;base64,%s" % (content_type, base64.b64encode(data).decode("ascii"))
+
+
+def _rewrite_css(
+    path: Path,
+    data: bytes,
+    dependencies: Mapping[Path, bytes],
+    root: Path,
+) -> str:
+    """Inline CSS imports and local URL resources relative to ``path``."""
+    text = data.decode("utf-8", errors="replace")
+
+    def replace_import(match: re.Match[str]) -> str:
+        found = _dependency_for(path, match.group(2).strip(), dependencies, root)
+        if found is None:
+            return match.group(0)
+        imported_path, imported_data = found
+        imported = _rewrite_css(imported_path, imported_data, dependencies, root)
+        return "/* orgtree local stylesheet */\n" + imported
+
+    text = _CSS_IMPORT.sub(replace_import, text)
+
+    def replace_url(match: re.Match[str]) -> str:
+        found = _dependency_for(path, match.group(2).strip(), dependencies, root)
+        if found is None:
+            return match.group(0)
+        resource_path, resource_data = found
+        return "url(\"" + _data_uri(resource_path, resource_data) + "\")"
+
+    return _CSS_URL.sub(replace_url, text)
+
+
+def _rewrite_srcset(
+    path: Path,
+    value: str,
+    dependencies: Mapping[Path, bytes],
+    root: Path,
+) -> str:
+    rewritten: list[str] = []
+    for candidate in value.split(","):
+        pieces = candidate.strip().split(None, 1)
+        if not pieces:
+            continue
+        found = _dependency_for(path, pieces[0], dependencies, root)
+        replacement = pieces[0] if found is None else _data_uri(*found)
+        rewritten.append(replacement + (" " + pieces[1] if len(pieces) > 1 else ""))
+    return ", ".join(rewritten)
+
+
+def _rewrite_html(
+    source_path: Path,
+    source_bytes: bytes,
+    dependencies: Mapping[Path, bytes],
+    root: Path,
+) -> str:
+    """Inline local HTML resources while retaining external resources."""
+    text = source_bytes.decode("utf-8", errors="replace")
+
+    def replace_style(match: re.Match[str]) -> str:
+        body = _rewrite_css(source_path, match.group("body").encode("utf-8"),
+                            dependencies, root)
+        # Prevent an asset containing a closing style marker from escaping the
+        # preview document's inline style element.
+        body = re.sub(r"</style", "<\\/style", body, flags=re.I)
+        return "<style" + match.group("attrs") + ">" + body + "</style>"
+
+    text = _STYLE_BLOCK.sub(replace_style, text)
+
+    def replace_tag(match: re.Match[str]) -> str:
+        tag = match.group("tag").lower()
+        attrs = match.group("attrs")
+        values = {item.group("name").lower(): item.group("value")
+                  for item in _HTML_ATTR.finditer(attrs)}
+
+        if tag == "link" and "stylesheet" in values.get("rel", "").lower().split():
+            href = values.get("href")
+            if href:
+                found = _dependency_for(source_path, href, dependencies, root)
+                if found is not None:
+                    css_path, css_data = found
+                    body = _rewrite_css(css_path, css_data, dependencies, root)
+                    body = re.sub(r"</style", "<\\/style", body, flags=re.I)
+                    media = ""
+                    media_match = re.search(
+                        r"\s+media\s*=\s*([\"'])(.*?)\1", attrs, re.I | re.S)
+                    if media_match:
+                        media = " media=\"" + media_match.group(2) + "\""
+                    return "<style" + media + ">" + body + "</style>"
+
+        if tag == "script" and "src" in values:
+            found = _dependency_for(source_path, values["src"], dependencies, root)
+            if found is not None:
+                _, script_data = found
+                retained = _HTML_ATTR.sub(
+                    lambda item: "" if item.group("name").lower() == "src" else item.group(0),
+                    attrs)
+                script = script_data.decode("utf-8", errors="replace")
+                script = re.sub(r"</script", "<\\/script", script, flags=re.I)
+                # Leave the source closing tag in place. The opening-tag
+                # replacement is applied before it and therefore naturally
+                # produces one closing element without parsing/rebuilding the
+                # entire HTML document.
+                return "<script" + retained + match.group("close") + script
+
+        resource_attrs = {"img": {"src", "srcset"}, "source": {"src", "srcset"},
+                          "video": {"src", "poster"}, "audio": {"src"},
+                          "track": {"src"}, "object": {"data"}, "iframe": {"src"}}
+        allowed = resource_attrs.get(tag, set())
+        if not allowed:
+            return match.group(0)
+
+        def replace_attr(item: re.Match[str]) -> str:
+            name = item.group("name").lower()
+            if name not in allowed:
+                return item.group(0)
+            value = item.group("value")
+            if name == "srcset":
+                replacement = _rewrite_srcset(source_path, value, dependencies, root)
+            else:
+                found = _dependency_for(source_path, value, dependencies, root)
+                replacement = value if found is None else _data_uri(*found)
+            return item.group("prefix") + item.group("name") + "=\"" + replacement + "\""
+
+        return "<" + match.group("tag") + _HTML_ATTR.sub(replace_attr, attrs) + match.group("close")
+
+    return _HTML_TAG.sub(replace_tag, text)
 
 
 def _resolve_local_reference(base: Path, raw: str, root: Path) -> Path | None:
@@ -603,5 +826,6 @@ __all__ = [
     "ArtifactDownloadError", "ArtifactNotFound", "ArtifactNotFoundError",
     "ArtifactForbidden", "ArtifactForbiddenError", "DownloadArtifact",
     "HtmlSnapshot", "build_document_download", "build_download",
+    "build_document_preview",
     "snapshot_html_bundle",
 ]

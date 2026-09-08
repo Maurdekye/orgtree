@@ -12,6 +12,7 @@ from engine.backend.orgtree.artifact_downloads import (
     ArtifactForbidden,
     ArtifactNotFound,
     build_document_download,
+    build_document_preview,
     snapshot_html_bundle,
 )
 
@@ -199,6 +200,63 @@ class ArtifactDownloadTests(unittest.TestCase):
                 build_document_download(
                     "d-cap", {"id": "d-cap", "format": "html", "title": "Cap",
                               "file": "project/index.html"}, root, max_bytes=28)
+
+    def test_preview_inlines_actual_nested_local_assets_and_keeps_external_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = root / "outbox" / "assets"
+            (assets / "css").mkdir(parents=True)
+            (assets / "images").mkdir()
+            (assets / "fonts").mkdir()
+            (root / "outbox" / "index.html").write_text(
+                '<link rel="stylesheet" href="assets/css/site.css">'
+                '<script src="assets/app.js"></script>'
+                '<img src="assets/images/logo.svg">'
+                '<img src="https://cdn.example.test/remote.png">', encoding="utf-8")
+            (assets / "css" / "site.css").write_text(
+                '@import "more.css"; body{background:url("../images/bg.svg")} '
+                '@font-face{src:url("../fonts/font.woff2")}', encoding="utf-8")
+            (assets / "css" / "more.css").write_text("h1{color:red}", encoding="utf-8")
+            (assets / "images" / "logo.svg").write_bytes(b"<svg id=logo/>")
+            (assets / "images" / "bg.svg").write_bytes(b"<svg id=bg/>")
+            (assets / "fonts" / "font.woff2").write_bytes(b"FONT")
+            (assets / "app.js").write_text("console.log('local')", encoding="utf-8")
+
+            preview = build_document_preview(
+                "d-preview", {"id": "d-preview", "format": "html",
+                               "file": "outbox/index.html"}, root)
+            self.assertIn("data:image/svg+xml;base64,", preview)
+            self.assertIn("data:font/woff2;base64,Rk9OVA==", preview)
+            self.assertIn("console.log('local')", preview)
+            self.assertIn("h1{color:red}", preview)
+            self.assertIn("https://cdn.example.test/remote.png", preview)
+            self.assertNotIn('href="assets/css/site.css"', preview)
+            self.assertNotIn('src="assets/app.js"', preview)
+
+    def test_preview_missing_local_asset_is_truthful(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "outbox").mkdir()
+            (root / "outbox" / "index.html").write_text(
+                '<img src="assets/missing.svg">', encoding="utf-8")
+            with self.assertRaises(ArtifactNotFound) as raised:
+                build_document_preview(
+                    "d-preview-missing", {"id": "d-preview-missing", "format": "html",
+                                           "file": "outbox/index.html"}, root)
+            self.assertIn("local asset", str(raised.exception))
+            self.assertNotIn(str(root), str(raised.exception))
+
+    def test_preview_rejects_source_id_mismatch_and_aggregate_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "outbox").mkdir()
+            (root / "outbox" / "index.html").write_bytes(b'<img src="asset.bin">')
+            (root / "outbox" / "asset.bin").write_bytes(b"123456")
+            document = {"id": "real-id", "format": "html", "file": "outbox/index.html"}
+            with self.assertRaises(ArtifactNotFound):
+                build_document_preview("wrong-id", document, root)
+            with self.assertRaises(ArtifactForbidden):
+                build_document_preview("real-id", document, root, max_bytes=20)
 
 
 if __name__ == "__main__":
