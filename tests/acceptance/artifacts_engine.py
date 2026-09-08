@@ -13,7 +13,11 @@ observed = launch.load_app
 
 def seeded_artifacts():
     result = observed()
-    from orgtree import supervisor
+    from orgtree import supervisor, api
+    runtime_root = Path(os.environ['ORGTREE_ACCEPTANCE_APP']).resolve()
+    assert Path(launch.__file__).resolve() == runtime_root / 'engine' / 'launch.py'
+    assert Path(api.__file__).resolve() == runtime_root / 'engine' / 'backend' / 'orgtree' / 'api.py'
+    (DATA.parent / 'engine-provenance.json').write_text(json.dumps({'launcher': str(Path(launch.__file__).resolve()), 'api': str(Path(api.__file__).resolve())}))
     folder = Path(supervisor.scratch_dir('acceptance-runtime', 'planner')) / 'artifact-source'
     folder.mkdir(parents=True, exist_ok=True)
     (folder / 'assets').mkdir(exist_ok=True)

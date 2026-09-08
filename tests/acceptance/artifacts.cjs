@@ -1,7 +1,14 @@
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),assert=require('node:assert/strict')
-const {app,BrowserWindow,dialog}=require('electron')
+const {app,BrowserWindow,dialog,net}=require('electron')
 const root=fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_ROOT),target=fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_APP)
-app.setPath('userData',path.join(root,'profile'));app.setAppPath(target)
+const packaged=process.env.ORGTREE_ACCEPTANCE_PACKAGE,appPath=packaged?path.join(target,'app.asar'):target
+app.setPath('userData',path.join(root,'profile'));app.setAppPath(appPath)
+if(packaged){
+  Object.defineProperty(app,'isPackaged',{value:true});Object.defineProperty(process,'resourcesPath',{value:target})
+  app.setLoginItemSettings=()=>{}
+  const request=net.request.bind(net)
+  net.request=options=>{const url=typeof options==='string'?options:options.url||`https://${options.hostname||options.host}${options.path||'/'}`;if(new URL(url).hostname!=='127.0.0.1')throw Error('Acceptance disables updater network');return request(options)}
+}
 let ready,child,started=false,finished=false,resourceServer
 const checks=[],screenshots=[],pause=ms=>new Promise(r=>setTimeout(r,ms)),spawn=cp.spawn
 cp.spawn=function(command,args,options){if(args?.some(a=>String(a).endsWith('launch.py'))){assert.equal(fs.realpathSync.native(options.env.ORGTREE_DATA),fs.realpathSync.native(path.join(root,'data')));args=[path.join(__dirname,'artifacts_engine.py'),...args.slice(1)]}const c=spawn.call(this,command,args,options);child=c;let buffer='';c.stdout?.on('data',b=>{buffer+=b;while(buffer.includes('\n')){const at=buffer.indexOf('\n'),line=buffer.slice(0,at);buffer=buffer.slice(at+1);try{const r=JSON.parse(line);if(r.type==='ready')ready=r}catch{}}});c.stderr?.on('data',b=>fs.appendFileSync(path.join(root,'private-engine.log'),b));return c}
@@ -95,4 +102,4 @@ app.on('browser-window-created',(_e,main)=>{if(started)return;started=true;main.
     networkWindow.close();finish()
   }catch(error){fs.writeFileSync(path.join(root,'artifact-error-dom.txt'),await evaluate('document.body.innerText').catch(()=>''));await capture(main,'artifact-error').catch(()=>{});finish(error)}
 })})
-require(path.join(target,'dist/main/index.cjs'))
+require(path.join(appPath,'dist/main/index.cjs'))
