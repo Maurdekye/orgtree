@@ -1474,14 +1474,14 @@ function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => P
 }
 
 function UsageRefresh({ provider, state }: { provider: string; state: UsageReadoutState }) {
-  return <div className="usage-refresh" aria-live="polite">
-    <button type="button" className="usage-refresh-button" disabled={state.pending}
+  return <div className="usage-refresh">
+    <button type="button" className="usage-refresh-button" aria-busy={state.pending}
       aria-label={`refresh ${provider} usage`}
       title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
       onClick={() => { void state.refresh(true) }}>
       {state.pending ? 'refreshing…' : 'refresh'}
     </button>
-    {state.updatedAt !== null && <span className="usage-updated">
+    {state.updatedAt !== null && <span className="usage-updated" aria-live="polite">
       updated {fmtClock(state.updatedAt)}
     </span>}
     {state.failure && <span className="usage-refresh-error" role="alert">

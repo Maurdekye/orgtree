@@ -84,7 +84,8 @@ test('each provider refresh is gated and reports its update time', async () => {
     const button = view.el.querySelector<HTMLButtonElement>(
       '[aria-label="refresh Codex usage"]')
     assert.ok(button)
-    assert.equal(button.disabled, true, 'manual refresh is disabled during the initial read')
+    await inAct(() => { button!.click() })
+    assert.equal(codexRequests, 1, 'a pending manual click does not overlap the initial read')
     settleCodex!(CODEX)
     await inAct(async () => { await flush(5) })
     assert.match(view.el.textContent ?? '', /updated/)

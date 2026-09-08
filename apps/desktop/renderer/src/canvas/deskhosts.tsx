@@ -37,7 +37,10 @@ class Desks {
     else this.pendingPopouts.add(key)
   }
   put(key: string, slot: Slot) {
-    if (this.renamedAway.has(key)) return
+    if (this.renamedAway.has(key)) {
+      this.pendingPopouts.delete(key)
+      return
+    }
     let e = this.entries.get(key)
     if (!e) {
       e = { key: `host-${++this.nextKey}`, slots: new Map(), last: slot, detached: false }
@@ -64,6 +67,8 @@ class Desks {
 }
 const DeskContext = createContext<Desks | null>(null)
 const DeskMapReady = createContext(true)
+const emptySubscribe = () => () => {}
+const emptySnapshot = () => 0
 
 export function DeskHosts({ children, map, slug, treeSlug = slug }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
@@ -117,6 +122,22 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
     })
   }, [desks, map, slug, treeSlug])
   useEffect(() => {
+    let changed = false
+    for (const key of desks.pendingPopouts) {
+      let parsed: unknown
+      try { parsed = JSON.parse(key) } catch { parsed = null }
+      const parts = Array.isArray(parsed) ? parsed : []
+      const id = typeof parts[1] === 'string' ? parts[1] : null
+      const generation = typeof parts[2] === 'number' ? parts[2] : null
+      const current = id ? map.get(id) : undefined
+      if (parts[0] !== slug || !current || current.generation !== generation) {
+        desks.pendingPopouts.delete(key)
+        changed = true
+      }
+    }
+    if (changed) desks.change()
+  }, [desks, map, slug, treeSlug])
+  useEffect(() => {
     // Once the authoritative tree drops the old name, a later new hire may
     // reuse it. Until then an old presentation must not recreate a writer.
     if (treeSlug !== slug) return
@@ -140,8 +161,8 @@ export function DeskSlot(props: DeskChatProps) {
 export function useDeskActions(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>) {
   const desks = useContext(DeskContext)
   const mapReady = useContext(DeskMapReady)
-  const subscribe = desks?.subscribe ?? (() => () => {})
-  const snapshot = desks?.snapshot ?? (() => 0)
+  const subscribe = desks?.subscribe ?? emptySubscribe
+  const snapshot = desks?.snapshot ?? emptySnapshot
   useSyncExternalStore(subscribe, snapshot)
   const valid = typeof node.generation === 'number'
     && Number.isSafeInteger(node.generation) && node.generation >= 0
@@ -164,7 +185,12 @@ export function DeskListControls({ slug, node, onPin, onShowPin, onOpen }: {
   onOpen?: () => void
 }) {
   const actions = useDeskActions(slug, node)
-  if (actions.detached) return null
+  if (actions.detached) return <span className="agent-list-controls" onClick={(e) => e.stopPropagation()}>
+    <button type="button" className="agent-list-control"
+      aria-label={`show ${node.id}'s desk`}
+      title={`show ${node.id}'s desk`}
+      onClick={(e) => { e.stopPropagation(); actions.show?.() }}>↗</button>
+  </span>
   return <span className="agent-list-controls" onClick={(e) => e.stopPropagation()}>
     {onPin && !onShowPin && <button type="button" className="agent-list-control"
       aria-label={`pin ${node.id}'s desk as a window`}
