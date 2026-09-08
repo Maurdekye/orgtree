@@ -114,12 +114,12 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         original_root = fixtures.fingerprint(self.source)
         copy_file = imp._copy_file
         writes = []
-        def fail_second(source, target):
+        def fail_second(source, target, **options):
             if target.is_relative_to(profile / "file-history"):
                 writes.append(target)
                 if len(writes) == 2:
                     raise OSError("synthetic destination publication failure")
-            return copy_file(source, target)
+            return copy_file(source, target, **options)
         with patch.object(imp, "_copy_file", side_effect=fail_second):
             with self.assertRaisesRegex(OSError, "publication failure"):
                 self.run_native(sources)
@@ -233,11 +233,11 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         sid = str(uuid.uuid4())
         real_copy = imp._copy_file
         calls = []
-        def fail_second(source, target):
+        def fail_second(source, target, **options):
             calls.append(target)
             if len(calls) == 2:
                 raise OSError("synthetic successor copy failure")
-            return real_copy(source, target)
+            return real_copy(source, target, **options)
         with patch.object(imp, "_copy_file", side_effect=fail_second):
             with self.assertRaisesRegex(OSError, "successor copy failure"):
                 successor(doc, "worker", binding, sid)

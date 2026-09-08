@@ -343,12 +343,12 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         real_copy = imp._copy_file
         calls = []
 
-        def failing_copy(src, dst):
+        def failing_copy(src, dst, **options):
             if dst.parent.name.startswith(".memory-import-") or ".memory-import-" in str(dst):
                 calls.append(dst)
                 if len(calls) == 2:
                     raise OSError("disk full (synthetic)")
-            return real_copy(src, dst)
+            return real_copy(src, dst, **options)
 
         with patch.object(imp, "_copy_file", side_effect=failing_copy):
             with self.assertRaises(imp.ImportRefused) as ctx:
@@ -371,14 +371,14 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         real_copy = imp._copy_file
         calls = []
 
-        def torn_copy(src, dst):
+        def torn_copy(src, dst, **options):
             if ".memory-import-" in str(dst):
                 calls.append(dst)
                 if len(calls) == 2:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     dst.write_bytes(b"partial")
                     raise OSError("device error mid-write (synthetic)")
-            return real_copy(src, dst)
+            return real_copy(src, dst, **options)
 
         with patch.object(imp, "_copy_file", side_effect=torn_copy):
             with self.assertRaises(imp.ImportRefused):
