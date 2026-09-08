@@ -1,6 +1,7 @@
 import { ImportSettings } from './importsettings'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
+import { CharterDocumentsSetting } from './chartersettings'
 import { useEffect, useState } from 'react'
 import type {
   AccountUsage, ProviderInfo, RuntimeSettingsPayload,
@@ -310,6 +311,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />
+      <CharterDocumentsSetting />
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}

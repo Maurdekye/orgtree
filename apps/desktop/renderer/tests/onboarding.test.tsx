@@ -163,6 +163,27 @@ test('a populate failure on the create path is surfaced and leaves the flag unse
   restore()
 })
 
+test('the Settings recovery action retries after a failed populate', async () => {
+  const seen: { method: string; path: string }[] = []
+  const fail = { now: true }
+  stubFetch(seen, fail)
+  const { CharterDocumentsSetting } = await import('../src/canvas/chartersettings')
+  const view = await mountView(<CharterDocumentsSetting />, el => el.textContent ?? '')
+  const { act } = await import('react')
+  const button = view.el.querySelector('button') as HTMLButtonElement
+  await act(async () => { button.click() })
+  await flush()
+  assert.ok(view.last().includes('Charter documents were not populated'),
+    'failure is visible with a retry instruction')
+  fail.now = false
+  await act(async () => { button.click() })
+  await flush()
+  assert.ok(view.last().includes('nothing to create'),
+    'retry succeeds and reports the outcome')
+  assert.equal(seen.filter(s => s.path === '/api/charters/populate').length, 2)
+  await view.unmount()
+})
+
 test('theme choice previews and persists through the bridge', async () => {
   const state = { prefs: prefs(), patches: [] as unknown[] }
   const restore = stubBridge(state)

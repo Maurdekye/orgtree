@@ -29,7 +29,12 @@ child effect that would unmount before firing. A populate failure there is
 surfaced as a toast, the organization still opens, and `onboarded` stays
 unset: setup returns to offer the seed again only if the installation is
 ever back at zero organizations, while the hire form keeps serving the
-bundled presets regardless.
+bundled presets regardless. Because that state would otherwise persist with
+no affordance, App settings → runtime carries a "Charter documents »
+populate missing documents" action calling the same idempotent populate
+route, with pending/success/error feedback and a visible retry — existing
+files are never changed, and it neither reopens setup nor touches
+preferences (coordinator ruling 2026-09-08).
 
 ## Charter documents
 
