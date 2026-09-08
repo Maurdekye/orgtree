@@ -361,6 +361,43 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         self.run_native(sources)
         self.assertEqual(fixtures.fingerprint(target), fixtures.fingerprint(folder))
 
+    def test_copy_failing_after_creating_the_file_leaves_no_litter_beside_memory(self):
+        # Shape B2 (redteam-opus): the destination file exists, partially
+        # written, when the copy raises. It must still be discarded.
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        target = self.destination()
+        real_copy = imp._copy_file
+        calls = []
+
+        def torn_copy(src, dst):
+            if ".memory-import-" in str(dst):
+                calls.append(dst)
+                if len(calls) == 2:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(b"partial")
+                    raise OSError("device error mid-write (synthetic)")
+            return real_copy(src, dst)
+
+        with patch.object(imp, "_copy_file", side_effect=torn_copy):
+            with self.assertRaises(imp.ImportRefused):
+                self.run_native(sources)
+        self.assertFalse(target.exists())
+        leftovers = sorted(p.name for p in target.parent.iterdir()) if target.parent.exists() else []
+        self.assertEqual(leftovers, [])
+        self.run_native(sources)
+        self.assertEqual(fixtures.fingerprint(target), fixtures.fingerprint(folder))
+
+    def test_shared_destination_hold_ignores_path_spelling(self):
+        metas = {
+            "a": {"status": "ready", "destination": "C:/P/projects/K/memory"},
+            "b": {"status": "none", "destination": "c:/p/projects/k/memory/"},
+            "c": {"status": "ready", "destination": "C:/P/projects/OTHER/memory"},
+        }
+        memory.hold_shared_destinations(metas)
+        self.assertEqual(metas["a"]["status"], "held")
+        self.assertEqual(metas["b"]["status"], "held")
+        self.assertEqual(metas["c"]["status"], "ready")
+
     def test_publish_refuses_a_destination_that_is_not_the_expected_profile_location(self):
         doc, sources, folder = self.memory_fixture(archived_generation=False)
         elsewhere = self.root / "elsewhere" / "memory"

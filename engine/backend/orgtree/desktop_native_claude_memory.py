@@ -324,7 +324,10 @@ def hold_shared_destinations(metas: dict[str, dict[str, Any]]) -> None:
     by_destination: dict[str, list[str]] = {}
     for base, meta in metas.items():
         if meta.get("destination"):
-            by_destination.setdefault(meta["destination"], []).append(base)
+            # Path normalization (case-insensitive on Windows) so two spellings
+            # of one directory are held together rather than refused later.
+            by_destination.setdefault(os.path.normcase(os.path.normpath(meta["destination"])),
+                                      []).append(base)
     for destination, bases in by_destination.items():
         if len(bases) < 2 or not any(metas[b].get("status") == "ready" for b in bases):
             continue
@@ -408,9 +411,15 @@ def publish(doc: dict, stage: Path) -> None:
         try:
             for file, _ in _walk(staged):
                 rel = file.relative_to(staged)
-                _copy_file(file, building / rel)
+                # Recorded BEFORE the attempt so a file created and then
+                # abandoned mid-write is still discarded on failure.
                 written.append(rel.as_posix())
-            os.rename(building, target)  # atomic onto a name that must not exist
+                _copy_file(file, building / rel)
+            # Atomic swap onto a name that must not exist. On Windows a rename
+            # onto an existing directory fails, which is what keeps this
+            # exclusive; POSIX would allow an existing EMPTY directory, and
+            # check_publishable has already refused an existing destination.
+            os.rename(building, target)
         except (OSError, ImportRefused) as exc:
             _discard_partial(building, written)
             raise ImportRefused(f"Could not publish memory for {base}: {exc}", 409) from exc
