@@ -169,6 +169,22 @@ class CharterDocumentTests(unittest.TestCase):
                                           headers=HEADERS).status_code, 200)
         self.assertNotIn('user_dir_error', self.charters())
 
+    def test_linked_entry_inside_a_real_charters_directory_is_declared_not_read(self):
+        import _winapi
+        elsewhere = home / 'elsewhere-file-level'
+        elsewhere.mkdir()
+        (elsewhere / 'inner.md').write_bytes(b'foreign content behind a link')
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        (USER_DIR / 'honest.md').write_text('honest user charter', encoding='utf-8')
+        _winapi.CreateJunction(str(elsewhere), str(USER_DIR / 'evil.md'))
+        self.addCleanup(lambda: os.rmdir(USER_DIR / 'evil.md'))
+        payload = self.charters()
+        self.assertEqual(payload.get('skipped_links'), ['evil.md'])
+        rows = {r['file']: r for r in payload['charters']}
+        self.assertIn('honest.md', rows)
+        self.assertNotIn('evil.md', rows, 'nothing behind the link is served')
+        self.assertNotIn('user_dir_error', payload)
+
     def test_routes_require_authentication(self):
         for method, url in (('GET', '/api/charters'),
                             ('POST', '/api/charters/populate'),

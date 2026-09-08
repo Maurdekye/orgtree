@@ -23,6 +23,7 @@ import posixpath
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -2852,16 +2853,27 @@ def _checked_user_charters(create: bool = False) -> str:
     return folder
 
 
-def _charter_records(folder: str, source: str) -> list[dict[str, Any]]:
+def _charter_records(folder: str, source: str,
+                     skipped_links: list[str] | None = None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if not os.path.isdir(folder):
         return out
     for f in sorted(os.listdir(folder)):
         if not f.endswith(".md"):
             continue
+        path = os.path.join(folder, f)
         try:
-            with open(os.path.join(folder, f),
-                      encoding="utf-8", errors="replace") as stream:
+            info = os.lstat(path)
+        except OSError:
+            continue
+        # No-follow at the individual file too: a linked or otherwise
+        # non-regular entry is DECLARED and never read through.
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400                 or not stat.S_ISREG(info.st_mode):
+            if skipped_links is not None:
+                skipped_links.append(f)
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="replace") as stream:
                 text = stream.read()
         except OSError:
             continue
@@ -2900,8 +2912,9 @@ def charters_list() -> dict[str, Any]:
     # or silently dropped: bundled presets keep the hire form alive, and the
     # payload says why the user documents are absent.
     user_dir_error: str | None = None
+    skipped_links: list[str] = []
     try:
-        user = _charter_records(_checked_user_charters(), "user")
+        user = _charter_records(_checked_user_charters(), "user", skipped_links)
     except HTTPException as exc:
         user, user_dir_error = [], str(exc.detail)
     shadowed = {r["file"] for r in user}
@@ -2913,6 +2926,8 @@ def charters_list() -> dict[str, Any]:
                                "charter_long": ledger_mod.CHARTER_LONG}
     if user_dir_error:
         payload["user_dir_error"] = user_dir_error
+    if skipped_links:
+        payload["skipped_links"] = skipped_links
     return payload
 
 
