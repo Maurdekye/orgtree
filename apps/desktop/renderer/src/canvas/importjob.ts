@@ -18,6 +18,8 @@ const terminal = (job: ImportJob | null) => !!job && ['succeeded', 'failed', 'in
 class JobRequestError extends Error { constructor(message: string, readonly status: number) { super(message) } }
 
 async function request(path: string, body?: unknown): Promise<ImportJob | null> {
+  // Desktop-only: BASE is empty. Keep the HTTP status for exact-404 recovery;
+  // api.req discards it. Other app requests retain the shared restart detector.
   const response = await fetch(path, { signal: AbortSignal.timeout(15_000), ...(body ? {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   } : {}) })
@@ -29,6 +31,9 @@ async function request(path: string, body?: unknown): Promise<ImportJob | null> 
   if (!job || typeof job.id !== 'string' || !['queued', 'running', 'succeeded', 'failed', 'interrupted'].includes(job.state)
     || !Number.isFinite(job.files_copied) || job.files_copied < 0 || !Number.isFinite(job.bytes_copied) || job.bytes_copied < 0
     || !Array.isArray(job.organizations) || typeof job.phase !== 'string'
+    || (job.publications != null && (!Array.isArray(job.publications) || job.publications.some(row =>
+      !row || typeof row.slug !== 'string' || !['publishing', 'published'].includes(row.state)
+      || !['not_started', 'dispatching', 'returned'].includes(row.recovery))))
     || (job.result != null && (!Array.isArray(job.result.imported) || !Array.isArray(job.result.warnings)))
     || (job.state === 'succeeded' && !job.result)) throw new Error('Import status returned an invalid job.')
   return job

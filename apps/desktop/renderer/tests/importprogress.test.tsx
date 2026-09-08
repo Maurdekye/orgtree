@@ -186,3 +186,37 @@ test('interrupted publication receipts expose exact organizations and uncertaint
     assert.doesNotMatch(view.el.textContent!, /Import complete/)
   } finally { await view.unmount(); f.close() }
 })
+
+test('preview failure after an interrupted import names the failed preview action', async () => {
+  const f = await fixture(true)
+  f.state.job = makeJob({ state: 'interrupted', error: 'Old import interrupted.' })
+  const view = await f.mount(), fetchJob = globalThis.fetch
+  try {
+    assert.match(view.el.querySelector('[role="alert"]')!.textContent!, /Import interrupted/)
+    globalThis.fetch = (input, init) => String(input).endsWith('/preview')
+      ? Promise.resolve(json({ detail: 'Source folder is unreadable.' }, 422)) : fetchJob(input, init)
+    await inAct(() => {
+      const input = view.el.querySelector<HTMLInputElement>('[aria-label="V1 data folder"]')!
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, 'C:/other')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await click(view.el, 'Preview organizations')
+    const error = view.el.querySelector('[role="alert"]')!
+    assert.equal(error.querySelector('b')!.textContent, 'Preview failed')
+    assert.match(error.textContent!, /Source folder is unreadable/)
+    assert.equal(f.state.posts.length, 0)
+  } finally { await view.unmount(); f.close() }
+})
+
+test('malformed publication receipts keep status unresolved without crashing or enabling Copy', async () => {
+  for (const publications of ['not-an-array', [null], [{ slug: 'sample', state: 'unknown', recovery: 'returned' }]]) {
+    const f = await fixture(true)
+    f.state.job = makeJob({ state: 'interrupted', publications: publications as unknown as ImportJob['publications'] })
+    const view = await f.mount()
+    try {
+      assert.match(view.el.textContent!, /Import status returned an invalid job/)
+      assert.equal(view.el.querySelector<HTMLInputElement>('[aria-label="V1 data folder"]')!.disabled, true)
+      assert.equal(f.state.posts.length, 0)
+    } finally { await view.unmount(); f.close() }
+  }
+})

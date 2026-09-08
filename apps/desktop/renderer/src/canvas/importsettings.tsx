@@ -119,7 +119,7 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
       </>}
     </>}
     {error && <div ref={errorFeedback} tabIndex={-1} role="alert" className="ask-warn">
-      <p><b>{progress.job?.state === 'interrupted' ? 'Import interrupted' : `${action} failed`}</b></p><p>{error}</p>
+      <p><b>{action === 'Import' && progress.job?.state === 'interrupted' ? 'Import interrupted' : `${action} failed`}</b></p><p>{error}</p>
       {action === 'Import' && <p>Check the organization list before trying again; a lost response can leave completed copies.</p>}
     </div>}
     {result && <div ref={resultFeedback} tabIndex={-1} role="status">
