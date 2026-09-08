@@ -253,9 +253,13 @@ def destination_memory(destination_profile: Path, destination_cwd: str,
     return folder, key
 
 
-def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path,
+def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path | None,
             sources: dict, env: dict[str, str], destination_profile: Path) -> dict[str, Any]:
-    """Stage one base scratch folder's memory. Never writes outside ``stage``."""
+    """Stage one base scratch folder's memory. Never writes outside ``stage``.
+
+    With ``stage=None`` (preview) nothing is copied: the same checks run and
+    the manifest is computed from the source only.
+    """
     from .desktop_import import _copy_file
     source_cwd = str(source / "scratch" / slug / base)
     destination_cwd = str(dest / "scratch" / slug / base)
@@ -274,12 +278,15 @@ def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path,
         total = sum(size for _, size in files)
         if total > MAX_MEMORY_BYTES:
             raise NativeHeld(f"Memory directory exceeds {MAX_MEMORY_BYTES} bytes")
-        staged = stage / MEMORY_DIR / base
-        staged.mkdir(parents=True)
         manifest: dict[str, str] = {}
-        for file, _ in files:
-            rel = file.relative_to(folder).as_posix()
-            manifest[rel] = _copy_file(file, staged / rel)
+        if stage is None:
+            manifest = {file.relative_to(folder).as_posix(): _digest(file) for file, _ in files}
+        else:
+            staged = stage / MEMORY_DIR / base
+            staged.mkdir(parents=True)
+            for file, _ in files:
+                rel = file.relative_to(folder).as_posix()
+                manifest[rel] = _copy_file(file, staged / rel)
         existing = _entry(target)
         if existing is not None:
             if not stat.S_ISDIR(existing.st_mode):
@@ -289,8 +296,9 @@ def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path,
             meta["identical"] = True
         meta.update(status="ready", files=len(manifest), bytes=total,
                     archive=str(Path("imports") / slug / MEMORY_DIR / base))
-        (staged.parent / f"{base}.manifest.json").write_text(
-            json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
+        if stage is not None:
+            (staged.parent / f"{base}.manifest.json").write_text(
+                json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
         return meta
     except (NativeHeld, OSError, ValueError) as exc:
         meta["reason"] = str(exc)

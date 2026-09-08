@@ -466,13 +466,17 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     return doc, active, warnings
 
 
-def _stage_memory(doc: dict[str, Any], source: Path, dest: Path, slug: str, stage: Path,
-                  sources: dict, warnings: list[str]) -> None:
-    """Carry Claude project memory once per base scratch folder (shared by generations)."""
+def _stage_memory(doc: dict[str, Any], source: Path, dest: Path, slug: str, stage: Path | None,
+                  sources: dict, warnings: list[str]) -> list[dict[str, Any]]:
+    """Carry Claude project memory once per base scratch folder (shared by generations).
+
+    ``stage=None`` previews without copying. Returns one row per base folder.
+    """
     from . import desktop_native, supervisor
     from .desktop_native_claude_memory import MEMORY_DIR, prepare as prepare_memory
     from .desktop_native_claude_rewind import selected_profile
     groups: dict[str, list[str]] = {}
+    rows: list[dict[str, Any]] = []
     for nid, node in doc["nodes"].items():
         if desktop_native.provider_for(node) in {"claude", "openrouter"}:
             groups.setdefault(nid.split("@")[0], []).append(nid)
@@ -486,8 +490,11 @@ def _stage_memory(doc: dict[str, Any], source: Path, dest: Path, slug: str, stag
             meta = {"status": "held", "base": base, "reason": str(exc)}
         if meta["status"] == "held":
             warnings.append(f"{base}: Claude memory held: {meta.get('reason')}")
+        rows.append({"nodes": members,
+                     **{k: meta.get(k) for k in ("base", "status", "reason", "source", "files", "bytes")}})
         for nid in members:
             doc["nodes"][nid].setdefault("desktop_import", {})[MEMORY_DIR] = copy.deepcopy(meta)
+    return rows
 
 
 def preview_import(source_root: str, native_sources: dict | None = None) -> dict[str, Any]:
@@ -513,7 +520,9 @@ def preview_import(source_root: str, native_sources: dict | None = None) -> dict
         rows.append({"slug": slug, "name": doc["name"], "nodes": len(doc["nodes"]),
                      "conflict": conflict, "native_context": [
                          desktop_native.inspect(source, slug, nid, node, sources)
-                         for nid, node in doc["nodes"].items()]})
+                         for nid, node in doc["nodes"].items()],
+                     "memory": _stage_memory(copy.deepcopy(doc), source, dest, slug, None,
+                                             sources, [])})
     return {"organizations": rows, "warnings": [DUPLICATE_WARNING, CONTINUITY_WARNING]}
 
 

@@ -179,6 +179,24 @@ class MemoryImportTests(fixtures.DesktopImportTests):
             self.assertEqual(rows[0]["cwd"], expected, nid)
             self.assertEqual(Path(node["desktop_import"]["memory"]["destination_cwd"]), Path(expected))
 
+    def test_preview_reports_memory_without_copying(self):
+        doc, sources, folder = self.memory_fixture()
+        before = fixtures.fingerprint(self.root)
+        preview = imp.preview_import(str(self.source), sources)
+        rows = preview["organizations"][0]["memory"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "ready")
+        self.assertEqual(sorted(rows[0]["nodes"]), ["worker", "worker@0"])
+        self.assertEqual(rows[0]["files"], 3)
+        self.assertFalse(self.destination().exists())
+        after = fixtures.fingerprint(self.root)
+        self.assertEqual({k: v for k, v in after.items() if ".import-staging" not in k}, before)
+        self.assertFalse(any("memory" in k for k in after if ".import-staging" in k))
+        (Path(sources["claude_profile"]) / "settings.json").write_text(json.dumps({"autoMemoryDirectory": "~/m"}))
+        rows = imp.preview_import(str(self.source), sources)["organizations"][0]["memory"]
+        self.assertEqual(rows[0]["status"], "held")
+        self.assertIn("Unsupported memory override", rows[0]["reason"])
+
     def test_absent_source_memory_is_recorded_without_a_hold(self):
         doc, path, sources = self.native_fixture()
         self.run_native(sources)
