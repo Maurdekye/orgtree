@@ -27,6 +27,7 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { TreePayload } from '../src/types'
+import type { CanvasNode } from '../src/canvas/shared'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -321,3 +322,30 @@ uiTest('§7 tray navigation survives: the row still goes to its agent',
     assert.notEqual(spaceTransform(el), before,
       'clicking the row moved no camera — tray navigation is broken')
   })
+
+uiTest('§8 direct-report pin control follows the real pinned state', async ({ mount }) => {
+  const { NavChip } = await import('../src/canvas/desk')
+  const report = { id: 'report', generation: 0, tier: 'haiku', state: 'live',
+    busy: false, mail_pending: 0 } as CanvasNode
+  let pins = 0
+  let shows = 0
+  const unpinned = await mount(<NavChip n={report} dir="down" slug="mine"
+    onJump={() => {}} onPin={() => { pins++ }} />)
+  const pin = unpinned.el.querySelector<HTMLButtonElement>(
+    '[aria-label="pin report\'s desk as a window"]')
+  assert.ok(pin, 'an unpinned direct report exposes Pin')
+  assert.equal(unpinned.el.querySelector('[aria-label="show report\'s pinned desk"]'), null,
+    'an unpinned report does not expose a no-op Show action')
+  await inAct(() => { pin!.click() })
+  assert.equal(pins, 1, 'clicking Pin invokes the caller action')
+
+  const pinned = await mount(<NavChip n={report} dir="down" slug="mine"
+    onJump={() => {}} onShowPin={() => { shows++ }} />)
+  assert.equal(pinned.el.querySelector('[aria-label="pin report\'s desk as a window"]'), null,
+    'a pinned report does not expose Pin')
+  const show = pinned.el.querySelector<HTMLButtonElement>(
+    '[aria-label="show report\'s pinned desk"]')
+  assert.ok(show, 'a pinned direct report exposes Show')
+  await inAct(() => { show!.click() })
+  assert.equal(shows, 1, 'clicking Show invokes the caller action')
+})

@@ -1131,7 +1131,8 @@ export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
   && p.staleIdentity === n.staleIdentity && p.pub === n.pub && p.bare === n.bare && p.compact === n.compact
-  && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc)
+  && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc
+  && p.pinnedIds === n.pinnedIds)
 
 export interface DeskChatProps {
   staleIdentity?: boolean
@@ -1166,6 +1167,7 @@ export interface DeskChatProps {
    *  the mobile sheet and a pinned window itself have no pin to offer. */
   onPin?: () => void
   /** pin or pop out a related agent directly from its navigation list */
+  pinnedIds?: ReadonlySet<string>
   onPinAgent?: (id: string) => void
   onShowPinAgent?: (id: string) => void
 }
@@ -1278,7 +1280,7 @@ const SENDMODE_MS = 6000
 function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  onPinAgent, onShowPinAgent, staleIdentity = false }: DeskChatProps) {
+  pinnedIds, onPinAgent, onShowPinAgent, staleIdentity = false }: DeskChatProps) {
   // THE CONVERSATION IS NOT THIS COMPONENT'S. It lives in one per-node store
   // (convo.ts) that every view of this node subscribes to, because a node can
   // be on screen twice — its card and its switchboard panel — and two private
@@ -2540,8 +2542,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         return (
           <div className="desk-nav">
             {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump}
-              slug={slug} onPin={onPinAgent ? () => onPinAgent(c.id) : undefined}
-              onShowPin={onShowPinAgent ? () => onShowPinAgent(c.id) : undefined} />)}
+              slug={slug} onPin={!pinnedIds?.has(c.id) && onPinAgent
+                ? () => onPinAgent(c.id) : undefined}
+              onShowPin={pinnedIds?.has(c.id) && onShowPinAgent
+                ? () => onShowPinAgent(c.id) : undefined} />)}
             {retired.length > 0 && (
               <button className="desk-nav-chip dim"
                 title={showRetired ? 'collapse the retired reports'
@@ -2553,8 +2557,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             )}
             {showRetired && retired.map((c) =>
                 <NavChip key={c.id} n={c} dir="down" onJump={onJump}
-                  slug={slug} onPin={onPinAgent ? () => onPinAgent(c.id) : undefined}
-                  onShowPin={onShowPinAgent ? () => onShowPinAgent(c.id) : undefined} />)}
+                  slug={slug} onPin={!pinnedIds?.has(c.id) && onPinAgent
+                    ? () => onPinAgent(c.id) : undefined}
+                  onShowPin={pinnedIds?.has(c.id) && onShowPinAgent
+                    ? () => onShowPinAgent(c.id) : undefined} />)}
           </div>
         )
       })()}

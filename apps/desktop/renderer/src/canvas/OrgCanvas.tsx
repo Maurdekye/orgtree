@@ -2544,6 +2544,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              pinnedIds={pinnedIds}
               onPinAgent={!isMobile ? (id) => {
                 if (!pinnedIds.has(id)) pinDesk(id)
               } : undefined}
