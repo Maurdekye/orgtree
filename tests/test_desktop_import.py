@@ -621,6 +621,7 @@ class DesktopImportTests(unittest.TestCase):
             self.assertTrue(link.exists())
         self.assertEqual((self.dest / ordinary.relative_to(self.source)).read_bytes(), ordinary.read_bytes())
         self.assertTrue((self.dest / "orgs/acme.db").is_file())
+        store._POOL.close_all("acme")
         self.assertEqual(store.load_org("acme").d["desktop_import"]["warnings"], row["warnings"])
         self.assertEqual(self.resumed, ["acme"])
         self.assertEqual({name: hashlib.sha256((self.source / name).read_bytes()).hexdigest() for name in before}, before)
@@ -637,10 +638,10 @@ class DesktopImportTests(unittest.TestCase):
                 src.mkdir()
                 link = src / name
                 self.make_directory_link(link, target)
-                omissions = []
+                omissions = imp._DependencyOmissions()
                 with self.assertRaisesRegex(imp.ImportRefused, "Links and reparse"):
                     imp._copy_tree(src, self.root / ("out-" + name), dependency_omissions=omissions)
-                self.assertEqual(omissions, [])
+                self.assertEqual(omissions.warnings(), [])
         self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
 
     def test_node_modules_org_name_does_not_exempt_working_links(self) -> None:
@@ -655,6 +656,40 @@ class DesktopImportTests(unittest.TestCase):
             self.run_import(["node_modules"])
         self.assertFalse((self.dest / "orgs/node_modules.db").exists())
         self.assertEqual(self.resumed, [])
+        self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
+
+    def test_many_dependency_links_report_bounded_examples_and_exact_total(self) -> None:
+        self.fixture()
+        target = self.root / "external-dependencies"
+        target.mkdir()
+        (target / "keep.txt").write_bytes(b"unchanged")
+        base = self.source / "scratch/acme/worker/node_modules"
+        for index in range(40):
+            self.make_directory_link(base / f"link-{index:02}", target)
+        ordinary = base / "ordinary/keep.txt"
+        ordinary.parent.mkdir()
+        ordinary.write_bytes(b"ordinary survives")
+        result = self.run_import()
+        rows = [row for row in result["imported"][0]["warnings"] if row.startswith("Skipped")]
+        self.assertEqual(len(rows), 21)
+        self.assertIn("40 linked dependencies in total; 20 additional paths", rows[-1])
+        self.assertTrue(all("Reinstall dependencies" in row for row in rows))
+        self.assertEqual((self.dest / ordinary.relative_to(self.source)).read_bytes(), b"ordinary survives")
+        store._POOL.close_all("acme")
+        saved = store.load_org("acme").d["desktop_import"]["warnings"]
+        self.assertEqual([row for row in saved if row.startswith("Skipped")], rows)
+        # Mirror: the same number of ordinary dependency directories emits no omissions.
+        normal = self.root / "normal"
+        for index in range(40):
+            path = normal / "node_modules" / f"plain-{index:02}" / "keep.txt"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"retained")
+        omissions = imp._DependencyOmissions()
+        output = self.root / "normal-copy"
+        imp._copy_tree(normal, output, dependency_omissions=omissions)
+        self.assertEqual(omissions.count, 0)
+        self.assertEqual(omissions.warnings(), [])
+        self.assertEqual(fingerprint(normal), fingerprint(output))
         self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
 
     def test_reparse_positive_control_is_refused_without_following(self) -> None:

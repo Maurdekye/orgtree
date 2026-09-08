@@ -139,7 +139,28 @@ def _copy_file(source: Path, dest: Path) -> str:
     return before
 
 
-def _copy_tree(source: Path, dest: Path, *, dependency_omissions: list[str] | None = None,
+class _DependencyOmissions:
+    """Keep exact totals but bounded diagnostic examples for large link trees."""
+    def __init__(self) -> None:
+        self.count = 0
+        self.paths: list[str] = []
+
+    def record(self, path: Path) -> None:
+        self.count += 1
+        if len(self.paths) < 20:
+            self.paths.append(path.as_posix())
+
+    def warnings(self) -> list[str]:
+        rows = [f"Skipped linked dependency: {path}. Reinstall dependencies in this copy before use."
+                for path in self.paths]
+        if self.count > len(self.paths):
+            rows.append(f"Skipped {self.count} linked dependencies in total; "
+                        f"{self.count - len(self.paths)} additional paths are not listed. "
+                        "Reinstall dependencies in this copy before use.")
+        return rows
+
+
+def _copy_tree(source: Path, dest: Path, *, dependency_omissions: _DependencyOmissions | None = None,
                relative: Path = Path(), within_area: Path = Path()) -> None:
     _plain(source)
     if not source.is_dir():
@@ -156,7 +177,7 @@ def _copy_tree(source: Path, dest: Path, *, dependency_omissions: list[str] | No
         linked = stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
         if (dependency_omissions is not None and linked
                 and any(part.casefold() == "node_modules" for part in child_within_area.parts)):
-            dependency_omissions.append(child_relative.as_posix())
+            dependency_omissions.record(child_relative)
             continue
         _plain(child)
         if child.is_dir():
@@ -508,14 +529,13 @@ def copy_import(source_root: str, organizations: list[str], *,
             doc = _read_document(source, slug, stage)
             files = stage / "files"
             files.mkdir()
-            dependency_omissions: list[str] = []
+            dependency_omissions = _DependencyOmissions()
             for rel in _areas(slug):
                 if (source / rel).exists():
                     _copy_tree(source / rel, files / rel, dependency_omissions=dependency_omissions,
                                relative=Path(rel))
             doc, active, warnings = _prepare_document(doc, source, dest, stage, sources)
-            warnings.extend(f"Skipped linked dependency: {path}. Reinstall dependencies in this copy before use."
-                            for path in dependency_omissions)
+            warnings.extend(dependency_omissions.warnings())
             _write_candidate(stage / "candidate.db", doc)
             prepared.append((slug, stage, doc, active, warnings))
         # Files and exact source history land before the ledger publication.
