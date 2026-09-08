@@ -39,6 +39,8 @@ def copy_outputs(path: Path, source_sid: str, rows: list[dict],
                         raise NativeHeld("Native subagent sidecars require a verified filename/layout")
                     agent = match.group(1)
                     records, _ = _read_native(item)
+                    if any(row.get("type") == "file-history-snapshot" for row in records):
+                        raise NativeHeld("Native subagent rewind snapshots need a verified independent clone")
                     if any(row.get("agentId") not in {None, agent} for row in records):
                         raise NativeHeld("Native subagent identity disagrees with its filename")
                     if not any(row.get("isSidechain") is True for row in records):

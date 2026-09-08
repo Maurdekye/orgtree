@@ -106,6 +106,27 @@ class NativeDependencyTests(fixtures.DesktopImportTests):
         with self.assertRaisesRegex(native.NativeHeld, "native conversation"):
             copy_outputs(path, path.stem, rows, self.dest / str(uuid.uuid4()))
 
+    def test_subagent_deleted_rewind_snapshot_is_held_without_source_mutation(self):
+        import copy
+        doc, path, sources, rows, output = self.output_fixture()
+        child = path.parent / path.stem / "subagents/agent-fixture.jsonl"
+        child.parent.mkdir()
+        subrows = copy.deepcopy(rows)
+        for row in subrows:
+            row.update(agentId="fixture", isSidechain=True)
+        source_target = str(self.source / "scratch/acme/worker/source-file.txt")
+        subrows.append({"type": "file-history-snapshot", "snapshot": {
+            "trackedFileBackups": {source_target: {"backupFileName": None, "version": 1}}}})
+        child.write_text("".join(json.dumps(row) + "\n" for row in subrows), encoding="utf-8")
+        before = fixtures.fingerprint(self.source)
+        stage = self.root / "refused-child-stage"
+        stage.mkdir()
+        with self.assertRaisesRegex(native.NativeHeld, "subagent rewind snapshots"):
+            copy_outputs(path, path.stem, rows, self.dest / str(uuid.uuid4()),
+                         staging=stage, rewind_validated=True)
+        self.assertEqual(list(stage.iterdir()), [])
+        self.assertEqual(fixtures.fingerprint(self.source), before)
+
 
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeDependencyTests.__dict__:
