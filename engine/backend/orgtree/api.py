@@ -2868,7 +2868,9 @@ def _charter_records(folder: str, source: str,
             continue
         # No-follow at the individual file too: a linked or otherwise
         # non-regular entry is DECLARED and never read through.
-        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400                 or not stat.S_ISREG(info.st_mode):
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400
+                or not stat.S_ISREG(info.st_mode)):
             if skipped_links is not None:
                 skipped_links.append(f)
             continue

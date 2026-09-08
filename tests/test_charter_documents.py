@@ -245,6 +245,27 @@ class CharterDocumentTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(target.read_bytes(), b'TARGET BYTES THAT MUST SURVIVE')
 
+    def test_directory_junction_at_the_save_target_hits_the_guard_not_the_os(self):
+        # Reviewer-supplied control (redteam-opus) for the save-target _plain
+        # guard, runnable WITHOUT symlink rights: a directory junction named
+        # <name>.md at the target. Only a file symlink could actually be
+        # written through, so this proves the guard is PRESENT (409 from our
+        # rule, not 503 from the OS refusing a directory open) — it
+        # complements, not replaces, the privilege-gated symlink case.
+        import _winapi
+        elsewhere = home / 'elsewhere-save-target'
+        elsewhere.mkdir()
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        _winapi.CreateJunction(str(elsewhere), str(USER_DIR / 'hijack.md'))
+        self.addCleanup(lambda: os.rmdir(USER_DIR / 'hijack.md'))
+        response = self.client.put('/api/charters/hijack', headers=HEADERS,
+                                   json={'content': 'x'})
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn('reparse', response.text.lower())
+        self.assertNotIn('Could not save', response.text)
+        self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), [])
+        self.assertIn('hijack.md', self.charters().get('skipped_links', []))
+
     def test_routes_require_authentication(self):
         for method, url in (('GET', '/api/charters'),
                             ('POST', '/api/charters/populate'),
