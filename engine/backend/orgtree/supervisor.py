@@ -2647,7 +2647,7 @@ def _stable_event_id(org: Org, nid: str, row: Mapping[str, Any]) -> str:
                           "ts": row.get("ts"), "role": row.get("role"),
                           "text": row.get("text", ""),
                           "content": {k: v for k, v in row.items()
-                                      if not k.startswith("_") and k not in {"seq", "event_id"}}},
+                                      if not k.startswith("_") and k not in {"seq", "event_id", "native_event_id"}}},
                          sort_keys=True, ensure_ascii=False,
                          separators=(",", ":"))
     return "evt_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
@@ -2888,8 +2888,9 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
     origin = str(org.node(nid).get("desktop_import", {}).get("source_session_id") or history)
     for index, row in enumerate(archived.get("messages") or []):
         public = dict(row)
+        legacy_row = {key: value for key, value in row.items() if key != 'native_event_id'}
         public["event_id"] = "import:" + hashlib.sha256(
-            (origin + ":" + str(index) + ":" + json.dumps(row, sort_keys=True, default=str)).encode()
+            (origin + ":" + str(index) + ":" + json.dumps(legacy_row, sort_keys=True, default=str)).encode()
         ).hexdigest()
         public["imported_history"] = True
         rows.append(public)

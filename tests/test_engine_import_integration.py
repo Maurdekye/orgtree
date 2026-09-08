@@ -38,10 +38,24 @@ class ImportIntegrationTests(unittest.TestCase):
             'history':'imports/clone-history/history/worker.jsonl',
             'source_session_id':'original'}
         store.save_org(org)
+        parser = supervisor._read_chat_source
+        def old_parser(*args, **kwargs):
+            result = parser(*args, **kwargs)
+            for row in result.get('messages') or []:
+                row.pop('native_event_id',None)
+            return result
+        with patch.object(supervisor, '_read_chat_source', side_effect=old_parser), \
+             patch.object(supervisor, '_read_chat_current', return_value={'messages':[],'total':0}):
+            legacy = supervisor.read_chat(org,'worker',hold_back=False)
+        ordinary = {'role':'assistant','text':'same text','_source_id':'record:0'}
+        self.assertEqual(supervisor._stable_event_id(org,'worker',ordinary),
+                         supervisor._stable_event_id(org,'worker',{**ordinary,'native_event_id':'first'}))
         def read(last=None):
             with patch.object(supervisor, 'transcript_path', return_value=native):
                 return supervisor.read_chat(org,'worker',last=last,hold_back=False)
         initial = read()
+        self.assertEqual([r['event_id'] for r in initial['messages']],
+                         [r['event_id'] for r in legacy['messages']])
         self.assertEqual([r['text'] for r in initial['messages']], ['same text','same text'])
         self.assertEqual(initial['total'],2)
         native.write_bytes(original + (json.dumps(record('third','new turn'))+'\n').encode())
