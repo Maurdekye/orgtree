@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Orgtree overseer eye</title>
+  <desc id="desc">A bright orange eye with a dark pupil.</desc>
+  <path fill="#F58220" d="M10 128C39 78 82 48 128 48s89 30 118 80c-29 50-72 80-118 80S39 178 10 128Z"/>
+  <circle cx="128" cy="128" r="57" fill="#18232D"/>
+  <circle cx="128" cy="128" r="25" fill="#F58220"/>
+</svg>

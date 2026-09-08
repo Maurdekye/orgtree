@@ -25,6 +25,7 @@ else {
   let restoreWindows = !process.argv.includes('--background')
   const windowState = () => ({ visible: !!main && !main.isDestroyed() && main.isVisible(), restoreWindows })
   const engine = new Engine()
+  const iconPath = path.join(app.getAppPath(), 'apps/desktop/assets/orgtree-eye.ico')
   const notifications = new NotificationGate()
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); main.restore(); main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
@@ -116,9 +117,7 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
-    const pixels = Buffer.alloc(16 * 16 * 4)
-    for (let y = 2; y < 14; y++) for (let x = 2; x < 14; x++) { const i = (y * 16 + x) * 4; pixels[i] = 84; pixels[i + 1] = 178; pixels[i + 2] = 145; pixels[i + 3] = 255 }
-    tray = new Tray(nativeImage.createFromBitmap(pixels, { width: 16, height: 16 }))
+    tray = new Tray(nativeImage.createFromPath(iconPath))
     tray.on('double-click', show); rebuildTray()
     handle('desktop:status', () => engine.status)
     handle('desktop:window-state', () => windowState())
@@ -155,7 +154,7 @@ else {
       const openArtifact = (url: string) => {
         const artifactSession = session.fromPartition(`artifact-${randomUUID()}`)
         configureArtifactSession(artifactSession, url, trustedOrigin, engine.token)
-        const viewer = new BrowserWindow({ width: 1000, height: 760, autoHideMenuBar: true,
+        const viewer = new BrowserWindow({ width: 1000, height: 760, icon: iconPath, autoHideMenuBar: true,
           webPreferences: { session: artifactSession, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
         viewer.on('closed', quitAfterLastView)
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -163,7 +162,7 @@ else {
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
-      main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, show: false, autoHideMenuBar: true,
+      main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, show: false, icon: iconPath, autoHideMenuBar: true,
         webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
           sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${trustedOrigin}`] } })
       configureWindow(main, trustedOrigin, true, register, openArtifact)

@@ -11,6 +11,10 @@ await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/pr
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
 await renderer({ root: 'apps/desktop/renderer', base: './',
   build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true } })
+// The favicon is also used by the packaged UI. Keep one SVG source beside the
+// Windows ICO and copy it into Vite's output rather than maintaining a duplicate.
+fs.mkdirSync('dist/renderer/assets', { recursive: true })
+fs.copyFileSync('apps/desktop/assets/orgtree-eye.svg', 'dist/renderer/assets/orgtree-eye.svg')
 
 const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 let commit = null, dirty = null
