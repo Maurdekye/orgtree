@@ -1512,6 +1512,17 @@ class LazyDoc(dict[str, Any]):
         self.materialize_all()
         return dict.__iter__(self)
 
+    def __bool__(self) -> bool:
+        # Same trap `SectionMap.__bool__` above already documents: without
+        # this, `bool(doc)` / `(doc or default)` falls back to `__len__`,
+        # materialising every lazy section (every node's mail_log, turns,
+        # etc.) just to answer a truthiness check. A loaded org document
+        # always has a raw key (`slug`) or a lazy section on record —
+        # `local_net_slugs`' `(loaded or {})` hit this materialising the
+        # whole doc for one already-loaded org, measured costing the
+        # majority of an `org_tree` render.
+        return dict.__len__(self) > 0 or bool(self._present)
+
     def __len__(self) -> int:
         self.materialize_all()
         return dict.__len__(self)
