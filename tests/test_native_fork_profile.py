@@ -2,6 +2,7 @@
 import os
 import json
 import uuid
+import copy
 from pathlib import Path
 import sys
 import tempfile
@@ -18,6 +19,20 @@ def tearDownModule():
     _root.cleanup()
 
 class ForkProfileTests(unittest.TestCase):
+    def test_compact_dependency_refusal_preserves_in_memory_ledger(self):
+        org=ledger.Org.create('atomic-split')
+        org.hire(ledger.USER,None,'haiku',0,'worker')
+        org.node('worker')['desktop_import']={'native_continuity':{'status':'ready'}}
+        before=copy.deepcopy(org.d)
+        with patch.object(ledger.Org,'_retire_native_import',side_effect=ledger.LedgerError('backup differs')):
+            with self.assertRaisesRegex(ledger.LedgerError,'backup differs'):
+                org.compact_split('worker',str(uuid.uuid4()))
+        self.assertEqual(org.d,before)
+        with patch.object(ledger.Org,'_retire_native_import'):
+            predecessor=org.compact_split('worker',str(uuid.uuid4()))
+        self.assertIn(predecessor,org.nodes)
+        self.assertEqual(org.node('worker')['generation'],1)
+
     def test_actual_bearer_writer_rebinds_native_session_and_preserves_source(self):
         org = ledger.Org.create('bearer-writer')
         org.hire(ledger.USER,None,'haiku',0,'worker')

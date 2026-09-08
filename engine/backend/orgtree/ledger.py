@@ -8832,6 +8832,18 @@ class Org:
 
     # ------------------------------------------------------- lineage (§8)
     def compact_split(self, nid: str, new_session_id: str) -> str:
+        # Imported lineage validation includes external native dependencies.
+        # Refusal must leave the caller's in-memory ledger unchanged too.
+        if self.node(nid).get('desktop_import'):
+            candidate = copy.copy(self)
+            candidate.d = copy.deepcopy(self.d)
+            predecessor = candidate._compact_split_apply(nid, new_session_id)
+            self.d.clear()
+            self.d.update(candidate.d)
+            return predecessor
+        return self._compact_split_apply(nid, new_session_id)
+
+    def _compact_split_apply(self, nid: str, new_session_id: str) -> str:
         """§8: compaction splits a node. The successor keeps the name, parent and
         org position with the compacted (forked) session; the pre-compaction session
         is retired IN PLACE as an archived knowledge bearer at 0 credits, locked
