@@ -2478,7 +2478,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             </button>)}
         </div></div>
       )}
-      {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} />}
+      {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} agents={agentDir} />}
       {view === 'files' && <FilesView slug={slug} nid={node.id} />}
       {/* ⚠ THE SAME `deskRefs` THE CHAT AND THE INBOX USE. This tab was
           building its own narrower world, which left a `@doc:` or `@mail:`
@@ -2724,12 +2724,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     </div></fieldset>
   )
 }
-export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
+export function HistoryView({ slug, nid, refs, agents }: {
+  slug: string; nid: string; refs?: RefRoutes; agents?: AgentDirectory
+}) {
   // G5: the agent keeps acting while this tab is open — a fetch-once list is
   // a photograph of the moment the tab was clicked
   const items = usePolled(() => getHistory(slug, nid).then((r) => r.items), [slug, nid])
   const profile = BASE ? 'public' : 'operator'
   return (
+    <AgentDirectoryProvider value={agents ?? null}>
     <div className="msgs">
       {items == null && <div className="dim pad">loading…</div>}
       {items?.length === 0 && <div className="dim pad">nothing recorded yet</div>}
@@ -2749,6 +2752,7 @@ export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; re
         </div>
       })}
     </div>
+    </AgentDirectoryProvider>
   )
 }
 

@@ -26,3 +26,28 @@ test('history renders typed status and preserves legacy and unsupported content'
   assert.match(view.el.textContent!,/Literal \[DONE\] older notice/)
   assert.match(view.el.querySelector('.event-fallback')!.textContent!,/Unknown format retained/)
 })
+
+test('history keeps ordinary messages and notices styled with navigable agent senders',async t=>{
+  useFakeClock(); const old=globalThis.fetch
+  const message=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.message.json'),'utf8')).private
+  const notice=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.notice.json'),'utf8')).private
+  const actor='peer-agent'
+  const items=[
+    {at:'2026-09-06T12:00:00Z',kind:'message',actor,detail:{text:'message fallback'},ev:{...message,actor:{kind:'agent',id:actor},body:'Normal message C'}},
+    {at:'2026-09-06T12:01:00Z',kind:'notice',actor,detail:{text:'notice fallback'},ev:{...notice,actor:{kind:'agent',id:actor},body:'Passive notice C'}},
+  ]
+  globalThis.fetch=(async()=>({ok:true,status:200,headers:new Headers(),json:async()=>({items})} as Response)) as typeof fetch
+  const jumped:string[]=[]
+  const view=await mountView(<HistoryView slug="fixture" nid="worker" agents={{
+    resolve:id=>id===actor?{tier:'sonnet'}:undefined,
+    onFocus:id=>jumped.push(id),
+  }}/>,h=>h)
+  t.after(async()=>{await view.unmount();globalThis.fetch=old;realClock()})
+  await flush()
+  assert.equal(view.el.querySelectorAll('.event-ordinary').length,2)
+  assert.match(view.el.textContent!,/Message/)
+  assert.match(view.el.textContent!,/Notice/)
+  assert.equal(view.el.querySelectorAll('button.cc-name-jump').length,2)
+  view.el.querySelectorAll<HTMLButtonElement>('button.cc-name-jump').forEach(button=>button.click())
+  assert.deepEqual(jumped,[actor,actor])
+})
