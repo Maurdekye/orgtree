@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # This fixture module binds a throwaway root BEFORE importing storage.
@@ -210,19 +211,38 @@ jobs._release(lock)
         folder.mkdir()
         for index in range(100):
             (folder / f"{index}.txt").write_bytes(b"actual copied bytes")
+        self.fixture("beta")
         body = self.body()
+        body["organizations"] = ["acme", "beta"]
         writes = []
         snapshots = []
+        class Clock:
+            value = 0.0
+            def monotonic(self):
+                return self.value
+        clock = Clock()
+        copy_calls = 0
         real_write = jobs._write
         def record(path, value):
             writes.append(path.name)
-            snapshots.append(json.loads(json.dumps(value)))
+            snapshots.append((clock.value, json.loads(json.dumps(value))))
             return real_write(path, value)
         real_copy = imp._copy_file
-        def delayed_copy(source, destination, **options):
-            time.sleep(.01)
+        def timed_copy(source, destination, **options):
+            if options.get("progress_scope", "copy") == "copy":
+                nonlocal copy_calls
+                copy_calls += 1
+                clock.value += 1.1 if copy_calls <= 2 else .2
             return real_copy(source, destination, **options)
-        with patch.object(jobs, "_write", record), patch.object(imp, "_copy_file", delayed_copy), patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):
+        from engine.backend.orgtree import desktop_native
+        real_prepare = desktop_native.prepare
+        def slow_native(*args, **kwargs):
+            clock.value += 50
+            return real_prepare(*args, **kwargs)
+        with patch.object(jobs, "time", SimpleNamespace(monotonic=clock.monotonic)), \
+                patch.object(jobs, "_write", record), patch.object(imp, "_copy_file", timed_copy), \
+                patch.object(desktop_native, "prepare", slow_native), \
+                patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):
             jobs.start(imp.ImportJobBody(**body), self.resumed.append)
             job = self.wait_job(body["request_id"])
         self.assertEqual(job["state"], "succeeded")
@@ -232,10 +252,31 @@ jobs._release(lock)
         self.assertIsInstance(job["total_bytes"], int)
         self.assertEqual(job["progress_percent"], 100)
         self.assertEqual(job["eta_seconds"], 0)
-        self.assertTrue(any(item.get("phase") == "copying" and item.get("eta_seconds") is not None
-                            for item in snapshots))
-        self.assertTrue(all(item.get("eta_seconds") is None
-                            for item in snapshots if item.get("phase") in {"native", "validating"}))
+        window_start = None
+        timed_files = []
+        native_snapshots = []
+        previous_files = 0
+        for at, item in snapshots:
+            phase = item.get("phase")
+            if phase == "copying" and window_start is None:
+                window_start = at
+            elif phase in {"native", "validating", "publishing", "recovering", "finished"}:
+                window_start = None
+                if phase in {"native", "validating"}:
+                    native_snapshots.append(item)
+            files_copied = item.get("files_copied", 0)
+            if phase == "copying" and files_copied > previous_files:
+                elapsed = at - window_start
+                work = (item["files_copied"] / item["total_files"] +
+                        item["bytes_copied"] / item["total_bytes"]) / 2
+                expected = int(max(0, (1 - work) / (work / elapsed)))
+                timed_files.append((item["files_copied"], item["eta_seconds"], expected))
+            previous_files = max(previous_files, files_copied)
+        self.assertGreaterEqual(len(timed_files), 2)
+        self.assertEqual(timed_files[0][1:], (timed_files[0][2], timed_files[0][2]))
+        self.assertEqual(timed_files[1][1], timed_files[1][2])
+        self.assertTrue(native_snapshots)
+        self.assertTrue(all(item.get("eta_seconds") is None for item in native_snapshots))
         self.assertGreater(len(writes), 5)  # phase/publication/admission checkpoints really persist
         self.assertLess(len(writes), job["files_copied"] // 2)
         self.assertEqual(fingerprint(folder), fingerprint(self.dest / folder.relative_to(self.source)))
