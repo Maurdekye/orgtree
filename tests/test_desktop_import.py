@@ -48,7 +48,7 @@ def job_result(client, body, headers):
         response = client.get("/api/desktop/import-v1/jobs/" + body["request_id"], headers=headers)
         assert response.status_code == 200, response.text
         job = response.json()["job"]
-        if job["state"] not in {"queued", "running"}:
+        if job["state"] not in {"queued", "planning", "running"}:
             assert job["state"] == "succeeded", job
             return job["result"]
         time.sleep(.01)
@@ -452,8 +452,8 @@ class DesktopImportTests(unittest.TestCase):
     def test_source_mutation_during_copy_refused(self) -> None:
         self.fixture()
         original_copy = imp._copy_file
-        def mutate(source, dest):
-            result = original_copy(source, dest)
+        def mutate(source, dest, **options):
+            result = original_copy(source, dest, **options)
             if source.name == "acme.db":
                 with closing(sqlite3.connect(source)) as conn:
                     conn.execute("UPDATE doc SET val=? WHERE key='name'", ('"changed"',))
@@ -725,6 +725,16 @@ class DesktopImportTests(unittest.TestCase):
                 self.run_import()
         self.assertFalse((self.dest / "orgs/acme.db").exists())
         self.assertEqual(self.resumed, [])
+
+    def test_plan_validates_slug_and_area_root_before_traversal(self) -> None:
+        self.fixture()
+        with self.assertRaisesRegex(imp.ImportRefused, "Invalid organization slug"):
+            imp.plan_import(str(self.source), ["../acme"])
+        target = self.root / "planning-target"
+        target.mkdir()
+        self.make_directory_link(self.source / "scratch" / "other", target)
+        with self.assertRaisesRegex(imp.ImportRefused, "Links and reparse"):
+            imp.plan_import(str(self.source), ["other"])
 
 
 class AssembledImportTests(unittest.TestCase):

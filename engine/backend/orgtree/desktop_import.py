@@ -131,28 +131,38 @@ def _slug(value: str) -> str:
     return value
 
 
-def _digest(path: Path) -> str:
+def _digest(path: Path, cancel: Callable[[], bool] | None = None) -> str:
     _plain(path)
     if not stat.S_ISREG(path.stat().st_mode):
         raise ImportRefused(f"Not a regular file: {path}")
     h = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
+            _check_cancel(cancel)
             h.update(block)
     return h.hexdigest()
 
 
-def _copy_file(source: Path, dest: Path) -> str:
-    before = _digest(source)
+def _copy_file(source: Path, dest: Path, *, cancel: Callable[[], bool] | None = None,
+               progress_scope: str = "copy") -> str:
+    _check_cancel(cancel)
+    before = _digest(source, cancel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     # No hardlinks: subsequent destination edits must not reach source bytes.
     with source.open("rb") as src, dest.open("xb") as dst:
-        shutil.copyfileobj(src, dst)
+        while True:
+            _check_cancel(cancel)
+            block = src.read(1024 * 1024)
+            if not block:
+                break
+            dst.write(block)
         dst.flush()
+        _check_cancel(cancel)
         os.fsync(dst.fileno())
-    if _digest(source) != before or _digest(dest) != before:
+    _check_cancel(cancel)
+    if _digest(source, cancel) != before or _digest(dest, cancel) != before:
         raise ImportRefused(f"Source changed while copying; retry preview: {source}", 409)
-    _progress(file_bytes=dest.stat().st_size)
+    _progress(file_bytes=dest.stat().st_size, progress_scope=progress_scope)
     return before
 
 
@@ -203,12 +213,13 @@ def _copy_tree(source: Path, dest: Path, *, dependency_omissions: _DependencyOmi
             _copy_tree(child, dest / name, dependency_omissions=dependency_omissions,
                        relative=child_relative, within_area=child_within_area, cancel=cancel)
         else:
-            _copy_file(child, dest / name)
+            _copy_file(child, dest / name, cancel=cancel, progress_scope="copy")
     if sorted(p.name for p in source.iterdir()) != before:
         raise ImportRefused(f"Source directory changed while copying: {source}", 409)
 
 
-def _read_document(source: Path, slug: str, stage: Path) -> dict[str, Any]:
+def _read_document(source: Path, slug: str, stage: Path,
+                   cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
     store = _store()
     db, legacy = source / "orgs" / f"{slug}.db", source / "orgs" / f"{slug}.json"
     if db.exists() and legacy.exists():
@@ -222,11 +233,11 @@ def _read_document(source: Path, slug: str, stage: Path) -> dict[str, Any]:
             raise ImportRefused(f"{slug}: rollback journal present; retry after the source transaction", 409)
         if wal.exists():
             paths.append(wal)
-        hashes = {p: _digest(p) for p in paths}
+        hashes = {p: _digest(p, cancel) for p in paths}
         for path in paths:
-            _copy_file(path, stage / path.name)
+            _copy_file(path, stage / path.name, cancel=cancel, progress_scope="supporting")
         if (wal.exists() != (wal in paths) or journal.exists()
-                or any(_digest(p) != digest for p, digest in hashes.items())):
+                or any(_digest(p, cancel) != digest for p, digest in hashes.items())):
             raise ImportRefused(f"{slug}: database changed while copying; retry", 409)
         private = stage / db.name
         backup = stage / "snapshot.db"
@@ -240,7 +251,7 @@ def _read_document(source: Path, slug: str, stage: Path) -> dict[str, Any]:
                 raise ImportRefused(f"{slug}: unsupported SQLite schema version")
             doc = store.reconstruct_full(conn)
     elif legacy.exists():
-        _copy_file(legacy, stage / "source.json")
+        _copy_file(legacy, stage / "source.json", cancel=cancel, progress_scope="supporting")
         doc = json.loads((stage / "source.json").read_text(encoding="utf-8"))
     else:
         raise ImportRefused(f"No source organization: {slug}", 404)
@@ -382,7 +393,8 @@ def imported_history_path(org: Any, nid: str) -> str | None:
 
 
 def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
-                      stage: Path, native_sources: dict | None = None) -> tuple[dict[str, Any], list[str], list[str]]:
+                      stage: Path, native_sources: dict | None = None,
+                      cancel: Callable[[], bool] | None = None) -> tuple[dict[str, Any], list[str], list[str]]:
     from . import desktop_native
     slug = doc["slug"]
     original = copy.deepcopy(doc)
@@ -397,11 +409,13 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     history_dir.mkdir()
     (stage / "native").mkdir()
     for nid, node in doc["nodes"].items():
+        _check_cancel(cancel)
         old = original["nodes"][nid]
         node["scope"] = _remap(node["scope"], source, dest)
         sid = old["session_id"]
         native = desktop_native.prepare(source, dest, slug, nid, old,
                                         native_sources or {}, stage)
+        _check_cancel(cancel)
         metadata: dict[str, Any] = {"source_session_id": sid,
                                     "continuity": "native_clone" if native["status"] == "ready" else "native_context_held",
                                     "native_continuity": native}
@@ -410,7 +424,7 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
             history = stage / "native" / nid / "source.jsonl"
         if history:
             name = f"{nid}.jsonl"
-            _copy_file(history, history_dir / name)
+            _copy_file(history, history_dir / name, cancel=cancel, progress_scope="native")
             metadata["history"] = str(Path("imports") / slug / "history" / name)
         else:
             warnings.append(f"{nid}: provider transcript unavailable; organization history and scratch retained")
@@ -437,10 +451,12 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
             journal = stage / "files" / "journals" / "projects" / slug
             journal.mkdir(parents=True, exist_ok=True)
             if history:
-                _copy_file(history, journal / f"{node['session_id']}.jsonl")
+                _copy_file(history, journal / f"{node['session_id']}.jsonl",
+                           cancel=cancel, progress_scope="native")
                 views = history.with_suffix(".views.ndjson")
                 if views.is_file():
-                    _copy_file(views, journal / f"{node['session_id']}.views.ndjson")
+                    _copy_file(views, journal / f"{node['session_id']}.views.ndjson",
+                               cancel=cancel, progress_scope="native")
         if isinstance(node.get("inflight"), dict):
             node["inflight"].pop("cache_attempt", None)
             node["inflight"]["text"] = (
@@ -453,6 +469,7 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
                 "any mutation; do not blindly repeat them. "
                 + (f"Copied history: {dest / metadata['history']}. " if metadata.get("history") else "")
                 + "Original interrupted request:\n" + str(old.get("inflight", {}).get("text") or ""))
+    _check_cancel(cancel)
     _stage_memory(doc, source, dest, slug, stage, native_sources or {}, warnings)
     # Removed MVP mechanisms must not activate just because their flags travel.
     for key in ("kiosk", "sandbox", "disk"):
@@ -566,13 +583,15 @@ def copy_import(source_root: str, organizations: list[str], *,
                 acknowledge_duplicate_work: bool,
                 on_imported: Callable[[str], Any], native_sources: dict | None = None,
                 progress: Callable[[dict], None] | None = None,
-                cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
+                cancel: Callable[[], bool] | None = None,
+                before_publication: Callable[[str], None] | None = None) -> dict[str, Any]:
     previous = getattr(_progress_local, "callback", None)
     _progress_local.callback = progress
     try:
         return _copy_import(source_root, organizations,
                             acknowledge_duplicate_work=acknowledge_duplicate_work,
-                            on_imported=on_imported, native_sources=native_sources, cancel=cancel)
+                            on_imported=on_imported, native_sources=native_sources, cancel=cancel,
+                            before_publication=before_publication)
     finally:
         _progress_local.callback = previous
 
@@ -580,7 +599,8 @@ def copy_import(source_root: str, organizations: list[str], *,
 def _copy_import(source_root: str, organizations: list[str], *,
                  acknowledge_duplicate_work: bool,
                  on_imported: Callable[[str], Any], native_sources: dict | None = None,
-                 cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
+                 cancel: Callable[[], bool] | None = None,
+                 before_publication: Callable[[str], None] | None = None) -> dict[str, Any]:
     from . import desktop_native
     if acknowledge_duplicate_work is not True:
         raise ImportRefused("Acknowledge possible duplicate work before importing")
@@ -602,7 +622,7 @@ def _copy_import(source_root: str, organizations: list[str], *,
             _progress(phase="reading", current_org=slug)
             stage = base / slug
             stage.mkdir()
-            doc = _read_document(source, slug, stage)
+            doc = _read_document(source, slug, stage, cancel)
             files = stage / "files"
             files.mkdir()
             _progress(phase="copying")
@@ -614,7 +634,7 @@ def _copy_import(source_root: str, organizations: list[str], *,
             _check_cancel(cancel)
             _progress(phase="native")
             _check_cancel(cancel)
-            doc, active, warnings = _prepare_document(doc, source, dest, stage, sources)
+            doc, active, warnings = _prepare_document(doc, source, dest, stage, sources, cancel)
             warnings.extend(dependency_omissions.warnings())
             _check_cancel(cancel)
             _progress(phase="validating")
@@ -626,10 +646,13 @@ def _copy_import(source_root: str, organizations: list[str], *,
         imported = []
         failed = []
         for slug, stage, doc, active, warnings in prepared:
-            _check_cancel(cancel)
             row = {"slug": slug, "name": doc["name"], "active_nodes": active,
                    "warnings": warnings, "recovery_pending": True}
-            _progress(phase="publishing", current_org=slug, publication_intent=slug)
+            if before_publication is not None:
+                before_publication(slug)
+            else:
+                _check_cancel(cancel)
+                _progress(phase="publishing", current_org=slug, publication_intent=slug)
             try:
                 # Once publication starts it is atomic and cannot be cancelled.
                 from .desktop_native_claude_rewind import publish as publish_rewind
@@ -667,6 +690,9 @@ def plan_import(source_root: str, organizations: list[str], *,
                 progress: Callable[[dict], None] | None = None) -> tuple[int, int]:
     """Count eligible copy files without opening documents or following links."""
     source, _ = _roots(source_root)
+    slugs = [_slug(value) for value in organizations]
+    if not slugs or len(set(slugs)) != len(slugs):
+        raise ImportRefused("Choose unique organizations")
     total_files = total_bytes = 0
 
     def walk(path: Path, within_area: Path = Path()) -> None:
@@ -692,6 +718,7 @@ def plan_import(source_root: str, organizations: list[str], *,
         _check_cancel(cancel)
         for rel in _areas(slug):
             area = source / rel
+            _plain(area)
             if area.is_dir():
                 walk(area)
     if progress is not None:

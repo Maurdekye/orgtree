@@ -48,12 +48,12 @@ class ImportJobsTests(unittest.TestCase):
         before = fingerprint(self.source)
         entered, release = threading.Event(), threading.Event()
         real = imp._copy_file
-        def delayed(source, destination):
+        def delayed(source, destination, **options):
             if source.name == "breadcrumbs.md":
                 entered.set()
                 if not release.wait(10):
                     raise AssertionError("fixture release missing")
-            return real(source, destination)
+            return real(source, destination, **options)
         client, body = self.client(), self.body()
         with patch.object(imp, "_copy_file", delayed), patch.object(subprocess, "Popen", side_effect=AssertionError("No provider")):
             started = client.post("/api/desktop/import-v1/jobs", json=body, headers=self.headers)
@@ -72,8 +72,9 @@ class ImportJobsTests(unittest.TestCase):
                 jobs._write(maintenance._path(), {"id": "test-maintenance", "state": "pending", "action": "restart"})
                 self.assertTrue(jobs.active())
                 self.assertEqual(maintenance.acknowledge("test-maintenance"), {"accepted": False})
-                self.assertGreater(status.json()["job"]["files_copied"], 0)
-                self.assertGreater(status.json()["job"]["bytes_copied"], 0)
+                self.assertGreater(status.json()["job"]["total_files"], 0)
+                self.assertGreaterEqual(status.json()["job"]["files_copied"], 0)
+                self.assertGreaterEqual(status.json()["job"]["bytes_copied"], 0)
                 repeated = client.post("/api/desktop/import-v1/jobs", json=body, headers=self.headers)
                 self.assertEqual(repeated.status_code, 202)
                 self.assertEqual(repeated.json()["job"]["id"], body["request_id"])
@@ -201,10 +202,10 @@ class ImportJobsTests(unittest.TestCase):
         self.fixture()
         entered, release = threading.Event(), threading.Event()
         real = imp._copy_file
-        def delayed(source, destination):
+        def delayed(source, destination, **options):
             entered.set()
             self.assertTrue(release.wait(10))
-            return real(source, destination)
+            return real(source, destination, **options)
         body = self.body()
         client = self.client()
         with patch.object(imp, "_copy_file", delayed), patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):

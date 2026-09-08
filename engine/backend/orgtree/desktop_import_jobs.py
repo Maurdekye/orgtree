@@ -268,28 +268,37 @@ def start(body, callback):
 def _run(root, job, payload, callback, lease):
     path = root / (job["id"] + ".json")
     last_checkpoint = 0.0
-    started = time.monotonic()
+    copy_started = None
 
     def cancelled():
         return (bool(job.get("cancel_requested")) or _cancel_marked(root, job["id"]
                 )) and job.get("phase") in CANCELLABLE_PHASES
 
     def progress(event):
-        nonlocal last_checkpoint
+        nonlocal last_checkpoint, copy_started
         with _guard:
             job["updated_at"] = _now()
-            if "file_bytes" in event:
+            is_copy = event.get("progress_scope", "copy") == "copy"
+            if "file_bytes" in event and is_copy:
+                if copy_started is None:
+                    copy_started = time.monotonic()
                 job["files_copied"] += 1
                 job["bytes_copied"] += event["file_bytes"]
             if "planned_files" in event:
-                job["planning_files"] = event["planned_files"]
-                job["planning_bytes"] = event.get("planned_bytes", job.get("planning_bytes", 0))
+                job["_planning_files"] = event["planned_files"]
+                job["_planning_bytes"] = event.get("planned_bytes", job.get("_planning_bytes", 0))
             total = job.get("total_bytes")
-            if total is not None and total > 0:
-                job["progress_percent"] = min(99, int(job["bytes_copied"] * 100 / total))
-                elapsed = time.monotonic() - started
-                rate = job["bytes_copied"] / elapsed if elapsed > 0 else 0
-                job["eta_seconds"] = int(max(0, (total - job["bytes_copied"]) / rate)) if rate else None
+            total_files = job.get("total_files")
+            if total_files is not None and total is not None and is_copy:
+                file_ratio = job["files_copied"] / total_files if total_files else 1.0
+                byte_ratio = job["bytes_copied"] / total if total else file_ratio
+                work = min(1.0, (file_ratio + byte_ratio) / 2)
+                job["progress_percent"] = min(99, int(work * 100))
+                elapsed = time.monotonic() - copy_started if copy_started is not None else 0
+                rate = work / elapsed if elapsed > 0 else 0
+                job["eta_seconds"] = int(max(0, (1 - work) / rate)) if rate else None
+            if event.get("phase") in {"native", "validating", "publishing", "recovering", "finished"}:
+                job["eta_seconds"] = None
             for key in ("phase", "current_org"):
                 if key in event:
                     job[key] = event[key]
@@ -312,9 +321,23 @@ def _run(root, job, payload, callback, lease):
                         receipt["recovery"] = "returned"
                 job["result"]["imported"] = [copy.deepcopy(row) if item["slug"] == row["slug"] else item
                                                for item in job["result"]["imported"]]
-            if set(event) != {"file_bytes"} or time.monotonic() - last_checkpoint >= 1:
+            bulk_copy = set(event) <= {"file_bytes", "progress_scope"} and is_copy
+            if not bulk_copy or time.monotonic() - last_checkpoint >= 1:
                 _write(path, job)
                 last_checkpoint = time.monotonic()
+
+    def publication_gate(slug):
+        # The cancellation marker and publication intent are committed under
+        # the same guard. Once this returns, cancellation is refused because
+        # publication has begun; there is no check-then-publish gap.
+        with _guard:
+            if cancelled():
+                raise imp.ImportCancelled("Import cancellation requested before publication")
+            # Go through the import progress seam while holding _guard. This
+            # keeps existing crash/instrumentation hooks observable and makes
+            # the marker check and durable intent one critical section.
+            imp._progress(phase="publishing", current_org=slug,
+                          publication_intent=slug)
 
     try:
         with _guard:
@@ -328,11 +351,12 @@ def _run(root, job, payload, callback, lease):
                                  cancel=cancelled, progress=progress)
         with _guard:
             job["total_files"], job["total_bytes"] = totals
-            job.pop("planning_files", None)
-            job.pop("planning_bytes", None)
+            job.pop("_planning_files", None)
+            job.pop("_planning_bytes", None)
             job["state"] = "running"
             _write(path, job)
-        result = imp.copy_import(**payload, on_imported=callback, progress=progress, cancel=cancelled)
+        result = imp.copy_import(**payload, on_imported=callback, progress=progress,
+                                 cancel=cancelled, before_publication=publication_gate)
         with _guard:
             if job.get("cancel_requested") and not job.get("publications"):
                 job.update(state="cancelled", phase="finished", error="Import cancelled before publication; staging is retained.", updated_at=_now())
