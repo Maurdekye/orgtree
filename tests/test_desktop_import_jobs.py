@@ -162,6 +162,8 @@ from pathlib import Path
 from engine.backend.orgtree import desktop_import_jobs as jobs
 root = Path(sys.argv[1])
 lock = jobs._lease(root, "control.lock")
+if lock is None:
+    raise RuntimeError("control lock was not acquired")
 print("ready", flush=True)
 time.sleep(2)
 jobs._release(lock)
@@ -210,11 +212,17 @@ jobs._release(lock)
             (folder / f"{index}.txt").write_bytes(b"actual copied bytes")
         body = self.body()
         writes = []
+        snapshots = []
         real_write = jobs._write
         def record(path, value):
             writes.append(path.name)
+            snapshots.append(json.loads(json.dumps(value)))
             return real_write(path, value)
-        with patch.object(jobs, "_write", record), patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):
+        real_copy = imp._copy_file
+        def delayed_copy(source, destination, **options):
+            time.sleep(.01)
+            return real_copy(source, destination, **options)
+        with patch.object(jobs, "_write", record), patch.object(imp, "_copy_file", delayed_copy), patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):
             jobs.start(imp.ImportJobBody(**body), self.resumed.append)
             job = self.wait_job(body["request_id"])
         self.assertEqual(job["state"], "succeeded")
@@ -224,6 +232,10 @@ jobs._release(lock)
         self.assertIsInstance(job["total_bytes"], int)
         self.assertEqual(job["progress_percent"], 100)
         self.assertEqual(job["eta_seconds"], 0)
+        self.assertTrue(any(item.get("phase") == "copying" and item.get("eta_seconds") is not None
+                            for item in snapshots))
+        self.assertTrue(all(item.get("eta_seconds") is None
+                            for item in snapshots if item.get("phase") in {"native", "validating"}))
         self.assertGreater(len(writes), 5)  # phase/publication/admission checkpoints really persist
         self.assertLess(len(writes), job["files_copied"] // 2)
         self.assertEqual(fingerprint(folder), fingerprint(self.dest / folder.relative_to(self.source)))
@@ -252,6 +264,26 @@ jobs._release(lock)
         self.assertFalse((self.dest / "orgs/acme.db").exists())
         self.assertEqual(self.resumed, [])
         self.assertIsNone(jobs.cancel(body["request_id"])["result"])
+
+    def test_cancel_accepted_before_publication_gate_creates_no_receipt(self):
+        self.fixture()
+        body = self.body()
+        identifier = body["request_id"]
+        real_copy = imp.copy_import
+
+        def copy_until_gate(*args, before_publication=None, **kwargs):
+            accepted = jobs.cancel(identifier)
+            self.assertTrue(accepted["cancel_requested"])
+            before_publication("acme")
+            return real_copy(*args, before_publication=before_publication, **kwargs)
+
+        with patch.object(imp, "copy_import", copy_until_gate), patch.object(
+                subprocess, "Popen", side_effect=AssertionError("no provider")):
+            jobs.start(imp.ImportJobBody(**body), self.resumed.append)
+            job = self.wait_job(identifier)
+        self.assertEqual(job["state"], "cancelled")
+        self.assertEqual(job["publications"], [])
+        self.assertFalse((self.dest / "orgs/acme.db").exists())
 
     def test_cancel_refused_after_publication_phase_preserves_receipts(self):
         root = jobs._root()

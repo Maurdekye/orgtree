@@ -132,7 +132,12 @@ def cancel(identifier):
             job["updated_at"] = _now()
             _write(root / (identifier + ".json"), job)
             if live is not None:
-                live.update(job)
+                # Disk state decides whether cancellation is allowed, but the
+                # worker's counters may be newer than its last checkpoint.
+                live["cancel_requested"] = True
+                live["state"] = "cancelling"
+                live["updated_at"] = job["updated_at"]
+                return _public(live)
             return _public(job)
         finally:
             _release(control)
@@ -292,7 +297,7 @@ def _run(root, job, payload, callback, lease):
             phase = event.get("phase")
             if phase == "copying" and copy_window_started is None:
                 copy_window_started = now
-            elif phase != "copying" and copy_window_started is not None:
+            elif phase is not None and phase != "copying" and copy_window_started is not None:
                 copy_elapsed += now - copy_window_started
                 copy_window_started = None
             is_copy = event.get("progress_scope", "copy") == "copy"
