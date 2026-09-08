@@ -222,6 +222,33 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.root / "changed-profile")}):
             self.assertIn("different destination profile", native.native_hold_reason(org, "worker"))
 
+    def test_successor_copy_failure_preserves_original_and_refuses_partial_retry(self):
+        from engine.backend.orgtree.desktop_native_claude_rewind import successor
+        _, _, sources, _ = self.rewind_fixture(same_profile=True)
+        self.run_native(sources)
+        doc = self.read()
+        unchanged = copy.deepcopy(doc)
+        binding = doc["nodes"]["worker"]["desktop_import"]["native_continuity"]
+        before = fixtures.fingerprint(self.profile)
+        sid = str(uuid.uuid4())
+        real_copy = imp._copy_file
+        calls = []
+        def fail_second(source, target):
+            calls.append(target)
+            if len(calls) == 2:
+                raise OSError("synthetic successor copy failure")
+            return real_copy(source, target)
+        with patch.object(imp, "_copy_file", side_effect=fail_second):
+            with self.assertRaisesRegex(OSError, "successor copy failure"):
+                successor(doc, "worker", binding, sid)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(doc, unchanged)
+        after = fixtures.fingerprint(self.profile)
+        self.assertTrue(all(after[key] == value for key, value in before.items()))
+        with self.assertRaisesRegex(native.NativeHeld, "missing or differs"):
+            successor(doc, "worker", binding, sid)
+        self.assertEqual(fixtures.fingerprint(self.profile), after)
+
 
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeRewindTests.__dict__:

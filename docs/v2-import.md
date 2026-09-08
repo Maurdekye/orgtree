@@ -196,6 +196,13 @@ lineage transition only after checking the actual archived predecessor and
 generation/session relation. Compacted successors also need a real native
 transcript. Renames keep a stable storage-node locator. The predecessor's
 metadata is deep-copied and retained; an arbitrary SID edit still holds.
+For a validated Claude compacted successor or native bearer, the rewind helper
+copies the predecessor's required backup files under the new SID in the same
+selected profile. A folder already produced by the native fork is accepted only
+when every required backup is present and byte-identical; it is never filled or
+overwritten. Failed partial new folders remain unavailable. The caller must
+complete validation before committing the lineage change, and preserve the
+returned rewind binding so later profile changes or missing backups hold work.
 
 Local loader evidence executed only the installed Claude 2.1.241 native
 resume parser/selection functions (`e4s`, `pst`, `mwr`, `uAt`, `ZQi`) with a
