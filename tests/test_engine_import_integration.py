@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -14,12 +15,46 @@ from orgtree import store, ledger, supervisor, desktop_recovery
 
 
 def tearDownModule():
-    for slug in ('recover', 'history', 'failed'):
+    for slug in ('recover', 'history', 'failed', 'clone-history'):
         store._POOL.close_all(slug)
     _root.cleanup()
 
 
 class ImportIntegrationTests(unittest.TestCase):
+    def test_native_clone_overlap_preserves_distinct_events_and_archive(self):
+        org = store.create_org('clone-history')
+        org.hire(ledger.USER, None, 'haiku', 0, 'worker')
+        folder = Path(_root.name) / 'imports/clone-history/history'
+        folder.mkdir(parents=True)
+        archive, native = folder/'worker.jsonl', folder/'native.jsonl'
+        def record(identity, text):
+            return {'type':'assistant','uuid':identity,'sessionId':'original',
+                    'message':{'role':'assistant','content':text}}
+        records = [record('first','same text'), record('second','same text')]
+        original = ''.join(json.dumps(r)+'\n' for r in records).encode()
+        archive.write_bytes(original)
+        native.write_bytes(original)
+        org.node('worker')['desktop_import'] = {
+            'history':'imports/clone-history/history/worker.jsonl',
+            'source_session_id':'original'}
+        store.save_org(org)
+        def read(last=None):
+            with patch.object(supervisor, 'transcript_path', return_value=native):
+                return supervisor.read_chat(org,'worker',last=last,hold_back=False)
+        initial = read()
+        self.assertEqual([r['text'] for r in initial['messages']], ['same text','same text'])
+        self.assertEqual(initial['total'],2)
+        native.write_bytes(original + (json.dumps(record('third','new turn'))+'\n').encode())
+        appended = read()
+        self.assertEqual([r['text'] for r in appended['messages']], ['same text','same text','new turn'])
+        self.assertEqual(read(last=1)['total'],3)
+        self.assertEqual(read(last=1)['messages'][0]['text'],'new turn')
+        native.write_text(json.dumps(record('third','new turn'))+'\n',encoding='utf-8')
+        compacted = read()
+        self.assertEqual([r['text'] for r in compacted['messages']], ['same text','same text','new turn'])
+        self.assertEqual(compacted['messages'][0]['event_id'],initial['messages'][0]['event_id'])
+        self.assertEqual(archive.read_bytes(),original)
+
     def test_failed_admission_preserves_intent_and_never_blindly_retries(self):
         org = store.create_org('failed')
         org.hire(ledger.USER, None, 'haiku', 0, 'active')

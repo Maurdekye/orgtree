@@ -2875,7 +2875,7 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
     from .desktop_import import imported_history_path
     from . import reply_events
     history = imported_history_path(org, nid)
-    current = _read_chat_current(org, nid, last=last, hold_back=hold_back)
+    current = _read_chat_current(org, nid, last=None if history else last, hold_back=hold_back)
     current_state = state(org.d['slug'], nid)
     with _state_lock:
         current['transient'] = list(current_state.get('reply_transient', {}).values())
@@ -2893,9 +2893,22 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
         ).hexdigest()
         public["imported_history"] = True
         rows.append(public)
-    combined = rows + list(current.get("messages") or [])
+    # A native clone retains record UUIDs. Merge only the same native record
+    # with the same projected contents, never equal text from different events.
+    # Keep archive rows (and their reply identities) when the clone compacts.
+    def native_key(row):
+        identity = row.get('native_event_id')
+        if not identity:
+            return None
+        return (identity, json.dumps({key: row.get(key) for key in
+                ('role', 'text', 'tools', 'thinking', 'thinking_sealed', 'ts')},
+                sort_keys=True, default=str))
+    archived_keys = {native_key(row) for row in rows} - {None}
+    fresh = [row for row in current.get('messages') or []
+             if native_key(row) not in archived_keys]
+    combined = rows + fresh
     return reply_events.annotate(org, nid, {**current, "messages": combined[-last:] if last else combined,
-            "total": len(rows) + int(current.get("total") or len(current.get("messages") or [])),
+            "total": len(combined),
             "imported_history_count": len(rows)})
 
 
@@ -27924,6 +27937,8 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             "tools": [x for x in tools if x],
             "ts": rec.get("timestamp"),
         }
+        if rec.get('uuid'):
+            mrow['native_event_id'] = str(rec['uuid'])
         if prompt_unresolved:
             mrow["_prompt_unresolved"] = True
             mrow["_prompt_raw"] = prompt_raw
