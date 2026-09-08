@@ -299,7 +299,7 @@ TOOLS: list[dict[str, Any]] = [
             "done_so_far AND working_on_next as lists of individual entries "
             "— either may be empty, both empty is refused — plus optional "
             "status backlogged|open|in_progress|blocked|review|"
-            "dropped, blocked_reason, dropped_reason, "
+            "deploy_ready|dropped, blocked_reason, dropped_reason, "
             "attention:true + attention_reason for a concrete reason the user "
             "must see, reopen:true to resume an archived item), `assign` "
             "(owner), `participants` (add/remove collaborators: they may "
@@ -358,7 +358,12 @@ TOOLS: list[dict[str, Any]] = [
             "APPROACHED OR APPROVED: it is kept out of the toolbar's active "
             "count and hidden behind its own toggle, so use it only for work "
             "genuinely not started — do not reclassify open work that is "
-            "authorised or under way. AN ITEM IS IDENTIFIED SOLELY BY ITS "
+            "authorised or under way. `deploy_ready` means implementation is "
+            "COMPLETE and awaiting deployment/publication — not blocked (the "
+            "item is not stuck on anything outside itself) and not done (it "
+            "is not live yet): it counts as active and is nudged like any "
+            "other in-flight status, because getting it deployed is still "
+            "actionable work. AN ITEM IS IDENTIFIED SOLELY BY ITS "
             "READABLE SLUG (`git-review-workspace`), derived from its title "
             "and returned by create/list/get — pass it as `slug`. There is no "
             "other identifier: the old opaque `w########` ids are retired and "
@@ -401,7 +406,7 @@ TOOLS: list[dict[str, Any]] = [
                 "working_on_next": {"type": "array", "items": {"type": "string"},
                                     "description": "update (required) / create: what you are doing now and the next steps"},
                 "status": {"type": "string",
-                           "description": "create/update: backlogged|open|in_progress|blocked|review|dropped (done only via accept). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
+                           "description": "create/update: backlogged|open|in_progress|blocked|review|deploy_ready|dropped (done only via accept). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `deploy_ready` = implementation is COMPLETE and awaiting deployment/publication — not blocked (nothing outside the item is stuck) and not done (not live yet): it counts as active and IS nudged, because getting it deployed is still actionable work owed by the owner. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
                 "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded"},
                 "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded"},
                 "attention": {"type": "boolean",
@@ -1367,7 +1372,7 @@ TOOLS: list[dict[str, Any]] = [
                                              "first, then the proposed solution"},
                 "kind": {"type": "string", "description": "create: code|non-code"},
                 "status": {"type": "string",
-                           "description": "backlogged|open|in_progress|blocked|review"},
+                           "description": "backlogged|open|in_progress|blocked|review|deploy_ready"},
                 "done_so_far": {"type": "array", "items": {"type": "string"},
                                 "description": "what is complete — individual entries"},
                 "working_on_next": {"type": "array", "items": {"type": "string"},

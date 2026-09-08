@@ -9716,10 +9716,24 @@ class Org:
     # (`waiting` — 2026-09-05/06: out of the active count, its own idle-reminder
     # exemption, archived after an hour — was REMOVED as a state on 2026-09-07;
     # see `WORK_LEGACY_STATUSES` below for how the rows that still hold it read.)
+    #
+    # `deploy_ready` (user request 2026-09-08, relayed by coordinator-astra):
+    # completed implementation awaiting deployment/publication. It exists
+    # because that work was being asserted as `blocked` — which is wrong, since
+    # nothing outside the item is what it is stuck on; it is finished and the
+    # only remaining step is an act the owner cannot itself take (deploys are
+    # the coordinator's alone). It is agent-assertable, it counts as ACTIVE
+    # (not `WORK_UNCOUNTED`) and does not auto-archive (not
+    # `WORK_ARCHIVES_ITSELF`) — same as `open`/`in_progress`/`review` — and,
+    # unlike `blocked`, it IS nudged by the idle reminder: this is actionable
+    # work with an owner who owes the next move (getting it in front of
+    # whoever deploys), not work stuck on an external event.
     WORK_STATUSES: Final = ("backlogged", "open", "in_progress", "blocked",
-                            "review", "done", "superseded", "dropped")
+                            "review", "deploy_ready", "done", "superseded",
+                            "dropped")
     WORK_AGENT_STATUSES: Final = ("backlogged", "open", "in_progress",
-                                  "blocked", "review", "dropped")
+                                  "blocked", "review", "deploy_ready",
+                                  "dropped")
     WORK_CLOSED: Final = ("done", "superseded", "dropped")
     WORK_BACKLOG: Final = "backlogged"
     #: STATES THE PRODUCT NO LONGER ASSERTS, read as their replacement (user
@@ -10897,7 +10911,7 @@ class Org:
             raise LedgerError("kind must be code|non-code")
         if status not in self.WORK_AGENT_STATUSES or status == "dropped":
             raise LedgerError("a new item starts backlogged|open|in_progress"
-                              "|blocked|review")
+                              "|blocked|review|deploy_ready")
         active = self.d.setdefault("work_items", [])
         if len(active) >= self.WORK_ACTIVE_MAX:
             raise LedgerError(
@@ -11207,7 +11221,8 @@ class Org:
             status = status or "in_progress"
             if status in self.WORK_CLOSED:
                 raise LedgerError("reopen needs an open status "
-                                  "(open|in_progress|blocked|review)")
+                                  "(open|in_progress|blocked|review|"
+                                  "deploy_ready)")
             if phys:
                 self._work_archive().remove(it)
                 self.d.setdefault("work_items", []).append(it)

@@ -49,6 +49,13 @@
                                purpose: it is neither in flight (--work) nor
                                finished (--dim), and desaturating it is what keeps
                                a long backlog from shouting over current work. */
+  --deploy-ready: #9b8ce0;  /* docket "Deploy Ready" — implementation complete,
+                               awaiting deployment. Periwinkle/indigo (~251°):
+                               the one hue gap left between --work (sky, 209°)
+                               and --review (violet, 311°), so it cannot be
+                               mistaken for either neighbor at a glance, and it
+                               is deliberately not --ok green — the work is not
+                               live yet, so it must not read as finished. */
   --shadow: 0 2px 8px rgba(0, 0, 0, .36);
   --mono: Consolas, 'Cascadia Mono', 'Courier New', monospace;
   /* the counterpart --mono always implied: the app's ordinary text face. It
@@ -3034,6 +3041,7 @@ main.solo { width: 100%; }
 /* `waiting` takes --warn, the band that already marks PENDING things — every
    other declared token is a docket status already, or too near one. */
 .docket-status.status-waiting { color: var(--warn); }
+.docket-status.status-deploy_ready { color: var(--deploy-ready); }
 .docket-status.status-backlogged { color: var(--backlog); }
 .docket-status.status-done { color: var(--ok); }
 .docket-status.status-superseded, .docket-status.status-dropped { color: var(--dim); }
@@ -3043,6 +3051,7 @@ main.solo { width: 100%; }
 .docket-modal .mailrow.status-in_progress { border-left: 3px solid var(--work); }
 .docket-modal .mailrow.status-blocked { border-left: 3px solid var(--bad); }
 .docket-modal .mailrow.status-review { border-left: 3px solid var(--review); }
+.docket-modal .mailrow.status-deploy_ready { border-left: 3px solid var(--deploy-ready); }
 .docket-modal .mailrow.status-backlogged { border-left: 3px solid var(--backlog); }
 .docket-modal .mailrow.status-done { border-left: 3px solid var(--ok); }
 .docket-modal .mailrow.status-open { border-left: 3px solid var(--line); }

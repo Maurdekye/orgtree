@@ -1920,16 +1920,20 @@ export interface WorkItem {
   kind: 'code' | 'non-code'
   title: string
   objective: string
-  /** backlogged | open | in_progress | blocked | review | done | superseded |
-   *  dropped. `backlogged` = not yet approached or approved: served in its
-   *  own group behind its own toggle and never counted as active. `blocked`
-   *  = cannot move until an answer or event outside the item happens: it
-   *  counts as active, stays on the desk, and is never nudged by the idle
-   *  reminder (user 2026-09-07). There is no `waiting` state any more (user
-   *  2026-09-07): a row recorded as waiting is SERVED as blocked, with
-   *  `legacy_status` saying so. `dropped` = the terminal NON-SUCCESS outcome
-   *  (cancelled, or failed unrecoverably): it is closed, it archives AT ONCE
-   *  (user 2026-09-07), and it is never Done. */
+  /** backlogged | open | in_progress | blocked | review | deploy_ready |
+   *  done | superseded | dropped. `backlogged` = not yet approached or
+   *  approved: served in its own group behind its own toggle and never
+   *  counted as active. `blocked` = cannot move until an answer or event
+   *  outside the item happens: it counts as active, stays on the desk, and
+   *  is never nudged by the idle reminder (user 2026-09-07). There is no
+   *  `waiting` state any more (user 2026-09-07): a row recorded as waiting is
+   *  SERVED as blocked, with `legacy_status` saying so. `deploy_ready`
+   *  (2026-09-08) = implementation is complete and awaiting deployment or
+   *  publication — not blocked (nothing outside the item is stuck) and not
+   *  done (not live yet): it counts as active and IS nudged, unlike blocked.
+   *  `dropped` = the terminal NON-SUCCESS outcome (cancelled, or failed
+   *  unrecoverably): it is closed, it archives AT ONCE (user 2026-09-07),
+   *  and it is never Done. */
   status: string
   /** the word a row was STORED under when `status` is a read-time mapping of
    *  a removed state (today only "waiting" → blocked); null/absent otherwise.

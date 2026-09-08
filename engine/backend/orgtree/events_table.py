@@ -170,7 +170,7 @@ def leaf(family: str, obj: str | None, **fields: dict[str, Any]) -> dict[str, An
 
 _BODY = F("str", B, True)
 _YOU = "addressed as 'you' in the text"
-_STATUS = "L[backlogged|open|in_progress|blocked|waiting|review|done|superseded|dropped]"   # = Org.WORK_STATUSES
+_STATUS = "L[backlogged|open|in_progress|blocked|waiting|review|deploy_ready|done|superseded|dropped]"   # = Org.WORK_STATUSES
 
 LEAVES: Final[dict[str, dict[str, Any]]] = {
     # ---- family ordinary (authored; the only family reachable from the agent tool wire)

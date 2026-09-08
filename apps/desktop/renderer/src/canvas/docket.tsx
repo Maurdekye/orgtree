@@ -60,6 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
   // no label is needed for it; an older backend that still serves the word
   // falls through to the raw status
   review: 'Agent review',
+  deploy_ready: 'Deploy Ready',
   done: 'Done',
   superseded: 'Superseded',
   dropped: 'Dropped',
@@ -70,24 +71,29 @@ const BLOCKED_HELP = 'Cannot move until something outside the item happens — a
 // the word on its own could be read as "finished with"; it means the opposite
 // of Done, and the pane says which of the two ways it ended
 const DROPPED_HELP = 'Ended WITHOUT being completed — cancelled, or failed in a way it cannot be recovered from. Closed and archived at once (no one-hour wait), but never Done'
+// distinguishes it from both Blocked (stuck on something outside the item —
+// this is not) and Done (not live yet — that is the whole reason it exists)
+const DEPLOY_READY_HELP = 'Implementation is complete and awaiting deployment or publication. Active and actionable — not stuck on anything, and not yet live — so it stays on the desk and is nudged like any other in-flight status'
 const statusLabel = (status: string): string => STATUS_LABEL[status] ?? status
 /** hover help, only where the status word can be read two ways */
 const statusHelp = (status: string): string | undefined =>
   (status === 'review' ? REVIEW_HELP
     : status === 'blocked' ? BLOCKED_HELP
-      : status === 'dropped' ? DROPPED_HELP : undefined)
+      : status === 'dropped' ? DROPPED_HELP
+        : status === 'deploy_ready' ? DEPLOY_READY_HELP : undefined)
 
 /** Group-by-status order, exactly as specified: effective attention first,
- *  then blocked, in_progress, review, open, done, then everything else that
- *  is closed. (`waiting` had its own group until the state was removed, user
- *  2026-09-07; such rows now arrive as blocked.) A status the backend adds
- *  later lands in "Other" rather than vanishing — an unknown row must still
- *  be reachable. */
+ *  then blocked, in_progress, review, deploy_ready, open, done, then
+ *  everything else that is closed. (`waiting` had its own group until the
+ *  state was removed, user 2026-09-07; such rows now arrive as blocked.) A
+ *  status the backend adds later lands in "Other" rather than vanishing —
+ *  an unknown row must still be reachable. */
 const STATUS_GROUPS: { key: string; heading: string }[] = [
   { key: 'attention', heading: 'Needs attention' },
   { key: 'blocked', heading: 'Blocked' },
   { key: 'in_progress', heading: 'In progress' },
   { key: 'review', heading: 'Agent review' },
+  { key: 'deploy_ready', heading: 'Deploy Ready' },
   { key: 'open', heading: 'Open' },
   { key: 'backlogged', heading: 'Backlogged' },
   { key: 'done', heading: 'Done' },

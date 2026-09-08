@@ -1662,6 +1662,43 @@ uiTest('§35 a row recorded as Waiting arrives as Blocked (the state was removed
   }
 })
 
+uiTest('§37 `deploy_ready` reads as Deploy Ready — active, not Blocked, not Done',
+  async (mount) => {
+    // Coordinator/user 2026-09-08: completed implementation awaiting
+    // deployment was being asserted as `blocked`, which is wrong — nothing
+    // outside the item is what it is stuck on. `deploy_ready` names that
+    // state without borrowing Blocked or Done.
+    mockWorkItems([
+      mkItem({ title: 'Ready to ship', status: 'deploy_ready' }),
+      mkItem({ title: 'Stuck on something', status: 'blocked',
+        blocked_reason: 'waiting on the vendor' }),
+      mkItem({ title: 'Live already', status: 'done' }),
+    ])
+    forgetGroupChoice()
+    const { el } = await mount(docketModal())
+    await flush()
+    const status = (r: Element) => r.querySelector('.docket-status')
+    const ready = rowFor(el, 'Ready to ship')
+    assert.equal(status(ready)?.textContent, 'Deploy Ready')
+    assert.ok(ready.classList.contains('status-deploy_ready'),
+      'the row carries its own status class, not Blocked or Done\'s')
+    assert.match(status(ready)?.getAttribute('title') ?? '', /awaiting deployment/,
+      'the hover help distinguishes it from Blocked and from Done')
+    // CONTROL: neighboring statuses keep their own words and classes — this
+    // is not a fallback label a missing entry would also produce
+    assert.equal(status(rowFor(el, 'Stuck on something'))?.textContent, 'Blocked')
+    assert.equal(status(rowFor(el, 'Live already'))?.textContent, 'Done')
+
+    await inAct(() => ready.click())
+    await flush()
+    assert.equal(pane(el)?.querySelector('.docket-status')?.textContent, 'Deploy Ready')
+
+    await chooseGroup(el, 'status')
+    assert.ok(headings(el).includes('Deploy Ready'), headings(el).join(' | '))
+    // it groups on its own — not folded into Blocked or Other closed
+    assert.deepEqual(titles(el), ['Stuck on something', 'Ready to ship', 'Live already'])
+  })
+
 uiTest('§36 the pane explains the state the item is IN, never a leftover one', async (mount) => {
   const REASON = 'the nightly build finishes; the build watchdog mails me'
   const BLOCK = 'the vendor has not sent the key; their support can send it'
