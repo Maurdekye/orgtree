@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import uuid
 from typing import Any
 
@@ -414,26 +415,43 @@ def _native_inventory() -> tuple[dict[str, str], set[str]]:
 No source profile or org database is consulted. Unexpected paths/duplicates
 refuse rather than selecting a plausible file belonging to somebody else.
 """
-    from .desktop_import import _plain, _store
+    from .desktop_import import ImportRefused, _plain, _store
     root = Path(_store().DATA_ROOT).resolve() / "imports"
     _plain(root)
     found: dict[str, str] = {}
     conflicts: set[str] = set()
     if not root.exists():
         return found, conflicts
-    for orgdir in root.iterdir():
-        _plain(orgdir)
-        folder = orgdir / "native"
+    def children(folder):
+        # Parents have already been checked. Windows scandir supplies each
+        # child's no-follow metadata without re-statting every ancestor for
+        # every file in the entire fleet. Still reject every reparse entry.
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                    raise ImportRefused(f"Links and reparse points are not imported: {entry.path}")
+                yield entry, info
+
+    for orgdir, orginfo in children(root):
+        if not stat.S_ISDIR(orginfo.st_mode):
+            continue
+        folder = Path(orgdir.path) / "native"
         _plain(folder)
         if not folder.is_dir():
             continue
-        for node in folder.iterdir():
-            _plain(node)
-            if not node.is_dir():
+        for node, nodeinfo in children(folder):
+            if not stat.S_ISDIR(nodeinfo.st_mode):
                 continue
-            for path in node.iterdir():
-                _plain(path)
-                if path.suffix == ".jsonl" and UUID.fullmatch(path.stem) and path.is_file():
+            # Recheck at directory descent: an entry can be replaced after
+            # its parent's enumeration, including by a junction.
+            _plain(Path(node.path))
+            for entry, info in children(node.path):
+                path = Path(entry.path)
+                if path.suffix == ".jsonl" and UUID.fullmatch(path.stem) and stat.S_ISREG(info.st_mode):
                     if path.stem in found:
                         conflicts.add(path.stem)
                     found[path.stem] = str(path)
@@ -464,6 +482,19 @@ def native_index() -> dict[str, str]:
 def native_path_for_session(sid: str) -> str | None:
     if not isinstance(sid, str) or not UUID.fullmatch(sid):
         return None
-    if sid in native_conflicts():
+    found, conflicts = _native_inventory()
+    if sid in conflicts:
         raise NativeHeld("Duplicate native session ID in imported storage")
-    return native_index().get(sid)
+    path = found.get(sid)
+    if path is None:
+        return None
+    from .desktop_import import _plain
+    _plain(Path(path))
+    # Only this session's header determines whether it is a display journal.
+    # Do not reopen every native session on each desk poll or keeper lookup.
+    try:
+        with open(path, "r", encoding="utf-8") as stream:
+            first = json.loads(stream.readline())
+    except (OSError, ValueError):
+        return None
+    return path if isinstance(first, dict) and first.get("type") != "session_meta" else None

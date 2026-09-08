@@ -2420,7 +2420,7 @@ def _cold_projection(org: Org, nid: str, tpath: str,
     raw_lines, raw_off, raw_tail, _ = _complete_lines(
         tpath, 0, b"", raw_v[2])
     built = _read_chat_source(org, nid, _lines=raw_lines,
-                              _prompt_views=views, _source_only=True)
+                              _prompt_views=views, _source_only=True, _path=Path(tpath))
     source = cast("dict[str, Any]", built["source"])
     _source_metadata(source)
     # D-229's one reload remains observable and load-bearing. If the first
@@ -2444,7 +2444,7 @@ def _cold_projection(org: Org, nid: str, tpath: str,
             view_off, view_tail = 0, b""
         rebuilt = _read_chat_source(org, nid, _lines=raw_lines,
                                     _prompt_views=fresh_views,
-                                    _source_only=True)
+                                    _source_only=True, _path=Path(tpath))
         source = cast("dict[str, Any]", rebuilt["source"])
         _source_metadata(source)
         built = rebuilt
@@ -2539,7 +2539,7 @@ def _refresh_projection(org: Org, nid: str, tpath: str,
                 old_len = len(cast("list[Any]", source["messages"]))
                 built = _read_chat_source(
                     org, nid, _lines=raw_lines, _prompt_views=views,
-                    _resume=source, _source_only=True)
+                    _resume=source, _source_only=True, _path=Path(tpath))
                 source = cast("dict[str, Any]", built["source"])
                 # carry the derived incremental fields that the projector does
                 # not need while parsing the next record.
@@ -2556,7 +2556,7 @@ def _refresh_projection(org: Org, nid: str, tpath: str,
             else:
                 built = _read_chat_source(
                     org, nid, _lines=(), _prompt_views=views,
-                    _resume=source, _source_only=True)
+                    _resume=source, _source_only=True, _path=Path(tpath))
                 out = built["out"]
         else:
             # late-view rebuild already produced `out`
