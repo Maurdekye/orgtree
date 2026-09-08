@@ -19691,6 +19691,18 @@ def _fork_bearer_session(org: Org, sid: str, upto: int) -> str | None:
             # not a state to guess about
             return None
         new_sid = str(uuid.uuid4())
+        imported = next(((key, node) for key, node in org.nodes.items()
+                         if node.get('session_id') == sid and node.get('desktop_import')), None)
+        if imported:
+            from .desktop_native import claude_records, NativeHeld
+            try:
+                records = [json.loads(line) for line in head if line.strip()]
+                records = claude_records(records, sid, new_sid,
+                                         str(scratch_dir(org.d['slug'], imported[0])))
+                head = [(json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
+                        for row in records]
+            except (NativeHeld, ValueError, KeyError):
+                return None
         dst = os.path.join(os.path.dirname(src), f"{new_sid}.jsonl")
         # write beside the original, then rename: a torn file under a session
         # id the ledger already points at would be unresumable, and the node

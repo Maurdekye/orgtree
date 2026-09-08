@@ -1,5 +1,7 @@
 """Record actual compact process construction without launching a provider."""
 import os
+import json
+import uuid
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +18,28 @@ def tearDownModule():
     _root.cleanup()
 
 class ForkProfileTests(unittest.TestCase):
+    def test_actual_bearer_writer_rebinds_native_session_and_preserves_source(self):
+        org = ledger.Org.create('bearer-writer')
+        org.hire(ledger.USER,None,'haiku',0,'worker')
+        node=org.node('worker')
+        node['desktop_import']={'native_continuity':{'status':'ready'}}
+        sid=node['session_id']
+        source=Path(_root.name)/'bearer-source.jsonl'
+        rid=str(uuid.uuid4())
+        row={'type':'user','uuid':rid,'parentUuid':None,'sessionId':sid,
+             'timestamp':'2026-09-08T00:00:00Z','message':{'role':'user','content':'preserve'}}
+        original=(json.dumps(row)+'\n').encode()
+        source.write_bytes(original)
+        with patch.object(supervisor,'transcript_path',return_value=source):
+            new_sid=supervisor._fork_bearer_session(org,sid,1)
+        self.assertIsNotNone(new_sid)
+        clone=json.loads((source.parent/f'{new_sid}.jsonl').read_text())
+        self.assertEqual(clone['sessionId'],new_sid)
+        self.assertEqual(clone['uuid'],rid)
+        self.assertEqual(clone['message'],row['message'])
+        self.assertEqual(source.read_bytes(),original)
+        desktop_native.claude_records([clone],new_sid,new_sid,'validation')
+
     def test_actual_compact_uses_imported_resume_and_node_environment(self):
         org = store.create_org('fork-profile')
         org.hire(ledger.USER,None,'haiku',0,'worker')
