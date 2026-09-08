@@ -1522,20 +1522,20 @@ export function UsageModal({ close }: { close: () => void }) {
         {/* the codex half only counts toward "still loading" while it is a
             half this machine has — otherwise a Codex-less box would skip the
             spinner and show a blank modal until the Claude bars land */}
-        {!claude.value && !claude.failure
-          && !(shown.openai && (codex.value || codex.failure))
-          && !(shown.google && (agy.value || agy.failure))
-          && !(shown.openrouter && (orr.value || orr.failure))
+        {!claude.value && !claude.failure && !claude.pending
+          && !(shown.openai && (codex.value || codex.failure || codex.pending))
+          && !(shown.google && (agy.value || agy.failure || agy.pending))
+          && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {shown.claude && (claude.value || claude.failure) && <div className="usage-acct">
+          {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
             <div className="usage-acct-head"><span>Claude Code</span>
               <UsageRefresh provider="Claude" state={claude} /></div>
             {claude.value
               ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.openai && (codex.value || codex.failure) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
+          {shown.openai && (codex.value || codex.failure || codex.pending) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
             <div className="usage-acct-head">
               <span><span className="acct-label">{codex.value?.provider ?? 'Codex'}</span>
                 {codex.value?.label && <span className="dim"> · {codex.value.label}</span>}</span>
@@ -1545,7 +1545,7 @@ export function UsageModal({ close }: { close: () => void }) {
               ? <UsageBars u={codex.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.google && (agy.value || agy.failure) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
+          {shown.google && (agy.value || agy.failure || agy.pending) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
             <div className="usage-acct-head">
               <span><span className="acct-label">{agy.value?.provider ?? 'Antigravity'}</span>
                 {agy.value?.label && <span className="dim"> · {agy.value.label}</span>}</span>
@@ -1556,7 +1556,7 @@ export function UsageModal({ close }: { close: () => void }) {
                 <AntigravityEstimateNote est={agy.value.usage_estimate} /></>
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.openrouter && (orr.value || orr.failure) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>
+          {shown.openrouter && (orr.value || orr.failure || orr.pending) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>
             <div className="usage-acct-head">
               <span><span className="acct-label">{orr.value?.provider ?? 'OpenRouter'}</span>
                 {orr.value?.label && <span className="dim"> · {orr.value.label}</span>}</span>

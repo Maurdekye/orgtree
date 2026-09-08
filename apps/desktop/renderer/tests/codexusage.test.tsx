@@ -58,6 +58,13 @@ test('each provider refresh is gated and reports its update time', async () => {
   g.fetch = (url: string) => {
     const parsed = new URL(String(url), 'http://localhost')
     const path = parsed.pathname
+    if (path === '/api/providers') return Promise.resolve({ ok: true, status: 200,
+      headers: new Headers(), json: () => Promise.resolve({
+        providers: [
+          { id: 'claude', hire_enabled: true, status: { installed: true } },
+          { id: 'openai', hire_enabled: true, status: { installed: true } },
+        ],
+      }) })
     if (path === '/api/usage') return Promise.resolve({ ok: true, status: 200,
       headers: new Headers(), json: () => Promise.resolve(CLAUDE.accounts[0]) })
     if (/\/codex\/usage$/.test(path)) {
