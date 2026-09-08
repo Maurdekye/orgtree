@@ -2438,9 +2438,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 html={md(p.text, fileBase(slug, node.id))} />
               {p.failed && (
                 <div className="ghost-why" role="status">
-                  <WarnIcon fontSize="inherit" /> {p.error ? `Send was not confirmed: ${p.error}. ` : ''}not delivered — the turn
-                  ended without running it. If that was a slash command,
-                  nothing here or in the CLI answers to that name.
+                  <WarnIcon fontSize="inherit" /> {p.error
+                    ? `Send was not confirmed: ${p.error}. Delivery is unknown; check before retrying.`
+                    : <>not delivered — the turn ended without running it. If that was a slash command,
+                      nothing here or in the CLI answers to that name.</>}
                 </div>)}
               <div className="ghost-acts">
                 {p.failed && !text.trim() && (

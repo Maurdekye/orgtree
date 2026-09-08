@@ -157,6 +157,10 @@ test('unavailable source keeps its quote, remove clears metadata, and failed sen
     await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-send')!.click(); await flush(10) })
     const ghost = view.el.querySelector('.pendghost')!
     assert.match(ghost.textContent!, /connection lost/)
+    assert.match(ghost.textContent!, /Send was not confirmed/)
+    assert.match(ghost.textContent!, /Delivery is unknown/)
+    assert.doesNotMatch(ghost.textContent!, /not delivered/)
+    assert.doesNotMatch(ghost.textContent!, /slash command/)
     assert.match(ghost.textContent!, /same text/)
     assert.ok(ghost.classList.contains('event-runtime_recovery'), 'failed sends use the structural recovery family')
     assert.equal(ghost.querySelector('[role="status"]')?.className, 'ghost-why', 'uncertain delivery remains an explicit status')
