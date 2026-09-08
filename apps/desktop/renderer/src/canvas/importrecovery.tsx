@@ -122,7 +122,7 @@ function RecoveryRow({ row, disabled, onResolve }: {
       <p>{action === 'mark-handled' ? 'Mark this attempt handled without dispatching any work.'
         : action === 'retry' ? 'Retry this attempt only if the engine still proves it was not admitted and the agent is idle.'
           : 'Authorize a new continuation after reviewing the uncertain attempt. This can repeat effects of work that already ran.'}</p>
-      <label>Review note<textarea aria-label={`Recovery note for ${row.node}`} rows={3} disabled={disabled}
+      <label style={{ display: 'block' }}>Review note<textarea style={{ display: 'block', width: '100%', marginTop: 6 }} aria-label={`Recovery note for ${row.node}`} rows={3} disabled={disabled}
         value={note} onChange={e => setNote(e.target.value)} /></label>
       <label className="checkline"><input type="checkbox" disabled={disabled} checked={ack}
         aria-label={`Acknowledge recovery review for ${row.node}`} onChange={e => setAck(e.target.checked)} />
