@@ -185,6 +185,39 @@ class CharterDocumentTests(unittest.TestCase):
         self.assertNotIn('evil.md', rows, 'nothing behind the link is served')
         self.assertNotIn('user_dir_error', payload)
 
+    def test_reparse_attribute_on_a_readable_file_prevents_serving_its_content(self):
+        # The junction case proves skipped_links REPORTING (open() on a
+        # directory would fail anyway); this proves PREVENTION for a file
+        # whose bytes genuinely would be served, using the same injected
+        # Windows-attribute positive control as the importer's reparse guard.
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        secret = USER_DIR / 'fake-linked.md'
+        secret.write_bytes(b'CONTENT THAT MUST NOT BE SERVED WHILE LINKED')
+        real_lstat = os.lstat
+
+        class _Reparse:
+            def __init__(self, info): self._info = info
+            def __getattr__(self, name):
+                if name == 'st_file_attributes':
+                    return self._info.st_file_attributes | 0x400
+                return getattr(self._info, name)
+
+        def fake_lstat(path, *a, **k):
+            info = real_lstat(path, *a, **k)
+            return _Reparse(info) if os.path.basename(str(path)) == 'fake-linked.md' else info
+
+        from unittest.mock import patch as _patch
+        with _patch.object(api.os, 'lstat', side_effect=fake_lstat):
+            payload = self.charters()
+        self.assertIn('fake-linked.md', payload.get('skipped_links', []))
+        self.assertFalse(any('MUST NOT BE SERVED' in r['content']
+                             for r in payload['charters']))
+        # control: without the injected attribute the same file serves fine
+        payload = self.charters()
+        self.assertNotIn('skipped_links', payload)
+        self.assertTrue(any('MUST NOT BE SERVED' in r['content']
+                            for r in payload['charters']))
+
     def test_symlinked_file_is_skipped_on_read_and_refused_on_save(self):
         # A FILE symlink (unlike a junction) follows on open("w") and is not
         # bounded to .md targets. Creating one needs privilege or developer
