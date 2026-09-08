@@ -4193,7 +4193,13 @@ def document_mockup(slug: str, did: str, request: Request) -> Response:
     if len(data) > _MOCKUP_MAX:
         raise HTTPException(422, "the mockup file grew past the 4 MB cap "
                                  "after it was presented")
-    payload = data.decode("utf-8", errors="replace")
+    from .artifact_downloads import build_document_preview, ArtifactNotFound, ArtifactForbidden
+    try:
+        payload = build_document_preview(did, doc, base, max_bytes=_SENDFILE_MAX)
+    except ArtifactNotFound as exc:
+        raise HTTPException(410, str(exc)) from exc
+    except ArtifactForbidden as exc:
+        raise HTTPException(422, str(exc)) from exc
     return Response(_mockup_wrapper(str(doc.get("title") or ""), payload),
                     media_type="text/html; charset=utf-8",
                     headers=dict(_MOCKUP_HEADERS))
