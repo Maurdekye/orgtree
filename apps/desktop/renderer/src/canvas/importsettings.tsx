@@ -2,11 +2,7 @@ import { ImportRecovery } from './importrecovery'
 import { useEffect, useRef, useState } from 'react'
 import { req } from '../api'
 import { pickFolder } from '../picker'
-
-interface NativeContext { node: string; provider: string; status: 'available' | 'held'; source_path?: string; reason?: string }
-interface ImportOrg { nodes?: number; native_context?: NativeContext[]; slug: string; name: string; warnings?: string[]; active_nodes?: string[]; conflict?: string | null; recovery_pending?: boolean }
-interface Preview { organizations: ImportOrg[]; warnings: string[] }
-interface Imported { imported: ImportOrg[]; warnings: string[]; failed?: { slug: string; error: string; not_attempted?: string[] }[] }
+import { useImportJob, type Preview, type Imported } from './importjob'
 
 export function ImportSettings({ active = true }: { active?: boolean }) {
   const [source, setSource] = useState('')
@@ -15,10 +11,27 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [ack, setAck] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [previewBusy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [action, setAction] = useState<'Preview' | 'Import'>('Preview')
   const [result, setResult] = useState<Imported | null>(null)
+  const progress = useImportJob(active)
+  const busy = previewBusy || progress.locked || progress.retryOriginal
+  const completed = useRef('')
+  const progressFeedback = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const job = progress.job
+    if (!job || progress.running || completed.current === `${job.id}:${job.state}`) return
+    completed.current = `${job.id}:${job.state}`
+    setAction('Import'); setPreview(null); setAck(false); setResult(job.result)
+    setError(job.state === 'failed' || job.state === 'interrupted' ? job.error || `Import ${job.state}.` : '')
+    window.dispatchEvent(new Event('orgtree:organizations-imported'))
+  }, [progress.job, progress.running])
+  useEffect(() => {
+    if (!active || (!progress.starting && !progress.issue)) return
+    progressFeedback.current?.focus({ preventScroll: true })
+    progressFeedback.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [active, progress.starting, progress.issue])
   const errorFeedback = useRef<HTMLDivElement>(null)
   const resultFeedback = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -36,6 +49,21 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
   return <section className="import-settings">
     <h3>Import from Orgtree v1</h3>
     <p>Copy selected organizations into this installation. The original installation keeps its data and can continue running.</p>
+    {(!progress.checked || progress.id || progress.issue) && <div ref={progressFeedback} tabIndex={-1}>
+      <h4>{progress.starting ? 'Starting import' : progress.running ? 'Import in progress' : progress.job ? `Import ${progress.job.state}` : 'Checking import status'}</h4>
+      {(progress.starting || progress.running) && <progress aria-label="Import progress" />}
+      {progress.job && <>
+        <p>{({ queued: 'Queued', reading: 'Reading organization data', copying: 'Copying files', native: 'Copying native conversations', validating: 'Validating the copy', publishing: 'Publishing organizations', recovering: 'Restoring imported work', finished: 'Finished' } as Record<string, string>)[progress.job.phase] || progress.job.phase}
+          {progress.job.current_org && ` — ${progress.job.current_org}`}</p>
+        <p>{progress.job.files_copied.toLocaleString()} files copied; {progress.job.bytes_copied.toLocaleString()} bytes copied and verified.</p>
+        {progress.running && <p className="dim">Total size is not known yet. You can close this panel and check progress later; keep Orgtree running.</p>}
+      </>}
+      {progress.issue && <p role="alert" className="ask-warn">{progress.issue}</p>}
+      {progress.missing && progress.startError && <p className="ask-warn">Start response: {progress.startError}</p>}
+      {progress.missing && <p>Review the source and selected organizations below, then explicitly retry the start with the saved request ID. No new copy will be started automatically.</p>}
+      {progress.id && <p className="dim">Request ID: <span className="mono">{progress.id}</span></p>}
+      <button disabled={progress.starting} onClick={() => { void progress.refresh() }}>Check import status</button>
+    </div>}
     <label>V1 data folder<div className="row"><input aria-label="V1 data folder" disabled={busy} value={source}
       onChange={e => changeSource(e.target.value)} style={{ flex: 1 }} />
       <button disabled={busy} onClick={() => { void pickFolder().then(r => { if (r.path) changeSource(r.path) }) }}>Browse…</button></div></label>
@@ -77,25 +105,18 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
         <p className="ask-warn">Imported active work with available context can resume here; unavailable context stays held for review. If the original installation is still running, both copies can perform the same work and use provider capacity.</p>
         <label className="checkline"><input type="checkbox" aria-label="Acknowledge duplicate work" disabled={busy} checked={ack} onChange={e => setAck(e.target.checked)} />
           I understand that both copies can run the same work.</label>
-        <button disabled={busy || !ack || !selected.length} onClick={async () => {
-          setAction('Import'); setBusy(true); setError('')
-          try {
-            const value = await post<Imported>('/api/desktop/import-v1', { source_root: source.trim(), organizations: selected, acknowledge_duplicate_work: true, ...sourceOptions })
-            setResult(value); setPreview(null); setAck(false)
-            window.dispatchEvent(new Event('orgtree:organizations-imported'))
-          } catch (e) {
-            setError((e as Error).message)
-            window.dispatchEvent(new Event('orgtree:organizations-imported'))
-          } finally { setBusy(false) }
-        }}>Copy selected organizations</button>
+        <button disabled={previewBusy || progress.locked || !ack || !selected.length} onClick={async () => {
+          setAction('Import'); setError(''); setResult(null)
+          await progress.begin({ source_root: source.trim(), organizations: selected, acknowledge_duplicate_work: true, ...sourceOptions }, progress.missing)
+        }}>{progress.missing ? 'Retry start with same request ID' : 'Copy selected organizations'}</button>
       </>}
     </>}
     {error && <div ref={errorFeedback} tabIndex={-1} role="alert" className="ask-warn">
-      <p><b>{action} failed</b></p><p>{error}</p>
+      <p><b>{progress.job?.state === 'interrupted' ? 'Import interrupted' : `${action} failed`}</b></p><p>{error}</p>
       {action === 'Import' && <p>Check the organization list before trying again; a lost response can leave completed copies.</p>}
     </div>}
     {result && <div ref={resultFeedback} tabIndex={-1} role="status">
-      <p><b>{result.failed?.length ? 'Import finished with errors' : result.imported.length ? 'Import complete' : 'Import finished'}</b></p>
+      <p><b>{progress.job?.state === 'interrupted' ? 'Saved import results' : result.failed?.length ? 'Import finished with errors' : result.imported.length ? 'Import complete' : 'Import finished'}</b></p>
       <p>{result.imported.length ? `Imported ${result.imported.map(o => o.name || o.slug).join(', ')}.` : 'No organizations imported.'}</p>
       {[...new Set([...result.warnings ?? [], ...result.imported.flatMap(o => o.warnings ?? [])])].map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
       {result.imported.filter(o => o.recovery_pending).map(o => <p className="ask-warn" key={o.slug}>{o.name || o.slug} was copied; resuming its active work is still pending.</p>)}

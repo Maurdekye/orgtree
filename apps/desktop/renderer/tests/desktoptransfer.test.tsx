@@ -7,6 +7,7 @@ import { ImportSettings } from '../src/canvas/importsettings'
 import { ConnectHub } from '../src/canvas/connections'
 import { HostHub } from '../src/canvas/hosthub'
 import { downloadDocument, responseFilename } from '../src/canvas/download'
+import { terminalImportServer } from './importjobfixture'
 
 async function type(field: HTMLInputElement, value: string) {
   await inAct(() => {
@@ -34,7 +35,9 @@ test('native source profiles are shared by preview and copy and changing them in
       ] }], warnings: [],
     } : { imported: [{ slug: 'native', name: 'Native' }], warnings: [] }))
   }
+  globalThis.fetch = terminalImportServer(globalThis.fetch)
   const v = await mountView(<ImportSettings />, el => el)
+  await inAct(async () => { await flush(8) })
   try {
     await type(v.el.querySelector('[aria-label="V1 data folder"]')!, 'C:/synthetic-v1')
     await type(v.el.querySelector('[aria-label="Source Claude profile"]')!, ' C:/source/claude ')
@@ -68,7 +71,9 @@ test('copy import requires preview, selected organizations and duplicate-work ac
       ? { organizations: [{ slug: 'first', name: 'First' }, { slug: 'second', name: 'Second' }], warnings: ['Copy retains source data.'] }
       : { imported: [{ slug: 'first', name: 'First' }], warnings: [] }), { status: 200 })
   }
+  globalThis.fetch = terminalImportServer(globalThis.fetch)
   const v = await mountView(<ImportSettings />, el => el)
+  await inAct(async () => { await flush(8) })
   try {
     await type(v.el.querySelector('input')!, 'C:\\synthetic-v1-root')
     await click(v.el, 'Preview organizations')
@@ -81,8 +86,8 @@ test('copy import requires preview, selected organizations and duplicate-work ac
     await inAct(() => { boxes[1]!.click(); boxes[2]!.click() })
     assert.equal(copy.disabled, false)
     await click(v.el, 'Copy selected organizations')
-    assert.deepEqual(calls[1], { url: '/api/desktop/import-v1', body: {
-      source_root: 'C:\\synthetic-v1-root', organizations: ['first'], acknowledge_duplicate_work: true,
+    assert.deepEqual(calls[1], { url: '/api/desktop/import-v1/jobs', body: {
+      source_root: 'C:\\synthetic-v1-root', organizations: ['first'], acknowledge_duplicate_work: true, request_id: (calls[1].body as { request_id: string }).request_id,
     } })
     assert.match(v.el.textContent!, /Imported First/)
   } finally { await v.unmount(); globalThis.fetch = original }
@@ -154,7 +159,9 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
       warnings: ['Independent provider sessions will start.', 'Account configuration was skipped.'] }],
       failed: [{ slug: 'second', error: 'Copy failed', not_attempted: ['third'] }], warnings: ['Original data is untouched.', 'Independent provider sessions will start.'] }))
   }
+  globalThis.fetch = terminalImportServer(globalThis.fetch)
   const v = await mountView(<ImportSettings />, el => el)
+  await inAct(async () => { await flush(8) })
   try {
     await type(v.el.querySelector('input')!, 'C:\\synthetic-partial')
     await click(v.el, 'Preview organizations')

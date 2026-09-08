@@ -2,6 +2,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ImportSettings } from '../src/canvas/importsettings'
+import { terminalImportServer } from './importjobfixture'
 
 const organizations = [
   { slug: 'large', name: 'Large organization', nodes: 522, native_context: Array.from({ length: 522 }, (_, i) =>
@@ -17,6 +18,7 @@ async function click(el: HTMLElement, label: string) {
 }
 
 async function fixture(response: () => Promise<Response>) {
+  localStorage.clear()
   const original = globalThis.fetch, scroll = HTMLElement.prototype.scrollIntoView
   const scrolled: HTMLElement[] = [], calls: string[] = []
   HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this) }
@@ -29,7 +31,9 @@ async function fixture(response: () => Promise<Response>) {
       return new Response(JSON.stringify({ organizations, warnings: [] }))
     return response()
   }
+  globalThis.fetch = terminalImportServer(globalThis.fetch)
   const v = await mountView(<ImportSettings />, el => el)
+  await inAct(async () => { await flush(8) })
   await inAct(() => {
     const input = v.el.querySelector<HTMLInputElement>('[aria-label="V1 data folder"]')!
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, 'C:/synthetic-import')
@@ -68,13 +72,12 @@ test('all organization summaries remain visible while 522 native agent details a
   } finally { await v.close() }
 })
 
-for (const kind of ['HTTP', 'network'] as const) test(`${kind} import failure reaches the focused feedback after the action with exact error text`, async () => {
+test('terminal import failure reaches focused feedback with exact backend error text', async () => {
   let refreshes = 0
   const refresh = () => { refreshes++ }
   window.addEventListener('orgtree:organizations-imported', refresh)
-  const message = kind === 'HTTP' ? 'Links and reparse points are not imported: C:/synthetic/link' : 'Failed to fetch'
+  const message = 'Links and reparse points are not imported: C:/synthetic/link'
   const v = await fixture(async () => {
-    if (kind === 'network') throw new TypeError(message)
     return new Response(JSON.stringify({ detail: message }), { status: 422 })
   })
   try {
@@ -84,8 +87,7 @@ for (const kind of ['HTTP', 'network'] as const) test(`${kind} import failure re
     assert.ok(feedback.textContent!.includes(message))
     assert.equal(document.activeElement, feedback)
     assert.equal(v.scrolled.at(-1), feedback)
-    const copy = [...v.el.querySelectorAll('button')].find(b => b.textContent === 'Copy selected organizations')!
-    assert.ok(copy.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING)
+    assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'))
     assert.match(feedback.textContent!, /lost response can leave completed copies/)
     assert.doesNotMatch(feedback.textContent!, /No organizations imported/)
     assert.equal(v.calls.filter(c => !c.endsWith('/preview')).length, 1, 'no automatic retry')
