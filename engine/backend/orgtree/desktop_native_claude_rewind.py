@@ -64,7 +64,9 @@ def prepare(path: Path, old_sid: str, new_sid: str, rows: list[dict], *,
         source_profile = path.parent.parent.parent
     else:
         source_profile = None
-    cloned = _remap_snapshots(rows, source, dest, source_profile)
+    if source_profile is None and any(row.get("type") == "file-history-snapshot" for row in rows):
+        raise NativeHeld("Select the source Claude profile to validate native rewind targets")
+    cloned = _remap_snapshots(rows, source, dest, source_profile, path)
     if not names:
         return cloned, None
     if source_profile is None:
@@ -96,7 +98,8 @@ def prepare(path: Path, old_sid: str, new_sid: str, rows: list[dict], *,
 
 
 def _remap_snapshots(rows: list[dict], source: Path, dest: Path,
-                    source_profile: Path | None = None) -> list[dict]:
+                    source_profile: Path | None = None,
+                    source_session: Path | None = None) -> list[dict]:
     # Native rewind must not restore files into the old Orgtree data root.
     # External project paths remain external, under the duplicate-work warning.
     cloned = copy.deepcopy(rows)
@@ -112,6 +115,11 @@ def _remap_snapshots(rows: list[dict], source: Path, dest: Path,
                 return str(dest / candidate.relative_to(source))
             except ValueError:
                 pass
+            if source_session is not None:
+                native_path = source_session.resolve()
+                sidecars = native_path.parent / native_path.stem
+                if candidate == native_path or candidate == sidecars or sidecars in candidate.parents:
+                    raise NativeHeld("Native rewind would modify the source session or its dependencies")
         return value
     for row in cloned:
         if row.get("type") != "file-history-snapshot":

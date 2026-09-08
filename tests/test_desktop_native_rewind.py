@@ -249,6 +249,23 @@ class NativeRewindTests(fixtures.DesktopImportTests):
             successor(doc, "worker", binding, sid)
         self.assertEqual(fixtures.fingerprint(self.profile), after)
 
+    def test_deleted_snapshot_needs_profile_and_cannot_target_external_source_session(self):
+        from engine.backend.orgtree.desktop_native_claude_rewind import prepare
+        doc, path, sources, profile = self.rewind_fixture(deleted=True)
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        external = self.root / "external-session.jsonl"
+        external.write_bytes(path.read_bytes())
+        before = external.read_bytes()
+        kwargs = dict(source=self.source, dest=self.dest, slug="acme", nid="worker")
+        with self.assertRaisesRegex(native.NativeHeld, "Select the source Claude profile"):
+            prepare(external, path.stem, str(uuid.uuid4()), rows, sources={}, **kwargs)
+        tracked = rows[-1]["snapshot"]["trackedFileBackups"]
+        tracked[str(external)] = tracked.pop(next(iter(tracked)))
+        with self.assertRaisesRegex(native.NativeHeld, "source session"):
+            prepare(external, path.stem, str(uuid.uuid4()), rows, sources=sources, **kwargs)
+        self.assertEqual(external.read_bytes(), before)
+        self.assertFalse((self.profile / "file-history").exists())
+
 
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeRewindTests.__dict__:
