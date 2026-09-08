@@ -12,7 +12,7 @@ export type EngineStatus =
   | { state: 'unavailable' | 'stopped'; message: string }
 import type { VisualTheme } from './visual-theme'
 
-export interface DesktopPreferences { visualTheme: VisualTheme; exitOnClose: boolean; startAtLogin: boolean; routineNotifications: boolean }
+export interface DesktopPreferences { visualTheme: VisualTheme; exitOnClose: boolean; startAtLogin: boolean; routineNotifications: boolean; onboarded: boolean }
 export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
   kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine'

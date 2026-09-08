@@ -5,6 +5,8 @@ import { desktop } from './desktop'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
+import { Onboarding, showOnboarding } from './canvas/onboarding'
+import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -241,6 +243,9 @@ export default function App() {
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
   const [orgs, setOrgs] = useState<OrgListEntry[]>([])
+  // false until the FIRST successful /api/orgs: first-run setup must never
+  // flash at an existing installation whose list simply hasn't loaded yet
+  const [orgsKnown, setOrgsKnown] = useState(false)
   const [slug, commitSlug] = useState<string | null>(() => slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
   const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
@@ -410,7 +415,20 @@ export default function App() {
     if (errStreak.current >= ERROR_STREAK) setError(e.message)
   }, [])
   const refreshOrgs = useCallback(() =>
-    listOrgs().then((o) => { setOrgs(o); fetchOk() }).catch(fetchErr), [fetchOk, fetchErr])
+    listOrgs().then((o) => { setOrgs(o); setOrgsKnown(true); fetchOk() }).catch(fetchErr), [fetchOk, fetchErr])
+  // desktop preferences, only for the first-run gate below; the onboarding
+  // card manages its own live copy once shown
+  const [deskPrefs, setDeskPrefs] = useState<NativePreferences | null>(null)
+  useEffect(() => {
+    const bridge = desktop()
+    if (!bridge) return
+    let alive = true
+    bridge.getPreferences().then(p => { if (alive) setDeskPrefs(p) }).catch(() => {})
+    const unsubscribe = bridge.onEvent(e => {
+      if (e.type === 'preferences' && alive) setDeskPrefs(e.data as NativePreferences)
+    })
+    return () => { alive = false; unsubscribe() }
+  }, [])
   // G1b — ONE TREE FETCH IN FLIGHT, AND NEVER A LOST ONE.
   //
   // `refreshTree` is called from two unthrottled sources: the 6 s heartbeat
@@ -737,7 +755,16 @@ export default function App() {
       {/* no active org: the org list IS the screen */}
       {!slug && (
         <div className="welcome">
-          <div className="welcome-card">{orgPanel}</div>
+          {!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
+            <Onboarding orgCount={orgs.length}>
+              <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
+                createOrg(name, dirs, netAuto, netHubs)
+                  .then((r) => { refreshOrgs(); pick(r.slug) })
+                  .catch((e: Error) => toast([`error: ${e.message}`]))} />
+            </Onboarding>
+          ) : (
+            <div className="welcome-card">{orgPanel}</div>
+          )}
         </div>
       )}
 

@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true, routineNotifications: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true, routineNotifications: false, onboarded: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -20,8 +20,8 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       if (!isVisualTheme(val)) throw new Error('Invalid visual theme')
       result.visualTheme = val
     } else {
-      if (!['exitOnClose', 'startAtLogin', 'routineNotifications'].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
-      result[key as 'exitOnClose' | 'startAtLogin' | 'routineNotifications'] = val
+      if (!['exitOnClose', 'startAtLogin', 'routineNotifications', 'onboarded'].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
+      result[key as 'exitOnClose' | 'startAtLogin' | 'routineNotifications' | 'onboarded'] = val
     }
   }
   return result

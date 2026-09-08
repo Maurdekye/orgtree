@@ -16,9 +16,13 @@ const policy = await load('policy'), { Preferences } = await load('preferences')
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true, routineNotifications: false })
+  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true, routineNotifications: false, onboarded: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', exitOnClose: true, startAtLogin: false, routineNotifications: false })
+  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', exitOnClose: true, startAtLogin: false, routineNotifications: false, onboarded: false })
+  // first-run setup completion persists like any preference and reloads
+  assert.equal(prefs.set({ onboarded: true }).onboarded, true)
+  assert.equal(new Preferences(file).get().onboarded, true)
+  assert.throws(() => prefs.set({ onboarded: 'yes' }), /Invalid preference/)
   for (const bad of [[], null, { startAtLogin: 'false' }, { token: true }, { toString: true }]) assert.throws(() => prefs.set(bad))
   assert.equal(policy.closeAction(false, false), 'hide')
   assert.equal(policy.closeAction(true, false), 'quit')
@@ -79,7 +83,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(prefs.get().visualTheme, 'orgtree')
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {visualTheme,startAtLogin:false,exitOnClose:true,routineNotifications:false})
+    assert.deepEqual(new Preferences(file).get(), {visualTheme,startAtLogin:false,exitOnClose:true,routineNotifications:false,onboarded:false})
   }
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {
