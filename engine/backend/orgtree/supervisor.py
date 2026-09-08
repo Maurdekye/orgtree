@@ -1263,6 +1263,10 @@ def _text_became_durable(slug: str, nid: str) -> None:
     st = state(slug, nid)                     # takes _state_lock itself
     with _state_lock:                         # ...so acquire it only after
         st["draft_epoch"] = int(st.get("draft_epoch") or 0) + 1
+        # Quote snapshots stay in reply-events.sqlite3 for exact replies;
+        # only their on-screen scaffolding retires at this handover.
+        for group in ('draft', 'thinking', 'starting'):
+            st.get('reply_transient', {}).pop(group, None)
 
 
 def draft_epoch(slug: str, nid: str) -> str:
@@ -1286,6 +1290,8 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
     st = state(slug, nid)
     with _state_lock:
         rows = cast("list[dict[str, Any]]", st.setdefault("live", []))
+        for group in ('thinking', 'starting'):
+            st.get('reply_transient', {}).pop(group, None)
         # The tail is swept as soon as the transcript carries the same row,
         # but this fact lasts for the whole turn.  Without it the desk
         # mistakes every caught-up gap between rows for CLI startup.
@@ -2878,6 +2884,9 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
     current = _read_chat_current(org, nid, last=None if history else last, hold_back=hold_back)
     current_state = state(org.d['slug'], nid)
     with _state_lock:
+        if not current_state['busy']:
+            for group in ('draft', 'thinking', 'starting'):
+                current_state.get('reply_transient', {}).pop(group, None)
         current['transient'] = list(current_state.get('reply_transient', {}).values())
     if not history:
         return reply_events.annotate(org, nid, current)

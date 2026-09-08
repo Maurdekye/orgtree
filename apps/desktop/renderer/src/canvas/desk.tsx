@@ -2366,9 +2366,13 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             }</div>
           ))}
           {transient.map(row => <div key={row.event_id} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
-            onContextMenu={e => openReply(e, row)} className={'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
+            onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
+              ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
-              ? <div className="thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text || 'Thinking...'}</div>
+              ? (row.event_id === convo.thinkingEventId && thinking || row.text
+                ? <div className="msg live thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text}</div>
+                : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
+                    {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
               : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
                   html={md(row.event_id === convo.draftEventId && draft ? draft : row.text, fileBase(slug, node.id))} />}
           </div>)}

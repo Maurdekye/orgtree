@@ -14,6 +14,36 @@ const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: '
 const desk = () => <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
   op={async () => ({})} toast={() => {}} pub={false} bare />
 
+test('polled sealed thinking is an indicator and durable handover preserves repeated native messages', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); server.busy = true
+  let transient = [{ event_id: 'think-1', role: 'assistant', kind: 'thinking_start', text: '' }]
+  const chat = server.chat.bind(server)
+  server.chat = n => ({ ...chat(n), transient })
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const thought = view.el.querySelector('[data-reply-event="think-1"]')!
+    assert.ok(thought.querySelector('.thinking.sealed svg'), 'sealed thought uses the existing indicator')
+    assert.equal(thought.classList.contains('assistant'), false)
+    assert.doesNotMatch(thought.textContent!, /Thinking\.\.\./)
+    await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'Same final reply', event_id: 'draft-1', t: Date.now() }) })
+    assert.ok(view.el.querySelector('[data-reply-event="draft-1"]'))
+    server.messages = [
+      { role: 'user', text: 'Delivered prompt', seq: 0, event_id: 'prompt-1' },
+      { role: 'assistant', text: 'Same final reply', seq: 1, event_id: 'final-1' },
+      { role: 'assistant', text: 'Same final reply', seq: 2, event_id: 'final-2' },
+    ]
+    transient = []; server.busy = false
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelector('[data-reply-event="think-1"]'), null)
+    assert.equal(view.el.querySelector('[data-reply-event="draft-1"]'), null)
+    assert.equal(view.el.querySelectorAll('[data-reply-event="final-1"], [data-reply-event="final-2"]').length, 2)
+    assert.equal(view.el.querySelectorAll('[data-reply-event="prompt-1"]').length, 1)
+  } finally { await view.unmount(); resetConvos() }
+})
+
 test('reply draft follows rename/removal recovery without rewriting its source identity', () => {
   localStorage.clear()
   const key = draftKey('org', 'writer', 2)
