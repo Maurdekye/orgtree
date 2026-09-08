@@ -151,7 +151,8 @@ export function useImportJob(active: boolean) {
     } catch (error) {
       if (alive.current) setCancelIssue(`Cancellation could not be confirmed: ${(error as Error).message}. Checking status; the import may still be running.`)
     } finally {
-      cancelInFlight.current = false
+      // Also invalidate snapshots begun during the POST, before its outcome.
+      epoch.current++; cancelInFlight.current = false
       if (alive.current) { setCancelPending(false); void refresh() }
     }
   }

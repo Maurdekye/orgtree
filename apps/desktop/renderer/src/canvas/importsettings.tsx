@@ -48,6 +48,9 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
   const stopping = progress.cancelPending || progress.job?.cancel_requested || progress.job?.state === 'cancelling'
   const measured = progress.running && !stopping && !progress.issue && progress.job?.phase !== 'counting' && progress.job?.progress_percent != null
   const eta = measured ? progress.job?.eta_seconds : null
+  const etaText = eta == null ? null : eta < 60 ? 'less than a minute' : eta < 3600
+    ? `about ${Math.ceil(eta / 60)} ${Math.ceil(eta / 60) === 1 ? 'minute' : 'minutes'}`
+    : `about ${Math.ceil(eta / 3600)} ${Math.ceil(eta / 3600) === 1 ? 'hour' : 'hours'}`
   const post = <T,>(path: string, body: unknown) => req<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 600_000)
   return <section className="import-settings">
     <h3>Import from Orgtree v1</h3>
@@ -59,7 +62,7 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
         <p>{({ queued: 'Queued', counting: 'Counting files and measuring total size', reading: 'Reading organization data', copying: 'Copying files', native: 'Copying native conversations', validating: 'Validating the copy', publishing: 'Publishing organizations', recovering: 'Restoring imported work', finished: 'Finished' } as Record<string, string>)[progress.job.phase] || progress.job.phase}
           {progress.job.current_org && ` — ${progress.job.current_org}`}</p>
         <p>{progress.job.files_copied.toLocaleString()} files copied; {progress.job.bytes_copied.toLocaleString()} bytes copied and verified.</p>
-        {measured && <p>{(Math.floor(progress.job.progress_percent! * 10) / 10).toFixed(1)}% copy progress. {eta != null ? `Estimated remaining time: ${eta < 60 ? 'less than a minute' : eta < 3600 ? `about ${Math.ceil(eta / 60)} minutes` : `about ${Math.ceil(eta / 3600)} hours`}.` : 'Estimating remaining time…'} Validation and publication must finish before the import is complete.</p>}
+        {measured && <p>{(Math.floor(progress.job.progress_percent! * 10) / 10).toFixed(1)}% copy progress. {etaText != null ? `Estimated copy time remaining: ${etaText}.` : 'Estimating remaining copy time…'} Native processing, validation and publication must finish before the import is complete.</p>}
         {progress.running && <p className="dim">{stopping ? 'Waiting for the worker to stop at a safe checkpoint. Keep Orgtree running until the stop is confirmed.' : `${progress.job.total_files == null ? 'Total size is not known yet. ' : ''}You can close this panel and check progress later; keep Orgtree running.`}</p>}
         {['interrupted', 'cancelled'].includes(progress.job.state) && !!progress.job.publications?.length && <details>
           <summary>Review publication and recovery receipts ({progress.job.publications.length})</summary>
@@ -75,7 +78,7 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
       {progress.missing && <p>Review the source and selected organizations below, then explicitly retry the start with the saved request ID. No new copy will be started automatically.</p>}
       {progress.id && <p className="dim">Request ID: <span className="mono">{progress.id}</span></p>}
       <button disabled={progress.starting} onClick={() => { void progress.refresh() }}>Check import status</button>
-      {progress.running && <button disabled={progress.cancelPending || !!progress.job?.cancel_requested || progress.job?.cancellable !== true} onClick={() => { void progress.cancel() }}>Cancel Import</button>}
+      {progress.running && typeof progress.job?.cancellable === 'boolean' && <button disabled={progress.cancelPending || !!progress.job.cancel_requested || !progress.job.cancellable} onClick={() => { void progress.cancel() }}>Cancel Import</button>}
       {progress.running && !stopping && progress.job?.cancellable === false && <p className="dim">Cancellation is unavailable while publication or recovery is being finalized.</p>}
     </div>}
     <label>V1 data folder<div className="row"><input aria-label="V1 data folder" disabled={busy} value={source}

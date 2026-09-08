@@ -14,7 +14,7 @@ async function click(el: HTMLElement, text: string) {
 function fixture(initial: ImportJob | null = job()) {
   localStorage.clear(); if (initial) localStorage.setItem(IMPORT_REQUEST_KEY, id)
   const original = globalThis.fetch
-  const state = { job: initial, cancels: 0, starts: 0, offline: false, lost: false, refuse: false, delayed: null as Promise<Response> | null }
+  const state = { job: initial, cancels: 0, starts: 0, offline: false, lost: false, refuse: false, delayed: null as Promise<Response> | null, delayedCancel: null as Promise<Response> | null }
   globalThis.fetch = async (input, init) => {
     const url = String(input)
     if (url === '/api/orgs') return json([])
@@ -24,6 +24,7 @@ function fixture(initial: ImportJob | null = job()) {
       assert.equal(url, `/api/desktop/import-v1/jobs/${id}/cancel`)
       assert.deepEqual(JSON.parse(String(init.body)), {})
       state.cancels++
+      if (state.delayedCancel) return state.delayedCancel
       if (state.refuse) { state.job = job({ state: 'running', phase: 'publishing', cancellable: false }); return json({ detail: 'Publication cannot be cancelled.' }, 409) }
       state.job = { ...state.job!, state: 'cancelling', cancel_requested: true, cancellable: false }
       if (state.lost) { state.offline = true; throw new TypeError('Lost cancellation response') }
@@ -97,7 +98,11 @@ test('copy percentage and estimate never present finalization as complete', asyn
   const f = fixture(job({ state: 'running', phase: 'copying', progress_percent: 47.5, eta_seconds: 120, total_files: 20, total_bytes: 1000 })), v = await f.mount()
   try {
     assert.equal(v.el.querySelector('progress')!.getAttribute('value'), '47.5')
-    assert.match(v.el.textContent!, /47.5% copy progress/); assert.match(v.el.textContent!, /Estimated remaining time: about 2 minutes/)
+    assert.match(v.el.textContent!, /47.5% copy progress/); assert.match(v.el.textContent!, /Estimated copy time remaining: about 2 minutes/)
+    for (const [seconds, label] of [[60, 'about 1 minute.'], [3600, 'about 1 hour.']] as const) {
+      f.state.job = job({ state: 'running', phase: 'copying', progress_percent: 50, eta_seconds: seconds })
+      await click(v.el, 'Check import status'); assert.ok(v.el.textContent!.includes(`Estimated copy time remaining: ${label}`))
+    }
     f.state.job = job({ state: 'running', phase: 'validating', progress_percent: 99, eta_seconds: null, total_files: 20 })
     await click(v.el, 'Check import status')
     assert.match(v.el.textContent!, /99.0% copy progress/); assert.doesNotMatch(v.el.textContent!, /Import complete/)
@@ -106,6 +111,32 @@ test('copy percentage and estimate never present finalization as complete', asyn
     f.state.job = job({ state: 'running', progress_percent: 100 })
     await click(v.el, 'Check import status'); assert.match(v.el.textContent!, /invalid job/)
   } finally { await v.unmount(); f.close() }
+})
+
+test('a snapshot started during Cancel cannot undo the later cancellation acknowledgment', async () => {
+  const f = fixture(), v = await f.mount()
+  let cancelResponse!: (value: Response) => void, statusResponse!: (value: Response) => void
+  try {
+    f.state.delayedCancel = new Promise(resolve => { cancelResponse = resolve })
+    await click(v.el, 'Cancel Import')
+    assert.match(v.el.textContent!, /Requesting cancellation/)
+    f.state.delayed = new Promise(resolve => { statusResponse = resolve })
+    await click(v.el, 'Check import status')
+    f.state.job = job({ state: 'cancelling', cancel_requested: true, cancellable: false })
+    await inAct(async () => { cancelResponse(json({ job: f.state.job })); await flush(8) })
+    assert.match(v.el.textContent!, /Cancellation requested/)
+    await inAct(async () => { statusResponse(json({ job: job() })); await flush(8) })
+    assert.match(v.el.textContent!, /Cancellation requested/)
+    await click(v.el, 'Cancel Import'); assert.equal(f.state.cancels, 1)
+    f.state.job = job({ state: 'cancelled', cancellable: false })
+    await click(v.el, 'Check import status'); assert.match(v.el.textContent!, /Import cancelled/)
+  } finally { await v.unmount(); f.close() }
+})
+
+test('an engine without cancellation capability does not offer an unexplained disabled button', async () => {
+  const f = fixture(job({ cancellable: undefined })), v = await f.mount()
+  try { assert.equal([...v.el.querySelectorAll('button')].some(b => b.textContent === 'Cancel Import'), false) }
+  finally { await v.unmount(); f.close() }
 })
 
 test('compact preview keeps held memory visible even when native conversation is available', async () => {
