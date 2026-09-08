@@ -892,6 +892,8 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  reply_quote?: string
+  thinking_reply_quote?: string
   event_id?: string
   reply_to?: EventReplyWire
   /** Validated by the profile-specific segment decoder before rendering. */

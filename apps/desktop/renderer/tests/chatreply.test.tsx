@@ -36,6 +36,7 @@ test('identity never falls back to ordinal/text and quotes are bounded', () => {
   const second = replyFromRow('org', 'writer', 2, { event_id: 'second' }, 'same text')!
   assert.notDeepEqual(replyWire(first).source_event_ref, replyWire(second).source_event_ref)
   assert.equal(replyFromRow('org', 'writer', 2, { event_id: 'long' }, 'x'.repeat(5000))!.quote.length, MAX_REPLY_QUOTE)
+  assert.equal(replyFromRow('org', 'writer', 2, { event_id: 'literal' }, '  literal source\n')!.quote, '  literal source\n')
   localStorage.setItem('invalid-reply', JSON.stringify({ ...source, generation: -1 }))
   assert.equal(readReply('invalid'), null)
 })
@@ -129,6 +130,7 @@ test('tool call, result and thought select distinct nested sources instead of th
     let item = await replyOn(call)
     await inAct(() => { item.click() })
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'call')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Read a.txt')
     await inAct(() => { call.click() })
     const result = v.el.querySelector('[data-reply-event="result"]')!
     assert.equal(result.textContent, 'same text')
@@ -138,7 +140,11 @@ test('tool call, result and thought select distinct nested sources instead of th
     item = await replyOn(v.el.querySelector('[data-reply-event="thought"]')!)
     await inAct(() => { item.click() })
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'thought')
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Visible thought', 'collapsed label is not the source quote')
     assert.doesNotMatch(v.el.querySelector('.reply-preview')!.textContent!, /unavailable/)
+    item = await replyOn(v.el.querySelector('[data-reply-event="assistant"]')!)
+    await inAct(() => { item.click() })
+    assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Finished', 'assistant quote excludes nested thought/tool/result content')
     item = await replyOn(v.el.querySelectorAll('.tline')[1]!)
     assert.equal(item.disabled, true, 'legacy nested tool never aliases its assistant parent')
   } finally { await v.unmount(); resetConvos() }

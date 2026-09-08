@@ -1312,7 +1312,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const openReply = (e: ReplyMouseEvent, row: { event_id?: string }) => {
     const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-event]')
     const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
-    const quote = exact.getAttribute('data-reply-quote') ?? exact.textContent ?? ''
+    const quote = exact.getAttribute('data-reply-quote') ?? exact.textContent?.trim() ?? ''
     const event_id = exact.hasAttribute('data-reply-event') ? exact.getAttribute('data-reply-event') ?? undefined : row.event_id
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
@@ -1606,7 +1606,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // something different). Kept as a function rather than a component so it
   // keeps closing over this desk's slug/node/refresh exactly as it did inline.
   const pendBubble = (m: PendingMail) => (
-    <div key={m.id ?? m.at} data-reply-event={m.event_id} onContextMenu={e => openReply(e, m)} {...eventSurface(m, BASE ? 'public' : 'operator')} className={"msg user pending pendrow " + eventSurface(m, BASE ? 'public' : 'operator').className}>
+    <div key={m.id ?? m.at} data-reply-event={m.event_id} data-reply-quote={m.body} onContextMenu={e => openReply(e, m)} {...eventSurface(m, BASE ? 'public' : 'operator')} className={"msg user pending pendrow " + eventSurface(m, BASE ? 'public' : 'operator').className}>
       {/* ⚠ THIS IS A PREVIEW OF `Msg`, SO IT IS BUILT LIKE `Msg`
           (user, 2026-08-28): text in its own block, then the attachments in an
           `.attach-row` beneath it — a COLUMN. It used to lay text and
@@ -2301,7 +2301,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
               <div key={m.event_id ?? m.seq ?? i}
-                data-reply-event={m.event_id} onContextMenu={e => openReply(e, m)}
+                data-reply-event={m.event_id} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
                 // FR-20: scroll-to anchors — every user turn is a potential
                 // chip target now that scrolling past one retargets to the
                 // next up the chain, so each keeps its row in the seq→el map
@@ -2341,7 +2341,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               from the MIDDLE of this list as the transcript catches up, and an
               index key would rename every row below the one that left */}
           {live_feed.map((f, i) => (
-            <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} onContextMenu={e => openReply(e, f)}>
+            <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} data-reply-quote={f.text} onContextMenu={e => openReply(e, f)}>
             {f.kind === 'thought'
               ? <div key={f.n ?? 'f' + i} className="msg assistant live">
                   <ThoughtLine text={f.text} secs={f.secs} /></div>
@@ -3067,7 +3067,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
     const href = fileUrl(slug, nid, file.path!)
     if (isImg(file.name)) {
       return (
-        <div className="filecard imgcard" data-reply-event={t.result_event_id ?? ''}>
+        <div className="filecard imgcard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           <img className="imgcard-img" src={href} alt={file.name}
             loading="lazy" title={`${file.name} — click to view`}
             onClick={() => openLightbox(href, { name: file.name, download: href })} />
@@ -3077,7 +3077,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
       )
     }
     return (
-      <a className="filecard" data-reply-event={t.result_event_id ?? ''} href={href}
+      <a className="filecard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} href={href}
         download={file.name} title="download">
         <DownloadIcon fontSize="inherit" className="fc-ico" />
         <span className="fc-body">
@@ -3090,7 +3090,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
   }
   return (
     <div className={'tools tchip' + (t.error ? ' terr' : '')}>
-      <span data-reply-event={t.event_id ?? ''} className={'tline' + (expandable ? ' click' : '')}
+      <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
         onClick={expandable ? () => setOpen((o) => !o) : undefined}
         title={expandable ? (open ? 'collapse' : 'expand') : undefined}>
         <DotIcon fontSize="inherit" className="tooldot" />
@@ -3127,7 +3127,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && t.diff && (
-        <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''}>
+        <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (
             <div key={i} className={l.startsWith('@@') ? 'dhunk'
               : l.startsWith('+') ? 'dplus'
@@ -3135,11 +3135,11 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
           {t.diff.truncated && <div className="dim">… truncated</div>}
         </pre></CopyablePre>)}
       {open && !t.diff && t.result && (
-        <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''}>
+        <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.result}{t.truncated ? '\n… truncated' : ''}
         </pre></CopyablePre>)}
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
-        <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} alt="tool result"
+        <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
           src={`${BASE}/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
     </div>
   )
@@ -3168,7 +3168,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   return (
     <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '')}>
       {(m.thinking || m.thinking_sealed) &&
-        <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
+        <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
           sealed={m.thinking_sealed} /></div>}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}

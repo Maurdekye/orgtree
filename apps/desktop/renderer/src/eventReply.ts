@@ -28,7 +28,7 @@ export function replyContext(value: unknown): ReplyContext | null {
 export function replyFromRow(org: string, agent: string, generation: number,
   row: { event_id?: string }, visibleText: string): ReplyContext | null {
   if (typeof row.event_id !== 'string' || !row.event_id) return null
-  return { org, agent, generation, eventId: row.event_id, quote: visibleText.trim().slice(0, MAX_REPLY_QUOTE) }
+  return { org, agent, generation, eventId: row.event_id, quote: visibleText.slice(0, MAX_REPLY_QUOTE) }
 }
 
 export function readReply(key: string): ReplyContext | null {
