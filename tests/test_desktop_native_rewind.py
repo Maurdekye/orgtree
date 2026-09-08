@@ -99,6 +99,14 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         self.assertEqual(fixtures.fingerprint(self.profile), existing)
         self.assertFalse((self.dest / "orgs/acme.db").exists())
 
+    def test_reused_source_sid_cannot_become_a_ready_clone(self):
+        doc, path, sources, profile = self.rewind_fixture()
+        with patch.object(native.uuid, "uuid4", return_value=uuid.UUID(path.stem)):
+            self.run_native(sources)
+        copied = self.read()
+        self.assertIn("independent session ID", native.native_hold_reason(copied, "worker"))
+        self.assertFalse((self.profile / "file-history").exists())
+
     def test_publication_failure_never_publishes_org_or_changes_old_profile_bytes(self):
         doc, path, sources, profile = self.rewind_fixture(same_profile=True)
         existing = fixtures.fingerprint(profile)

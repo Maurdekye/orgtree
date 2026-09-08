@@ -249,6 +249,8 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
         elif meta["provider"] in {"claude", "openrouter"}:
             from .desktop_native_claude_dependencies import copy_outputs
             from .desktop_native_claude_rewind import prepare as prepare_rewind
+            if meta["session_id"].lower() == node["session_id"].lower():
+                raise NativeHeld("Native clone did not allocate an independent session ID")
             cloned = claude_records(records, node["session_id"], meta["session_id"], cwd)
             cloned, rewind = prepare_rewind(path, node["session_id"], meta["session_id"], cloned,
                                            source=source, dest=dest, slug=slug, nid=nid,
