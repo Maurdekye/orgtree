@@ -54,6 +54,25 @@ test('typed notices group only matching variants and retain every complete body'
   assert.equal(view.el.querySelectorAll('.mailer-read [data-event-variant="lifecycle.retired"]').length, 0)
 })
 
+test('inbox ordinary messages and notices keep family styling and sender links',async t=>{
+  const actor='peer-agent'
+  const message=row('message','ordinary.message',{from:actor,ev:{...fixture('ordinary.message'),actor:{kind:'agent',id:actor},body:'Inbox message C'}})
+  const notice=row('notice','ordinary.notice',{from:actor,kind:'notice',ev:{...fixture('ordinary.notice'),actor:{kind:'agent',id:actor},body:'Inbox notice C'}})
+  const jumped:string[]=[]
+  const view=await mountView(<MailList org="fixture" delivered={[message,notice]}
+    tierOf={id=>id===actor?'sonnet':undefined} hasAgent={id=>id===actor}
+    onFocusAgent={id=>jumped.push(id)}/>,h=>h)
+  t.after(()=>view.unmount())
+  assert.equal(view.el.querySelectorAll('.mailrow.event-ordinary').length,2)
+  assert.equal(view.el.querySelectorAll('.mailrow button.cc-name-jump').length,2)
+  view.el.querySelectorAll<HTMLButtonElement>('.mailrow button.cc-name-jump').forEach(button=>button.click())
+  assert.deepEqual(jumped,[actor,actor])
+  const messageRow=[...view.el.querySelectorAll<HTMLElement>('.mailrow')]
+    .find(row=>row.textContent?.includes('Message'))!
+  await inAct(()=>{messageRow.click()})
+  assert.match(view.el.querySelector('.mailer-read')!.textContent!,/Inbox message C/)
+})
+
 test('engine USER route has system authorship; untyped body is readable without recognizing its header', async t => {
   const engine = row('e', 'runtime.ui_crash_report', { from: '@user' })
   const legacy = row('l', 'ordinary.message', { ev: undefined, body: '[DONE] FROM worker\nuntagged original content' })

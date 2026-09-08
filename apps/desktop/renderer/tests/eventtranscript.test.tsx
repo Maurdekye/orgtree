@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { Msg } from '../src/canvas/desk'
 import { SegmentList, isSegments } from '../src/events/segments'
+import { AgentDirectoryProvider } from '../src/canvas/identity'
 declare const __SRC_DIR__: string
 const f=(name:string)=>JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events',name+'.json'),'utf8'))
 const mail=(variant:string)=>({id:variant,from:'@user',kind:'message',body:'legacy projection copy',at:'2026-09-06T12:00:00Z',ev:f(variant).private})
@@ -89,6 +90,28 @@ test('each typed transcript message owns its header, body and family styling in 
     assert.doesNotMatch(message.textContent!,/Stored compatibility copy/)
     assert.equal(message.querySelectorAll('header').length,1)
   }
+})
+
+test('chat message and notice segments share ordinary styling and sender navigation',async t=>{
+  const actor='peer-agent'
+  const message={...f('ordinary.message').private,actor:{kind:'agent',id:actor},body:'Normal chat message C'}
+  const notice={...f('ordinary.notice').private,actor:{kind:'agent',id:actor},body:'Passive chat notice C'}
+  const segments=[
+    {kind:'mail',rows:[{id:'message',from:actor,kind:'message',at:'now',body:'compatibility',ev:message}]},
+    {kind:'notices',rows:[{at:'later',text:'compatibility',ev:notice}]},
+  ]
+  const jumped:string[]=[]
+  const view=await mountView(<AgentDirectoryProvider value={{
+    resolve:id=>id===actor?{tier:'sonnet'}:undefined,
+    onFocus:id=>jumped.push(id),
+  }}><Msg slug="org" nid="worker" m={{role:'user',text:'compatibility',segments}}/></AgentDirectoryProvider>,h=>h)
+  t.after(()=>view.unmount())
+  assert.equal(view.el.querySelectorAll('.event-ordinary').length,2)
+  assert.match(view.el.textContent!,/Normal chat message C/)
+  assert.match(view.el.textContent!,/Passive chat notice C/)
+  assert.equal(view.el.querySelectorAll('button.cc-name-jump').length,2)
+  view.el.querySelectorAll<HTMLButtonElement>('button.cc-name-jump').forEach(button=>button.click())
+  assert.deepEqual(jumped,[actor,actor])
 })
 
 test('only typed mail-pointer instructions are hidden; identical authored and legacy text remains', async t => {
