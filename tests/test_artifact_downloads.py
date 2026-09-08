@@ -249,11 +249,38 @@ class ArtifactDownloadTests(unittest.TestCase):
             self.assertIn("b{color:blue}", preview)
             self.assertLessEqual(len(preview.encode("utf-8")), 4096 * 4)
 
-            (css / "a.css").write_text('@import "b.css"; ' * 400, encoding="utf-8")
-            with self.assertRaises(ArtifactForbidden):
+            (css / "b.css").write_text("b{color:blue}" * 10, encoding="utf-8")
+            (css / "a.css").write_text('@import "b.css"; ' * 1000, encoding="utf-8")
+            with self.assertRaises(ArtifactForbidden) as raised:
                 build_document_preview(
                     "d-cycle", {"id": "d-cycle", "format": "html",
-                                 "file": "outbox/index.html"}, root, max_bytes=4096)
+                                 "file": "outbox/index.html"}, root, max_bytes=20000)
+            self.assertIn("preview exceeds", str(raised.exception))
+
+            (root / "outbox" / "large.html").write_bytes(b"x" * 2001)
+            with self.assertRaises(ArtifactForbidden) as raised:
+                build_document_preview(
+                    "d-large", {"id": "d-large", "format": "html",
+                                 "file": "outbox/large.html"}, root, max_bytes=2000)
+            self.assertIn("bundle exceeds", str(raised.exception))
+
+    def test_preview_rejects_excessive_acyclic_css_import_depth(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            css = root / "outbox" / "assets"
+            css.mkdir(parents=True)
+            (root / "outbox" / "index.html").write_text(
+                '<link rel="stylesheet" href="assets/000.css">', encoding="utf-8")
+            for index in range(129):
+                name = f"{index:03d}.css"
+                next_name = f"{index + 1:03d}.css"
+                content = f'@import "{next_name}"; body{{color:{index}}}' if index < 128 else "body{color:black}"
+                (css / name).write_text(content, encoding="utf-8")
+            with self.assertRaises(ArtifactForbidden) as raised:
+                build_document_preview(
+                    "d-depth", {"id": "d-depth", "format": "html",
+                                "file": "outbox/index.html"}, root, max_bytes=20000)
+            self.assertIn("stylesheet nesting", str(raised.exception))
 
     def test_preview_missing_local_asset_is_truthful(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

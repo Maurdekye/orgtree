@@ -82,6 +82,7 @@ _MARKDOWN_TYPE = "text/markdown; charset=utf-8"
 _HTML_TYPE = "text/html; charset=utf-8"
 _ZIP_TYPE = "application/zip"
 _DEFAULT_BUNDLE_MAX = 25 * 1048576
+_MAX_PREVIEW_CSS_DEPTH = 128
 _ASSET_KEYS = ("localassets", "local_assets", "assets")
 _SOURCE_KEYS = ("file", "html_file", "path", "source")
 _SENSITIVE_PARTS = {
@@ -500,6 +501,8 @@ def _rewrite_css(
     """Inline CSS imports and local URL resources relative to ``path``."""
     if path in stack:
         return ""
+    if len(stack) >= _MAX_PREVIEW_CSS_DEPTH:
+        raise ArtifactForbidden("the HTML preview stylesheet nesting is too deep")
     stack = stack | {path}
     text = data.decode("utf-8", errors="replace")
 
