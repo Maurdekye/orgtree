@@ -10,6 +10,7 @@ export interface ImportJob {
   phase: string; source_root: string; organizations: string[]; current_org: string | null
   files_copied: number; bytes_copied: number; started_at: string; updated_at: string
   result: Imported | null; error: string | null
+  publications?: { slug: string; state: 'publishing' | 'published'; recovery: 'not_started' | 'dispatching' | 'returned' }[]
 }
 export const IMPORT_REQUEST_KEY = 'orgtree-import-request-id'
 const jobs = '/api/desktop/import-v1/jobs'

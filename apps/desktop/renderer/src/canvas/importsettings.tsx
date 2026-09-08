@@ -57,6 +57,13 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
           {progress.job.current_org && ` — ${progress.job.current_org}`}</p>
         <p>{progress.job.files_copied.toLocaleString()} files copied; {progress.job.bytes_copied.toLocaleString()} bytes copied and verified.</p>
         {progress.running && <p className="dim">Total size is not known yet. You can close this panel and check progress later; keep Orgtree running.</p>}
+        {progress.job.state === 'interrupted' && !!progress.job.publications?.length && <details>
+          <summary>Review publication and recovery receipts ({progress.job.publications.length})</summary>
+          <ul>{progress.job.publications.map(row => <li key={row.slug}>
+            <b>{row.slug}</b>: {row.state === 'published' ? 'Copy publication confirmed.' : 'Copy publication outcome is not confirmed.'}{' '}
+            {row.recovery === 'not_started' ? 'Recovery has not started.' : row.recovery === 'dispatching' ? 'Recovery outcome is not confirmed.' : 'Recovery callback returned; this does not confirm that agent work finished.'}
+          </li>)}</ul>
+        </details>}
       </>}
       {progress.issue && <p role="alert" className="ask-warn">{progress.issue}</p>}
       {progress.missing && progress.startError && <p className="ask-warn">Start response: {progress.startError}</p>}

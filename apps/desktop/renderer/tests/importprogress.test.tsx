@@ -164,3 +164,25 @@ test('interrupted job restores durable partial receipts and does not auto-resume
     assert.equal(view.el.querySelector('progress'), null)
   } finally { await view.unmount(); f.close() }
 })
+
+test('interrupted publication receipts expose exact organizations and uncertainty even without a result', async () => {
+  const f = await fixture(true)
+  f.state.job = makeJob({ state: 'interrupted', result: null, error: 'Inspect retained receipts.', publications: [
+    { slug: 'uncertain-copy', state: 'publishing', recovery: 'not_started' },
+    { slug: 'confirmed-copy', state: 'published', recovery: 'dispatching' },
+    { slug: 'returned-recovery', state: 'published', recovery: 'returned' },
+  ] })
+  const view = await f.mount()
+  try {
+    const disclosure = [...view.el.querySelectorAll('details')].find(d => d.querySelector('summary')?.textContent === 'Review publication and recovery receipts (3)')!
+    assert.ok(disclosure)
+    const rows = [...disclosure.querySelectorAll('li')].map(row => row.textContent)
+    assert.deepEqual(rows, [
+      'uncertain-copy: Copy publication outcome is not confirmed. Recovery has not started.',
+      'confirmed-copy: Copy publication confirmed. Recovery outcome is not confirmed.',
+      'returned-recovery: Copy publication confirmed. Recovery callback returned; this does not confirm that agent work finished.',
+    ])
+    assert.equal(f.state.posts.length, 0)
+    assert.doesNotMatch(view.el.textContent!, /Import complete/)
+  } finally { await view.unmount(); f.close() }
+})
