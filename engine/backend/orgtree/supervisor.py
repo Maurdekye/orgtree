@@ -3762,7 +3762,8 @@ def clean_env() -> dict[str, str]:
     # org's OWN key only.
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
-    return env
+    from . import devguard
+    return devguard.child_env(env)
 
 
 _ENV_OVERRIDES_CACHE: dict[str, Any] = {"at": 0.0, "mtime": None, "val": {}}
@@ -3814,7 +3815,7 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in ent.items():
         ks = str(k)
-        if ks.startswith("ANTHROPIC_") or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
+        if ks.startswith(("ANTHROPIC_", "ORGTREE_AGENT_PARENT_", "ORGTREE_AGENT_LEGACY_")) or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
                 "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN",
                 "ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
             continue

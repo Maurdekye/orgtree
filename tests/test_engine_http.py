@@ -86,6 +86,8 @@ def seeded():
     assert 'ORGTREE_V2_HUB_TOKEN' not in safe
     assert 'ORGTREE_V2_TOKEN' not in safe
     assert safe['ORGTREE_PORT'] == str(result[3])
+    print(json.dumps({'guardEnv': {k:v for k,v in safe.items() if k in
+        ('ORGTREE_AGENT_PARENT_DATA','ORGTREE_AGENT_LEGACY_DATA')}}), flush=True)
     return result
 launch.load_app = seeded
 launch.main()
@@ -126,6 +128,8 @@ class EngineHTTPTests(unittest.TestCase):
                 if 'fixtureToken' in row:
                     cls.token = row['fixtureToken']
                     cls.stale = row['staleToken']
+                if 'guardEnv' in row:
+                    cls.guard_env = row['guardEnv']
                 if row.get('type') == 'ready':
                     cls.port = row['port']
                     assert cls.port != 7360
@@ -186,6 +190,8 @@ class EngineHTTPTests(unittest.TestCase):
 
     def test_real_mcptool_post_uses_scoped_token_and_engine_port(self):
         env = dict(os.environ)
+        env.update(self.guard_env)
+        self.assertIn('ORGTREE_AGENT_PARENT_DATA', env)
         env.update(ORGTREE_PORT=str(self.port), ORGTREE_AGENT_TOKEN=self.token,
                    ORGTREE_DATA=str(Path(self.tmp.name) / 'data'),
                    HOME=str(Path(self.tmp.name) / 'home'),
@@ -193,6 +199,10 @@ class EngineHTTPTests(unittest.TestCase):
                    PYTHONPATH=str(ROOT / 'engine' / 'backend'))
         env.pop('ORGTREE_BASE', None)
         env.pop('ORGTREE_V2_TOKEN', None)
+        denied = subprocess.run([sys.executable, '-c', 'from orgtree import store'],
+                                env=env, capture_output=True, text=True, timeout=15)
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn('explicit independent', denied.stderr)
         code = "from orgtree.mcptool import _post; import json; print(json.dumps(_post({'org':'auth-fixture','node':'caller','tool':'orgtree_chart','args':{}})))"
         result = subprocess.run([sys.executable, '-c', code], env=env,
                                 capture_output=True, text=True, timeout=15)

@@ -87,6 +87,11 @@ from collections.abc import Callable, Generator, Iterable, Iterator
 from typing import Any, cast
 
 from datetime import datetime, timezone
+from . import devguard
+
+# Fail before importing ledger or creating/opening any storage.
+devguard.validate_root(os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree")))
+
 from .ledger import LedgerError, Org, slugify
 from .ledger import now as _ledger_now
 from .schema import OrgDoc
@@ -281,6 +286,7 @@ def _assert_synced_data_root() -> None:
     If ORGTREE_DATA is unset or empty in the environment, this passes (the standard
     production case defaulting to ~/orgtree).
     """
+    devguard.validate_root(DATA_ROOT)
     env = os.environ.get("ORGTREE_DATA")
     if env and env.strip():
         if os.path.normcase(os.path.realpath(env.strip())) != os.path.normcase(os.path.realpath(DATA_ROOT)):

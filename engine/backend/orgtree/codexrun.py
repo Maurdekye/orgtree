@@ -432,6 +432,8 @@ class AppServerClient:
             env["CODEX_HOME"] = codex_home
         if env_extra:
             env.update(env_extra)
+        from . import devguard
+        env = devguard.child_env(env)
         # cwd is the agent's own scratch, same as the claude lane's Popen —
         # the process-level cwd, not just thread/start's `cwd` param, because
         # AGENTS.md discovery and any relative path the model touches resolve

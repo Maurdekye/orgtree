@@ -502,6 +502,8 @@ class AntigravityTurn:
         records and the next turn resumes)."""
         env = dict(os.environ)
         env.update(self._env_extra)
+        from . import devguard
+        env = devguard.child_env(env)
         # Normalize last: caller extras may add org identity, but may not
         # re-enable agy's updater or reintroduce another provider's secret.
         env = providers.antigravity_env(env)
