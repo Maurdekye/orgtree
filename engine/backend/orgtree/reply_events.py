@@ -93,12 +93,14 @@ def _annotate(org, nid, chat, connection):
             source = row.get('event_id')
             if source:
                 if field == 'transient' and str(source).startswith('reply_'):
-                    row['reply_quote'] = row.get('text') or ''
+                    row['reply_quote'] = str(row.get('text') or '')[:4000]
                     rows.append(row)
                     continue
-                row['event_id'] = save(source, 'row', row.get('text') or row.get('body') or row.get('cmd_out'))
+                row['reply_quote'] = str(row.get('text') or row.get('body') or row.get('cmd_out') or '')[:4000]
+                row['event_id'] = save(source, 'row', row['reply_quote'])
                 if row.get('thinking') is not None:
-                    row['thinking_event_id'] = save(source, 'thinking', row['thinking'])
+                    row['thinking_reply_quote'] = str(row['thinking'] or '')[:4000]
+                    row['thinking_event_id'] = save(source, 'thinking', row['thinking_reply_quote'])
                 tools = []
                 for index, original_tool in enumerate(row.get('tools') or []):
                     if not isinstance(original_tool, dict):
@@ -106,10 +108,12 @@ def _annotate(org, nid, chat, connection):
                         continue
                     tool = dict(original_tool)
                     tool_source = str(source) + ':tool:' + str(tool.get('id') or index)
-                    tool['event_id'] = save(tool_source, 'call',
-                        str(tool.get('name') or '') + ' ' + str(tool.get('input') or tool.get('arg') or ''))
+                    tool['reply_quote'] = (str(tool.get('name') or '') + ' ' +
+                        str(tool.get('input') or tool.get('arg') or ''))[:4000]
+                    tool['event_id'] = save(tool_source, 'call', tool['reply_quote'])
                     if 'result' in tool:
-                        tool['result_event_id'] = save(tool_source, 'result', tool['result'])
+                        tool['result_reply_quote'] = str(tool['result'] or '')[:4000]
+                        tool['result_event_id'] = save(tool_source, 'result', tool['result_reply_quote'])
                     tools.append(tool)
                 row['tools'] = tools
             rows.append(row)

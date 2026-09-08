@@ -14,6 +14,27 @@ from orgtree import ledger, reply_events, supervisor, store
 
 
 class ReplySnapshotsTests(unittest.TestCase):
+    def test_canonical_preview_fields_equal_stored_quotes(self):
+        org=store.create_org('canonical-quotes')
+        org.hire(ledger.USER,None,'haiku',0,'agent')
+        store.save_org(org)
+        original={'event_id':'source','text':'row'*2000,'thinking':'thought'*1000,
+                  'tools':[{'id':'tool','name':'inspect','input':{'z':[1,2]},'result':{'ok':True}}]}
+        row=reply_events.annotate(org,'agent',{'messages':[original]})['messages'][0]
+        tool=row['tools'][0]
+        pairs=[(row['event_id'],row['reply_quote']),
+               (row['thinking_event_id'],row['thinking_reply_quote']),
+               (tool['event_id'],tool['reply_quote']),
+               (tool['result_event_id'],tool['result_reply_quote'])]
+        for eid, quote in pairs:
+            stored=reply_events.lookup('canonical-quotes','agent',0,eid,reply_events.incarnation(org,'agent'))
+            self.assertEqual(quote,stored)
+            self.assertLessEqual(len(quote),4000)
+        self.assertEqual(row['event_id'],reply_events.remember(org,'agent','source','row',original['text']))
+        self.assertEqual(tool['reply_quote'],"inspect {'z': [1, 2]}")
+        self.assertEqual(tool['result_reply_quote'],"{'ok': True}")
+        store._POOL.close_all('canonical-quotes')
+
     def test_removal_route_and_recreated_org_cannot_resolve_old_quote(self):
         from fastapi.testclient import TestClient
         from engine.launch import TokenGate
