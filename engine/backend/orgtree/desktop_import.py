@@ -209,7 +209,9 @@ def _validate_document(doc: Any, slug: str) -> None:
     if doc.get("disk"):
         raise ImportRefused(f"{slug}: disk-backed V1 data must first be exported to a regular data folder; its scratch is not in this root")
     for nid, node in nodes.items():
-        if (not re.fullmatch(r"[A-Za-z0-9_-]+(?:@[0-9]+)?", nid)
+        # V1 archives append @generation to the current ID, including a
+        # rehired archived ID. Keep every component; never flatten lineage.
+        if (not isinstance(nid, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:@[0-9]+)*", nid)
                 or not isinstance(node, dict) or not isinstance(node.get("session_id"), str)
                 or node.get("state") not in {"live", "archived", "unrecoverable"}
                 or not isinstance(node.get("scope"), dict)):

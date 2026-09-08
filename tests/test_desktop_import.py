@@ -106,6 +106,58 @@ class DesktopImportTests(unittest.TestCase):
                                acknowledge_duplicate_work=True,
                                on_imported=callback or self.resumed.append)
 
+    def _check_generated_lineage_ids(self, use_sqlite: bool) -> None:
+        doc = self.fixture(sqlite=False)
+        from engine.backend.orgtree.ledger import slugify
+        long_id = slugify('long generated role ' * 8) + '@12@0'
+        self.assertGreater(len(long_id),128)  # V1 slugify has no length cap.
+        ids = ['inline-images@0@0','worker@12@3@0',long_id]
+        for nid in ids:
+            doc['nodes'][nid] = {**copy.deepcopy(doc['nodes']['worker@0']),
+                                 'parent':'worker','predecessor':'worker@0','successor':None}
+        doc['nodes']['worker@0']['successor']=ids[0]
+        doc['mail_log'][ids[0]]=[{'id':'nested-mail','text':'retained lineage mail'}]
+        doc['documents'].append({'id':'nested-doc','node':ids[0],'title':'Archived','body':'retained'})
+        source_doc=self.source/'orgs/acme.json'
+        source_doc.write_text(json.dumps(doc),encoding='utf-8')
+        if use_sqlite:
+            imp._write_candidate(self.source/'orgs/acme.db',doc)
+            source_doc.unlink()  # Synthetic fixture only; select one source format.
+        before=fingerprint(self.source)
+        with patch.object(subprocess,'Popen',side_effect=AssertionError('No provider process')):
+            preview=imp.preview_import(str(self.source))
+            self.assertEqual(len(preview['organizations']),1)
+            self.assertEqual(preview['organizations'][0]['slug'],'acme')
+            self.assertEqual(preview['organizations'][0]['nodes'],len(doc['nodes']))
+            self.assertIsNone(preview['organizations'][0]['conflict'])
+            self.run_import()
+        copied=self.read()
+        self.assertEqual(set(copied['nodes']),set(doc['nodes']))
+        for nid in ids:
+            self.assertEqual(copied['nodes'][nid]['parent'],'worker')
+            self.assertEqual(copied['nodes'][nid]['predecessor'],'worker@0')
+        self.assertEqual(copied['nodes']['worker@0']['successor'],ids[0])
+        self.assertEqual(copied['mail_log'][ids[0]],doc['mail_log'][ids[0]])
+        self.assertEqual(copied['documents'][-1]['node'],ids[0])
+        self.assertEqual(fingerprint(self.source),before)
+
+    def test_sqlite_generated_lineage_ids_preview_and_copy(self):
+        self._check_generated_lineage_ids(True)
+
+    def test_json_generated_lineage_ids_preview_and_copy(self):
+        self._check_generated_lineage_ids(False)
+
+    def test_malformed_lineage_ids_remain_refused(self):
+        doc=self.fixture(sqlite=False)
+        for nid in ('worker@','worker@@0','worker@-1','worker@x','worker@0@',
+                    '../worker','worker/child','worker\\child','C:worker',
+                    'worker@0/../escape','worker\x00','worker@0\n',42):
+            with self.subTest(nid=nid):
+                malformed=copy.deepcopy(doc)
+                malformed['nodes'][nid]=copy.deepcopy(doc['nodes']['worker'])
+                with self.assertRaises(imp.ImportRefused):
+                    imp._validate_document(malformed,'acme')
+
     def read(self, slug: str = "acme") -> dict:
         with closing(sqlite3.connect(self.dest / "orgs" / f"{slug}.db")) as conn:
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone(), ("ok",))
