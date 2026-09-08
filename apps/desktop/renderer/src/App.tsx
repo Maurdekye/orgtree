@@ -176,7 +176,9 @@ export const usageTitle = (pres: ProviderPresence): string => {
  * supervisor.working_count(), so it describes turns running now rather than
  * durable last_status values. Public org listings intentionally omit it. */
 export const activeOrgTitle = (orgs: Pick<OrgListEntry, 'name' | 'working'>[]): string => {
-  const active = orgs.filter((org) => typeof org.working === 'number' && org.working > 0)
+  const known = orgs.filter((org) => typeof org.working === 'number')
+  if (!known.length) return 'active agents by organization — unavailable'
+  const active = known.filter((org) => org.working! > 0)
   return active.length
     ? `active agents by organization — ${active.map((org) => `${org.name}: ${org.working}`).join(' · ')}`
     : 'active agents by organization — none'

@@ -21,6 +21,11 @@ test('activeOrgTitle reports no active organizations when current data has none'
     'active agents by organization — none')
 })
 
+test('activeOrgTitle does not turn missing working counts into a false zero', () => {
+  assert.equal(activeOrgTitle([{ name: 'Public row' }]),
+    'active agents by organization — unavailable')
+})
+
 test('the activity chip exposes the same tooltip through keyboard focus', async (t) => {
   useFakeClock()
   const view = await mountView(
