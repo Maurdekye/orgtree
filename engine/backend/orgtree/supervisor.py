@@ -20334,6 +20334,21 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
     notify(slug, pred, "created")
 
 
+def _claude_fork_context(org: Org, nid: str) -> tuple[str, dict[str, str]]:
+    """Imported forks use the same native file and profile as normal turns."""
+    node = org.node(nid)
+    imported = bool(node.get('desktop_import'))
+    resume = str(node['session_id'])
+    if imported:
+        reason = _native_context_hold(org, nid)
+        if reason:
+            raise RuntimeError(reason)
+        from .desktop_native import native_session_path
+        resume = native_session_path(org, nid) or resume
+    return resume, spawn_env(org, tier=str(node.get('model') or ''),
+                             nid=nid if imported else None)
+
+
 def _compact_split_body(slug: str, nid: str) -> None:
     with store.DOC_LOCK:
         org = store.load_org(slug)
@@ -20381,8 +20396,10 @@ def _compact_split_body(slug: str, nid: str) -> None:
     # — the node's TIER routes the account exactly as its turns do
     on_fallback_key = api_fallback_active(org)
     try:
+        resume, fork_env = _claude_fork_context(org, nid)
+        argv[argv.index('--resume') + 1] = resume
         proc = subprocess.Popen(argv, cwd=scratch_dir(slug, nid),
-                                env=spawn_env(org, tier=str(n.get("model") or "")),
+                                env=fork_env,
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                 errors="replace",
@@ -21619,14 +21636,14 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
                                      sbx.cpath_scratch(slug, nid)) + ["claude"]
             else:
                 head = _claude_argv()
+            resume, fork_env = _claude_fork_context(org, nid)
             argv = head + ["-p", "--output-format", "stream-json", "--verbose",
-                           "--resume", sid, "--fork-session",
+                           "--resume", resume, "--fork-session",
                            "--model", model,
                            "--settings", json.dumps({"disableAllHooks": True}),
                            "--strict-mcp-config"]
             proc = subprocess.Popen(argv, cwd=scratch_dir(slug, nid),
-                                    env=spawn_env(org, tier=str(
-                                        n.get("model") or "")),
+                                    env=fork_env,
                                     stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True,
