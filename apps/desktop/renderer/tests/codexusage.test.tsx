@@ -50,6 +50,45 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
   }
 })
 
+test('each provider refresh is gated and reports its update time', async () => {
+  const g = globalThis as unknown as Record<string, unknown>
+  let codexRequests = 0
+  let settleCodex: ((value: AccountUsage) => void) | null = null
+  g.fetch = (url: string) => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    if (path === '/api/usage') return Promise.resolve({ ok: true, status: 200,
+      headers: new Headers(), json: () => Promise.resolve(CLAUDE.accounts[0]) })
+    if (/\/codex\/usage$/.test(path)) {
+      codexRequests++
+      return new Promise((resolve) => { settleCodex = (value) => resolve({
+        ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(value),
+      }) })
+    }
+    return Promise.reject(new Error(`unexpected fetch: ${path}`))
+  }
+  try {
+    const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
+    await inAct(async () => { await flush(4) })
+    assert.equal(codexRequests, 1, 'the initial provider read is in flight')
+    const button = view.el.querySelector<HTMLButtonElement>(
+      '[aria-label="refresh Codex usage"]')
+    assert.ok(button)
+    assert.equal(button.disabled, true, 'manual refresh is disabled during the initial read')
+    settleCodex!(CODEX)
+    await inAct(async () => { await flush(5) })
+    assert.match(view.el.textContent ?? '', /updated/)
+    button.click()
+    await inAct(async () => { await flush(2) })
+    assert.equal(codexRequests, 2, 'a later click starts one new provider read')
+    button.click()
+    assert.equal(codexRequests, 2, 'a duplicate click cannot overlap the read')
+    settleCodex!(CODEX)
+    await inAct(async () => { await flush(3) })
+  } finally {
+    delete g.fetch
+  }
+})
+
 test('Codex can drive the shared near-limit warning', () => {
   const claude: UsagePeek = { available: true, limits: [] }
   const codex: UsagePeek = { available: true, provider: 'Codex', limits: [

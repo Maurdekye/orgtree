@@ -1,7 +1,7 @@
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
-import { DeskHosts } from './deskhosts'
+import { DeskHosts, DeskListControls } from './deskhosts'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
 // mail sparks, node dragging and re-parenting, the retired/crowd piles, the
@@ -2544,6 +2544,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              onPinAgent={!isMobile ? (id) => {
+                if (!pinnedIds.has(id)) pinDesk(id)
+              } : undefined}
+              onShowPinAgent={!isMobile ? (id) => {
+                if (pinnedIds.has(id)) showPin(slug, id, vpSizeNow())
+              } : undefined}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
@@ -2860,6 +2866,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
                       est={n.occupancy_est} compactAt={tree.compact_at} />
                     <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
                   </button>
+                  {!isMobile && <DeskListControls slug={slug} node={n}
+                    onPin={!pinnedIds.has(n.id) ? () => pinDesk(n.id) : undefined}
+                    onShowPin={pinnedIds.has(n.id)
+                      ? () => showPin(slug, n.id, vpSizeNow()) : undefined}
+                    onOpen={go} />}
                   {/* ⚠ THE WHOLE SUMMARY, MATCHED BEFORE ANY TRUNCATION: a
                       slice here cuts tokens in half, and the clipping is the
                       stylesheet's job (`.tray-sum-text` is ellipsis-clipped).

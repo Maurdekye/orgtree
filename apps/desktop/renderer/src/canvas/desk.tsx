@@ -4,7 +4,7 @@ import { ReplyPreview } from './replypreview'
 import { useContextMenu } from './contextmenu'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
-import { DeskSlot } from './deskhosts'
+import { DeskListControls, DeskSlot } from './deskhosts'
 import { PopoutButton, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
 // styled as a miniature Claude Code session) with its transcript renderers
@@ -1165,33 +1165,39 @@ export interface DeskChatProps {
    *  CANVAS desk passes it; absent hides the button — a switchboard panel,
    *  the mobile sheet and a pinned window itself have no pin to offer. */
   onPin?: () => void
+  /** pin or pop out a related agent directly from its navigation list */
+  onPinAgent?: (id: string) => void
+  onShowPinAgent?: (id: string) => void
 }
 
 /** F-01: one small clickable card pointing at a related agent — superior at
  *  the top of the desk, one per direct report at the bottom. Carries live
  *  state (busy spinner, unread mail count) because the data is already in
  *  `map`; an inert chip would be a lie of omission next to a busy agent. */
-export function NavChip({ n, dir, onJump }:
-{ n: CanvasNode; dir: 'up' | 'down'; onJump: (id: string) => void }) {
+export function NavChip({ n, dir, onJump, slug, onPin, onShowPin }:
+{ n: CanvasNode; dir: 'up' | 'down'; onJump: (id: string) => void
+  slug?: string; onPin?: () => void; onShowPin?: () => void }) {
   const eye = n.id === USER
   // the chip's accent and unread count belong to the DESTINATION agent, not
   // to whichever provider's themed desk this chip happens to render inside
   const prov = !eye && n.tier ? ' prov-' + providerOf(n.tier) : ''
-  return (
+  return <span className="desk-nav-entry">
     <button className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
-      title={eye ? 'jump to the switchboard'
-        : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
-      onClick={() => onJump(n.id)}>
-      {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
-      {eye
-        ? <><EyeIcon fontSize="inherit" /> switchboard</>
-        : <><span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-            {n.id}</>}
-      {n.busy && <DestinationBusy tier={n.tier} />}
-      {(n.mail_pending ?? 0) > 0 &&
-        <b className={'eye-count' + prov}>{n.mail_pending}</b>}
-    </button>
-  )
+        title={eye ? 'jump to the switchboard'
+          : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
+        onClick={() => onJump(n.id)}>
+        {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
+        {eye
+          ? <><EyeIcon fontSize="inherit" /> switchboard</>
+          : <><span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+              {n.id}</>}
+        {n.busy && <DestinationBusy tier={n.tier} />}
+        {(n.mail_pending ?? 0) > 0 &&
+          <b className={'eye-count' + prov}>{n.mail_pending}</b>}
+      </button>
+      {!eye && slug && <DeskListControls slug={slug} node={n} onPin={onPin}
+        onShowPin={onShowPin} onOpen={() => onJump(n.id)} />}
+  </span>
 }
 
 /** the slice of a card the spend badge reads — CanvasNode does not declare
@@ -1272,7 +1278,7 @@ const SENDMODE_MS = 6000
 function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  staleIdentity = false }: DeskChatProps) {
+  onPinAgent, onShowPinAgent, staleIdentity = false }: DeskChatProps) {
   // THE CONVERSATION IS NOT THIS COMPONENT'S. It lives in one per-node store
   // (convo.ts) that every view of this node subscribes to, because a node can
   // be on screen twice — its card and its switchboard panel — and two private
@@ -2533,7 +2539,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         if (!reports.length) return null
         return (
           <div className="desk-nav">
-            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump}
+              slug={slug} onPin={onPinAgent ? () => onPinAgent(c.id) : undefined}
+              onShowPin={onShowPinAgent ? () => onShowPinAgent(c.id) : undefined} />)}
             {retired.length > 0 && (
               <button className="desk-nav-chip dim"
                 title={showRetired ? 'collapse the retired reports'
@@ -2544,7 +2552,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               </button>
             )}
             {showRetired && retired.map((c) =>
-              <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+                <NavChip key={c.id} n={c} dir="down" onJump={onJump}
+                  slug={slug} onPin={onPinAgent ? () => onPinAgent(c.id) : undefined}
+                  onShowPin={onShowPinAgent ? () => onShowPinAgent(c.id) : undefined} />)}
           </div>
         )
       })()}

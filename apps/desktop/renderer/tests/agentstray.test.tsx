@@ -301,6 +301,9 @@ uiTest('§7 tray navigation survives: the row still goes to its agent',
     const el = await openTray(mount, undefined, ['ceo', 'cto'])
     const rows = [...el.querySelectorAll('.tray-row .tray-main')] as HTMLElement[]
     assert.equal(rows.length, 2, 'positive control: both agents are in the tray')
+    const controls = rows[1]!.parentElement?.querySelectorAll('.agent-list-control')
+    assert.equal(controls?.length, 2,
+      'each tray row exposes native pin and popout controls beside navigation')
     // ⚠ SETTLE FIRST, THEN READ THE BEFORE. The camera is still animating from
     // mount, so a `before` taken immediately drifts on its own and the check
     // passes whether or not the click did anything — measured: the mutant that

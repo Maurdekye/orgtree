@@ -1102,6 +1102,7 @@ html.mobile .edge-jump { display: none; }
 }
 .desk-nav-chip .tier { width: 15px; height: 15px; font-size: 9px; }
 .desk-nav-chip.dim { opacity: .55; }
+.desk-nav-entry { display: inline-flex; align-items: center; gap: 2px; }
 .desk-body .tier {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
 }
@@ -4144,6 +4145,15 @@ svg.MuiSvgIcon-root {
 .tray-status-label.working { color: var(--work); }
 .tray-status-label.working.active,
 .tray-status-label.active { color: var(--accent); }
+.agent-list-controls { display: inline-flex; align-items: center; gap: 1px;
+  flex: none; margin-left: auto; }
+.agent-list-control { display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 3px;
+  background: transparent; color: var(--dim); cursor: pointer; font-size: 14px;
+  line-height: 1; }
+.agent-list-control:hover, .agent-list-control:focus-visible {
+  color: var(--ink-strong); background: var(--panel-2); }
+.desk-nav-entry .agent-list-control { font-size: 13px; }
 .tray-status-label.waiting, .tray-status-label.queued { color: var(--work); }
 /* fixed, like the banner's .compacting: not an in-turn state, so not the
    provider theme (user 2026-09-07 15:32Z) */
@@ -5385,7 +5395,17 @@ label.set-row { cursor: pointer; }
 
 .usage-acct { display: flex; flex-direction: column; gap: 6px;
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.usage-acct-head { font-size: 13px; }
+.usage-acct-head { font-size: 13px; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; }
+.usage-refresh { display: inline-flex; align-items: center; flex-wrap: wrap;
+  justify-content: flex-end; gap: 5px; font-size: 10px; }
+.usage-refresh-button { border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel-2); color: var(--dim); padding: 2px 6px;
+  cursor: pointer; font: inherit; }
+.usage-refresh-button:hover:not(:disabled) { color: var(--ink-strong); }
+.usage-refresh-button:disabled { cursor: wait; opacity: .7; }
+.usage-updated { color: var(--dim); white-space: nowrap; }
+.usage-refresh-error { color: var(--warn, #e5c07b); }
 /* the Antigravity estimate rides UNDER its bars as text, never as a bar of its
    own: it has no denominator and a bar would invent one */
 .agy-est { font-size: 12px; line-height: 1.45; }

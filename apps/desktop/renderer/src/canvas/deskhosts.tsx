@@ -18,10 +18,11 @@ export const deskIdentity = (slug: string, node: Pick<CanvasNode, 'id' | 'genera
 interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
-  show?: () => void; redock?: () => void
+  show?: () => void; redock?: () => void; popout?: () => void; pendingPopout?: boolean
 }
 class Desks {
   entries = new Map<string, Entry>()
+  pendingPopouts = new Set<string>()
   version = 0
   nextKey = 0
   renamedAway = new Map<string, string>()
@@ -29,10 +30,20 @@ class Desks {
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
   snapshot = () => this.version
   change = () => { this.version++; for (const fn of [...this.listeners]) fn() }
+  requestPopout(key: string) {
+    const entry = this.entries.get(key)
+    if (entry?.popout) { entry.popout(); return }
+    if (entry) entry.pendingPopout = true
+    else this.pendingPopouts.add(key)
+  }
   put(key: string, slot: Slot) {
     if (this.renamedAway.has(key)) return
     let e = this.entries.get(key)
-    if (!e) { e = { key: `host-${++this.nextKey}`, slots: new Map(), last: slot, detached: false }; this.entries.set(key, e) }
+    if (!e) {
+      e = { key: `host-${++this.nextKey}`, slots: new Map(), last: slot, detached: false }
+      if (this.pendingPopouts.delete(key)) e.pendingPopout = true
+      this.entries.set(key, e)
+    }
     e.slots.set(slot.id, slot)
     if (!e.detached || e.last.id === slot.id) e.last = slot
     this.change()
@@ -122,6 +133,57 @@ export function DeskSlot(props: DeskChatProps) {
     || !Number.isSafeInteger(props.node.generation) || props.node.generation < 0) return <OwnedDeskChat {...props} />
   return <RegisteredSlot desks={desks} props={props} />
 }
+
+/** Actions shared by agent-list rows. The list may be rendered before a desk
+ * host exists (because the card is outside the viewport), so popout requests
+ * are retained until that desk registers its native surface. */
+export function useDeskActions(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>) {
+  const desks = useContext(DeskContext)
+  const mapReady = useContext(DeskMapReady)
+  const subscribe = desks?.subscribe ?? (() => () => {})
+  const snapshot = desks?.snapshot ?? (() => 0)
+  useSyncExternalStore(subscribe, snapshot)
+  const valid = typeof node.generation === 'number'
+    && Number.isSafeInteger(node.generation) && node.generation >= 0
+  const key = valid ? deskIdentity(slug, node) : null
+  const entry = mapReady && desks && key ? desks.entries.get(key) : undefined
+  return {
+    valid,
+    present: !!entry,
+    detached: !!entry?.detached,
+    show: entry?.show,
+    requestPopout: () => { if (key) desks?.requestPopout(key) },
+  }
+}
+
+export function DeskListControls({ slug, node, onPin, onShowPin, onOpen }: {
+  slug: string
+  node: Pick<CanvasNode, 'id' | 'generation'>
+  onPin?: () => void
+  onShowPin?: () => void
+  onOpen?: () => void
+}) {
+  const actions = useDeskActions(slug, node)
+  if (actions.detached) return null
+  return <span className="agent-list-controls" onClick={(e) => e.stopPropagation()}>
+    {onPin && !onShowPin && <button type="button" className="agent-list-control"
+      aria-label={`pin ${node.id}'s desk as a window`}
+      title={`pin ${node.id}'s desk as a window`}
+      onClick={(e) => { e.stopPropagation(); onPin() }}>⌖</button>}
+    {onShowPin && <button type="button" className="agent-list-control"
+      aria-label={`show ${node.id}'s pinned desk`}
+      title={`show ${node.id}'s pinned desk`}
+      onClick={(e) => { e.stopPropagation(); onShowPin() }}>⌖</button>}
+    {actions.valid && <button type="button" className="agent-list-control"
+      aria-label={`open ${node.id}'s desk in a new window`}
+      title={`open ${node.id}'s desk in a new window`}
+      onClick={(e) => {
+        e.stopPropagation(); actions.requestPopout()
+        if (!actions.present) onOpen?.()
+      }}>↗</button>}
+  </span>
+}
+
 function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }) {
   const id = useRef({}).current
   const anchor = useRef<HTMLDivElement>(null)
@@ -178,6 +240,11 @@ function DeskOwnerControls({ entry, stale, dismiss }: { entry: Entry; stale: boo
       else { entry.last.anchor.scrollIntoView({ block: 'nearest' }); entry.last.props.onJump?.(entry.last.props.node.id) }
     }
     entry.redock = () => surface?.redock()
+    entry.popout = () => surface?.open()
+    if (entry.pendingPopout) {
+      entry.pendingPopout = false
+      queueMicrotask(() => entry.popout?.())
+    }
   }, [entry, surface])
   const p = entry.last.props
   return <DraftRecovery stale={stale} dismiss={dismiss} keyName={draftKey(p.slug, p.node.id, deskGeneration(p.node))} />

@@ -1411,24 +1411,91 @@ export function AntigravityEstimateNote(
   )
 }
 
+type UsageReadout = UsagePayload | AccountUsage
+type UsageReadoutState = {
+  value: UsageReadout | null
+  pending: boolean
+  failure: string | null
+  updatedAt: number | null
+  refresh: () => Promise<void>
+}
+
+/** One provider's live readout. The modal has four independent upstream
+ * routes; keeping the in-flight latch here means a manual refresh cannot
+ * start a second request while the initial poll or the interval is pending. */
+function useUsageReadout<T extends UsageReadout>(fetcher: () => Promise<T>): {
+  value: T | null
+  pending: boolean
+  failure: string | null
+  updatedAt: number | null
+  refresh: () => Promise<void>
+} {
+  const [value, setValue] = useState<T | null>(null)
+  const [pending, setPending] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const fetchRef = useRef(fetcher)
+  fetchRef.current = fetcher
+  const inFlight = useRef<Promise<void> | null>(null)
+  const refresh = useCallback((): Promise<void> => {
+    if (inFlight.current) return inFlight.current
+    setPending(true)
+    setFailure(null)
+    const request = Promise.resolve().then(() => fetchRef.current()).then((next) => {
+      setValue(next)
+      setUpdatedAt(Date.now())
+    }).catch((error: unknown) => {
+      setFailure(error instanceof Error ? error.message : String(error))
+    }).finally(() => {
+      inFlight.current = null
+      setPending(false)
+    })
+    inFlight.current = request
+    return request
+  }, [])
+  useEffect(() => {
+    void refresh()
+    const timer = window.setInterval(() => { void refresh() }, 60000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+  return { value, pending, failure, updatedAt, refresh }
+}
+
+function UsageRefresh({ provider, state }: { provider: string; state: UsageReadoutState }) {
+  return <div className="usage-refresh" aria-live="polite">
+    <button type="button" className="usage-refresh-button" disabled={state.pending}
+      aria-label={`refresh ${provider} usage`}
+      title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
+      onClick={() => { void state.refresh() }}>
+      {state.pending ? 'refreshing…' : 'refresh'}
+    </button>
+    {state.updatedAt !== null && <span className="usage-updated">
+      updated {fmtClock(state.updatedAt)}
+    </span>}
+    {state.failure && <span className="usage-refresh-error" role="alert">
+      refresh failed: {state.failure}
+    </span>}
+  </div>
+}
+
 export function UsageModal({ close }: { close: () => void }) {
   // ⚠ EVERY registered account, primary first then fallbacks in priority
   // order (user ruling 2026-08-25) — one section of bars per account. The
   // bar markup itself lives in UsageBars (canvas/accounts.tsx) so this modal
   // and the panel's per-row buttons cannot drift apart.
-  const claude = usePolled(getUsage, [], 60000)
-  const codex = usePolled(getCodexUsage, [], 60000)
+  const claude = useUsageReadout(getUsage)
+  const codex = useUsageReadout(getCodexUsage)
   // Antigravity: the last wall a turn hit and its parsed reset (the CLI
   // publishes no readout — see antigravity_limits); with no wall on record
   // the section carries the settled `unsupported` note, not an error
-  const agy = usePolled(getAntigravityUsage, [], 60000)
+  const agy = useUsageReadout(getAntigravityUsage)
   // OpenRouter: a prepaid credit balance read off the stored key, not a
   // subscription lane — see openrouter_limits's module docstring. `fetch`
   // answers `{available:false, error:"no API key…"}` rather than nothing
   // when no key is stored, same shape as the other providers' "not
   // installed" case, so it degrades through the same `shown.openrouter &&`
   // gate below rather than a bespoke branch.
-  const orr = usePolled(getOpenRouterUsage, [], 60000)
+  const orr = useUsageReadout(getOpenRouterUsage)
   // D-202. ⚠ `codex` IS TRUTHY ON A MACHINE WITH NO CODEX — measured, not
   // assumed: codex_limits.fetch returns {available:false, error:"Codex CLI is
   // not installed"} rather than nothing, so the bare `codex &&` gate below
@@ -1443,35 +1510,49 @@ export function UsageModal({ close }: { close: () => void }) {
         {/* the codex half only counts toward "still loading" while it is a
             half this machine has — otherwise a Codex-less box would skip the
             spinner and show a blank modal until the Claude bars land */}
-        {!claude && !(shown.openai && codex) && !(shown.google && agy)
-          && !(shown.openrouter && orr)
+        {!claude.value && !claude.failure
+          && !(shown.openai && (codex.value || codex.failure))
+          && !(shown.google && (agy.value || agy.failure))
+          && !(shown.openrouter && (orr.value || orr.failure))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {shown.claude && claude && <div className="usage-acct">
-            <div className="usage-acct-head">Claude Code</div>
-            <UsageBars u={{ ...claude, account: 'claude', label: 'Claude Code' }} />
+          {shown.claude && (claude.value || claude.failure) && <div className="usage-acct">
+            <div className="usage-acct-head"><span>Claude Code</span>
+              <UsageRefresh provider="Claude" state={claude} /></div>
+            {claude.value
+              ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
+              : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.openai && codex && <div className="usage-acct" key={codex.account}>
+          {shown.openai && (codex.value || codex.failure) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
             <div className="usage-acct-head">
-              <span className="acct-label">{codex.provider ?? 'Codex'}</span>
-              <span className="dim"> · {codex.label}</span>
+              <span><span className="acct-label">{codex.value?.provider ?? 'Codex'}</span>
+                {codex.value?.label && <span className="dim"> · {codex.value.label}</span>}</span>
+              <UsageRefresh provider="Codex" state={codex} />
             </div>
-            <UsageBars u={codex} />
+            {codex.value
+              ? <UsageBars u={codex.value} />
+              : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.google && agy && <div className="usage-acct" key={agy.account}>
+          {shown.google && (agy.value || agy.failure) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
             <div className="usage-acct-head">
-              <span className="acct-label">{agy.provider ?? 'Antigravity'}</span>
-              <span className="dim"> · {agy.label}</span>
+              <span><span className="acct-label">{agy.value?.provider ?? 'Antigravity'}</span>
+                {agy.value?.label && <span className="dim"> · {agy.value.label}</span>}</span>
+              <UsageRefresh provider="Antigravity" state={agy} />
             </div>
-            <UsageBars u={agy} />
-            <AntigravityEstimateNote est={agy.usage_estimate} />
+            {agy.value
+              ? <><UsageBars u={agy.value} />
+                <AntigravityEstimateNote est={agy.value.usage_estimate} /></>
+              : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {shown.openrouter && orr && <div className="usage-acct" key={orr.account}>
+          {shown.openrouter && (orr.value || orr.failure) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>
             <div className="usage-acct-head">
-              <span className="acct-label">{orr.provider ?? 'OpenRouter'}</span>
-              <span className="dim"> · {orr.label}</span>
+              <span><span className="acct-label">{orr.value?.provider ?? 'OpenRouter'}</span>
+                {orr.value?.label && <span className="dim"> · {orr.value.label}</span>}</span>
+              <UsageRefresh provider="OpenRouter" state={orr} />
             </div>
-            <UsageBars u={orr} />
+            {orr.value
+              ? <UsageBars u={orr.value} />
+              : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           </div>}
         <div className="row">
