@@ -63,6 +63,11 @@ function stubFetch(seen: Seen[], initial = ON): void {
         waitForMcpToolsEnabled = runtime.wait_for_mcp_tools_enabled
     }
     const payload = path === '/api/accounts' ? ACCOUNTS
+      // The Import tab mounts ImportSettings, which polls for a running
+      // import. Unmodelled, the stub rejected it and the panel entered its
+      // "progress unavailable" state — an unrelated failure for a tab test.
+      // `{ job: null }` is the server's own answer when nothing is running.
+      : path === '/api/desktop/import-v1/jobs/current' ? { job: null }
       : path === '/api/providers' ? initial
         : path === '/api/app-settings/runtime' && method === 'GET'
           ? { warming_enabled: warmingEnabled,
