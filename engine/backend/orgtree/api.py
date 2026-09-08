@@ -2823,38 +2823,129 @@ CHARTERS_DIR = os.path.normpath(os.path.join(
 PRESET_MAX = 100_000
 
 
+def user_charters_dir() -> str:
+    """The documented, user-editable charter document location: every .md in
+    `~/.orgtree/charters` is a charter preset the user may edit or add to with
+    any editor. Resolved at call time so HOME/USERPROFILE changes (tests,
+    per-user installs) take effect. Populated during onboarding from the
+    bundled presets, never overwriting a file the user already has."""
+    return os.path.join(os.path.expanduser("~"), ".orgtree", "charters")
+
+
+def _charter_records(folder: str, source: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    if not os.path.isdir(folder):
+        return out
+    for f in sorted(os.listdir(folder)):
+        if not f.endswith(".md"):
+            continue
+        try:
+            with open(os.path.join(folder, f),
+                      encoding="utf-8", errors="replace") as stream:
+                text = stream.read()
+        except OSError:
+            continue
+        body = text.split("\n---\n", 1)[-1].strip()
+        out.append({"name": f[:-3].replace("-", " "),
+                    "file": f,
+                    "source": source,
+                    "content": body[:PRESET_MAX],
+                    # the length BEFORE the cut — what makes the cut
+                    # visible instead of silent
+                    "chars": len(body),
+                    "truncated": len(body) > PRESET_MAX,
+                    # shown on hover of a picked preset card (user spec)
+                    "path": os.path.abspath(os.path.join(folder, f))})
+    return out
+
+
 @app.get("/api/charters")
 def charters_list() -> dict[str, Any]:
     """Named charter presets for the manual hire form (user ruling): every
     .md in docs/charters/ is a preset. A file may open with an explanatory
     header ending at a '---' line — only what follows is the charter body.
 
+    User documents in `~/.orgtree/charters` (see `user_charters_dir`) are
+    listed alongside the bundled presets and win over a bundled preset with
+    the same filename, so editing a populated copy replaces the shipped text
+    without touching the installation. Per-agent charters live in each
+    organization document and are unaffected by any of this.
+
     Each record carries `chars` (the body's TRUE length, before any cut) and
     `truncated`, so a cut is never silent. The payload carries `charter_long`
     (ledger.CHARTER_LONG) — NOT a limit, just the length above which the hire
     form mentions that a charter is re-sent on every turn of that agent's life.
     """
-    out: list[dict[str, Any]] = []
+    user = _charter_records(user_charters_dir(), "user")
+    shadowed = {r["file"] for r in user}
+    bundled = [r for r in _charter_records(CHARTERS_DIR, "bundled")
+               if r["file"] not in shadowed]
+    out = sorted(user + bundled, key=lambda r: r["name"])
+    return {"charters": out, "preset_max": PRESET_MAX,
+            "user_dir": user_charters_dir(),
+            "charter_long": ledger_mod.CHARTER_LONG}
+
+
+#: A charter document filename (without .md): plain names only — no path
+#: separators, drive letters, dots or leading/trailing spaces, so a request
+#: can never name a file outside the user charters directory.
+CHARTER_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,118}[A-Za-z0-9])?")
+
+
+@app.post("/api/charters/populate")
+def charters_populate() -> dict[str, Any]:
+    """Copy every bundled preset into `~/.orgtree/charters` — the documented
+    charter document location — creating the directory if needed. A file the
+    user already has is NEVER overwritten, so running this repeatedly (every
+    onboarding, a reinstall) preserves user edits. Returns what was created
+    and what was left alone."""
+    folder = user_charters_dir()
+    os.makedirs(folder, exist_ok=True)
+    created, existing = [], []
     if os.path.isdir(CHARTERS_DIR):
         for f in sorted(os.listdir(CHARTERS_DIR)):
             if not f.endswith(".md"):
                 continue
-            try:
-                text = open(os.path.join(CHARTERS_DIR, f),
-                            encoding="utf-8", errors="replace").read()
-            except OSError:
+            target = os.path.join(folder, f)
+            if os.path.lexists(target):
+                existing.append(f)
                 continue
-            body = text.split("\n---\n", 1)[-1].strip()
-            out.append({"name": f[:-3].replace("-", " "),
-                        "content": body[:PRESET_MAX],
-                        # the length BEFORE the cut — what makes the cut
-                        # visible instead of silent
-                        "chars": len(body),
-                        "truncated": len(body) > PRESET_MAX,
-                        # shown on hover of a picked preset card (user spec)
-                        "path": os.path.abspath(os.path.join(CHARTERS_DIR, f))})
-    return {"charters": out, "preset_max": PRESET_MAX,
-            "charter_long": ledger_mod.CHARTER_LONG}
+            try:
+                blob = open(os.path.join(CHARTERS_DIR, f), "rb").read()
+                with open(target, "xb") as out_file:
+                    out_file.write(blob)
+                created.append(f)
+            except FileExistsError:
+                existing.append(f)
+            except OSError as exc:
+                raise HTTPException(503, f"Could not populate {f}: {exc}") from exc
+    return {"dir": folder, "created": created, "existing": existing}
+
+
+class CharterDoc(BaseModel):
+    content: str
+
+
+@app.put("/api/charters/{name}")
+def charters_save(name: str, body: CharterDoc) -> dict[str, Any]:
+    """Save one charter document under `~/.orgtree/charters/<name>.md`. This
+    is the editing seam for charter documents: the hire form and any editor
+    write here, never into the bundled presets, and the next /api/charters
+    read serves the updated text. Per-agent charters live in each
+    organization document and are untouched by this route."""
+    if not CHARTER_NAME.fullmatch(name):
+        raise HTTPException(422, "charter names are plain words, digits, spaces, - and _")
+    if len(body.content) > PRESET_MAX:
+        raise HTTPException(422, f"charter documents are bounded at {PRESET_MAX} characters")
+    folder = user_charters_dir()
+    os.makedirs(folder, exist_ok=True)
+    target = os.path.join(folder, f"{name}.md")
+    try:
+        with open(target, "w", encoding="utf-8", newline="") as out_file:
+            out_file.write(body.content)
+    except OSError as exc:
+        raise HTTPException(503, f"Could not save the charter document: {exc}") from exc
+    return {"saved": f"{name}.md", "path": os.path.abspath(target)}
 
 
 @app.get("/api/mcp-servers")

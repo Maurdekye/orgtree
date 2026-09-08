@@ -1145,8 +1145,13 @@ export interface ChartersPayload {
   charters: {
     name: string; content: string; path: string
     chars?: number; truncated?: boolean
+    // where the document lives: a user file in ~/.orgtree/charters or a
+    // preset bundled with the installation (a user file shadows a bundled
+    // one with the same filename)
+    file?: string; source?: 'user' | 'bundled'
   }[]
   preset_max?: number
+  user_dir?: string
   charter_long?: number
 }
 

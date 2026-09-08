@@ -134,6 +134,10 @@ export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
 export const getCharters = (): Promise<ChartersPayload> =>
   req('/api/charters')
+// Seed ~/.orgtree/charters from the bundled presets; never overwrites a
+// user file, so calling it again is safe. Ran when onboarding completes.
+export const populateCharters = (): Promise<{ dir: string; created: string[]; existing: string[] }> =>
+  req('/api/charters/populate', { method: 'POST' })
 export const getFs = (path = ''): Promise<FsPayload> =>
   req(`/api/fs?path=${encodeURIComponent(path)}`)
 export const getInbox = (slug: string): Promise<InboxPayload> =>
