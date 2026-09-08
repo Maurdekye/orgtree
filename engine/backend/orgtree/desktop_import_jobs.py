@@ -8,6 +8,7 @@ checkpointed at most once per second, not once per copied file.
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -114,6 +115,11 @@ def _get(root, identifier):
         lease = _lease(root)
         if lease is not None:
             try:
+                # Completion can race the first read. Only the fresh record
+                # read while owning the destination lease may be interrupted.
+                job = _read(root / (identifier + ".json"))
+                if job is None:
+                    raise imp.ImportRefused("Import request ID is not recorded", 404)
                 job = _interrupt(root, job)
             finally:
                 _release(lease)
@@ -130,6 +136,22 @@ def current():
         root = _root()
         pointer = _read(root / "current.json")
         return _public(_get(root, pointer["id"])) if pointer else None
+
+
+@contextmanager
+def maintenance_slot():
+    """Reserve job admission while native maintenance takes its own hold."""
+    with _guard:
+        lease = _lease(_root())
+        try:
+            yield lease is not None
+        finally:
+            _release(lease)
+
+
+def active():
+    with maintenance_slot() as available:
+        return not available
 
 
 def start(body, callback):
@@ -155,6 +177,10 @@ def start(body, callback):
         if lease is None:
             raise imp.ImportRefused("An import is already running for this destination. Check its status.", 409)
         try:
+            from . import desktop_maintenance, supervisor
+            if (not supervisor._deploy_done.is_set()
+                    or (desktop_maintenance.status() or {}).get("state") == "acknowledged"):
+                raise imp.ImportRefused("Native maintenance has reserved engine shutdown. Import was not started.", 409)
             # Another process may have completed this ID between our first
             # lookup and lease acquisition. Recheck under the destination lease.
             previous = _read(root / (identifier + ".json"))

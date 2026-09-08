@@ -74,6 +74,16 @@ def cancel(slug, nid):
 
 
 def acknowledge(request_id, outcome='execute'):
+    from . import desktop_import_jobs
+    # Same OS lease and lock order as job admission: a racing start either owns
+    # the lease first, or observes our persisted shutdown reservation afterwards.
+    with desktop_import_jobs.maintenance_slot() as available:
+        if not available:
+            return {'accepted':False}
+        return _acknowledge(request_id, outcome)
+
+
+def _acknowledge(request_id, outcome='execute'):
     global _accepted_hold
     with _lock:
         current = pending()

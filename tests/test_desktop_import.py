@@ -796,10 +796,32 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
         return {'accepted':True,'queued':0}  # This recorder models admission, not native validation.
     import uuid
     payload.update(organizations=['acme'],acknowledge_duplicate_work=True,request_id=str(uuid.uuid4()))
-    with patch.object(supervisor, 'send_message', side_effect=record):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    copy_file = desktop_import._copy_file
+    def slow_copy(src,dst):
+        if src.name == 'output.txt':
+            entered.set()
+            assert release.wait(10), 'fixture did not release copy'
+        return copy_file(src,dst)
+    from orgtree import desktop_maintenance
+    desktop_maintenance._write({'id':'copy-maintenance','state':'pending','action':'restart'})
+    idle_control = client.get('/api/desktop/status',headers=headers).json()
+    assert idle_control['idle'] is True and idle_control['importActive'] is False, idle_control
+    with patch.object(supervisor, 'send_message', side_effect=record), patch.object(desktop_import, '_copy_file', slow_copy):
         import time
         started = client.post('/api/desktop/import-v1/jobs',json=payload,headers=headers)
         assert started.status_code == 202, started.text
+        try:
+            assert entered.wait(5), 'actual copy did not reach delay'
+            tick=time.monotonic()
+            copying=client.get('/api/desktop/status',headers=headers)
+            assert time.monotonic()-tick<1, 'desktop status blocked behind copy'
+            assert copying.json()['idle'] is False and copying.json()['importActive'] is True, copying.text
+            ack=client.post('/api/desktop/maintenance/ack',json={'id':'copy-maintenance'},headers=headers)
+            assert ack.json()=={'accepted':False}, ack.text
+        finally:
+            release.set()
         deadline = time.monotonic()+15
         while time.monotonic()<deadline:
             result = client.get('/api/desktop/import-v1/jobs/'+payload['request_id'],headers=headers)

@@ -68,6 +68,10 @@ class ImportJobsTests(unittest.TestCase):
                 status = client.get("/api/desktop/import-v1/jobs/" + body["request_id"], headers=self.headers)
                 self.assertLess(time.monotonic() - tick, 1)
                 self.assertEqual(status.json()["job"]["phase"], "copying")
+                from engine.backend.orgtree import desktop_maintenance as maintenance
+                jobs._write(maintenance._path(), {"id": "test-maintenance", "state": "pending", "action": "restart"})
+                self.assertTrue(jobs.active())
+                self.assertEqual(maintenance.acknowledge("test-maintenance"), {"accepted": False})
                 self.assertGreater(status.json()["job"]["files_copied"], 0)
                 self.assertGreater(status.json()["job"]["bytes_copied"], 0)
                 repeated = client.post("/api/desktop/import-v1/jobs", json=body, headers=self.headers)
@@ -93,6 +97,33 @@ class ImportJobsTests(unittest.TestCase):
         self.assertEqual(jobs.start(imp.ImportJobBody(**body), self.resumed.append)["state"], "succeeded")
         self.assertEqual(self.resumed, ["acme"])
         self.assertEqual(jobs.get(body["request_id"])["result"], job["result"])
+        self.assertFalse(jobs.active())
+        self.assertEqual(maintenance.acknowledge("test-maintenance"), {"accepted": True})
+        try:
+            other = imp.ImportJobBody(**dict(body, request_id=str(uuid.uuid4())))
+            with self.assertRaisesRegex(imp.ImportRefused, "reserved engine shutdown"):
+                jobs.start(other, self.resumed.append)
+        finally:
+            self.assertTrue(maintenance.execution_failed("test-maintenance")["released"])
+
+    def test_status_rereads_terminal_under_lease(self):
+        root = jobs._root()
+        identifier = str(uuid.uuid4())
+        active = {"id": identifier, "state": "running", "phase": "publishing", "result": None, "publications": []}
+        terminal = dict(active, state="succeeded", result={"imported": [{"slug": "acme"}]},
+                        publications=[{"slug": "acme", "state": "published", "recovery": "returned"}])
+        path = root / (identifier + ".json")
+        jobs._write(path, active)
+        real_lease = jobs._lease
+        def completed_before_acquire(value):
+            jobs._write(path, terminal)
+            return real_lease(value)
+        with patch.object(jobs, "_lease", completed_before_acquire):
+            self.assertEqual(jobs.get(identifier), terminal)
+        self.assertEqual(jobs._read(path), terminal)
+        other = str(uuid.uuid4())
+        jobs._write(root / (other + ".json"), dict(active, id=other))
+        self.assertEqual(jobs.get(other)["state"], "interrupted")
 
     def test_source_refusal_terminal_and_unknown_get_no_work(self):
         self.fixture()

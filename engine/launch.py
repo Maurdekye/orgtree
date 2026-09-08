@@ -144,7 +144,7 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
             raise HTTPException(422,str(exc)) from exc
 
     """Add the small native-shell control surface to the real V1 app."""
-    from orgtree import store, supervisor, desktop_maintenance  # noqa: PLC0415
+    from orgtree import store, supervisor, desktop_maintenance, desktop_import_jobs  # noqa: PLC0415
 
     @api_app.get("/api/desktop/status")
     def desktop_status() -> dict[str, Any]:
@@ -156,7 +156,9 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
             active = sum(bool(s.get("busy")) for s in states)
             idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
                            for s in states)
-        return {"activeAgents": active, "totalAgents": total, "idle": idle,
+        import_active = desktop_import_jobs.active()
+        return {"activeAgents": active, "totalAgents": total, "idle": idle and not import_active,
+                "importActive": import_active,
                 "maintenance": desktop_maintenance.pending(),
                 "maintenance_outcome": desktop_maintenance.status()}
 
