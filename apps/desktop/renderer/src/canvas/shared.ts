@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 // side effect: the document-level "click a markdown image → full-size viewer"
 // listener — loaded here because every .md surface renders through this module
 import './lightbox'
+import { renderHtmlResponses } from './htmlresponse'
 import { onLiveBump } from '../livebus'
 import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
@@ -1730,6 +1731,10 @@ const wrapCodeBlocks = (html: string, imgBase?: string) => {
   if (!html.includes('<pre') && !html.includes('<img')) return html
   const tpl = document.createElement('template')
   tpl.innerHTML = html
+  // render-inline-html-custom-responses: an explicit ```orgtree-html-response
+  // fence becomes a sandboxed frame BEFORE the generic pre-wrapping below —
+  // it has no code left to attach a copy button to once swapped.
+  renderHtmlResponses(tpl.content, document)
   tpl.content.querySelectorAll('pre').forEach(pre => {
     const wrap = document.createElement('div')
     wrap.className = 'codewrap'

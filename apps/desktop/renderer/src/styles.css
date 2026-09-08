@@ -1511,6 +1511,17 @@ button.cc-name:hover {
 .hist-row { font-size: 12.5px; gap: 6px; padding: 2.5px 3px; }
 .filepre { font-size: 12px; padding: 5px 7px; margin: 3px 0; }
 
+/* render-inline-html-custom-responses: the sandboxed frame an explicit
+   ```orgtree-html-response fence becomes (htmlresponse.ts). Resizable so an
+   agent's taller/shorter content isn't clipped; a fixed starting height
+   because the frame's own content cannot report its size back across the
+   sandbox boundary (no allow-same-origin — that is the isolation). */
+.html-response-frame {
+  width: 100%; height: 320px; min-height: 120px; resize: vertical;
+  border: 1px solid var(--line-soft); border-radius: 4px; margin: 3px 0;
+  background: #fff; display: block;
+}
+
 /* ----------------------------------------------- the five channels (§9.3–9.6)
    hue = tier · fill = lifecycle · border style = permission · glow = audience ·
    the left bar = credits. Letters H/S/O/F stay as the redundant glyph (§9.6). */
