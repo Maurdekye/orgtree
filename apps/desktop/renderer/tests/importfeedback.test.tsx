@@ -102,7 +102,8 @@ test('Preview failure identifies the action and focuses its exact server detail'
 })
 
 for (const count of [0, 1]) test(`partial response with ${count} committed copies exposes failures, focuses result and prevents blind retry`, async () => {
-  const v = await fixture(async () => new Response(JSON.stringify({ imported: count ? [{ slug: 'large', name: 'Large organization' }] : [],
+  const v = await fixture(async () => new Response(JSON.stringify({ imported: count ? [{ slug: 'large', name: 'Large organization',
+    warnings: ['Skipped linked dependency: scratch/project/node_modules/.bin. Reinstall dependencies in this copy before use.'] }] : [],
     warnings: [], failed: [{ slug: 'small', error: 'Copy refused.', not_attempted: ['empty'] }] })))
   try {
     await v.preview(); await v.copy()
@@ -111,6 +112,8 @@ for (const count of [0, 1]) test(`partial response with ${count} committed copie
     assert.match(feedback.textContent!, count ? /Imported Large organization/ : /No organizations imported/)
     assert.match(feedback.textContent!, /small: Copy refused/)
     assert.match(feedback.textContent!, /Not copied: empty/)
+    if (count) assert.match(feedback.textContent!, /Skipped linked dependency: scratch\/project\/node_modules\/\.bin/)
+    assert.equal(feedback.querySelector('details'), null, 'copy warnings are visible without opening agent details')
     assert.equal(document.activeElement, feedback)
     assert.equal(v.scrolled.at(-1), feedback)
     assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'))
