@@ -171,6 +171,17 @@ export const usageTitle = (pres: ProviderPresence): string => {
   return names.length ? `usage limits — ${names.join(' and ')}` : 'usage limits'
 }
 
+/** The activity chip is scoped to the current tree, but its tooltip answers
+ * the wider machine question from the already-polled org list. `working` is
+ * supervisor.working_count(), so it describes turns running now rather than
+ * durable last_status values. Public org listings intentionally omit it. */
+export const activeOrgTitle = (orgs: Pick<OrgListEntry, 'name' | 'working'>[]): string => {
+  const active = orgs.filter((org) => typeof org.working === 'number' && org.working > 0)
+  return active.length
+    ? `active agents by organization — ${active.map((org) => `${org.name}: ${org.working}`).join(' · ')}`
+    : 'active agents by organization — none'
+}
+
 /** The provider-neutral header summary. It deliberately walks ALL_TIERS:
  * this is an inventory of live agents, not a provider picker.
  * ⚠ D-202 DELIBERATELY LEFT THIS ALONE. It looks like a provider surface and
@@ -179,14 +190,18 @@ export const usageTitle = (pres: ProviderPresence): string => {
  * nothing without being asked. Hiding a live Codex agent's own letter because
  * the CLI went missing would make the header lie about what is running —
  * the count is an inventory, and an inventory reports what is there. */
-export function ActiveAgentSummary({ tree }: { tree: TreePayload }) {
+export function ActiveAgentSummary({ tree, orgs = [] }: {
+  tree: TreePayload
+  orgs?: Pick<OrgListEntry, 'name' | 'working'>[]
+}) {
   const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live')
   const busy = nodes.filter((n) => n.busy).length
   const byTier: Record<string, number> = {}
   for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
+  const title = activeOrgTitle(orgs)
   return (
     <span className="chip agents"
-      title="live agents · active (a turn executing now) · breakdown by model">
+      role="img" tabIndex={0} aria-label={title} title={title}>
       {nodes.length} live{busy > 0 ? ` · ${busy} active` : ''}
       {/* the OpenRouter tiers are runtime-minted, so the inventory takes them
           from what is actually running rather than from a static list */}
@@ -781,7 +796,7 @@ export default function App() {
                     credit totals live on the eye's bar */}
                 {!tree.audit.no_overdraft &&
                   <span className="chip bad"><WarnIcon fontSize="inherit" /> {tree.audit.problems.join(', ')}</span>}
-                <ActiveAgentSummary tree={tree} />
+                <ActiveAgentSummary tree={tree} orgs={orgs} />
                 {/* the bare cost chip is redundant when the kiosk spend chip
                     already shows the same figure against its limit (user
                     spec 2026-07-31) — limitless orgs keep it */}

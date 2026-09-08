@@ -465,6 +465,7 @@ button.badge.audience-fold.alert {
 .kill-btn.expanded:not(:disabled):hover { background: #ff5f5f; }
 /* the active-agent summary chip: total · working · per-model counts */
 .chip.agents { display: inline-flex; gap: 7px; align-items: baseline; }
+.chip.agents:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .chip.agents b { font-family: var(--mono); font-weight: 700; }
 .chip.agents b.t-haiku { color: var(--tier-haiku); }
 .chip.agents b.t-sonnet { color: var(--tier-sonnet); }
