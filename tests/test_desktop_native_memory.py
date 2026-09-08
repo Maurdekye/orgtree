@@ -121,7 +121,9 @@ class MemoryImportTests(fixtures.DesktopImportTests):
             (path.parent / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
                                                       encoding="utf-8")
             (self.source / "orgs/acme.json").write_text(json.dumps(doc), encoding="utf-8")
-        key = memory.project_key(str(self.source.resolve() / "scratch/acme/worker"))
+        # Where the V1 CLI actually kept it: keyed on the checkout root when
+        # the scratch folder sits inside one, else on the folder itself.
+        key = memory.project_key(memory.memory_root(str(self.source.resolve() / "scratch/acme/worker")))
         folder = source_profile / "projects" / key / "memory"
         (folder / "logs" / "2026" / "09" / "08").mkdir(parents=True)
         (folder / "MEMORY.md").write_bytes(b"- [Patch scripts](patch.md) \xe2\x80\x94 hook\r\n")
@@ -439,6 +441,43 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         meta = copied["nodes"]["worker"]["desktop_import"]["memory"]
         self.assertEqual(Path(meta["destination"]), self.destination())
         self.assertIsNone(native.native_hold_reason(copied, "worker"))
+
+    def test_git_at_the_copied_org_scratch_folder_keys_every_base_on_it_before_publication(self):
+        # MK1 (redteam-opus): scratch/<slug> is copied as one tree, so a .git
+        # there is an ancestor that exists only in staging at key selection.
+        org_scratch = self.source / "scratch/acme"
+        org_scratch.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=org_scratch, check=True, capture_output=True)
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        self.assertEqual(folder.parent.name, memory.project_key(str(org_scratch.resolve())))
+        published_org = self.dest.resolve() / "scratch/acme"
+        expected = self.profile.resolve() / "projects" / memory.project_key(str(published_org)) / "memory"
+        self.assertFalse(published_org.exists())
+        preview = imp.preview_import(str(self.source), sources)["organizations"][0]["memory"]
+        self.assertEqual(preview[0]["status"], "ready")
+        self.run_native(sources)
+        copied = self.read()
+        meta = copied["nodes"]["worker"]["desktop_import"]["memory"]
+        self.assertEqual(Path(meta["destination"]), expected)
+        self.assertEqual(fixtures.fingerprint(expected), fixtures.fingerprint(folder))
+        # Staged key already equals the post-publication key: no hold afterwards.
+        self.assertEqual(memory.project_key(memory.memory_root(str(published_org / "worker"))), meta["key"])
+        self.assertIsNone(native.native_hold_reason(copied, "worker"))
+
+    def test_two_bases_under_a_copied_org_checkout_are_held_at_staging(self):
+        (self.source / "scratch/acme").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=self.source / "scratch/acme", check=True, capture_output=True)
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        second = dict(doc["nodes"]["worker"]); second.update(session_id=str(uuid.uuid4()))
+        doc["nodes"]["second"] = second
+        (self.source / "orgs/acme.json").write_text(json.dumps(doc), encoding="utf-8")
+        (self.source / "scratch/acme/second").mkdir()
+        result = self.run_native(sources)
+        copied = self.read()
+        for nid in ("worker", "second"):
+            self.assertEqual(copied["nodes"][nid]["desktop_import"]["memory"]["status"], "held")
+        self.assertFalse((self.profile / "projects").exists())
+        self.assertEqual(sum("shared by base folders" in w for w in result["imported"][0]["warnings"]), 2)
 
     def test_checkout_layout_change_after_import_holds_until_reconciled(self):
         doc, sources, folder = self.memory_fixture(archived_generation=False)

@@ -126,15 +126,30 @@ def _canonical_root(root: Path, published: Path | None = None) -> Path:
     return common if common.name != ".git" else common.parent
 
 
-def memory_root(cwd: str, staged: Path | None = None) -> str:
+def staged_levels(copied_org_scratch: Path | None, cwd: str) -> list[tuple[Path, Path]]:
+    """The not-yet-published folders Claude will walk from ``cwd`` upward: the
+    base folder and the organization scratch folder above it, both copied as
+    one tree by the import. Levels absent from the copy are skipped."""
+    if copied_org_scratch is None:
+        return []
+    published = Path(os.path.abspath(cwd))
+    levels = [(copied_org_scratch / published.name, published),
+              (copied_org_scratch, published.parent)]
+    return [(staged, at) for staged, at in levels if staged.is_dir()]
+
+
+def memory_root(cwd: str, levels: list[tuple[Path, Path]] | None = None) -> str:
     """The path Claude keys memory on for a process started in ``cwd``.
 
-    ``staged`` is the not-yet-published copy of ``cwd`` (the base scratch
-    folder). Its own ``.git`` entry is evaluated as it will read once it sits
-    at ``cwd``; ancestors are read from ``cwd``'s real parents."""
-    if staged is not None and _git_marker(staged / ".git"):
-        return str(_canonical_root(staged, Path(os.path.abspath(cwd))))
-    root = _checkout_root(cwd)
+    ``levels`` lists (staged copy, published path) pairs from ``cwd`` upward
+    for folders that do not exist yet; each copy's own ``.git`` entry is
+    evaluated as it will read at its published path. Ancestors above the
+    highest staged level are read from the real filesystem."""
+    for staged, published in levels or []:
+        if _git_marker(staged / ".git"):
+            return str(_canonical_root(staged, published))
+    start = str((levels or [(None, Path(cwd))])[-1][1].parent) if levels else cwd
+    root = _checkout_root(start)
     if root is None:
         return cwd
     return str(_canonical_root(root))
@@ -251,15 +266,16 @@ def source_memory(source_profile: Path, source_cwd: str, env: dict[str, str]) ->
 
 def destination_memory(destination_profile: Path, destination_cwd: str,
                        env: dict[str, str], settings_cwd: str,
-                       staged_scratch: Path | None = None) -> tuple[Path, str]:
+                       copied_org_scratch: Path | None = None) -> tuple[Path, str]:
     """``settings_cwd`` holds the project settings that will land in the
     destination scratch folder (the copied source folder), which does not exist
-    yet when this runs; ``staged_scratch`` is that copy for the ``.git`` check."""
+    yet when this runs; ``copied_org_scratch`` is the copied ``scratch/<slug>``
+    tree that will be published above it, for the ``.git`` checks."""
     config = config_dir(env, destination_profile)
     override = detect_override(env, config, settings_cwd)
     if override:
         raise NativeHeld(f"Unsupported memory override at destination: {override}")
-    key = project_key(memory_root(destination_cwd, staged_scratch))
+    key = project_key(memory_root(destination_cwd, staged_levels(copied_org_scratch, destination_cwd)))
     folder = config / "projects" / key / MEMORY_DIR
     _plain(folder)
     return folder, key
@@ -280,10 +296,10 @@ def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path | None,
     try:
         source_profile = Path(sources.get("claude_profile") or source.parent / ".claude")
         folder = source_memory(source_profile, source_cwd, env)
-        staged_scratch = (stage / "files" / "scratch" / slug / base) if stage is not None \
-            else Path(source_cwd)
+        copied_org_scratch = (stage / "files" / "scratch" / slug) if stage is not None \
+            else source / "scratch" / slug
         target, key = destination_memory(destination_profile, destination_cwd, env, source_cwd,
-                                         staged_scratch if staged_scratch.is_dir() else None)
+                                         copied_org_scratch)
         meta.update(key=key, destination=str(target))
         if folder is None:
             meta.update(status="none", reason="No source memory directory")
@@ -361,10 +377,9 @@ def expected_destination(doc: dict, base: str, meta: dict[str, Any],
     env = supervisor.clean_env()
     env.update(supervisor.env_overrides(doc["slug"], base))
     key = str(meta.get("key") or "")
-    staged = (stage / "files" / "scratch" / doc["slug"] / base) if stage is not None else None
-    if staged is not None and not staged.is_dir():
-        staged = None
-    if not key or key != project_key(memory_root(str(meta.get("destination_cwd") or ""), staged)):
+    copied = (stage / "files" / "scratch" / doc["slug"]) if stage is not None else None
+    cwd = str(meta.get("destination_cwd") or "")
+    if not key or key != project_key(memory_root(cwd, staged_levels(copied, cwd))):
         raise NativeHeld(f"Recorded memory key for {base} does not match its destination cwd")
     return config_dir(env, selected_profile(doc["slug"], base)) / "projects" / key / MEMORY_DIR
 
@@ -395,7 +410,11 @@ def check_publishable(doc: dict, stage: Path | None = None) -> None:
             raise ImportRefused(f"Destination memory for {base} changed before publication", 409)
         if exists and stage is not None:
             staged = stage / MEMORY_DIR / base
-            if _manifest(target) != _manifest(staged):
+            try:
+                changed = _manifest(target) != _manifest(staged)
+            except NativeHeld as exc:
+                raise ImportRefused(f"Destination memory for {base} cannot be compared: {exc}", 409) from exc
+            if changed:
                 raise ImportRefused(
                     f"Destination memory for {base} was identical at staging but its content "
                     "changed before publication; it was left unchanged", 409)
@@ -448,7 +467,7 @@ def publish(doc: dict, stage: Path) -> None:
             # exclusive; POSIX would allow an existing EMPTY directory, and
             # check_publishable has already refused an existing destination.
             os.rename(building, target)
-        except (OSError, ImportRefused) as exc:
+        except (OSError, ImportRefused, NativeHeld) as exc:
             _discard_partial(building, written)
             raise ImportRefused(f"Could not publish memory for {base}: {exc}", 409) from exc
 
