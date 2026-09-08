@@ -48,11 +48,11 @@ import {
 import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import type {
-  AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
+  AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
   MailEntry, OpRequest, OrgEvent, OrgListEntry, OrgMdPayload, ToastFn,
   ProvidersPayload,
   AntigravityEstimate as AgyEstimate,
-  ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePeek,
+  ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 
@@ -789,6 +789,13 @@ export default function App() {
                     </button>
                   )
                 })()}
+                {/* A renderer-only reload keeps localStorage-backed drafts and
+                    leaves the backend and every agent process untouched. */}
+                <button type="button" className="iconbtn" title="refresh app view"
+                  aria-label="refresh app view"
+                  onClick={() => window.location.reload()}>
+                  <AutorenewIcon fontSize="inherit" />
+                </button>
                 {/* desktop: display:contents — the chips stay direct flex
                     items of the orgbar, byte-identical layout. Compact: the
                     whole run collapses behind ⋯ (D-125 orgbar ruling; the
