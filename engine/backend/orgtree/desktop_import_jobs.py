@@ -22,7 +22,8 @@ from . import desktop_import as imp
 
 _guard = threading.RLock()
 _live: dict[tuple[str, str], dict] = {}
-ACTIVE = {"queued", "running"}
+ACTIVE = {"queued", "planning", "running", "cancelling"}
+CANCELLABLE_PHASES = {"queued", "planning", "counting", "reading", "copying", "native", "validating"}
 
 
 def _now():
@@ -89,7 +90,43 @@ def _release(stream):
 
 
 def _public(job):
-    return copy.deepcopy({key: value for key, value in job.items() if not key.startswith("_")})
+    out = copy.deepcopy({key: value for key, value in job.items() if not key.startswith("_")})
+    out["cancellable"] = bool(job.get("state") in ACTIVE and job.get("phase") in CANCELLABLE_PHASES
+                               and not job.get("cancel_requested"))
+    return out
+
+
+def _cancel_path(root, identifier):
+    return root / (identifier + ".cancel")
+
+
+def _cancel_marked(root, identifier):
+    return _cancel_path(root, identifier).exists()
+
+
+def cancel(identifier):
+    with _guard:
+        root = _root()
+        identifier = str(uuid.UUID(identifier))
+        job = _read(root / (identifier + ".json"))
+        live = _live.get((str(root), identifier))
+        if live is not None:
+            job = live
+        if job is None:
+            raise imp.ImportRefused("Import request ID is not recorded", 404)
+        if job["state"] not in ACTIVE and job["state"] != "cancelling":
+            return _public(job)
+        if job.get("phase") not in CANCELLABLE_PHASES:
+            raise imp.ImportRefused("Import cannot be cancelled after publication or recovery began", 409)
+        # The worker owns the destination lease. A separate durable marker is
+        # the cancellation request; the worker consumes it at safe checkpoints.
+        _write(_cancel_path(root, identifier), {"requested_at": _now()})
+        job["cancel_requested"] = True
+        job["state"] = "cancelling"
+        job["updated_at"] = _now()
+        if live is None:
+            _write(root / (identifier + ".json"), job)
+        return _public(job)
 
 
 def _interrupt(root, job):
@@ -209,7 +246,10 @@ def start(body, callback):
                    "source_root": payload["source_root"], "organizations": payload["organizations"],
                    "current_org": None, "files_copied": 0, "bytes_copied": 0,
                    "started_at": now, "updated_at": now, "result": None, "error": None,
-                   "publications": [], "_fingerprint": fingerprint}
+                   "publications": [], "cancel_requested": False,
+                   "total_files": None, "total_bytes": None,
+                   "progress_percent": None, "eta_seconds": None,
+                   "_fingerprint": fingerprint}
             _write(root / (identifier + ".json"), job)
             _write(root / "current.json", {"id": identifier})
             _live[(str(root), identifier)] = job
@@ -228,6 +268,11 @@ def start(body, callback):
 def _run(root, job, payload, callback, lease):
     path = root / (job["id"] + ".json")
     last_checkpoint = 0.0
+    started = time.monotonic()
+
+    def cancelled():
+        return (bool(job.get("cancel_requested")) or _cancel_marked(root, job["id"]
+                )) and job.get("phase") in CANCELLABLE_PHASES
 
     def progress(event):
         nonlocal last_checkpoint
@@ -236,6 +281,15 @@ def _run(root, job, payload, callback, lease):
             if "file_bytes" in event:
                 job["files_copied"] += 1
                 job["bytes_copied"] += event["file_bytes"]
+            if "planned_files" in event:
+                job["planning_files"] = event["planned_files"]
+                job["planning_bytes"] = event.get("planned_bytes", job.get("planning_bytes", 0))
+            total = job.get("total_bytes")
+            if total is not None and total > 0:
+                job["progress_percent"] = min(99, int(job["bytes_copied"] * 100 / total))
+                elapsed = time.monotonic() - started
+                rate = job["bytes_copied"] / elapsed if elapsed > 0 else 0
+                job["eta_seconds"] = int(max(0, (total - job["bytes_copied"]) / rate)) if rate else None
             for key in ("phase", "current_org"):
                 if key in event:
                     job[key] = event[key]
@@ -266,15 +320,34 @@ def _run(root, job, payload, callback, lease):
         with _guard:
             job["state"] = "running"
             _write(path, job)
-        result = imp.copy_import(**payload, on_imported=callback, progress=progress)
         with _guard:
-            job.update(state="succeeded", phase="finished", result=result, updated_at=_now())
+            job["state"] = "planning"
+            job["phase"] = "counting"
             _write(path, job)
+        totals = imp.plan_import(payload["source_root"], payload["organizations"],
+                                 cancel=cancelled, progress=progress)
+        with _guard:
+            job["total_files"], job["total_bytes"] = totals
+            job.pop("planning_files", None)
+            job.pop("planning_bytes", None)
+            job["state"] = "running"
+            _write(path, job)
+        result = imp.copy_import(**payload, on_imported=callback, progress=progress, cancel=cancelled)
+        with _guard:
+            if job.get("cancel_requested") and not job.get("publications"):
+                job.update(state="cancelled", phase="finished", error="Import cancelled before publication; staging is retained.", updated_at=_now())
+            else:
+                job.update(state="succeeded", phase="finished", result=result, progress_percent=100, eta_seconds=0, updated_at=_now())
+            _write(path, job)
+            try:
+                _cancel_path(root, job["id"]).unlink()
+            except FileNotFoundError:
+                pass
     except BaseException as exc:
         with _guard:
             # Any crossed mutation boundary means failure cannot claim absence
             # of effects; keep receipts and never dispatch again automatically.
-            state = "interrupted" if job["publications"] else "failed"
+            state = "cancelled" if isinstance(exc, imp.ImportCancelled) else ("interrupted" if job["publications"] else "failed")
             job.update(state=state, error=f"{type(exc).__name__}: {exc}", updated_at=_now())
             try:
                 _write(path, job)
@@ -283,4 +356,8 @@ def _run(root, job, payload, callback, lease):
     finally:
         with _guard:
             _live.pop((str(root), job["id"]), None)
+            try:
+                _cancel_path(root, job["id"]).unlink()
+            except FileNotFoundError:
+                pass
             _release(lease)

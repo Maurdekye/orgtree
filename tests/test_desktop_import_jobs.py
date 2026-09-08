@@ -121,7 +121,9 @@ class ImportJobsTests(unittest.TestCase):
             jobs._write(path, terminal)
             return real_lease(value)
         with patch.object(jobs, "_lease", completed_before_acquire):
-            self.assertEqual(jobs.get(identifier), terminal)
+            observed = jobs.get(identifier)
+            self.assertFalse(observed.pop("cancellable"))
+            self.assertEqual(observed, terminal)
         self.assertEqual(jobs._read(path), terminal)
         other = str(uuid.uuid4())
         jobs._write(root / (other + ".json"), dict(active, id=other))
@@ -187,9 +189,56 @@ class ImportJobsTests(unittest.TestCase):
         self.assertEqual(job["state"], "succeeded")
         self.assertGreaterEqual(job["files_copied"], 100)
         self.assertGreater(job["bytes_copied"], 100 * len(b"actual copied bytes"))
+        self.assertIsInstance(job["total_files"], int)
+        self.assertIsInstance(job["total_bytes"], int)
+        self.assertEqual(job["progress_percent"], 100)
+        self.assertEqual(job["eta_seconds"], 0)
         self.assertGreater(len(writes), 5)  # phase/publication/admission checkpoints really persist
         self.assertLess(len(writes), job["files_copied"] // 2)
         self.assertEqual(fingerprint(folder), fingerprint(self.dest / folder.relative_to(self.source)))
+
+    def test_cancel_running_copy_is_durable_and_does_not_publish(self):
+        self.fixture()
+        entered, release = threading.Event(), threading.Event()
+        real = imp._copy_file
+        def delayed(source, destination):
+            entered.set()
+            self.assertTrue(release.wait(10))
+            return real(source, destination)
+        body = self.body()
+        client = self.client()
+        with patch.object(imp, "_copy_file", delayed), patch.object(subprocess, "Popen", side_effect=AssertionError("no provider")):
+            self.assertEqual(client.post("/api/desktop/import-v1/jobs", json=body, headers=self.headers).status_code, 202)
+            self.assertTrue(entered.wait(5))
+            response = client.post("/api/desktop/import-v1/jobs/" + body["request_id"] + "/cancel",
+                                   json={}, headers=self.headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["job"]["cancel_requested"])
+            self.assertFalse(response.json()["job"]["cancellable"])
+            release.set()
+            job = self.wait_job(body["request_id"])
+        self.assertEqual(job["state"], "cancelled", job)
+        self.assertFalse((self.dest / "orgs/acme.db").exists())
+        self.assertEqual(self.resumed, [])
+        self.assertIsNone(jobs.cancel(body["request_id"])["result"])
+
+    def test_cancel_refused_after_publication_phase_preserves_receipts(self):
+        root = jobs._root()
+        identifier = str(uuid.uuid4())
+        job = {
+            "id": identifier, "state": "running", "phase": "publishing",
+            "cancel_requested": False, "publications": [{"slug": "acme", "state": "publishing"}],
+            "result": None,
+        }
+        jobs._write(root / (identifier + ".json"), job)
+        jobs._live[(str(root), identifier)] = job
+        client = self.client()
+        response = client.post("/api/desktop/import-v1/jobs/" + identifier + "/cancel",
+                               json={}, headers=self.headers)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("cannot be cancelled", response.json()["detail"])
+        self.assertEqual(jobs._live[(str(root), identifier)]["state"], "running")
+        self.assertEqual(jobs._live[(str(root), identifier)]["publications"][0]["state"], "publishing")
 
     def test_real_process_restart_before_and_after_publication_never_replays(self):
         self.fixture()

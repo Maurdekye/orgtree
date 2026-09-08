@@ -38,10 +38,19 @@ _LOCK = threading.RLock()
 _progress_local = threading.local()
 
 
+class ImportCancelled(Exception):
+    """Cooperative stop before publication begins."""
+
+
 def _progress(**event: Any) -> None:
     callback = getattr(_progress_local, "callback", None)
     if callback is not None:
         callback(event)
+
+
+def _check_cancel(cancel: Callable[[], bool] | None) -> None:
+    if cancel is not None and cancel():
+        raise ImportCancelled("Import cancellation requested before publication")
 _on_imported: Callable[[str], Any] | None = None
 router = APIRouter(prefix="/api/desktop/import-v1", tags=["desktop-import"])
 
@@ -169,13 +178,15 @@ class _DependencyOmissions:
 
 
 def _copy_tree(source: Path, dest: Path, *, dependency_omissions: _DependencyOmissions | None = None,
-               relative: Path = Path(), within_area: Path = Path()) -> None:
+               relative: Path = Path(), within_area: Path = Path(),
+               cancel: Callable[[], bool] | None = None) -> None:
     _plain(source)
     if not source.is_dir():
         raise ImportRefused(f"Not a directory: {source}")
     dest.mkdir(parents=True, exist_ok=False)
     before = sorted(p.name for p in source.iterdir())
     for name in before:
+        _check_cancel(cancel)
         child = source / name
         child_relative = relative / name
         child_within_area = within_area / name
@@ -190,7 +201,7 @@ def _copy_tree(source: Path, dest: Path, *, dependency_omissions: _DependencyOmi
         _plain(child)
         if child.is_dir():
             _copy_tree(child, dest / name, dependency_omissions=dependency_omissions,
-                       relative=child_relative, within_area=child_within_area)
+                       relative=child_relative, within_area=child_within_area, cancel=cancel)
         else:
             _copy_file(child, dest / name)
     if sorted(p.name for p in source.iterdir()) != before:
@@ -554,20 +565,22 @@ def _write_candidate(path: Path, doc: dict[str, Any]) -> None:
 def copy_import(source_root: str, organizations: list[str], *,
                 acknowledge_duplicate_work: bool,
                 on_imported: Callable[[str], Any], native_sources: dict | None = None,
-                progress: Callable[[dict], None] | None = None) -> dict[str, Any]:
+                progress: Callable[[dict], None] | None = None,
+                cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
     previous = getattr(_progress_local, "callback", None)
     _progress_local.callback = progress
     try:
         return _copy_import(source_root, organizations,
                             acknowledge_duplicate_work=acknowledge_duplicate_work,
-                            on_imported=on_imported, native_sources=native_sources)
+                            on_imported=on_imported, native_sources=native_sources, cancel=cancel)
     finally:
         _progress_local.callback = previous
 
 
 def _copy_import(source_root: str, organizations: list[str], *,
                  acknowledge_duplicate_work: bool,
-                 on_imported: Callable[[str], Any], native_sources: dict | None = None) -> dict[str, Any]:
+                 on_imported: Callable[[str], Any], native_sources: dict | None = None,
+                 cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
     from . import desktop_native
     if acknowledge_duplicate_work is not True:
         raise ImportRefused("Acknowledge possible duplicate work before importing")
@@ -579,6 +592,7 @@ def _copy_import(source_root: str, organizations: list[str], *,
     store = _store()
     with _LOCK, store.DOC_LOCK:
         for slug in slugs:
+            _check_cancel(cancel)
             _conflicts(dest, slug)
         base = dest / ".import-staging" / str(uuid.uuid4())
         _plain(base)
@@ -596,10 +610,13 @@ def _copy_import(source_root: str, organizations: list[str], *,
             for rel in _areas(slug):
                 if (source / rel).exists():
                     _copy_tree(source / rel, files / rel, dependency_omissions=dependency_omissions,
-                               relative=Path(rel))
+                               relative=Path(rel), cancel=cancel)
+            _check_cancel(cancel)
             _progress(phase="native")
+            _check_cancel(cancel)
             doc, active, warnings = _prepare_document(doc, source, dest, stage, sources)
             warnings.extend(dependency_omissions.warnings())
+            _check_cancel(cancel)
             _progress(phase="validating")
             _write_candidate(stage / "candidate.db", doc)
             prepared.append((slug, stage, doc, active, warnings))
@@ -609,10 +626,12 @@ def _copy_import(source_root: str, organizations: list[str], *,
         imported = []
         failed = []
         for slug, stage, doc, active, warnings in prepared:
+            _check_cancel(cancel)
             row = {"slug": slug, "name": doc["name"], "active_nodes": active,
                    "warnings": warnings, "recovery_pending": True}
             _progress(phase="publishing", current_org=slug, publication_intent=slug)
             try:
+                # Once publication starts it is atomic and cannot be cancelled.
                 from .desktop_native_claude_rewind import publish as publish_rewind
                 from .desktop_native_claude_memory import publish as publish_memory
                 publish_rewind(doc, stage)
@@ -641,6 +660,43 @@ def _copy_import(source_root: str, organizations: list[str], *,
             pass  # A notification failure cannot turn a committed copy into a retry.
     return {"imported": imported, "failed": failed,
             "warnings": [DUPLICATE_WARNING, CONTINUITY_WARNING]}
+
+
+def plan_import(source_root: str, organizations: list[str], *,
+                cancel: Callable[[], bool] | None = None,
+                progress: Callable[[dict], None] | None = None) -> tuple[int, int]:
+    """Count eligible copy files without opening documents or following links."""
+    source, _ = _roots(source_root)
+    total_files = total_bytes = 0
+
+    def walk(path: Path, within_area: Path = Path()) -> None:
+        nonlocal total_files, total_bytes
+        _check_cancel(cancel)
+        for child in sorted(path.iterdir(), key=lambda item: item.name):
+            _check_cancel(cancel)
+            info = child.lstat()
+            linked = stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
+            if linked and any(part.casefold() == "node_modules" for part in (within_area / child.name).parts):
+                continue
+            if linked:
+                _plain(child)
+            if child.is_dir():
+                walk(child, within_area / child.name)
+            else:
+                total_files += 1
+                total_bytes += child.stat().st_size
+                if progress is not None and total_files % 256 == 0:
+                    progress({"planned_files": total_files, "planned_bytes": total_bytes})
+
+    for slug in organizations:
+        _check_cancel(cancel)
+        for rel in _areas(slug):
+            area = source / rel
+            if area.is_dir():
+                walk(area)
+    if progress is not None:
+        progress({"planned_files": total_files, "planned_bytes": total_bytes})
+    return total_files, total_bytes
 
 
 def _publish(dest: Path, slug: str, stage: Path) -> None:
@@ -706,6 +762,12 @@ def start_job_route(body: ImportJobBody) -> dict[str, Any]:
 def current_job_route() -> dict[str, Any]:
     from . import desktop_import_jobs
     return _http(lambda: {"job": desktop_import_jobs.current()})
+
+
+@router.post("/jobs/{request_id}/cancel")
+def cancel_job_route(request_id: uuid.UUID) -> dict[str, Any]:
+    from . import desktop_import_jobs
+    return _http(lambda: {"job": desktop_import_jobs.cancel(str(request_id))})
 
 
 @router.get("/jobs/{request_id}")

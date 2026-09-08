@@ -13,20 +13,34 @@ copy helper remains available for isolated tests and the job worker.
   GET performs copy, publication or recovery. Both remain independent of the
   organization lock held during file copying.
 
-Job states are `queued`, `running`, `succeeded`, `failed`, `interrupted`.
-Phases are `queued`, `reading`, `copying`, `native`, `validating`, `publishing`,
+Job states are `queued`, `planning`, `running`, `cancelling`, `succeeded`,
+`cancelled`, `failed`, `interrupted`. Phases are `queued`, `counting`, `reading`,
+`copying`, `native`, `validating`, `publishing`,
 `recovering`, `finished`. The job includes source root, selected organizations,
 current organization, timestamps, error and the existing Imported result shape.
 `publications` records each organization's publication intent/confirmation and
 recovery intent/return; it is not proof that a provider completed any work.
 
 `files_copied` and `bytes_copied` count completed, verified copies performed by
-the import copy helper. They are not total source size or a percentage. Files
+the import copy helper. `total_files` and `total_bytes` are null until the
+cancellable, no-follow planning phase finishes. Once known, `progress_percent`
+is measured over the copy bytes and capped at 99 until the whole operation
+succeeds; `eta_seconds` is a measured estimate and may be null when no rate is
+available. Neither is a guarantee or a claim of publication success. Files
 are counted again when a later independent copy is made; other native-provider
 operations can proceed during their named phase without increasing these counters.
 Progress is kept in memory and checkpointed at most once per second. Phase and
 mutation boundaries are persisted immediately. After interruption the counters
 may lag the last second of work, and only completed checkpoints are reported.
+
+Cancellation is `POST /jobs/{request_id}/cancel` with `{}` and returns the same
+`{job}` envelope. It durably records `cancel_requested` while the worker owns
+the destination lease; the worker stops at planning/copying checkpoints and
+finishes as `cancelled`, retaining staging and any prior receipts. Publication
+and recovery are atomic boundaries: cancellation then returns 409 and leaves
+receipts untouched. The `cancellable` field is false after a request or during
+an irreversible phase. Cancellation never rolls back a completed organization,
+releases the lease early, or automatically starts another job.
 
 A destination OS lease prevents competing workers, including other processes.
 The lease releases when the process exits. A subsequent status read marks an
@@ -42,7 +56,7 @@ that exact ID. Transport failure must not unlock a new import. An authoritative
 reenter the request and acknowledge it. The server's payload fingerprint guards
 against a delayed earlier request colliding with different reentered details.
 
-No cancellation, automatic retry, resumed partial file copy, or automatic cleanup
-of retained staging is added. Terminal jobs remain on disk for reconnect and
-deduplication. Unsupported native layouts and all source-isolation checks keep
+No automatic retry, resumed partial file copy, or automatic cleanup of retained
+staging is added. Terminal jobs remain on disk for reconnect and deduplication.
+Unsupported native layouts and all source-isolation checks keep
 their existing behavior. This protocol does not retrofit a running older engine.
