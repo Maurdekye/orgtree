@@ -49,8 +49,22 @@ class DesktopPolicyTests(unittest.TestCase):
             for extra in ({'sandbox':True},{'kiosk':{}},{'disk_mb':4096}):
                 response = client.post('/api/orgs',json={'name':'forbidden',**extra},headers=headers)
                 self.assertEqual(response.status_code,422,response.text)
-        for route in ('/api/accounts/keys','/api/accounts/order'):
-            self.assertEqual(client.post(route,json={},headers=headers).status_code,404)
+        # The excluded routes are REMOVED from the router (desktop_policy
+        # .install_routes), so a request falls through to the SPA catch-all,
+        # which serves GET only and answers 405 — never 404. Asserting the
+        # status alone would not tell removal apart from a method mismatch on
+        # a route that is still there, which is exactly the confusion this
+        # test exists to prevent (redteam-opus 2026-09-08): so assert the
+        # PATH IS GONE, and that no handler runs (422 would mean it did).
+        registered = [str(getattr(r,'path','')) for r in api.app.router.routes]
+        for path in registered:
+            self.assertFalse(path.startswith(('/api/accounts/keys','/api/accounts/order')),
+                             f'excluded account route still registered: {path}')
+        for method,route in (('POST','/api/accounts/keys'),('PUT','/api/accounts/order'),
+                             ('DELETE','/api/accounts/keys/any')):
+            response = client.request(method,route,json={},headers=headers)
+            self.assertEqual(response.status_code,405,f'{method} {route}: {response.text}')
+            self.assertIn('Method Not Allowed',response.text)
         with patch.object(accounts,'registry_path',side_effect=AssertionError('no registry read')):
             self.assertEqual(accounts.load()['keys'],[])
         with self.assertRaises(accounts.RegistryUnreadable): accounts.save({'keys':[]})
