@@ -158,6 +158,8 @@ test('unavailable source keeps its quote, remove clears metadata, and failed sen
     const ghost = view.el.querySelector('.pendghost')!
     assert.match(ghost.textContent!, /connection lost/)
     assert.match(ghost.textContent!, /same text/)
+    assert.ok(ghost.classList.contains('event-runtime_recovery'), 'failed sends use the structural recovery family')
+    assert.equal(ghost.querySelector('[role="status"]')?.className, 'ghost-why', 'uncertain delivery remains an explicit status')
     await inAct(async () => { ghost.querySelector<HTMLButtonElement>('button[title="put this text back in the composer"]')!.click() })
     assert.deepEqual(readReply(key), source)
     await inAct(async () => { view.el.querySelector<HTMLButtonElement>('button[aria-label="Remove reply"]')!.click() })

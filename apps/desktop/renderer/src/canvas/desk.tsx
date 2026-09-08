@@ -2430,13 +2430,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               ours to overwrite. */}
           {pending.map((p) => (
             <div key={'q' + p.id} data-reply-event="" onContextMenu={e => openReply(e, {})}
-              className={'msg user pending pendghost md' + (p.failed ? ' failed' : '')}>
+              className={'msg user pending pendghost md' + (p.failed
+                ? ' failed event-surface event-card event-runtime_recovery' : '')}>
               {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
               <RefMdBody className="pendbody"
                 world={deskRefs.world} onOpen={deskRefs.onOpen}
                 html={md(p.text, fileBase(slug, node.id))} />
               {p.failed && (
-                <div className="ghost-why">
+                <div className="ghost-why" role="status">
                   <WarnIcon fontSize="inherit" /> {p.error ? `Send was not confirmed: ${p.error}. ` : ''}not delivered — the turn
                   ended without running it. If that was a slash command,
                   nothing here or in the CLI answers to that name.
@@ -2478,7 +2479,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             </button>)}
         </div></div>
       )}
-      {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} agents={agentDir} />}
+      {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} />}
       {view === 'files' && <FilesView slug={slug} nid={node.id} />}
       {/* ⚠ THE SAME `deskRefs` THE CHAT AND THE INBOX USE. This tab was
           building its own narrower world, which left a `@doc:` or `@mail:`
@@ -2724,15 +2725,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     </div></fieldset>
   )
 }
-export function HistoryView({ slug, nid, refs, agents }: {
-  slug: string; nid: string; refs?: RefRoutes; agents?: AgentDirectory
-}) {
+export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
   // G5: the agent keeps acting while this tab is open — a fetch-once list is
   // a photograph of the moment the tab was clicked
   const items = usePolled(() => getHistory(slug, nid).then((r) => r.items), [slug, nid])
   const profile = BASE ? 'public' : 'operator'
   return (
-    <AgentDirectoryProvider value={agents ?? null}>
     <div className="msgs">
       {items == null && <div className="dim pad">loading…</div>}
       {items?.length === 0 && <div className="dim pad">nothing recorded yet</div>}
@@ -2752,7 +2750,6 @@ export function HistoryView({ slug, nid, refs, agents }: {
         </div>
       })}
     </div>
-    </AgentDirectoryProvider>
   )
 }
 

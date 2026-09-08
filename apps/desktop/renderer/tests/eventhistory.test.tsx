@@ -1,12 +1,13 @@
 import './harness'
-import {flush,mountView,realClock,useFakeClock} from './harness'
+import {FakeServer,flush,inAct,installFetch,mountView,realClock,useFakeClock} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
 declare const __SRC_DIR__: string
 const {BASE}=await import('../src/api')
-const {HistoryView}=await import('../src/canvas/desk')
+const {DeskChat,HistoryView}=await import('../src/canvas/desk')
+import type {CanvasNode} from '../src/canvas/shared'
 test('history renders typed status and preserves legacy and unsupported content',async t=>{
   assert.equal(BASE,'')
   useFakeClock(); const old=globalThis.fetch
@@ -28,7 +29,7 @@ test('history renders typed status and preserves legacy and unsupported content'
 })
 
 test('history keeps ordinary messages and notices styled with navigable agent senders',async t=>{
-  useFakeClock(); const old=globalThis.fetch
+  useFakeClock(); const server=new FakeServer(); installFetch(server); const old=globalThis.fetch
   const message=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.message.json'),'utf8')).private
   const notice=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/ordinary.notice.json'),'utf8')).private
   const actor='peer-agent'
@@ -36,18 +37,25 @@ test('history keeps ordinary messages and notices styled with navigable agent se
     {at:'2026-09-06T12:00:00Z',kind:'message',actor,detail:{text:'message fallback'},ev:{...message,actor:{kind:'agent',id:actor},body:'Normal message C'}},
     {at:'2026-09-06T12:01:00Z',kind:'notice',actor,detail:{text:'notice fallback'},ev:{...notice,actor:{kind:'agent',id:actor},body:'Passive notice C'}},
   ]
-  globalThis.fetch=(async()=>({ok:true,status:200,headers:new Headers(),json:async()=>({items})} as Response)) as typeof fetch
+  globalThis.fetch=(async(url,init)=>String(url).endsWith('/history')
+    ? ({ok:true,status:200,headers:new Headers(),json:async()=>({items})} as Response)
+    : old(url,init)) as typeof fetch
   const jumped:string[]=[]
-  const view=await mountView(<HistoryView slug="fixture" nid="worker" agents={{
-    resolve:id=>id===actor?{tier:'sonnet'}:undefined,
-    onFocus:id=>jumped.push(id),
-  }}/>,h=>h)
+  const worker:CanvasNode={id:'worker',generation:1,state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
+  const peer:CanvasNode={id:actor,generation:1,state:'live',tier:'sonnet',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
+  const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker],[peer.id,peer]])}
+    slug="fixture" op={async()=>({})} toast={()=>{}} pub={false} bare onJump={id=>jumped.push(id)}/>,h=>h)
   t.after(async()=>{await view.unmount();globalThis.fetch=old;realClock()})
   await flush()
-  assert.equal(view.el.querySelectorAll('.event-ordinary').length,2)
+  const history=[...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
+    .find(button=>button.textContent === 'history')!
+  await inAct(()=>history.click())
+  await flush()
+  assert.equal(view.el.querySelectorAll('.hist-event.event-ordinary').length,2)
   assert.match(view.el.textContent!,/Message/)
   assert.match(view.el.textContent!,/Notice/)
-  assert.equal(view.el.querySelectorAll('button.cc-name-jump').length,2)
-  view.el.querySelectorAll<HTMLButtonElement>('button.cc-name-jump').forEach(button=>button.click())
+  const eventJumps=view.el.querySelectorAll<HTMLButtonElement>('.hist-event button.cc-name-jump')
+  assert.equal(eventJumps.length,2)
+  eventJumps.forEach(button=>button.click())
   assert.deepEqual(jumped,[actor,actor])
 })
