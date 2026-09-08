@@ -148,6 +148,36 @@ class ImportJobsTests(unittest.TestCase):
         finally:
             jobs._release(third)
 
+    def test_cross_process_control_lock_blocks_cancel_mutation(self):
+        self.fixture()
+        root = jobs._root()
+        identifier = str(uuid.uuid4())
+        jobs._write(root / (identifier + ".json"), {
+            "id": identifier, "state": "running", "phase": "copying",
+            "cancel_requested": False, "publications": [], "result": None,
+        })
+        script = r'''
+import sys, time
+from pathlib import Path
+from engine.backend.orgtree import desktop_import_jobs as jobs
+root = Path(sys.argv[1])
+lock = jobs._lease(root, "control.lock")
+print("ready", flush=True)
+time.sleep(2)
+jobs._release(lock)
+'''
+        child = subprocess.Popen([sys.executable, "-c", script, str(root)],
+                                 cwd=Path(__file__).resolve().parents[1],
+                                 stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "ready")
+            with self.assertRaisesRegex(imp.ImportRefused, "state is busy"):
+                jobs.cancel(identifier)
+            self.assertFalse((root / (identifier + ".cancel")).exists())
+        finally:
+            child.wait(timeout=5)
+            child.stdout.close()
+
     def test_current_missing_record_is_null_but_exact_is_404(self):
         root = jobs._root()
         identifier = str(uuid.uuid4())

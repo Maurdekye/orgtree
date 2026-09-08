@@ -55,8 +55,8 @@ def _write(path, value):
     os.replace(temporary, path)
 
 
-def _lease(root):
-    path = root / "active.lock"
+def _lease(root, filename="active.lock"):
+    path = root / filename
     imp._plain(path)
     stream = path.open("a+b")
     if path.stat().st_size == 0:
@@ -108,25 +108,34 @@ def cancel(identifier):
     with _guard:
         root = _root()
         identifier = str(uuid.UUID(identifier))
-        job = _read(root / (identifier + ".json"))
-        live = _live.get((str(root), identifier))
-        if live is not None:
-            job = live
-        if job is None:
-            raise imp.ImportRefused("Import request ID is not recorded", 404)
-        if job["state"] not in ACTIVE and job["state"] != "cancelling":
-            return _public(job)
-        if job.get("phase") not in CANCELLABLE_PHASES:
-            raise imp.ImportRefused("Import cannot be cancelled after publication or recovery began", 409)
-        # The worker owns the destination lease. A separate durable marker is
-        # the cancellation request; the worker consumes it at safe checkpoints.
-        _write(_cancel_path(root, identifier), {"requested_at": _now()})
-        job["cancel_requested"] = True
-        job["state"] = "cancelling"
-        job["updated_at"] = _now()
-        if live is None:
+        control = _lease(root, "control.lock")
+        if control is None:
+            raise imp.ImportRefused("Import state is busy; check status and retry cancellation", 409)
+        try:
+            # Read only after the cross-process control lock is held. This
+            # prevents a stale caller snapshot from overwriting publication
+            # receipts while the worker enters its publication gate.
+            job = _read(root / (identifier + ".json"))
+            live = _live.get((str(root), identifier))
+            if job is None:
+                raise imp.ImportRefused("Import request ID is not recorded", 404)
+            if job["state"] not in ACTIVE and job["state"] != "cancelling":
+                return _public(job)
+            if job.get("phase") not in CANCELLABLE_PHASES:
+                raise imp.ImportRefused("Import cannot be cancelled after publication or recovery began", 409)
+            # The worker owns the destination lease. A separate durable marker
+            # is the cancellation request; the worker consumes it at safe
+            # checkpoints, under the same short control lock at publication.
+            _write(_cancel_path(root, identifier), {"requested_at": _now()})
+            job["cancel_requested"] = True
+            job["state"] = "cancelling"
+            job["updated_at"] = _now()
             _write(root / (identifier + ".json"), job)
-        return _public(job)
+            if live is not None:
+                live.update(job)
+            return _public(job)
+        finally:
+            _release(control)
 
 
 def _interrupt(root, job):
@@ -268,20 +277,26 @@ def start(body, callback):
 def _run(root, job, payload, callback, lease):
     path = root / (job["id"] + ".json")
     last_checkpoint = 0.0
-    copy_started = None
+    copy_window_started = None
+    copy_elapsed = 0.0
 
     def cancelled():
         return (bool(job.get("cancel_requested")) or _cancel_marked(root, job["id"]
                 )) and job.get("phase") in CANCELLABLE_PHASES
 
     def progress(event):
-        nonlocal last_checkpoint, copy_started
+        nonlocal last_checkpoint, copy_window_started, copy_elapsed
         with _guard:
             job["updated_at"] = _now()
+            now = time.monotonic()
+            phase = event.get("phase")
+            if phase == "copying" and copy_window_started is None:
+                copy_window_started = now
+            elif phase != "copying" and copy_window_started is not None:
+                copy_elapsed += now - copy_window_started
+                copy_window_started = None
             is_copy = event.get("progress_scope", "copy") == "copy"
             if "file_bytes" in event and is_copy:
-                if copy_started is None:
-                    copy_started = time.monotonic()
                 job["files_copied"] += 1
                 job["bytes_copied"] += event["file_bytes"]
             if "planned_files" in event:
@@ -294,7 +309,9 @@ def _run(root, job, payload, callback, lease):
                 byte_ratio = job["bytes_copied"] / total if total else file_ratio
                 work = min(1.0, (file_ratio + byte_ratio) / 2)
                 job["progress_percent"] = min(99, int(work * 100))
-                elapsed = time.monotonic() - copy_started if copy_started is not None else 0
+                elapsed = copy_elapsed
+                if copy_window_started is not None:
+                    elapsed += now - copy_window_started
                 rate = work / elapsed if elapsed > 0 else 0
                 job["eta_seconds"] = int(max(0, (1 - work) / rate)) if rate else None
             if event.get("phase") in {"native", "validating", "publishing", "recovering", "finished"}:
@@ -331,13 +348,20 @@ def _run(root, job, payload, callback, lease):
         # the same guard. Once this returns, cancellation is refused because
         # publication has begun; there is no check-then-publish gap.
         with _guard:
-            if cancelled():
-                raise imp.ImportCancelled("Import cancellation requested before publication")
-            # Go through the import progress seam while holding _guard. This
-            # keeps existing crash/instrumentation hooks observable and makes
-            # the marker check and durable intent one critical section.
-            imp._progress(phase="publishing", current_org=slug,
-                          publication_intent=slug)
+            control = _lease(root, "control.lock")
+            if control is None:
+                raise imp.ImportRefused("Import state is busy; publication was not started", 409)
+            try:
+                durable = _read(path)
+                if durable is None or durable.get("cancel_requested") or _cancel_marked(root, job["id"]):
+                    raise imp.ImportCancelled("Import cancellation requested before publication")
+                # Go through the import progress seam while holding both the
+                # process guard and cross-process control lock. This keeps
+                # marker acceptance and durable intent one critical section.
+                imp._progress(phase="publishing", current_org=slug,
+                              publication_intent=slug)
+            finally:
+                _release(control)
 
     try:
         with _guard:
