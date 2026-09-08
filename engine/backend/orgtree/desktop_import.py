@@ -473,21 +473,26 @@ def _stage_memory(doc: dict[str, Any], source: Path, dest: Path, slug: str, stag
     ``stage=None`` previews without copying. Returns one row per base folder.
     """
     from . import desktop_native, supervisor
-    from .desktop_native_claude_memory import MEMORY_DIR, prepare as prepare_memory
+    from .desktop_native_claude_memory import (MEMORY_DIR, hold_shared_destinations,
+                                               prepare as prepare_memory)
     from .desktop_native_claude_rewind import selected_profile
     groups: dict[str, list[str]] = {}
     rows: list[dict[str, Any]] = []
     for nid, node in doc["nodes"].items():
         if desktop_native.provider_for(node) in {"claude", "openrouter"}:
             groups.setdefault(nid.split("@")[0], []).append(nid)
-    for base, members in sorted(groups.items()):
+    metas: dict[str, dict[str, Any]] = {}
+    for base in sorted(groups):
         try:
             env = supervisor.clean_env()
             env.update(supervisor.env_overrides(slug, base))
-            meta = prepare_memory(source, dest, slug, base, stage, sources, env,
-                                  selected_profile(slug, base))
+            metas[base] = prepare_memory(source, dest, slug, base, stage, sources, env,
+                                         selected_profile(slug, base))
         except (desktop_native.NativeHeld, OSError, ValueError) as exc:
-            meta = {"status": "held", "base": base, "reason": str(exc)}
+            metas[base] = {"status": "held", "base": base, "reason": str(exc)}
+    hold_shared_destinations(metas)
+    for base, members in sorted(groups.items()):
+        meta = metas[base]
         if meta["status"] == "held":
             warnings.append(f"{base}: Claude memory held: {meta.get('reason')}")
         rows.append({"nodes": members,

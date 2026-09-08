@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import stat
 from typing import Any
+import uuid
 
 from .desktop_native import NativeHeld
 
@@ -315,32 +316,104 @@ def _groups(doc: dict) -> dict[str, dict[str, Any]]:
     return out
 
 
+def hold_shared_destinations(metas: dict[str, dict[str, Any]]) -> None:
+    """Claude keys memory on the checkout root when a scratch folder sits inside
+    a git checkout, so several base folders can map to ONE destination. That is
+    shared, not independent, memory: hold every base in such a set that has
+    memory to carry."""
+    by_destination: dict[str, list[str]] = {}
+    for base, meta in metas.items():
+        if meta.get("destination"):
+            by_destination.setdefault(meta["destination"], []).append(base)
+    for destination, bases in by_destination.items():
+        if len(bases) < 2 or not any(metas[b].get("status") == "ready" for b in bases):
+            continue
+        others = ", ".join(sorted(bases))
+        for base in bases:
+            if metas[base].get("status") in {"ready", "none"}:
+                metas[base].update(status="held", reason=(
+                    f"Destination memory directory would be shared by base folders {others}: "
+                    f"{destination}"))
+
+
+def expected_destination(doc: dict, base: str, meta: dict[str, Any]) -> Path:
+    """Recompute the destination from live inputs; a document value never steers a write."""
+    from . import supervisor
+    from .desktop_native_claude_rewind import selected_profile
+    env = supervisor.clean_env()
+    env.update(supervisor.env_overrides(doc["slug"], base))
+    key = str(meta.get("key") or "")
+    if not key or key != project_key(memory_root(str(meta.get("destination_cwd") or ""))):
+        raise NativeHeld(f"Recorded memory key for {base} does not match its destination cwd")
+    return config_dir(env, selected_profile(doc["slug"], base)) / "projects" / key / MEMORY_DIR
+
+
 def check_publishable(doc: dict) -> None:
     """Refuse before any profile write when a destination changed since staging."""
     from .desktop_import import ImportRefused
+    seen: dict[Path, str] = {}
     for base, meta in _groups(doc).items():
         if meta.get("status") != "ready":
             continue
         target = Path(meta["destination"])
+        try:
+            if expected_destination(doc, base, meta) != target:
+                raise ImportRefused(f"Destination memory path for {base} is not the expected profile location", 409)
+        except NativeHeld as exc:
+            raise ImportRefused(str(exc), 409) from exc
+        if target in seen:
+            raise ImportRefused(f"Base folders {seen[target]} and {base} share one destination memory directory", 409)
+        seen[target] = base
         _plain(target)
         exists = _entry(target) is not None
         if exists != bool(meta.get("identical")):
             raise ImportRefused(f"Destination memory for {base} changed before publication", 409)
 
 
+def _discard_partial(folder: Path, manifest: list[str]) -> None:
+    """Remove only the files this process wrote into its own temporary folder,
+    then the empty directories bottom-up. Anything unexpected stays."""
+    for rel in manifest:
+        try:
+            path = folder / rel
+            if stat.S_ISREG(path.lstat().st_mode):
+                path.unlink()
+        except OSError:
+            pass
+    for dirpath, dirnames, _ in sorted(os.walk(folder, topdown=False), key=lambda row: -len(row[0])):
+        try:
+            os.rmdir(dirpath)
+        except OSError:
+            pass
+
+
 def publish(doc: dict, stage: Path) -> None:
-    """Exclusively create each destination memory directory from staging."""
-    from .desktop_import import _copy_file
+    """Create each destination memory directory atomically from staging.
+
+    Files are copied into an exclusively created sibling temporary folder and
+    the folder is renamed onto the ``memory`` name, which fails if that name
+    appeared in the meantime. A failed copy therefore never leaves a partial
+    ``memory`` directory in the profile."""
+    from .desktop_import import ImportRefused, _copy_file
     check_publishable(doc)
     for base, meta in _groups(doc).items():
         if meta.get("status") != "ready" or meta.get("identical"):
             continue
         target = Path(meta["destination"])
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.mkdir()  # exclusive: never merge into a pre-existing directory
+        building = target.parent / f".{MEMORY_DIR}-import-{uuid.uuid4().hex}"
+        building.mkdir()  # exclusive
         staged = stage / MEMORY_DIR / base
-        for file, _ in _walk(staged):
-            _copy_file(file, target / file.relative_to(staged))
+        written: list[str] = []
+        try:
+            for file, _ in _walk(staged):
+                rel = file.relative_to(staged)
+                _copy_file(file, building / rel)
+                written.append(rel.as_posix())
+            os.rename(building, target)  # atomic onto a name that must not exist
+        except (OSError, ImportRefused) as exc:
+            _discard_partial(building, written)
+            raise ImportRefused(f"Could not publish memory for {base}: {exc}", 409) from exc
 
 
 def hold_reason(doc: dict, nid: str) -> str | None:

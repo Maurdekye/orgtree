@@ -302,6 +302,83 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         self.assertEqual((target / "MEMORY.md").read_bytes(), b"raced in")
         self.assertEqual(sorted(p.name for p in target.iterdir()), ["MEMORY.md"])
 
+    def test_bases_sharing_one_destination_key_are_held_and_nothing_is_published(self):
+        # A destination data root inside a git checkout makes Claude key every
+        # scratch folder on the checkout root: one memory directory for all.
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        second = dict(doc["nodes"]["worker"])
+        second.update(session_id=str(uuid.uuid4()))
+        doc["nodes"]["second"] = second
+        (self.source / "orgs/acme.json").write_text(json.dumps(doc), encoding="utf-8")
+        (self.source / "scratch/acme/second").mkdir()
+        source_profile = Path(sources["claude_profile"])
+        other = source_profile / "projects" / memory.project_key(
+            str(self.source.resolve() / "scratch/acme/second")) / "memory"
+        other.mkdir(parents=True)
+        (other / "MEMORY.md").write_bytes(b"second base memory")
+        subprocess.run(["git", "init", "-q"], cwd=self.dest, check=True, capture_output=True)
+        shared = self.profile.resolve() / "projects" / memory.project_key(str(self.dest.resolve())) / "memory"
+        result = self.run_native(sources)
+        self.assertEqual(result["failed"], [])
+        self.assertFalse(shared.exists())
+        self.assertEqual(sorted(p.name for p in (self.profile / "projects").iterdir())
+                         if (self.profile / "projects").exists() else [], [])
+        copied = self.read()
+        for nid in ("worker", "second"):
+            meta = copied["nodes"][nid]["desktop_import"]["memory"]
+            self.assertEqual(meta["status"], "held", meta)
+            self.assertIn("shared by base folders second, worker", meta["reason"])
+            self.assertIn("unavailable", memory.hold_reason(copied, nid))
+        self.assertIn("Imported Claude memory is unavailable", native.native_hold_reason(copied, "worker"))
+        self.assertEqual(sum("Claude memory held" in w for w in result["imported"][0]["warnings"]), 2)
+        # Both archives are still retained for manual reconciliation.
+        self.assertTrue((self.dest / "imports/acme/memory/worker/MEMORY.md").is_file())
+        self.assertTrue((self.dest / "imports/acme/memory/second/MEMORY.md").is_file())
+
+    def test_failed_copy_leaves_no_partial_memory_directory_in_the_profile(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        target = self.destination()
+        real_copy = imp._copy_file
+        calls = []
+
+        def failing_copy(src, dst):
+            if dst.parent.name.startswith(".memory-import-") or ".memory-import-" in str(dst):
+                calls.append(dst)
+                if len(calls) == 2:
+                    raise OSError("disk full (synthetic)")
+            return real_copy(src, dst)
+
+        with patch.object(imp, "_copy_file", side_effect=failing_copy):
+            with self.assertRaises(imp.ImportRefused) as ctx:
+                self.run_native(sources)
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("disk full", str(ctx.exception))
+        self.assertFalse(target.exists())
+        leftovers = sorted(p.name for p in target.parent.iterdir()) if target.parent.exists() else []
+        self.assertEqual(leftovers, [])
+        self.assertFalse((self.dest / "orgs/acme.db").exists())
+        # A clean retry then succeeds with nothing to reconcile.
+        self.run_native(sources)
+        self.assertEqual(fixtures.fingerprint(target), fixtures.fingerprint(folder))
+
+    def test_publish_refuses_a_destination_that_is_not_the_expected_profile_location(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        elsewhere = self.root / "elsewhere" / "memory"
+        real_publish = memory.publish
+
+        def steer(doc, stage):
+            for node in doc["nodes"].values():
+                meta = node.get("desktop_import", {}).get("memory")
+                if meta:
+                    meta["destination"] = str(elsewhere)
+            return real_publish(doc, stage)
+
+        with patch.object(memory, "publish", side_effect=steer):
+            with self.assertRaises(imp.ImportRefused) as ctx:
+                self.run_native(sources)
+        self.assertIn("not the expected profile location", str(ctx.exception))
+        self.assertFalse(elsewhere.exists())
+
     def test_reparse_point_inside_memory_holds(self):
         doc, sources, folder = self.memory_fixture(archived_generation=False)
         linked = folder / "linked"
