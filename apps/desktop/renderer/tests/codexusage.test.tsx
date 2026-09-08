@@ -53,13 +53,16 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
 test('each provider refresh is gated and reports its update time', async () => {
   const g = globalThis as unknown as Record<string, unknown>
   let codexRequests = 0
+  const codexQueries: string[] = []
   let settleCodex: ((value: AccountUsage) => void) | null = null
   g.fetch = (url: string) => {
-    const path = new URL(String(url), 'http://localhost').pathname
+    const parsed = new URL(String(url), 'http://localhost')
+    const path = parsed.pathname
     if (path === '/api/usage') return Promise.resolve({ ok: true, status: 200,
       headers: new Headers(), json: () => Promise.resolve(CLAUDE.accounts[0]) })
     if (/\/codex\/usage$/.test(path)) {
       codexRequests++
+      codexQueries.push(parsed.search)
       return new Promise((resolve) => { settleCodex = (value) => resolve({
         ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(value),
       }) })
@@ -70,6 +73,7 @@ test('each provider refresh is gated and reports its update time', async () => {
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(4) })
     assert.equal(codexRequests, 1, 'the initial provider read is in flight')
+    assert.deepEqual(codexQueries, [''], 'normal reads stay cache-backed')
     const button = view.el.querySelector<HTMLButtonElement>(
       '[aria-label="refresh Codex usage"]')
     assert.ok(button)
@@ -80,6 +84,8 @@ test('each provider refresh is gated and reports its update time', async () => {
     button.click()
     await inAct(async () => { await flush(2) })
     assert.equal(codexRequests, 2, 'a later click starts one new provider read')
+    assert.deepEqual(codexQueries, ['', '?force=true'],
+      'manual refresh reaches the provider force-read path')
     button.click()
     assert.equal(codexRequests, 2, 'a duplicate click cannot overlap the read')
     settleCodex!(CODEX)

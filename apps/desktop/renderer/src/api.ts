@@ -406,24 +406,26 @@ export const setIdleDocketRemindersEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idle_docket_reminders_enabled: enabled }),
   })
-export const getUsage = (): Promise<UsagePayload> => req('/api/usage')
+export const getUsage = (force = false): Promise<UsagePayload> =>
+  req(`/api/usage${force ? '?force=true' : ''}`)
 // cache-only — the glow polls this; only the modal above may cost a fetch
 export const getUsagePeek = (): Promise<UsagePeek> => req('/api/usage/peek')
-export const getCodexUsage = (): Promise<AccountUsage> => req('/api/codex/usage')
+export const getCodexUsage = (force = false): Promise<AccountUsage> =>
+  req(`/api/codex/usage${force ? '?force=true' : ''}`)
 // cache-only, like the Claude peek above
 export const getCodexUsagePeek = (): Promise<UsagePeek> => req('/api/codex/usage/peek')
 // the Antigravity standing is OBSERVED from turns (the CLI has no readout),
 // so both doors are cache-only; the modal one still owns the install/sign-in
 // wording and the always-on glow polls the bare peek
-export const getAntigravityUsage = (): Promise<AccountUsage> =>
+export const getAntigravityUsage = (_force = false): Promise<AccountUsage> =>
   req('/api/antigravity/usage')
 export const getAntigravityUsagePeek = (): Promise<UsagePeek> =>
   req('/api/antigravity/usage/peek')
 // OpenRouter: a prepaid credit balance read off the stored key's
 // `GET /api/v1/key`, cached 60s server-side — the modal costs a fetch, the
 // glow polls the cache-only peek
-export const getOpenRouterUsage = (): Promise<AccountUsage> =>
-  req('/api/openrouter/usage')
+export const getOpenRouterUsage = (force = false): Promise<AccountUsage> =>
+  req(`/api/openrouter/usage${force ? '?force=true' : ''}`)
 export const getOpenRouterUsagePeek = (): Promise<UsagePeek> =>
   req('/api/openrouter/usage/peek')
 // ---- machine-local account routing (user redesign 2026-08-25) ----------

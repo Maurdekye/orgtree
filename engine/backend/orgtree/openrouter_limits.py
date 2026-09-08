@@ -149,7 +149,8 @@ def fetch(force: bool = False) -> dict[str, Any]:
                          or "OpenRouter usage check failed"},
                         label=ks.get("label"))
     return _account({"available": True, "limits": _limits(ks),
-                     "plan": "free tier" if ks.get("is_free_tier") else None},
+                     "plan": "free tier" if ks.get("is_free_tier") else None,
+                     "observed_at": ks.get("checked_at")},
                     label=ks.get("label"))
 
 

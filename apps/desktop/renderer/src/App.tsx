@@ -1419,23 +1419,28 @@ export function AntigravityEstimateNote(
 }
 
 type UsageReadout = UsagePayload | AccountUsage
+const readoutObservedAt = (readout: UsageReadout): number => {
+  const raw = readout.observed_at
+  const parsed = typeof raw === 'string' ? Date.parse(raw) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : Date.now()
+}
 type UsageReadoutState = {
   value: UsageReadout | null
   pending: boolean
   failure: string | null
   updatedAt: number | null
-  refresh: () => Promise<void>
+  refresh: (force?: boolean) => Promise<void>
 }
 
 /** One provider's live readout. The modal has four independent upstream
  * routes; keeping the in-flight latch here means a manual refresh cannot
  * start a second request while the initial poll or the interval is pending. */
-function useUsageReadout<T extends UsageReadout>(fetcher: () => Promise<T>): {
+function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => Promise<T>): {
   value: T | null
   pending: boolean
   failure: string | null
   updatedAt: number | null
-  refresh: () => Promise<void>
+  refresh: (force?: boolean) => Promise<void>
 } {
   const [value, setValue] = useState<T | null>(null)
   const [pending, setPending] = useState(false)
@@ -1444,13 +1449,13 @@ function useUsageReadout<T extends UsageReadout>(fetcher: () => Promise<T>): {
   const fetchRef = useRef(fetcher)
   fetchRef.current = fetcher
   const inFlight = useRef<Promise<void> | null>(null)
-  const refresh = useCallback((): Promise<void> => {
+  const refresh = useCallback((force = false): Promise<void> => {
     if (inFlight.current) return inFlight.current
     setPending(true)
     setFailure(null)
-    const request = Promise.resolve().then(() => fetchRef.current()).then((next) => {
+    const request = Promise.resolve().then(() => fetchRef.current(force)).then((next) => {
       setValue(next)
-      setUpdatedAt(Date.now())
+      setUpdatedAt(readoutObservedAt(next))
     }).catch((error: unknown) => {
       setFailure(error instanceof Error ? error.message : String(error))
     }).finally(() => {
@@ -1473,7 +1478,7 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
     <button type="button" className="usage-refresh-button" disabled={state.pending}
       aria-label={`refresh ${provider} usage`}
       title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
-      onClick={() => { void state.refresh() }}>
+      onClick={() => { void state.refresh(true) }}>
       {state.pending ? 'refreshing…' : 'refresh'}
     </button>
     {state.updatedAt !== null && <span className="usage-updated">

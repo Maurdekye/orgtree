@@ -827,7 +827,8 @@ def fetch(force: bool = False) -> dict[str, Any]:
                       + (f" — last successful turn {last_ok}" if last_ok
                          else "")),
         })
-    data: dict[str, Any] = {"available": True, "limits": _limits(wall)}
+    data: dict[str, Any] = {"available": True, "limits": _limits(wall),
+                            "observed_at": _iso(wall["observed_at"])}
     if stale:
         data["error"] = "the last observed wall named no reset and is old"
     return _account(data)

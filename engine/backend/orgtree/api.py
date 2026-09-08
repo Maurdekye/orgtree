@@ -2871,7 +2871,7 @@ def mcp_servers() -> dict[str, Any]:
 # shows under /usage. Admin-only by construction: the public gateway 404s any
 # /api path outside /api/orgs/<own>.
 @app.get("/api/usage")
-async def claude_usage() -> dict[str, Any]:
+async def claude_usage(force: bool = False) -> dict[str, Any]:
     """The bars the header usage modal renders. The fetch, the 30 s cache and
     the normalization all live in `limits` — the freeze path reads the SAME
     readout to time a limit (user ruling 2026-08-18), and two caches of one
@@ -2880,7 +2880,7 @@ async def claude_usage() -> dict[str, Any]:
     Contract (frontend UsagePayload): `{available, error?, limits?[], plan?}`,
     stale-on-error, unknown `kind`s rendered generically."""
     from fastapi.concurrency import run_in_threadpool
-    return await run_in_threadpool(limits.fetch)
+    return await run_in_threadpool(limits.fetch, force)
 
 
 # the same standing, read from cache alone — what the header button's near-
@@ -2895,7 +2895,7 @@ def claude_usage_peek() -> dict[str, Any]:
 
 
 @app.get("/api/codex/usage")
-async def codex_usage() -> dict[str, Any]:
+async def codex_usage(force: bool = False) -> dict[str, Any]:
     """The signed-in Codex account's rate-limit windows.
 
     The local Codex app-server owns both the protocol and the credentials;
@@ -2903,7 +2903,7 @@ async def codex_usage() -> dict[str, Any]:
     The process exchange is blocking, so keep it off the event loop.
     """
     from fastapi.concurrency import run_in_threadpool
-    return await run_in_threadpool(codex_limits.fetch)
+    return await run_in_threadpool(codex_limits.fetch, force)
 
 
 @app.get("/api/codex/usage/peek")
@@ -2937,7 +2937,7 @@ def antigravity_usage_peek() -> dict[str, Any]:
 
 
 @app.get("/api/openrouter/usage")
-async def openrouter_usage() -> dict[str, Any]:
+async def openrouter_usage(force: bool = False) -> dict[str, Any]:
     """The stored OpenRouter key's credit standing for the header modal.
 
     OpenRouter is a prepaid credit balance, not a rolling percentage window
@@ -2946,7 +2946,7 @@ async def openrouter_usage() -> dict[str, Any]:
     """
     from . import openrouter_limits              # noqa: PLC0415 — one lane
     from fastapi.concurrency import run_in_threadpool
-    return await run_in_threadpool(openrouter_limits.fetch)
+    return await run_in_threadpool(openrouter_limits.fetch, force)
 
 
 @app.get("/api/openrouter/usage/peek")

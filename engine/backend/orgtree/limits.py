@@ -271,6 +271,20 @@ def _iso_to_epoch(value: Any) -> float | None:
     return parsed.timestamp()
 
 
+def _iso(epoch: Any) -> str | None:
+    try:
+        value = float(epoch)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    try:
+        return _dt.datetime.fromtimestamp(
+            value, tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _normalize(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """`limits[]` is the modern shape; the flat `five_hour`/`seven_day` pair is
     its ancestor, kept so an older upstream still yields the two unscoped
@@ -403,12 +417,14 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
             return {"available": False, "error": _plain_error(e)}
         raw: dict[str, Any] = (cast("dict[str, Any]", raw_any)
                                if isinstance(raw_any, dict) else {})
+        observed_at = time.time()
         data: dict[str, Any] = {"available": True, "limits": _normalize(raw),
-                                "plan": _plan()}
+                                "plan": _plan(),
+                                "observed_at": _iso(observed_at)}
         with _lock:
             # stamped when the answer ARRIVED, not when it was asked for: a
             # 14-second response is already 14 seconds stale (redteam)
-            _cache.update(at=time.time(), data=data)
+            _cache.update(at=observed_at, data=data)
         return data
 
 

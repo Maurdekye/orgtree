@@ -1439,6 +1439,8 @@ export interface UsagePayload {
   error?: string
   limits?: UsageLimit[]
   plan?: string
+  /** Time of the provider observation, not merely when the UI read it. */
+  observed_at?: string | null
 }
 
 /** GET /api/accounts — machine-local account routing (user redesign
@@ -1536,6 +1538,8 @@ export interface AccountUsage {
   error?: string
   limits?: UsageLimit[]
   plan?: string
+  /** Time of the provider observation, not merely when the UI read it. */
+  observed_at?: string | null
   /** Antigravity only: what the RECORDED limit windows support. */
   usage_estimate?: AntigravityEstimate
 }
