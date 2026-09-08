@@ -28,6 +28,9 @@ import sys
 import threading
 import time
 import uuid
+import weakref
+from functools import partial
+import anyio
 from urllib.parse import urlsplit
 
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
@@ -6935,7 +6938,27 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     return _op_absent(key, cls)
 
 
+_chat_read_limiters: Any = weakref.WeakKeyDictionary()
+
+
+async def _run_chat_read(function: Any, *args: Any) -> Any:
+    # Wait on the event loop BEFORE borrowing a worker. A slow transcript
+    # must not fill the shared 40-worker pool with projection-lock waiters,
+    # starving mail, status, and stop controls. Each request still reads fresh
+    # identity/state after admission; no stale response or cross-agent reuse.
+    loop = asyncio.get_running_loop()
+    limiter = _chat_read_limiters.setdefault(loop, anyio.CapacityLimiter(4))
+    return await anyio.to_thread.run_sync(partial(function, *args), limiter=limiter)
+
+
 @app.post("/api/agent")
+async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]:
+    if body.tool == 'orgtree_read_transcript':
+        return await _run_chat_read(agent_call, body, request)
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(agent_call, body, request)
+
+
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Backend for the orgtree MCP server every node loads. The calling NODE is the
     actor — the ledger enforces authority, budgets, capability subsets, addressing,
@@ -8810,6 +8833,11 @@ def sweep_legacy(slug: str, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/chat")
+async def _node_chat_route(slug: str, nid: str, request: Request,
+                           last: int = 300) -> dict[str, Any]:
+    return await _run_chat_read(node_chat, slug, nid, request, last)
+
+
 def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
               last: int = 300) -> dict[str, Any]:
     try:
