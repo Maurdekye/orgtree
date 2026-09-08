@@ -2832,6 +2832,26 @@ def user_charters_dir() -> str:
     return os.path.join(os.path.expanduser("~"), ".orgtree", "charters")
 
 
+def _checked_user_charters(create: bool = False) -> str:
+    """The user charters directory, REFUSED when it or any existing ancestor
+    is a link or reparse point — the same rule every other write path in this
+    codebase applies (desktop_import._plain). A junction planted at
+    `~/.orgtree/charters` before the first populate would otherwise receive
+    every write and serve foreign files back as the user's documents."""
+    from pathlib import Path
+    from .desktop_import import ImportRefused, _plain
+    folder = user_charters_dir()
+    try:
+        _plain(Path(folder))
+        if create:
+            os.makedirs(folder, exist_ok=True)
+            # re-check what now exists: makedirs may have been raced
+            _plain(Path(folder))
+    except ImportRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return folder
+
+
 def _charter_records(folder: str, source: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if not os.path.isdir(folder):
@@ -2876,14 +2896,24 @@ def charters_list() -> dict[str, Any]:
     (ledger.CHARTER_LONG) — NOT a limit, just the length above which the hire
     form mentions that a charter is re-sent on every turn of that agent's life.
     """
-    user = _charter_records(user_charters_dir(), "user")
+    # A linked user directory is DECLARED broken rather than silently served
+    # or silently dropped: bundled presets keep the hire form alive, and the
+    # payload says why the user documents are absent.
+    user_dir_error: str | None = None
+    try:
+        user = _charter_records(_checked_user_charters(), "user")
+    except HTTPException as exc:
+        user, user_dir_error = [], str(exc.detail)
     shadowed = {r["file"] for r in user}
     bundled = [r for r in _charter_records(CHARTERS_DIR, "bundled")
                if r["file"] not in shadowed]
     out = sorted(user + bundled, key=lambda r: r["name"])
-    return {"charters": out, "preset_max": PRESET_MAX,
-            "user_dir": user_charters_dir(),
-            "charter_long": ledger_mod.CHARTER_LONG}
+    payload: dict[str, Any] = {"charters": out, "preset_max": PRESET_MAX,
+                               "user_dir": user_charters_dir(),
+                               "charter_long": ledger_mod.CHARTER_LONG}
+    if user_dir_error:
+        payload["user_dir_error"] = user_dir_error
+    return payload
 
 
 #: A charter document filename (without .md): plain names only — no path
@@ -2899,8 +2929,7 @@ def charters_populate() -> dict[str, Any]:
     user already has is NEVER overwritten, so running this repeatedly (every
     onboarding, a reinstall) preserves user edits. Returns what was created
     and what was left alone."""
-    folder = user_charters_dir()
-    os.makedirs(folder, exist_ok=True)
+    folder = _checked_user_charters(create=True)
     created, existing = [], []
     if os.path.isdir(CHARTERS_DIR):
         for f in sorted(os.listdir(CHARTERS_DIR)):
@@ -2937,9 +2966,16 @@ def charters_save(name: str, body: CharterDoc) -> dict[str, Any]:
         raise HTTPException(422, "charter names are plain words, digits, spaces, - and _")
     if len(body.content) > PRESET_MAX:
         raise HTTPException(422, f"charter documents are bounded at {PRESET_MAX} characters")
-    folder = user_charters_dir()
-    os.makedirs(folder, exist_ok=True)
+    from pathlib import Path as _Path
+    from .desktop_import import ImportRefused, _plain
+    folder = _checked_user_charters(create=True)
     target = os.path.join(folder, f"{name}.md")
+    try:
+        # open(..., "w") FOLLOWS a symlink and truncates its target, and a
+        # file symlink is not bounded to .md — refuse the link itself first.
+        _plain(_Path(target))
+    except ImportRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
     try:
         with open(target, "w", encoding="utf-8", newline="") as out_file:
             out_file.write(body.content)

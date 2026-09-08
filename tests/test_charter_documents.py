@@ -123,6 +123,52 @@ class CharterDocumentTests(unittest.TestCase):
         for parent in (home / '.orgtree', home):
             self.assertFalse((parent / 'escape.md').exists())
 
+    def test_junction_at_the_charters_directory_refuses_every_route(self):
+        # Redteam finding (redteam-opus): a junction planted at
+        # ~/.orgtree/charters before the first populate received every write
+        # and served foreign files back. All three routes must refuse it.
+        import _winapi
+        elsewhere = home / 'elsewhere'
+        elsewhere.mkdir()
+        (elsewhere / 'victim.md').write_bytes(b'ORIGINAL BYTES THE USER CARES ABOUT')
+        if USER_DIR.is_dir():
+            USER_DIR.rmdir()
+        USER_DIR.parent.mkdir(parents=True, exist_ok=True)
+        _winapi.CreateJunction(str(elsewhere), str(USER_DIR))
+        def remove_junction_if_left():
+            # only the junction itself; the real directory the test recreates
+            # at its end belongs to later tests
+            info = USER_DIR.exists() and os.lstat(USER_DIR)
+            if info and info.st_file_attributes & 0x400:
+                os.rmdir(USER_DIR)
+        self.addCleanup(remove_junction_if_left)
+        # positive control: the junction is genuinely in place and followable
+        self.assertTrue((USER_DIR / 'victim.md').exists())
+        before = sorted(p.name for p in elsewhere.iterdir())
+        response = self.client.post('/api/charters/populate', headers=HEADERS)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn('reparse', response.text.lower())
+        response = self.client.put('/api/charters/victim', headers=HEADERS,
+                                   json={'content': 'OVERWRITTEN THROUGH THE JUNCTION'})
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), before)
+        self.assertEqual((elsewhere / 'victim.md').read_bytes(),
+                         b'ORIGINAL BYTES THE USER CARES ABOUT')
+        payload = self.charters()
+        self.assertIn('reparse', payload['user_dir_error'].lower())
+        self.assertFalse(any(r['source'] == 'user' for r in payload['charters']),
+                         'nothing behind the junction is served as user documents')
+        self.assertTrue(any(r['source'] == 'bundled' for r in payload['charters']),
+                        'bundled presets keep the hire form alive')
+        os.rmdir(USER_DIR)  # removes the junction itself, not its target
+        self.assertEqual((elsewhere / 'victim.md').read_bytes(),
+                         b'ORIGINAL BYTES THE USER CARES ABOUT')
+        # with the junction gone the same routes work again (the check is not
+        # a check that always fires)
+        self.assertEqual(self.client.post('/api/charters/populate',
+                                          headers=HEADERS).status_code, 200)
+        self.assertNotIn('user_dir_error', self.charters())
+
     def test_routes_require_authentication(self):
         for method, url in (('GET', '/api/charters'),
                             ('POST', '/api/charters/populate'),

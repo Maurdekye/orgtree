@@ -51,6 +51,20 @@ request can never name a path outside it; bodies are bounded at
 `PRESET_MAX`). Per-agent charters live in each organization document and are
 untouched by all of this.
 
+Every charter route applies the importer's reparse rule
+(`desktop_import._plain`): a junction or link at `~/.orgtree/charters`, any
+existing ancestor, or a save target refuses populate and save with 409 and
+makes the listing declare `user_dir_error` while still serving the bundled
+presets — nothing behind a link is ever written through or served back as
+the user's documents (redteam finding, demonstrated with a real junction and
+covered by `test_junction_at_the_charters_directory_refuses_every_route`).
+
+One deliberate edge (redteam observation, kept as-is): an installation that
+predates the `onboarded` preference and stands at zero organizations — for
+example after deleting its only organization — sees the setup card once. It
+is skippable in one click, and populate never overwrites, so the cost is a
+card and at most seeding absent preset files.
+
 Verification: `python -m unittest tests.test_charter_documents` (isolated
 HOME, never the real `~/.orgtree`), `npm test` (preference policy), and
 `node tests/run.mjs onboarding` under `apps/desktop/renderer` (gate,
