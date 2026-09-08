@@ -24,7 +24,7 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
     if (!job || progress.running || completed.current === `${job.id}:${job.state}`) return
     completed.current = `${job.id}:${job.state}`
     setAction('Import'); setPreview(null); setAck(false); setResult(job.result)
-    setError(job.state === 'failed' || job.state === 'interrupted' ? job.error || `Import ${job.state}.` : '')
+    setError(['failed', 'interrupted', 'cancelled'].includes(job.state) ? job.error || `Import ${job.state}.` : '')
     window.dispatchEvent(new Event('orgtree:organizations-imported'))
   }, [progress.job, progress.running])
   useEffect(() => {
@@ -45,19 +45,23 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
   const nativeSources = { ...(claudeProfile.trim() ? { claude_profile: claudeProfile.trim() } : {}),
     ...(codexProfile.trim() ? { codex_profile: codexProfile.trim() } : {}) }
   const sourceOptions = Object.keys(nativeSources).length ? { native_sources: nativeSources } : {}
+  const stopping = progress.cancelPending || progress.job?.cancel_requested || progress.job?.state === 'cancelling'
+  const measured = progress.running && !stopping && !progress.issue && progress.job?.phase !== 'counting' && progress.job?.progress_percent != null
+  const eta = measured ? progress.job?.eta_seconds : null
   const post = <T,>(path: string, body: unknown) => req<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 600_000)
   return <section className="import-settings">
     <h3>Import from Orgtree v1</h3>
     <p>Copy selected organizations into this installation. The original installation keeps its data and can continue running.</p>
     {(!progress.checked || progress.id || progress.issue) && <div ref={progressFeedback} tabIndex={-1}>
-      <h4>{progress.starting ? 'Starting import' : progress.running ? 'Import in progress' : progress.job ? `Import ${progress.job.state}` : 'Checking import status'}</h4>
-      {(progress.starting || progress.running) && <progress aria-label="Import progress" />}
+      <h4>{progress.starting ? 'Starting import' : progress.running ? progress.cancelPending ? 'Requesting cancellation' : stopping ? 'Cancellation requested' : 'Import in progress' : progress.job ? `Import ${progress.job.state}` : 'Checking import status'}</h4>
+      {(progress.starting || progress.running) && <progress aria-label="Import progress" {...(measured ? { value: progress.job!.progress_percent!, max: 100 } : {})} />}
       {progress.job && <>
-        <p>{({ queued: 'Queued', reading: 'Reading organization data', copying: 'Copying files', native: 'Copying native conversations', validating: 'Validating the copy', publishing: 'Publishing organizations', recovering: 'Restoring imported work', finished: 'Finished' } as Record<string, string>)[progress.job.phase] || progress.job.phase}
+        <p>{({ queued: 'Queued', counting: 'Counting files and measuring total size', reading: 'Reading organization data', copying: 'Copying files', native: 'Copying native conversations', validating: 'Validating the copy', publishing: 'Publishing organizations', recovering: 'Restoring imported work', finished: 'Finished' } as Record<string, string>)[progress.job.phase] || progress.job.phase}
           {progress.job.current_org && ` — ${progress.job.current_org}`}</p>
         <p>{progress.job.files_copied.toLocaleString()} files copied; {progress.job.bytes_copied.toLocaleString()} bytes copied and verified.</p>
-        {progress.running && <p className="dim">Total size is not known yet. You can close this panel and check progress later; keep Orgtree running.</p>}
-        {progress.job.state === 'interrupted' && !!progress.job.publications?.length && <details>
+        {measured && <p>{(Math.floor(progress.job.progress_percent! * 10) / 10).toFixed(1)}% copy progress. {eta != null ? `Estimated remaining time: ${eta < 60 ? 'less than a minute' : eta < 3600 ? `about ${Math.ceil(eta / 60)} minutes` : `about ${Math.ceil(eta / 3600)} hours`}.` : 'Estimating remaining time…'} Validation and publication must finish before the import is complete.</p>}
+        {progress.running && <p className="dim">{stopping ? 'Waiting for the worker to stop at a safe checkpoint. Keep Orgtree running until the stop is confirmed.' : `${progress.job.total_files == null ? 'Total size is not known yet. ' : ''}You can close this panel and check progress later; keep Orgtree running.`}</p>}
+        {['interrupted', 'cancelled'].includes(progress.job.state) && !!progress.job.publications?.length && <details>
           <summary>Review publication and recovery receipts ({progress.job.publications.length})</summary>
           <ul>{progress.job.publications.map(row => <li key={row.slug}>
             <b>{row.slug}</b>: {row.state === 'published' ? 'Copy publication confirmed.' : 'Copy publication outcome is not confirmed.'}{' '}
@@ -66,10 +70,13 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
         </details>}
       </>}
       {progress.issue && <p role="alert" className="ask-warn">{progress.issue}</p>}
+      {progress.cancelIssue && <p role="alert" className="ask-warn">{progress.cancelIssue}</p>}
       {progress.missing && progress.startError && <p className="ask-warn">Start response: {progress.startError}</p>}
       {progress.missing && <p>Review the source and selected organizations below, then explicitly retry the start with the saved request ID. No new copy will be started automatically.</p>}
       {progress.id && <p className="dim">Request ID: <span className="mono">{progress.id}</span></p>}
       <button disabled={progress.starting} onClick={() => { void progress.refresh() }}>Check import status</button>
+      {progress.running && <button disabled={progress.cancelPending || !!progress.job?.cancel_requested || progress.job?.cancellable !== true} onClick={() => { void progress.cancel() }}>Cancel Import</button>}
+      {progress.running && !stopping && progress.job?.cancellable === false && <p className="dim">Cancellation is unavailable while publication or recovery is being finalized.</p>}
     </div>}
     <label>V1 data folder<div className="row"><input aria-label="V1 data folder" disabled={busy} value={source}
       onChange={e => changeSource(e.target.value)} style={{ flex: 1 }} />
@@ -97,6 +104,10 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
           onChange={e => setSelected(old => e.target.checked ? [...old, org.slug] : old.filter(s => s !== org.slug))} />
           {org.name} <span className="dim">{org.slug}</span></label>
         {org.nodes != null && <p className="dim">{org.nodes} {org.nodes === 1 ? 'agent' : 'agents'}</p>}
+        {!!org.memory?.length && <details>
+          <summary className={org.memory.some(row => row.status === 'held') ? 'ask-warn' : 'dim'}>Claude memory ({org.memory.length} {org.memory.length === 1 ? 'group' : 'groups'}; {org.memory.filter(row => row.status === 'held').length} held)</summary>
+          {org.memory.map(row => <p key={row.base}><b>{row.base}</b>: {row.status === 'held' ? 'memory held' : row.status === 'ready' ? 'memory available' : 'no source memory'}{row.reason && ` — ${row.reason}`}</p>)}
+        </details>}
         {org.warnings?.map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
         {!!org.native_context?.length && <details>
           <summary>Agent details ({org.native_context.length}{org.native_context.some(c => c.status === 'held') && `; ${org.native_context.filter(c => c.status === 'held').length} held`})</summary>
@@ -119,11 +130,11 @@ export function ImportSettings({ active = true }: { active?: boolean }) {
       </>}
     </>}
     {error && <div ref={errorFeedback} tabIndex={-1} role="alert" className="ask-warn">
-      <p><b>{action === 'Import' && progress.job?.state === 'interrupted' ? 'Import interrupted' : `${action} failed`}</b></p><p>{error}</p>
+      <p><b>{action === 'Import' && progress.job && ['interrupted', 'cancelled'].includes(progress.job.state) ? `Import ${progress.job.state}` : `${action} failed`}</b></p><p>{error}</p>
       {action === 'Import' && <p>Check the organization list before trying again; a lost response can leave completed copies.</p>}
     </div>}
     {result && <div ref={resultFeedback} tabIndex={-1} role="status">
-      <p><b>{progress.job?.state === 'interrupted' ? 'Saved import results' : result.failed?.length ? 'Import finished with errors' : result.imported.length ? 'Import complete' : 'Import finished'}</b></p>
+      <p><b>{progress.job && ['interrupted', 'cancelled'].includes(progress.job.state) ? 'Saved import results' : result.failed?.length ? 'Import finished with errors' : result.imported.length ? 'Import complete' : 'Import finished'}</b></p>
       <p>{result.imported.length ? `Imported ${result.imported.map(o => o.name || o.slug).join(', ')}.` : 'No organizations imported.'}</p>
       {[...new Set([...result.warnings ?? [], ...result.imported.flatMap(o => o.warnings ?? [])])].map((w, i) => <p className="ask-warn" key={i}>{w}</p>)}
       {result.imported.filter(o => o.recovery_pending).map(o => <p className="ask-warn" key={o.slug}>{o.name || o.slug} was copied; resuming its active work is still pending.</p>)}

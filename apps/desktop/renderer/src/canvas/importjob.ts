@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export interface NativeContext { node: string; provider: string; status: 'available' | 'held'; source_path?: string; reason?: string }
-export interface ImportOrg { nodes?: number; native_context?: NativeContext[]; slug: string; name: string; warnings?: string[]; active_nodes?: string[]; conflict?: string | null; recovery_pending?: boolean }
+export interface ImportOrg { nodes?: number; native_context?: NativeContext[]; memory?: { base: string; nodes: string[]; status: 'ready' | 'held' | 'none'; reason?: string | null }[]; slug: string; name: string; warnings?: string[]; active_nodes?: string[]; conflict?: string | null; recovery_pending?: boolean }
 export interface Preview { organizations: ImportOrg[]; warnings: string[] }
 export interface Imported { imported: ImportOrg[]; warnings: string[]; failed?: { slug: string; error: string; not_attempted?: string[] }[] }
 export interface ImportBody { source_root: string; organizations: string[]; acknowledge_duplicate_work: boolean; native_sources?: { claude_profile?: string; codex_profile?: string } }
 export interface ImportJob {
-  id: string; state: 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted'
+  id: string; state: 'queued' | 'planning' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
   phase: string; source_root: string; organizations: string[]; current_org: string | null
   files_copied: number; bytes_copied: number; started_at: string; updated_at: string
   result: Imported | null; error: string | null
+  cancel_requested?: boolean; cancellable?: boolean
+  total_files?: number | null; total_bytes?: number | null
+  progress_percent?: number | null; eta_seconds?: number | null
   publications?: { slug: string; state: 'publishing' | 'published'; recovery: 'not_started' | 'dispatching' | 'returned' }[]
 }
 export const IMPORT_REQUEST_KEY = 'orgtree-import-request-id'
 const jobs = '/api/desktop/import-v1/jobs'
-const terminal = (job: ImportJob | null) => !!job && ['succeeded', 'failed', 'interrupted'].includes(job.state)
+const terminal = (job: ImportJob | null) => !!job && ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(job.state)
 class JobRequestError extends Error { constructor(message: string, readonly status: number) { super(message) } }
 
 async function request(path: string, body?: unknown): Promise<ImportJob | null> {
@@ -28,9 +31,12 @@ async function request(path: string, body?: unknown): Promise<ImportJob | null> 
   if (!response.ok) throw new JobRequestError(value.detail || `Import request failed (${response.status}).`, response.status)
   if (value.job === null) return null
   const job = value.job
-  if (!job || typeof job.id !== 'string' || !['queued', 'running', 'succeeded', 'failed', 'interrupted'].includes(job.state)
+  if (!job || typeof job.id !== 'string' || !['queued', 'planning', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled', 'interrupted'].includes(job.state)
     || !Number.isFinite(job.files_copied) || job.files_copied < 0 || !Number.isFinite(job.bytes_copied) || job.bytes_copied < 0
     || !Array.isArray(job.organizations) || typeof job.phase !== 'string'
+    || [job.cancel_requested, job.cancellable].some(value => value != null && typeof value !== 'boolean')
+    || [job.total_files, job.total_bytes, job.progress_percent, job.eta_seconds].some(value => value != null && (!Number.isFinite(value) || value < 0))
+    || (job.progress_percent != null && (job.progress_percent > 100 || (job.progress_percent === 100 && job.state !== 'succeeded')))
     || (job.publications != null && (!Array.isArray(job.publications) || job.publications.some(row =>
       !row || typeof row.slug !== 'string' || !['publishing', 'published'].includes(row.state)
       || !['not_started', 'dispatching', 'returned'].includes(row.recovery))))
@@ -48,8 +54,10 @@ export function useImportJob(active: boolean) {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState('')
   const [id, setId] = useState<string | null>(null)
+  const [cancelPending, setCancelPending] = useState(false), [cancelIssue, setCancelIssue] = useState('')
   const current = useRef<{ id: string | null; job: ImportJob | null; body: ImportBody | null }>({ id: null, job: null, body: null })
   const alive = useRef(false), inFlight = useRef(false)
+  const cancelInFlight = useRef(false), epoch = useRef(0)
   const persist = (value: string | null) => {
     if (value) localStorage.setItem(IMPORT_REQUEST_KEY, value)
     else localStorage.removeItem(IMPORT_REQUEST_KEY)
@@ -59,10 +67,12 @@ export function useImportJob(active: boolean) {
     // A persistence failure after acceptance cannot erase a known server job.
     try { persist(terminal(value) ? null : value.id) } catch { /* current discovery also restores server jobs */ }
     setId(value.id); setJob(value); setMissing(false); setIssue(''); setStartError(''); setChecked(true)
+    if (value.cancel_requested || terminal(value)) setCancelIssue('')
   }
   const refresh = useCallback(async () => {
     if (!alive.current || inFlight.current) return
     inFlight.current = true
+    const expectedEpoch = epoch.current
     try {
       let value: ImportJob | null
       const wanted = current.current.id
@@ -75,18 +85,18 @@ export function useImportJob(active: boolean) {
           // A concurrent window may already own the destination. Adopt that
           // job instead of offering an overlapping retry.
           const other = await request(`${jobs}/current`)
-          if (!alive.current) return
+          if (!alive.current || expectedEpoch !== epoch.current) return
           if (other && !terminal(other)) { accept(other); return }
           setMissing(true); setChecked(true)
           setIssue('No saved job was found for this request. The import has not been confirmed. Check status again, or explicitly retry with the same request ID.')
           return
         }
       } else value = await request(`${jobs}/current`)
-      if (!alive.current) return
+      if (!alive.current || expectedEpoch !== epoch.current) return
       if (value) accept(value)
       else { setChecked(true); setIssue(''); setMissing(false) }
     } catch (error) {
-      if (alive.current) { setMissing(false); setIssue(`Progress is temporarily unavailable: ${(error as Error).message}. This does not mean the import stopped.`) }
+      if (alive.current && expectedEpoch === epoch.current) { setMissing(false); setIssue(`Progress is temporarily unavailable: ${(error as Error).message}. This does not mean the import stopped.`) }
     } finally { inFlight.current = false }
   }, [])
   useEffect(() => {
@@ -114,7 +124,7 @@ export function useImportJob(active: boolean) {
     }
     const original = retry && current.current.body ? current.current.body : body
     current.current = { id: requestId, job: null, body: original }
-    setId(requestId); setJob(null); setMissing(false); setStarting(true); setIssue(''); setStartError(''); inFlight.current = true
+    setId(requestId); setJob(null); setMissing(false); setStarting(true); setIssue(''); setStartError(''); setCancelIssue(''); inFlight.current = true
     try {
       const value = await request(jobs, { ...original, request_id: requestId })
       if (!value || value.id !== requestId) throw new Error('Import start did not return the saved request ID.')
@@ -129,8 +139,24 @@ export function useImportJob(active: boolean) {
       if (alive.current) { setStarting(false); void refresh() }
     }
   }
+  const cancel = async () => {
+    const value = current.current.job
+    if (!value || terminal(value) || value.cancellable !== true || value.cancel_requested || cancelInFlight.current) return
+    cancelInFlight.current = true; epoch.current++
+    setCancelPending(true); setCancelIssue('')
+    try {
+      const next = await request(`${jobs}/${encodeURIComponent(value.id)}/cancel`, {})
+      if (!next || next.id !== value.id) throw new Error('Cancellation did not return the current request ID.')
+      if (alive.current) accept(next)
+    } catch (error) {
+      if (alive.current) setCancelIssue(`Cancellation could not be confirmed: ${(error as Error).message}. Checking status; the import may still be running.`)
+    } finally {
+      cancelInFlight.current = false
+      if (alive.current) { setCancelPending(false); void refresh() }
+    }
+  }
   const running = !!job && !terminal(job)
-  return { job, issue, startError, id, missing, starting, checked, running, refresh, begin,
+  return { job, issue, startError, id, missing, starting, checked, running, refresh, begin, cancel, cancelPending, cancelIssue,
     retryOriginal: missing && !!current.current.body,
     locked: starting || !checked || running || (!!issue && !missing),
   }
