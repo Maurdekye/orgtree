@@ -573,6 +573,76 @@ class DesktopImportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.resumed, ["acme"])
 
+    def make_directory_link(self, link: Path, target: Path) -> None:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                           check=True, capture_output=True)
+        else:
+            link.symlink_to(target, target_is_directory=True)
+        info = link.lstat()
+        self.assertTrue(link.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400)
+
+    def test_dependency_junctions_skipped_with_api_warnings_and_ordinary_files_kept(self) -> None:
+        self.fixture()
+        scratch = self.source / "scratch/acme/worker"
+        ordinary = scratch / "project/node_modules/ordinary/keep.txt"
+        ordinary.parent.mkdir(parents=True)
+        ordinary.write_bytes(b"keep ordinary dependency")
+        target = self.root / "external-dependencies"
+        target.mkdir()
+        (target / "secret.txt").write_bytes(b"never read target")
+        before = fingerprint(self.source)
+        target_before = fingerprint(target)
+        links = [scratch / "project/node_modules/.bin", scratch / "other/NoDe_MoDuLeS"]
+        for link in links:
+            self.make_directory_link(link, target)
+        real_iterdir = Path.iterdir
+        def guarded_iterdir(path):
+            if any(path == link or path.is_relative_to(link) for link in links) or path == target:
+                raise AssertionError("Skipped junction target was traversed")
+            return real_iterdir(path)
+        app = FastAPI()
+        app.include_router(imp.router)
+        imp.configure(on_imported=self.resumed.append)
+        client = TestClient(TokenGate(app, "fixture-only-secret"))
+        with patch.object(Path, "iterdir", guarded_iterdir), patch.object(subprocess, "Popen", side_effect=AssertionError("No provider")):
+            response = client.post("/api/desktop/import-v1", headers={"x-orgtree-desktop-token": "fixture-only-secret"},
+                                   json={"source_root": str(self.source), "organizations": ["acme"],
+                                         "acknowledge_duplicate_work": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        row = response.json()["imported"][0]
+        warnings = [value for value in row["warnings"] if value.startswith("Skipped linked dependency:")]
+        self.assertEqual(len(warnings), 2)
+        for link in links:
+            relative = link.relative_to(self.source)
+            self.assertTrue(any(relative.as_posix() in value and "Reinstall dependencies" in value for value in warnings))
+            self.assertFalse((self.dest / relative).exists())
+            self.assertTrue(link.exists())
+        self.assertEqual((self.dest / ordinary.relative_to(self.source)).read_bytes(), ordinary.read_bytes())
+        self.assertTrue((self.dest / "orgs/acme.db").is_file())
+        self.assertEqual(store.load_org("acme").d["desktop_import"]["warnings"], row["warnings"])
+        self.assertEqual(self.resumed, ["acme"])
+        self.assertEqual({name: hashlib.sha256((self.source / name).read_bytes()).hexdigest() for name in before}, before)
+        self.assertEqual(fingerprint(target), target_before)
+
+    def test_non_dependency_and_substring_junctions_still_refused(self) -> None:
+        self.fixture()
+        target = self.root / "external-working-files"
+        target.mkdir()
+        (target / "keep.txt").write_bytes(b"unchanged")
+        for name in ("working-link", "not_node_modules", "node_modules_backup"):
+            with self.subTest(name=name):
+                src = self.root / ("isolated-" + name)
+                src.mkdir()
+                link = src / name
+                self.make_directory_link(link, target)
+                omissions = []
+                with self.assertRaisesRegex(imp.ImportRefused, "Links and reparse"):
+                    imp._copy_tree(src, self.root / ("out-" + name), dependency_omissions=omissions)
+                self.assertEqual(omissions, [])
+        self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
+
     def test_reparse_positive_control_is_refused_without_following(self) -> None:
         self.fixture()
         # Test the Windows lstat bit directly; no junction creation/cleanup and
