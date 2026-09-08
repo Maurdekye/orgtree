@@ -398,6 +398,77 @@ class MemoryImportTests(fixtures.DesktopImportTests):
         self.assertEqual(metas["b"]["status"], "held")
         self.assertEqual(metas["c"]["status"], "ready")
 
+    def worktree_pointer(self, back_pointer: Path) -> Path:
+        """Make the source base scratch folder a git worktree of a main checkout
+        whose back-pointer names ``back_pointer`` (a ``.git`` file path)."""
+        main = self.root / "main-checkout"
+        main.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=main, check=True, capture_output=True)
+        entry = main / ".git" / "worktrees" / "worker"
+        entry.mkdir(parents=True)
+        (entry / "commondir").write_text("../..")
+        (entry / "gitdir").write_text(str(back_pointer))
+        (self.source / "scratch/acme/worker/.git").write_text(f"gitdir: {entry}")
+        return main
+
+    def test_worktree_pointer_that_resolves_at_the_published_path_keys_on_the_main_checkout(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        published = self.dest.resolve() / "scratch/acme/worker"
+        main = self.worktree_pointer(published / ".git")
+        # Before publication the destination folder does not exist, yet the
+        # key must already be the one Claude will compute once it does.
+        self.assertFalse(published.exists())
+        expected = self.profile.resolve() / "projects" / memory.project_key(str(main)) / "memory"
+        preview = imp.preview_import(str(self.source), sources)["organizations"][0]["memory"]
+        self.assertEqual(preview[0]["status"], "ready")
+        self.run_native(sources)
+        copied = self.read()
+        meta = copied["nodes"]["worker"]["desktop_import"]["memory"]
+        self.assertEqual(Path(meta["destination"]), expected)
+        self.assertEqual(fixtures.fingerprint(expected), fixtures.fingerprint(folder))
+        self.assertTrue((published / ".git").is_file())
+        # Runtime recheck against the now-existing spawn cwd agrees.
+        self.assertEqual(memory.project_key(memory.memory_root(str(published))), meta["key"])
+        self.assertIsNone(native.native_hold_reason(copied, "worker"))
+
+    def test_worktree_pointer_still_bound_to_the_source_keys_on_the_folder_itself(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        self.worktree_pointer(self.source.resolve() / "scratch/acme/worker/.git")
+        self.run_native(sources)
+        copied = self.read()
+        meta = copied["nodes"]["worker"]["desktop_import"]["memory"]
+        self.assertEqual(Path(meta["destination"]), self.destination())
+        self.assertIsNone(native.native_hold_reason(copied, "worker"))
+
+    def test_checkout_layout_change_after_import_holds_until_reconciled(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        self.run_native(sources)
+        copied = self.read()
+        self.assertIsNone(native.native_hold_reason(copied, "worker"))
+        subprocess.run(["git", "init", "-q"], cwd=self.dest, check=True, capture_output=True)
+        reason = native.native_hold_reason(copied, "worker")
+        self.assertIn("working directory now keys on", reason)
+        self.assertIn(memory.project_key(str(self.dest.resolve())), reason)
+
+    def test_identical_destination_changed_after_staging_refuses_and_is_left_unchanged(self):
+        doc, sources, folder = self.memory_fixture(archived_generation=False)
+        target = self.destination()
+        shutil.copytree(folder, target)
+        real_publish = memory.publish
+
+        def edit_then_publish(doc, stage):
+            (target / "MEMORY.md").write_bytes(b"edited between staging and publication")
+            return real_publish(doc, stage)
+
+        with patch.object(memory, "publish", side_effect=edit_then_publish):
+            with self.assertRaises(imp.ImportRefused) as ctx:
+                self.run_native(sources)
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("content changed before publication", str(ctx.exception))
+        self.assertEqual((target / "MEMORY.md").read_bytes(), b"edited between staging and publication")
+        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), ["memory"])
+        self.assertFalse((self.dest / "orgs/acme.db").exists())
+
     def test_publish_refuses_a_destination_that_is_not_the_expected_profile_location(self):
         doc, sources, folder = self.memory_fixture(archived_generation=False)
         elsewhere = self.root / "elsewhere" / "memory"
@@ -438,11 +509,17 @@ class MemoryImportTests(fixtures.DesktopImportTests):
 class HoldReasonTests(fixtures.unittest.TestCase):
     def test_missing_destination_after_import_holds(self):
         root = Path(fixtures.tempfile.mkdtemp(dir=fixtures._TEST_ROOT))
+        cwd = root / "scratch" / "w"
         doc = {"nodes": {"w": {"desktop_import": {"memory": {
-            "status": "ready", "destination": str(root / "gone" / "memory")}}}}}
+            "status": "ready", "destination": str(root / "gone" / "memory"),
+            "destination_cwd": str(cwd), "key": memory.project_key(str(cwd))}}}}}
         self.assertIn("missing", memory.hold_reason(doc, "w"))
         (root / "gone" / "memory").mkdir(parents=True)
         self.assertIsNone(memory.hold_reason(doc, "w"))
+        doc["nodes"]["w"]["desktop_import"]["memory"]["key"] = "stale-key"
+        self.assertIn("now keys on", memory.hold_reason(doc, "w"))
+        del doc["nodes"]["w"]["desktop_import"]["memory"]["destination_cwd"]
+        self.assertIn("failed validation", memory.hold_reason(doc, "w"))
         self.assertIsNone(memory.hold_reason({"nodes": {"w": {}}}, "w"))
         self.assertIn("unavailable", memory.hold_reason(
             {"nodes": {"w": {"desktop_import": {"memory": {"status": "held", "reason": "x"}}}}}, "w"))

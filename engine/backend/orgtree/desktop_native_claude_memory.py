@@ -95,35 +95,45 @@ def _checkout_root(cwd: str) -> Path | None:
     return None
 
 
-def _canonical_root(root: Path) -> Path:
+def _canonical_root(root: Path, published: Path | None = None) -> Path:
+    """``published`` is the path ``root`` will occupy after publication when
+    ``root`` is a staged copy; the worktree pointer chain is evaluated as the
+    CLI will see it there."""
     marker = root / ".git"
     if not stat.S_ISREG(marker.lstat().st_mode):
-        return root
+        return published or root
     text = marker.read_text(encoding="utf-8").strip()
     if not text.startswith("gitdir:"):
-        return root
-    gitdir = Path(os.path.abspath(os.path.join(root, text[7:].strip())))
+        return published or root
+    where = published or root
+    gitdir = Path(os.path.abspath(os.path.join(where, text[7:].strip())))
     common_file = gitdir / "commondir"
     pointer = gitdir / "gitdir"
     if not (common_file.is_file() and pointer.is_file()):
-        return root
+        return where
     for probe in (common_file, pointer):
         if stat.S_ISLNK(probe.lstat().st_mode):
             raise NativeHeld(f"Linked worktree pointer is not supported for memory lookup: {probe}")
     common = Path(os.path.abspath(os.path.join(gitdir, common_file.read_text(encoding="utf-8").strip())))
     if Path(os.path.abspath(gitdir.parent)) != common / "worktrees":
-        return root
+        return where
     back = Path(os.path.abspath(os.path.join(gitdir, pointer.read_text(encoding="utf-8").strip())))
     try:
-        if os.path.realpath(back) != os.path.realpath(marker):
-            return root
+        if os.path.realpath(back) != os.path.realpath(where / ".git"):
+            return where
     except OSError:
-        return root
+        return where
     return common if common.name != ".git" else common.parent
 
 
-def memory_root(cwd: str) -> str:
-    """The path Claude keys memory on for a process started in ``cwd``."""
+def memory_root(cwd: str, staged: Path | None = None) -> str:
+    """The path Claude keys memory on for a process started in ``cwd``.
+
+    ``staged`` is the not-yet-published copy of ``cwd`` (the base scratch
+    folder). Its own ``.git`` entry is evaluated as it will read once it sits
+    at ``cwd``; ancestors are read from ``cwd``'s real parents."""
+    if staged is not None and _git_marker(staged / ".git"):
+        return str(_canonical_root(staged, Path(os.path.abspath(cwd))))
     root = _checkout_root(cwd)
     if root is None:
         return cwd
@@ -240,15 +250,16 @@ def source_memory(source_profile: Path, source_cwd: str, env: dict[str, str]) ->
 
 
 def destination_memory(destination_profile: Path, destination_cwd: str,
-                       env: dict[str, str], settings_cwd: str) -> tuple[Path, str]:
+                       env: dict[str, str], settings_cwd: str,
+                       staged_scratch: Path | None = None) -> tuple[Path, str]:
     """``settings_cwd`` holds the project settings that will land in the
     destination scratch folder (the copied source folder), which does not exist
-    yet when this runs."""
+    yet when this runs; ``staged_scratch`` is that copy for the ``.git`` check."""
     config = config_dir(env, destination_profile)
     override = detect_override(env, config, settings_cwd)
     if override:
         raise NativeHeld(f"Unsupported memory override at destination: {override}")
-    key = project_key(memory_root(destination_cwd))
+    key = project_key(memory_root(destination_cwd, staged_scratch))
     folder = config / "projects" / key / MEMORY_DIR
     _plain(folder)
     return folder, key
@@ -269,7 +280,10 @@ def prepare(source: Path, dest: Path, slug: str, base: str, stage: Path | None,
     try:
         source_profile = Path(sources.get("claude_profile") or source.parent / ".claude")
         folder = source_memory(source_profile, source_cwd, env)
-        target, key = destination_memory(destination_profile, destination_cwd, env, source_cwd)
+        staged_scratch = (stage / "files" / "scratch" / slug / base) if stage is not None \
+            else Path(source_cwd)
+        target, key = destination_memory(destination_profile, destination_cwd, env, source_cwd,
+                                         staged_scratch if staged_scratch.is_dir() else None)
         meta.update(key=key, destination=str(target))
         if folder is None:
             meta.update(status="none", reason="No source memory directory")
@@ -339,20 +353,28 @@ def hold_shared_destinations(metas: dict[str, dict[str, Any]]) -> None:
                     f"{destination}"))
 
 
-def expected_destination(doc: dict, base: str, meta: dict[str, Any]) -> Path:
+def expected_destination(doc: dict, base: str, meta: dict[str, Any],
+                         stage: Path | None = None) -> Path:
     """Recompute the destination from live inputs; a document value never steers a write."""
     from . import supervisor
     from .desktop_native_claude_rewind import selected_profile
     env = supervisor.clean_env()
     env.update(supervisor.env_overrides(doc["slug"], base))
     key = str(meta.get("key") or "")
-    if not key or key != project_key(memory_root(str(meta.get("destination_cwd") or ""))):
+    staged = (stage / "files" / "scratch" / doc["slug"] / base) if stage is not None else None
+    if staged is not None and not staged.is_dir():
+        staged = None
+    if not key or key != project_key(memory_root(str(meta.get("destination_cwd") or ""), staged)):
         raise NativeHeld(f"Recorded memory key for {base} does not match its destination cwd")
     return config_dir(env, selected_profile(doc["slug"], base)) / "projects" / key / MEMORY_DIR
 
 
-def check_publishable(doc: dict) -> None:
-    """Refuse before any profile write when a destination changed since staging."""
+def check_publishable(doc: dict, stage: Path | None = None) -> None:
+    """Refuse before any profile write when a destination changed since staging.
+
+    An existing destination accepted as identical is compared again by
+    content, so a file edited between staging and publication refuses the
+    import and is left exactly as found."""
     from .desktop_import import ImportRefused
     seen: dict[Path, str] = {}
     for base, meta in _groups(doc).items():
@@ -360,7 +382,7 @@ def check_publishable(doc: dict) -> None:
             continue
         target = Path(meta["destination"])
         try:
-            if expected_destination(doc, base, meta) != target:
+            if expected_destination(doc, base, meta, stage) != target:
                 raise ImportRefused(f"Destination memory path for {base} is not the expected profile location", 409)
         except NativeHeld as exc:
             raise ImportRefused(str(exc), 409) from exc
@@ -371,6 +393,12 @@ def check_publishable(doc: dict) -> None:
         exists = _entry(target) is not None
         if exists != bool(meta.get("identical")):
             raise ImportRefused(f"Destination memory for {base} changed before publication", 409)
+        if exists and stage is not None:
+            staged = stage / MEMORY_DIR / base
+            if _manifest(target) != _manifest(staged):
+                raise ImportRefused(
+                    f"Destination memory for {base} was identical at staging but its content "
+                    "changed before publication; it was left unchanged", 409)
 
 
 def _discard_partial(folder: Path, manifest: list[str]) -> None:
@@ -398,7 +426,7 @@ def publish(doc: dict, stage: Path) -> None:
     appeared in the meantime. A failed copy therefore never leaves a partial
     ``memory`` directory in the profile."""
     from .desktop_import import ImportRefused, _copy_file
-    check_publishable(doc)
+    check_publishable(doc, stage)
     for base, meta in _groups(doc).items():
         if meta.get("status") != "ready" or meta.get("identical"):
             continue
@@ -441,6 +469,14 @@ def hold_reason(doc: dict, nid: str) -> str | None:
         _plain(target)
         if not target.is_dir():
             return "Imported Claude memory directory is missing from the destination profile"
+        # The scratch folder exists now: the key Claude will use must still be
+        # the one the memory was published under (checkout layout can change).
+        actual = project_key(memory_root(str(meta["destination_cwd"])))
+        if actual != meta.get("key"):
+            return (f"Imported Claude memory was published under key {meta.get('key')} but the "
+                    f"working directory now keys on {actual}")
+    except NativeHeld as exc:
+        return f"Imported Claude memory key cannot be verified: {exc}"
     except (OSError, ValueError, KeyError):
         return "Imported Claude memory path failed validation"
     return None

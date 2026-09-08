@@ -187,7 +187,11 @@ refused, at most 64 MiB and 5000 files, hashes recorded, source untouched),
 keeps an archive under `imports/<slug>/memory/<base>/` with a manifest, and
 creates the destination directory exclusively at publication beside the
 rewind publish. A pre-existing destination with identical content is
-accepted; different content is never overwritten. Any override of the memory
+accepted and its content is compared again at publication; different content
+is never overwritten. When the copied base scratch folder is itself a git
+checkout or worktree, its `.git` entry is evaluated as it will read at the
+published path, and at every admission the key is recomputed from the real
+working directory and held if it no longer matches. Any override of the memory
 location (environment `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`, or
 `autoMemoryDirectory` in managed, local, project or user settings) means both
 installations would share one directory, which is not independent
