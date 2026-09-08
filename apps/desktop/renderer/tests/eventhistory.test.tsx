@@ -36,6 +36,9 @@ test('history keeps ordinary messages and notices styled with navigable agent se
   const items=[
     {at:'2026-09-06T12:00:00Z',kind:'message',actor,detail:{text:'message fallback'},ev:{...message,actor:{kind:'agent',id:actor},body:'Normal message C'}},
     {at:'2026-09-06T12:01:00Z',kind:'notice',actor,detail:{text:'notice fallback'},ev:{...notice,actor:{kind:'agent',id:actor},body:'Passive notice C'}},
+    {at:'2026-09-06T12:02:00Z',kind:'message',actor,detail:{text:'Legacy known sender'}},
+    {at:'2026-09-06T12:03:00Z',kind:'notice',actor:'missing-agent',detail:{text:'Legacy missing sender'}},
+    {at:'2026-09-06T12:04:00Z',kind:'notice',actor:'@org:outside',detail:{text:'Legacy external sender'}},
   ]
   globalThis.fetch=(async(url,init)=>String(url).endsWith('/history')
     ? ({ok:true,status:200,headers:new Headers(),json:async()=>({items})} as Response)
@@ -54,8 +57,12 @@ test('history keeps ordinary messages and notices styled with navigable agent se
   assert.equal(view.el.querySelectorAll('.hist-event.event-ordinary').length,2)
   assert.match(view.el.textContent!,/Message/)
   assert.match(view.el.textContent!,/Notice/)
+  assert.equal(view.el.querySelectorAll('.hist-row').length,3)
   const eventJumps=view.el.querySelectorAll<HTMLButtonElement>('.hist-event button.cc-name-jump')
   assert.equal(eventJumps.length,2)
   eventJumps.forEach(button=>button.click())
-  assert.deepEqual(jumped,[actor,actor])
+  const legacyJump=view.el.querySelector<HTMLButtonElement>('.hist-row button.cc-name-jump')!
+  legacyJump.click()
+  assert.equal(view.el.querySelectorAll('.hist-row button.cc-name-jump').length,1)
+  assert.deepEqual(jumped,[actor,actor,actor])
 })

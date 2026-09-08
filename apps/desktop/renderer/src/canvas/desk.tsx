@@ -2745,7 +2745,7 @@ export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; re
             : <header className="event-head"><span className="dim">{fmtFull(it.at)}</span>
               <EventCard part="header" row={row} profile={profile} org={slug}
                 world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id}/>} /></header>}
-          {decoded.kind === 'legacy' ? <><b>{it.kind}</b><span className="dim">{it.actor}</span><span>{text}</span></>
+          {decoded.kind === 'legacy' ? <><b>{it.kind}</b><span className="dim"><MailFrom from={it.actor}/></span><span>{text}</span></>
             : <EventCard part="body" row={row} profile={profile} org={slug} world={refs?.world} onOpen={refs?.onOpen}
                 actor={id => <MailFrom from={id}/>} imgBase={fileBase(slug,nid)}/>}
         </div>
