@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { JSDOM } from 'jsdom'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -348,4 +349,42 @@ uiTest('§8 direct-report pin control follows the real pinned state', async ({ m
   assert.ok(show, 'a pinned direct report exposes Show')
   await inAct(() => { show!.click() })
   assert.equal(shows, 1, 'clicking Show invokes the caller action')
+})
+
+uiTest('Â§9 a registered list row opens its native desk surface', async ({ mount }) => {
+  const { DeskHosts, DeskListControls, DeskSlot } = await import('../src/canvas/deskhosts')
+  const node = tree(['desk']).roots[0] as unknown as CanvasNode
+  const map = new Map([[node.id, node]])
+  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    url: 'http://localhost/',
+  })
+  const originalOpen = window.open
+  const originalObserver = globalThis.MutationObserver
+  let opens = 0
+  const childWindow = child.window as unknown as Window
+  childWindow.focus = () => {}
+  childWindow.requestAnimationFrame = () => 1
+  childWindow.cancelAnimationFrame = () => {}
+  window.open = (() => { opens++; return childWindow }) as typeof window.open
+  globalThis.MutationObserver = child.window.MutationObserver
+  try {
+    const { el } = await mount(<DeskHosts map={map} slug="mine">
+      <DeskSlot node={node} map={map} slug="mine" pub={false}
+        op={() => Promise.resolve({} as never)} toast={noop} onJump={noop} />
+      <DeskListControls slug="mine" node={node} />
+    </DeskHosts>)
+    assert.ok(el, 'the DeskHosts fixture mounted')
+    await inAct(async () => { await flush(8) })
+    const button = el.querySelector<HTMLButtonElement>(
+      '[aria-label="open desk\'s desk in a new window"]')
+    assert.ok(button, 'a registered desk row exposes native popout')
+    await inAct(async () => { button!.click(); await flush(5) })
+    assert.equal(opens, 1, 'the list action reaches MovableSurface.open')
+    assert.ok(child.window?.document?.querySelector('.popout-mount'),
+      'the native surface adopted the desk into the opened window')
+  } finally {
+    window.open = originalOpen
+    globalThis.MutationObserver = originalObserver
+    child.window.close()
+  }
 })
