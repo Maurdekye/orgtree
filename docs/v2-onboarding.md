@@ -19,6 +19,18 @@ persists `onboarded: true` in `desktop-settings.json`, so the card stays gone
 even if every organization is later deleted. `onboarded` is an ordinary
 boolean preference: validated in `preferencesPatch`, default `false`.
 
+Completion is populate-then-flag, atomically from the caller's view
+(`completeOnboarding`): a charter-populate failure is shown on the card and
+the flag is NOT written, so pressing finish again retries. On the
+organization-creation path the card unmounts as soon as the first
+organization exists, so completion runs inside `onboardingCreate` — after
+the create succeeds and before the caller refreshes the list — never in a
+child effect that would unmount before firing. A populate failure there is
+surfaced as a toast, the organization still opens, and `onboarded` stays
+unset: setup returns to offer the seed again only if the installation is
+ever back at zero organizations, while the hire form keeps serving the
+bundled presets regardless.
+
 ## Charter documents
 
 `~/.orgtree/charters/` is the documented, user-editable charter document

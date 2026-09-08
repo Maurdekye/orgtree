@@ -5,8 +5,8 @@
 import { flush, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import React from 'react'
-import { Onboarding, showOnboarding } from '../src/canvas/onboarding'
+import React, { useState } from 'react'
+import { Onboarding, onboardingCreate, showOnboarding } from '../src/canvas/onboarding'
 import type { NativePreferences } from '../src/desktop'
 
 const g = globalThis as unknown as Record<string, unknown>
@@ -30,10 +30,18 @@ function stubBridge(state: { prefs: NativePreferences; patches: unknown[] }) {
   return () => { delete w.orgtreeDesktop }
 }
 
-function stubFetch(seen: { method: string; path: string }[]) {
+function stubFetch(seen: { method: string; path: string }[],
+                   fail: { now: boolean } = { now: false }) {
   g.fetch = (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     seen.push({ method: init?.method ?? 'GET', path })
+    if (fail.now) {
+      return Promise.resolve({
+        ok: false, status: 503,
+        json: () => Promise.resolve({ detail: 'engine declined (synthetic)' }),
+        headers: { get: () => null },
+      })
+    }
     return Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ dir: 'x', created: [], existing: [] }),
@@ -56,7 +64,7 @@ test('finish populates charter documents and then persists onboarded', async () 
   const seen: { method: string; path: string }[] = []
   stubFetch(seen)
   const view = await mountView(
-    <Onboarding orgCount={0}><div data-testid="neworg" /></Onboarding>,
+    <Onboarding><div data-testid="neworg" /></Onboarding>,
     el => el.textContent ?? '')
   await flush()
   assert.ok(view.last().includes('Welcome to Orgtree'))
@@ -73,19 +81,84 @@ test('finish populates charter documents and then persists onboarded', async () 
   restore()
 })
 
-test('creating the first organization completes setup without pressing finish', async () => {
+test('a failed populate is shown, blocks the flag, and the button retries', async () => {
+  const state = { prefs: prefs(), patches: [] as unknown[] }
+  const restore = stubBridge(state)
+  const seen: { method: string; path: string }[] = []
+  const fail = { now: true }
+  stubFetch(seen, fail)
+  const view = await mountView(
+    <Onboarding><div /></Onboarding>, el => el.textContent ?? '')
+  await flush()
+  const finish = [...view.el.querySelectorAll('button')]
+    .find(b => b.textContent === 'finish setup')
+  const { act } = await import('react')
+  await act(async () => { finish!.click() })
+  await flush()
+  assert.ok(view.last().includes('Charter documents were not populated'),
+    'the failure is visible on the card')
+  assert.equal(state.patches.length, 0, 'onboarded is NOT written on failure')
+  fail.now = false
+  await act(async () => { finish!.click() })
+  await flush()
+  assert.deepEqual(state.patches.at(-1), { onboarded: true })
+  assert.equal(seen.filter(s => s.path === '/api/charters/populate').length, 2)
+  await view.unmount()
+  restore()
+})
+
+// The sequence App actually performs: while setup is showing, creating the
+// first organization runs onboardingCreate, which completes setup BEFORE the
+// caller's refresh flips the gate and unmounts the card. A completion left
+// in a child effect would never fire — the card is gone by then — which is
+// exactly what this host reproduces.
+function Host({ errors }: { errors: string[] }) {
+  const [orgCount, setOrgCount] = useState(0)
+  const create = () =>
+    onboardingCreate(() => Promise.resolve({ slug: 'first' }), m => errors.push(m))
+      .then(r => { setOrgCount(1); return r })
+  return showOnboarding(prefs(), orgCount, true)
+    ? <Onboarding><button data-testid="create" onClick={() => void create()}>create</button></Onboarding>
+    : <div>desk</div>
+}
+
+test('creating the first organization completes setup before the card unmounts', async () => {
   const state = { prefs: prefs(), patches: [] as unknown[] }
   const restore = stubBridge(state)
   const seen: { method: string; path: string }[] = []
   stubFetch(seen)
-  const view = await mountView(
-    <Onboarding orgCount={0}><div /></Onboarding>, el => el.textContent ?? '')
+  const errors: string[] = []
+  const view = await mountView(<Host errors={errors} />, el => el.textContent ?? '')
   await flush()
-  assert.equal(state.prefs.onboarded, false)
-  await view.render(<Onboarding orgCount={1}><div /></Onboarding>)
+  assert.ok(view.last().includes('Welcome to Orgtree'))
+  const { act } = await import('react')
+  const create = view.el.querySelector('[data-testid="create"]') as HTMLButtonElement
+  await act(async () => { create.click() })
   await flush()
-  assert.deepEqual(state.patches.at(-1), { onboarded: true })
-  assert.ok(seen.some(s => s.path === '/api/charters/populate'))
+  assert.equal(view.last(), 'desk', 'the card unmounted after creation')
+  assert.deepEqual(seen, [{ method: 'POST', path: '/api/charters/populate' }])
+  assert.deepEqual(state.patches, [{ onboarded: true }],
+    'the flag was written even though the card never saw orgCount > 0')
+  assert.deepEqual(errors, [])
+  await view.unmount()
+  restore()
+})
+
+test('a populate failure on the create path is surfaced and leaves the flag unset', async () => {
+  const state = { prefs: prefs(), patches: [] as unknown[] }
+  const restore = stubBridge(state)
+  const seen: { method: string; path: string }[] = []
+  stubFetch(seen, { now: true })
+  const errors: string[] = []
+  const view = await mountView(<Host errors={errors} />, el => el.textContent ?? '')
+  await flush()
+  const { act } = await import('react')
+  const create = view.el.querySelector('[data-testid="create"]') as HTMLButtonElement
+  await act(async () => { create.click() })
+  await flush()
+  assert.equal(view.last(), 'desk', 'the organization still opens')
+  assert.equal(state.patches.length, 0, 'onboarded stays unset for a later retry')
+  assert.deepEqual(errors, ['engine declined (synthetic)'])
   await view.unmount()
   restore()
 })
@@ -95,7 +168,7 @@ test('theme choice previews and persists through the bridge', async () => {
   const restore = stubBridge(state)
   stubFetch([])
   const view = await mountView(
-    <Onboarding orgCount={0}><div /></Onboarding>, el => el.textContent ?? '')
+    <Onboarding><div /></Onboarding>, el => el.textContent ?? '')
   await flush()
   const claude = [...view.el.querySelectorAll('button[role="radio"]')]
     .find(b => b.textContent?.includes('Claude'))

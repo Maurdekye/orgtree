@@ -5,7 +5,7 @@ import { desktop } from './desktop'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
-import { Onboarding, showOnboarding } from './canvas/onboarding'
+import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -756,9 +756,12 @@ export default function App() {
       {!slug && (
         <div className="welcome">
           {!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
-            <Onboarding orgCount={orgs.length}>
+            <Onboarding>
+              {/* completion runs INSIDE onboardingCreate, before refreshOrgs
+                  unmounts this card — a child effect would never see it */}
               <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
-                createOrg(name, dirs, netAuto, netHubs)
+                onboardingCreate(() => createOrg(name, dirs, netAuto, netHubs),
+                  (m) => toast([`setup: charter documents were not populated — ${m}`]))
                   .then((r) => { refreshOrgs(); pick(r.slug) })
                   .catch((e: Error) => toast([`error: ${e.message}`]))} />
             </Onboarding>
