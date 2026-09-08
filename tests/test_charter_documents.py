@@ -185,6 +185,33 @@ class CharterDocumentTests(unittest.TestCase):
         self.assertNotIn('evil.md', rows, 'nothing behind the link is served')
         self.assertNotIn('user_dir_error', payload)
 
+    def test_symlinked_file_is_skipped_on_read_and_refused_on_save(self):
+        # A FILE symlink (unlike a junction) follows on open("w") and is not
+        # bounded to .md targets. Creating one needs privilege or developer
+        # mode; when this environment cannot, the check DECLARES itself inert
+        # instead of passing quietly.
+        elsewhere = home / 'elsewhere-symlink'
+        elsewhere.mkdir()
+        target = elsewhere / 'precious.bin'
+        target.write_bytes(b'TARGET BYTES THAT MUST SURVIVE')
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        link = USER_DIR / 'linked.md'
+        try:
+            os.symlink(target, link)
+        except OSError as exc:
+            self.skipTest(f'file symlinks unavailable on this environment: {exc}')
+        self.addCleanup(lambda: link.exists() or link.is_symlink() and link.unlink())
+        # positive control: the link genuinely follows
+        self.assertEqual(link.read_bytes(), b'TARGET BYTES THAT MUST SURVIVE')
+        payload = self.charters()
+        self.assertIn('linked.md', payload.get('skipped_links', []))
+        self.assertFalse(any(r['file'] == 'linked.md' for r in payload['charters']),
+                         'linked file content is never served')
+        response = self.client.put('/api/charters/linked', headers=HEADERS,
+                                   json={'content': 'OVERWRITE ATTEMPT'})
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(target.read_bytes(), b'TARGET BYTES THAT MUST SURVIVE')
+
     def test_routes_require_authentication(self):
         for method, url in (('GET', '/api/charters'),
                             ('POST', '/api/charters/populate'),
