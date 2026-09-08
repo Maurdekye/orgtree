@@ -212,6 +212,10 @@ jobs._release(lock)
         for index in range(100):
             (folder / f"{index}.txt").write_bytes(b"actual copied bytes")
         self.fixture("beta")
+        beta_folder = self.source / "scratch/beta/worker/many-files"
+        beta_folder.mkdir()
+        for index in range(100):
+            (beta_folder / f"{index}.txt").write_bytes(b"beta copied bytes")
         body = self.body()
         body["organizations"] = ["acme", "beta"]
         writes = []
@@ -253,6 +257,7 @@ jobs._release(lock)
         self.assertEqual(job["progress_percent"], 100)
         self.assertEqual(job["eta_seconds"], 0)
         window_start = None
+        banked = 0.0
         timed_files = []
         native_snapshots = []
         previous_files = 0
@@ -261,20 +266,22 @@ jobs._release(lock)
             if phase == "copying" and window_start is None:
                 window_start = at
             elif phase in {"native", "validating", "publishing", "recovering", "finished"}:
+                if window_start is not None:
+                    banked += at - window_start
                 window_start = None
                 if phase in {"native", "validating"}:
                     native_snapshots.append(item)
             files_copied = item.get("files_copied", 0)
             if phase == "copying" and files_copied > previous_files:
-                elapsed = at - window_start
+                elapsed = banked + at - window_start
                 work = (item["files_copied"] / item["total_files"] +
                         item["bytes_copied"] / item["total_bytes"]) / 2
                 expected = int(max(0, (1 - work) / (work / elapsed)))
                 timed_files.append((item["files_copied"], item["eta_seconds"], expected))
             previous_files = max(previous_files, files_copied)
         self.assertGreaterEqual(len(timed_files), 2)
-        self.assertEqual(timed_files[0][1:], (timed_files[0][2], timed_files[0][2]))
-        self.assertEqual(timed_files[1][1], timed_files[1][2])
+        for _, actual, expected in timed_files:
+            self.assertEqual(actual, expected)
         self.assertTrue(native_snapshots)
         self.assertTrue(all(item.get("eta_seconds") is None for item in native_snapshots))
         self.assertGreater(len(writes), 5)  # phase/publication/admission checkpoints really persist

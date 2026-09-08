@@ -809,11 +809,11 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
     import threading
     entered, release = threading.Event(), threading.Event()
     copy_file = desktop_import._copy_file
-    def slow_copy(src,dst):
+    def slow_copy(src,dst,**options):
         if src.name == 'output.txt':
             entered.set()
             assert release.wait(10), 'fixture did not release copy'
-        return copy_file(src,dst)
+        return copy_file(src,dst,**options)
     from orgtree import desktop_maintenance
     desktop_maintenance._write({'id':'copy-maintenance','state':'pending','action':'restart'})
     idle_control = client.get('/api/desktop/status',headers=headers).json()
@@ -836,7 +836,7 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
         while time.monotonic()<deadline:
             result = client.get('/api/desktop/import-v1/jobs/'+payload['request_id'],headers=headers)
             job = result.json()['job']
-            if job['state'] not in {'queued','running'}: break
+            if job['state'] not in {'queued','planning','running'}: break
             time.sleep(.01)
         assert job['state']=='succeeded', job
         imported = job['result']['imported'][0]
