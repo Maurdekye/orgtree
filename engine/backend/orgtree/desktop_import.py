@@ -35,6 +35,13 @@ CONTINUITY_WARNING = (
     "Prompt-cache continuity is not guaranteed."
 )
 _LOCK = threading.RLock()
+_progress_local = threading.local()
+
+
+def _progress(**event: Any) -> None:
+    callback = getattr(_progress_local, "callback", None)
+    if callback is not None:
+        callback(event)
 _on_imported: Callable[[str], Any] | None = None
 router = APIRouter(prefix="/api/desktop/import-v1", tags=["desktop-import"])
 
@@ -136,6 +143,7 @@ def _copy_file(source: Path, dest: Path) -> str:
         os.fsync(dst.fileno())
     if _digest(source) != before or _digest(dest) != before:
         raise ImportRefused(f"Source changed while copying; retry preview: {source}", 409)
+    _progress(file_bytes=dest.stat().st_size)
     return before
 
 
@@ -506,7 +514,21 @@ def _write_candidate(path: Path, doc: dict[str, Any]) -> None:
 
 def copy_import(source_root: str, organizations: list[str], *,
                 acknowledge_duplicate_work: bool,
-                on_imported: Callable[[str], Any], native_sources: dict | None = None) -> dict[str, Any]:
+                on_imported: Callable[[str], Any], native_sources: dict | None = None,
+                progress: Callable[[dict], None] | None = None) -> dict[str, Any]:
+    previous = getattr(_progress_local, "callback", None)
+    _progress_local.callback = progress
+    try:
+        return _copy_import(source_root, organizations,
+                            acknowledge_duplicate_work=acknowledge_duplicate_work,
+                            on_imported=on_imported, native_sources=native_sources)
+    finally:
+        _progress_local.callback = previous
+
+
+def _copy_import(source_root: str, organizations: list[str], *,
+                 acknowledge_duplicate_work: bool,
+                 on_imported: Callable[[str], Any], native_sources: dict | None = None) -> dict[str, Any]:
     from . import desktop_native
     if acknowledge_duplicate_work is not True:
         raise ImportRefused("Acknowledge possible duplicate work before importing")
@@ -524,18 +546,22 @@ def copy_import(source_root: str, organizations: list[str], *,
         base.mkdir(parents=True)
         prepared = []
         for slug in slugs:
+            _progress(phase="reading", current_org=slug)
             stage = base / slug
             stage.mkdir()
             doc = _read_document(source, slug, stage)
             files = stage / "files"
             files.mkdir()
+            _progress(phase="copying")
             dependency_omissions = _DependencyOmissions()
             for rel in _areas(slug):
                 if (source / rel).exists():
                     _copy_tree(source / rel, files / rel, dependency_omissions=dependency_omissions,
                                relative=Path(rel))
+            _progress(phase="native")
             doc, active, warnings = _prepare_document(doc, source, dest, stage, sources)
             warnings.extend(dependency_omissions.warnings())
+            _progress(phase="validating")
             _write_candidate(stage / "candidate.db", doc)
             prepared.append((slug, stage, doc, active, warnings))
         # Files and exact source history land before the ledger publication.
@@ -544,6 +570,9 @@ def copy_import(source_root: str, organizations: list[str], *,
         imported = []
         failed = []
         for slug, stage, doc, active, warnings in prepared:
+            row = {"slug": slug, "name": doc["name"], "active_nodes": active,
+                   "warnings": warnings, "recovery_pending": True}
+            _progress(phase="publishing", current_org=slug, publication_intent=slug)
             try:
                 from .desktop_native_claude_rewind import publish as publish_rewind
                 publish_rewind(doc, stage)
@@ -554,15 +583,17 @@ def copy_import(source_root: str, organizations: list[str], *,
                 failed.append({"slug": slug, "error": str(exc),
                                "not_attempted": slugs[slugs.index(slug) + 1:]})
                 break
-            imported.append({"slug": slug, "name": doc["name"], "active_nodes": active,
-                             "warnings": warnings, "recovery_pending": True})
+            imported.append(row)
+            _progress(published=row)
     for row in imported:
+        _progress(phase="recovering", current_org=row["slug"], recovery_intent=row["slug"])
         try:
             result = on_imported(row["slug"])
             row["recovery_pending"] = False
             row["recovery"] = result
         except Exception as exc:
             row["warnings"].append(f"Copy committed; recovery pending ({type(exc).__name__}). Do not repeat import.")
+        _progress(recovered=row)
         try:
             store.on_save(row["slug"])
         except Exception:
@@ -613,9 +644,28 @@ def preview_route(body: PreviewBody) -> dict[str, Any]:
 
 @router.post("")
 def import_route(body: ImportBody) -> dict[str, Any]:
-    callback = _on_imported
-    if callback is None:
+    raise HTTPException(409, "Use the background import jobs API; synchronous import is no longer available. Update the desktop client.")
+
+
+class ImportJobBody(ImportBody):
+    request_id: uuid.UUID
+
+
+@router.post("/jobs", status_code=202)
+def start_job_route(body: ImportJobBody) -> dict[str, Any]:
+    from . import desktop_import_jobs
+    if _on_imported is None:
         raise HTTPException(503, "Import recovery hook is not configured")
-    return _http(lambda: copy_import(body.source_root, body.organizations,
-                                    acknowledge_duplicate_work=body.acknowledge_duplicate_work,
-                                    on_imported=callback, native_sources=body.native_sources))
+    return _http(lambda: {"job": desktop_import_jobs.start(body, _on_imported)})
+
+
+@router.get("/jobs/current")
+def current_job_route() -> dict[str, Any]:
+    from . import desktop_import_jobs
+    return _http(lambda: {"job": desktop_import_jobs.current()})
+
+
+@router.get("/jobs/{request_id}")
+def exact_job_route(request_id: uuid.UUID) -> dict[str, Any]:
+    from . import desktop_import_jobs
+    return _http(lambda: {"job": desktop_import_jobs.get(str(request_id))})

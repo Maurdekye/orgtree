@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -36,6 +37,22 @@ from engine.launch import TokenGate
 def fingerprint(root: Path) -> dict[str, str]:
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in root.rglob("*") if p.is_file()}
+
+
+def job_result(client, body, headers):
+    body = dict(body, request_id=str(uuid.uuid4()))
+    response = client.post("/api/desktop/import-v1/jobs", json=body, headers=headers)
+    assert response.status_code == 202, response.text
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        response = client.get("/api/desktop/import-v1/jobs/" + body["request_id"], headers=headers)
+        assert response.status_code == 200, response.text
+        job = response.json()["job"]
+        if job["state"] not in {"queued", "running"}:
+            assert job["state"] == "succeeded", job
+            return job["result"]
+        time.sleep(.01)
+    raise AssertionError("bounded import job fixture did not finish")
 
 
 class DesktopImportTests(unittest.TestCase):
@@ -569,8 +586,8 @@ class DesktopImportTests(unittest.TestCase):
         body.update(organizations=["acme"], acknowledge_duplicate_work="yes")
         self.assertEqual(client.post("/api/desktop/import-v1", json=body, headers=headers).status_code, 422)
         body["acknowledge_duplicate_work"] = True
-        response = client.post("/api/desktop/import-v1", json=body, headers=headers)
-        self.assertEqual(response.status_code, 200, response.text)
+        result = job_result(client, body, headers)
+        self.assertEqual(result["imported"][0]["slug"], "acme")
         self.assertEqual(self.resumed, ["acme"])
 
     def make_directory_link(self, link: Path, target: Path) -> None:
@@ -607,11 +624,10 @@ class DesktopImportTests(unittest.TestCase):
         imp.configure(on_imported=self.resumed.append)
         client = TestClient(TokenGate(app, "fixture-only-secret"))
         with patch.object(Path, "iterdir", guarded_iterdir), patch.object(subprocess, "Popen", side_effect=AssertionError("No provider")):
-            response = client.post("/api/desktop/import-v1", headers={"x-orgtree-desktop-token": "fixture-only-secret"},
-                                   json={"source_root": str(self.source), "organizations": ["acme"],
-                                         "acknowledge_duplicate_work": True})
-        self.assertEqual(response.status_code, 200, response.text)
-        row = response.json()["imported"][0]
+            result = job_result(client, {"source_root": str(self.source), "organizations": ["acme"],
+                                        "acknowledge_duplicate_work": True},
+                                {"x-orgtree-desktop-token": "fixture-only-secret"})
+        row = result["imported"][0]
         warnings = [value for value in row["warnings"] if value.startswith("Skipped linked dependency:")]
         self.assertEqual(len(warnings), 2)
         for link in links:
@@ -778,11 +794,20 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
         assert hashes() == before
         admitted.append((nid, text, kwargs))
         return {'accepted':True,'queued':0}  # This recorder models admission, not native validation.
-    payload.update(organizations=['acme'],acknowledge_duplicate_work=True)
+    import uuid
+    payload.update(organizations=['acme'],acknowledge_duplicate_work=True,request_id=str(uuid.uuid4()))
     with patch.object(supervisor, 'send_message', side_effect=record):
-        result = client.post('/api/desktop/import-v1',json=payload,headers=headers)
-        assert result.status_code == 200, result.text
-        imported = result.json()['imported'][0]
+        import time
+        started = client.post('/api/desktop/import-v1/jobs',json=payload,headers=headers)
+        assert started.status_code == 202, started.text
+        deadline = time.monotonic()+15
+        while time.monotonic()<deadline:
+            result = client.get('/api/desktop/import-v1/jobs/'+payload['request_id'],headers=headers)
+            job = result.json()['job']
+            if job['state'] not in {'queued','running'}: break
+            time.sleep(.01)
+        assert job['state']=='succeeded', job
+        imported = job['result']['imported'][0]
         assert imported['recovery_pending'] is False, result.text
         assert [row[0] for row in admitted] == ['active'], admitted
         assert 'continue the exact unfinished work' in admitted[0][1]
