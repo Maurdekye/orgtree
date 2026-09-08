@@ -442,6 +442,7 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
                 "any mutation; do not blindly repeat them. "
                 + (f"Copied history: {dest / metadata['history']}. " if metadata.get("history") else "")
                 + "Original interrupted request:\n" + str(old.get("inflight", {}).get("text") or ""))
+    _stage_memory(doc, source, dest, slug, stage, native_sources or {}, warnings)
     # Removed MVP mechanisms must not activate just because their flags travel.
     for key in ("kiosk", "sandbox", "disk"):
         if doc.get(key):
@@ -463,6 +464,30 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     doc["desktop_import"] = {"source_root": str(source), "active_nodes": active,
                              "warnings": warnings, "recovery_pending": True}
     return doc, active, warnings
+
+
+def _stage_memory(doc: dict[str, Any], source: Path, dest: Path, slug: str, stage: Path,
+                  sources: dict, warnings: list[str]) -> None:
+    """Carry Claude project memory once per base scratch folder (shared by generations)."""
+    from . import desktop_native, supervisor
+    from .desktop_native_claude_memory import MEMORY_DIR, prepare as prepare_memory
+    from .desktop_native_claude_rewind import selected_profile
+    groups: dict[str, list[str]] = {}
+    for nid, node in doc["nodes"].items():
+        if desktop_native.provider_for(node) in {"claude", "openrouter"}:
+            groups.setdefault(nid.split("@")[0], []).append(nid)
+    for base, members in sorted(groups.items()):
+        try:
+            env = supervisor.clean_env()
+            env.update(supervisor.env_overrides(slug, base))
+            meta = prepare_memory(source, dest, slug, base, stage, sources, env,
+                                  selected_profile(slug, base))
+        except (desktop_native.NativeHeld, OSError, ValueError) as exc:
+            meta = {"status": "held", "base": base, "reason": str(exc)}
+        if meta["status"] == "held":
+            warnings.append(f"{base}: Claude memory held: {meta.get('reason')}")
+        for nid in members:
+            doc["nodes"][nid].setdefault("desktop_import", {})[MEMORY_DIR] = copy.deepcopy(meta)
 
 
 def preview_import(source_root: str, native_sources: dict | None = None) -> dict[str, Any]:
@@ -575,7 +600,9 @@ def _copy_import(source_root: str, organizations: list[str], *,
             _progress(phase="publishing", current_org=slug, publication_intent=slug)
             try:
                 from .desktop_native_claude_rewind import publish as publish_rewind
+                from .desktop_native_claude_memory import publish as publish_memory
                 publish_rewind(doc, stage)
+                publish_memory(doc, stage)
                 _publish(dest, slug, stage)
             except (OSError, ImportRefused) as exc:
                 if not imported:
@@ -616,6 +643,8 @@ def _publish(dest: Path, slug: str, stage: Path) -> None:
     (stage / "original.json").rename(archive / "original.json")
     (stage / "history").rename(archive / "history")
     (stage / "native").rename(archive / "native")
+    if (stage / "memory").is_dir():
+        (stage / "memory").rename(archive / "memory")
     orgs = dest / "orgs"
     orgs.mkdir(exist_ok=True)
     # Exclusive atomic publication, no overwrites even outside DOC_LOCK.

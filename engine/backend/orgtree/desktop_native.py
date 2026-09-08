@@ -240,7 +240,10 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
         records, raw = _read_native(path)
         folder = stage / "native" / nid
         folder.mkdir(parents=True)
-        cwd = str(dest / "scratch" / slug / nid)
+        # The engine starts every generation of a node in its BASE scratch
+        # folder (supervisor.scratch_dir strips "@generation"); the rebound
+        # native cwd must be that same folder.
+        cwd = spawn_cwd(dest, slug, nid)
         if meta["provider"] == "codex":
             from .desktop_native_codex import fork_snapshot
             if node.get("codex_thread") != node["session_id"]:
@@ -303,7 +306,20 @@ def native_session_path(org: Any, nid: str) -> str | None:
     return str(path) if path.is_file() else None
 
 
+def spawn_cwd(dest: Path, slug: str, nid: str) -> str:
+    """The working directory the engine will actually start this node in."""
+    return str(dest / "scratch" / slug / nid.split("@")[0])
+
+
 def native_hold_reason(org: Any, nid: str) -> str | None:
+    reason = _native_session_hold_reason(org, nid)
+    if reason:
+        return reason
+    from .desktop_native_claude_memory import hold_reason as memory_hold_reason
+    return memory_hold_reason(org.d if hasattr(org, "d") else org, nid)
+
+
+def _native_session_hold_reason(org: Any, nid: str) -> str | None:
     doc = org.d if hasattr(org, "d") else org
     node = doc.get("nodes", {}).get(nid, {})
     imported = node.get("desktop_import")

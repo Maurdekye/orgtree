@@ -174,6 +174,32 @@ functions use the explicit resume directory and new parent ID; a component
 probe verifies discovery and native chain traversal of the copied child.
 Unknown filenames, mismatched agent/session identities and nested layouts hold.
 
+Claude project auto-memory travels with the scratch folder. The installed
+Claude 2.1.241 reads it from `<config>/projects/<key>/memory/`, where `<key>`
+is the process working directory (or the canonical root of the git checkout
+containing it) with every non-alphanumeric character replaced by `-`, and a
+base36 hash suffix past 200 characters. Local `--resume` does not adopt the
+transcript's recorded cwd; the engine starts every generation of a node in
+`scratch/<slug>/<base node id>`, so the rebound native cwd and the memory key
+both use that base folder. `desktop_native_claude_memory` stages the source
+memory directory once per base folder (regular files only, reparse points
+refused, at most 64 MiB and 5000 files, hashes recorded, source untouched),
+keeps an archive under `imports/<slug>/memory/<base>/` with a manifest, and
+creates the destination directory exclusively at publication beside the
+rewind publish. A pre-existing destination with identical content is
+accepted; different content is never overwritten. Any override of the memory
+location (environment `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`, or
+`autoMemoryDirectory` in managed, local, project or user settings) means both
+installations would share one directory, which is not independent
+continuity, so it is recorded as unsupported. Remotely delivered flag
+settings cannot be read here. Every unavailable case is recorded on the node
+as `desktop_import.memory` with a reason, appears in the import warnings, and
+holds native continuation through `native_hold_reason` until resolved; an
+absent source memory directory is recorded as `none` and holds nothing. A
+destination that changes between staging and publication refuses the import
+with 409 before any profile write. `tests/fixtures/claude_memory_key.cjs` is
+the extracted CLI key function and is the control for the Python port.
+
 Native file-rewind backups use Claude's selected config profile. The importer
 stages only referenced native backup blobs, validates their native digest/version
 filenames, and exclusively creates `file-history/<new-imported-SID>` in that
