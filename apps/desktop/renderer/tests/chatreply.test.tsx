@@ -33,7 +33,7 @@ test('reply draft follows rename/removal recovery without rewriting its source i
 test('discarding recovered drafts persists and leaves the current composer untouched', () => {
   localStorage.clear()
   const current = draftKey('org', 'writer', 3)
-  const old = 'orgtree-draft-recovery-["org","writer",2]'
+  const old = draftKey('org', 'writer', 2)
   localStorage.setItem(current, 'Current draft')
   localStorage.setItem(old, 'Older draft')
   storeAttachments(old, [{ name: 'note.txt', path: 'note.txt', bytes: 4 }])
@@ -44,16 +44,16 @@ test('discarding recovered drafts persists and leaves the current composer untou
   assert.equal(localStorage.getItem(current), 'Current draft')
   assert.equal(localStorage.getItem(`${old}-attachments`), null)
   assert.equal(localStorage.getItem(`${old}-reply`), null)
-  assert.equal(localStorage.getItem('orgtree-draft-recovery-["org","writer"]'), '[2]')
+  assert.equal(localStorage.getItem('orgtree-draft-recovery-dismissed-["org","writer"]'), '[2]')
   // A later recovery scan cannot resurrect the dismissed generation.
-  localStorage.setItem(old, 'Older draft')
+  localStorage.setItem('orgtree-draft-recovery-["org","writer",2]', 'Older draft')
   assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
 })
 
 test('dismiss all records every visible recovered generation', () => {
   localStorage.clear()
   for (const generation of [1, 2]) localStorage.setItem(draftKey('org', 'writer', generation), `draft ${generation}`)
-  preserveRemovedDrafts('org', new Map([['writer', true]]))
+  preserveRemovedDrafts('org', new Map())
   assert.equal(recoverableDrafts('org', 'writer', 3).length, 2)
   discardAllRecoverableDrafts('org', 'writer', [1, 2])
   assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)

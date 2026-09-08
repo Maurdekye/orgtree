@@ -2561,12 +2561,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       {!staleIdentity && recoveryDrafts.length > 0 && <details className="popout-draft-recovery">
         <summary>Older unsent drafts ({recoveryDrafts.length})</summary>
         <button type="button" onClick={() => {
-          discardAllRecoverableDrafts(slug, node.id, recoveryDrafts.map(d => d.generation))
+          discardAllRecoverableDrafts(slug, node.id, recoveryDrafts.map(d => d.generation), node.generation)
           setRecoveryRevision((v) => v + 1)
         }}>Dismiss all</button>
         {recoveryDrafts.map(d => <div key={d.key}>
           <p>Generation {d.generation} draft <button type="button" onClick={() => {
-            discardRecoverableDraft(slug, node.id, d.generation)
+            discardRecoverableDraft(slug, node.id, d.generation, node.generation)
             setRecoveryRevision((v) => v + 1)
           }}>Discard</button></p><pre>{d.text}</pre>
           {d.reply && <ReplyPreview reply={d.reply} available={replyAvailable(d.reply)} onLocate={() => locateReply(d.reply!)} />}

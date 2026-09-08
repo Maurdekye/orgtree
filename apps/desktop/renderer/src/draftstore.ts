@@ -82,12 +82,15 @@ function saveDismissedGenerations(slug: string, id: string, generations: Set<num
     else localStorage.removeItem(dismissedRecoveryKey(slug, id))
   } catch { /* best effort persistence */ }
 }
-function removeRecoveryGeneration(slug: string, id: string, generation: number) {
+function removeDraftGeneration(slug: string, id: string, generation: number, currentGeneration: number | undefined) {
   const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
   for (const key of keys) {
-    if (!key?.startsWith(recoveryPrefix)) continue
-    const identity = savedIdentity(key, recoveryPrefix)
+    if (!key) continue
+    const prefix = key.startsWith(activePrefix) ? activePrefix : key.startsWith(recoveryPrefix) ? recoveryPrefix : null
+    if (!prefix) continue
+    const identity = savedIdentity(key, prefix)
     if (!identity || identity[0] !== slug || identity[1] !== id || identity[2] !== generation) continue
+    if (prefix === activePrefix && generation === currentGeneration) continue
     const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
     localStorage.removeItem(key)
     localStorage.removeItem(textKey)
@@ -96,21 +99,21 @@ function removeRecoveryGeneration(slug: string, id: string, generation: number) 
   }
 }
 /** Permanently dismiss one recovered generation for this desk. */
-export function discardRecoverableDraft(slug: string, id: string, generation: number) {
+export function discardRecoverableDraft(slug: string, id: string, generation: number, currentGeneration?: number) {
   try {
     const dismissed = readDismissedGenerations(slug, id)
     dismissed.add(generation)
     saveDismissedGenerations(slug, id, dismissed)
-    removeRecoveryGeneration(slug, id, generation)
+    removeDraftGeneration(slug, id, generation, currentGeneration)
   } catch { /* unavailable storage */ }
 }
 /** Permanently dismiss the currently recovered generations for this desk. */
-export function discardAllRecoverableDrafts(slug: string, id: string, generations: readonly number[]) {
+export function discardAllRecoverableDrafts(slug: string, id: string, generations: readonly number[], currentGeneration?: number) {
   try {
     const dismissed = readDismissedGenerations(slug, id)
     for (const generation of generations) dismissed.add(generation)
     saveDismissedGenerations(slug, id, dismissed)
-    for (const generation of generations) removeRecoveryGeneration(slug, id, generation)
+    for (const generation of generations) removeDraftGeneration(slug, id, generation, currentGeneration)
   } catch { /* unavailable storage */ }
 }
 export function recoverableDrafts(slug: string, id: string, generation: number | undefined) {
@@ -124,7 +127,7 @@ export function recoverableDrafts(slug: string, id: string, generation: number |
       const identity = savedIdentity(key, prefix)
       if (!identity || identity[0] !== slug || identity[1] !== id || typeof identity[2] !== 'number'
         || (prefix === activePrefix && identity[2] === generation)) continue
-      if (prefix === recoveryPrefix && dismissed.has(identity[2])) continue
+      if (dismissed.has(identity[2])) continue
       const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
       if (drafts.some(d => d.key === textKey)) continue
       drafts.push({ key: textKey, generation: identity[2], text: localStorage.getItem(textKey) || '', attachments: readAttachments(textKey), reply: readReply(textKey) })
