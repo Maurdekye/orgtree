@@ -48,7 +48,7 @@ test('⭐ the raw markup never enters the OUTER document — only the frame\'s s
     'the agent\'s exact source should survive verbatim inside the frame')
 })
 
-test('⭐ network is off by default inside the frame (strict CSP)', () => {
+test('⭐ the CSP blocks every fetch-governed network path by default (fetch/XHR/websocket/images) — NOT a claim about navigation, see htmlresponse.ts', () => {
   const html = md(fence('orgtree-html-response', '<p>hi</p>')).__html
   const tpl = document.createElement('template')
   tpl.innerHTML = html
@@ -92,6 +92,35 @@ test('an oversized block falls back to an ordinary code block, not a frame', () 
   const html = md(fence('orgtree-html-response', big)).__html
   assert.ok(!html.includes('<iframe'), 'an over-cap block must not be sandboxed silently')
   assert.ok(html.includes('<pre'), html)
+})
+
+test('⭐ a literal, UNFENCED mention of the exact matching markup in prose does not become a real element', () => {
+  // the coordinator's review question: does the swap key on the SOURCE
+  // fence, or on the resulting DOM shape regardless of how it got there?
+  // It's the DOM shape (see the module header) — so the guarantee this
+  // relies on is `escapeAngles` (shared.ts), and THIS is the test that
+  // would fail if that upstream escaping ever regressed.
+  const typed = 'just typing it out: <pre><code class="language-orgtree-html-response">x</code></pre>'
+  const html = md(typed).__html
+  assert.ok(!html.includes('<iframe'), html)
+  // it must show as inert, visible text — not silently vanish either
+  assert.match(html, /language-orgtree-html-response/)
+})
+
+test('a fence tag with trailing info-string text still matches — same rule as every other language', () => {
+  // `marked` keys every fence's class on the FIRST word of the info string
+  // (```python 3.12 still renders as language-python) — this tag is no
+  // exception, and the trailing word is still an explicit, deliberate
+  // author action, not a bypass.
+  const html = md(fence('orgtree-html-response ignored-note', '<b>hi</b>')).__html
+  assert.ok(html.includes('<iframe'), html)
+})
+
+test('a near-miss tag (prefix/suffix, not the exact language token) does NOT match', () => {
+  for (const tag of ['orgtree-html-responsezzz', 'xorgtree-html-response', 'orgtree-html-respons']) {
+    const html = md(fence(tag, '<b>hi</b>')).__html
+    assert.ok(!html.includes('<iframe'), `"${tag}" should not have matched: ${html}`)
+  }
 })
 
 test('multiple html-response blocks in one message each get their own frame', () => {
