@@ -160,7 +160,7 @@ inside the selected Claude session's `tool-results` directory are copied
 with stable-source checks into the independent session directory. Explicit
 native tool-output paths and persisted-output text are rebound to those
 copied files; unrelated message text is preserved. Missing or mixed external
-references, nested directories, unknown subagent metadata, file-history backups and
+references, nested directories, unknown subagent metadata and
 special worktree/remote layouts remain explicitly held until their independent
 restoration is verified. These held layouts are unfinished coverage.
 The Claude parser/selection/output-formatter probe uses extracted installed
@@ -173,6 +173,24 @@ dependency references are rebound. The installed Claude subagent path/listing
 functions use the explicit resume directory and new parent ID; a component
 probe verifies discovery and native chain traversal of the copied child.
 Unknown filenames, mismatched agent/session identities and nested layouts hold.
+
+Native file-rewind backups use Claude's selected config profile. The importer
+stages only referenced native backup blobs, validates their native digest/version
+filenames, and exclusively creates `file-history/<new-imported-SID>` in that
+selected destination profile before publishing the organization. Existing
+source/profile files remain byte-for-byte unchanged, including when source and
+destination use the same profile. No credentials or settings are copied. A
+collision refuses; a partial new directory from a failed publication is retained
+without publishing the organization or admitting work. This is restoration of
+one independent session, not profile/account migration.
+
+The profile resolver uses `clean_env()` plus this destination node's existing
+environment overrides; admission holds if that selected profile later changes
+or a required backup is missing. Rewind tracked paths inside the V1 data root
+are remapped into V2, including deleted-file snapshots. Snapshots targeting the
+source provider profile itself remain held. The installed native backup path
+getter/filename validator component probe locates the copied bytes by the new
+SID; full provider-driven rewind is not exercised by these no-provider tests.
 `retire_native_binding(org,nid,predecessor)` permits a later legitimate
 lineage transition only after checking the actual archived predecessor and
 generation/session relation. Compacted successors also need a real native

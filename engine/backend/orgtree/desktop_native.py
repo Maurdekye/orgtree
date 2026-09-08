@@ -217,7 +217,11 @@ def inspect(source: Path, slug: str, nid: str, node: dict, sources: dict) -> dic
                 raise NativeHeld("Codex native thread and recorded session identity differ")
             validate(records, node["session_id"])
         elif row["provider"] in {"claude", "openrouter"}:
-            _check_dependencies(path, node["session_id"], records)
+            from .desktop_native_claude_rewind import prepare as prepare_rewind
+            from .desktop_native_claude_dependencies import copy_outputs
+            records, _ = prepare_rewind(path, node["session_id"], str(uuid.uuid4()), records,
+                                       source=source, dest=Path("preview-only"), slug=slug, nid=nid, sources=sources)
+            copy_outputs(path, node["session_id"], records, Path("preview-only"), rewind_validated=True)
             claude_records(records, node["session_id"], str(uuid.uuid4()), "preview-only")
         else:
             raise NativeHeld("This native provider clone is not configured yet")
@@ -244,10 +248,16 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
             meta["session_id"], encoded = fork_snapshot(records, node["session_id"], folder, cwd)
         elif meta["provider"] in {"claude", "openrouter"}:
             from .desktop_native_claude_dependencies import copy_outputs
+            from .desktop_native_claude_rewind import prepare as prepare_rewind
             cloned = claude_records(records, node["session_id"], meta["session_id"], cwd)
+            cloned, rewind = prepare_rewind(path, node["session_id"], meta["session_id"], cloned,
+                                           source=source, dest=dest, slug=slug, nid=nid,
+                                           sources=sources, folder=folder / "rewind")
+            if rewind:
+                meta["rewind"] = rewind
             cloned = copy_outputs(path, node["session_id"], cloned,
                                   dest / "imports" / slug / "native" / nid / meta["session_id"],
-                                  folder / meta["session_id"])
+                                  folder / meta["session_id"], rewind_validated=True)
             encoded = "".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in cloned).encode("utf-8")
         else:
             raise NativeHeld("This native provider clone is not configured yet")
@@ -313,6 +323,9 @@ def native_hold_reason(org: Any, nid: str) -> str | None:
             return "Imported native session identity or independent file is unavailable"
     except (ValueError, OSError):
         return "Imported native session path failed validation"
+    if native.get("rewind"):
+        from .desktop_native_claude_rewind import hold_reason
+        return hold_reason(doc, nid, native["rewind"])
     return None
 
 

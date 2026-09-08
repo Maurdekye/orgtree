@@ -14,7 +14,8 @@ from .desktop_native import MAX_NATIVE_BYTES, NativeHeld
 
 
 def copy_outputs(path: Path, source_sid: str, rows: list[dict],
-                 destination: Path, staging: Path | None = None) -> list[dict]:
+                 destination: Path, staging: Path | None = None, *,
+                 rewind_validated: bool = False) -> list[dict]:
     from .desktop_import import _copy_file, _plain
     sidecars = path.parent / source_sid
     _plain(sidecars)
@@ -51,13 +52,13 @@ def copy_outputs(path: Path, source_sid: str, rows: list[dict],
         raise NativeHeld("Native tool-output bytes exceed import limit")
     mapping = {str(p).replace("\\", "/"): str(destination / p.parent.name / p.name) for p in files}
     flags = re.IGNORECASE if os.name == "nt" else 0
-    def rewrite(value: Any, key: str = "") -> Any:
-        if key == "backupFileName" and value:
+    def rewrite(value: Any, key: str = "", allow_rewind: bool = False) -> Any:
+        if key == "backupFileName" and value and not allow_rewind:
             raise NativeHeld("Native file-history sidecar needs a verified clone")
         if isinstance(value, dict):
-            return {k: rewrite(v, k) for k, v in value.items()}
+            return {k: rewrite(v, k, allow_rewind) for k, v in value.items()}
         if isinstance(value, list):
-            return [rewrite(v) for v in value]
+            return [rewrite(v, allow_rewind=allow_rewind) for v in value]
         if not isinstance(value, str):
             if key == "persistedOutputPath" and value:
                 raise NativeHeld("Native persisted output path is invalid")
@@ -83,7 +84,7 @@ def copy_outputs(path: Path, source_sid: str, rows: list[dict],
         if ("/tool-results/" in folded or "<persisted-output>" in folded) and not changed:
             raise NativeHeld("Native context references an unavailable tool-output sidecar")
         return result if changed else value
-    copied = rewrite(rows)
+    copied = rewrite(rows, allow_rewind=rewind_validated)
     rewritten_subagents = {path: rewrite(records) for path, records in subagents.items()}
     if staging is not None and files:
         for source in files:

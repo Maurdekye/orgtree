@@ -507,6 +507,8 @@ def copy_import(source_root: str, organizations: list[str], *,
         failed = []
         for slug, stage, doc, active, warnings in prepared:
             try:
+                from .desktop_native_claude_rewind import publish as publish_rewind
+                publish_rewind(doc, stage)
                 _publish(dest, slug, stage)
             except (OSError, ImportRefused) as exc:
                 if not imported:
