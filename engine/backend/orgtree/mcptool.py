@@ -1760,11 +1760,20 @@ _AGENT_RESTART_TOOLS = frozenset({
 def available_tools() -> list[dict[str, Any]]:
     """The tool catalogue permitted by the install-wide deployment policy."""
 
-    if deployment.current_policy().allow_agent_restart:
-        return TOOLS
-    return [
+    tools = TOOLS if deployment.current_policy().allow_agent_restart else [
         tool for tool in TOOLS
         if str(tool.get("name") or "") not in _AGENT_RESTART_TOOLS]
+    if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
+        return tools
+    tools = json.loads(json.dumps(tools))
+    for tool in tools:
+        if tool['name'] == 'orgtree_work':
+            actions = tool['inputSchema']['properties']['action']['enum']
+            actions.remove('verify')
+            before, marker, after = tool['description'].partition('`verify` (')
+            if marker:
+                tool['description'] = before + '`check`' + after.partition(', `check`')[2]
+    return tools
 
 
 def _lost_kind(exc: Exception) -> str:

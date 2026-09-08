@@ -4709,6 +4709,9 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     act = str(a.get("action") or "")
     try:
         if act == "verify":
+            from . import desktop_policy
+            if desktop_policy.enabled():
+                raise LedgerError('Git verification is not available in desktop MVP')
             with store.DOC_LOCK:
                 org = store.load_org(body.org)
                 cap = org.work_verify_capture(body.node, _work_ref(a),
