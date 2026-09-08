@@ -314,6 +314,9 @@ def native_hold_reason(org: Any, nid: str) -> str | None:
         if (native.get("session_id") == node.get("session_id")
                 and native.get("generation") == node.get("generation")
                 and native.get("provider") == provider_for(node)):
+            if native.get("rewind"):
+                from .desktop_native_claude_rewind import hold_reason
+                return hold_reason(doc, nid, native["rewind"])
             return None
         return "Imported successor identity changed without a recorded native transition"
     if native.get("status") != "ready":
@@ -372,6 +375,10 @@ Rename alone needs no retirement because storage_node stays stable.
             validate(_read_native(target)[0], node["session_id"])
         else:
             raise NativeHeld("Native successor validation is not yet supported for this provider")
+    rewind = None
+    if not node.get("session_unrun") and provider_for(node) in {"claude", "openrouter"}:
+        from .desktop_native_claude_rewind import successor
+        rewind = successor(doc, nid, native, node["session_id"])
     # Ledger copies can be shallow; rebinding must not change the predecessor.
     node["desktop_import"] = copy.deepcopy(imported)
     node["desktop_import"]["native_continuity"] = {
@@ -380,6 +387,8 @@ Rename alone needs no retirement because storage_node stays stable.
         "predecessor": predecessor, "predecessor_session_id": old["session_id"],
         "reason": "Native import binding retired by an explicit ledger lineage transition",
     }
+    if rewind:
+        node["desktop_import"]["native_continuity"]["rewind"] = rewind
     return True
 
 

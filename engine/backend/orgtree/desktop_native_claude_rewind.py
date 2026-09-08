@@ -171,3 +171,40 @@ def hold_reason(org: dict, nid: str, rewind: dict) -> str | None:
     except (OSError, ValueError, KeyError):
         return "Imported native rewind path failed validation"
     return None
+
+
+def successor(org, nid: str, native: dict, new_sid: str) -> dict | None:
+    """Preserve rewind in a validated native lineage change before ledger save.
+
+The caller must first validate the new native transcript and the actual ledger
+operation. Existing successor backups may have been copied by the native CLI;
+accept a complete identical set, but never fill/overwrite an existing folder.
+"""
+    from .desktop_import import _copy_file, _digest, _plain
+    doc = org.d if hasattr(org, "d") else org
+    rewind = native.get("rewind")
+    if not rewind:
+        return None
+    if (not UUID.fullmatch(new_sid) or new_sid == native.get("session_id")
+            or rewind.get("session_id") != native.get("session_id")):
+        raise NativeHeld("Native rewind successor identity is invalid")
+    reason = hold_reason(doc, nid, rewind)
+    if reason:
+        raise NativeHeld(reason)
+    profile = Path(rewind["profile"])
+    source = profile / "file-history" / rewind["session_id"]
+    target = profile / "file-history" / new_sid
+    _plain(target)
+    if target.exists():
+        if not target.is_dir():
+            raise NativeHeld("Native successor rewind location already exists")
+        for name in rewind["files"]:
+            copied = target / name
+            _plain(copied)
+            if not copied.is_file() or _digest(copied) != _digest(source / name):
+                raise NativeHeld("Existing native successor rewind backup is missing or differs")
+    else:
+        target.mkdir()
+        for name in rewind["files"]:
+            _copy_file(source / name, target / name)
+    return {**copy.deepcopy(rewind), "session_id": new_sid}

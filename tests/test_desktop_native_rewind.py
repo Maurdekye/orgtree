@@ -4,6 +4,7 @@ from pathlib import Path
 import uuid
 from unittest.mock import patch
 import os
+import copy
 
 from tests import test_desktop_import as fixtures
 from engine.backend.orgtree import desktop_import as imp, desktop_native as native, supervisor
@@ -154,6 +155,69 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         self.assertIn("missing", native.inspect(self.source, "acme", "worker", doc["nodes"]["worker"], sources)["reason"])
         self.assertFalse((self.profile / "file-history").exists())
+
+    def test_successor_copies_once_and_refuses_incomplete_or_changed_existing_files(self):
+        from engine.backend.orgtree.desktop_native_claude_rewind import successor
+        _, _, sources, _ = self.rewind_fixture(same_profile=True)
+        self.run_native(sources)
+        doc = self.read()
+        binding = doc["nodes"]["worker"]["desktop_import"]["native_continuity"]
+        before = fixtures.fingerprint(self.profile)
+        sid = str(uuid.uuid4())
+        result = successor(doc, "worker", binding, sid)
+        self.assertEqual(result["session_id"], sid)
+        after = fixtures.fingerprint(self.profile)
+        self.assertTrue(all(after[key] == value for key, value in before.items()))
+        self.assertEqual(successor(doc, "worker", binding, sid), result)
+        self.assertEqual(fixtures.fingerprint(self.profile), after)
+        target = self.profile / "file-history" / sid
+        first = target / result["files"][0]
+        first.write_bytes(b"different successor data")
+        different = fixtures.fingerprint(self.profile)
+        with self.assertRaisesRegex(native.NativeHeld, "missing or differs"):
+            successor(doc, "worker", binding, sid)
+        self.assertEqual(fixtures.fingerprint(self.profile), different)
+        empty_sid = str(uuid.uuid4())
+        (self.profile / "file-history" / empty_sid).mkdir()
+        with self.assertRaisesRegex(native.NativeHeld, "missing or differs"):
+            successor(doc, "worker", binding, empty_sid)
+        self.assertEqual(list((self.profile / "file-history" / empty_sid).iterdir()), [])
+
+    def test_real_compact_preserves_rewind_and_refuses_backup_collision_before_transition(self):
+        from engine.backend.orgtree.ledger import Org, LedgerError
+        _, _, sources, _ = self.rewind_fixture(same_profile=True)
+        self.run_native(sources)
+        base = self.read()
+        base["nodes"].pop("worker@0")
+        base["nodes"]["worker"].pop("inflight", None)
+        original = copy.deepcopy(base["nodes"]["worker"]["desktop_import"])
+        old_path = Path(native.native_session_path(base, "worker"))
+        rows = [json.loads(line) for line in old_path.read_text().splitlines()]
+        sid = str(uuid.uuid4())
+        converted = native.claude_records(rows, base["nodes"]["worker"]["session_id"], sid, str(self.dest))
+        target = self.dest / f"{sid}.jsonl"
+        target.write_text("".join(json.dumps(row) + "\n" for row in converted))
+        before = fixtures.fingerprint(self.profile)
+        org = Org(copy.deepcopy(base))
+        with patch.object(supervisor, "transcript_path", return_value=str(target)):
+            pred = org.compact_split("worker", sid)
+        self.assertEqual(org.nodes[pred]["desktop_import"], original)
+        binding = org.nodes["worker"]["desktop_import"]["native_continuity"]
+        self.assertEqual(binding["status"], "transitioned")
+        self.assertEqual(binding["rewind"]["session_id"], sid)
+        self.assertIsNone(native.native_hold_reason(org, "worker"))
+        after = fixtures.fingerprint(self.profile)
+        self.assertTrue(all(after[key] == value for key, value in before.items()))
+        backup = self.profile / "file-history" / sid / binding["rewind"]["files"][0]
+        backup.write_bytes(b"a different pre-existing backup")
+        other = Org(copy.deepcopy(base))
+        unchanged = copy.deepcopy(other.d)
+        with patch.object(supervisor, "transcript_path", return_value=str(target)):
+            with self.assertRaisesRegex(LedgerError, "missing or differs"):
+                other.compact_split("worker", sid)
+        self.assertEqual(other.d, unchanged)
+        with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.root / "changed-profile")}):
+            self.assertIn("different destination profile", native.native_hold_reason(org, "worker"))
 
 
 for _name in list(fixtures.DesktopImportTests.__dict__):
