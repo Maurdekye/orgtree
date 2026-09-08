@@ -643,6 +643,20 @@ class DesktopImportTests(unittest.TestCase):
                 self.assertEqual(omissions, [])
         self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
 
+    def test_node_modules_org_name_does_not_exempt_working_links(self) -> None:
+        doc = self.fixture("node_modules", sqlite=False)
+        doc["slug"] = "node_modules"  # Valid imported slug; Org.create normalizes underscores.
+        (self.source / "orgs/node_modules.json").write_text(json.dumps(doc), encoding="utf-8")
+        target = self.root / "external-working-files"
+        target.mkdir()
+        (target / "keep.txt").write_bytes(b"unchanged")
+        self.make_directory_link(self.source / "scratch/node_modules/worker/working-link", target)
+        with self.assertRaisesRegex(imp.ImportRefused, "Links and reparse"):
+            self.run_import(["node_modules"])
+        self.assertFalse((self.dest / "orgs/node_modules.db").exists())
+        self.assertEqual(self.resumed, [])
+        self.assertEqual((target / "keep.txt").read_bytes(), b"unchanged")
+
     def test_reparse_positive_control_is_refused_without_following(self) -> None:
         self.fixture()
         # Test the Windows lstat bit directly; no junction creation/cleanup and

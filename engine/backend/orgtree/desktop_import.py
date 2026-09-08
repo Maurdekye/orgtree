@@ -140,7 +140,7 @@ def _copy_file(source: Path, dest: Path) -> str:
 
 
 def _copy_tree(source: Path, dest: Path, *, dependency_omissions: list[str] | None = None,
-               relative: Path = Path()) -> None:
+               relative: Path = Path(), within_area: Path = Path()) -> None:
     _plain(source)
     if not source.is_dir():
         raise ImportRefused(f"Not a directory: {source}")
@@ -149,18 +149,19 @@ def _copy_tree(source: Path, dest: Path, *, dependency_omissions: list[str] | No
     for name in before:
         child = source / name
         child_relative = relative / name
+        child_within_area = within_area / name
         # Only the copy walk opts in. Never resolve/traverse a skipped target,
         # and never weaken _plain for source roots, documents or native files.
         info = child.lstat()
         linked = stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
         if (dependency_omissions is not None and linked
-                and any(part.casefold() == "node_modules" for part in child_relative.parts)):
+                and any(part.casefold() == "node_modules" for part in child_within_area.parts)):
             dependency_omissions.append(child_relative.as_posix())
             continue
         _plain(child)
         if child.is_dir():
             _copy_tree(child, dest / name, dependency_omissions=dependency_omissions,
-                       relative=child_relative)
+                       relative=child_relative, within_area=child_within_area)
         else:
             _copy_file(child, dest / name)
     if sorted(p.name for p in source.iterdir()) != before:
