@@ -2431,7 +2431,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           {pending.map((p) => (
             <div key={'q' + p.id} data-reply-event="" onContextMenu={e => openReply(e, {})}
               className={'msg user pending pendghost md' + (p.failed
-                ? ' failed event-surface event-card event-runtime_recovery' : '')}>
+                ? ' failed event-surface event-runtime_recovery' : '')}>
               {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
               <RefMdBody className="pendbody"
                 world={deskRefs.world} onOpen={deskRefs.onOpen}
