@@ -45,6 +45,7 @@ export function renameDrafts(slug: string, from: string, to: string) {
 
 const activePrefix = 'orgtree-draft-v2-'
 const recoveryPrefix = 'orgtree-draft-recovery-'
+const dismissedRecoveryPrefix = 'orgtree-draft-recovery-dismissed-'
 function savedIdentity(key: string, prefix: string): unknown[] | null {
   try {
     const value = JSON.parse(key.slice(prefix.length, partSuffix(key) ? -partSuffix(key).length : undefined))
@@ -66,9 +67,56 @@ export function preserveRemovedDrafts(slug: string, ids: ReadonlyMap<string, unk
     }
   } catch { /* best effort persistence */ }
 }
+function dismissedRecoveryKey(slug: string, id: string) {
+  return `${dismissedRecoveryPrefix}${JSON.stringify([slug, id])}`
+}
+function readDismissedGenerations(slug: string, id: string): Set<number> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(dismissedRecoveryKey(slug, id)) || '[]')
+    return new Set(Array.isArray(raw) ? raw.filter((g): g is number => typeof g === 'number' && Number.isInteger(g)) : [])
+  } catch { return new Set() }
+}
+function saveDismissedGenerations(slug: string, id: string, generations: Set<number>) {
+  try {
+    if (generations.size) localStorage.setItem(dismissedRecoveryKey(slug, id), JSON.stringify([...generations].sort((a, b) => a - b)))
+    else localStorage.removeItem(dismissedRecoveryKey(slug, id))
+  } catch { /* best effort persistence */ }
+}
+function removeRecoveryGeneration(slug: string, id: string, generation: number) {
+  const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+  for (const key of keys) {
+    if (!key?.startsWith(recoveryPrefix)) continue
+    const identity = savedIdentity(key, recoveryPrefix)
+    if (!identity || identity[0] !== slug || identity[1] !== id || identity[2] !== generation) continue
+    const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
+    localStorage.removeItem(key)
+    localStorage.removeItem(textKey)
+    localStorage.removeItem(`${textKey}-attachments`)
+    localStorage.removeItem(`${textKey}-reply`)
+  }
+}
+/** Permanently dismiss one recovered generation for this desk. */
+export function discardRecoverableDraft(slug: string, id: string, generation: number) {
+  try {
+    const dismissed = readDismissedGenerations(slug, id)
+    dismissed.add(generation)
+    saveDismissedGenerations(slug, id, dismissed)
+    removeRecoveryGeneration(slug, id, generation)
+  } catch { /* unavailable storage */ }
+}
+/** Permanently dismiss the currently recovered generations for this desk. */
+export function discardAllRecoverableDrafts(slug: string, id: string, generations: readonly number[]) {
+  try {
+    const dismissed = readDismissedGenerations(slug, id)
+    for (const generation of generations) dismissed.add(generation)
+    saveDismissedGenerations(slug, id, dismissed)
+    for (const generation of generations) removeRecoveryGeneration(slug, id, generation)
+  } catch { /* unavailable storage */ }
+}
 export function recoverableDrafts(slug: string, id: string, generation: number | undefined) {
   const drafts: { key: string; generation: number; text: string; attachments: DraftAttachment[]; reply: ReplyContext | null }[] = []
   try {
+    const dismissed = readDismissedGenerations(slug, id)
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)!
       const prefix = key.startsWith(activePrefix) ? activePrefix : key.startsWith(recoveryPrefix) ? recoveryPrefix : null
@@ -76,6 +124,7 @@ export function recoverableDrafts(slug: string, id: string, generation: number |
       const identity = savedIdentity(key, prefix)
       if (!identity || identity[0] !== slug || identity[1] !== id || typeof identity[2] !== 'number'
         || (prefix === activePrefix && identity[2] === generation)) continue
+      if (prefix === recoveryPrefix && dismissed.has(identity[2])) continue
       const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
       if (drafts.some(d => d.key === textKey)) continue
       drafts.push({ key: textKey, generation: identity[2], text: localStorage.getItem(textKey) || '', attachments: readAttachments(textKey), reply: readReply(textKey) })

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
-import { draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts } from '../src/draftstore'
+import { discardAllRecoverableDrafts, discardRecoverableDraft, draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
 import { MAX_REPLY_QUOTE, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
 
@@ -28,6 +28,35 @@ test('reply draft follows rename/removal recovery without rewriting its source i
   assert.equal(recovery.length, 1)
   assert.deepEqual(recovery[0]!.reply, source)
   assert.equal(recovery[0]!.text, 'My reply')
+})
+
+test('discarding recovered drafts persists and leaves the current composer untouched', () => {
+  localStorage.clear()
+  const current = draftKey('org', 'writer', 3)
+  const old = 'orgtree-draft-recovery-["org","writer",2]'
+  localStorage.setItem(current, 'Current draft')
+  localStorage.setItem(old, 'Older draft')
+  storeAttachments(old, [{ name: 'note.txt', path: 'note.txt', bytes: 4 }])
+  storeReply(old, source)
+  assert.equal(recoverableDrafts('org', 'writer', 3).length, 1)
+  discardRecoverableDraft('org', 'writer', 2)
+  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
+  assert.equal(localStorage.getItem(current), 'Current draft')
+  assert.equal(localStorage.getItem(`${old}-attachments`), null)
+  assert.equal(localStorage.getItem(`${old}-reply`), null)
+  assert.equal(localStorage.getItem('orgtree-draft-recovery-["org","writer"]'), '[2]')
+  // A later recovery scan cannot resurrect the dismissed generation.
+  localStorage.setItem(old, 'Older draft')
+  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
+})
+
+test('dismiss all records every visible recovered generation', () => {
+  localStorage.clear()
+  for (const generation of [1, 2]) localStorage.setItem(draftKey('org', 'writer', generation), `draft ${generation}`)
+  preserveRemovedDrafts('org', new Map([['writer', true]]))
+  assert.equal(recoverableDrafts('org', 'writer', 3).length, 2)
+  discardAllRecoverableDrafts('org', 'writer', [1, 2])
+  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
 })
 
 test('identity never falls back to ordinal/text and quotes are bounded', () => {

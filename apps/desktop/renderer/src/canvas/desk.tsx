@@ -3,7 +3,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview } from './replypreview'
 import { useContextMenu } from './contextmenu'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
-import { readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
+import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
@@ -1350,7 +1350,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const context = replyContext(wire)
     return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
   }
-  const recoveryDrafts = recoverableDrafts(slug, node.id, node.generation)
+  const [recoveryRevision, setRecoveryRevision] = useState(0)
+  const recoveryDrafts = useMemo(() => recoverableDrafts(slug, node.id, node.generation),
+    [slug, node.id, node.generation, recoveryRevision])
   const [legacyDraft, setLegacyDraft] = useState(() => {
     try { return localStorage.getItem(`orgtree-draft-${slug}-${node.id}`) || '' } catch { return '' }
   })
@@ -2558,8 +2560,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       </div>}
       {!staleIdentity && recoveryDrafts.length > 0 && <details className="popout-draft-recovery">
         <summary>Older unsent drafts ({recoveryDrafts.length})</summary>
+        <button type="button" onClick={() => {
+          discardAllRecoverableDrafts(slug, node.id, recoveryDrafts.map(d => d.generation))
+          setRecoveryRevision((v) => v + 1)
+        }}>Dismiss all</button>
         {recoveryDrafts.map(d => <div key={d.key}>
-          <p>Generation {d.generation} draft</p><pre>{d.text}</pre>
+          <p>Generation {d.generation} draft <button type="button" onClick={() => {
+            discardRecoverableDraft(slug, node.id, d.generation)
+            setRecoveryRevision((v) => v + 1)
+          }}>Discard</button></p><pre>{d.text}</pre>
           {d.reply && <ReplyPreview reply={d.reply} available={replyAvailable(d.reply)} onLocate={() => locateReply(d.reply!)} />}
           {d.attachments.map(a => <p key={a.path}>{a.name} ({a.bytes} bytes) {a.path}</p>)}
         </div>)}
