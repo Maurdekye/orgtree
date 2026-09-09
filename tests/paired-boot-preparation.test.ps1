@@ -6,7 +6,7 @@ $script:ProductionBootTaskXml=${function:New-BootTaskXml}
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile("$PSScriptRoot\probe-boot-paired-root-only.ps1",[ref]$tokens,[ref]$errors)
 if ($errors.Count) { throw $errors }
-foreach($name in @('New-BootTaskXml','Test-ProbeRootReleased')) {
+foreach($name in @('New-BootTaskXml','Test-ProbeRootReleased','Read-ProbeJsonBytes')) {
     $fn=$ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst]},$true) | Where-Object Name -eq $name
     if (@($fn).Count -ne 1) { throw "Missing function: $name" }
     . ([scriptblock]::Create($fn.Extent.Text))
@@ -18,6 +18,9 @@ $ns=[Xml.XmlNamespaceManager]::new($doc.NameTable); $ns.AddNamespace('t','http:/
 if ($doc.SelectNodes('/t:Task/t:Triggers/* | /t:Task/t:Settings/t:RestartOnFailure',$ns).Count) { throw 'Probe can auto-start' }
 if (-not $original.SelectNodes('/t:Task/t:Triggers/*',$ns).Count) { throw 'Trigger removal positive control inert' }
 foreach($name in @('Actions','Principals')) { if ($doc.Task.$name.OuterXml -cne $original.Task.$name.OuterXml) { throw 'Changed action/principal' } }
+$unicode='Orgtree & '+[char]0xe9+' '+[char]0x5d0
+$json=@{dataRootId=$unicode} | ConvertTo-Json -Compress
+if ((Read-ProbeJsonBytes ([Text.Encoding]::UTF8.GetBytes($json))).dataRootId -cne $unicode) { throw 'UTF8 identity positive failed' }
 $root=Join-Path ([IO.Path]::GetTempPath()) ('orgtree-paired-preparation-'+[guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $file=Join-Path $root '.desktop-engine.lock'; [IO.File]::WriteAllText($file,'0')

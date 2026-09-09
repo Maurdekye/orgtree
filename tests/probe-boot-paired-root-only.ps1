@@ -40,6 +40,9 @@ function Copy-ProbePlainTree([string]$Source,[string]$Target) {
         else { [IO.File]::Copy($entry.FullName,$to,$false) }
     }
 }
+function Read-ProbeJsonBytes([byte[]]$Bytes) {
+    return ([Text.UTF8Encoding]::new($false,$true).GetString($Bytes) | ConvertFrom-Json)
+}
 function Test-ProbeRootReleased([string]$Root) {
     $file=[IO.File]::Open((Join-Path $Root '.desktop-engine.lock'),'Open','ReadWrite','ReadWrite')
     try { try { $file.Lock(0,1) } catch [IO.IOException] { return $false }; $file.Unlock(0,1); return $true }
@@ -204,7 +207,10 @@ try {
         if (-not [IO.File]::Exists((Join-Path $dir "audit-loaded-$id.json"))) { throw 'Runtime isolation audit is not active in every control process.' }
     }
     $url="http://127.0.0.1:$($ready.port)/api/desktop/identity"
-    $reply=Invoke-RestMethod -Uri $url -Headers @{'X-Orgtree-Desktop-Token'=$ready.token} -TimeoutSec 10
+    $response=Invoke-WebRequest -UseBasicParsing -Uri $url -Headers @{'X-Orgtree-Desktop-Token'=$ready.token} -TimeoutSec 10
+    # Windows PowerShell's default JSON decoding may use a legacy code page.
+    $reply=Read-ProbeJsonBytes $response.RawContentStream.ToArray()
+    $result.observedIdentity=@{pid=$reply.pid;dataRootId=$reply.dataRootId}
     if ($reply.pid -ne $child.engine -or $reply.dataRootId -ine $data) { throw 'Wrong authenticated engine identity' }
     $negative=$false
     try { Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 10 | Out-Null }
