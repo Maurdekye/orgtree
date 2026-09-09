@@ -108,6 +108,22 @@
       nsExec::Exec 'schtasks /End /TN "Orgtree Background Engine"'
       Pop $0
       DetailPrint "Orgtree boot engine stop request: $0"
+      # Same release proof as install: file removal must not race a dying
+      # engine that still holds its runtime open.
+      StrCpy $R3 0
+      ${DoWhile} $R3 < 30
+        ClearErrors
+        FileOpen $R4 "$INSTDIR\resources\engine\runtime\python.exe" a
+        ${ifNot} ${Errors}
+          FileClose $R4
+          ${Break}
+        ${endIf}
+        Sleep 500
+        IntOp $R3 $R3 + 1
+      ${Loop}
+      ${if} $R3 >= 30
+        DetailPrint "WARNING: Orgtree boot engine still holds its runtime after 15s; removal may prompt a retry."
+      ${endIf}
       ${ifNot} ${isUpdated}
         nsExec::Exec 'schtasks /Delete /F /TN "Orgtree Background Engine"'
         Pop $0
