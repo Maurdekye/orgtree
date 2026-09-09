@@ -11410,15 +11410,23 @@ def _codex_startup_manifest(
             "ORGTREE_PORT", "7360")),
         "exe": str(spec_raw.get("exe") or ""),
         "login_kind": str(spec_raw.get("login_kind") or ""),
-        "codex_home": str(spec_raw.get("codex_home") or os.environ.get(
-            "CODEX_HOME") or os.path.expanduser("~/.codex")),
-        "cache_codex_home": str(spec_raw.get("cache_codex_home")
-                                if spec_raw.get("cache_codex_home") is not None
-                                else os.environ.get("CODEX_HOME", "")),
+        # ⚠ NEVER os.environ here (the dormant twin of the strip-bypass Opus
+        # closed at cccfe70): a supplied spec missing codex_home falls to the
+        # CLI's own default, not to a host variable that would silently
+        # capture the spawn — the binding-aware resolution lives in
+        # _codex_process_spec (codex_bound_home), and a partial provider_spec
+        # is not a licence to re-ask the environment.
+        "codex_home": str(spec_raw.get("codex_home")
+                          or os.path.expanduser("~/.codex")),
+        "cache_codex_home": str(spec_raw.get("cache_codex_home") or ""),
     }
     # AppServerClient applies env_extra AFTER its codex_home argument. Keep
     # the manifest and the launch on that same precedence rule even for a
     # supplied spec: an explicit env override is the path the child receives.
+    # ⚠ This exists for TEST DOUBLES supplying a synthetic home; a real
+    # caller putting CODEX_HOME in env_extra silently overrides the node's
+    # binding — production specs never do (the pair originates together in
+    # _codex_process_spec).
     if "CODEX_HOME" in spec["env_extra"]:
         spec["codex_home"] = str(spec["env_extra"]["CODEX_HOME"])
     if account_override is None or lane_override is None:
