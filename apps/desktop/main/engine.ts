@@ -72,6 +72,8 @@ export class Engine extends EventEmitter {
     // A child that already EXITED (a spawn that lost the boot race) does not
     // block attachment; a live child or an existing attachment does.
     if ((this.child && this.child.exitCode === null) || !this.managed) throw new Error('Engine already started')
+    // Diagnostics describe this attempt, not a descriptor removed since the last one.
+    this.attachDiagnostic = ''
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     if (!fs.existsSync(root)) return false
     const realRoot = fs.realpathSync.native(root)

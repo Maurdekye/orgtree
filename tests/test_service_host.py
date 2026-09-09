@@ -116,12 +116,36 @@ class ServiceHostUnitTests(unittest.TestCase):
         if os.name != "nt":
             raise unittest.SkipTest("NTFS ownership is Windows-only")
         with tempfile.TemporaryDirectory() as root:
+            ordinary = Path(root) / "default-owner-control"
+            ordinary.write_text("{}", encoding="utf-8")
+            check = ("Write-Output ((Get-Acl -LiteralPath '" + str(ordinary).replace("'", "''") + "')"
+                     ".GetOwner([System.Security.Principal.SecurityIdentifier]).Value)")
+            default_owner = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", check],
+                                           capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+            if default_owner == service_host._current_user_sid():
+                print("INERT birth-necessity comparison: token defaults to operator; real owner equality and creation-SDDL control still run")
             published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
             script = ("Write-Output ((Get-Acl -LiteralPath '" + str(published).replace("'", "''") + "')"
                       ".GetOwner([System.Security.Principal.SecurityIdentifier]).Value)")
             owner = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                                    capture_output=True, text=True, timeout=30, check=True).stdout.strip()
             self.assertEqual(owner, service_host._current_user_sid())
+
+    def test_creation_sddl_explicitly_sets_owner_independent_of_default_token(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows creation API control")
+        # Stop at the OS conversion boundary and inspect what the REAL helper
+        # supplied. This fails without O: even when the token defaults correctly.
+        import ctypes
+        sid = "S-1-5-21-111-222-333-1001"
+        advapi, kernel = mock.Mock(), mock.Mock()
+        advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.return_value = False
+        with mock.patch.object(ctypes, "WinDLL", side_effect=[advapi, kernel]):
+            with self.assertRaises(OSError):
+                service_host.create_protected_exclusive(Path("unused-owner-control"), sid)
+        actual = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.call_args.args[0]
+        self.assertEqual(actual, f"O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})")
+        kernel.CreateFileW.assert_not_called()
 
     def test_verification_refuses_a_descriptor_owned_by_someone_else(self):
         # A non-elevated test cannot hand ownership to Administrators, so the

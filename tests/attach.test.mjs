@@ -91,6 +91,21 @@ test('attach without a descriptor is a quiet decline', async () => {
   assert.equal(engine.managed, true)
 })
 
+test('removed descriptor clears the old diagnostic across the retry budget', async () => {
+  const engine = trusting(new Engine())
+  writeDescriptor(descriptor({ token: 'short' }))
+  assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false)
+  assert.notEqual(engine.attachDiagnostic, '', 'a real initial rejection must be observed')
+  fs.rmSync(path.join(realRoot, 'engine-attach.json'))
+  assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 30, 5), false)
+  assert.equal(engine.attachDiagnostic, '', 'an absent descriptor must not report the resolved rejection')
+  writeDescriptor(descriptor({ token: 'short' }))
+  try {
+    assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 0, 5), false)
+    assert.notEqual(engine.attachDiagnostic, '', 'a current rejection must still be reported')
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})
+
 test('wrong token, wrong process, wrong root and dead port are each rejected with a diagnostic', async () => {
   const cases = [
     // The engine only ever accepts ITS token; a descriptor left by a dead

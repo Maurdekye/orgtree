@@ -210,10 +210,10 @@ try {
     # Check the published file under the ACTUAL task token before reading its
     # secret. Identity HTTP alone cannot detect an owner the desktop refuses.
     $descriptorOwner=(Get-Acl -LiteralPath $descriptor).GetOwner([Security.Principal.SecurityIdentifier]).Value
-    if ($descriptorOwner -ne $OperatorSid) { throw "Descriptor owner mismatch: expected $OperatorSid, found $descriptorOwner" }
     $result.descriptorOwner=$descriptorOwner
     $result.expectedOperatorSid=$OperatorSid
-    $result.descriptorOwnerVerified=$true
+    $result.descriptorOwnerVerified=($descriptorOwner -eq $OperatorSid)
+    if (-not $result.descriptorOwnerVerified) { throw "Descriptor owner mismatch: expected $OperatorSid, found $descriptorOwner" }
     $ready=Get-Content -Raw -LiteralPath $descriptor | ConvertFrom-Json
     $child=Get-Content -Raw -LiteralPath $control | ConvertFrom-Json
     if ($ready.dataRootId -ine $data -or $ready.enginePid -ne $child.engine) { throw 'Wrong root or engine receipt.' }
