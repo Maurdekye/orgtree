@@ -635,6 +635,9 @@ export interface CanvasNode {
   state: NodeState | 'draft' | 'user'
   /** null only on the eye root */
   tier: string | null
+  /** multi-account: the bound account id, a missing:<provider> park, or
+   *  absent pre-cutover (projected from the tree payload) */
+  account?: string | null
   children: CanvasNode[]
   title?: string
   /** set by flatten(): the parent card's id (null on the eye root) */

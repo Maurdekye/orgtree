@@ -130,6 +130,19 @@ export const runOp = (slug: string, body: OpRequest): Promise<OpResult> =>
 
 export const getChat = (slug: string, nid: string, last?: number): Promise<ChatPayload> =>
   req(`/api/orgs/${slug}/nodes/${nid}/chat${last ? `?last=${last}` : ''}`)
+
+/** multi-account: reassign a node's account (operator surface). The result
+ * is the full disclosure set — billing mode, standing with provenance, the
+ * continuity record — shown at the point of action, never silent. */
+export const assignAccount = (slug: string, nid: string, account: string):
+  Promise<{ account: string; label: string; billing_mode: string
+            standing: { state: string; until?: number; provenance?: string }
+            session_boundary: boolean }> =>
+  req(`/api/orgs/${slug}/nodes/${nid}/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account }),
+  })
 export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
 export const getCharters = (): Promise<ChartersPayload> =>

@@ -11,8 +11,8 @@ import type {
   ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
 } from '../types'
 import {
-  dissolveAll, getChat, getMcpServers, removeReplyEvents, saveHireDefaults,
-  saveScope, saveSettings, watchdogAction,
+  assignAccount, dissolveAll, getChat, getMcpServers, removeReplyEvents,
+  req, saveHireDefaults, saveScope, saveSettings, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
 import {
@@ -798,6 +798,13 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
+  // multi-account (D5): the node's binding — chosen WITH a cross-provider
+  // switch (atomic, backend-required) or reassigned on its own; disclosure
+  // (billing/standing) surfaces in the toast at the point of action
+  const [acct, setAcct] = useState(node.account ?? '')
+  const [acctRows, setAcctRows] = useState<{
+    id: string; provider: string; label: string
+    standing: { state: string } }[]>([])
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -805,6 +812,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     }).catch(() => {})
     getChat(slug, node.id, 1).then((c) => setInitInfo(c.init ?? null))
       .catch(() => {})
+    req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
+      .then((r) => setAcctRows(Array.isArray(r?.accounts) ? r.accounts : []))
+      .catch(() => setAcctRows([]))
   }, [slug, node.id])
   // D-196: does this save move the agent to a DIFFERENT PROVIDER? Answered by
   // the shared `providerOf`, never by testing tier membership inline — the
@@ -821,10 +831,27 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // confirmation. Extracted rather than duplicated so the confirmed path
   // cannot drift from the unconfirmed one — and so CANCEL is simply "never
   // call this", which is what makes cancelling total rather than partial.
+  const acctChanged = acct !== (node.account ?? '')
   const doSave = () =>
     (model !== node.tier
-      ? op({ op: 'switch_model', node: node.id, tier: model })
-      : Promise.resolve())
+      ? op({ op: 'switch_model', node: node.id, tier: model,
+             // atomic switch+rebind: the account rides the same act (the
+             // backend requires it for a cross-provider switch on a bound
+             // node and refuses a mismatched one)
+             ...(acct ? { account: acct } : {}) })
+      : acctChanged && acct
+        ? assignAccount(slug, node.id, acct).then((d) => {
+            toast([`${node.id} → account ${d.account} (${d.billing_mode})`
+              + (d.standing.state === 'limited'
+                ? ` — WILL WAIT until ${new Date(
+                    ((d.standing as { until?: number }).until ?? 0) * 1000)
+                    .toLocaleString()}`
+                  + ((d.standing as { provenance?: string }).provenance
+                    === 'inferred' ? ' (inferred)' : '')
+                : '')
+              + (d.session_boundary ? ' — session restarts next turn' : '')])
+          })
+        : Promise.resolve())
       .then(() => saveScope(slug, node.id,
         { add_dirs: dirs, tools, org_visibility: vis,
           permission_mode: pm,
@@ -1240,6 +1267,29 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                     ? 'ok' : 'bad')} /> {s.name} · {s.status}
                 </div>))}
             </div>
+          </>
+        )}
+        {/* multi-account (D5): placement — visible whenever the registry
+            has rows; the picker filters to the SELECTED model's provider
+            (the binding validator's rule shown, not just enforced) */}
+        {acctRows.length > 0 && (
+          <>
+            <div className="field-label">account
+              {node.account?.startsWith('missing:') &&
+                <span className="ask-warn"> — PARKED: {node.account}</span>}
+            </div>
+            <select aria-label="Account" value={acct}
+              onChange={(e) => setAcct(e.target.value)}>
+              <option value="">
+                {node.account ? '(keep current)' : '(unbound — machine default)'}
+              </option>
+              {acctRows
+                .filter((r) => r.provider === providerOf(model))
+                .map((r) => <option key={r.id} value={r.id}>
+                  {r.id} · {r.label}
+                  {r.standing.state === 'limited' ? ' (limited — will wait)' : ''}
+                </option>)}
+            </select>
           </>
         )}
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the

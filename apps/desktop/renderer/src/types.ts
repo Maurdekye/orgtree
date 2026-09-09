@@ -318,6 +318,9 @@ export interface TreeNode {
   title: string
   tier: string
   model_id: string
+  /** multi-account: the bound account id, a missing:<provider> park, or
+   *  absent pre-cutover */
+  account?: string | null
   state: NodeState
   seat: number
   grant: number
@@ -1734,6 +1737,9 @@ export interface OpRequest {
   node?: string | null
   parent?: string | null
   tier?: string | null
+  /** multi-account: the account chosen WITH a cross-provider switch_model
+   *  (required when the node is bound; validated at the door) */
+  account?: string | null
   grant?: number | null
   name?: string | null
   charter?: string | null
