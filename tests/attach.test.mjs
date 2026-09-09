@@ -541,3 +541,23 @@ test('guardianReleased: cannot-look is never released (empty, missing, unlocked,
   await new Promise(resolve => holder.on('exit', resolve))
   assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'released after the holder closes')
 })
+
+test('a missing lock keeps the attachment too: unknown is never a death verdict', async () => {
+  // Flow-level busy-engine negative for verifyAttached with the lock file
+  // ABSENT (coordinator): probes fail, release cannot be established, the
+  // attachment is retained — unknown refuses updates elsewhere but must
+  // never tear down here.
+  const bareRoot = path.join(temp, 'v2-nolock'); fs.mkdirSync(bareRoot)
+  const real2 = fs.realpathSync.native(bareRoot)
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, { protocol: 1, pid: 4242, dataRootId: real2 })
+  })
+  const engine = trusting(new Engine())
+  fs.writeFileSync(path.join(real2, 'engine-attach.json'), JSON.stringify(descriptor({ port, dataRootId: real2 })))
+  assert.equal(await engine.attach({ dataRoot: bareRoot, forbiddenRoot: forbidden }), true)
+  await new Promise(resolve => server.close(resolve))
+  for (let i = 0; i < 4; i++) await engine.verifyAttached()
+  assert.equal(engine.status.state, 'ready', 'missing lock = unknown = keep the attachment')
+  assert.notEqual(engine.origin, '')
+})
