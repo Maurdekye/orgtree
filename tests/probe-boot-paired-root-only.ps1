@@ -117,6 +117,10 @@ def audit(event, args):
         if not isinstance(args[0],(str,bytes,os.PathLike)):
             raise RuntimeError('paired probe requires an explicit executable')
         exe = pathlib.Path(args[0]).name.lower()
+        # The isolated PATH intentionally has no Git. Optional build-info
+        # discovery handles an OS-level missing executable, not RuntimeError.
+        if str(args[0]).lower() in ('git','git.exe'):
+            raise FileNotFoundError('git is unavailable in the isolated boot fixture')
         if exe == 'powershell.exe':
             command=args[1] if isinstance(args[1],str) else subprocess.list2cmdline(args[1])
             allowed=any(command == subprocess.list2cmdline([str(powershell),'-NoProfile','-NonInteractive','-Command',acl_readback(target)])

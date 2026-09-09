@@ -82,6 +82,9 @@ def refused(event,*args):
     raise AssertionError('Audit guard did not refuse '+event)
 refused('socket.connect',None,('192.0.2.1',443))
 refused('subprocess.Popen','provider.exe',[],None,None)
+try: scope['ProbePopen'](['git','rev-parse','HEAD'])
+except FileNotFoundError: pass
+else: raise AssertionError('Fixture Git must stay unavailable; no Git subprocess permitted')
 sys.audit('socket.connect',None,('127.0.0.1',12345))
 sys.audit('subprocess.Popen',sys.executable,[],None,None)
 target=install/'probe-data'/f'.engine-attach-{os.getpid()}-0123456789abcdef.tmp'
