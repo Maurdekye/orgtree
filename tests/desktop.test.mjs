@@ -83,6 +83,11 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   fs.writeFileSync(file, JSON.stringify({startAtLogin:false,exitOnClose:true}))
   const prefs = new Preferences(file)
   assert.equal(prefs.get().visualTheme, 'orgtree')
+  const legacyNeutral = path.join(temp, 'legacy-neutral.json'), legacyCodex = path.join(temp, 'legacy-codex.json')
+  fs.writeFileSync(legacyNeutral, JSON.stringify({visualTheme:'orgtree'}))
+  fs.writeFileSync(legacyCodex, JSON.stringify({visualTheme:'codex'}))
+  assert.equal(new Preferences(legacyNeutral).get().visualThemeExplicit, false)
+  assert.equal(new Preferences(legacyCodex).get().visualThemeExplicit, true)
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
     assert.deepEqual(new Preferences(file).get(), {visualTheme,visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,routineNotifications:false,onboarded:false})
