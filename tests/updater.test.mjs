@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updater-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { UpdateController } = createRequire(import.meta.url)(outfile)
+const { UpdateController, checkForUpdatesViaEvents } = createRequire(import.meta.url)(outfile)
 
 function rig(overrides = {}) {
   const reports = []
@@ -149,4 +149,140 @@ test('an error mid-download reports failed and schedules its own retry, independ
   advance(500)
   await controller.tick()
   assert.equal(controller.current().state, 'downloading', 'the backoff window elapsed and the next automatic check ran')
+})
+
+test('errored() is a no-op before any check has ever run', () => {
+  const { controller, reports } = rig()
+  controller.errored()
+  assert.deepEqual(controller.current(), { state: 'idle' })
+  assert.deepEqual(reports, [])
+})
+
+test('errored() is a no-op while a check is still in flight (the check-time failure case)', async () => {
+  // This is the real scenario: electron-updater's 'error' event fires for a
+  // check-time failure TOO (Node calls every listener on an emitter), so the
+  // SAME failure would otherwise reach both run()'s own rejection (handled
+  // below, via runCheck's catch) and this permanent handler - a naive errored()
+  // would double-increment backoff and race the final displayed state.
+  let release
+  const barrier = new Promise(resolve => { release = resolve })
+  const { controller, reports } = rig({ run: () => barrier.then(() => { throw new Error('offline') }) })
+  const pending = controller.tick()
+  assert.equal(controller.current().state, 'checking')
+  reports.length = 0
+  controller.errored() // the duplicate 'error' event, arriving mid-check
+  assert.deepEqual(controller.current(), { state: 'checking' }, 'errored() must not preempt the in-flight check\'s own outcome')
+  assert.deepEqual(reports, [], 'errored() must not report anything while a check is still in flight')
+  release()
+  await pending
+  assert.deepEqual(controller.current(), { state: 'unavailable' }, 'the check\'s own rejection is what actually sets the final state')
+})
+
+test('errored() after a check already failed does not double the backoff', async () => {
+  let attempts = 0
+  const { controller, reports, advance } = rig({
+    run: async () => { attempts++; if (attempts === 1) throw new Error('offline'); return { hasUpdate: false } },
+    options: { periodicMs: 100000, backoffBaseMs: 1000 },
+  })
+  await controller.tick() // consecutiveFailures -> 1, nextRetryAt = 1000
+  reports.length = 0
+  controller.errored() // the duplicate 'error' event, arriving just after
+  assert.deepEqual(controller.current(), { state: 'unavailable' }, 'errored() must not overwrite the check\'s own failure state')
+  assert.deepEqual(reports, [], 'errored() must not report anything on top of the check\'s own report')
+  advance(999)
+  await controller.tick()
+  assert.equal(attempts, 1, 'not yet due at 999ms - a real double-count would have needed 2000ms instead of 1000ms, but this alone would also pass with no bug, so the boundary check below is what actually proves it')
+  advance(2)
+  await controller.tick()
+  assert.equal(attempts, 2, 'due at exactly 1000ms after the first failure - proves errored() did not push nextRetryAt out to backoffBaseMs*2 (which would need 2000ms total, not 1001ms)')
+  assert.equal(controller.current().state, 'up-to-date')
+})
+
+test('errored() is a no-op once a check found no update', async () => {
+  const { controller, reports } = rig()
+  await controller.tick()
+  reports.length = 0
+  controller.errored()
+  assert.deepEqual(controller.current(), { state: 'up-to-date' })
+  assert.deepEqual(reports, [])
+})
+
+test('errored() is a no-op once a download has already completed', () => {
+  const { controller, reports } = rig()
+  controller.downloaded('1.2.3')
+  reports.length = 0
+  controller.errored()
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '1.2.3' })
+  assert.deepEqual(reports, [])
+})
+
+test('errored() still applies normally to a real download-stage failure', () => {
+  const { controller, reports } = rig({ run: async () => ({ hasUpdate: true, version: '9.9.9' }) })
+  return controller.tick().then(() => {
+    reports.length = 0
+    controller.errored()
+    assert.deepEqual(reports, [{ state: 'failed' }])
+    assert.deepEqual(controller.current(), { state: 'failed' })
+  })
+})
+
+test('checkForUpdatesViaEvents resolves hasUpdate:true from update-available, carrying its version', async () => {
+  const listeners = new Map()
+  const fake = {
+    checkForUpdates: () => new Promise(() => {}), // never resolves; the event decides first
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+  }
+  const promise = checkForUpdatesViaEvents(fake)
+  listeners.get('update-available')({ version: '3.0.0' })
+  assert.deepEqual(await promise, { hasUpdate: true, version: '3.0.0' })
+  assert.equal(listeners.size, 0, 'all three listeners must be removed once settled')
+})
+
+test('checkForUpdatesViaEvents resolves hasUpdate:false from update-not-available', async () => {
+  const listeners = new Map()
+  const fake = {
+    checkForUpdates: () => new Promise(() => {}),
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+  }
+  const promise = checkForUpdatesViaEvents(fake)
+  listeners.get('update-not-available')()
+  assert.deepEqual(await promise, { hasUpdate: false })
+  assert.equal(listeners.size, 0)
+})
+
+test('checkForUpdatesViaEvents rejects on the error event', async () => {
+  const listeners = new Map()
+  const fake = {
+    checkForUpdates: () => new Promise(() => {}),
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+  }
+  const promise = checkForUpdatesViaEvents(fake)
+  listeners.get('error')(new Error('offline'))
+  await assert.rejects(promise, /offline/)
+  assert.equal(listeners.size, 0)
+})
+
+test('checkForUpdatesViaEvents falls back to hasUpdate:false when checkForUpdates resolves falsy without ever emitting', async () => {
+  const listeners = new Map()
+  const fake = {
+    checkForUpdates: () => Promise.resolve(null),
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+  }
+  assert.deepEqual(await checkForUpdatesViaEvents(fake), { hasUpdate: false })
+})
+
+test('checkForUpdatesViaEvents settles only once even if an event and the falsy fallback both fire', async () => {
+  const listeners = new Map()
+  const fake = {
+    checkForUpdates: () => Promise.resolve(null), // resolves after the event below, on the next microtask
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+  }
+  const promise = checkForUpdatesViaEvents(fake)
+  listeners.get('update-available')({ version: '1.0.0' })
+  assert.deepEqual(await promise, { hasUpdate: true, version: '1.0.0' }, 'the event that fired first wins; the later falsy resolve must not override it')
 })

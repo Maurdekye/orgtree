@@ -10,7 +10,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { UpdateController } from './updater'
+import { checkForUpdatesViaEvents, UpdateController } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../packages/contracts/visual-theme'
@@ -161,12 +161,11 @@ else {
   // schedule and surfaced directly to the header/Settings - not gated on
   // any engine-issued request.
   const updater = new UpdateController({
-    run: async () => {
-      if (!app.isPackaged) return { hasUpdate: false }
-      const result = await autoUpdater.checkForUpdates()
-      if (!result || result.updateInfo.version === app.getVersion()) return { hasUpdate: false }
-      return { hasUpdate: true, version: result.updateInfo.version }
-    },
+    // electron-updater's own update-available/update-not-available events are the
+    // authoritative "is this actually newer" answer (channel/prerelease/downgrade
+    // rules included) - comparing version strings here would get an older or
+    // disallowed release wrong by treating any difference as an update.
+    run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
     report: status => broadcast({ type: 'update', data: status }),
   })
   // Explicit Quit/update already persisted layout and requests engine shutdown.

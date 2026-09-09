@@ -73,16 +73,27 @@ export class UpdateController {
     this.setStatus({ state: 'pending-idle', version: version ?? this.status.version })
   }
 
-  /** Forwards electron-updater's error event, which can fire mid-download after a successful check. */
+  /** Forwards electron-updater's 'error' event. That event ALSO fires for a check-time failure
+   *  that run()'s own rejection already reports through runCheck()'s catch below - Node calls
+   *  every listener on an emitter, so without this guard the same single failure would double-
+   *  increment the backoff and the final displayed state would race between two independent
+   *  writers. A genuine download-stage failure only exists once state is already 'downloading'
+   *  (i.e. run() already resolved hasUpdate:true for this cycle); anything else is that same
+   *  check-time failure arriving a second time, and is a no-op here. */
   errored() {
-    this.consecutiveFailures++
-    this.nextRetryAt = this.now() + Math.min(this.periodicMs, this.backoffBaseMs * 2 ** (this.consecutiveFailures - 1))
+    if (this.status.state !== 'downloading') return
+    this.scheduleBackoff()
     this.setStatus({ state: 'failed' })
   }
 
   private setStatus(status: UpdateStatus) {
     this.status = status
     this.callbacks.report(status)
+  }
+
+  private scheduleBackoff() {
+    this.consecutiveFailures++
+    this.nextRetryAt = this.now() + Math.min(this.periodicMs, this.backoffBaseMs * 2 ** (this.consecutiveFailures - 1))
   }
 
   private async runCheck(): Promise<UpdateStatus> {
@@ -94,8 +105,7 @@ export class UpdateController {
         this.lastCheckAt = this.now()
         this.setStatus(result.hasUpdate ? { state: 'downloading', version: result.version } : { state: 'up-to-date' })
       } catch {
-        this.consecutiveFailures++
-        this.nextRetryAt = this.now() + Math.min(this.periodicMs, this.backoffBaseMs * 2 ** (this.consecutiveFailures - 1))
+        this.scheduleBackoff()
         this.setStatus({ state: 'unavailable' })
       } finally { this.inFlight = null }
       return this.status
@@ -103,4 +113,39 @@ export class UpdateController {
     this.inFlight = promise
     return promise
   }
+}
+
+/** The actual "is there a newer release" answer belongs to electron-updater's own
+ *  update-available/update-not-available events, not to comparing version strings here -
+ *  it already knows the channel/prerelease/downgrade rules a naive `!==` would get wrong
+ *  (an older or disallowed release could differ from the running version too). */
+export interface UpdaterEvents {
+  checkForUpdates: () => Promise<unknown>
+  once: (event: 'update-available' | 'update-not-available' | 'error', listener: (arg?: unknown) => void) => void
+  removeListener: (event: 'update-available' | 'update-not-available' | 'error', listener: (arg?: unknown) => void) => void
+}
+
+export function checkForUpdatesViaEvents(updater: UpdaterEvents): Promise<{ hasUpdate: boolean; version?: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      updater.removeListener('update-available', onAvailable)
+      updater.removeListener('update-not-available', onNotAvailable)
+      updater.removeListener('error', onError)
+    }
+    const settle = (fn: () => void) => { if (settled) return; settled = true; cleanup(); fn() }
+    const onAvailable = (info?: unknown) => settle(() => resolve({
+      hasUpdate: true,
+      version: info && typeof info === 'object' && 'version' in info && typeof (info as { version: unknown }).version === 'string'
+        ? (info as { version: string }).version : undefined,
+    }))
+    const onNotAvailable = () => settle(() => resolve({ hasUpdate: false }))
+    const onError = (err?: unknown) => settle(() => reject(err instanceof Error ? err : new Error(String(err))))
+    updater.once('update-available', onAvailable)
+    updater.once('update-not-available', onNotAvailable)
+    updater.once('error', onError)
+    // A falsy/undefined result (no feed configured, dev-mode short-circuit inside
+    // electron-updater) never emits either event - without this the promise would hang.
+    updater.checkForUpdates().then(result => { if (!result) settle(() => resolve({ hasUpdate: false })) }).catch(onError)
+  })
 }
