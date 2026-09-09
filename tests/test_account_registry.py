@@ -108,6 +108,42 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(any("ghost-1" in line for line in log.output))
         self.assertEqual(self.registry.list_accounts(), [])
 
+    def test_same_provenance_never_shortens(self):
+        a = self._mk()
+        # 5-day observed mark, then a 2-hour observed event on the same pool:
+        # the later wall is the one still known to be true (measured gap,
+        # redteam probe_mark_shorten.py — a shortened mark is a wait not
+        # honoured under wait-not-fallback)
+        self.registry.record_mark(a["id"], "opus", until=432000.0, now=0.0)
+        self.registry.record_mark(a["id"], "sonnet", until=7200.0, now=0.0)
+        mark = self.registry.active_mark(a["id"], "opus", now=1.0)
+        self.assertEqual(mark["until"], 432000.0)
+        # lengthening IS allowed
+        self.registry.record_mark(a["id"], "opus", until=500000.0, now=0.0)
+        self.assertEqual(
+            self.registry.active_mark(a["id"], "opus", now=1.0)["until"],
+            500000.0)
+
+    def test_observed_supersedes_inferred_even_when_shorter(self):
+        a = self._mk()
+        self.registry.record_mark(a["id"], "opus", until=432000.0, now=0.0)
+        ride = self.registry.active_mark(a["id"], "fable", now=1.0)
+        self.assertEqual(ride["provenance"], "inferred")
+        # a real, SHORTER fable measurement replaces the guess outright
+        self.registry.record_mark(a["id"], "fable", until=7200.0, now=0.0)
+        mark = self.registry.active_mark(a["id"], "fable", now=1.0)
+        self.assertEqual(mark["provenance"], "observed")
+        self.assertEqual(mark["until"], 7200.0)
+
+    def test_cross_provider_tier_never_rides_onto_fable(self):
+        # pins the pool_key mapping: a codex tier is its own pool, so an
+        # openai account's limit cannot mark fable (a future pool_key edit
+        # would enable it silently — this is the tripwire)
+        b = self._mk(provider="openai")
+        self.registry.record_mark(b["id"], "luna", until=9000.0, now=0.0)
+        self.assertIsNone(self.registry.active_mark(b["id"], "fable", now=1.0))
+        self.assertIsNotNone(self.registry.active_mark(b["id"], "luna", now=1.0))
+
     def test_marks_expire_and_release(self):
         a = self._mk()
         self.registry.record_mark(a["id"], "opus", until=100.0, now=0.0)

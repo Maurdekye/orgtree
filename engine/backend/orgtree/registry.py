@@ -353,8 +353,26 @@ def record_mark(account_id: str, tier: str, until: float, *,
             return False
         _prune(row, now)
         key = pool_key(tier)
-        row["marks"][key] = {"until": float(until), "window": str(window),
-                             "observed_at": now, "provenance": provenance}
+        new = {"until": float(until), "window": str(window),
+               "observed_at": now, "provenance": provenance}
+        # TWO-DIMENSIONAL SUPERSESSION (accounts.record_limit's never-shorten
+        # invariant, carried over — under wait semantics a shortened mark is a
+        # wait not honoured: the node admits into a wall somebody already
+        # measured, and can flap between two windows reporting on one pool.
+        # Plus the provenance axis): a MEASUREMENT replaces a GUESS outright,
+        # even when shorter; a guess never replaces a measurement; between
+        # marks of the SAME provenance the later `until` is the one still
+        # known to be true, so the entry with it is kept whole.
+        existing = row["marks"].get(key)
+        if existing is None:
+            row["marks"][key] = new
+        elif existing["provenance"] == "inferred" and provenance == "observed":
+            row["marks"][key] = new
+        elif existing["provenance"] == provenance \
+                and float(existing["until"]) < new["until"]:
+            row["marks"][key] = new
+        # else: keep the existing mark whole (observed over inferred, or the
+        # later same-provenance horizon)
         if key == "pooled" and FABLE not in row["marks"]:
             row["marks"][FABLE] = {"until": float(until),
                                    "window": str(window), "observed_at": now,
