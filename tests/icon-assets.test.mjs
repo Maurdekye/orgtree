@@ -83,6 +83,10 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
   assert.match(main, /new Tray\(runtimeIcon\(\)\)/)
   assert.match(main, /engine\.status\.state === 'ready'/)
+  assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)
+  assert.match(main, /const theme = effectiveTheme \?\? explicit \?\? 'claude'/)
+  assert.match(main, /handle\('desktop:set-effective-theme', value => setEffectiveTheme\(value\)\)/)
+  assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
   assert.match(main, /tray\?\.setImage\(image\)/)

@@ -11,6 +11,7 @@ import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
 import type { DesktopEvent } from '../../../packages/contracts/index'
+import { isVisualTheme } from '../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
@@ -23,6 +24,9 @@ else {
   let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
+  // The renderer owns provider discovery. This ephemeral value mirrors its
+  // effective theme for native tray/taskbar/window icons and is never persisted.
+  let effectiveTheme: VisualTheme | undefined
   let restoreWindows = !process.argv.includes('--background')
   const windowState = () => ({
     visible: !!main && !main.isDestroyed() && main.isVisible(),
@@ -47,7 +51,13 @@ else {
     antigravity: 'orgtree-eye-tray-antigravity.ico', openrouter: 'orgtree-eye-tray-openrouter.ico',
   }
   const runtimeIcon = () => {
-    const theme = preferences?.get().visualTheme ?? 'orgtree'
+    const current = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
+    // A neutral/unset preference follows the renderer's resolved provider.
+    // Older alpha settings with a non-neutral value remain explicit.
+    const explicit = current?.visualTheme &&
+      (current.visualTheme !== 'orgtree' || current.visualThemeExplicit === true)
+      ? current.visualTheme : undefined
+    const theme = effectiveTheme ?? explicit ?? 'claude'
     const name = engine.status.state === 'ready' ? trayIconNames[theme] : trayIconNames.grey
     const image = nativeImage.createFromPath(path.join(assetsPath, name))
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
@@ -62,8 +72,16 @@ else {
     if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: preferences.get().startAtLogin, path: process.execPath, args: ['--background'] })
   }
   const setPreferences = (patch: unknown) => {
+    // Renderer theme resolution is authoritative; discard the previous
+    // ephemeral value so a newly explicit choice is reflected immediately.
+    effectiveTheme = undefined
     const next = preferences.set(patch); loginPreference(); rebuildTray()
     broadcast({ type: 'preferences', data: next }); return next
+  }
+  const setEffectiveTheme = (value: unknown) => {
+    if (!isVisualTheme(value)) throw new Error('Unknown visual theme')
+    effectiveTheme = value
+    rebuildTray()
   }
   const rebuildTray = () => {
     const image = runtimeIcon()
@@ -168,6 +186,7 @@ else {
     handle('desktop:window-close', () => { main?.close() })
     handle('desktop:preferences', () => preferences.get())
     handle('desktop:set-preferences', value => setPreferences(value))
+    handle('desktop:set-effective-theme', value => setEffectiveTheme(value))
     handle('desktop:show', () => show())
     handle('desktop:quit', () => { app.quit() })
     handle('desktop:harnesses', () => detectHarnesses())
