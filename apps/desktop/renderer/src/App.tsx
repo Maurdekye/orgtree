@@ -1089,6 +1089,12 @@ export default function App() {
                 <a className="gh-link" href="https://github.com/Maurdekye/claude-orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
+                {/* Native WindowControls owns refresh in the desktop shell; keep
+                    the renderer-only action available when running in a browser. */}
+                {!desktop() && <button type="button" className="iconbtn" title="refresh app view"
+                  aria-label="refresh app view" onClick={() => window.location.reload()}>
+                  <AutorenewIcon fontSize="inherit" />
+                </button>}
                 <WindowControls />
               </header>
               <div className="canvas-stage">

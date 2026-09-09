@@ -3,9 +3,9 @@ import { desktop } from './desktop'
 import { AutorenewIcon, CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon } from './icons'
 import type { DesktopControlsState } from '../../../../packages/contracts'
 
-/** The native frame replacement. Every command goes through the opener's
- * sender-scoped bridge; the canvas and surrounding margins remain separate
- * drag regions. */
+/** The native frame replacement. Window commands go through the opener's
+ * sender-scoped bridge; refresh remains a renderer-local action. The canvas
+ * and surrounding margins remain separate drag regions. */
 export function WindowControls({ onRefresh = () => window.location.reload() }: { onRefresh?: () => void } = {}) {
   const [state, setState] = useState<DesktopControlsState | null>(null)
   useEffect(() => {

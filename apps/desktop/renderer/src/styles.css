@@ -6082,3 +6082,43 @@ html.mobile .popout-button { display: none; }
 .onboard-swatch { width: .8rem; height: .8rem; border-radius: 50%; display: inline-block; }
 .onboard-actions { display: flex; justify-content: space-between; align-items: center;
   margin-top: 1rem; gap: .75rem; }
+
+/* Keep the native control group in the active org header row while the
+   desktop header is narrow. The detail run may compress, but the four
+   controls stay fixed-size and reachable at the row's trailing edge. */
+@media (min-width: 600px) and (max-width: 780px) {
+  .orgbar {
+    position: relative;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    padding-right: 192px;
+  }
+  .orgbar > .bar-detail {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .orgbar > .bar-detail > * {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .orgbar > .update-notice {
+    position: absolute;
+    top: 50%;
+    right: 192px;
+    width: 180px;
+    transform: translateY(-50%);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .orgbar > .window-controls {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+}
