@@ -3,6 +3,7 @@ import { notificationInboxTarget, useNativeNotifications } from './notifications
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { WindowControls } from './window-controls'
+import { UpdateNotice } from './update-notice'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
@@ -721,6 +722,7 @@ export default function App() {
             onClick={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}>
             <SettingsIcon fontSize="inherit" />
           </button>}
+        {showControls && <UpdateNotice />}
         {showControls && <WindowControls />}</h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> all organizations</button>}
       <nav>
@@ -770,7 +772,7 @@ export default function App() {
       {!slug && (
         <div className="welcome">
           {!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
-            <Onboarding windowControls={<WindowControls />}>
+            <Onboarding windowControls={<><UpdateNotice /><WindowControls /></>}>
               {/* completion runs INSIDE onboardingCreate, before refreshOrgs
                   unmounts this card — a child effect would never see it */}
               <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
@@ -796,6 +798,7 @@ export default function App() {
           {!tree && <>
             {desktop() && <header className="orgbar fallback-orgbar native-header">
               <h2>orgtree</h2>
+              <UpdateNotice />
               <WindowControls />
             </header>}
             {error && <div className="error">{error}</div>}
@@ -1097,6 +1100,7 @@ export default function App() {
                   aria-label="refresh app view" onClick={() => window.location.reload()}>
                   <AutorenewIcon fontSize="inherit" />
                 </button>}
+                <UpdateNotice />
                 <WindowControls />
               </header>
               <div className="canvas-stage">
