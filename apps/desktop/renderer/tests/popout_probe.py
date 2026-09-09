@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import threading
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ['ORGTREE_DATA'] = str(ROOT / 'tests' / '.popout-data')
@@ -363,15 +363,18 @@ def main():
             assert page.get_by_placeholder('message builder\u2026', exact=True).input_value() == 'persist through accepted reload'
             assert child.is_closed()
             results.append('actual API restart waits for explicit reload; opener reloads, child closes, composer restores')
-            # Real DeskChat again: pop the desk out, then let its anchor vanish
-            # WHILE detached (deskProbe.navigate(), same probe the mounted-
-            # writer test above already uses) — the ordinary shape of "free
-            # the main window and look elsewhere" while a popout stays open —
-            # and close the native window from that state. Redock has no live
-            # anchor to return to, so it must fall back to the emergency
-            # `.popout-recovery` box ONLY until a real destination exists
-            # again; the box must not survive to keep trapping every click.
-            page.goto(f'http://127.0.0.1:{server.server_port}/?desk=1')
+            # Real DeskChat again, with onJump OMITTED (`nojump` — onJump is
+            # optional in production, not just here): pop the desk out, then
+            # let its anchor vanish WHILE detached (deskProbe.navigate(), same
+            # probe the mounted-writer test above already uses) — the
+            # ordinary shape of "free the main window and look elsewhere"
+            # while a popout stays open — and close the native window from
+            # that state. With no onJump, nothing auto-recenters, so redock's
+            # emergency `.popout-recovery` box must genuinely persist (proven
+            # below, not assumed) until a SEPARATE, later, explicit action
+            # brings a real anchor back — recovery here is on that action,
+            # never on the app's own automatic recenter.
+            page.goto(f'http://127.0.0.1:{server.server_port}/?desk=1&nojump=1')
             draft = page.get_by_placeholder('message builder…', exact=True)
             draft.fill('draft before vanishing anchor')
             with page.expect_popup() as popup:
@@ -382,11 +385,27 @@ def main():
             assert page.locator('textarea').count() == 0, 'the anchor must actually be gone before closing'
             child.close()
             page.wait_for_timeout(500)
+            assert page.locator('.popout-recovery').count() == 1, 'with no auto-recenter the emergency box must still be there'
+            try:
+                page.get_by_placeholder('message builder…', exact=True).click(timeout=1500)
+                raise AssertionError('main window must stay blocked until a real anchor actually returns')
+            except PWTimeout:
+                pass
+            # the explicit, later action a real user takes to bring the desk
+            # back — nothing here is the app auto-recentering on its own
             page.evaluate('deskProbe.return()')
-            page.get_by_placeholder('message builder…', exact=True).wait_for()
-            assert page.locator('.popout-recovery').count() == 0, 'no orphaned recovery box survives redock with no anchor'
-            assert page.get_by_placeholder('message builder…', exact=True).input_value() == 'draft before vanishing anchor'
-            results.append('closing a popout whose anchor vanished while detached leaves no blocking recovery box behind')
+            draft = page.get_by_placeholder('message builder…', exact=True)
+            draft.wait_for()
+            assert page.locator('.popout-recovery').count() == 0, 'no orphaned recovery box survives once a real anchor returns'
+            # a real pointer interaction, not just a DOM/value assertion: click
+            # into the composer and type, proving the control is genuinely
+            # reachable (not covered by a leftover box) and the pre-popout
+            # draft survived the whole round trip untouched.
+            draft.click()
+            draft.press('End')
+            page.keyboard.type(' — typed after recovery')
+            assert draft.input_value() == 'draft before vanishing anchor — typed after recovery'
+            results.append('closing a popout whose anchor vanished while detached keeps the main window genuinely blocked until a real anchor later returns (not automatic recenter), and the composer is then really reachable by pointer/keyboard with the draft intact')
             page.goto(f'http://127.0.0.1:{server.server_port}/k/probe-token/?desk=1&public=1')
             page.get_by_placeholder('message builder\u2026', exact=True).fill('visitor draft')
             with page.expect_popup() as popup:

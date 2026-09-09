@@ -77,9 +77,14 @@ function DeskFixture() {
   }) as unknown as CanvasNode, [generation])
   const map = React.useMemo(() => gone ? new Map<string, CanvasNode>() : new Map([['builder', node]]), [node, gone])
   Object.assign(window, { deskProbe: { remove: () => { setGone(true); setShown(false); preserveRemovedDrafts('fixture', new Map()) }, namesake: () => { setGone(false); setShown(true) }, navigate: () => setShown(false), return: () => setShown(true), generation: () => setGeneration((v) => v + 1) } })
+  // `nojump` omits onJump entirely (it is optional in production, not just
+  // in this fixture) — the redock-with-no-anchor recovery must then depend
+  // on a genuinely LATER, separate action bringing a real anchor back, not
+  // the app's own automatic recenter racing ahead of it.
   return <DeskHosts map={map} slug="fixture"><div style={{ height: 700, width: 850 }}>
     {shown && <DeskChat bare node={node} map={map} slug="fixture" pub={location.search.includes('public')}
-      toast={() => {}} op={async () => ({})} onJump={() => setShown(true)} />}
+      toast={() => {}} op={async () => ({})}
+      onJump={location.search.includes('nojump') ? undefined : () => setShown(true)} />}
   </div></DeskHosts>
 }
 function CanvasFixture() {
