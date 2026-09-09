@@ -6088,9 +6088,16 @@ html.mobile .popout-button { display: none; }
    the tier choice and its gating stay in SpawnChips */
 .sq.hire-reveal > .hsof:not(.side) { opacity: 1; pointer-events: auto; }
 
-.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; }
+/* resize-reply-annotations-above-the-message-box: full composer width (0
+   horizontal margin, matching .cc-composer and its siblings .attach-row/
+   .sendmode, which all stretch edge-to-edge instead of inset) and a quote
+   capped near the composer's own default height — its textarea defaults to
+   `rows={2}`, so 2 lines (2.8em, scaling with this block's own font-size)
+   is the matching proportion. Still scrollable past that: longer quoted
+   context stays readable, it just is not the default shape any more. */
+.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 0; padding: 6px 10px; background: #8090b015; font-size: 12px; }
 .reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
+.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 2.8em; overflow: auto; }
 .reply-event { display: contents; }
 
 .connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }

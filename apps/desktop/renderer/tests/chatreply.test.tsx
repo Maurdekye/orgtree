@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -7,6 +9,8 @@ import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
 import { MAX_REPLY_QUOTE, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
+
+declare const __SRC_DIR__: string
 
 const source: ReplyContext = { org: 'org', agent: 'writer', generation: 2, eventId: 'event-second', quote: 'same text' }
 const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: 'haiku', children: [],
@@ -280,4 +284,33 @@ test('opening mid-stream preserves the polled prefix and newer websocket source 
     assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Existing continued')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'newer')
   } finally { await v.unmount(); resetConvos() }
+})
+
+// resize-reply-annotations-above-the-message-box. jsdom does not lay out
+// flex boxes (no real geometry to assert on — the cardlayout.test.tsx CSS
+// checks take the same shape for the same reason), so this checks CSS
+// ownership against the shipped stylesheet, the way that file's own last
+// test does. Two claims: WIDTH (no horizontal margin — `.reply-preview`
+// stretches edge to edge, matching `.cc-composer` and its siblings
+// `.attach-row`/`.sendmode`, none of which carry one either) and DEFAULT
+// HEIGHT (the quote caps near 2 lines, the same proportion as the
+// composer's own `rows={2}` textarea default — see desk.tsx's `<textarea
+// rows={2} .../>`).
+test('the reply preview above the composer is full width and capped near the '
+  + "composer's own default height, not a narrow, tall box", () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rule = css.match(/\.reply-preview\s*\{[^}]*\}/)?.[0]
+  assert.ok(rule, 'positive control: the rule exists in the shipped stylesheet at all')
+  assert.doesNotMatch(rule!, /margin:\s*[\d.]+\S*\s+[1-9]/,
+    `no horizontal margin narrowing it below the composer's own edges: ${rule}`)
+  const quote = css.match(/\.reply-preview blockquote\s*\{[^}]*\}/)?.[0]
+  assert.ok(quote, 'positive control: the blockquote rule exists')
+  assert.doesNotMatch(quote!, /max-height:\s*(100|[1-9]\d{2,})px/,
+    `quote height must not still be pinned to the old ~100px+ cap: ${quote}`)
+  assert.match(quote!, /max-height:\s*2(\.\d+)?em/,
+    `quote height should be proportioned to ~2 lines, matching the composer's `
+    + `own rows={2} default, not left unbounded: ${quote}`)
+  assert.match(quote!, /overflow:\s*auto/,
+    'a longer quote must still scroll into view rather than being clipped — '
+    + 'the fix caps the DEFAULT height, it does not truncate reply context')
 })
