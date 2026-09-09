@@ -1996,12 +1996,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         <span className="spacer" aria-hidden="true" />
         <span className="cc-head-right">
           <span className="cc-actions">
-            <button className="progress-chip presented-control"
-              aria-label={`presented documents for ${node.id}`}
-              title={`open presented documents for ${node.id}`}
-              onClick={() => setView('presented')}>
-              presented {node.documents?.length ?? 0}
-            </button>
             {live && !liveKids &&
               <button className="danger" onClick={() => setAsking('retire')}>
                 retire · {fmtCredits(node.seat! + node.grant!)}</button>}

@@ -984,8 +984,11 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   const { act } = await import('react')
   const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.textContent)
   assert.ok(tabs.includes('presented'), 'desk is missing Presented tab')
-  const control = view.el.querySelector<HTMLButtonElement>('.presented-control')
-  assert.ok(control, 'agent controls lack Presented button')
+  assert.equal(view.el.querySelector('.presented-control'), null,
+    'the numbered Presented header control must not duplicate the tab')
+  const control = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
+    .find((b) => b.textContent === 'presented')
+  assert.ok(control, 'desk lacks the retained unnumbered Presented tab')
   await act(async () => { control!.click() })
   assert.ok(view.el.querySelector('.desk-presented'))
   assert.match(view.el.querySelector('.desk-presented')?.textContent ?? '', /Agent report/)
