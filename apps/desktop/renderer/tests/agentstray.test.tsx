@@ -29,6 +29,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
+import { MODAL_PINS_KEY } from '../src/canvas/modalpin'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -340,6 +341,21 @@ uiTest('§8 desk jump cards keep navigation without list controls', async ({ mou
   assert.equal(jumps, 1, 'clicking the jump card still navigates')
 })
 
+uiTest('§10 the whole agents list reuses the shared pin and popout surface controls', async ({ mount }) => {
+  localStorage.removeItem(MODAL_PINS_KEY)
+  const el = await openTray(mount, undefined, ['ceo', 'cto'])
+  const panel = el.querySelector('.tray-panel')
+  assert.ok(panel, 'the agents list is mounted in its own surface panel')
+  const popout = panel!.querySelector('[aria-label="Open in new window"]')
+  const pin = panel!.querySelector<HTMLButtonElement>('[aria-label="pin this to the window"]')
+  assert.ok(popout, 'the whole list exposes the existing native popout control')
+  assert.ok(pin, 'the whole list exposes the existing pin control')
+  await inAct(() => { pin!.click() })
+  await flush(3)
+  assert.equal(pin!.getAttribute('aria-pressed'), 'true', 'pinning updates the shared surface state')
+  assert.ok(panel!.classList.contains('modalpin-win'), 'the list remains the same mounted surface when pinned')
+  localStorage.removeItem(MODAL_PINS_KEY)
+})
 uiTest('Â§9 a registered list row opens its native desk surface', async ({ mount }) => {
   const { DeskHosts, DeskListControls, DeskSlot } = await import('../src/canvas/deskhosts')
   const node = tree(['desk']).roots[0] as unknown as CanvasNode

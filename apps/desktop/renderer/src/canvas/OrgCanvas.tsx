@@ -40,7 +40,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, PinFrame, readModalOpen, usePersistedModalOpen } from './modalpin'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -2774,6 +2774,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       <div ref={trayWrapRef} className="tray-wrap"
         onPointerDown={(e) => e.stopPropagation()}>
         {trayOpen && (
+          <PinFrame kind="agent-list" title="Agents" panel="tray-panel"
+            close={() => setTrayOpen(false)} dialogLabel="Agents">
           <div className="tray">
             <input className="mail-filter tray-filter" placeholder="filter agents…"
               value={trayQ} onChange={(e) => setTrayQ(e.target.value)} />
@@ -2911,6 +2913,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               })
             })()}
           </div>
+          </PinFrame>
         )}
         <button className="tray-toggle" title="every agent, by hierarchy"
           onClick={() => setTrayOpen((o) => !o)}>
