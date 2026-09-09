@@ -136,5 +136,39 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(org["nodes"]["n"]["account"], "claude-77")
 
 
+    def test_startup_adapter_gated_and_persists_only_changed(self):
+        import json
+        from engine.backend.orgtree import ledger, store
+        # gate closed: nothing runs, nothing is written
+        os.environ.pop(self.migration.CUTOVER_ENV, None)
+        self.assertIsNone(self.migration.run_startup_migration())
+        # gate open: real org docs migrate and persist; report file lands
+        org = ledger.Org.create("cutover-org")
+        org.nodes["n"] = {"state": "live", "parent": None, "generation": 1,
+                          "model": "opus"}
+        store.save_org(org)
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            report = self.migration.run_startup_migration()
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
+        self.assertIsNotNone(report)
+        fresh = store.load_org("cutover-org")
+        acct = str(fresh.node("n").get("account") or "")
+        self.assertTrue(acct)  # bound (ambient claude row or named park)
+        with open(os.path.join(store.DATA_ROOT,
+                               self.migration.REPORT_NAME),
+                  encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["bound_nodes"],
+                             report["bound_nodes"])
+        # second start with the flag still set: idempotent no-op
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            again = self.migration.run_startup_migration()
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
+        self.assertTrue(again["inert"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -943,6 +943,17 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # the install-wide preflight at the ASGI lifecycle boundary. It must run
     # before warm processes or background drivers can admit a turn.
     _deployment_preflight()
+    # multi-account cutover (design D2a/S2): DORMANT unless the operator
+    # sets ORGTREE_ACCOUNTS_CUTOVER=1 — committed behind explicit
+    # activation per coordinator/user direction; running it binds every
+    # node and activates placement semantics, and the report lands beside
+    # the registry for the operator to read.
+    from . import registry_migration
+    try:
+        registry_migration.run_startup_migration()
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[orgtree] accounts cutover migration FAILED: {e} — "
+              f"bindings unchanged; fix and restart with the flag set")
     # Mark that THIS process began watching the Antigravity lane. Without it
     # the window record cannot tell "orgtree was down, a wall may have passed
     # unseen" from "nothing happened", and every reconstructed window would

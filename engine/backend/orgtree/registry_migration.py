@@ -41,6 +41,68 @@ from typing import Any
 from . import accounts, providers, registry
 
 
+#: THE CUTOVER FLAG. Migration binds every live node and ACTIVATES the whole
+#: account system's placement semantics — it runs at startup ONLY when the
+#: operator sets this, never implicitly (coordinator/user: commit the wiring
+#: behind explicit activation, no live cutover). The report lands beside the
+#: registry for the operator to read.
+CUTOVER_ENV = "ORGTREE_ACCOUNTS_CUTOVER"
+REPORT_NAME = "accounts-migration-report.json"
+
+
+def run_startup_migration() -> dict[str, Any] | None:
+    """The startup adapter: gated on CUTOVER_ENV=1, idempotent via the
+    registry's migrated_at, loads every org doc, runs the pure engine,
+    persists exactly the orgs the engine changed, and writes the report.
+    Returns the report, or None when the gate is closed."""
+    import json as _json
+
+    from . import store
+    if os.environ.get(CUTOVER_ENV) != "1":
+        return None
+    with store.DOC_LOCK:
+        slugs: list[str] = []
+        seen: set[str] = set()
+        try:
+            names = sorted(os.listdir(store._orgs_dir()))
+        except OSError:
+            names = []
+        for f in names:
+            slug = f[:-5] if f.endswith(".json") else (
+                f[:-3] if f.endswith(".db") else "")
+            if slug and slug not in seen and not f.endswith(".premigration"):
+                seen.add(slug)
+                slugs.append(slug)
+        orgs = []
+        for slug in slugs:
+            try:
+                orgs.append(store.load_org(slug))
+            except Exception:                                # noqa: BLE001
+                # an unloadable org is reported, never guessed at
+                continue
+        docs = [o.d for o in orgs]
+        report = run_migration(docs)
+        changed = set(report.get("changed_orgs") or [])
+        for o in orgs:
+            if str(o.d.get("slug") or "") in changed:
+                store.save_org(o)
+    report["skipped_unloadable"] = sorted(set(slugs)
+                                          - {str(o.d.get("slug") or "")
+                                             for o in orgs})
+    try:
+        with open(os.path.join(store.DATA_ROOT, REPORT_NAME), "w",
+                  encoding="utf-8") as f:
+            _json.dump(report, f, indent=1)
+    except OSError:
+        pass
+    print(f"[orgtree] accounts cutover migration ran: "
+          f"{report.get('bound_nodes', 0)} nodes bound, "
+          f"held={report.get('org_key_held')}, "
+          f"missing={len(report.get('missing_bindings') or [])}, "
+          f"inert={report.get('inert')}")
+    return report
+
+
 def observe_ambient() -> dict[str, str | None]:
     """The machine logins that exist RIGHT NOW, by directory presence.
     Antigravity has no established ambient config dir in this codebase, so
