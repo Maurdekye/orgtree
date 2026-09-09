@@ -125,6 +125,37 @@ class ServiceHostUnitTests(unittest.TestCase):
                     write_descriptor(Path(root), 23456, 77, "ab" * 32)
             self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
 
+    def test_preexisting_temp_path_is_never_truncated_or_adopted(self):
+        # O_EXCL control (root ruling): pin the random name, pre-create that
+        # exact path with foreign content — publication must refuse and the
+        # preexisting file must survive byte-for-byte, never truncated,
+        # followed or deleted (cleanup owns only temps IT created).
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_host.secrets, "token_hex", return_value="feedfeedfeedfeed"):
+                planted = Path(root) / f".engine-attach-{os.getpid()}-feedfeedfeedfeed.tmp"
+                planted.write_bytes(b"foreign-bytes")
+                with self.assertRaises(OSError):
+                    write_descriptor(Path(root), 23456, 77, "ab" * 32)
+                self.assertEqual(planted.read_bytes(), b"foreign-bytes",
+                                 "a preexisting path must never be truncated or adopted")
+                self.assertFalse((Path(root) / DESCRIPTOR).exists())
+
+    def test_confirmed_exit_confirms_or_reports_honestly(self):
+        # Positive: a real child is killed AND its exit is confirmed.
+        child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(60)"])
+        self.assertTrue(service_host.confirmed_exit(child, timeout=15))
+        self.assertIsNotNone(child.poll())
+        # Negative control: a child whose wait never completes reports False
+        # instead of pretending the kill worked.
+        class Stubborn:
+            def poll(self):
+                return None
+            def kill(self):
+                pass
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired(cmd="stub", timeout=timeout)
+        self.assertFalse(service_host.confirmed_exit(Stubborn(), timeout=0.1))  # type: ignore[arg-type]
+
     def test_no_secret_byte_touches_disk_before_verified_restriction(self):
         # Ordering sentinel (root ruling): at the moment the restriction and
         # its verification run, the file on disk must be EMPTY — the token is

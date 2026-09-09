@@ -244,6 +244,20 @@ def clear_stale_descriptor(root: Path) -> None:
         pass
 
 
+def confirmed_exit(child: "subprocess.Popen[Any]", timeout: float = 10.0) -> bool:
+    """Kill if still running and CONFIRM the exit. A kill() is a request, not
+    a fact: descriptor removal and exit decisions must never assume it
+    completed, or the removal breaks its own meaning (descriptor gone ⇒
+    engine process exited)."""
+    if child.poll() is None:
+        child.kill()
+    try:
+        child.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
 def request_shutdown(port: int, token: str) -> bool:
     request = urllib.request.Request(f"http://127.0.0.1:{port}/api/desktop/shutdown",
                                      method="POST", data=b"",
@@ -315,8 +329,7 @@ def main() -> int:
             reason = failure[0] if failure else (
                 "engine exited before readiness" if child.poll() is not None
                 else "engine did not become ready in time")
-            if child.poll() is None:
-                child.kill()
+            confirmed_exit(child)
             print(f"service host: {reason}", file=sys.stderr, flush=True)
             return 1
 
@@ -328,7 +341,7 @@ def main() -> int:
             # a crash here would loop a restart-on-failure task setting on a
             # traceback instead of a reason.
             print(f"service host: could not write attach descriptor: {exc}", file=sys.stderr, flush=True)
-            child.kill()
+            confirmed_exit(child)
             return 1
         print(f"service host: engine ready on 127.0.0.1:{port} (pid {child.pid})", file=sys.stderr, flush=True)
 
@@ -347,7 +360,9 @@ def main() -> int:
                 try:
                     child.wait(timeout=SHUTDOWN_WAIT)
                 except subprocess.TimeoutExpired:
-                    child.kill()
+                    if not confirmed_exit(child):
+                        print("service host: engine did not confirm exit after kill; leaving the descriptor for the guardian sweep",
+                              file=sys.stderr, flush=True)
                 break
             time.sleep(0.2)
         if stopping["value"]:
@@ -357,7 +372,11 @@ def main() -> int:
         code = child.returncode
         return code if isinstance(code, int) and code != 0 else (0 if code == 0 else 1)
     finally:
-        remove_descriptor(root)
+        # Removal MEANS the engine process exited; an unconfirmed kill must
+        # leave the descriptor (the desktop rejects it as stale, the next
+        # host clears it, the guardian sweeps the tree).
+        if child.poll() is not None:
+            remove_descriptor(root)
 
 
 if __name__ == "__main__":
