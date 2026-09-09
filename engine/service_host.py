@@ -11,11 +11,12 @@ data root. It is written ONLY AFTER the ready handshake, because a persisted
 port can move during startup (an OS reservation makes the engine choose a
 fresh port); engine-port.json is therefore never authoritative for
 attachment. The descriptor carries the per-boot token; its protection IS the
-data root's ACL, which is why the desktop verifies the file's NTFS OWNER
-before trusting it (the identity round-trip that follows is a staleness
-check, not authentication). Run this host as the operator, unelevated — an
-Administrators-owned descriptor is refused by the desktop — and never point
-ORGTREE_V2_DATA at a directory other accounts can write.
+data root's write boundary: the desktop accepts operator, SYSTEM or
+Administrators ownership only alongside its foreign-write/replacement checks.
+The identity round-trip is a staleness check, not authorship proof. Run this
+host as the operator at LeastPrivilege; the writer still explicitly stamps
+and verifies that operator's ownership. Never point ORGTREE_V2_DATA at a
+directory other accounts can write.
 """
 
 from __future__ import annotations

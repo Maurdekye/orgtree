@@ -160,7 +160,9 @@ const TRUSTED_OWNERS = new Set(['S-1-5-18', 'S-1-5-32-544'])
 
 /** The pure verdict on the trust query's five measured fields (exported so
  *  the owner rule is testable without minting an Administrators-owned file,
- *  which an unelevated test cannot do). */
+ *  which an unelevated test cannot do). Preconditions: verifyDescriptorTrust
+ *  validates the five-field response and SID prefixes before calling this;
+ *  this helper is not a validator for arbitrary external input. */
 export function judgeDescriptorTrust(current: string, owner: string, fileBad: string, dirBad: string, ancestorBad: string): DescriptorOwner {
   if (owner !== current && !TRUSTED_OWNERS.has(owner)) return { ok: false, detail: `owner ${owner} is not current user ${current}` }
   if (fileBad) return { ok: false, detail: `descriptor writable by ${fileBad}` }
