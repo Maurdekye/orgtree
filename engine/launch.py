@@ -64,6 +64,13 @@ def data_root_id(root: Path) -> str:
 # unbindable after a reboot even though nothing listens on it.
 _FRESH_PORT_RANGE = (20000, 49151)
 _IN_USE = {errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", errno.EADDRINUSE)}
+# Windows answers a bind inside a reserved range with WSAEACCES (winerror
+# 10013, which Python surfaces as errno 13). Measured on this machine: every
+# kind of real occupancy — plain listener, SO_REUSEADDR, SO_EXCLUSIVEADDRUSE,
+# bound-but-not-listening — reports EADDRINUSE instead. Moving the origin
+# discards the user's drafts and layout with it, so it is done only for the
+# access-denied reason that is known to be permanent.
+_RESERVED = {errno.EACCES, getattr(errno, "WSAEACCES", errno.EACCES)}
 
 
 def _bind_error(port: int) -> OSError | None:
@@ -119,10 +126,12 @@ def _port(data: Path) -> int:
             return port
         # A stored port belongs to this fresh engine only; a live listener is
         # refused instead of silently changing the UI origin or attaching to
-        # it. Any other bind failure (Windows WSAEACCES on a reserved range)
+        # it. An access-denied failure (Windows WSAEACCES on a reserved range)
         # means nobody can ever listen there, so the origin must move.
         if error.errno in _IN_USE:
             raise RuntimeError(f"engine port {port} is occupied") from error
+        if error.errno not in _RESERVED:
+            raise RuntimeError(f"engine port {port} cannot be bound (errno {error.errno})") from error
         print(f"persisted engine port {port} is no longer bindable ({error.errno}); choosing a fresh port",
               file=sys.stderr, flush=True)
     port = _fresh_port()

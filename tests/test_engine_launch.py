@@ -11,7 +11,21 @@ from engine import launch
 from engine.launch import _FRESH_PORT_RANGE, _port, data_root_id, validate_data_root
 
 
+# The floor of the Windows dynamic range, where the Hyper-V/WinNAT
+# reservations that broke startup live. It is written out as a literal on
+# purpose: comparing a chosen port against _FRESH_PORT_RANGE itself passes for
+# every possible range, including the one that caused the fault.
+WINDOWS_DYNAMIC_FLOOR = 49152
+
+
 class EngineLaunchTests(unittest.TestCase):
+    def setUp(self):
+        # A developer's ORGTREE_V2_PORT would otherwise short-circuit _port and
+        # make the port tests below assert nothing.
+        patcher = patch.dict(os.environ, {"ORGTREE_V2_PORT": "0"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_root_is_explicit_and_identity_is_stable(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
@@ -44,9 +58,12 @@ class EngineLaunchTests(unittest.TestCase):
             self.assertEqual(json.loads((path / "engine-port.json").read_text())["port"], first)
 
     def test_fresh_port_avoids_windows_dynamic_range(self):
+        self.assertLess(_FRESH_PORT_RANGE[1], WINDOWS_DYNAMIC_FLOOR, _FRESH_PORT_RANGE)
+        self.assertGreater(_FRESH_PORT_RANGE[0], 1024, _FRESH_PORT_RANGE)
         with tempfile.TemporaryDirectory() as root:
             port = _port(Path(root))
-            self.assertTrue(_FRESH_PORT_RANGE[0] <= port <= _FRESH_PORT_RANGE[1], port)
+            self.assertLess(port, WINDOWS_DYNAMIC_FLOOR, port)
+            self.assertGreater(port, 1024, port)
 
     def test_occupied_persisted_port_is_refused(self):
         with tempfile.TemporaryDirectory() as root:
@@ -77,6 +94,20 @@ class EngineLaunchTests(unittest.TestCase):
             self.assertNotEqual(port, reserved)
             self.assertEqual(json.loads((path / "engine-port.json").read_text())["port"], port)
             self.assertEqual(_port(path), port)
+
+    def test_unrecognised_bind_failure_keeps_the_origin(self):
+        # Moving the origin throws away the drafts and layout stored under the
+        # old one, so a bind failure that is neither a listener nor a reserved
+        # range refuses startup rather than guessing that the port is dead.
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            (path / "engine-port.json").write_text(json.dumps({"port": 31337}))
+            def bind_error(port):
+                return OSError(errno.ENOBUFS, "no buffer space available")
+            with patch.object(launch, "_bind_error", bind_error):
+                with self.assertRaisesRegex(RuntimeError, "cannot be bound"):
+                    _port(path)
+            self.assertEqual(json.loads((path / "engine-port.json").read_text())["port"], 31337)
 
 
 if __name__ == "__main__":
