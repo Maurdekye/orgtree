@@ -523,3 +523,21 @@ test('an absent guardian lock is a refusal, not a release (fail closed)', async 
   await new Promise(resolve => server.close(resolve))
   await assert.rejects(engine.stopAttachedForUpdate(2000), /unverifiable/)
 })
+
+test('guardianReleased: cannot-look is never released (empty, missing, unlocked, held)', async () => {
+  const engine = trusting(new Engine())
+  assert.equal(engine.guardianReleased(''), false, 'empty path must refuse')
+  assert.equal(engine.guardianReleased(path.join(realRoot, 'no-such.lock')), false, 'missing file must refuse')
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'a real existing UNLOCKED file answers released')
+  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(2);l.close()`
+  const { spawn } = await import('node:child_process')
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
+    holder.on('exit', () => reject(new Error('holder died early')))
+    setTimeout(() => reject(new Error('holder never confirmed')), 10000)
+  })
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), false, 'a held lock refuses')
+  await new Promise(resolve => holder.on('exit', resolve))
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'released after the holder closes')
+})
