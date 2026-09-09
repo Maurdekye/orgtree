@@ -186,6 +186,40 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
         for rejected in ('bad_field', 'sneaky_bool', 'nan_ms', 'inf_ms', 'neg_inf_ms'):
             self.assertNotIn(rejected, row, f'{rejected!r} must never reach the sink: {row}')
 
+    def test_a_handler_cannot_overwrite_reserved_fields_via_its_profile_dict(self):
+        # root's finding: `**numeric_profile` was merged LAST, so a handler
+        # whose dict happens to carry a numeric value under 'seq', 'bytes',
+        # etc. would silently win over the sink's own computed fields —
+        # 'seq' in particular is the monotonicity guarantee every other test
+        # here relies on.
+        from orgtree import api
+
+        class FakeRoute:
+            path = '/api/fake/{id}'
+
+        scope = {'route': FakeRoute(), 'method': 'GET', 'type': 'http'}
+        before_seq = api._PROFILE_SEQ
+        api._access_emit(scope, 200, 1.0, 1.0, 0, 1,
+                         profile={'seq': 999999, 'route': 'spoofed', 'bytes': -1,
+                                  'handler_ms': -1, 'total_ms': -1, 'good_ms': 2.5})
+        row = api._PROFILE_RECORDS[-1]
+        self.assertEqual(row['seq'], before_seq + 1, f'a handler must never be able to set its own seq: {row}')
+        self.assertEqual(row['route'], '/api/fake/{id}', f'a handler must never overwrite the real route: {row}')
+        self.assertGreaterEqual(row['bytes'], 0, f'a handler must never overwrite bytes: {row}')
+        self.assertEqual(row.get('good_ms'), 2.5, 'a non-reserved numeric field must still pass through')
+
+    def test_the_snapshot_exposes_a_process_capture_identity(self):
+        # root's finding: 'seq never resets' is a PER-PROCESS promise only —
+        # _PROFILE_SEQ is a plain module global and restarts at 0 across a
+        # real process restart. `instance` (the SAME per-process value already
+        # used for X-Orgtree-Instance/noteInstance — api.py's INSTANCE) lets a
+        # collector detect that, without inventing a second identity scheme.
+        from orgtree import api
+        client = TestClient(app)
+        body = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()
+        self.assertEqual(body['instance'], api.INSTANCE)
+        self.assertTrue(body['instance'], 'instance must be a real, non-empty value')
+
     def test_token_gate_still_covers_the_new_route(self):
         # Same TokenGate as every other route (launch.py §155-185) — proven
         # here rather than assumed, since a new route is exactly the kind of

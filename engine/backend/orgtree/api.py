@@ -144,6 +144,11 @@ _PROFILE_SEQ = 0
 #: contributed anything — appending BOTH unconditionally would let the sink's
 #: own reads and uninstrumented routes crowd out the timings it exists to hold.
 _PROFILE_TIMING_ROUTE = "/api/desktop/profile-timing"
+#: Field names `_access_emit` computes itself for every record. A handler's
+#: profile dict is merged in AFTER these — excluding them from that merge
+#: (rather than relying on merge order) means a handler cannot clobber `seq`
+#: or any other reserved field no matter what it stashes under that name.
+_PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", "bytes"})
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -404,9 +409,16 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
             # are valid Python floats (and `json.dumps` would happily emit
             # the non-standard literals `NaN`/`Infinity`), so "numeric" alone
             # is not the same promise as "a real number a reader can chart".
+            #
+            # `_PROFILE_RESERVED_FIELDS` is excluded on top of that: a handler
+            # stashing its OWN `seq`/`bytes`/etc into the profile dict (an
+            # org_tree stage happening to reuse a name, say) would otherwise
+            # silently win the merge below and corrupt the sink's own
+            # bookkeeping — the monotonic `seq` guarantee in particular must
+            # never be something a handler's dict can overwrite.
             numeric_profile = {k: v for k, v in profile.items()
                                if isinstance(v, (int, float)) and not isinstance(v, bool)
-                               and math.isfinite(v)}
+                               and math.isfinite(v) and k not in _PROFILE_RESERVED_FIELDS}
             _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
@@ -456,12 +468,20 @@ def profile_timing() -> dict[str, Any]:
     SNAPSHOT SEMANTICS. This is a plain read of the live buffer at the instant
     of the call, not a subscription or a diff against a prior call — nothing
     is consumed, reset, or remembered per-caller. `records[i]['seq']` is
-    however monotonic and never reused across the WHOLE process lifetime, so
-    two callers (or one caller polling twice) can compare their own two
-    snapshots directly: `newest_seq` unchanged means nothing happened since;
-    a `records[0]['seq']` greater than what a caller expected to still be
-    present means the gap between was evicted, and `dropped` already gives
-    that count without the caller having to compute it from two reads.
+    monotonic and never reused WITHIN ONE PROCESS — but `_PROFILE_SEQ` is a
+    plain in-memory counter, so it restarts at 0 across a process restart, and
+    "never reset" is a per-process promise only. `instance` is `INSTANCE`
+    (api.py's existing per-process identity, already used for
+    `X-Orgtree-Instance`/`noteInstance`) — a collector that remembers a prior
+    `(instance, seq)` pair and sees a DIFFERENT `instance` now knows the
+    process behind this sequence changed, rather than misreading a smaller
+    `seq` as "wait, no, less happened" or a `dropped` gap that never occurred.
+    Two callers (or one caller polling twice) against the SAME `instance` can
+    still compare snapshots directly: `newest_seq` unchanged means nothing
+    happened since; a `records[0]['seq']` greater than what a caller expected
+    to still be present means the gap between was evicted, and `dropped`
+    already gives that count without the caller having to compute it from two
+    reads.
     """
     # This handler runs in the threadpool (a plain sync `def`), concurrently
     # with `_access_emit` appending on the event loop thread — `records` is
@@ -469,7 +489,7 @@ def profile_timing() -> dict[str, Any]:
     # snapshot, never a second independent read of `_PROFILE_SEQ`/the deque,
     # so `dropped` can never disagree with the `records` actually returned.
     records = list(_PROFILE_RECORDS)
-    return {"enabled": _PROFILE_TIMING, "records": records,
+    return {"enabled": _PROFILE_TIMING, "instance": INSTANCE, "records": records,
             "oldest_seq": records[0]["seq"] if records else None,
             "newest_seq": records[-1]["seq"] if records else None,
             "dropped": _PROFILE_SEQ - len(records)}
