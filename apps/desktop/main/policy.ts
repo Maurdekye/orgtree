@@ -93,7 +93,9 @@ export interface DescriptorOwner { ok: boolean; detail: string }
  *  parent directory where others can replace the file, is equally broken
  *  (custom ORGTREE_V2_DATA can point anywhere). The smallest defensible
  *  check, READ-ONLY (existing ACLs are never rewritten or broadened):
- *    1. the file's owner SID equals the current user's;
+ *    1. the file's owner SID equals the current user's, or is SYSTEM or
+ *       Administrators (see TRUSTED_OWNERS: both are inside the write set
+ *       rule 2 enforces, so they add no writer);
  *    2. no Allow ACE on the file OR its parent directory grants any
  *       write/delete/permission-change right to a principal other than the
  *       current user, SYSTEM, Administrators or CREATOR OWNER.
@@ -140,14 +142,31 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
           const parts = stdout.trim().split('|')
           if (parts.length !== 5 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
           const [current, owner, fileBad, dirBad, ancestorBad] = parts
-          if (owner !== current) return resolve({ ok: false, detail: `owner ${owner} is not current user ${current}` })
-          if (fileBad) return resolve({ ok: false, detail: `descriptor writable by ${fileBad}` })
-          if (dirBad) return resolve({ ok: false, detail: `descriptor directory writable by ${dirBad}` })
-          if (ancestorBad) return resolve({ ok: false, detail: `path replaceable via ancestor ${ancestorBad.slice(0, 300)}` })
-          resolve({ ok: true, detail: `owner ${owner}, exclusive write boundary` })
+          resolve(judgeDescriptorTrust(current, owner, fileBad, dirBad, ancestorBad))
         })
     }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
   })
+}
+
+/** Principals that may OWN the descriptor besides the current user. Both
+ *  already sit inside the exclusive write set the ACE scan enforces, so an
+ *  owner among them moves no trust boundary: whoever can act as SYSTEM or
+ *  Administrators can already write the file (and everything else). It is
+ *  possible for an administrator token to default new-file ownership to
+ *  Administrators. The boot host still sets the operator explicitly; touching
+ *  an existing file does not establish that its owner changed. CREATOR OWNER
+ *  is a placeholder, never an actual owner, so it is not listed. */
+const TRUSTED_OWNERS = new Set(['S-1-5-18', 'S-1-5-32-544'])
+
+/** The pure verdict on the trust query's five measured fields (exported so
+ *  the owner rule is testable without minting an Administrators-owned file,
+ *  which an unelevated test cannot do). */
+export function judgeDescriptorTrust(current: string, owner: string, fileBad: string, dirBad: string, ancestorBad: string): DescriptorOwner {
+  if (owner !== current && !TRUSTED_OWNERS.has(owner)) return { ok: false, detail: `owner ${owner} is not current user ${current}` }
+  if (fileBad) return { ok: false, detail: `descriptor writable by ${fileBad}` }
+  if (dirBad) return { ok: false, detail: `descriptor directory writable by ${dirBad}` }
+  if (ancestorBad) return { ok: false, detail: `path replaceable via ancestor ${ancestorBad.slice(0, 300)}` }
+  return { ok: true, detail: `owner ${owner}, exclusive write boundary` }
 }
 
 /** A structured startup refusal from the engine. ONLY the machine code

@@ -281,6 +281,32 @@ test('the real trust check rejects foreign write access, measured with actual AC
   assert.match(dirVerdict.detail, /directory writable by .*S-1-1-0/)
 })
 
+test('the owner rule: current user, SYSTEM and Administrators pass; any other owner or any foreign writer fails', () => {
+  const me = 'S-1-5-21-1-2-3-1002'
+  // Privileged owners are already inside the trusted writer set. This
+  // compatibility check does not infer which writer/recovery action produced
+  // an observed owner, and never exempts any foreign-write check.
+  assert.equal(policy.judgeDescriptorTrust(me, me, '', '', '').ok, true)
+  assert.equal(policy.judgeDescriptorTrust(me, 'S-1-5-32-544', '', '', '').ok, true)
+  assert.equal(policy.judgeDescriptorTrust(me, 'S-1-5-18', '', '', '').ok, true)
+  const other = policy.judgeDescriptorTrust(me, 'S-1-5-21-9-9-9-1003', '', '', '')
+  assert.equal(other.ok, false); assert.match(other.detail, /owner S-1-5-21-9-9-9-1003 is not current user/)
+  // CREATOR OWNER is a placeholder SID and never a real owner.
+  assert.equal(policy.judgeDescriptorTrust(me, 'S-1-3-0', '', '', '').ok, false)
+  // Every trusted owner must still fail EACH foreign-write/replacement check.
+  for (const owner of [me, 'S-1-5-32-544', 'S-1-5-18']) {
+    for (const [fileBad, dirBad, ancestorBad, detail] of [
+      ['S-1-1-0', '', '', /descriptor writable by S-1-1-0/],
+      ['', 'S-1-5-32-545', '', /directory writable by/],
+      ['', '', 'C:/=S-1-5-11', /replaceable via ancestor/],
+    ]) {
+      const result = policy.judgeDescriptorTrust(me, owner, fileBad, dirBad, ancestorBad)
+      assert.equal(result.ok, false, `trusted owner ${owner} bypassed ${detail}`)
+      assert.match(result.detail, detail)
+    }
+  }
+})
+
 test('a descriptor owned by someone else is rejected BEFORE the token is sent anywhere', async () => {
   let identityRequests = 0
   const { server, port } = await identityServer((request, response) => { identityRequests++; respond(response, 200, engineIdentity) })
