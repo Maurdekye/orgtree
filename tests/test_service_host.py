@@ -115,6 +115,42 @@ class ServiceHostUnitTests(unittest.TestCase):
                     write_descriptor(Path(root), 23456, 77, "ab" * 32)
             self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
 
+    def test_write_descriptor_fails_closed_when_verification_fails(self):
+        # icacls exiting 0 is a receipt, not proof: an unverifiable DACL must
+        # also refuse publication and leave nothing behind.
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_host, "restrict_descriptor_acl", return_value=True), \
+                 patch.object(service_host, "verify_restricted_acl", return_value=False):
+                with self.assertRaisesRegex(OSError, "refusing to publish"):
+                    write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
+
+    def test_no_secret_byte_touches_disk_before_verified_restriction(self):
+        # Ordering sentinel (root ruling): at the moment the restriction and
+        # its verification run, the file on disk must be EMPTY — the token is
+        # written only afterwards.
+        if os.name != "nt":
+            raise unittest.SkipTest("NTFS ACLs are Windows-only")
+        contents_at_restrict: list[bytes] = []
+        contents_at_verify: list[bytes] = []
+        real_restrict = service_host.restrict_descriptor_acl
+        real_verify = service_host.verify_restricted_acl
+        with tempfile.TemporaryDirectory() as root:
+            def observing_restrict(target):
+                contents_at_restrict.append(Path(target).read_bytes())
+                return real_restrict(target)
+            def observing_verify(target):
+                contents_at_verify.append(Path(target).read_bytes())
+                return real_verify(target)
+            with patch.object(service_host, "restrict_descriptor_acl", observing_restrict), \
+                 patch.object(service_host, "verify_restricted_acl", observing_verify):
+                published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(contents_at_restrict, [b""], "token bytes reached disk before restriction")
+            self.assertEqual(contents_at_verify, [b""], "token bytes reached disk before verification")
+            self.assertIn("ab" * 32, published.read_text(encoding="utf-8"))
+            leftovers = [p.name for p in Path(root).iterdir() if p.name != DESCRIPTOR]
+            self.assertEqual(leftovers, [], "no temporary residue after publication")
+
     def test_descriptor_lifecycle_never_deletes_a_newer_hosts_file(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)

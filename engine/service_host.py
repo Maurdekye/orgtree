@@ -138,29 +138,56 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
         return False
 
 
+def verify_restricted_acl(target: Path) -> bool:
+    """Read back that the DACL is EXACTLY operator+SYSTEM+Administrators with
+    nothing inherited. icacls exiting 0 is a request receipt, not proof; the
+    token is published only on this verified state (fail closed)."""
+    sid = _current_user_sid()
+    if os.name != "nt" or not sid:
+        return False
+    script = ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
+              "GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+              "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
+              "+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
+    try:
+        output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                                capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        sids, inherited = output.rsplit("|", 1)
+        return inherited == "0" and set(sids.split(",")) == {sid, "S-1-5-18", "S-1-5-32-544"}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path:
-    """Publish the descriptor with the token NEVER on disk under inherited
-    ACLs: create the temporary file empty, restrict it to the operator +
-    SYSTEM + Administrators, and only then write the token into it. A rename
-    keeps the file object and its DACL, so the published file stays
-    restricted. FAIL CLOSED: if the restriction cannot be applied, the token
-    is not published at all (root ruling — inherited profile ACLs can grant
-    other accounts read).
+    """Publish the descriptor with the token NEVER on disk under inherited or
+    foreign-controlled ACLs, in this order and no other:
+
+    1. Create a UNIQUE temporary file with O_EXCL — never adopt a
+       preexisting one: a pre-created predictable temp keeps its creator as
+       OWNER, and an owner can re-grant themselves read after any
+       restriction (implicit WRITE_DAC).
+    2. Restrict its DACL and VERIFY the restriction by reading it back.
+    3. Only then write the token, and atomically publish by rename (which
+       keeps the file object and its verified DACL).
+    FAIL CLOSED at every step: no verified protection, no token on disk.
     """
     descriptor = root / DESCRIPTOR
     payload = {"type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid,
                "hostPid": os.getpid(), "dataRootId": str(root.resolve()), "token": token,
                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    temporary = descriptor.with_suffix(".tmp")
-    temporary.write_text("", encoding="utf-8")
-    if not restrict_descriptor_acl(temporary):
+    temporary = root / f".engine-attach-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+    os.close(os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    try:
+        if not restrict_descriptor_acl(temporary) or not verify_restricted_acl(temporary):
+            raise OSError("descriptor ACL restriction unavailable or unverified; refusing to publish the token")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+        os.replace(temporary, descriptor)
+    except BaseException:
         try:
             temporary.unlink()
         except OSError:
             pass
-        raise OSError("descriptor ACL restriction unavailable; refusing to publish the token")
-    temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
-    os.replace(temporary, descriptor)
+        raise
     return descriptor
 
 
