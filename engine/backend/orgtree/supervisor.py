@@ -10456,12 +10456,49 @@ def _working_lifecycle_keeper_pass(
             cache_launch, now, checkup_mode_enabled=False)
 
 
+def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
+    """Reassign stale docket items whose owner generation is gone.
+    The ledger transition and assignment mail are committed under DOC_LOCK;
+    wake nudges happen only after save, so a recipient never starts before the
+    new owner is durable.  A missing top-level leaves the item untouched.
+    """
+    stamp = time.time() if now is None else now
+    for row in store.list_orgs():
+        slug = str(row["slug"])
+        moved: list[dict[str, Any]] = []
+        try:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                moved = org.work_reassign_abandoned(now_ts=stamp)
+                if moved:
+                    store.save_org(org)
+        except LedgerError as exc:
+            print(f"[orgtree] {slug}: abandoned docket recovery skipped: "
+                  f"{type(exc).__name__}: {exc}")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            print(f"[orgtree] {slug}: abandoned docket recovery failed: "
+                  f"{type(exc).__name__}: {exc}")
+            continue
+        for item in moved:
+            owner = str((item.get("owner") or {}).get("node") or "")
+            if not owner:
+                continue
+            mail_spark(slug, SYSTEM, owner)
+            send_message(
+                slug, owner,
+                "(orgtree) A stale docket item was reassigned to you; "
+                "read the assignment mail above and decide how to handle it.",
+                mail_ping=True, ping_reason="docket_abandoned_reassignment")
+
+
 def _auto_wake_keeper_pass(now: float | None = None) -> None:
     """One scheduler tick: the docket reminder, then the reported-working
     lifecycle. Exactly one wake per seat — either reservation leaves waking
     mail and the shared gates then refuse the other. The reminder goes first
     because it names the actual work; the generic checkup still fires for a
     seat the reminder passes over."""
+    _abandoned_docket_recovery_pass(now=now)
     _idle_docket_reminder_pass(now=now)
     _working_lifecycle_keeper_pass(now=now)
 

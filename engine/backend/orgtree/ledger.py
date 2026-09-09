@@ -2202,7 +2202,7 @@ class Org:
                 f"but NOTHING WILL READ IT until somebody rehires {to}. If "
                 f"no rehire is intended, treat this as UNDELIVERED and send "
                 f"it to a live agent.")
-        if sender != USER:
+        if sender not in (USER, SYSTEM):
             s = self.node(sender)
             allowed = (
                 self.is_ancestor(sender, to)                      # downward, any depth
@@ -2240,7 +2240,7 @@ class Org:
             # the per-mail read-marking gate (m._wait && m.id) finally passes
             "id": uuid.uuid4().hex[:12],
             "from": sender, "kind": kind, "body": body, "at": now(),
-            "relationship": self.relationship(sender, to),
+            "relationship": ("system" if sender == SYSTEM else self.relationship(sender, to)),
         }
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
@@ -9693,7 +9693,8 @@ class Org:
     # the attention reason, which now has to hold requested-against-delivered,
     # the extra, and the confirmation wanted (user 2026-09-05)
     WORK_ATTENTION_REASON_MAX: Final = 500
-    WORK_ARCHIVE_AFTER_S: Final = 3600       # strictly greater than → archived
+    WORK_ARCHIVE_AFTER_S: Final = 3600       # strictly greater than ? archived
+    WORK_ABANDONED_AFTER_S: Final = 1800    # strictly greater than ? reassigned
     #
     # `backlogged` (user 2026-09-05) is NOT a closed state and NOT an active
     # one: it means the work has not yet been approached or approved. It is
@@ -10230,6 +10231,22 @@ class Org:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return now_ts - dt.timestamp()
+
+    @staticmethod
+    def _work_recovery_age_s(it: WorkItem, now_ts: float) -> float | None:
+        stamps = [it.get("docket_at"), it.get("updated_at")]
+        parsed = []
+        for stamp in stamps:
+            if not stamp:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            parsed.append(dt.timestamp())
+        return None if not parsed else now_ts - max(parsed)
 
     #: statuses the sweep archives by itself. `dropped` joined `done`
     #: (user 2026-09-05, Astra 2026-09-05): work that was cancelled or failed
@@ -11403,7 +11420,7 @@ class Org:
         an agent mailing itself every time it updated its own item."""
         own = str(owner or "").strip()
         self.node(own)
-        if actor != USER and own != actor and not self.is_ancestor(actor, own):
+        if actor not in (USER, SYSTEM) and own != actor and not self.is_ancestor(actor, own):
             raise LedgerError(f"you may assign an item to yourself or a "
                               f"subordinate — {own!r} is neither")
         frm = it.get("owner")
@@ -11527,6 +11544,38 @@ class Org:
                      objective=str(it.get("objective") or ""),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])]))
         return want
+
+    def work_reassign_abandoned(self, now_ts: float | None = None,
+                                threshold_s: float | None = None
+                                ) -> list[dict[str, Any]]:
+        """Reassign stale nonterminal work whose owner generation is gone."""
+        self._work_require_current_identity()
+        now_ts = _time.time() if now_ts is None else now_ts
+        threshold = (self.WORK_ABANDONED_AFTER_S
+                     if threshold_s is None else float(threshold_s))
+        if threshold < 0:
+            raise LedgerError("abandoned-ticket threshold must be nonnegative")
+        tops = sorted(str(nid) for nid, node in self.nodes.items()
+                      if node.get("state") == "live"
+                      and not str(node.get("parent") or "").strip())
+        if not tops:
+            return []
+        moved: list[dict[str, Any]] = []
+        for it in list(self._work_all()):
+            if self._work_status(it) in self.WORK_CLOSED:
+                continue
+            age = self._work_recovery_age_s(it, now_ts)
+            if age is None or age <= threshold:
+                continue
+            current, owner_state = self._work_owner_state(it)
+            if current or owner_state is None:
+                continue
+            result = self._work_assign_core(SYSTEM, it, tops[0], True,
+                                            "abandoned-owner")
+            result["previous_owner_state"] = owner_state
+            result["age_s"] = age
+            moved.append(result)
+        return moved
 
     def work_assign(self, actor: str, wid: str, owner: str,
                     notify: bool = True) -> dict[str, Any]:
