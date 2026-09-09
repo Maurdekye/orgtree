@@ -10252,11 +10252,12 @@ class Org:
     #: (user 2026-09-05, Astra 2026-09-05): work that was cancelled or failed
     #: unrecoverably is as finished as work that succeeded, and leaving only
     #: the successful kind to archive itself meant every dead item stayed on
-    #: the main list for good. `superseded` is deliberately NOT here — its
-    #: replacement pointer is the thing you follow, and it is left as it was.
+    #: the main list for good. Superseded records are closed historical
+    #: pointers and age out like done records; their status and replacement
+    #: link remain intact when archived.
     #: `waiting` LEFT this tuple with the state itself (user 2026-09-07): a
     #: legacy row reads as blocked, and blocked never ages out by itself.
-    WORK_ARCHIVES_ITSELF: Final = ("done", "dropped")
+    WORK_ARCHIVES_ITSELF: Final = ("done", "superseded", "dropped")
     #: …and of those, the statuses that archive THE MOMENT they are set, with
     #: no clock at all (user 2026-09-07: "dropped tasks should be immediately
     #: archived, no 1-hour timeout for them"). Dead work has nothing left to
@@ -10265,17 +10266,9 @@ class Org:
     #: Because archival is DERIVED on read, an item dropped before this rule
     #: existed reads as archived at once too, and the next sweep moves it.
     #:
-    #: ⚠ THE ONE RETAINED EXCEPTION IS ATTENTION, NOT TIME (coordinator
-    #: qualification 2026-09-07). `_work_archived` / `_work_sweep` still keep
-    #: an item that HOLDS ATTENTION on the main list whatever its status —
-    #: a manual flag or an open attached question — because the badge must
-    #: open onto a visible row (Astra 2026-09-05). So "at once" means "the
-    #: instant it is dropped AND attention-free": the drop update itself
-    #: clears a manual flag it does not restate (`work_update`, "the manual
-    #: flag is restated by every update"), a drop that passes attention=True
-    #: holds the row until the user dismisses or replies, and an open
-    #: attached question holds it until the asker withdraws or the user
-    #: answers — the drop touches no ask. Nothing waits on a clock.
+    #: Manual attention still prevents archival for non-closed rows. Closed
+    #: rows follow their status clock while retaining the attention flag and
+    #: linked questions/notices in the archived record.
     WORK_ARCHIVES_AT_ONCE: Final = ("dropped",)
 
     def _work_eligible(self, it: WorkItem, now_ts: float) -> bool:
@@ -10302,6 +10295,8 @@ class Org:
 
     def _work_archived(self, it: WorkItem, physically: bool,
                        now_ts: float) -> bool:
+        if self._work_status(it) in self.WORK_CLOSED:
+            return physically or self._work_eligible(it, now_ts)
         if self._work_attention(it):
             return False
         return physically or self._work_eligible(it, now_ts)
@@ -10365,7 +10360,7 @@ class Org:
         # "closed" either.
         outcomes: dict[str, str] = {}
         for it in list(active):
-            if self._work_eligible(it, now_ts) and not self._work_attention(it):
+            if self._work_eligible(it, now_ts):
                 active.remove(it)
                 it["archived_at"] = now()
                 self.d.setdefault("work_items_archive", []).append(it)
