@@ -26,6 +26,8 @@ export class Engine extends EventEmitter {
   private stopping = false
   /** False when attached to a boot-host engine this process must not stop. */
   managed = true
+  /** Resolved data root of the current attachment; '' when managed. */
+  private attachedRoot = ''
   /** Why the last attach attempt was declined; empty when no descriptor existed. */
   attachDiagnostic = ''
   status: EngineStatus = { state: 'starting' }
@@ -83,6 +85,7 @@ export class Engine extends EventEmitter {
       this.credential = attach.token
       this.endpoint = origin
       this.managed = false
+      this.attachedRoot = realRoot
       this.state({ state: 'ready' })
       return true
     } catch (error) {
@@ -179,27 +182,37 @@ export class Engine extends EventEmitter {
   }
 
   /** Graceful authenticated stop of the boot engine so an update can replace
-   *  its files; the installer restarts the task afterwards. Throws — with no
-   *  state disturbed — when the engine does not verifiably stop, so callers
-   *  refuse the update instead of installing over a live engine. */
+   *  its files; the installer restarts the task afterwards. PROOF is two
+   *  layered facts, not one: the endpoint must stop answering AND the attach
+   *  descriptor must disappear — the host deletes it only after the engine
+   *  PROCESS has actually exited, so a dead socket with a lingering
+   *  descriptor means processes still hold files and the update is refused.
+   *  Throws — with no state disturbed — when either proof is missing. */
   async stopAttachedForUpdate(deadlineMs = 15000): Promise<void> {
     if (this.managed || !this.endpoint) return
     const endpoint = this.endpoint
+    const descriptorFile = this.attachedRoot ? path.join(this.attachedRoot, 'engine-attach.json') : ''
     try {
       await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(5000), redirect: 'error' })
     } catch { /* liveness decides below */ }
     const deadline = Date.now() + deadlineMs
+    let endpointDead = false
     while (Date.now() < deadline) {
-      try {
-        await fetch(endpoint + '/api/desktop/identity', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(2000), redirect: 'error' })
-      } catch {
+      if (!endpointDead) {
+        try {
+          await fetch(endpoint + '/api/desktop/identity', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(2000), redirect: 'error' })
+        } catch { endpointDead = true }
+      }
+      if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile))) {
         this.endpoint = ''
         this.state({ state: 'stopped', message: 'Engine stopped' })
         return
       }
       await new Promise(resolve => setTimeout(resolve, 500))
     }
-    throw new Error('Background engine did not stop for the update')
+    throw new Error(endpointDead
+      ? 'Background engine port closed but its host has not confirmed process exit; refusing the update'
+      : 'Background engine did not stop for the update')
   }
 
   async stats(): Promise<RuntimeStats | null> {

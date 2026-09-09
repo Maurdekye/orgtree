@@ -139,6 +139,11 @@ test('a refused spawn is distinguishable and the same engine can then attach (bo
     writeDescriptor(descriptor({ port }))
     assert.equal(await engine.attach(options), true, 'attach must be possible after a lost-race spawn')
     assert.equal(engine.managed, false)
+    // Disowned-exit guard regression: the killed spawn's late 'exit' event
+    // must not clobber the attachment with a 'stopped' state.
+    await new Promise(resolve => setTimeout(resolve, 200))
+    assert.equal(engine.status.state, 'ready', 'a disowned child exit must not disturb a later attach')
+    assert.equal(engine.origin, `http://127.0.0.1:${port}`)
   } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
 })
 
@@ -235,41 +240,58 @@ test('the attach retry budget covers the host readiness timeout', () => {
     `retry budget ${ATTACH_RETRY_BUDGET_MS}ms must exceed host readiness ${ready}s plus margin`)
 })
 
-test('an attached update stop is graceful, verified, and refuses when the engine will not die', async () => {
-  let sawShutdown = ''
-  const { server, port } = await identityServer(() => {})
-  server.removeAllListeners('request')
-  server.on('request', (request, response) => {
-    if (request.method === 'POST' && request.url === '/api/desktop/shutdown') {
-      sawShutdown = request.headers['x-orgtree-desktop-token']
-      respond(response, 200, { accepted: true })
-      setTimeout(() => server.close(), 50)
-      return
-    }
-    if (request.url === '/api/desktop/identity' && request.headers['x-orgtree-desktop-token'] === token) return respond(response, 200, engineIdentity)
-    respond(response, 401, {})
-  })
+test('an attached update stop needs BOTH proofs: dead endpoint and host-confirmed exit', async () => {
+  const descriptorPath = path.join(realRoot, 'engine-attach.json')
+  const rig = async () => {
+    let sawShutdown = ''
+    const { server, port } = await identityServer(() => {})
+    server.removeAllListeners('request')
+    return await new Promise(resolve => resolve({ sawShutdown: () => sawShutdown, server, port,
+      arm: onShutdown => server.on('request', (request, response) => {
+        if (request.method === 'POST' && request.url === '/api/desktop/shutdown') {
+          sawShutdown = request.headers['x-orgtree-desktop-token']
+          respond(response, 200, { accepted: true })
+          onShutdown()
+          return
+        }
+        if (request.url === '/api/desktop/identity' && request.headers['x-orgtree-desktop-token'] === token) return respond(response, 200, engineIdentity)
+        respond(response, 401, {})
+      }) }))
+  }
+
+  // Success: the endpoint dies AND the host removes the descriptor (which it
+  // only does after the engine process exited) — both proofs present.
+  const good = await rig()
+  good.arm(() => setTimeout(() => { good.server.close(); fs.rmSync(descriptorPath, { force: true }) }, 50))
   const engine = trusting(new Engine())
-  try {
-    writeDescriptor(descriptor({ port }))
-    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
-  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
-  await engine.stopAttachedForUpdate(5000)
-  assert.equal(sawShutdown, token, 'shutdown goes through the authenticated route')
+  writeDescriptor(descriptor({ port: good.port }))
+  assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+  await engine.stopAttachedForUpdate(8000)
+  assert.equal(good.sawShutdown(), token, 'shutdown goes through the authenticated route')
   assert.equal(engine.status.state, 'stopped')
 
-  // Refusal: a peer that ignores shutdown and never dies (identity keeps
-  // answering, the shutdown POST 404s inside the helper server).
+  // Hung host: the endpoint dies but the descriptor REMAINS — the process
+  // has not confirmed exit, so the update is refused.
+  const hung = await rig()
+  hung.arm(() => setTimeout(() => hung.server.close(), 50))
+  const engine2 = trusting(new Engine())
+  try {
+    writeDescriptor(descriptor({ port: hung.port }))
+    assert.equal(await engine2.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await assert.rejects(engine2.stopAttachedForUpdate(2500), /has not confirmed process exit/)
+  } finally { fs.rmSync(descriptorPath, { force: true }) }
+
+  // Stubborn engine: identity keeps answering — refused as before.
   const alive = await identityServer((request, response) => {
     if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
     respond(response, 200, engineIdentity)
   })
-  const stubborn = trusting(new Engine())
+  const engine3 = trusting(new Engine())
   try {
     writeDescriptor(descriptor({ port: alive.port }))
-    assert.equal(await stubborn.attach({ dataRoot, forbiddenRoot: forbidden }), true)
-    await assert.rejects(stubborn.stopAttachedForUpdate(1500), /did not stop/)
-  } finally { alive.server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
+    assert.equal(await engine3.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await assert.rejects(engine3.stopAttachedForUpdate(1500), /did not stop/)
+  } finally { alive.server.close(); fs.rmSync(descriptorPath, { force: true }) }
 })
 
 test('a lost attachment recovers by re-attaching to the republished host with its NEW token', async () => {

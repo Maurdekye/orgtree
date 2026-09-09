@@ -93,6 +93,28 @@ class ServiceHostUnitTests(unittest.TestCase):
             self.assertEqual(sorted(set(sids.split(","))), sorted({me, "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "inheritance must be stripped so profile-wide read grants do not apply")
 
+    def test_published_descriptor_carries_the_restricted_acl(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("NTFS ACLs are Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            script = ("$acl=Get-Acl -LiteralPath '" + str(published).replace("'", "''") + "';"
+                      "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+                      "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
+            output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                                    capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+            sids, inherited = output.rsplit("|", 1)
+            self.assertEqual(sorted(set(sids.split(","))),
+                             sorted({service_host._current_user_sid(), "S-1-5-18", "S-1-5-32-544"}), output)
+            self.assertEqual(inherited, "0", "the token must never sit under inherited ACLs")
+
+    def test_write_descriptor_fails_closed_when_acl_restriction_unavailable(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_host, "restrict_descriptor_acl", return_value=False):
+                with self.assertRaisesRegex(OSError, "refusing to publish"):
+                    write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
+
     def test_descriptor_lifecycle_never_deletes_a_newer_hosts_file(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
@@ -208,6 +230,24 @@ class LaunchRefusalTests(unittest.TestCase):
                 self.assertIn("owns this data root", refusals[0]["reason"])
             finally:
                 lock.close()
+
+    def test_other_lifetime_failures_do_not_masquerade_as_refusals(self):
+        # NARROW refusal (root ruling): a broken parent PID is a real fault
+        # and must fail fast without the structured line that triggers the
+        # desktop's attach-retry loop.
+        if os.name != "nt":
+            raise unittest.SkipTest("guardian requires Windows")
+        repo = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": "ee" * 32,
+                   "ORGTREE_V2_UI_DIR": str(root), "ORGTREE_V2_PARENT_PID": "-5"}
+            result = subprocess.run([sys.executable, str(repo / "engine" / "launch.py")],
+                                    cwd=str(repo / "engine"), env=env, capture_output=True,
+                                    timeout=60)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(b'"type":"refused"', result.stdout,
+                             "only the root-ownership refusal may emit the structured line")
 
 
 def _request(url: str, token: str | None, method: str = "GET") -> tuple[int, dict]:

@@ -313,10 +313,14 @@ def main() -> None:
         guardian_pid = arm_process_lifetime(data, parent_pid=int(parent) if parent else None)
     except RuntimeError as exc:
         # The desktop parses stdout: a structured refusal lets it tell a lost
-        # boot race (another owner holds this root) from a broken engine and
-        # retry attachment instead of showing a fatal startup dialog.
-        print(json.dumps({"type": "refused", "reason": str(exc)[:300]},
-                         separators=(",", ":")), flush=True)
+        # boot race from a broken engine and retry attachment instead of
+        # showing a fatal dialog. NARROW on purpose (root ruling): only the
+        # root-ownership refusal qualifies — any other lifetime failure (a
+        # guardian timeout, a bad parent PID) is a real fault and must fail
+        # fast, never trigger an attach-retry loop.
+        if "owns this data root" in str(exc):
+            print(json.dumps({"type": "refused", "reason": str(exc)[:300]},
+                             separators=(",", ":")), flush=True)
         raise
     app, _token, data, port, stopping = load_app()
     # The v2 loopback hub is a sibling service, not an alternate API. Start it

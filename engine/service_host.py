@@ -121,7 +121,8 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
     grant other accounts READ (measured on this machine: a sandbox account
     holds inherited read on the data root). Stripping inheritance down to
     the operator + SYSTEM + Administrators removes that token exposure.
-    Best-effort: the desktop's own trust check still gates attachment.
+    write_descriptor() FAILS CLOSED when this returns False: the token is
+    never published under inherited ACLs.
     """
     sid = _current_user_sid()
     if os.name != "nt" or not sid:
@@ -138,14 +139,28 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
 
 
 def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path:
+    """Publish the descriptor with the token NEVER on disk under inherited
+    ACLs: create the temporary file empty, restrict it to the operator +
+    SYSTEM + Administrators, and only then write the token into it. A rename
+    keeps the file object and its DACL, so the published file stays
+    restricted. FAIL CLOSED: if the restriction cannot be applied, the token
+    is not published at all (root ruling — inherited profile ACLs can grant
+    other accounts read).
+    """
     descriptor = root / DESCRIPTOR
     payload = {"type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid,
                "hostPid": os.getpid(), "dataRootId": str(root.resolve()), "token": token,
                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     temporary = descriptor.with_suffix(".tmp")
+    temporary.write_text("", encoding="utf-8")
+    if not restrict_descriptor_acl(temporary):
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise OSError("descriptor ACL restriction unavailable; refusing to publish the token")
     temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
     os.replace(temporary, descriptor)
-    restrict_descriptor_acl(descriptor)
     return descriptor
 
 
