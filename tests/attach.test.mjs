@@ -53,9 +53,15 @@ const engineIdentity = { protocol: 1, pid: 4242, dataRootId: realRoot }
 const trusting = engine => { engine.trustCheck = async () => ({ ok: true, detail: 'test stub' }); return engine }
 // REAL trust-check fixtures cannot live under %TEMP%: its ancestor chain
 // carries foreign delete-class ACEs on this machine, which the ancestor
-// replacement rule rightly refuses. The worktree's own chain is clean.
-const aclBase = fs.mkdtempSync(path.join(process.cwd(), 'acl-fixtures-'))
-test.after(() => { try { fs.rmSync(aclBase, { recursive: true, force: true }) } catch {} })
+// replacement rule rightly refuses. Default to the worktree; an explicitly
+// prepared test-only base lets the required positive run on a trusted chain.
+const aclFixtureRoot = process.env.ORGTREE_TEST_ACL_BASE || process.cwd()
+assert(path.isAbsolute(aclFixtureRoot), 'ACL fixture base must be an explicit absolute path')
+const aclBase = fs.mkdtempSync(path.join(aclFixtureRoot, 'acl-fixtures-'))
+test.after(() => {
+  if (process.env.ORGTREE_TEST_ACL_BASE) { console.log(`Retained ACL fixture evidence: ${aclBase}`); return }
+  try { fs.rmSync(aclBase, { recursive: true, force: true }) } catch {}
+})
 
 test('attach adopts a verified boot engine and refuses to stop it', async () => {
   const { server, port } = await identityServer((request, response) => {
