@@ -249,6 +249,51 @@ def remove_account(account_id: str) -> bool:
         return True
 
 
+# --------------------------------------------------------- binding validator
+class BindingRefused(ValueError):
+    """A binding the validator refuses — the reason names both sides."""
+
+
+def validate_binding(org_slug: str, tier: str,
+                     account_id: str) -> dict[str, Any]:
+    """THE one binding validator (design D2d: one rule, every surface — the
+    operator endpoint and account_assign both call this, so neither door can
+    pass what the other refuses, and being the user does not bypass it).
+
+    Three checks, in refusal order:
+      1. the account exists;
+      2. AVAILABILITY — an org-key row (origin_org) is bindable only within
+         its origin org (user ruling 18:38Z, the declared exception);
+      3. PROVIDER COMPATIBILITY — the account's provider must equal
+         providers.provider_of(tier) (D-196, the one axis): a claude-tier
+         node on a Codex account is a spawn that authenticates as nothing
+         useful, so it never comes into existence.
+    """
+    from . import providers
+    try:
+        row = get_account(account_id)
+    except UnknownAccount:
+        raise BindingRefused(
+            f"no account {account_id!r} is registered") from None
+    scope = str(row.get("origin_org") or "")
+    if scope and scope != org_slug:
+        raise BindingRefused(
+            f"account {row['id']} is an org key restricted to its origin "
+            f"organization {scope!r} — org {org_slug!r} cannot bind it "
+            f"(user ruling: legacy org keys keep their org restriction)")
+    node_provider = providers.provider_of(str(tier or ""))
+    if node_provider == "openrouter":
+        raise BindingRefused(
+            f"an OpenRouter-tier node has no account binding — that lane "
+            f"is not an account (design D6)")
+    if row["provider"] != node_provider:
+        raise BindingRefused(
+            f"account {row['id']} is a {row['provider']} account but the "
+            f"node's tier {tier!r} runs on {node_provider} — a binding "
+            f"must match the tier's provider")
+    return row
+
+
 # ------------------------------------------------------------------ the seam
 #: the provider's profile-credential variable — the ONE mapping the injector
 #: and the identity cross-check both read, so they cannot disagree.

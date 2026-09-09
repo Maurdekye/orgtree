@@ -11283,6 +11283,91 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def assign_account(slug: str, nid: str, account_id: str, *,
+                   actor: str,
+                   org: Org | None = None) -> dict[str, Any]:
+    """Reassign a node's account binding — the ONE writer both surfaces call
+    (design D2d). Authority is checked by the CALLER (operator token, or
+    org.is_ancestor for the agent tool); everything about the ACCOUNT is
+    checked here so no door can pass what the other refuses.
+
+    The result is the full disclosure set (D2d, ruling 19:00Z): target
+    account id+label, credential kind, BILLING MODE (subscription vs API
+    key — an org-key binding flips billing and must never be silent), auth
+    state, current standing+horizon WITH provenance ("this will wait until
+    X" at the point of action), and the falsifiable identity_change_fields
+    record. The same record lands in the org's audit log — the user-readable
+    surface — because agent-initiated reassignment is the common case and
+    rule 2's "visible" means visible to the USER, not to the calling agent's
+    own transcript.
+
+    For codex nodes reassignment is a SESSION BOUNDARY (codexrun §3.4:
+    CODEX_HOME is never repointed live) — refused while the node is busy;
+    the warm pool's cred component (account id + profile selector) makes a
+    parked process for the OLD account a non-match by construction."""
+    from . import warmpool
+    st = state(slug, nid)
+    if st.get("busy") or st.get("responding"):
+        raise RuntimeError(
+            f"{nid} is mid-turn — reassignment is a session boundary and "
+            f"never repoints a live session; retry when the turn ends")
+    # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
+    # — mutating a fresh load and saving it would be clobbered by the
+    # caller's later save of its stale copy. With `org` given, the caller
+    # owns the save; DOC_LOCK is re-entrant so the with below is safe both
+    # ways.
+    _caller_owns_save = org is not None
+    with store.DOC_LOCK:
+        if org is None:
+            org = store.load_org(slug)
+        if nid not in org.nodes:
+            raise RuntimeError(f"no node {nid!r} in org {slug!r}")
+        node = org.node(nid)
+        if node.get("state") != "live":
+            raise RuntimeError(f"{nid} is not live")
+        if sbx.is_sandboxed(org):
+            raise RuntimeError(
+                "sandboxed orgs are container-managed — accounts do not "
+                "apply (declared exemption, design D2a)")
+        tier = str(node.get("model") or "")
+        row = registry.validate_binding(slug, tier, account_id)
+        previous = str(node.get("account") or "")
+        try:
+            prev_hash, prev_comp = warmpool.identity_snapshot(org, nid)
+        except Exception:                                    # noqa: BLE001
+            prev_hash, prev_comp = "", None
+        node["account"] = row["id"]
+        try:
+            next_hash, next_comp = warmpool.identity_snapshot(org, nid)
+        except Exception:                                    # noqa: BLE001
+            next_hash, next_comp = "", None
+        continuity = warmpool.identity_change_fields(
+            prev_hash, prev_comp, next_hash, next_comp)
+        cred = row["credential"]
+        billing = ("api-key"
+                   if (cred["kind"] == "token"
+                       and str(cred.get("token_ref", ""))
+                       .startswith("org-api-key:"))
+                   else "subscription")
+        mark = registry.active_mark(row["id"], tier)
+        standing = ({"state": "limited", "until": mark["until"],
+                     "provenance": mark["provenance"]} if mark
+                    else {"state": "ready"})
+        disclosure = {
+            "account": row["id"], "label": row["label"],
+            "credential_kind": cred["kind"], "billing_mode": billing,
+            "auth": row["auth"], "standing": standing,
+            "previous_account": previous or None,
+            "continuity": continuity,
+            "session_boundary": row["provider"] == "openai",
+        }
+        org._log("account_assign", actor, dict(disclosure), [])
+        if not _caller_owns_save:
+            store.save_org(org)
+    notify(slug, nid, "account")
+    return disclosure
+
+
 def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
     """(home, account_id) for a codex spawn, resolved from the NODE'S BOUND
     ACCOUNT — never from os.environ (Opus S3 finding: the strip in

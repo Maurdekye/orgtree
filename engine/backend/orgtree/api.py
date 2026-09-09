@@ -3730,6 +3730,28 @@ class Reorder(Body):
     after: str | None = None
 
 
+class AccountAssign(Body):
+    account: str
+
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/account")
+async def node_account_assign(slug: str, nid: str,
+                              body: AccountAssign) -> dict[str, Any]:
+    """The OPERATOR reassignment surface (multi-account D2d). The account
+    checks (availability incl. origin-org scope, provider match) live in the
+    shared validator inside supervisor.assign_account — being the user does
+    not bypass the org-key restriction (coordinator ruling 18:49Z). The
+    result is the full disclosure set: billing mode, standing with
+    provenance, and the identity_change_fields continuity record."""
+    try:
+        result = supervisor.assign_account(slug, nid, body.account,
+                                           actor=USER)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(422, str(e))
+    await hub.changed(slug)
+    return result
+
+
 @app.post("/api/orgs/{slug}/nodes/{nid}/reorder")
 async def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
     with store.DOC_LOCK:
@@ -8029,6 +8051,34 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 result = _agent_present(org, body.node, a)
             elif body.tool == "orgtree_hire":
                 result = _hire_seat(org, body.org, body.node, a, drive)
+            elif body.tool == "orgtree_account_assign":
+                # multi-account D2d: node authority here (strictly downward
+                # — a node cannot rebind ITSELF, a DECIDED refusal: own-
+                # billing changes are reserved to supervisors and the user);
+                # every check about the ACCOUNT lives in the shared
+                # validator, so this door cannot pass what the operator
+                # door refuses.
+                target = str(a.get("node") or "")
+                if not target:
+                    raise HTTPException(422, "node is required")
+                if target == body.node:
+                    raise HTTPException(
+                        403, "you cannot reassign your own account — a "
+                             "node's billing is its supervisors' and the "
+                             "user's decision, never its own")
+                if not org.is_ancestor(body.node, target):
+                    raise HTTPException(
+                        403, f"you can only reassign accounts of your "
+                             f"subordinates ({target!r} is not one)")
+                try:
+                    # pass THIS transaction's org: the dispatch saves it at
+                    # the end, and a separate load/save here would be
+                    # clobbered by that later save of the stale copy
+                    result = supervisor.assign_account(
+                        body.org, target, str(a.get("account") or ""),
+                        actor=body.node, org=org)
+                except (RuntimeError, ValueError) as e:
+                    raise HTTPException(422, str(e))
             elif body.tool == "orgtree_retool":
                 # effort joins retool (ceiling spec §6): a cost dial, so a
                 # superior may set it on REPORTS — never on itself (set_scope's
