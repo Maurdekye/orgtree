@@ -1,5 +1,5 @@
-import { BrowserWindow, type Session } from 'electron'
-import { scopedHeaders, trustedUiUrl } from './policy'
+import { BrowserWindow, shell, type Session } from 'electron'
+import { externalHttpUrl, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
  *  desktop re-attaches with a NEW per-boot token (usually the same origin,
@@ -42,7 +42,9 @@ export function configureEngineSession(session: Session, liveOrigin: Live, liveT
 }
 
 /** Preserve one mounted portal; blank children never boot a second App. */
-export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void): void {
+type OpenExternal = (url: string) => void | Promise<void>
+
+export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url)): void {
   register?.(window, !isMain)
   if (!isMain) {
     // Chromium can leave an adopted about:blank document "hidden" even while
@@ -55,19 +57,35 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     throttle()
   }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
-  window.webContents.on('will-navigate', (event, url) => { if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault() })
-  window.webContents.on('will-redirect', (event, url) => { if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault() })
+  const routeExternal = (url: string): boolean => {
+    const origin = live(liveOrigin)
+    if (!isMain || !externalHttpUrl(url) || !trustedUiUrl(window.webContents.getURL(), origin)) return false
+    try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
+    return true
+  }
+  window.webContents.on('will-navigate', (event, url) => {
+    if (routeExternal(url)) { event.preventDefault(); return }
+    if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault()
+  })
+  window.webContents.on('will-redirect', (event, url) => {
+    if (routeExternal(url)) { event.preventDefault(); return }
+    if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault()
+  })
   window.webContents.setWindowOpenHandler(({ url }) => {
     const origin = live(liveOrigin)
     if (artifactUrl(url, origin) && (isMain ? trustedUiUrl(window.webContents.getURL(), origin) : window.webContents.getURL() === 'about:blank')) {
       openArtifact?.(url)
       return { action: 'deny' }
     }
+    if (isMain && externalHttpUrl(url) && trustedUiUrl(window.webContents.getURL(), origin)) {
+      try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
+      return { action: 'deny' }
+    }
     if (!isMain || !trustedUiUrl(window.webContents.getURL(), origin) || url !== 'about:blank') return { action: 'deny' }
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false } } }
   })
-  window.webContents.on('did-create-window', child => configureWindow(child, liveOrigin, false, register, openArtifact))
+  window.webContents.on('did-create-window', child => configureWindow(child, liveOrigin, false, register, openArtifact, openExternal))
 }
 
 export function artifactUrl(value: string, origin: string): boolean {

@@ -51,6 +51,8 @@ test('auth covers HTTP WS assets and strips credentials on all other destination
   assert.equal(policy.trustedUiUrl('about:blank', origin), false)
   for (const route of ['/o/team', '/o/team@old']) assert.equal(policy.trustedUiUrl(origin + route, origin), true)
   for (const route of ['/o/', '/o/team/child', '/o/team%2fartifact', '/api/orgs/team/documents/x/mockup']) assert.equal(policy.trustedUiUrl(origin + route, origin), false)
+  for (const url of ['http://example.com/path?q=1#top', 'https://docs.example.test/']) assert.equal(policy.externalHttpUrl(url), true)
+  for (const url of ['about:blank', 'file:///tmp/x', 'javascript:alert(1)', 'data:text/html,hi', 'mailto:test@example.com', 'https://user:pass@example.com/']) assert.equal(policy.externalHttpUrl(url), false)
 })
 test('harness detection has positive fixture and never executes it', () => {
   const name = process.platform === 'win32' ? 'codex.cmd' : 'codex'

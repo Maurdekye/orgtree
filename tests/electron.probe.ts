@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
-const seen: { url: string; token?: string }[] = [], foreign: (string | undefined)[] = []
+const seen: { url: string; token?: string }[] = [], foreign: (string | undefined)[] = [], openedExternal: string[] = []
 const token = crypto.randomBytes(32).toString('hex')
 let server: http.Server, outsider: http.Server
 app.whenReady().then(async () => {
@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
   const register = configureEngineSession(ses, () => origin, () => liveToken)
   const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, additionalArguments: [`--orgtree-ui-origin=${origin}`] } }
   const main = new BrowserWindow(options)
-  configureWindow(main, () => origin, true, register)
+  configureWindow(main, () => origin, true, register, undefined, url => { openedExternal.push(url) })
   ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
   await main.loadURL(origin)
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -122,7 +122,13 @@ app.whenReady().then(async () => {
   assert.ok(foreign.every(t => !t), 'artifact internet resource never gets desktop auth')
   assert.equal(await viewer.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(foreignOrigin)}) === null`), true)
-  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true }))
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.ok(openedExternal.some(url => url === foreignOrigin || url === foreignOrigin + '/'), 'target blank external link launches through the controlled browser callback')
+  await main.webContents.executeJavaScript(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(foreignOrigin + '/same-tab')};document.body.appendChild(a);a.click();return true})()`)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.ok(openedExternal.includes(foreignOrigin + '/same-tab'), 'same-tab external navigation launches through the controlled browser callback')
+  assert.equal(await main.webContents.executeJavaScript('location.origin'), origin, 'external navigation is prevented in the app window')
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowRouted: true, externalNavigationRouted: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true }))
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   server.close(); outsider.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

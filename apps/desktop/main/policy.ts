@@ -181,6 +181,14 @@ export function trustedUiUrl(value: string, origin: string): boolean {
   return u.protocol === 'http:' && isAppPath(u.pathname)
 }
 
+/** Only plain HTTP(S) URLs may be handed to the user's external browser. */
+export function externalHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value)
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password
+  } catch { return false }
+}
+
 export function closeAction(exitOnClose: boolean, quitting: boolean, otherVisibleViews = 0): 'hide' | 'quit' | 'close' {
   return quitting ? 'close' : exitOnClose && otherVisibleViews === 0 ? 'quit' : 'hide'
 }
