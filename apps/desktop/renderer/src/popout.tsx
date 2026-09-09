@@ -199,7 +199,11 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   // every click until this component fully unmounts (an org switch), even
   // though the surface itself already moved out of it.
   const discardFallback = () => { fallback.current?.remove(); fallback.current = null }
-  const destination = () => {
+  // NOT a pure query (redteam-opus): finding a real destination discards the
+  // stale fallback as a side effect, so this must only be called where the
+  // result is about to be placed into, never to just ask where the surface
+  // would go — that would silently destroy a live box.
+  const claimDestination = () => {
     const a = latest.current.anchor === undefined ? placeholder.current : latest.current.anchor
     if (a?.isConnected) { discardFallback(); return a }
     const overlay = latest.current.parent?.overlays
@@ -223,7 +227,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
     closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
-    place(destination())
+    place(claimDestination())
     initialOwner.current = document
     parts.container.classList.remove('detached')
     setOwner(parts.container.ownerDocument); setDetached(false)
@@ -340,7 +344,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
 
   useLayoutEffect(() => {
     if (!child.current) {
-      const a = (anchor === undefined ? placeholder.current : anchor) ?? destination()
+      const a = (anchor === undefined ? placeholder.current : anchor) ?? claimDestination()
       if (a) {
         // Modal requests originating in a child open there, even if their
         // React state is owned at App/OrgCanvas level.
