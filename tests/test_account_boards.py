@@ -127,5 +127,43 @@ class BoardsTests(unittest.TestCase):
         self.assertEqual(fresh["auth"], "authenticated")
 
 
+    # S-usage: the per-account usage endpoint's ROUTING — every non-network
+    # path (AG unsupported, org-key no-windows, claude profile without
+    # credentials, codex non-ambient home). The claude-token and ambient
+    # network reads are packaged-acceptance evidence, not unit territory.
+
+    def test_usage_routing_non_network_paths(self):
+        import asyncio
+        ag = self.registry.create_account(
+            "google", "ag", {"kind": "managed",
+                             "path": os.path.join(self.root, "ag-u")})
+        out = asyncio.run(self.api.accounts_usage(ag["id"]))
+        self.assertFalse(out["available"])
+        self.assertTrue(out["unsupported"])  # explicit, never fabricated
+        okey = self.registry.create_account(
+            "claude", "ok", {"kind": "token",
+                             "token_ref": "org-api-key:u1"},
+            origin_org="u1")
+        out2 = asyncio.run(self.api.accounts_usage(okey["id"]))
+        self.assertFalse(out2["available"])
+        self.assertIn("API-key", out2["error"])
+        prof = self.registry.create_account(
+            "claude", "p", {"kind": "managed",
+                            "path": os.path.join(self.root, "cl-u")})
+        os.makedirs(os.path.join(self.root, "cl-u"), exist_ok=True)
+        out3 = asyncio.run(self.api.accounts_usage(prof["id"]))
+        self.assertFalse(out3["available"])  # no credentials file yet
+        self.assertIn("credentials", out3["error"])
+        cx = self.registry.create_account(
+            "openai", "cx", {"kind": "managed",
+                             "path": os.path.join(self.root, "cx-u")})
+        out4 = asyncio.run(self.api.accounts_usage(cx["id"]))
+        self.assertFalse(out4["available"])
+        self.assertIn("app-server", out4["error"])
+        # standing rides every answer
+        for o in (out, out2, out3, out4):
+            self.assertIn("standing", o)
+
+
 if __name__ == "__main__":
     unittest.main()

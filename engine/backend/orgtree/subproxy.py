@@ -35,35 +35,50 @@ def available() -> bool:
     return os.path.isfile(CREDS)
 
 
-def _write(doc: dict[str, Any]) -> None:
-    """Atomic in-place replace — the host CLI and this proxy share one copy.
+def _write(doc: dict[str, Any], creds_path: str = CREDS) -> None:
+    """Atomic in-place replace — the host CLI and this proxy share one copy
+    (per credentials file: the ambient one, or a profile directory's own).
     A failed write must leave neither a half-file nor a stray temp beside the
-    real credentials (the directory is the user's ~/.claude), and it must
-    surface as the RuntimeError every caller of get_access_token expects."""
+    real credentials, and it must surface as the RuntimeError every caller
+    of get_access_token expects."""
     try:
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(CREDS), suffix=".tmp")
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(creds_path),
+                                   suffix=".tmp")
     except OSError as e:
-        raise RuntimeError(f"cannot write Claude credentials at {CREDS}: {e}")
+        raise RuntimeError(f"cannot write Claude credentials at {creds_path}: {e}")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(doc, f)
-        os.replace(tmp, CREDS)
+        os.replace(tmp, creds_path)
     except (OSError, TypeError, ValueError) as e:
         try:
             os.unlink(tmp)
         except OSError:
             pass
-        raise RuntimeError(f"cannot write Claude credentials at {CREDS}: {e}")
+        raise RuntimeError(f"cannot write Claude credentials at {creds_path}: {e}")
 
 
 def get_access_token() -> str:
     """The current subscription access token, refreshed in place when it has
     under 5 minutes left. Raises RuntimeError with an actionable message."""
+    return _access_token_at(CREDS)
+
+
+def profile_access_token(profile_dir: str) -> str:
+    """multi-account (per-account usage reads): the SAME read+refresh logic
+    against a PROFILE DIRECTORY'S own credentials file — a real CLI login in
+    that profile holds the same scopes as the ambient one, which is exactly
+    the token fetch_for_token's docstring anticipates. Never the ambient
+    file: a profile read must not refresh or describe another account."""
+    return _access_token_at(os.path.join(profile_dir, ".credentials.json"))
+
+
+def _access_token_at(creds_path: str) -> str:
     with _lock:
         try:
-            doc = json.load(open(CREDS, encoding="utf-8"))
+            doc = json.load(open(creds_path, encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"no readable Claude credentials at {CREDS}: {e}")
+            raise RuntimeError(f"no readable Claude credentials at {creds_path}: {e}")
         o: dict[str, Any] = doc.get("claudeAiOauth") or {}
         if not o.get("accessToken"):
             raise RuntimeError("credentials file has no OAuth access token — "
@@ -110,5 +125,5 @@ def get_access_token() -> str:
         elif o["refreshToken"] != old_refresh:
             o.pop("refreshTokenExpiresAt", None)
         doc["claudeAiOauth"] = o
-        _write(doc)
+        _write(doc, creds_path)
         return o["accessToken"]

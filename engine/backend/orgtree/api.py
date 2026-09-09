@@ -3874,6 +3874,67 @@ async def accounts_identity(account_id: str) -> dict[str, Any]:
     return {"account": account_id, "identity": identity, "auth": auth}
 
 
+@app.get("/api/accounts/{account_id}/usage")
+async def accounts_usage(account_id: str) -> dict[str, Any]:
+    """A REMOTE usage read for one account (multi-account D3 completion):
+    provider-native windows for the account's OWN lane, never the ambient
+    one — plus the marks-derived standing beside it.
+
+    Support matrix, honest: claude profile rows read their own credentials
+    file (same scopes as the ambient login — the token fetch_for_token's
+    docstring anticipates); the aliased AMBIENT claude row serves the rich
+    host board. Codex: the ambient-home row serves the real board; another
+    codex profile answers a structured not-yet-supported (a per-profile read
+    requires launching that home's app-server). AG stays explicitly
+    unsupported — no usage surface exists to read, and no environment
+    selector is invented. Token rows: legacy key rows answer from local
+    routing state; an org-key row bills an API key and has no subscription
+    windows."""
+    from . import codex_limits, subproxy
+    from .registry_migration import observe_ambient
+    try:
+        row = registry.get_account(account_id)
+    except registry.UnknownAccount:
+        raise HTTPException(404, f"no account {account_id!r}")
+    standing = registry.standing_of(row)
+    cred = row["credential"]
+    out: dict[str, Any] = {"account": account_id,
+                           "provider": row["provider"],
+                           "standing": standing}
+    if row["provider"] == "google":
+        out.update(available=False, unsupported=True,
+                   error="Antigravity exposes no usage surface")
+        return out
+    if cred["kind"] == "token":
+        if str(cred.get("token_ref", "")).startswith("org-api-key:"):
+            out.update(available=False,
+                       error="API-key billing — no subscription windows")
+        else:
+            out.update(accounts.account_usage(cred["token_ref"]))
+        return out
+    if row["provider"] == "claude":
+        if registry.resolve_alias("primary") == row["id"]:
+            out.update(limits.fetch())
+            return out
+        try:
+            token = subproxy.profile_access_token(cred["path"])
+        except RuntimeError as e:
+            out.update(available=False, error=str(e))
+            return out
+        out.update(limits.fetch_for_token(token, f"acct:{row['id']}"))
+        return out
+    # openai profile rows: the board rides the app-server on ONE home
+    ambient = observe_ambient().get("openai")
+    if ambient and os.path.normcase(os.path.normpath(cred["path"])) \
+            == os.path.normcase(os.path.normpath(ambient)):
+        out.update(codex_limits.fetch())
+        return out
+    out.update(available=False, error=(
+        "per-profile Codex usage needs this home's own app-server — not "
+        "read on demand yet; identity/auth still verify via refresh"))
+    return out
+
+
 @app.delete("/api/accounts/{account_id}")
 async def accounts_remove(account_id: str) -> dict[str, Any]:
     """Remove a registry row. REFUSED while any node is bound to it (design
