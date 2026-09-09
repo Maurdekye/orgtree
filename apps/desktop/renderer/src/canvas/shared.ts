@@ -1805,7 +1805,7 @@ export function copyCodeFromEvent(e: { target: EventTarget | null }) {
 if (typeof document !== 'undefined') document.addEventListener('click', copyCodeFromEvent)
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
- *  files are known; the cache keys on it (NUL joins the halves — it never
+ *  files are known; the cache keys on it (NUL joins the fields — it never
  *  occurs in a URL prefix, so two pairs cannot alias), and the same text
  *  rendered for two nodes never crosses.
  *
@@ -1816,7 +1816,20 @@ if (typeof document !== 'undefined') document.addEventListener('click', copyCode
  *  message and a mail body that happened to hold the identical text could
  *  share one cache entry — whichever rendered first would decide whether
  *  BOTH surfaces got the live sandboxed frame, silently making the mail
- *  surface (which must stay inert) match whatever the chat surface did. */
+ *  surface (which must stay inert) match whatever the chat surface did.
+ *
+ *  ⚠ THE FLAG GOES FIRST IN THE KEY, not last (redteam-opus, ac588dd
+ *  review): a NUL is assumed never to occur inside `imgBase` — true today
+ *  (it's a server-minted slug/node id, `fileBase(slug, nid)`), which is
+ *  why joining fields on NUL is safe at all. But with the flag placed
+ *  AFTER a variable-length `imgBase`, a NUL smuggled into `imgBase` could
+ *  shift the field boundary and alias an agent-mode key with an inert
+ *  one holding a differently-split `imgBase`+text — e.g. imgBase="x" in
+ *  agent mode vs imgBase="x\0client-supplied" in inert mode collapsing to
+ *  the same string. Leading with the flag means the FIRST character alone
+ *  decides the mode before any variable-length field is read, so no
+ *  content anywhere else in the key can ever cross it — the property no
+ *  longer depends on the NUL-free assumption at all. */
 export const md = (text: string | null | undefined,
                    imgBase?: string, agentHtmlResponse?: boolean): { __html: string } => {
   // assignment 19: server-written prose carries its timestamps as canonical
@@ -1839,7 +1852,7 @@ export const md = (text: string | null | undefined,
   // Hit-path cost is one `includes('⟦t:')` — `localizeStamps` returns its
   // input unchanged when there is no token, which is almost every string.
   const local = localizeStamps(text ?? '')
-  const key = (imgBase ?? '') + '\u0000' + (agentHtmlResponse ? '1' : '0') + '\u0000' + local
+  const key = (agentHtmlResponse ? '1' : '0') + '\u0000' + (imgBase ?? '') + '\u0000' + local
   let hit = _mdCache.get(key)
   if (hit === undefined) {
     hit = { __html: wrapCodeBlocks(DOMPurify.sanitize(

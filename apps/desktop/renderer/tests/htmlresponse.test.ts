@@ -169,3 +169,28 @@ test('⭐ the cache key separates the two modes — the SAME text does not leak 
   assert.equal(md(text).__html, inert)
   assert.equal(md(text, undefined, true).__html, live)
 })
+
+test('⭐ the cache key survives a NUL-smuggled imgBase (redteam-opus, ac588dd cache attack) — the flag leads, so no field boundary shift can alias two modes', () => {
+  // redteam-opus's attack: with the flag placed AFTER a variable-length
+  // imgBase, a NUL inside imgBase could shift the field boundary so an
+  // agent-mode key and an inert-mode key collapse to the identical string.
+  // imgBase can't carry a NUL in production (it's a server-minted slug/
+  // node id) so this was never reachable — but the fix removes the
+  // dependency on that assumption entirely by putting the flag FIRST.
+  // a leading newline so the fence still opens AT THE START OF A LINE once
+  // the "0" NUL prefix is prepended below — otherwise the prefix itself
+  // breaks the fence (redteam-opus hit this on their first attempt too:
+  // "put the NUL immediately before the fence, which broke the fence")
+  const rest = '\n' + fence('orgtree-html-response', '<p>marker</p>')
+  const NUL = ' '
+  // A: imgBase "x", agent mode, text "0" NUL REST
+  const htmlA = md('0' + NUL + rest, 'x', true).__html
+  // B: imgBase "x" NUL "1", inert, text REST — under the OLD key ordering
+  // (imgBase + NUL + flag + NUL + text) this collapses to the SAME string
+  // as A's key; under the fixed ordering (flag + NUL + imgBase + NUL +
+  // text) the leading character alone already differs.
+  const htmlB = md(rest, 'x' + NUL + '1', false).__html
+  assert.ok(htmlA.includes('<iframe'), `A (agent mode) should render live: ${htmlA}`)
+  assert.ok(!htmlB.includes('<iframe'),
+    `B (inert) must not be served A's cached agent-mode rendering: ${htmlB}`)
+})
