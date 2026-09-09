@@ -51,6 +51,8 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.ok(styles.includes('.orgbar.native-header'))
   assert.ok(styles.includes('.orgbar.native-header > .update-notice'))
   assert.ok(styles.includes('flex: 0 0 180px'))
+  assert.ok(styles.includes('overflow-x: auto'))
+  assert.ok(styles.includes('html.mobile .orgbar.native-header > .native-header-main > .bar-detail'))
   assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
   assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
   assert.match(nativeProbe, /native BrowserWindow state operations only/)
