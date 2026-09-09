@@ -1,0 +1,96 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { build } from 'esbuild'
+import { JSDOM } from 'jsdom'
+import React, { act } from 'react'
+import { createRoot } from 'react-dom/client'
+
+const root = path.resolve(import.meta.dirname, '..')
+const dir = fs.mkdtempSync(path.join(root, 'node_modules', '.update-notice-ui-test-'))
+const output = path.join(dir, 'update-notice.cjs')
+await build({
+  entryPoints: [path.join(root, 'apps/desktop/renderer/src/update-notice.tsx')],
+  outfile: output, bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic',
+  external: ['react', 'react/jsx-runtime'],
+})
+const { UpdateNotice } = createRequire(import.meta.url)(output)
+
+// The hide timer fires a state update outside of any React event handler, so
+// waiting for it must itself be wrapped in act() or React warns on the update.
+const sleep = ms => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)) })
+
+function stage() {
+  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost' })
+  globalThis.window = dom.window
+  globalThis.document = dom.window.document
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const listeners = new Set()
+  const target = document.getElementById('app')
+  const rootNode = createRoot(target)
+  const teardown = async () => { await act(async () => rootNode.unmount()); dom.window.close() }
+  return { rootNode, listeners, teardown }
+}
+
+async function mount(initial, transientMs) {
+  const { rootNode, listeners, teardown } = stage()
+  window.orgtreeDesktop = { getUpdateStatus: async () => initial, onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener) } }
+  await act(async () => rootNode.render(React.createElement(UpdateNotice, transientMs === undefined ? undefined : { transientMs })))
+  return { listeners, teardown, push: async status => act(async () => { for (const listener of listeners) listener({ type: 'update', data: status }) }) }
+}
+
+test('idle status on mount renders nothing', async () => {
+  const { teardown } = await mount({ state: 'idle' })
+  assert.equal(document.querySelector('.update-notice'), null)
+  await teardown()
+})
+
+test('a downloading push shows its percent and stays visible with no timer', async () => {
+  const { push, teardown } = await mount({ state: 'idle' }, 5)
+  await push({ state: 'downloading', version: '2.0.0-alpha.6', percent: 42 })
+  assert.equal(document.querySelector('.update-notice').textContent, 'Downloading update… 42%')
+  await sleep(20)
+  assert.ok(document.querySelector('.update-notice'), 'downloading is not a transient state — it must not auto-hide')
+  await teardown()
+})
+
+test('pending-idle stays visible (no auto-hide) and reports the ready-to-install message', async () => {
+  const { push, teardown } = await mount({ state: 'idle' }, 5)
+  await push({ state: 'pending-idle', version: '2.0.0-alpha.6' })
+  assert.match(document.querySelector('.update-notice').textContent, /installs automatically when idle/)
+  await sleep(20)
+  assert.ok(document.querySelector('.update-notice'))
+  await teardown()
+})
+
+test('up-to-date, unavailable and failed are transient feedback that auto-hides', async () => {
+  for (const state of ['up-to-date', 'unavailable', 'failed']) {
+    const { push, teardown } = await mount({ state: 'idle' }, 5)
+    await push({ state })
+    assert.ok(document.querySelector('.update-notice'), `${state} must show immediately`)
+    await sleep(30)
+    assert.equal(document.querySelector('.update-notice'), null, `${state} must auto-hide after its timeout`)
+    await teardown()
+  }
+})
+
+test('a later push resets the hide timer instead of stacking with the earlier one', async () => {
+  const { push, teardown } = await mount({ state: 'idle' }, 15)
+  await push({ state: 'up-to-date' })
+  await sleep(10)
+  await push({ state: 'unavailable' })
+  await sleep(10)
+  // 20ms since the first push (> its 15ms timer) but only 10ms since the second.
+  assert.equal(document.querySelector('.update-notice').textContent, 'Update check unavailable', 'the second push\'s own timer, not the first\'s, governs visibility')
+  await teardown()
+})
+
+test('checking has no label text change mid-flight and clears cleanly on unmount', async () => {
+  const { push, listeners, teardown } = await mount({ state: 'idle' })
+  await push({ state: 'checking' })
+  assert.equal(document.querySelector('.update-notice').textContent, 'Checking for updates…')
+  await teardown()
+  assert.equal(listeners.size, 0, 'the event subscription must be released on unmount')
+})
