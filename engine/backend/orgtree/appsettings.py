@@ -10,9 +10,9 @@ used, not to the backend machine.
 The first record is D-203's per-provider admission switch. Runtime also owns
 the machine-wide stale-working checkup mode, the optional MCP-readiness
 admission gate and the optional idle docket reminder. Providers and working
-checkups are default-on; the readiness gate and the docket reminder are
+checkups and idle docket reminders are default-on; the readiness gate is
 deliberately default-off so existing installs preserve today's no-wait turn
-startup, and today's wake volume, unless the operator opts in.
+startup unless the operator opts in.
 """
 
 from __future__ import annotations
@@ -108,14 +108,12 @@ def working_checkups_enabled() -> bool:
 def idle_docket_reminders_enabled() -> bool:
     """Whether idle seats holding unfinished owned docket items are nudged.
 
-    Only an explicit true enables it. A newly added optional wake must not
-    start spending turns on installs that never asked for it, so absence is
-    off — the opposite compatibility rule from working checkups, which
-    existed before its setting did.
+    Only an explicit false disables it. Missing remains enabled for installs
+    that predate this preference, while an explicit saved false is preserved.
     """
     raw = load().get("runtime")
     runtime = raw if isinstance(raw, dict) else {}
-    return runtime.get("idle_docket_reminders") is True
+    return runtime.get("idle_docket_reminders") is not False
 
 
 def wait_for_mcp_tools_enabled() -> bool:
