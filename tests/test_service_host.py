@@ -108,9 +108,9 @@ class ServiceHostUnitTests(unittest.TestCase):
                              sorted({service_host._current_user_sid(), "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "the token must never sit under inherited ACLs")
 
-    def test_write_descriptor_fails_closed_when_acl_restriction_unavailable(self):
+    def test_write_descriptor_fails_closed_when_protection_unavailable(self):
         with tempfile.TemporaryDirectory() as root:
-            with patch.object(service_host, "restrict_descriptor_acl", return_value=False):
+            with patch.object(service_host, "_current_user_sid", return_value=None):
                 with self.assertRaisesRegex(OSError, "refusing to publish"):
                     write_descriptor(Path(root), 23456, 77, "ab" * 32)
             self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
@@ -156,29 +156,37 @@ class ServiceHostUnitTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(cmd="stub", timeout=timeout)
         self.assertFalse(service_host.confirmed_exit(Stubborn(), timeout=0.1))  # type: ignore[arg-type]
 
-    def test_no_secret_byte_touches_disk_before_verified_restriction(self):
-        # Ordering sentinel (root ruling): at the moment the restriction and
-        # its verification run, the file on disk must be EMPTY — the token is
-        # written only afterwards.
+    def test_protected_birth_denies_every_second_handle_and_survives_close(self):
+        # The measured hole (Opus): a handle opened before a later restriction
+        # retains read on bytes written afterwards. Here that handle can never
+        # exist: while ours lives, ANY second open by path is denied
+        # (share=0), and the DACL attached at birth denies... nothing to us
+        # (we are the granted SID) but leaves zero inherited rules.
         if os.name != "nt":
-            raise unittest.SkipTest("NTFS ACLs are Windows-only")
-        contents_at_restrict: list[bytes] = []
-        contents_at_verify: list[bytes] = []
-        real_restrict = service_host.restrict_descriptor_acl
-        real_verify = service_host.verify_restricted_acl
+            raise unittest.SkipTest("Windows-only")
         with tempfile.TemporaryDirectory() as root:
-            def observing_restrict(target):
-                contents_at_restrict.append(Path(target).read_bytes())
-                return real_restrict(target)
-            def observing_verify(target):
-                contents_at_verify.append(Path(target).read_bytes())
-                return real_verify(target)
-            with patch.object(service_host, "restrict_descriptor_acl", observing_restrict), \
-                 patch.object(service_host, "verify_restricted_acl", observing_verify):
-                published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
-            self.assertEqual(contents_at_restrict, [b""], "token bytes reached disk before restriction")
-            self.assertEqual(contents_at_verify, [b""], "token bytes reached disk before verification")
+            target = Path(root) / "probe.tmp"
+            fd = service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            try:
+                with self.assertRaises(OSError, msg="no second handle may exist while the token handle lives"):
+                    open(target, "rb").close()
+                os.write(fd, b"SECRET")
+            finally:
+                os.close(fd)
+            self.assertEqual(target.read_bytes(), b"SECRET")  # our own SID reads post-close
+            self.assertTrue(service_host.verify_restricted_acl(target),
+                            "DACL at birth: exactly operator+SYSTEM+Administrators, nothing inherited")
+            with self.assertRaises(OSError):
+                service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            self.assertEqual(target.read_bytes(), b"SECRET", "CREATE_NEW must never adopt or truncate")
+
+    def test_published_descriptor_is_protected_and_leaves_no_residue(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
             self.assertIn("ab" * 32, published.read_text(encoding="utf-8"))
+            self.assertTrue(service_host.verify_restricted_acl(published))
             leftovers = [p.name for p in Path(root).iterdir() if p.name != DESCRIPTOR]
             self.assertEqual(leftovers, [], "no temporary residue after publication")
 

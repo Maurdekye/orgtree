@@ -138,6 +138,49 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
         return False
 
 
+def create_protected_exclusive(path: Path, sid: str) -> int:
+    """CreateFileW with the restrictive DACL attached AT BIRTH and share
+    mode 0. Opus measured the hole this closes: Windows checks access at
+    OPEN time, so a handle acquired in any pre-restriction instant retains
+    read on bytes written later. Here no such instant exists (the DACL is
+    part of creation) AND no second handle can be acquired while ours lives
+    (share=0), so the token is written through the only handle there is.
+    CREATE_NEW refuses a preexisting path outright. Returns a CRT fd owning
+    the handle; raises OSError on any failure."""
+    import ctypes
+    from ctypes import wintypes as w
+    import msvcrt
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.ULONG)]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = w.BOOL
+    kernel.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p,
+                                   w.DWORD, w.DWORD, w.HANDLE]
+    kernel.CreateFileW.restype = w.HANDLE
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    sddl = f"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"
+    descriptor = ctypes.c_void_p()
+    if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    class SecurityAttributes(ctypes.Structure):
+        _fields_ = [("nLength", w.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
+                    ("bInheritHandle", w.BOOL)]
+
+    attributes = SecurityAttributes(ctypes.sizeof(SecurityAttributes), descriptor, False)
+    try:
+        handle = kernel.CreateFileW(str(path), 0x80000000 | 0x40000000, 0,
+                                    ctypes.byref(attributes), 1,  # CREATE_NEW
+                                    0x80, None)  # FILE_ATTRIBUTE_NORMAL
+        if handle in (None, w.HANDLE(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.LocalFree(descriptor)
+    return msvcrt.open_osfhandle(handle, 0)
+
+
 def verify_restricted_acl(target: Path) -> bool:
     """Read back that the DACL is EXACTLY operator+SYSTEM+Administrators with
     nothing inherited. icacls exiting 0 is a request receipt, not proof; the
@@ -159,28 +202,29 @@ def verify_restricted_acl(target: Path) -> bool:
 
 
 def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path:
-    """Publish the descriptor with the token NEVER on disk under inherited or
-    foreign-controlled ACLs, in this order and no other:
-
-    1. Create a UNIQUE temporary file with O_EXCL — never adopt a
-       preexisting one: a pre-created predictable temp keeps its creator as
-       OWNER, and an owner can re-grant themselves read after any
-       restriction (implicit WRITE_DAC).
-    2. Restrict its DACL and VERIFY the restriction by reading it back.
-    3. Only then write the token, and atomically publish by rename (which
-       keeps the file object and its verified DACL).
-    FAIL CLOSED at every step: no verified protection, no token on disk.
-    """
+    """Publish the descriptor with the token NEVER readable by anyone else at
+    ANY instant: the unique temporary is created with the restrictive DACL
+    attached AT BIRTH and share mode 0 (no pre-restriction window exists and
+    no second handle can be acquired while ours lives — Opus measured that a
+    retained handle survives a later DACL change), the token is written
+    through that only handle, the DACL is verified by read-back, and the
+    publish is an atomic rename that keeps the file object and its DACL.
+    A preexisting path is refused outright (CREATE_NEW), and every failure
+    unlinks only the owned temp. FAIL CLOSED throughout."""
     descriptor = root / DESCRIPTOR
     payload = {"type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid,
                "hostPid": os.getpid(), "dataRootId": str(root.resolve()), "token": token,
                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    sid = _current_user_sid()
+    if os.name != "nt" or not sid:
+        raise OSError("descriptor protection unavailable on this platform; refusing to publish the token")
     temporary = root / f".engine-attach-{os.getpid()}-{secrets.token_hex(8)}.tmp"
-    os.close(os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    fd = create_protected_exclusive(temporary, sid)
     try:
-        if not restrict_descriptor_acl(temporary) or not verify_restricted_acl(temporary):
-            raise OSError("descriptor ACL restriction unavailable or unverified; refusing to publish the token")
-        temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+            stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        if not verify_restricted_acl(temporary):
+            raise OSError("descriptor ACL unverified after protected creation; refusing to publish the token")
         os.replace(temporary, descriptor)
     except BaseException:
         try:
