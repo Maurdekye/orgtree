@@ -104,6 +104,10 @@ app = FastAPI(title="orgtree", version="1.0.0")
 from .history import router as history_router
 app.include_router(history_router)
 
+# Optional diagnostics only: emits route-template timings, never content or credentials.
+# The normal path stays byte-for-byte silent beyond existing access logging.
+_PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
+
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
 #: A redeploy replaces both halves of the app, but only the server half
@@ -267,6 +271,9 @@ class AccessRecord:
         # themselves are `def` and run in the threadpool, but they are not
         # here. A wrong count would cost a misleading log field, never
         # correctness.
+        profile = {} if _PROFILE_TIMING else None
+        if profile is not None:
+            scope.setdefault("state", {})["profile_timing"] = profile
         global _access_inflight
         _access_inflight += 1
         depth = _access_inflight
@@ -293,7 +300,7 @@ class AccessRecord:
             _access_inflight -= 1
             total_ms = (time.perf_counter() - t0) * 1000.0
             try:
-                _access_emit(scope, status, handler_ms, total_ms, nbytes, depth)
+                _access_emit(scope, status, handler_ms, total_ms, nbytes, depth, profile)
             except Exception:                                   # noqa: BLE001
                 pass      # a log line may never be the reason a request fails
 
@@ -306,7 +313,8 @@ def _route_label(scope: ASGIScope) -> str:
 
 
 def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
-                 total_ms: float, nbytes: int, depth: int) -> None:
+                 total_ms: float, nbytes: int, depth: int,
+                 profile: dict[str, float] | None = None) -> None:
     """⚠ EVERY BYTE THIS PRINTS MUST BE ASCII, and that is not a style rule.
 
     The backend's stdout is redirected to `backend.log` by the launcher, and
@@ -330,6 +338,12 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
     print(f"[orgtree.access] {stamp} {method} {route} {status} "
           f"handler={handler_ms:.0f}ms total={total_ms:.0f}ms "
           f"bytes={nbytes} inflight={depth}", flush=True)
+    if profile is not None:
+        print("[orgtree.profile] " + _route_label(scope) + " " +
+              json.dumps({"handler_ms": round(handler_ms, 3),
+                         "total_ms": round(total_ms, 3),
+                         "bytes": nbytes, **profile}, sort_keys=True),
+              flush=True)
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -1668,12 +1682,18 @@ def _rederive_freeze_reset(node: dict[str, Any],
 
 @app.get("/api/orgs/{slug}")
 def org_tree(slug: str, request: Request) -> dict[str, Any]:
+    profile = (getattr(request.state, "profile_timing", None)
+               if _PROFILE_TIMING else None)
     try:
+        _stage = time.perf_counter()
         org = store.load_org_snapshot(slug, ("org_inbox",))
+        if profile is not None: profile["load_snapshot_ms"] = (time.perf_counter() - _stage) * 1000.0
     except LedgerError as e:
         raise HTTPException(404, str(e))
     _t0 = time.perf_counter()
+    _stage = time.perf_counter()
     tree = org.tree()
+    if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
     # FR-27: the primed restart is a MACHINE fact, not an org one — it is
     # armed from one org and cuts every org on the box. So it is injected
     # here, after the per-org projection, and every org's header renders the
@@ -1927,8 +1947,10 @@ def org_tree(slug: str, request: Request) -> dict[str, Any]:
         for c in node["children"]:
             annotate(c)
 
+    _stage = time.perf_counter()
     for r in tree["roots"]:
         annotate(r)
+    if profile is not None: profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
     k = supervisor.kiosk_cfg(org)
     if k:
         tree["kiosk"] = {

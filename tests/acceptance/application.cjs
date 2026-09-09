@@ -37,6 +37,7 @@ if (packaged) {
 }
 const rows = [], children = [], handshakes = [], diagnostics = []
 const screenshots = []
+const rendererTiming = { documentLoad: null, rootMounted: null, frameOpportunity: null, rootReady: null, populatedOrg: null }
 async function capture(window, name) {
   await new Promise(resolve => setTimeout(resolve, 1000))
   const output = path.join(root, phase + '-' + name + '.png')
@@ -115,7 +116,7 @@ function finish() {
   finishing = true
   clearTimeout(deadline)
   const status = ready && rows.length > 0 && rows.every(r => r.status === 'PASS') ? 'PASS' : 'FAIL'
-  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, screenshots, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
+  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, screenshots, rendererTiming, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
   app.quit()
   const cleanup = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -132,6 +133,7 @@ app.on('browser-window-created', (_event, main) => {
     if (ready || !/^http:\/\/127\.0\.0\.1:\d+\/$/.test(main.webContents.getURL())) return
     ready = true
     const evaluate = code => main.webContents.executeJavaScript(code, true)
+    rendererTiming.documentLoad = await evaluate('performance.now()')
     const waitFor = condition => evaluate(`new Promise(resolve => { const start=Date.now(); const timer=setInterval(()=>{if(${condition}){clearInterval(timer);resolve(true)}else if(Date.now()-start>15000){clearInterval(timer);resolve(false)}},100) })`)
     const origin = new URL(main.webContents.getURL()).origin
     await check('real-engine-readiness-root-pid-port', async () => {
@@ -149,6 +151,11 @@ app.on('browser-window-created', (_event, main) => {
       // Wait for React after the document load; blank pages cannot pass.
       const mounted = await evaluate(`new Promise(resolve => { const start=Date.now(); const timer=setInterval(()=>{ if(document.getElementById('root')?.children.length && document.body.innerText.trim().length>20){clearInterval(timer);resolve(true)}else if(Date.now()-start>15000){clearInterval(timer);resolve(false)} },100) })`)
       assert.equal(mounted, true)
+      rendererTiming.rootMounted = await evaluate('performance.now()')
+      // Two requestAnimationFrame callbacks mark frame opportunities, not a measured paint.
+      rendererTiming.frameOpportunity = await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))))')
+      // Interactive means the renderer root is mounted after those frame opportunities.
+      rendererTiming.rootReady = await evaluate('performance.now()')
     })
     await check('native-bridge-and-defaults', async () => {
       assert.deepEqual(await evaluate('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -181,6 +188,7 @@ app.on('browser-window-created', (_event, main) => {
       }
       const visibleIdentity = `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime' || [...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
       assert.equal(await waitFor(visibleIdentity), true, 'Created organization must appear in active header or restored home list')
+      rendererTiming.populatedOrg = await evaluate('performance.now()')
       assert.equal(await evaluate(`fetch('/api/orgs/acceptance-runtime').then(r=>r.status)`), 200)
     })
     await check('selected-organization-route-retains-api-and-native-authority', async () => {

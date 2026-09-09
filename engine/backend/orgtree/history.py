@@ -10,10 +10,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from . import store, turnread
 from .ledger import LedgerError
@@ -75,7 +76,9 @@ def _list_page(rows: list[Any], state: dict[str, Any], limit: int) -> tuple[list
     return items, len(rows), cursor
 
 
-def history_page(slug: str, section: str, node: str = "", cursor: str = "", limit: int = 50) -> dict[str, Any]:
+def history_page(slug: str, section: str, node: str = "", cursor: str = "", limit: int = 50, request: Request | None = None) -> dict[str, Any]:
+    profile = (getattr(request.state, "profile_timing", None)
+               if request is not None else None)
     if section not in SECTIONS:
         raise HTTPException(404, "Unknown history collection")
     field, _, needs_node = SECTIONS[section]
@@ -86,13 +89,23 @@ def history_page(slug: str, section: str, node: str = "", cursor: str = "", limi
     try:
         # Use the canonical loader first: backend mismatch/migration guards and
         # node validation apply equally to new pages and ordinary product reads.
+        _lock_stage = time.perf_counter()
         with store.DOC_LOCK:
+            if profile is not None:
+                profile["lock_wait_ms"] = (time.perf_counter() - _lock_stage) * 1000.0
+            _work_stage = time.perf_counter()
             org = store.load_org(slug)
+            if profile is not None:
+                profile["org_load_ms"] = (time.perf_counter() - _work_stage) * 1000.0
+            _work_stage = time.perf_counter()
             if needs_node:
                 org.node(node)
             if section == "chat":
                 from . import supervisor
+                _read_stage = time.perf_counter()
                 messages = supervisor.read_chat(org, node, last=None, hold_back=False)["messages"]
+                if profile is not None:
+                    profile["chat_read_ms"] = (time.perf_counter() - _read_stage) * 1000.0
                 items, total, nxt = _list_page(messages, state, limit)
             elif section == "turn-records":
                 paths = turnread.list_records(store.DATA_ROOT, slug, node)
@@ -138,6 +151,8 @@ def history_page(slug: str, section: str, node: str = "", cursor: str = "", limi
                 if needs_node:
                     rows = rows.get(node) or []
                 items, total, nxt = _list_page(rows, state, limit)
+            if profile is not None:
+                profile["history_work_ms"] = (time.perf_counter() - _work_stage) * 1000.0
     except LedgerError as exc:
         raise HTTPException(404, str(exc)) from exc
     if nxt:
@@ -158,5 +173,5 @@ def history_sources(slug: str) -> dict[str, Any]:
 
 
 @router.get("/api/orgs/{slug}/history/{section}")
-def history_entries(slug: str, section: str, node: str = "", cursor: str = "", limit: int = 50) -> dict[str, Any]:
-    return history_page(slug, section, node, cursor, limit)
+def history_entries(slug: str, section: str, request: Request, node: str = "", cursor: str = "", limit: int = 50) -> dict[str, Any]:
+    return history_page(slug, section, node, cursor, limit, request=request)
