@@ -240,7 +240,15 @@ else {
       if (value !== 'claude' && value !== 'codex') throw new Error('Unknown login provider')
       return value
     }
-    handle('desktop:provider-login-start', provider => startProviderLogin(engine.origin, engine.token, asLoginProvider(provider)))
+    handle('desktop:provider-login-start', (provider, opts) => {
+      // multi-account: the optional {profileDir, accountId} pair rides to
+      // the login spawn; only these two string fields pass, nothing else
+      const o = (opts && typeof opts === 'object') ? opts as Record<string, unknown> : {}
+      return startProviderLogin(engine.origin, engine.token, asLoginProvider(provider), {
+        profileDir: typeof o.profileDir === 'string' ? o.profileDir : undefined,
+        accountId: typeof o.accountId === 'string' ? o.accountId : undefined,
+      })
+    })
     handle('desktop:provider-login-status', provider => getProviderLoginStatus(asLoginProvider(provider)))
     handle('desktop:provider-login-code', (provider, code) => {
       if (typeof code !== 'string') throw new Error('code must be a string')

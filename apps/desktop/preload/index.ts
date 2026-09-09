@@ -22,7 +22,8 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
-    startProviderLogin: (provider: LoginProvider) => ipcRenderer.invoke('desktop:provider-login-start', provider),
+    startProviderLogin: (provider: LoginProvider, opts?: { profileDir?: string; accountId?: string }) =>
+      ipcRenderer.invoke('desktop:provider-login-start', provider, opts),
     getProviderLoginStatus: (provider: LoginProvider) => ipcRenderer.invoke('desktop:provider-login-status', provider),
     submitProviderLoginCode: (provider: LoginProvider, code: string) =>
       ipcRenderer.invoke('desktop:provider-login-code', provider, code),

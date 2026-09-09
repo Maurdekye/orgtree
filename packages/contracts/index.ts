@@ -78,7 +78,12 @@ export interface DesktopBridge {
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this
   // bridge, and deliberately so — see LoginProvider's own comment for why
   // the spawn cannot live on the engine side of the HTTP boundary.
-  startProviderLogin(provider: LoginProvider): Promise<ProviderLoginStatus>
+  /** multi-account: `opts.profileDir` runs the SAME sign-in flow against an
+   *  account's profile directory (sign-in-as-account); `accountId` makes the
+   *  post-login verification read that account's own identity instead of
+   *  the ambient provider status. Absent opts = ambient, unchanged. */
+  startProviderLogin(provider: LoginProvider,
+    opts?: { profileDir?: string; accountId?: string }): Promise<ProviderLoginStatus>
   getProviderLoginStatus(provider: LoginProvider): Promise<ProviderLoginStatus>
   submitProviderLoginCode(provider: LoginProvider, code: string): Promise<ProviderLoginStatus>
   cancelProviderLogin(provider: LoginProvider): Promise<ProviderLoginStatus>

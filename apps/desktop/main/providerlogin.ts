@@ -196,8 +196,23 @@ class LoginSession {
   private readonly cancelSignal = new AbortController()
 
   constructor(private readonly door: Door, argv: string[],
-    private readonly engineOrigin: string, private readonly engineToken: string) {
-    this.proc = spawn(argv[0], argv.slice(1), { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    private readonly engineOrigin: string, private readonly engineToken: string,
+    private readonly profileDir?: string,
+    private readonly accountId?: string) {
+    // multi-account (D4): a PROFILE login runs the same CLI flow with the
+    // provider's profile selector pointed at the account's directory —
+    // sign-in-as-account is the parameterized form of the ambient flow,
+    // never a different flow. Absent profileDir keeps ambient semantics
+    // byte-for-byte.
+    const env = profileDir
+      ? { ...process.env,
+          ...(this.door.apiId === 'openai'
+            ? { CODEX_HOME: profileDir }
+            : { CLAUDE_CONFIG_DIR: profileDir }) }
+      : undefined
+    this.proc = spawn(argv[0], argv.slice(1),
+      { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+        ...(env ? { env } : {}) })
     this.proc.stdout.on('data', (chunk: Buffer) => {
       this.buf = (this.buf + chunk.toString('utf8')).slice(-OUTPUT_TAIL)
       if (this.door.supportsCode && !this.codeSent && this.buf.includes(PASTE_PROMPT)) this.awaitingCode = true
@@ -214,7 +229,30 @@ class LoginSession {
     if (this.done) return
     clearTimeout(this.timer)
     let ok = exitedClean
-    if (ok) {
+    if (ok && this.accountId) {
+      // a PROFILE login must verify against ITS OWN profile — the global
+      // provider status describes the ambient login and would answer a
+      // false positive (ambient already connected) or negative (profile
+      // login invisible to it). The per-account identity endpoint reads
+      // exactly the directory this session signed into.
+      ok = false
+      for (let i = 0; i < VERIFY_RETRIES && !this.cancelSignal.signal.aborted; i++) {
+        try {
+          const timeoutSignal = AbortSignal.timeout(10000)
+          const signal = AbortSignal.any([timeoutSignal, this.cancelSignal.signal])
+          const r = await fetch(
+            this.engineOrigin + `/api/accounts/${this.accountId}/identity`,
+            { headers: { [TOKEN_HEADER]: this.engineToken },
+              signal, redirect: 'error' })
+          if (r.ok) {
+            const doc = await r.json() as { auth?: string }
+            if (doc.auth === 'authenticated') { ok = true; break }
+          }
+        } catch { /* aborted, or engine mid-restart — bounded retry */ }
+        if (this.cancelSignal.signal.aborted) break
+        await new Promise(resolve => setTimeout(resolve, VERIFY_RETRY_DELAY_MS))
+      }
+    } else if (ok) {
       ok = false
       for (let i = 0; i < VERIFY_RETRIES && !this.cancelSignal.signal.aborted; i++) {
         try {
@@ -321,6 +359,7 @@ const pending = new Map<LoginProvider, AbortController>()
 
 export async function startProviderLogin(
   engineOrigin: string, engineToken: string, provider: LoginProvider,
+  opts?: { profileDir?: string; accountId?: string },
 ): Promise<ProviderLoginStatus> {
   const existing = sessions.get(provider)
   if (existing) {
@@ -380,7 +419,8 @@ export async function startProviderLogin(
     }
     let session: LoginSession
     try {
-      session = new LoginSession(door, resolveArgv(exe, door.extraArgs), engineOrigin, engineToken)
+      session = new LoginSession(door, resolveArgv(exe, door.extraArgs),
+        engineOrigin, engineToken, opts?.profileDir, opts?.accountId)
     } catch (e) {
       return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
         error: e instanceof Error ? `failed to start: ${e.message}` : 'failed to start' }

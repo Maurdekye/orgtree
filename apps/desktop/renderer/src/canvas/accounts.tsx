@@ -265,11 +265,17 @@ const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: fal
  *  hand-written copies would. The actual child process is spawned by the
  *  MAIN process (providerlogin.ts), never the engine — see its module
  *  docstring — so every call here rides the native bridge, not HTTP. */
-export function ProviderSignIn({ provider, connected, toast, onRefresh }: {
+export function ProviderSignIn({ provider, connected, toast, onRefresh,
+  profileDir, accountId }: {
   provider: LoginProvider
   connected: boolean
   toast: ToastFn
   onRefresh: () => void
+  /** multi-account: sign in AS this account — same flow, the provider's
+   *  profile selector pointed at the row's directory; verification reads
+   *  that account's own identity */
+  profileDir?: string
+  accountId?: string
 }) {
   const bridge = desktop()
   const label = LOGIN_LABELS[provider]
@@ -295,7 +301,8 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh }: {
   if (!bridge) return null
   const begin = () => {
     setBusy(true)
-    bridge.startProviderLogin(provider).then((s) => {
+    bridge.startProviderLogin(provider,
+      profileDir ? { profileDir, accountId } : undefined).then((s) => {
       setStatus(s)
       if (s.phase === 'error') toast([s.error === 'not-installed'
         ? `${label} is not installed` : (s.error || 'could not start sign-in')])

@@ -9,7 +9,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { req } from '../api'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
+import { ProviderSignIn } from './accounts'
 import { SetGroup } from './settingskit'
+import type { LoginProvider } from '../../../../../packages/contracts'
 import type { ToastFn } from '../types'
 
 type Standing = {
@@ -79,10 +81,20 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
   return <SetGroup title="Accounts"
     note="symmetric across providers — every registered account is available to every organization (org-restricted legacy keys excepted)">
     {rows.length === 0 && <p className="dim">
-      No accounts registered. The account system activates at cutover;
-      until then every agent runs on the machine login.</p>}
+      No accounts yet. Import an existing profile directory or create a
+      managed one below, sign in through the provider's own flow, then
+      assign agents to it from their settings.</p>}
     {rows.map((r) => {
       const marks = Object.entries(r.standing.marks)
+      // readiness comes from standing.state AND auth together: empty marks
+      // on an unauthenticated/unobserved account must not read as ready
+      const ready = r.standing.state === 'ready'
+        && r.standing.auth === 'authenticated'
+      const loginProvider: LoginProvider | null =
+        r.credential.kind !== 'token'
+          ? (r.provider === 'claude' ? 'claude'
+            : r.provider === 'openai' ? 'codex' : null)
+          : null
       return <div key={r.id} className="account-row"
         style={{ display: 'flex', gap: 8, alignItems: 'baseline',
                  flexWrap: 'wrap', padding: '4px 0' }}>
@@ -99,18 +111,28 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
         <span className="dim">
           {r.identity.email || r.identity.account_digest || 'no identity'}
           {' · '}{r.standing.auth}</span>
-        {marks.length === 0
+        {ready
           ? <span className="dim">ready</span>
-          : marks.map(([pool, m]) =>
-            <span key={pool} className="badge frozen"
-              title={m.provenance === 'inferred'
-                ? 'inferred from the pooled limit, not measured for this tier'
-                : 'measured limit'}>
-              {markLine(pool, m)}</span>)}
+          : marks.length > 0
+            ? marks.map(([pool, m]) =>
+              <span key={pool} className="badge frozen"
+                title={m.provenance === 'inferred'
+                  ? 'inferred from the pooled limit, not measured for this tier'
+                  : 'measured limit'}>
+                {markLine(pool, m)}</span>)
+            : <span className="badge dim"
+                title="the account has no sign-in yet (or it was not observed) — agents bound to it wait until it authenticates">
+                {r.standing.auth}</span>}
         {r.bound.length > 0 &&
           <span className="dim"
             title={r.bound.map((b) => `${b.org}/${b.node}`).join(', ')}>
             {r.bound.length} agent(s)</span>}
+        {loginProvider &&
+          <ProviderSignIn provider={loginProvider}
+            connected={r.standing.auth === 'authenticated'}
+            toast={toast} profileDir={r.credential.path}
+            accountId={r.id}
+            onRefresh={() => refreshIdentity(r.id)} />}
         <button onClick={() => refreshIdentity(r.id)}>refresh</button>
         <button disabled={r.bound.length > 0}
           title={r.bound.length > 0
