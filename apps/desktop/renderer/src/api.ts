@@ -282,12 +282,13 @@ export const getWorkItems = (slug: string, archived = false,
       : ''))
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
-export const replyWorkItem = (slug: string, id: string, body: string, to?: string):
-  Promise<WorkItemReplyResult> =>
+export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
+  attachments?: string[]): Promise<WorkItemReplyResult> =>
   req(`/api/orgs/${slug}/work-items/${id}/reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}) }),
+    body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}),
+      ...(attachments?.length ? { attachments } : {}) }),
   })
 export const dismissWorkItemAttention = (slug: string, id: string, setRev: number):
   Promise<DismissAttentionResult> =>
@@ -546,10 +547,12 @@ export const sendMessage = (
       ...(replyTo ? { reply_to: replyTo } : {}) }),
   })
 /** Object identity only; the server resolves authoritative reply context. */
-export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget): Promise<SendMessageResult> =>
+export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget,
+  attachments?: string[]): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, target }),
+    body: JSON.stringify({ text, target,
+      ...(attachments?.length ? { attachments } : {}) }),
   })
 export const saveSettings = (slug: string, opts: SettingsRequest = {}): Promise<SettingsResult> =>
   req(`/api/orgs/${slug}/settings`, {

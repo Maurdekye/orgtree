@@ -78,7 +78,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   toast: ToastFn
   close: () => void
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[]) => Promise<unknown> | void
   /** canonical references written inside a document, and where they go. A
    *  presented plan names items, agents and the mail it answers; this panel
    *  can open none of those itself, so the shell supplies the routes and
@@ -266,7 +266,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
   onDismissed: () => void
   close: () => void
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[]) => Promise<unknown> | void
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
   // an evicted row has no body to fetch — say so instead of spending a
@@ -322,14 +322,16 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
               world={refs?.world} onOpen={refs?.onOpen} />}
             {!doc && !err && <div className="dim pad">loading…</div>}
             {replyable && (
-              <MailReplyBox target={row.node}
-                onSend={(text) => {
+              <MailReplyBox target={row.node} slug={slug} toast={toast}
+                onSend={(text, attachments) => {
                   const target: ReplyTarget = { kind: 'document', org: slug, id: row.id }
-                  if (onReply) return onReply(row.node, text, target)
-                  return sendLinkedReply(slug, row.node, text, target).catch((e: Error) => {
-                    toast([`error: ${e.message}`])
-                    throw e
-                  })
+                  if (onReply) return onReply(row.node, text, target, attachments)
+                  return sendLinkedReply(slug, row.node, text, target, attachments)
+                    .then((r) => { if (r.warnings?.length) toast(r.warnings) })
+                    .catch((e: Error) => {
+                      toast([`error: ${e.message}`])
+                      throw e
+                    })
                 }} />
             )}
           </>
@@ -344,7 +346,7 @@ export interface AgentGalleryViewProps {
   node?: TreeNode | { id: string; documents?: any[] | null; state?: string; tier?: string | null; generation?: number }
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[]) => Promise<unknown> | void
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onChanged?: () => void
 }

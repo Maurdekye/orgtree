@@ -4,10 +4,11 @@ import { addPending, bindPendingMail, dismissPending } from '../convo'
 
 /** Preserve one optimistic send across the typed response and remove only
  * that send on refusal, even when another draft has identical text. */
-export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget) {
+export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget,
+  attachments?: string[]) {
   const ghost = addPending(org, node, text)
   try {
-    const response = await replyMessage(org, node, text, target)
+    const response = await replyMessage(org, node, text, target, attachments)
     bindPendingMail(org, node, ghost, response)
     return response
   } catch (error) {

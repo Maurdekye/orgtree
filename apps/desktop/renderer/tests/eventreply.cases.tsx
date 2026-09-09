@@ -51,7 +51,7 @@ export function replyCases(profile:'operator'|'public') {
       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(textarea,'Same draft')
       textarea.dispatchEvent(new Event('input',{bubbles:true}))
     });await flush()
-    const send=view.el.querySelector('.mail-reply button') as HTMLButtonElement
+    const send=view.el.querySelector('.mail-reply-send') as HTMLButtonElement
     await inAct(()=>send.click());await flush()
     assert.deepEqual(requests[0].body,{text:'Same draft',target},'no client title/sender/gist/at or legacy reply_to')
     assert.equal(textarea.value,'Same draft','refusal preserves the draft')

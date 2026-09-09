@@ -145,6 +145,10 @@ export class FakeServer {
   workBacklogged: unknown[] = []
   /** every chat request the client has made, newest last */
   requests: { last: number | null; at: number }[] = []
+  /** every `/upload` request this server answered, newest last — a test
+   *  asserts against this rather than the fetch call directly, the same
+   *  shape `requests` already gives the `/chat` poller */
+  uploads: { path: string; name: string }[] = []
   /** truncation tier the real `node_chat` applies to a pending body */
   bodyCap = 2000
   /** next response fails with this status until cleared */
@@ -324,7 +328,18 @@ export function installFetch(server: FakeServer): Transport {
                         backlogged: server.workBacklogged.length },
               now: new Date(Date.now()).toISOString(),
             }
-            : { ok: true }
+            : /\/upload$/.test(u.pathname)
+              ? (() => {
+                // `uploadFile` names the file via `?name=`, never a guessed
+                // path — real de-duplication (colliding names get a suffix)
+                // is server-side and not modelled here; a test that needs
+                // two DIFFERENT staged files uses two different names
+                const name = u.searchParams.get('name') ?? 'file'
+                const path = `uploads/${name}`
+                server.uploads.push({ path, name })
+                return { path, bytes: 0 }
+              })()
+              : { ok: true }
     return new Promise((resolve, reject) => {
       // every real response carries the answering process's id; the stub does
       // too, or the restart detector in `req` would be exercised by nothing

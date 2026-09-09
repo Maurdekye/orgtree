@@ -23,12 +23,24 @@ function mockWorkItems(activeItems: WorkItem[], archivedItems: WorkItem[] = [],
     ((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       const path = String(url)
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      // allow-attachments-in-contextual-reply-composers: `uploadFile` posts
+      // the raw File as `body`, never JSON — `JSON.parse` on that would
+      // throw, so it must be checked before the JSON branch, not folded
+      // into it
+      const isUpload = method === 'POST' && path.includes('/upload')
+      const body = isUpload ? undefined : init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ method, url: path, body })
       const headers = new Headers()
       const ok = (payload: unknown) => Promise.resolve(
         { ok: true, status: 200, headers, json: () => Promise.resolve(payload) })
 
+      if (isUpload) {
+        // real de-duplication (colliding names get a numeric suffix) is
+        // server-side and not modelled here — same limit as harness.ts's
+        // FakeServer /upload stub
+        const name = new URL(path, 'http://localhost').searchParams.get('name') ?? 'file'
+        return ok({ path: `uploads/${name}`, bytes: 0 })
+      }
       if (method === 'POST' && path.includes('/dismiss-attention')) {
         const m = path.match(/\/work-items\/([^/]+)\/dismiss-attention$/)
         const id = m ? m[1] : ''
@@ -647,7 +659,7 @@ uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (arch
   })
   await flush()
 
-  const sendBtn = el.querySelector('.mail-reply button') as HTMLButtonElement
+  const sendBtn = el.querySelector('.mail-reply-send') as HTMLButtonElement
   assert.ok(!sendBtn.disabled)
   await inAct(() => sendBtn.click())
   await flush()
@@ -656,6 +668,92 @@ uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (arch
   assert.equal(replyCalls.length, 1)
   assert.deepEqual(replyCalls[0]!.body, { body: 'Great work!', to: 'archived-agent' })
   assert.match(toasted[0] ?? '', /archived-agent is archived — the reply waits for rehire/)
+})
+
+// allow-attachments-in-contextual-reply-composers. The docket's "ticket"
+// reply is the ONE of the three contextual composers whose BACKEND also
+// needed a change (work_item_reply had no attachments field at all before
+// this feature — test_work_item_reply_attachments.py covers that side
+// directly); this is the frontend half of the same feature, through the
+// real MailReplyBox + the real upload call, not a hand-built attach chip.
+uiTest('§13c the reply box attaches a real staged file and sends its path with '
+  + 'the reply', async (mount) => {
+  const calls = mockWorkItems([mkItem({ id: 'w-att', title: 'Work Item',
+    owner: { node: 'owner-agent', generation: 1 } })])
+  const { el } = await mount(docketModal())
+  await flush()
+  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await flush()
+
+  const attachBtn = el.querySelector('.mail-reply .cc-attach') as HTMLButtonElement
+  assert.ok(attachBtn, 'positive control: the attach button is rendered at all')
+  assert.equal(attachBtn.disabled, false,
+    'a resolved recipient (owner-agent) means the attach button must be live')
+
+  const fileInput = el.querySelector('.mail-reply input[type="file"]') as HTMLInputElement
+  // a plain text file (not an image) exercises the `.attach-chip` branch
+  // directly — the image branch (`AttachThumb`, `.attach-thumbwrap`) is
+  // the SAME staging/removal logic behind a different rendering, already
+  // covered structurally by desk.tsx's own composer tests
+  const file = new File(['evidence bytes'], 'evidence.txt', { type: 'text/plain' })
+  await inAct(() => {
+    Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await flush()
+
+  const uploadCalls = calls.filter((c) => c.method === 'POST' && c.url.includes('/upload'))
+  assert.equal(uploadCalls.length, 1, 'the file actually uploaded, not just staged locally')
+  assert.match(uploadCalls[0]!.url, /name=evidence\.txt/)
+
+  const chip = el.querySelector('.attach-row .attach-chip')
+  assert.ok(chip, 'a staged-attachment chip appears once the upload resolves')
+  assert.match(chip!.textContent ?? '', /evidence\.txt/)
+
+  const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
+  await inAct(() => {
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+    nativeSetter?.call(textarea, 'see attached')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await flush()
+
+  const sendBtn = el.querySelector('.mail-reply-send') as HTMLButtonElement
+  assert.equal(sendBtn.disabled, false)
+  await inAct(() => sendBtn.click())
+  await flush()
+
+  const replyCalls = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
+  assert.equal(replyCalls.length, 1)
+  // `to` survives alongside the attachment — the acceptance wording's own
+  // "preserving reply context" — same as §13's existing assertion shape
+  assert.deepEqual(replyCalls[0]!.body,
+    { body: 'see attached', to: 'owner-agent', attachments: ['uploads/evidence.txt'] })
+})
+
+uiTest('§13d CONTROL: an owner whose state is `missing` disables the attach '
+  + 'button the same way it disables send — a reply with nowhere to land '
+  + 'must not stage an upload with nowhere to land either', async (mount) => {
+  // ⚠ NOT ownerless: docket.tsx only renders the WHOLE reply section
+  // (MailReplyBox included) when `assignee || recipients.length > 0 ||
+  // replyTo` — a truly ownerless item renders no reply box at all, which
+  // would make this its own different (and less interesting) test. This
+  // fixture keeps a real owner but marks it unreachable, which is the
+  // `unavailable`/`sendDisabled` state the attach button is supposed to
+  // share.
+  mockWorkItems([mkItem({ id: 'w-missing', title: 'Work Item',
+    owner: { node: 'ghost-agent', generation: 1 }, owner_state: 'missing' })])
+  const { el } = await mount(docketModal())
+  await flush()
+  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await flush()
+  const sendBtn = el.querySelector('.mail-reply-send') as HTMLButtonElement
+  assert.ok(sendBtn, 'positive control: the reply box renders at all')
+  assert.equal(sendBtn.disabled, true, 'positive control: this fixture really is unavailable')
+  const attachBtn = el.querySelector('.mail-reply .cc-attach') as HTMLButtonElement
+  assert.ok(attachBtn, 'positive control: the attach button still renders')
+  assert.equal(attachBtn.disabled, true,
+    'an unavailable recipient means nowhere to upload TO — same rule as sendDisabled')
 })
 
 uiTest('§13b reply box preserves draft on HTTP failure and clears on successful retry', async (mount) => {
@@ -701,7 +799,7 @@ uiTest('§13b reply box preserves draft on HTTP failure and clears on successful
   await flush()
 
   const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
-  const sendBtn = el.querySelector('.mail-reply button') as HTMLButtonElement
+  const sendBtn = el.querySelector('.mail-reply-send') as HTMLButtonElement
 
   await inAct(() => {
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set

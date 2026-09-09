@@ -1699,16 +1699,16 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
           {recipient?.state === 'retired' && <div className="dim docket-reply-note">
             {recipient.node} is retired — the reply waits for rehire.
           </div>}
-          <MailReplyBox target={replyTo || undefined} sendDisabled={unavailable}
-            onSend={(text) => {
+          <MailReplyBox target={replyTo || undefined} slug={slug} toast={toast} sendDisabled={unavailable}
+            onSend={(text, attachments) => {
               if (unavailable) return Promise.reject(new Error('Recipient unavailable'))
               setReplyBusy(true)
-              return replyWorkItem(slug, item.slug, text, replyTo)
+              return replyWorkItem(slug, item.slug, text, replyTo, attachments)
                 .then((r) => {
                   const sentTo = r.to ?? replyTo
                   toast([r.deferred
                     ? `${sentTo} is archived — the reply waits for rehire`
-                    : `sent to ${sentTo}`])
+                    : `sent to ${sentTo}`, ...(r.warnings ?? [])])
                   setReplyTo(currentOwner.current)
                 })
                 .catch((e: Error) => {

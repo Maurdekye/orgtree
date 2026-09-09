@@ -2060,6 +2060,10 @@ export interface WorkItemReplyResult extends Partial<TypedReplyReceipt> {
   /** the recipient is archived — mail waits for rehire; say so in the UI */
   deferred: boolean
   delivery?: unknown
+  /** allow-attachments-in-contextual-reply-composers: D-171 — a caller-
+   *  supplied attachment path that never resolved to a real staged file,
+   *  same rule as SendMessageResult.warnings. */
+  warnings?: string[]
 }
 
 export interface UploadResult {

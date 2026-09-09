@@ -4429,6 +4429,11 @@ class WorkReply(Body):
     # of its participants, validated against the stored item at send time.
     # Omitted → the assignment, exactly as before.
     to: str | None = None
+    # allow-attachments-in-contextual-reply-composers: already-uploaded
+    # uploads/ paths, same contract as Message.attachments — the composer
+    # stages them via the ordinary upload endpoint and sends them WITH the
+    # reply.
+    attachments: list[str] = []
 
 
 class WorkDismiss(Body):
@@ -4593,12 +4598,38 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 how = ("(the user replied on this docket item — treat it as "
                        "item-linked mail and update the item if it changes "
                        "the work)")
+            # allow-attachments-in-contextual-reply-composers: same staged-
+            # upload resolution as node_message (api.py's ordinary reply
+            # path) — `nid` is only known once the recipient resolves above,
+            # so this cannot run before the lock the way node_message's does
+            metas: list[dict[str, Any]] = []
+            missing: list[str] = []
+            if body.attachments:
+                base = os.path.realpath(supervisor.scratch_dir(slug, nid))
+                extra = len(body.attachments) - ledger_mod.ATTACHMENT_MAX
+                for rel in body.attachments[:ledger_mod.ATTACHMENT_MAX]:
+                    full = os.path.realpath(
+                        os.path.join(base, _no_nul(str(rel)).lstrip("/\\")))
+                    # ⚠ RESOLVE-OR-REPORT (D-171) — see node_message's own
+                    # comment on this exact check for why guessing a name is
+                    # refused rather than attempted
+                    if full.startswith(base + os.sep) and os.path.isfile(full):
+                        metas.append({"name": os.path.basename(full),
+                                      "path": str(rel).replace("\\", "/"),
+                                      "bytes": os.path.getsize(full)})
+                    else:
+                        missing.append(f"{rel} — no such file in your working "
+                                       f"folder (never uploaded, or the upload failed)")
+                if extra > 0:
+                    missing.append(f"{extra} further attachment(s) — past the "
+                                   f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
             # typed (family linked_reply): reply.docket — the header/instruction
             # prose is the renderer's; the body is the user's text
             r = org.post_mail(USER, nid, "", ev=events.mint(
                 "reply.docket", actor_of(USER),
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
-                owner=(str(tgt.get("owner") or "") if role == "participant" else None)))
+                owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
+                attachments=metas or None, missing=missing or None)
             receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
             org.user_deep_reach(nid, text.splitlines()[0][:160])
             # A successful user reply acknowledges manual attention without
@@ -4609,11 +4640,17 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
         except LedgerError as e:
             raise HTTPException(422, str(e))
     mail_notify(slug, USER, nid)
+    # allow-attachments-in-contextual-reply-composers: same D-171 rule as
+    # node_message — `warnings` is CODE's own channel for an attachment
+    # that never resolved; post_mail already built it, this endpoint used
+    # to throw it away exactly like node_message once did
+    warn = list(r.get("warnings") or [])
     if r.get("deferred"):
         # archived recipient: the mail waits in its inbox for a rehire — the
         # UI says so; nobody else is picked
         return {"accepted": True, "to": nid, "role": role, "deferred": True,
-                "node_state": tgt.get("state"), **receipt}
+                "node_state": tgt.get("state"), **receipt,
+                **({"warnings": warn} if warn else {})}
     sent = supervisor.send_message(
         slug, nid,
         ("(orgtree) The mail above is the user's reply on a docket item you "
@@ -4625,7 +4662,8 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
         ping_reason="docket_reply")
     return {"accepted": True, "to": nid, "role": role, "deferred": False,
             "node_state": tgt.get("state"),
-            "delivery": supervisor.delivery_note(slug, nid, sent), **receipt}
+            "delivery": supervisor.delivery_note(slug, nid, sent), **receipt,
+            **({"warnings": warn} if warn else {})}
 
 
 @app.post("/api/orgs/{slug}/work-items/{wid}/dismiss-attention")

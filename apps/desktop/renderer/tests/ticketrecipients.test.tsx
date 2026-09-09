@@ -57,7 +57,7 @@ async function openPicker(el: HTMLElement) {
   await flush()
 }
 const area = (el: HTMLElement) => el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
-const button = (el: HTMLElement) => el.querySelector('.mail-reply button') as HTMLButtonElement
+const button = (el: HTMLElement) => el.querySelector('.mail-reply-send') as HTMLButtonElement
 async function choose(el: HTMLElement, value: string) {
   await openPicker(el)
   await inAct(() => { (document.querySelector(`[role="option"][data-value="${value}"]`) as HTMLElement).click() })

@@ -55,7 +55,7 @@ export function mailCorrections(profile:'operator'|'public') {
     await flush()
     assert.match(body(view.el),/Meaningful original/, 'oldest unread selected without a click')
     const field=await type(view.el,'Reply contents')
-    await inAct(()=>{(view.el.querySelector('.mail-reply button') as HTMLButtonElement).click()});await flush()
+    await inAct(()=>{(view.el.querySelector('.mail-reply-send') as HTMLButtonElement).click()});await flush()
     assert.ok(release,'actual send request held pending')
     assert.deepEqual(reads,[], 'no read request before send acceptance')
     assert.equal(view.el.querySelectorAll('.mailrow.unread').length,2)

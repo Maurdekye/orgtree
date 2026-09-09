@@ -10,9 +10,9 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   BASE, audienceAction, fileBase, fileUrl, getMailById, getNodeInbox, getOrgInbox, orgInboxRead,
-  orgInboxSend, orgInboxUpload,
+  orgInboxSend, orgInboxUpload, uploadFile,
 } from '../api'
-import { AttachThumb, isImg } from './img'
+import { AttachThumb, fmtBytes, isImg } from './img'
 import {
   AttachIcon, CloseIcon, DownloadIcon, EditIcon, FileIcon, HearingIcon,
   MailIcon, PublicIcon,
@@ -62,7 +62,7 @@ export interface MailListProps {
   rowSender?: (id: string, m: MailRow) => ReactNode
   outgoing?: boolean
   onRead?: (m: MailRow) => void
-  onReply?: (m: MailRow, text: string) => void
+  onReply?: (m: MailRow, text: string, attachments?: string[]) => void
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -680,8 +680,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               </div>
             )}
             {replyable && (
-              <MailReplyBox target={party(cur)}
-                onSend={(text) => onReply!(cur, text)} />
+              <MailReplyBox target={party(cur)} slug={org} toast={toast}
+                onSend={(text, attachments) => onReply!(cur, text, attachments)} />
             )}
           </>
         )}
@@ -724,47 +724,108 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
 }
 
 /** №11: inline mail reply box — textarea + reply button.
- *  Shared between the mailbox reader (mail.tsx) and the presented
- *  documents viewer (gallery.tsx). */
-export function MailReplyBox({ target, onSend, placeholder, sendDisabled = false }: {
+ *  Shared between the mailbox reader (mail.tsx), the presented documents
+ *  viewer (gallery.tsx) and the docket's own item reply (docket.tsx) —
+ *  ONE composer, THREE contextual reply areas (allow-attachments-in-
+ *  contextual-reply-composers).
+ *
+ *  Attachments upload through the SAME `uploadFile` a node's own desk
+ *  composer uses (desk.tsx's `attach()`), landing in `target`'s scratch
+ *  folder — `target` already names that node in every caller (it is what
+ *  the reply prose already says "reply to X…" about), so no new node-id
+ *  prop is needed beyond `slug`, which callers did not previously have to
+ *  pass because nothing here touched the API layer directly. */
+export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, toast }: {
   target?: string
-  onSend: (text: string) => void | Promise<unknown>
+  /** required to actually upload anything — omit it and the attach button
+   *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
+  slug?: string
+  onSend: (text: string, attachments?: string[]) => void | Promise<unknown>
   placeholder?: string
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
+  toast?: ToastFn
 }) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const attachable = Boolean(slug && target) && !busy && !sendDisabled
+  const attach = (file: File) => {
+    if (!slug || !target) return
+    uploadFile(slug, target, file)
+      .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
+      .catch((e: Error) => toast?.([`upload error: ${e.message}`]))
+  }
   const send = () => {
     const t = draft.trim()
-    if (!t || busy || sendDisabled) return
-    const res = onSend(t)
+    if ((!t && !attached.length) || busy || sendDisabled) return
+    const paths = attached.map((a) => a.path)
+    const res = onSend(t || '(file attached)', paths.length ? paths : undefined)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       setBusy(true)
       Promise.resolve(res)
-        .then(() => { setDraft('') })
+        .then(() => { setDraft(''); setAttached([]) })
         .catch(() => {})
         .finally(() => setBusy(false))
     } else {
-      setDraft('')
+      setDraft(''); setAttached([])
     }
   }
   return (
-    <div className="mail-reply">
-      <textarea rows={2} value={draft}
-        placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
-        onChange={(e) => setDraft(e.target.value)}
-        disabled={busy}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && draft.trim() && !isMobile && !busy && !sendDisabled) {
-            e.preventDefault()
-            send()
-          }
-        }} />
-      <button disabled={!draft.trim() || busy || sendDisabled} onClick={send}>
-        reply
-      </button>
-    </div>
+    <>
+      {attached.length > 0 && (
+        <div className="attach-row">
+          {attached.map((a, i) => (isImg(a.name)
+            ? <AttachThumb key={a.path + i} href={fileUrl(slug!, target!, a.path)}
+                name={a.name} meta={fmtBytes(a.bytes)}
+                onRemove={() => setAttached((x) => x.filter((_, j) => j !== i))} />
+            : <span key={a.path + i} className="attach-chip">
+                <FileIcon fontSize="inherit" /> {a.name}
+                <span className="dim"> {fmtBytes(a.bytes)}</span>
+                <button className="chip-x" title="remove from this reply"
+                  onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}>
+                  <CloseIcon fontSize="inherit" /></button>
+              </span>
+          ))}
+        </div>
+      )}
+      <div className="mail-reply">
+        {/* reuses .cc-attach (the desk composer's own attach button) rather
+            than inventing a new class — same 24px circle family, no scoping
+            hazard the way `aside`/`.event-row-kind` had, since `.cc-attach`
+            was never a bare-tag rule to begin with */}
+        <button type="button" className="cc-attach" disabled={!attachable}
+          title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
+          onClick={() => fileRef.current?.click()}>
+          <AttachIcon fontSize="inherit" /></button>
+        <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
+          onChange={(e) => {
+            [...(e.target.files ?? [])].forEach(attach)
+            e.target.value = ''
+          }} />
+        <textarea rows={2} value={draft}
+          placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={busy}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && (draft.trim() || attached.length)
+                && !isMobile && !busy && !sendDisabled) {
+              e.preventDefault()
+              send()
+            }
+          }} />
+        {/* a stable class, not `.mail-reply button:last-of-type` — this used
+            to be the ONLY button `.mail-reply` had, and several tests query
+            it that way; the new attach button ahead of it made that
+            positional match silently pick the wrong element instead of
+            failing loudly, which is worse */}
+        <button className="mail-reply-send"
+          disabled={(!draft.trim() && !attached.length) || busy || sendDisabled} onClick={send}>
+          reply
+        </button>
+      </div>
+    </>
   )
 }
 /** Audience chip rows fold their RETIRED entries behind one toggle chip

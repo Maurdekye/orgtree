@@ -365,7 +365,7 @@ uiTest('§11 reply box is present below document for live owner and sends messag
     const textarea = replyBox.querySelector('textarea') as HTMLTextAreaElement
     assert.ok(textarea, 'textarea is rendered')
     assert.match(textarea.placeholder, /reply to agent-live/, 'placeholder names target agent')
-    const sendBtn = replyBox.querySelector('button') as HTMLButtonElement
+    const sendBtn = replyBox.querySelector('.mail-reply-send') as HTMLButtonElement
     assert.ok(sendBtn.disabled, 'reply button disabled while draft is empty')
     await inAct(() => {
       const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
