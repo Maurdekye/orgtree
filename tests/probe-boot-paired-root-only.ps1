@@ -2,11 +2,12 @@
 # Real host/launch/guardian, fresh empty data/profile, no provider credentials.
 # Runtime audit instrumentation denies remote sockets and provider subprocesses.
 param([Parameter(Mandatory=$true)][string]$RuntimeDir,
-      [Parameter(Mandatory=$true)][string]$OperatorSid)
+      [Parameter(Mandatory=$true)][string]$OperatorSid,
+      [switch]$StartupPreflight)
 $ErrorActionPreference='Stop'
 $snapshot=Split-Path $PSScriptRoot
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
-if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Coordinator must run elevated.' }
+if (-not $StartupPreflight -and -not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Coordinator must run elevated.' }
 $manifest=Get-Content -Raw -LiteralPath (Join-Path $snapshot 'probe-source.json') | ConvertFrom-Json
 if ($manifest.commit -notmatch '^[0-9a-f]{40}$') { throw 'Exact source commit required.' }
 foreach($entry in $manifest.files.PSObject.Properties) {
@@ -17,6 +18,8 @@ foreach($entry in $manifest.files.PSObject.Properties) {
 }
 . "$snapshot\tools\boot-engine-task.ps1"
 $null=Assert-BootSid $OperatorSid
+if ($StartupPreflight -and $identity.User.Value -ne $OperatorSid) { throw 'Preflight must run as its selected operator.' }
+if ($StartupPreflight) { function Get-BootFolder { throw 'Task APIs forbidden in startup preflight.' } }
 $script:ProductionBootTaskXml=${function:New-BootTaskXml}
 function New-BootTaskXml($Record) {
     $doc=Read-BootXml (& $script:ProductionBootTaskXml $Record)
@@ -53,7 +56,7 @@ foreach($entry in $manifest.files.PSObject.Properties | Where-Object { $_.Name.S
 }
 Copy-ProbePlainTree $RuntimeDir (Split-Path $paths.Python)
 $data=Join-Path $dir 'probe-data'; $profile=Join-Path $dir 'probe-profile'; $ui=Join-Path $dir 'resources\ui'
-foreach($folder in @($data,$profile,$ui)) { [IO.Directory]::CreateDirectory($folder) | Out-Null }
+foreach($folder in @($data,$profile,$ui,(Join-Path $ui 'assets'))) { [IO.Directory]::CreateDirectory($folder) | Out-Null }
 [IO.File]::WriteAllText((Join-Path $data 'warm.flag'),'0')
 [IO.File]::WriteAllText((Join-Path $ui 'index.html'),'<!doctype html>paired boot probe')
 # Keep reviewed host bytes intact; shim ONLY selects the throwaway environment.
@@ -146,18 +149,46 @@ $script:probeRecord=$null
 function Get-BootRecord { return $script:probeRecord }
 function Save-BootRecord($Record) { $script:probeRecord=$Record }
 function Remove-BootRecord { $script:probeRecord=$null }
-$result=@{commit=$manifest.commit;task=$script:BootTaskName;root=$root;dataRoot=$data;profile=$profile;registryTouched=$false;productionTaskTouched=$false}
+$localHost=$null
+function Stop-LocalProbeHost {
+    if ($null -eq $localHost) { return }
+    if (-not $localHost.HasExited) { $localHost.Kill() }
+    if (-not $localHost.WaitForExit(30000)) { throw 'Preflight host did not stop.' }
+    $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
+    do {
+        # Every permitted fixture Python (host/engine/guardian/sleeper) uses
+        # this unique copied runtime. Do not act on any other installation.
+        $left=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($paths.Engine+'\',[StringComparison]::OrdinalIgnoreCase) })
+        if (-not $left.Count) { return }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $stopDeadline)
+    throw ('Preflight fixture processes remain: '+($left.ProcessId -join ','))
+}
+$result=@{commit=$manifest.commit;startupPreflight=[bool]$StartupPreflight;task=$null;root=$root;dataRoot=$data;profile=$profile;registryTouched=$false;productionTaskTouched=$false}
+if (-not $StartupPreflight) {
+$result.task=$script:BootTaskName
 Write-Output "Temporary task: $script:BootTaskName"
 Write-Output "Rollback: inspect schtasks.exe /Query /TN `"$script:BootTaskName`" /XML; confirm exact action $($paths.Python) + $($paths.Host); then /End /TN `"$script:BootTaskName`" and /Delete /TN `"$script:BootTaskName`" /F using schtasks.exe. Verify fixture process exit, retain $root; no recursive cleanup."
+} else { Write-Output "Startup preflight only: no Task Scheduler or registry operations; fixture $root" }
 try {
-    Invoke-BootLifecycle Prepare $dir $OperatorSid
-    Invoke-BootLifecycle Register $dir
+    if ($StartupPreflight) {
+        $start=[Diagnostics.ProcessStartInfo]::new($paths.Python,('"'+$paths.Host+'"'))
+        $start.UseShellExecute=$false; $start.CreateNoWindow=$true; $start.WorkingDirectory=$paths.Engine
+        $localHost=[Diagnostics.Process]::Start($start)
+    } else {
+        Invoke-BootLifecycle Prepare $dir $OperatorSid
+        Invoke-BootLifecycle Register $dir
+    }
     $descriptor=Join-Path $data 'engine-attach.json'; $control=Join-Path $dir 'child-control.json'
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     while ((-not [IO.File]::Exists($descriptor) -or -not [IO.File]::Exists($control)) -and [DateTime]::UtcNow -lt $deadline) {
+        if ($StartupPreflight) {
+            if ($localHost.HasExited) { throw ('Preflight host exited '+$localHost.ExitCode+'; inspect '+(Join-Path $dir 'host-stderr.log')) }
+        } else {
         $task=Find-BootTask (Get-BootFolder)
         if ($null -ne $task -and [int]$task.State -eq 3 -and [int]$task.LastTaskResult -ne 0 -and @(Get-ChildItem -LiteralPath $dir -Filter 'audit-loaded-*.json').Count) {
             throw ('Reviewed host exited early, task result '+$task.LastTaskResult+'; inspect '+(Join-Path $dir 'host-stderr.log'))
+        }
         }
         Start-Sleep -Milliseconds 200
     }
@@ -179,19 +210,18 @@ try {
     foreach($id in @($ready.hostPid,$ready.enginePid,$child.child)) { if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { throw 'Control process absent before Stop' } }
     $result.identity=$true; $result.unauthenticatedRefused=$true; $result.lockHeldBeforeStop=$true
     $result.pids=@($ready.hostPid,$ready.enginePid,$child.child)
-    Invoke-BootLifecycle Stop $dir
+    if ($StartupPreflight) { Stop-LocalProbeHost } else { Invoke-BootLifecycle Stop $dir }
     foreach($id in $result.pids) { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { throw "Process survived stop: $id" } }
     if (-not (Test-ProbeRootReleased $data)) { throw 'Guardian root lock remains held after stop' }
     $result.treeGone=$true; $result.lockReleased=$true
     # A hard stop may leave a descriptor: its absence is NOT a stop proof.
-    Invoke-BootLifecycle Remove $dir
-    $result.removed=$true
+    if (-not $StartupPreflight) { Invoke-BootLifecycle Remove $dir; $result.removed=$true }
 } catch {
     $result.failure=$_.Exception.Message
     $result.diagnostic=Join-Path $dir 'host-stderr.log'
     throw
 } finally {
-    try { if ($null -ne $script:probeRecord) { Invoke-BootLifecycle Remove $dir } }
+    try { if ($StartupPreflight) { Stop-LocalProbeHost } elseif ($null -ne $script:probeRecord) { Invoke-BootLifecycle Remove $dir } }
     catch { $result.cleanupError=$_.Exception.Message; throw }
     finally { $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $root 'result.json') -Encoding UTF8; Write-Output "Evidence: $root" }
 }
