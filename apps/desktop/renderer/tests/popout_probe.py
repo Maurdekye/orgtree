@@ -386,9 +386,12 @@ def main():
             child.close()
             page.wait_for_timeout(500)
             assert page.locator('.popout-recovery').count() == 1, 'with no auto-recenter the emergency box must still be there'
+            # this proves the COMPOSER stays unreachable while covered by the
+            # box — not that the whole main window is required to block by
+            # product design, just that this one concrete control is.
             try:
                 page.get_by_placeholder('message builder…', exact=True).click(timeout=1500)
-                raise AssertionError('main window must stay blocked until a real anchor actually returns')
+                raise AssertionError('the composer must stay unreachable while the emergency box still covers it')
             except PWTimeout:
                 pass
             # the explicit, later action a real user takes to bring the desk
@@ -405,7 +408,33 @@ def main():
             draft.press('End')
             page.keyboard.type(' — typed after recovery')
             assert draft.input_value() == 'draft before vanishing anchor — typed after recovery'
-            results.append('closing a popout whose anchor vanished while detached keeps the main window genuinely blocked until a real anchor later returns (not automatic recenter), and the composer is then really reachable by pointer/keyboard with the draft intact')
+            results.append('with no auto-recenter, closing a popout whose anchor vanished while detached leaves the composer genuinely unreachable until a real anchor later returns by a separate explicit action (not automatic recenter) — then no recovery box remains and the composer is really reachable by pointer/keyboard with the draft intact')
+
+            # THE NORMAL PATH (Astra 2026-09-09): most desks DO have onJump
+            # wired (deskhosts.tsx's own auto-recenter-on-redock), so the
+            # ordinary, no-org-switch-needed case is that redock never even
+            # needs deskProbe.return() — the app brings a real anchor back on
+            # its own. Same anchor-vanishes-while-detached shape as above,
+            # WITHOUT `nojump` and WITHOUT any deskProbe.return() call: this
+            # exercises the fix on the path most users actually hit.
+            page.goto(f'http://127.0.0.1:{server.server_port}/?desk=1')
+            draft = page.get_by_placeholder('message builder…', exact=True)
+            draft.fill('draft before auto-recenter')
+            with page.expect_popup() as popup:
+                page.get_by_role('button', name='Open in new window').click()
+            child = popup.value
+            child.get_by_placeholder('message builder…', exact=True).wait_for()
+            page.evaluate('deskProbe.navigate()')
+            assert page.locator('textarea').count() == 0, 'the anchor must actually be gone before closing'
+            child.close()
+            draft = page.get_by_placeholder('message builder…', exact=True)
+            draft.wait_for()
+            assert page.locator('.popout-recovery').count() == 0, 'automatic recenter must leave no recovery box behind, with no explicit action from the test'
+            draft.click()
+            draft.press('End')
+            page.keyboard.type(' — typed after auto-recenter')
+            assert draft.input_value() == 'draft before auto-recenter — typed after auto-recenter'
+            results.append('with the ordinary automatic recenter (onJump), closing a popout whose anchor vanished while detached leaves no recovery box and the composer is immediately reachable by pointer/keyboard with the draft intact — no explicit return needed')
             page.goto(f'http://127.0.0.1:{server.server_port}/k/probe-token/?desk=1&public=1')
             page.get_by_placeholder('message builder\u2026', exact=True).fill('visitor draft')
             with page.expect_popup() as popup:
