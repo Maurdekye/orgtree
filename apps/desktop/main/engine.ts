@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot, verifyDescriptorOwner, type DescriptorOwner } from './policy'
+import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
 // Must exceed the host's READY_TIMEOUT (service_host.py) so a desktop that
@@ -34,11 +34,9 @@ export class Engine extends EventEmitter {
   get token(): string { return this.credential }
   private state(status: EngineStatus) { this.status = status; this.emit('status', status) }
 
-  /** Adopt a boot-host engine when a verifiable descriptor exists. Returns
-   *  false (and records why) on any doubt so the caller falls back to a
-   *  fresh managed spawn; the engine-side root lock arbitrates races. */
-  /** Injectable for tests; the default is the real NTFS owner query. */
-  ownerCheck: (file: string) => Promise<DescriptorOwner> = verifyDescriptorOwner
+  /** Injectable for tests; the default is the real NTFS owner + exclusive
+   *  write-boundary query (file and parent directory). */
+  trustCheck: (file: string) => Promise<DescriptorOwner> = verifyDescriptorTrust
 
   /** Keep trying to attach for a bounded window. A missing descriptor only
    *  means no host has FINISHED starting — during the boot race the host may
@@ -65,10 +63,12 @@ export class Engine extends EventEmitter {
     try {
       const attach = parseAttach(raw, realRoot)
       // AUTHENTICATION happens here, before the token leaves this process:
-      // every later value is authored by whoever wrote the descriptor, so
-      // trust reduces to the file being owned by the current user (opus F1).
-      const owner = await this.ownerCheck(file)
-      if (!owner.ok) throw new Error('descriptor owner rejected: ' + owner.detail)
+      // every later value is authored by whoever can WRITE the descriptor,
+      // so trust is the write boundary — current-user ownership AND no
+      // foreign write/replace access on the file or its directory (opus F1,
+      // root ruling; covers a custom ORGTREE_V2_DATA in an unsafe location).
+      const trust = await this.trustCheck(file)
+      if (!trust.ok) throw new Error('descriptor trust rejected: ' + trust.detail)
       const origin = `http://127.0.0.1:${attach.port}`
       // STALENESS CHECK, not peer authentication: it proves the endpoint
       // echoes this boot's descriptor (catching a recycled port), nothing

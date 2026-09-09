@@ -74,6 +74,25 @@ class ServiceHostUnitTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "root mismatch"):
                 parse_ready(json.dumps(dict(good, dataRootId=str(Path(root).resolve() / "other"))), 77, Path(root))
 
+    def test_descriptor_acl_restriction_leaves_owner_system_admins_only(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("NTFS ACLs are Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / DESCRIPTOR
+            target.write_text("{}", encoding="utf-8")
+            self.assertTrue(service_host.restrict_descriptor_acl(target))
+            script = ("$acl=Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "';"
+                      "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+                      "$sids=@($rules | ForEach-Object { $_.IdentityReference.Value });"
+                      "$inherited=@($rules | Where-Object { $_.IsInherited });"
+                      "Write-Output (($sids -join ',')+'|'+$inherited.Count)")
+            output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                                    capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+            sids, inherited = output.rsplit("|", 1)
+            me = service_host._current_user_sid()
+            self.assertEqual(sorted(set(sids.split(","))), sorted({me, "S-1-5-18", "S-1-5-32-544"}), output)
+            self.assertEqual(inherited, "0", "inheritance must be stripped so profile-wide read grants do not apply")
+
     def test_descriptor_lifecycle_never_deletes_a_newer_hosts_file(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)

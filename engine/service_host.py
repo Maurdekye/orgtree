@@ -102,6 +102,41 @@ def parse_ready(line: str, child_pid: int, root: Path) -> dict[str, Any] | None:
     return value
 
 
+def _current_user_sid() -> str | None:
+    try:
+        output = subprocess.run(["whoami", "/user", "/fo", "csv"], capture_output=True,
+                                text=True, timeout=10, check=True).stdout
+        for token in output.replace('"', ",").split(","):
+            if token.strip().startswith("S-1-"):
+                return token.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def restrict_descriptor_acl(descriptor: Path) -> bool:
+    """Owner-only DACL on OUR OWN new file (never anyone else's ACLs).
+
+    The descriptor carries the desktop token; inherited profile ACLs can
+    grant other accounts READ (measured on this machine: a sandbox account
+    holds inherited read on the data root). Stripping inheritance down to
+    the operator + SYSTEM + Administrators removes that token exposure.
+    Best-effort: the desktop's own trust check still gates attachment.
+    """
+    sid = _current_user_sid()
+    if os.name != "nt" or not sid:
+        return False
+    try:
+        subprocess.run(["icacls", str(descriptor), "/inheritance:r",
+                        "/grant:r", f"*{sid}:F", "/grant", "*S-1-5-18:F", "/grant", "*S-1-5-32-544:F"],
+                       capture_output=True, timeout=15, check=True)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"service host: descriptor ACL restriction failed ({exc}); "
+              "inherited directory ACLs continue to apply", file=sys.stderr, flush=True)
+        return False
+
+
 def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path:
     descriptor = root / DESCRIPTOR
     payload = {"type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid,
@@ -110,6 +145,7 @@ def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path
     temporary = descriptor.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
     os.replace(temporary, descriptor)
+    restrict_descriptor_acl(descriptor)
     return descriptor
 
 

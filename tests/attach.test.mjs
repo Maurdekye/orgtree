@@ -46,6 +46,11 @@ function identityServer(handler) {
 const respond = (response, status, body) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(body)) }
 const writeDescriptor = value => fs.writeFileSync(path.join(realRoot, 'engine-attach.json'), JSON.stringify(value))
 const engineIdentity = { protocol: 1, pid: 4242, dataRootId: realRoot }
+// This machine's %TEMP% carries inherited write ACEs for other local accounts
+// (sandbox users), so the REAL trust check would rightly refuse fixtures that
+// live there. Identity/lifecycle tests therefore stub it; the real check has
+// its own dedicated positive and negative controls on icacls-cleaned dirs.
+const trusting = engine => { engine.trustCheck = async () => ({ ok: true, detail: 'test stub' }); return engine }
 
 test('attach adopts a verified boot engine and refuses to stop it', async () => {
   const { server, port } = await identityServer((request, response) => {
@@ -54,7 +59,7 @@ test('attach adopts a verified boot engine and refuses to stop it', async () => 
   })
   try {
     writeDescriptor(descriptor({ port }))
-    const engine = new Engine()
+    const engine = trusting(new Engine())
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
     assert.equal(engine.origin, `http://127.0.0.1:${port}`)
     assert.equal(engine.token, token)
@@ -67,7 +72,7 @@ test('attach adopts a verified boot engine and refuses to stop it', async () => 
 })
 
 test('attach without a descriptor is a quiet decline', async () => {
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false)
   assert.equal(engine.attachDiagnostic, '')
   assert.equal(engine.managed, true)
@@ -89,7 +94,7 @@ test('wrong token, wrong process, wrong root and dead port are each rejected wit
     })
     try {
       writeDescriptor(descriptor({ port, token: options.descriptorToken ?? token }))
-      const engine = new Engine()
+      const engine = trusting(new Engine())
       assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false, options.name)
       assert.match(engine.attachDiagnostic, options.expect, options.name)
       assert.equal(engine.managed, true, options.name)
@@ -102,7 +107,7 @@ test('wrong token, wrong process, wrong root and dead port are each rejected wit
   await new Promise(resolve => idle.server.close(resolve))
   writeDescriptor(descriptor({ port: deadPort }))
   try {
-    const engine = new Engine()
+    const engine = trusting(new Engine())
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false)
     assert.notEqual(engine.attachDiagnostic, '')
     assert.equal(engine.managed, true)
@@ -122,7 +127,7 @@ test('a refused spawn is distinguishable and the same engine can then attach (bo
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-refused-'))
   fs.writeFileSync(path.join(directory, 'launch.py'),
     `console.log(JSON.stringify({ type: 'refused', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' }))`)
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
   await assert.rejects(engine.start(options), error => error.message.startsWith(ENGINE_REFUSED) && /owns this data root/.test(error.message))
   // The lost race resolves by attaching once the winning host publishes.
@@ -144,12 +149,12 @@ test('attachWithRetry waits out a host that has not published yet, and gives up 
   })
   try {
     const late = setTimeout(() => writeDescriptor(descriptor({ port })), 300)
-    const engine = new Engine()
+    const engine = trusting(new Engine())
     assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 3000, 100), true)
     clearTimeout(late)
   } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
   const start = Date.now()
-  assert.equal(await new Engine().attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 400, 100), false)
+  assert.equal(await trusting(new Engine()).attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 400, 100), false)
   assert.ok(Date.now() - start < 2000, 'the retry window is bounded')
 })
 
@@ -158,7 +163,7 @@ test('an attached engine that dies underneath us reads as stopped, not forever-r
     if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
     respond(response, 200, engineIdentity)
   })
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   try {
     writeDescriptor(descriptor({ port }))
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
@@ -172,14 +177,39 @@ test('an attached engine that dies underneath us reads as stopped, not forever-r
   assert.equal(engine.origin, '')
 })
 
-test('the real owner check accepts a file this user just created (positive control)', async () => {
-  const file = path.join(realRoot, 'owned-probe.json')
+test('the real trust check accepts an owner-exclusive file (positive control)', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
+  const clean = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-clean-'))
+  execFileSync('icacls', [clean, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`], { stdio: 'pipe' })
+  const file = path.join(clean, 'engine-attach.json')
   fs.writeFileSync(file, '{}')
-  try {
-    const result = await policy.verifyDescriptorOwner(file)
-    assert.equal(result.ok, true, result.detail)
-    assert.match(result.detail, /^owner S-/)
-  } finally { fs.rmSync(file) }
+  const result = await policy.verifyDescriptorTrust(file)
+  assert.equal(result.ok, true, result.detail)
+  assert.match(result.detail, /^owner S-/)
+})
+
+test('the real trust check rejects foreign write access, measured with actual ACLs', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
+  // A user-owned FILE that Everyone can write: ownership alone would pass it.
+  const looseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-file-'))
+  execFileSync('icacls', [looseDir, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`], { stdio: 'pipe' })
+  const looseFile = path.join(looseDir, 'engine-attach.json')
+  fs.writeFileSync(looseFile, '{}')
+  execFileSync('icacls', [looseFile, '/grant', '*S-1-1-0:(W)'], { stdio: 'pipe' })
+  const fileVerdict = await policy.verifyDescriptorTrust(looseFile)
+  assert.equal(fileVerdict.ok, false)
+  assert.match(fileVerdict.detail, /descriptor writable by .*S-1-1-0/)
+  // A DIRECTORY others can write lets them replace the file wholesale; the
+  // file itself stays owner-only (the Everyone grant is not object-inherit).
+  const openDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-dir-'))
+  execFileSync('icacls', [openDir, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`, '/grant', '*S-1-1-0:(WD)'], { stdio: 'pipe' })
+  const inside = path.join(openDir, 'engine-attach.json')
+  fs.writeFileSync(inside, '{}')
+  const dirVerdict = await policy.verifyDescriptorTrust(inside)
+  assert.equal(dirVerdict.ok, false)
+  assert.match(dirVerdict.detail, /directory writable by .*S-1-1-0/)
 })
 
 test('a descriptor owned by someone else is rejected BEFORE the token is sent anywhere', async () => {
@@ -187,10 +217,10 @@ test('a descriptor owned by someone else is rejected BEFORE the token is sent an
   const { server, port } = await identityServer((request, response) => { identityRequests++; respond(response, 200, engineIdentity) })
   try {
     writeDescriptor(descriptor({ port }))
-    const engine = new Engine()
-    engine.ownerCheck = async () => ({ ok: false, detail: 'owner S-1-5-21-attacker is not current user S-1-5-21-me' })
+    const engine = trusting(new Engine())
+    engine.trustCheck = async () => ({ ok: false, detail: 'owner S-1-5-21-attacker is not current user S-1-5-21-me' })
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false)
-    assert.match(engine.attachDiagnostic, /owner rejected/)
+    assert.match(engine.attachDiagnostic, /trust rejected/)
     assert.equal(identityRequests, 0, 'the token must never reach an unauthenticated peer (opus F3)')
     assert.equal(engine.managed, true)
   } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
@@ -219,7 +249,7 @@ test('an attached update stop is graceful, verified, and refuses when the engine
     if (request.url === '/api/desktop/identity' && request.headers['x-orgtree-desktop-token'] === token) return respond(response, 200, engineIdentity)
     respond(response, 401, {})
   })
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   try {
     writeDescriptor(descriptor({ port }))
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
@@ -234,7 +264,7 @@ test('an attached update stop is graceful, verified, and refuses when the engine
     if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
     respond(response, 200, engineIdentity)
   })
-  const stubborn = new Engine()
+  const stubborn = trusting(new Engine())
   try {
     writeDescriptor(descriptor({ port: alive.port }))
     assert.equal(await stubborn.attach({ dataRoot, forbiddenRoot: forbidden }), true)
@@ -247,7 +277,7 @@ test('a lost attachment recovers by re-attaching to the republished host with it
     if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
     respond(response, 200, engineIdentity)
   })
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   try {
     writeDescriptor(descriptor({ port: first.port }))
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
@@ -284,7 +314,7 @@ test('recovery falls back to a managed spawn when no host republishes, and stays
     })
   `)
   const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
-  const engine = new Engine()
+  const engine = trusting(new Engine())
   engine.managed = false // simulate a previously attached engine that was lost
   const outcome = await engine.recoverAttached(options)
   assert.equal(outcome, 'spawned')
@@ -292,7 +322,7 @@ test('recovery falls back to a managed spawn when no host republishes, and stays
   assert.ok(engine.origin.startsWith('http://127.0.0.1:'), engine.origin)
   await engine.stop()
 
-  const broken = new Engine()
+  const broken = trusting(new Engine())
   broken.managed = false
   const failed = await broken.recoverAttached({ ...options, python: path.join(directory, 'missing.exe') })
   assert.equal(failed, 'failed')

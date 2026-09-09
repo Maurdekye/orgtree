@@ -83,27 +83,50 @@ export function canonicalPath(p: string): string {
 
 export interface DescriptorOwner { ok: boolean; detail: string }
 
-/** THE authentication step of attachment (redteam-opus F1): everything in the
- *  descriptor and the identity response is authored by whoever wrote the
- *  file, so trust reduces to WHO CAN WRITE IT. Require the file's owner SID
- *  to equal the current user's before the token is sent anywhere. Fail
- *  closed: no platform support, no parse, no match — no attach. Cross-account
- *  attack not measured on this machine (single account); the property relied
- *  on is NTFS ownership of a freshly created file. */
-export function verifyDescriptorOwner(file: string): Promise<DescriptorOwner> {
-  if (process.platform !== 'win32') return Promise.resolve({ ok: false, detail: 'owner verification is Windows-only' })
+/** THE authentication step of attachment (redteam-opus F1, root ruling):
+ *  everything in the descriptor and the identity response is authored by
+ *  whoever can WRITE the file, so trust is a write-boundary property, and
+ *  owner SID alone is not it — a user-owned file writable by Everyone, or a
+ *  parent directory where others can replace the file, is equally broken
+ *  (custom ORGTREE_V2_DATA can point anywhere). The smallest defensible
+ *  check, READ-ONLY (existing ACLs are never rewritten or broadened):
+ *    1. the file's owner SID equals the current user's;
+ *    2. no Allow ACE on the file OR its parent directory grants any
+ *       write/delete/permission-change right to a principal other than the
+ *       current user, SYSTEM, Administrators or CREATOR OWNER.
+ *  Fails closed with the offending SIDs named, so an unsafe custom root is a
+ *  clear refusal, not a silent one. Generic write/all bits count as write. */
+export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
+  if (process.platform !== 'win32') return Promise.resolve({ ok: false, detail: 'descriptor trust verification is Windows-only' })
   const escaped = file.replace(/'/g, "''")
-  const script = `$o=(Get-Acl -LiteralPath '${escaped}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
-    `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;Write-Output ($o+'|'+$me)`
+  const directory = path.dirname(file).replace(/'/g, "''")
+  const script =
+    `$ErrorActionPreference='Stop';` +
+    `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;` +
+    `$allowed=@($me,'S-1-5-18','S-1-5-32-544','S-1-3-0');` +
+    `$mask=0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000;` +
+    `function BadWriters($p){$acl=Get-Acl -LiteralPath $p;$bad=@();` +
+    `foreach($r in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){` +
+    `if($r.AccessControlType -ne 'Allow'){continue};$sid=$r.IdentityReference.Value;` +
+    `if($allowed -contains $sid){continue};` +
+    `if(([int]$r.FileSystemRights -band $mask) -ne 0){$bad+=$sid}};` +
+    `,@($bad | Select-Object -Unique)};` +
+    `$owner=(Get-Acl -LiteralPath '${escaped}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
+    `$fileBad=BadWriters '${escaped}';$dirBad=BadWriters '${directory}';` +
+    `Write-Output ($me+'|'+$owner+'|'+($fileBad -join ',')+'|'+($dirBad -join ','))`
   return new Promise(resolve => {
     // Lazy import keeps policy.ts loadable in bundled unit tests without electron.
     import('node:child_process').then(({ execFile }) => {
       execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true },
         (error, stdout) => {
-          if (error) return resolve({ ok: false, detail: `owner query failed: ${error.message.slice(0, 200)}` })
-          const [owner, current] = stdout.trim().split('|')
-          if (!owner || !current || !owner.startsWith('S-') || !current.startsWith('S-')) return resolve({ ok: false, detail: `owner query unparseable: ${stdout.trim().slice(0, 120)}` })
-          resolve(owner === current ? { ok: true, detail: `owner ${owner}` } : { ok: false, detail: `owner ${owner} is not current user ${current}` })
+          if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
+          const parts = stdout.trim().split('|')
+          if (parts.length !== 4 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
+          const [current, owner, fileBad, dirBad] = parts
+          if (owner !== current) return resolve({ ok: false, detail: `owner ${owner} is not current user ${current}` })
+          if (fileBad) return resolve({ ok: false, detail: `descriptor writable by ${fileBad}` })
+          if (dirBad) return resolve({ ok: false, detail: `descriptor directory writable by ${dirBad}` })
+          resolve({ ok: true, detail: `owner ${owner}, exclusive write boundary` })
         })
     }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
   })
