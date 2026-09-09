@@ -19,8 +19,13 @@ app.whenReady().then(async()=>{
     }
   }
   const file=path.join(root,'preferences.json'),prefs=new Preferences(file)
+  const effectiveThemes:string[]=[]
   ipcMain.handle('desktop:preferences',()=>prefs.get())
   ipcMain.handle('desktop:window-state',()=>({visible:true,restoreWindows:false}))
+  ipcMain.handle('desktop:set-effective-theme',(_event,theme)=>{
+    assert.ok(['orgtree','claude','codex','antigravity','openrouter'].includes(theme),'invalid effective theme')
+    effectiveThemes.push(theme)
+  })
   ipcMain.handle('desktop:set-preferences',(_e,patch)=>{
     const next=prefs.set(patch)
     for(const w of BrowserWindow.getAllWindows())w.webContents.send('desktop:event',{type:'preferences',data:next})
@@ -68,6 +73,8 @@ app.whenReady().then(async()=>{
     assert.equal(new Preferences(file).get().visualTheme,id)
     fs.writeFileSync(path.join(root,`${id}-popout.png`),await screenshot(child))
   }
+  assert.ok(effectiveThemes.includes('claude'),'native bridge receives the Claude fallback')
+  for(const id of ['claude','codex','antigravity','openrouter'])assert.ok(effectiveThemes.includes(id),'native bridge receives '+id+' changes')
   await child.webContents.executeJavaScript(`document.querySelector('[aria-label="Return to main window"]').click();true`)
   await waitFor(main,'!!document.querySelector("select")')
   const after=await main.webContents.executeJavaScript(inspect)
@@ -75,7 +82,7 @@ app.whenReady().then(async()=>{
   fs.writeFileSync(path.join(root,'openrouter-main.png'),await screenshot(main))
   await main.reload()
   await waitFor(main,'document.querySelector("select")?.value==="openrouter"')
-  const evidence={pass:true,root,before,after,persisted:new Preferences(file).get(),checks:['real production preload and Preferences','actual PinFrame popout and redock','all four provider accents update both windows','status/provider/layout/draft unchanged','reload restored saved theme']}
+  const evidence={pass:true,root,before,after,persisted:new Preferences(file).get(),effectiveThemes,checks:['real production preload and Preferences','validated set-effective-theme bridge receives fallback and explicit changes','actual PinFrame popout and redock','all four provider accents update both windows','status/provider/layout/draft unchanged','reload restored saved theme']}
   fs.writeFileSync(path.join(root,'evidence.json'),JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence))
   main.destroy();server.close();app.exit(0)
 }).catch(e=>{console.error(e);server?.close();app.exit(1)})
