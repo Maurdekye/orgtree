@@ -12,7 +12,15 @@ export type EngineStatus =
   | { state: 'unavailable' | 'stopped'; message: string }
 import type { VisualTheme } from './visual-theme'
 
-export interface DesktopPreferences { visualTheme: VisualTheme; exitOnClose: boolean; startAtLogin: boolean; routineNotifications: boolean; onboarded: boolean }
+export interface DesktopPreferences {
+  visualTheme: VisualTheme
+  /** True when the user chose a theme; absent means use the detected default. */
+  visualThemeExplicit?: boolean
+  exitOnClose: boolean
+  startAtLogin: boolean
+  routineNotifications: boolean
+  onboarded: boolean
+}
 export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
   kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine'
@@ -28,6 +36,8 @@ export interface DesktopBridge {
   getWindowControlsState(): Promise<DesktopControlsState>
   getPreferences(): Promise<DesktopPreferences>
   setPreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>
+  /** Updates the in-memory native icon theme; never persists a detected default. */
+  setEffectiveTheme(theme: VisualTheme): Promise<void>
   // Domain transport stays relative HTTP/WebSocket; no arbitrary path IPC.
   showMainWindow(): Promise<void>
   quit(): Promise<void>

@@ -197,7 +197,7 @@ test('theme choice previews and persists through the bridge', async () => {
   const { act } = await import('react')
   await act(async () => { (claude as HTMLButtonElement).click() })
   await flush()
-  assert.deepEqual(state.patches[0], { visualTheme: 'claude' })
+  assert.deepEqual(state.patches[0], { visualTheme: 'claude', visualThemeExplicit: true })
   assert.equal(document.documentElement.style.getPropertyValue('--accent'), '#d97757')
   await view.unmount()
   restore()

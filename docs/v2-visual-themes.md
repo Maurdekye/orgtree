@@ -1,13 +1,16 @@
 # Visual themes
 
-App settings > Display > Visual theme offers Orgtree (neutral, the default),
-Claude, Codex, Antigravity, and OpenRouter. The dark graph/desk layout, fonts,
+App settings > Display > Visual theme offers Orgtree (neutral),
+Claude, Codex, Antigravity, and OpenRouter. A fresh or unset preference starts with
+Claude orange, then resolves to the first installed provider in Claude, Codex,
+Antigravity order; with none installed it remains Claude. The dark graph/desk layout, fonts,
 spacing, provider badges and semantic status colors remain in place. This is
 an application appearance preference; it does not select a provider, model,
 account, route or permission.
 
 The desktop saves `visualTheme` in its existing `desktop-settings.json`, outside
-the engine's changing HTTP origin. Older preferences get the neutral default.
+the engine's changing HTTP origin. Older neutral-only preferences are treated as
+unset; explicit choices are preserved across reloads.
 Invalid themes reject the entire preference update without writing it. The
 renderer follows native preference events; an older initial read cannot undo a
 newer event. The Display control reports a failed save and retains its previous

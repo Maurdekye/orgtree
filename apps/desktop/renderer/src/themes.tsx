@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { desktop } from './desktop'
+import { getProviders } from './api'
 import { SetGroup, SetRow } from './canvas/settingskit'
 import { isVisualTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../../packages/contracts/visual-theme'
+
+type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?: unknown } }> }
 
 export const THEMES = {
   orgtree: { label: 'Orgtree (neutral)', accent: '#b6bdc8', hover: '#d0d5dd', soft: 'rgba(182,189,200,.16)' },
@@ -13,8 +16,24 @@ export const THEMES = {
 } satisfies Record<VisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'
+const DEFAULT_THEME: VisualTheme = 'claude'
+
+/** The first installed CLI provider supplies the initial appearance only.
+ * Explicit choices never go through this mapping. Detection is deliberately
+ * based on status.installed, not authentication or remote availability. */
+export function defaultThemeForProviders(payload: ProviderPayload | null | undefined): VisualTheme {
+  const installed = (id: string) => !!payload?.providers?.some(p => p.id === id && p.status?.installed === true)
+  if (installed('claude')) return 'claude'
+  if (installed('openai')) return 'codex'
+  if (installed('google')) return 'antigravity'
+  return DEFAULT_THEME
+}
+
 export function applyTheme(value: unknown) {
-  const theme = THEMES[isVisualTheme(value) ? value : 'orgtree']
+  const selected = isVisualTheme(value) ? value : DEFAULT_THEME
+  const theme = THEMES[selected]
+  document.documentElement.dataset.visualTheme = selected
+  window.dispatchEvent(new window.CustomEvent('orgtree:visual-theme-changed', { detail: selected }))
   // The existing native-popout observer copies this root style, including
   // subsequent updates. Semantic status and scoped provider colors stay intact.
   const style = document.documentElement.style
@@ -24,58 +43,146 @@ export function applyTheme(value: unknown) {
   style.setProperty('--accent-ink', '#17191d')
 }
 
+function notifyNative(bridge: ReturnType<typeof desktop>, theme: VisualTheme): void {
+  if (!bridge?.setEffectiveTheme) return
+  try { void bridge.setEffectiveTheme(theme).catch(() => {}) } catch { /* old/unavailable bridge */ }
+}
+
+function explicitTheme(value: unknown): VisualTheme | null {
+  if (!value || typeof value !== 'object') return null
+  const p = value as { visualTheme?: unknown; visualThemeExplicit?: unknown }
+  return p.visualThemeExplicit === true && isVisualTheme(p.visualTheme) ? p.visualTheme : null
+}
+
+function resolveDefault(apply: (theme: VisualTheme) => void, stillCurrent: () => boolean): void {
+  void getProviders().then(payload => {
+    if (stillCurrent()) apply(defaultThemeForProviders(payload))
+  }).catch(() => {
+    // Claude is the safe first-paint and no-provider fallback.
+  })
+}
+
 /** Main process preferences persist independently of the engine's changing port. */
 export function startThemeSync(): () => void {
   const bridge = desktop()
   if (!bridge) {
-    try { applyTheme(localStorage.getItem(STORAGE_KEY)) } catch { applyTheme('orgtree') }
-    const sync = (e: StorageEvent) => { if (e.key === STORAGE_KEY) applyTheme(e.newValue) }
+    let alive = true
+    let stored: string | null = null
+    try { stored = localStorage.getItem(STORAGE_KEY) } catch { /* private mode */ }
+    if (isVisualTheme(stored)) applyTheme(stored)
+    else {
+      applyTheme(DEFAULT_THEME)
+      resolveDefault(theme => {
+        try { if (localStorage.getItem(STORAGE_KEY) === null) applyTheme(theme) } catch { applyTheme(theme) }
+      }, () => alive)
+    }
+    const sync = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY) return
+      if (isVisualTheme(e.newValue)) applyTheme(e.newValue)
+      else {
+        applyTheme(DEFAULT_THEME)
+        resolveDefault(theme => {
+          try { if (localStorage.getItem(STORAGE_KEY) === null) applyTheme(theme) } catch { applyTheme(theme) }
+        }, () => alive)
+      }
+    }
     window.addEventListener('storage', sync)
-    return () => window.removeEventListener('storage', sync)
+    return () => { alive = false; window.removeEventListener('storage', sync) }
   }
-  applyTheme('orgtree')
-  let alive = true, revision = 0
+
+  applyTheme(DEFAULT_THEME)
+  notifyNative(bridge, DEFAULT_THEME)
+  let alive = true, revision = 0, explicit: VisualTheme | null = null
+  const detect = (generation: number) => resolveDefault(theme => {
+    if (revision === generation && explicit === null) { applyTheme(theme); notifyNative(bridge, theme) }
+  }, () => alive && revision === generation && explicit === null)
   const unsubscribe = bridge.onEvent(e => {
     if (alive && e.type === 'preferences') {
       revision++
-      applyTheme((e.data as { visualTheme?: unknown }).visualTheme)
+      explicit = explicitTheme(e.data)
+      if (explicit) { applyTheme(explicit); notifyNative(bridge, explicit) }
+      else { applyTheme(DEFAULT_THEME); notifyNative(bridge, DEFAULT_THEME); detect(revision) }
     }
   })
   const initial = revision
-  void bridge.getPreferences().then(p => { if (alive && initial === revision) applyTheme(p.visualTheme) }).catch(() => {})
+  void bridge.getPreferences().then(p => {
+    if (!alive || initial !== revision) return
+    explicit = explicitTheme(p)
+    if (explicit) { applyTheme(explicit); notifyNative(bridge, explicit) }
+    else { applyTheme(DEFAULT_THEME); notifyNative(bridge, DEFAULT_THEME); detect(initial) }
+  }).catch(() => {})
   return () => { alive = false; unsubscribe() }
 }
 
 export function ThemeSetting() {
-  const [theme, setTheme] = useState<VisualTheme>('orgtree')
+  const [theme, setTheme] = useState<VisualTheme>(DEFAULT_THEME)
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Refs bridge the asynchronous provider probe and the event handlers. A
+  // delayed probe must not be allowed to overwrite a choice made meanwhile.
+  const revisionRef = useRef(0)
+  const explicitRef = useRef<VisualTheme | null>(null)
+  const currentRef = useRef<VisualTheme>(DEFAULT_THEME)
   useEffect(() => {
-    let alive = true, revision = 0
-    const accept = (value: unknown) => { if (alive) { setTheme(isVisualTheme(value) ? value : 'orgtree'); setReady(true) } }
+    let alive = true
     const bridge = desktop()
+    const accept = (value: VisualTheme) => {
+      if (alive) { currentRef.current = value; setTheme(value); applyTheme(value); notifyNative(bridge, value); setReady(true) }
+    }
+    const detect = (generation: number) => resolveDefault(value => {
+      if (alive && revisionRef.current === generation && explicitRef.current === null) accept(value)
+    }, () => alive && revisionRef.current === generation && explicitRef.current === null)
     if (!bridge) {
-      try { accept(localStorage.getItem(STORAGE_KEY)) } catch { accept('orgtree') }
+      let stored: string | null = null
+      try { stored = localStorage.getItem(STORAGE_KEY) } catch { /* private mode */ }
+      if (isVisualTheme(stored)) { explicitRef.current = stored; accept(stored) }
+      else { accept(DEFAULT_THEME); detect(revisionRef.current) }
       return () => { alive = false }
     }
-    const unsubscribe = bridge.onEvent(e => { if (e.type === 'preferences') { revision++; accept((e.data as { visualTheme?: unknown }).visualTheme) } })
-    const initial = revision
-    void bridge.getPreferences().then(p => { if (initial === revision) accept(p.visualTheme) })
-      .catch((e: Error) => { if (alive) setError(e.message) })
+    const onPreferences = (value: unknown) => {
+      revisionRef.current++
+      explicitRef.current = explicitTheme(value)
+      if (explicitRef.current) accept(explicitRef.current)
+      else { accept(DEFAULT_THEME); detect(revisionRef.current) }
+    }
+    const unsubscribe = bridge.onEvent(e => { if (e.type === 'preferences') onPreferences(e.data) })
+    const initial = revisionRef.current
+    void bridge.getPreferences().then(p => {
+      if (!alive || initial !== revisionRef.current) return
+      explicitRef.current = explicitTheme(p)
+      if (explicitRef.current) accept(explicitRef.current)
+      else { accept(DEFAULT_THEME); detect(initial) }
+    }).catch((e: Error) => { if (alive) setError(e.message) })
     return () => { alive = false; unsubscribe() }
   }, [])
   const change = async (value: string) => {
     if (!isVisualTheme(value)) return
+    const previous = currentRef.current
+    const previousExplicit = explicitRef.current
+    const attempt = revisionRef.current + 1
+    revisionRef.current = attempt
+    explicitRef.current = value
     setBusy(true)
     try {
       const bridge = desktop()
-      const saved = bridge ? (await bridge.setPreferences({ visualTheme: value })).visualTheme : value
+      const saved = bridge
+        ? (await bridge.setPreferences({ visualTheme: value, visualThemeExplicit: true })).visualTheme
+        : value
       if (!bridge) localStorage.setItem(STORAGE_KEY, value)
-      const next = isVisualTheme(saved) ? saved : 'orgtree'
-      setTheme(next); applyTheme(next); setError('')
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
+      const next = isVisualTheme(saved) ? saved : value
+      explicitRef.current = next
+      currentRef.current = next
+      setTheme(next); applyTheme(next); notifyNative(bridge, next); setError('')
+    } catch (e) {
+      if (revisionRef.current === attempt) {
+        revisionRef.current++
+        explicitRef.current = previousExplicit
+        currentRef.current = previous
+        setTheme(previous); applyTheme(previous); notifyNative(desktop(), previous)
+      }
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
   }
   return <SetGroup title="Appearance" note="saved on this computer">
     <SetRow label="visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">

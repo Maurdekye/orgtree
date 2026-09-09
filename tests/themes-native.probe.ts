@@ -43,7 +43,7 @@ app.whenReady().then(async()=>{
   const inspect=`(()=>{const root=getComputedStyle(document.documentElement),panel=document.querySelector('.settings').getBoundingClientRect();return {accent:root.getPropertyValue('--accent').trim(),ok:root.getPropertyValue('--ok').trim(),bad:root.getPropertyValue('--bad').trim(),font:getComputedStyle(document.querySelector('.settings')).fontFamily,background:getComputedStyle(document.querySelector('.settings')).backgroundColor,button:getComputedStyle(document.querySelector('.primary')).backgroundColor,provider:getComputedStyle(document.querySelector('.prov-openai')).getPropertyValue('--accent').trim(),width:panel.width,height:panel.height,text:document.querySelector('.settings').textContent,draft:document.querySelector('textarea').value}})()`
   console.log('stage: initial inspect')
   const before=await main.webContents.executeJavaScript(inspect)
-  assert.equal(before.accent,'#b6bdc8')
+  assert.equal(before.accent,'#d97757','fresh native startup uses the Claude fallback palette')
   assert.equal(before.provider,'#22c4bd','real provider identity positive control')
   await new Promise(r=>setTimeout(r,300))
   fs.writeFileSync(path.join(root,'neutral-main.png'),await screenshot(main))
@@ -53,7 +53,7 @@ app.whenReady().then(async()=>{
   const child=await ready
   console.log('stage: child opened')
   await waitFor(child,'document.querySelector("select")?.disabled===false')
-  await waitFor(child,`getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()==='#b6bdc8'`)
+  await waitFor(child,`getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()==='#d97757'`)
   const neutralChild=await child.webContents.executeJavaScript(inspect)
   await new Promise(r=>setTimeout(r,800))
   for(const key of ['font','background'])assert.equal(neutralChild[key],before[key],`child stylesheet ${key}`)

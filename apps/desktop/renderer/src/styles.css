@@ -15,12 +15,12 @@
   --dim: #9d9d9d;
   --line: #3c3c3c;
   --line-soft: #2b2b2b;
-  --accent: #b6bdc8;        /* neutral Orgtree accent */
+  --accent: #d97757;        /* Claude default accent; explicit themes override it */
   --prov-claude: #d97757;   /* explicit destination theme inside other desks */
   --aud-user: #d97757;      /* direct line to the user — relationship color,
                                independent of the agent provider theme */
-  --accent-soft: rgba(182, 189, 200, .16);
-  --accent-hover: #d0d5dd;
+  --accent-soft: rgba(217, 119, 87, .16);
+  --accent-hover: #e99b81;
   --accent-ink: #17191d;
   --sandbox: #7ea8cc;       /* sandboxed-org canvas border (light steel blue) */
   --kiosk: #4ba3c7;         /* "exposed to the public" teal */

@@ -69,9 +69,21 @@ export function Onboarding({ children, windowControls }: {
 }) {
   const bridge = desktop()
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
+  const [detectedTheme, setDetectedTheme] = useState<VisualTheme>(() => {
+    const value = document.documentElement.dataset.visualTheme
+    return isVisualTheme(value) ? value : 'claude'
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const finished = useRef(false)
+  useEffect(() => {
+    const syncTheme = (event: Event) => {
+      const value = (event as CustomEvent).detail
+      if (isVisualTheme(value)) setDetectedTheme(value)
+    }
+    window.addEventListener('orgtree:visual-theme-changed', syncTheme)
+    return () => window.removeEventListener('orgtree:visual-theme-changed', syncTheme)
+  }, [])
   useEffect(() => {
     if (!bridge) return
     let alive = true
@@ -108,7 +120,8 @@ export function Onboarding({ children, windowControls }: {
   }
 
   if (!bridge) return null
-  const theme = prefs && isVisualTheme(prefs.visualTheme) ? prefs.visualTheme : 'orgtree'
+  const theme = prefs && prefs.visualThemeExplicit === true && isVisualTheme(prefs.visualTheme)
+    ? prefs.visualTheme : detectedTheme
   return (
     <div className="welcome-card onboarding">
       <h2 className="onboarding-head">Welcome to Orgtree{windowControls}</h2>
@@ -122,7 +135,7 @@ export function Onboarding({ children, windowControls }: {
           <button key={id} type="button" role="radio" aria-checked={theme === id}
             className={'onboard-theme' + (theme === id ? ' selected' : '')}
             disabled={!prefs || busy}
-            onClick={() => { applyTheme(id); put({ visualTheme: id as VisualTheme }) }}>
+            onClick={() => { applyTheme(id); put({ visualTheme: id as VisualTheme, visualThemeExplicit: true }) }}>
             <span className="onboard-swatch" style={{ background: THEMES[id].accent }} />
             {THEMES[id].label}
           </button>
