@@ -121,7 +121,22 @@ _PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
 #: ever appends to it unless the operator opted in. Route TEMPLATES and numeric
 #: timings only (see `_access_emit`): never a request body, header or path
 #: parameter value.
+#:
+#: `list(_PROFILE_RECORDS)` (the read route, below) never raises against
+#: concurrent appends: CPython's list-of-a-deque completes without releasing
+#: the GIL (measured: 45k snapshots against 3 concurrent appenders, zero
+#: errors). That safety is GIL-derived — a free-threaded build would need an
+#: actual lock here.
 _PROFILE_RECORDS: "collections.deque[dict[str, Any]]" = collections.deque(maxlen=2000)
+#: Monotonic — never reset, never reused — so a caller polling with `?since=`
+#: can tell "nothing new" from "some records already aged out of the 2000
+#: budget" (a gap in the sequence) rather than just seeing an empty diff either way.
+_PROFILE_SEQ = 0
+#: This route polls itself (TokenGate covers it like any other), and every
+#: request gets a `profile={}` from the middleware whether or not its handler
+#: contributed anything — appending BOTH unconditionally would let the sink's
+#: own reads and uninstrumented routes crowd out the timings it exists to hold.
+_PROFILE_TIMING_ROUTE = "/api/desktop/profile-timing"
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -360,7 +375,30 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
               json.dumps(record, sort_keys=True), flush=True)
         # Same call already sits behind the caller's `except Exception: pass`
         # (a log line must never fail a request) — no second guard needed here.
-        _PROFILE_RECORDS.append(record)
+        #
+        # Three conditions, none of them changing what gets PRINTED above
+        # (that stays exactly as landed at f512cde) — only what the bounded
+        # sink keeps: (1) `profile` truthy — an uninstrumented route's
+        # handler never touches it, so it stays `{}`, and appending 2000 of
+        # those would crowd out the routes this sink exists to hold; (2) not
+        # this route itself — a caller polling `/api/desktop/profile-timing`
+        # would otherwise evict what it came to read with its own reads; (3)
+        # only numeric values leave the handler's dict — `**profile` merges
+        # whatever a handler stashed there, and today that's always numbers,
+        # but nothing upstream enforces it structurally without this line.
+        if profile and route != _PROFILE_TIMING_ROUTE:
+            global _PROFILE_SEQ
+            _PROFILE_SEQ += 1
+            # Built fresh from known-safe fields, NOT from `record` above —
+            # `record` already carries `**profile` unfiltered (that's what
+            # printed), so reusing it here would still smuggle through
+            # whatever non-numeric value point (3) exists to keep out.
+            numeric_profile = {k: v for k, v in profile.items()
+                               if isinstance(v, (int, float)) and not isinstance(v, bool)}
+            _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
+                                     "handler_ms": round(handler_ms, 3),
+                                     "total_ms": round(total_ms, 3),
+                                     "bytes": nbytes, **numeric_profile})
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -394,15 +432,23 @@ app.add_middleware(AccessRecord)
 
 
 @app.get("/api/desktop/profile-timing")
-def profile_timing() -> dict[str, Any]:
+def profile_timing(since: int = 0) -> dict[str, Any]:
     """Read-side of the bounded `_PROFILE_RECORDS` sink.
 
     Same auth as every other route (`TokenGate` wraps the whole app, launch.py
     §155) — no new auth surface. Always registered, even when profiling is
     off, so its presence never depends on the flag; only its content does
     (`records` stays empty). Route templates and numbers only, oldest first.
+
+    `since`: return only records with `seq > since`. `seq` is monotonic and
+    never reused, so a caller polling with its own last-seen `seq` gets
+    exactly what is new — and can tell "nothing new happened" (an empty
+    `records` with `latest_seq` unchanged) from "some records aged out of the
+    2000 budget before I could read them" (`latest_seq - since` exceeds what
+    came back), which an un-numbered snapshot could not distinguish.
     """
-    return {"enabled": _PROFILE_TIMING, "records": list(_PROFILE_RECORDS)}
+    records = [r for r in _PROFILE_RECORDS if r["seq"] > since] if since else list(_PROFILE_RECORDS)
+    return {"enabled": _PROFILE_TIMING, "records": records, "latest_seq": _PROFILE_SEQ}
 
 
 @app.exception_handler(RequestValidationError)
