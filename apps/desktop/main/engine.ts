@@ -182,7 +182,14 @@ export class Engine extends EventEmitter {
     } catch {
       this.attachProbeFailures += 1
       if (this.attachProbeFailures < 2) return
+      // HTTP can only prove the engine ALIVE — a busy engine times out
+      // exactly like a dead one. The death VERDICT is the guardian's root
+      // lock releasing, the ONE signal held through the whole tree's
+      // termination (opus measured it; descriptor absence proves only that
+      // the host observed the engine exit, so it is not the verdict).
+      const lockFile = this.attachedRoot ? path.join(this.attachedRoot, '.desktop-engine.lock') : ''
       this.attachProbeFailures = 0
+      if (!this.guardianReleased(lockFile)) return // busy or terminating, not gone: keep the attachment
       this.endpoint = ''
       this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     }
@@ -211,10 +218,15 @@ export class Engine extends EventEmitter {
    *  guardian holds an exclusive byte-range lock there until the WHOLE
    *  engine tree is terminated, so a successful write (of the same byte the
    *  lock file always contains) proves the tree released the root — the
-   *  proof root required beyond mere process exit. An absent file counts as
-   *  released; any denied write counts as held. */
+   *  proof root required beyond mere process exit. An absent or unknown file
+   *  refuses release; any denied write counts as held. */
   private guardianReleased(lockFile: string): boolean {
-    if (!lockFile || !fs.existsSync(lockFile)) return true
+    // FAIL CLOSED (opus): this is the one strong signal in the stop
+    // conjunction, so "I could not look" — no path, no file — must refuse,
+    // never pass. The guardian's lock FILE survives release (only the
+    // byte-range lock is dropped), so a genuinely released root still has
+    // the file and answers yes through the write probe.
+    if (!lockFile || !fs.existsSync(lockFile)) return false
     try {
       const fd = fs.openSync(lockFile, 'r+')
       try { fs.writeSync(fd, Buffer.from('0'), 0, 1, 0) } finally { fs.closeSync(fd) }
@@ -260,7 +272,7 @@ export class Engine extends EventEmitter {
     }
     if (!endpointDead) throw new Error('Background engine did not stop for the update')
     if (descriptorFile && fs.existsSync(descriptorFile)) throw new Error('Background engine port closed but its host has not confirmed process exit; refusing the update')
-    throw new Error('Background engine tree has not released the data root (guardian lock still held); refusing the update')
+    throw new Error('Background engine tree release could not be established (guardian lock still held or unverifiable); refusing the update')
   }
 
   async stats(): Promise<RuntimeStats | null> {

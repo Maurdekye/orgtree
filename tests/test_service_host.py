@@ -108,12 +108,87 @@ class ServiceHostUnitTests(unittest.TestCase):
                              sorted({service_host._current_user_sid(), "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "the token must never sit under inherited ACLs")
 
-    def test_write_descriptor_fails_closed_when_acl_restriction_unavailable(self):
+    def test_write_descriptor_fails_closed_when_protection_unavailable(self):
         with tempfile.TemporaryDirectory() as root:
-            with patch.object(service_host, "restrict_descriptor_acl", return_value=False):
+            with patch.object(service_host, "_current_user_sid", return_value=None):
                 with self.assertRaisesRegex(OSError, "refusing to publish"):
                     write_descriptor(Path(root), 23456, 77, "ab" * 32)
             self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
+
+    def test_write_descriptor_fails_closed_when_verification_fails(self):
+        # icacls exiting 0 is a receipt, not proof: an unverifiable DACL must
+        # also refuse publication and leave nothing behind.
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_host, "restrict_descriptor_acl", return_value=True), \
+                 patch.object(service_host, "verify_restricted_acl", return_value=False):
+                with self.assertRaisesRegex(OSError, "refusing to publish"):
+                    write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(list(Path(root).iterdir()), [], "neither token nor temp file may survive")
+
+    def test_preexisting_temp_path_is_never_truncated_or_adopted(self):
+        # O_EXCL control (root ruling): pin the random name, pre-create that
+        # exact path with foreign content — publication must refuse and the
+        # preexisting file must survive byte-for-byte, never truncated,
+        # followed or deleted (cleanup owns only temps IT created).
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(service_host.secrets, "token_hex", return_value="feedfeedfeedfeed"):
+                planted = Path(root) / f".engine-attach-{os.getpid()}-feedfeedfeedfeed.tmp"
+                planted.write_bytes(b"foreign-bytes")
+                with self.assertRaises(OSError):
+                    write_descriptor(Path(root), 23456, 77, "ab" * 32)
+                self.assertEqual(planted.read_bytes(), b"foreign-bytes",
+                                 "a preexisting path must never be truncated or adopted")
+                self.assertFalse((Path(root) / DESCRIPTOR).exists())
+
+    def test_confirmed_exit_confirms_or_reports_honestly(self):
+        # Positive: a real child is killed AND its exit is confirmed.
+        child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(60)"])
+        self.assertTrue(service_host.confirmed_exit(child, timeout=15))
+        self.assertIsNotNone(child.poll())
+        # Negative control: a child whose wait never completes reports False
+        # instead of pretending the kill worked.
+        class Stubborn:
+            def poll(self):
+                return None
+            def kill(self):
+                pass
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired(cmd="stub", timeout=timeout)
+        self.assertFalse(service_host.confirmed_exit(Stubborn(), timeout=0.1))  # type: ignore[arg-type]
+
+    def test_protected_birth_denies_every_second_handle_and_survives_close(self):
+        # The measured hole (Opus): a handle opened before a later restriction
+        # retains read on bytes written afterwards. Here that handle can never
+        # exist: while ours lives, ANY second open by path is denied
+        # (share=0), and the DACL attached at birth denies... nothing to us
+        # (we are the granted SID) but leaves zero inherited rules.
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "probe.tmp"
+            fd = service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            try:
+                with self.assertRaises(OSError, msg="no second handle may exist while the token handle lives"):
+                    open(target, "rb").close()
+                os.write(fd, b"SECRET")
+            finally:
+                os.close(fd)
+            self.assertEqual(target.read_bytes(), b"SECRET")  # our own SID reads post-close
+            self.assertTrue(service_host.verify_restricted_acl(target),
+                            "DACL at birth: exactly operator+SYSTEM+Administrators, nothing inherited")
+            with self.assertRaises(OSError):
+                service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            self.assertEqual(target.read_bytes(), b"SECRET", "CREATE_NEW must never adopt or truncate")
+
+    def test_published_descriptor_is_protected_and_leaves_no_residue(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertIn("ab" * 32, published.read_text(encoding="utf-8"))
+            self.assertTrue(service_host.verify_restricted_acl(published))
+            leftovers = [p.name for p in Path(root).iterdir() if p.name != DESCRIPTOR]
+            self.assertEqual(leftovers, [], "no temporary residue after publication")
 
     def test_descriptor_lifecycle_never_deletes_a_newer_hosts_file(self):
         with tempfile.TemporaryDirectory() as root:

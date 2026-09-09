@@ -138,29 +138,100 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
         return False
 
 
+def create_protected_exclusive(path: Path, sid: str) -> int:
+    """CreateFileW with the restrictive DACL attached AT BIRTH and share
+    mode 0. Opus measured the hole this closes: Windows checks access at
+    OPEN time, so a handle acquired in any pre-restriction instant retains
+    read on bytes written later. Here no such instant exists (the DACL is
+    part of creation) AND no second handle can be acquired while ours lives
+    (share=0), so the token is written through the only handle there is.
+    CREATE_NEW refuses a preexisting path outright. Returns a CRT fd owning
+    the handle; raises OSError on any failure."""
+    import ctypes
+    from ctypes import wintypes as w
+    import msvcrt
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.ULONG)]
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = w.BOOL
+    kernel.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p,
+                                   w.DWORD, w.DWORD, w.HANDLE]
+    kernel.CreateFileW.restype = w.HANDLE
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    sddl = f"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"
+    descriptor = ctypes.c_void_p()
+    if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl, 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    class SecurityAttributes(ctypes.Structure):
+        _fields_ = [("nLength", w.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
+                    ("bInheritHandle", w.BOOL)]
+
+    attributes = SecurityAttributes(ctypes.sizeof(SecurityAttributes), descriptor, False)
+    try:
+        handle = kernel.CreateFileW(str(path), 0x80000000 | 0x40000000, 0,
+                                    ctypes.byref(attributes), 1,  # CREATE_NEW
+                                    0x80, None)  # FILE_ATTRIBUTE_NORMAL
+        if handle in (None, w.HANDLE(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.LocalFree(descriptor)
+    return msvcrt.open_osfhandle(handle, 0)
+
+
+def verify_restricted_acl(target: Path) -> bool:
+    """Read back that the DACL is EXACTLY operator+SYSTEM+Administrators with
+    nothing inherited. icacls exiting 0 is a request receipt, not proof; the
+    token is published only on this verified state (fail closed)."""
+    sid = _current_user_sid()
+    if os.name != "nt" or not sid:
+        return False
+    script = ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
+              "GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+              "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
+              "+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
+    try:
+        output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                                capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        sids, inherited = output.rsplit("|", 1)
+        return inherited == "0" and set(sids.split(",")) == {sid, "S-1-5-18", "S-1-5-32-544"}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path:
-    """Publish the descriptor with the token NEVER on disk under inherited
-    ACLs: create the temporary file empty, restrict it to the operator +
-    SYSTEM + Administrators, and only then write the token into it. A rename
-    keeps the file object and its DACL, so the published file stays
-    restricted. FAIL CLOSED: if the restriction cannot be applied, the token
-    is not published at all (root ruling — inherited profile ACLs can grant
-    other accounts read).
-    """
+    """Publish the descriptor with the token NEVER readable by anyone else at
+    ANY instant: the unique temporary is created with the restrictive DACL
+    attached AT BIRTH and share mode 0 (no pre-restriction window exists and
+    no second handle can be acquired while ours lives — Opus measured that a
+    retained handle survives a later DACL change), the token is written
+    through that only handle, the DACL is verified by read-back, and the
+    publish is an atomic rename that keeps the file object and its DACL.
+    A preexisting path is refused outright (CREATE_NEW), and every failure
+    unlinks only the owned temp. FAIL CLOSED throughout."""
     descriptor = root / DESCRIPTOR
     payload = {"type": "attach", "protocol": 1, "port": port, "enginePid": engine_pid,
                "hostPid": os.getpid(), "dataRootId": str(root.resolve()), "token": token,
                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    temporary = descriptor.with_suffix(".tmp")
-    temporary.write_text("", encoding="utf-8")
-    if not restrict_descriptor_acl(temporary):
+    sid = _current_user_sid()
+    if os.name != "nt" or not sid:
+        raise OSError("descriptor protection unavailable on this platform; refusing to publish the token")
+    temporary = root / f".engine-attach-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+    fd = create_protected_exclusive(temporary, sid)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+            stream.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        if not verify_restricted_acl(temporary):
+            raise OSError("descriptor ACL unverified after protected creation; refusing to publish the token")
+        os.replace(temporary, descriptor)
+    except BaseException:
         try:
             temporary.unlink()
         except OSError:
             pass
-        raise OSError("descriptor ACL restriction unavailable; refusing to publish the token")
-    temporary.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
-    os.replace(temporary, descriptor)
+        raise
     return descriptor
 
 
@@ -215,6 +286,20 @@ def clear_stale_descriptor(root: Path) -> None:
         descriptor.unlink()
     except OSError:
         pass
+
+
+def confirmed_exit(child: "subprocess.Popen[Any]", timeout: float = 10.0) -> bool:
+    """Kill if still running and CONFIRM the exit. A kill() is a request, not
+    a fact: descriptor removal and exit decisions must never assume it
+    completed, or the removal breaks its own meaning (descriptor gone ⇒
+    engine process exited)."""
+    if child.poll() is None:
+        child.kill()
+    try:
+        child.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
 
 
 def request_shutdown(port: int, token: str) -> bool:
@@ -288,8 +373,7 @@ def main() -> int:
             reason = failure[0] if failure else (
                 "engine exited before readiness" if child.poll() is not None
                 else "engine did not become ready in time")
-            if child.poll() is None:
-                child.kill()
+            confirmed_exit(child)
             print(f"service host: {reason}", file=sys.stderr, flush=True)
             return 1
 
@@ -301,7 +385,7 @@ def main() -> int:
             # a crash here would loop a restart-on-failure task setting on a
             # traceback instead of a reason.
             print(f"service host: could not write attach descriptor: {exc}", file=sys.stderr, flush=True)
-            child.kill()
+            confirmed_exit(child)
             return 1
         print(f"service host: engine ready on 127.0.0.1:{port} (pid {child.pid})", file=sys.stderr, flush=True)
 
@@ -320,7 +404,9 @@ def main() -> int:
                 try:
                     child.wait(timeout=SHUTDOWN_WAIT)
                 except subprocess.TimeoutExpired:
-                    child.kill()
+                    if not confirmed_exit(child):
+                        print("service host: engine did not confirm exit after kill; leaving the descriptor for the guardian sweep",
+                              file=sys.stderr, flush=True)
                 break
             time.sleep(0.2)
         if stopping["value"]:
@@ -330,7 +416,11 @@ def main() -> int:
         code = child.returncode
         return code if isinstance(code, int) and code != 0 else (0 if code == 0 else 1)
     finally:
-        remove_descriptor(root)
+        # Removal MEANS the engine process exited; an unconfirmed kill must
+        # leave the descriptor (the desktop rejects it as stale, the next
+        # host clears it, the guardian sweeps the tree).
+        if child.poll() is not None:
+            remove_descriptor(root)
 
 
 if __name__ == "__main__":

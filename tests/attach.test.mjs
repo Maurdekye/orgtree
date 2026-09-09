@@ -62,6 +62,8 @@ test.after(() => {
   if (process.env.ORGTREE_TEST_ACL_BASE) { console.log(`Retained ACL fixture evidence: ${aclBase}`); return }
   try { fs.rmSync(aclBase, { recursive: true, force: true }) } catch {}
 })
+// The guardian lock file remains after release; only its byte-range lock drops.
+fs.writeFileSync(path.join(realRoot, '.desktop-engine.lock'), '0')
 
 test('attach adopts a verified boot engine and refuses to stop it', async () => {
   const { server, port } = await identityServer((request, response) => {
@@ -470,4 +472,96 @@ test('the update stop also demands the guardian tree release the root lock', asy
   // Tree released: the same stop now completes.
   await engine.stopAttachedForUpdate(5000)
   assert.equal(engine.status.state, 'stopped')
+})
+
+test('a busy engine (probes fail, tree signals alive) is never declared dead', async () => {
+  // Real held root lock + present descriptor = the tree is alive; HTTP
+  // failures alone must not flip the attachment to stopped (opus: HTTP can
+  // only prove ALIVE — the lock and descriptor own the death verdict).
+  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(4);l.close()`
+  const { spawn } = await import('node:child_process')
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
+    holder.on('exit', () => reject(new Error('lock holder died early')))
+    setTimeout(() => reject(new Error('lock holder never confirmed')), 10000)
+  })
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const engine = trusting(new Engine())
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await new Promise(resolve => server.close(resolve))
+    // Descriptor still present, lock still held: four failed probes in a row
+    // must not produce a death verdict.
+    for (let i = 0; i < 4; i++) await engine.verifyAttached()
+    assert.equal(engine.status.state, 'ready', 'alive-by-lock must never read as stopped')
+    assert.notEqual(engine.origin, '', 'the attachment survives')
+  } finally {
+    fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true })
+    await new Promise(resolve => holder.on('exit', resolve))
+  }
+  // Signals now say gone (descriptor removed, lock released): two more
+  // failed probes produce the verdict.
+  await engine.verifyAttached()
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'stopped')
+})
+
+test('an absent guardian lock is a refusal, not a release (fail closed)', async () => {
+  const bareRoot = path.join(temp, 'v2-bare'); fs.mkdirSync(bareRoot)
+  const real2 = fs.realpathSync.native(bareRoot)
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, { protocol: 1, pid: 4242, dataRootId: real2 })
+  })
+  const engine = trusting(new Engine())
+  fs.writeFileSync(path.join(real2, 'engine-attach.json'), JSON.stringify(descriptor({ port, dataRootId: real2 })))
+  assert.equal(await engine.attach({ dataRoot: bareRoot, forbiddenRoot: forbidden }), true)
+  // Endpoint dead and descriptor gone — the two weak signals both say yes —
+  // but with no lock file the strong signal cannot be established: refuse.
+  fs.rmSync(path.join(real2, 'engine-attach.json'))
+  await new Promise(resolve => server.close(resolve))
+  await assert.rejects(engine.stopAttachedForUpdate(2000), /unverifiable/)
+})
+
+test('guardianReleased: cannot-look is never released (empty, missing, unlocked, held)', async () => {
+  const engine = trusting(new Engine())
+  assert.equal(engine.guardianReleased(''), false, 'empty path must refuse')
+  assert.equal(engine.guardianReleased(path.join(realRoot, 'no-such.lock')), false, 'missing file must refuse')
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'a real existing UNLOCKED file answers released')
+  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(2);l.close()`
+  const { spawn } = await import('node:child_process')
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
+    holder.on('exit', () => reject(new Error('holder died early')))
+    setTimeout(() => reject(new Error('holder never confirmed')), 10000)
+  })
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), false, 'a held lock refuses')
+  await new Promise(resolve => holder.on('exit', resolve))
+  assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'released after the holder closes')
+})
+
+test('a missing lock keeps the attachment too: unknown is never a death verdict', async () => {
+  // Flow-level busy-engine negative for verifyAttached with the lock file
+  // ABSENT (coordinator): probes fail, release cannot be established, the
+  // attachment is retained — unknown refuses updates elsewhere but must
+  // never tear down here.
+  const bareRoot = path.join(temp, 'v2-nolock'); fs.mkdirSync(bareRoot)
+  const real2 = fs.realpathSync.native(bareRoot)
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, { protocol: 1, pid: 4242, dataRootId: real2 })
+  })
+  const engine = trusting(new Engine())
+  fs.writeFileSync(path.join(real2, 'engine-attach.json'), JSON.stringify(descriptor({ port, dataRootId: real2 })))
+  assert.equal(await engine.attach({ dataRoot: bareRoot, forbiddenRoot: forbidden }), true)
+  await new Promise(resolve => server.close(resolve))
+  for (let i = 0; i < 4; i++) await engine.verifyAttached()
+  assert.equal(engine.status.state, 'ready', 'missing lock = unknown = keep the attachment')
+  assert.notEqual(engine.origin, '')
 })
