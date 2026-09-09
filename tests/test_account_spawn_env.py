@@ -104,6 +104,40 @@ class SpawnEnvBindingTests(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
+    def test_codex_home_resolves_from_binding_never_environ(self):
+        # the strip-bypass finding: a host CODEX_HOME must not re-enter as
+        # the explicit parameter — seed it and assert the resolver ignores it
+        row = self.registry.create_account(
+            "openai", "cx", {"kind": "managed",
+                             "path": os.path.join(self.root, "cxprof")})
+        org = self._org("codex-bound", account=row["id"])
+        org.nodes["root"]["model"] = "luna"
+        saved = os.environ.get("CODEX_HOME")
+        os.environ["CODEX_HOME"] = r"C:\hostile\codex"
+        try:
+            home, bound = self.supervisor.codex_bound_home(org, "root")
+            self.assertEqual(home, row["credential"]["path"])
+            self.assertEqual(bound, row["id"])
+            # unbound node: empty home (spec falls to the CLI default),
+            # NEVER the seeded host value
+            org2 = self._org("codex-unbound")
+            home2, bound2 = self.supervisor.codex_bound_home(org2, "root")
+            self.assertEqual((home2, bound2), ("", ""))
+        finally:
+            if saved is None:
+                os.environ.pop("CODEX_HOME", None)
+            else:
+                os.environ["CODEX_HOME"] = saved
+
+    def test_codex_binding_provider_mismatch_and_missing_refuse(self):
+        claude_row = self._profile_row()
+        org = self._org("codex-wrong", account=claude_row["id"])
+        with self.assertRaises(RuntimeError):
+            self.supervisor.codex_bound_home(org, "root")
+        org2 = self._org("codex-missing", account="missing:openai")
+        with self.assertRaises(RuntimeError):
+            self.supervisor.codex_bound_home(org2, "root")
+
     def test_no_nid_stays_ambient_known_fork_gap(self):
         # documents the KNOWN GAP the spawn_env comment names: no nid ⇒ no
         # binding consulted (fork call sites gain nid in the integration

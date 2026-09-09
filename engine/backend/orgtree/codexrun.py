@@ -179,16 +179,19 @@ def child_env(codex_home: str | None,
     never a stray OPENAI_API_KEY that would silently flip the billing lane
     away from the subscription login.
 
-    §9.5 EXTENDED TO THIS LANE (multi-account D2b, Opus S3 finding: this
+    §9.5 EXTENDED TO THIS LANE (multi-account D2b, Opus S3 findings: this
     block is the codex lane's clean_env — supervisor.clean_env is not on this
     path at all): an inherited host-level CODEX_HOME would capture every
     codex spawn onto one profile while each node's UI shows the account it
     thinks it is on, and an inherited ORGTREE_ACCOUNT_ID would mislabel the
     spawn's attribution with total confidence. Both are stripped HERE, before
-    the explicit `codex_home` (and, later, the account binding's) re-inject —
-    strip-before-inject, never after. A spawn with no explicit home now falls
-    to the CLI's own ~/.codex default rather than a host redirect; the
-    migrated ambient row carries an observed redirect forward deliberately.
+    the explicit re-inject. ⚠ THE STRIP ALONE IS DEFENCE IN DEPTH, NOT THE
+    FIX: the explicit `codex_home` parameter used to be resolved FROM
+    os.environ upstream, so the host value re-entered as an argument after
+    the strip removed its inherited copy — supervisor.codex_bound_home now
+    resolves it from the node's bound account (falling to the CLI's own
+    ~/.codex default), and the marker rides in env_extra from the SAME spec,
+    so the pair originates in one place on this lane too.
     """
     env = dict(os.environ)
     for k in list(env):

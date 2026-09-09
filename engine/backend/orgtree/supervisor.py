@@ -11279,6 +11279,35 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
+    """(home, account_id) for a codex spawn, resolved from the NODE'S BOUND
+    ACCOUNT — never from os.environ (Opus S3 finding: the strip in
+    codexrun.child_env was bypassed by the spec re-injecting the same
+    host-derived value as the explicit parameter; a guard that runs and
+    means nothing for the failure it is named after). Unbound (pre-migration)
+    nodes fall to the CLI's own ~/.codex default — the AMBIENT reads in
+    registry_migration/codex_limits stay, because locating the machine login
+    is exactly what those mean; it is only spawn-time resolution that must
+    not ask the environment. An observed host redirect survives via the
+    migrated ambient row's path, deliberately."""
+    bound = str((org.node(nid) or {}).get("account") or "")
+    if not bound:
+        return "", ""
+    if bound.startswith("missing:"):
+        raise RuntimeError(
+            f"turn failed: node {nid} is bound to no account ({bound}) — "
+            f"register an account and reassign")
+    row = registry.get_account(bound)
+    if row["provider"] != "openai":
+        raise RuntimeError(
+            f"turn failed: node {nid} runs a codex tier but is bound to "
+            f"{bound} ({row['provider']}) — the binding validator should "
+            f"have refused this pair")
+    cred = row["credential"]
+    home = cred["path"] if cred["kind"] in ("imported", "managed") else ""
+    return home, bound
+
+
 def _codex_process_spec(org: Org, nid: str, *,
                         write_ident: bool = True) -> dict[str, Any]:
     """The exact process-scoped inputs for one Codex app-server.
@@ -11313,6 +11342,7 @@ def _codex_process_spec(org: Org, nid: str, *,
             f.write(ident)
     mcp_chosen, _ = codex_mcp_grant(org, nid)
     port = os.environ.get("ORGTREE_PORT", "7360")
+    _bound_home, _bound_id = codex_bound_home(org, nid)
     return {
         "argv_head": providers.codex_argv(exe),
         "cwd": cwd,
@@ -11321,16 +11351,22 @@ def _codex_process_spec(org: Org, nid: str, *,
                              + _codex_tool_config(org.node(nid)["scope"])),
         "env_extra": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
-                      **_codex_git_trust_env(org.node(nid)["scope"])},
+                      **_codex_git_trust_env(org.node(nid)["scope"]),
+                      # marker + home originate in the SAME spec (the codex
+                      # lane's single-injector: child_env strips inherited
+                      # copies, this dict re-injects the bound pair together)
+                      **({registry.MARKER: _bound_id} if _bound_id else {})},
         "port": port,
         "exe": exe,
         "login_kind": str(cstat.get("kind") or ""),
         # Capture the resolved home beside the executable. Re-reading the
         # ambient variable after launch could describe a different login
-        # tree than the process actually inherited.
-        "codex_home": (os.environ.get("CODEX_HOME")
-                       or os.path.expanduser("~/.codex")),
-        "cache_codex_home": os.environ.get("CODEX_HOME", ""),
+        # tree than the process actually inherited. Resolved from the NODE'S
+        # binding, never os.environ (see codex_bound_home) — a host-level
+        # CODEX_HOME must not capture every codex spawn by riding in as the
+        # explicit parameter after the strip removed its inherited copy.
+        "codex_home": _bound_home or os.path.expanduser("~/.codex"),
+        "cache_codex_home": _bound_home,
     }
 
 
