@@ -16914,8 +16914,28 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # (redteam 2026-08-18) in a new costume. Nothing
                         # parseable ⇒ the 5-minute probe floor, honestly
                         # short so capacity is re-asked soon.
-                        _sub_for_mark = subscription_lane(
-                            billed_key, str(st.get("ran_as") or ""))
+                        # THE REGISTRY SPLIT (multi-account S4, design D2c):
+                        # a bound spawn's ran_as IS a registry account id
+                        # (identity_in_env answers the marker), and that id
+                        # routes to the registry's own mark writer — the
+                        # legacy roster below never learns registry ids
+                        # (record_limit refuses unknowns by design).
+                        _reg_row = None
+                        try:
+                            _reg_row = registry.get_account(_served)
+                        except registry.UnknownAccount:
+                            _reg_row = None  # legacy identity — old roster
+                        # host usage readout describes the HOST login only:
+                        # for a registry account it may time the mark ONLY
+                        # when that account IS the aliased ambient row —
+                        # anything else is the wrong-account parking bug
+                        # this comment block already warns about.
+                        if _reg_row is not None:
+                            _sub_for_mark = (registry.resolve_alias("primary")
+                                             == _reg_row["id"])
+                        else:
+                            _sub_for_mark = subscription_lane(
+                                billed_key, str(st.get("ran_as") or ""))
                         # ⚠ the MESSAGE's time marks the roster (user ruling
                         # 2026-09-07): the cached recovery deadline used to
                         # sit in front of it here, so the mark — and every
@@ -16926,51 +16946,74 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             err_blob,
                             subscription=_sub_for_mark,
                             trusted=_trusted, tier=_tier)
-                        accounts.record_limit(
-                            _served, _tier,
-                            _rts or time.time() + PROBE_FLOOR)
-                        _nxt = accounts.resolve(_tier)
-                        # the answer the resolver gave AT FREEZE TIME, kept
-                        # for the record below (D-156). False here means
-                        # capacity was standing available and we froze for
-                        # some other reason — the switch counter, or a
-                        # resolver that named the same account back — and a
-                        # readiness rule keyed on "capacity exists" must not
-                        # fire on a node whose capacity never went away.
-                        _pool_dry = not _nxt.get("available")
-                        _switches = int(st.get("account_switches") or 0)
-                        if (_nxt.get("available")
-                                and _nxt.get("account") != _served
-                                and _switches < 4):
-                            # bounded by the marks themselves: every re-drive
-                            # lands on an account with NO mark for this tier,
-                            # and each failure writes one — ping-pong cannot
-                            # happen because a marked lane stops resolving.
-                            # The counter is a backstop for a mark expiring
-                            # mid-turn, not the mechanism; cleared only by a
-                            # COMPLETED turn, same shape as hard_fail_run.
-                            st["account_switches"] = _switches + 1
-                            redrive_after_limit(slug, nid, (
-                                f"{_tier} capacity exhausted on the serving "
-                                f"account — re-driven on the next account "
-                                f"in line"))
-                            handled = True   # the switch owns this failure
-                            turnlog.emit(_trec, "owner", branch="account_switch",
-                                         handled=True)
-                            if _trec is not None:
-                                _trec.dispose("redriven")
-                            raise RuntimeError(
-                                "a usage limit was recorded and the turn "
-                                "has been re-driven on the next account in "
-                                "line")
-                        # ⚠ THE REFUSAL IS AS LOUD AS THE SWITCH, ON
-                        # PURPOSE: "considered moving and had nowhere to go"
-                        # and "not an account problem" must never leave
-                        # identical records (nothing). No mail, no re-drive
-                        # — the freeze path below is the correct outcome.
-                        log_failover_refusal(slug, nid, (
-                            f"usage limit recorded for {_tier}; no other "
-                            f"account has capacity for it"))
+                        if _reg_row is not None:
+                            # BOUND NODES NEVER RE-DRIVE (no-rollover ruling
+                            # 18:11Z): record the observed mark on exactly
+                            # the account that served, refuse as loudly as
+                            # the switch would have been, and fall to the
+                            # freeze below — the WAIT. _pool_dry stays None:
+                            # this freeze never asked the resolver, so
+                            # capacity appearing elsewhere must not wake it;
+                            # the mark's own horizon (auto-resume) does.
+                            registry.record_mark(
+                                _served, _tier,
+                                _rts or time.time() + PROBE_FLOOR,
+                                provenance="observed")
+                            log_failover_refusal(slug, nid, (
+                                f"usage limit recorded for {_tier} on bound "
+                                f"account {_served}; this node waits for "
+                                f"that account's horizon (no rollover)"))
+                            # fall through to the freeze below — the WAIT
+                        else:
+                            accounts.record_limit(
+                                _served, _tier,
+                                _rts or time.time() + PROBE_FLOOR)
+                            _nxt = accounts.resolve(_tier)
+                            # the answer the resolver gave AT FREEZE TIME,
+                            # kept for the record below (D-156). False here
+                            # means capacity was standing available and we
+                            # froze for some other reason — the switch
+                            # counter, or a resolver that named the same
+                            # account back — and a readiness rule keyed on
+                            # "capacity exists" must not fire on a node
+                            # whose capacity never went away.
+                            _pool_dry = not _nxt.get("available")
+                            _switches = int(st.get("account_switches") or 0)
+                            if (_nxt.get("available")
+                                    and _nxt.get("account") != _served
+                                    and _switches < 4):
+                                # bounded by the marks themselves: every
+                                # re-drive lands on an account with NO mark
+                                # for this tier, and each failure writes one
+                                # — ping-pong cannot happen because a marked
+                                # lane stops resolving. The counter is a
+                                # backstop for a mark expiring mid-turn, not
+                                # the mechanism; cleared only by a COMPLETED
+                                # turn, same shape as hard_fail_run.
+                                st["account_switches"] = _switches + 1
+                                redrive_after_limit(slug, nid, (
+                                    f"{_tier} capacity exhausted on the "
+                                    f"serving account — re-driven on the "
+                                    f"next account in line"))
+                                handled = True   # the switch owns this failure
+                                turnlog.emit(_trec, "owner",
+                                             branch="account_switch",
+                                             handled=True)
+                                if _trec is not None:
+                                    _trec.dispose("redriven")
+                                raise RuntimeError(
+                                    "a usage limit was recorded and the "
+                                    "turn has been re-driven on the next "
+                                    "account in line")
+                            # ⚠ THE REFUSAL IS AS LOUD AS THE SWITCH, ON
+                            # PURPOSE: "considered moving and had nowhere to
+                            # go" and "not an account problem" must never
+                            # leave identical records (nothing). No mail, no
+                            # re-drive — the freeze path below is the
+                            # correct outcome.
+                            log_failover_refusal(slug, nid, (
+                                f"usage limit recorded for {_tier}; no "
+                                f"other account has capacity for it"))
                 # user ruling: fable weekly-limit exhaustion → org-wide fable freeze
                 if _limit_class and not handled:
                     # ANY model's usage limit → the agent FREEZES (user ruling):
