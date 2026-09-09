@@ -5975,7 +5975,16 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-fallback { overflow-wrap: anywhere; }
 .event-surface .turn-mail-preview { margin: 0; }
 
-.mailrow .event-row-kind { font-size: 10px; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+/* label-subordinate-messages-and-link-their-sender (root review, rendered
+   comparison 2026-09-09): scoped to `.mailrow` alone, this badge was
+   PRESENT but INERT everywhere segments.tsx reuses the same class on the
+   transcript's own mail row (`.turn-mail`, never `.mailrow`) — the span
+   rendered with no ancestor this selector matched, so no border/color/
+   padding at all. The class has always meant the same thing in both
+   places (a small bordered pill for a mail row's kind), so make the rule
+   itself context-free instead of asking every future caller to remember
+   which specific ancestor class it happens to need. */
+.event-row-kind { font-size: 10px; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; white-space: nowrap; }
 
 .hist-event { padding: 8px; border-bottom: 1px solid var(--border); }
 .hist-event.event-surface { padding: 0; }
@@ -6088,37 +6097,42 @@ html.mobile .popout-button { display: none; }
    the tier choice and its gating stay in SpawnChips */
 .sq.hire-reveal > .hsof:not(.side) { opacity: 1; pointer-events: auto; }
 
-/* `<aside>` is ALSO the bare tag the app's left sidebar uses (`aside {
-   width: 264px; display: flex; ...}` above), and ReplyPreview renders an
-   `<aside>` of its own for its own unrelated reason (semantic markup, not
-   sidebar intent) — every property that rule sets and `.reply-preview`
-   does not (width, display, flex-direction, gap, border-right) leaked
-   through uncontested (a bare-tag rule loses on specificity only for
-   properties BOTH rules declare; width/display were never contested, so
-   the sidebar's values won by default). That silently pinned every
-   ReplyPreview instance at a fixed 264px flex column, which is the REAL
-   reason resizing this by margin alone never worked — caught by
-   replysize_probe.py's real Edge render, not by the CSS-value test above
-   it, which only reads this rule's own text and had no way to see a
-   property this rule never mentions. Escape it explicitly rather than
-   relying on this rule happening to out-specificity a selector it was
-   never written against. */
-.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; display: block; width: auto; border-right: 0; }
+.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; }
 .reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
 /* resize-reply-annotations-above-the-message-box (user clarification: the
    composer's OWN reply annotation only — not a settled message's quoted-
-   reply card, which keeps the rules above unchanged). `.reply-preview-
-   composing` is added by replypreview.tsx only when `onRemove` is passed,
-   which happens only at the composer call site (desk.tsx). Full composer
-   width (0 horizontal margin, matching .cc-composer and its siblings
-   .attach-row/.sendmode, which all stretch edge-to-edge instead of inset)
-   and a quote capped near the composer's own default height — its
-   textarea defaults to `rows={2}`, so 2 lines (2.8em, scaling with this
-   block's own font-size) is the matching proportion. Still scrollable
-   past that: longer quoted context stays readable, it just is not the
-   default shape any more. */
-.reply-preview-composing { margin: 6px 0; }
+   reply card, which keeps the rules above completely UNTOUCHED, computed
+   layout included — root review 2026-09-09 rejected an earlier version of
+   this that reset display/width/border-right on the BASE `.reply-preview`
+   rule: correct in isolation, but it changes what a sent/pending card
+   actually computes to on screen despite the commit claiming those were
+   untouched. Every reset below lives ONLY on the composing modifier now).
+   `.reply-preview-composing` is added by replypreview.tsx only when
+   `onRemove` is passed, which happens only at the composer call site
+   (desk.tsx).
+   ⚠ `<aside>` is ALSO the bare tag the app's left sidebar uses (`aside {
+   width: 264px; display: flex; ...}` above), and ReplyPreview renders an
+   `<aside>` of its own for its own unrelated reason (semantic markup, not
+   sidebar intent) — every property that rule sets and `.reply-preview`
+   does not (width, display, flex-direction, gap, border-right) leaks
+   through uncontested (a bare-tag rule loses on specificity only for
+   properties BOTH rules declare; width/display are never contested here,
+   so the sidebar's values win by default). That silently pins the
+   COMPOSING instance at a fixed 264px flex column too — caught by
+   replysize_probe.py's real Edge render, not by a CSS-value test, which
+   only reads a rule's own text and has no way to see a property it never
+   mentions — so the reset is repeated here rather than shared with the
+   base rule, which deliberately keeps the sidebar collision as it always
+   was for every non-composing instance. Full composer width (0 horizontal
+   margin, matching .cc-composer and its siblings .attach-row/.sendmode,
+   which all stretch edge-to-edge instead of inset) and a quote capped
+   near the composer's own default height — its textarea defaults to
+   `rows={2}`, so 2 lines (2.8em, scaling with this block's own
+   font-size) is the matching proportion. Still scrollable past that:
+   longer quoted context stays readable, it just is not the default shape
+   any more. */
+.reply-preview-composing { margin: 6px 0; display: block; width: auto; border-right: 0; }
 .reply-preview-composing blockquote { max-height: 2.8em; }
 .reply-event { display: contents; }
 
