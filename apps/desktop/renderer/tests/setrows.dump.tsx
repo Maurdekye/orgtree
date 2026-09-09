@@ -55,17 +55,27 @@ const ORR_TIERS: ProviderTier[] = [
 // Codex is installed but NOT hire-enabled, so its head renders the PREVIEW
 // tag beside the switch — the pair whose placement the probe checks.
 const PROVIDERS: ProvidersPayload = { providers: [
-  { id: 'claude', label: 'Claude', cli: 'Claude Code', tiers: [],
+  { id: 'claude', label: 'Claude', cli: 'Claude Code', tiers: [
+    { tier: 'haiku', provider: 'claude', seat: 1, model: 'haiku', letter: 'H', name: 'Haiku' },
+    { tier: 'sonnet', provider: 'claude', seat: 2, model: 'sonnet', letter: 'S', name: 'Sonnet' },
+    { tier: 'opus', provider: 'claude', seat: 5, model: 'opus', letter: 'O', name: 'Opus' },
+  ],
     status: { installed: true, connected: true, source: 'path',
       version: '2.1.4' },
     hire_enabled: true, user_enabled: true, reason: null },
   { id: 'openai', label: 'Codex', cli: 'Codex CLI',
-    tiers: [{ tier: 'sonnet', letter: 'C', seat: 1, model: 'gpt-5.6' }],
+    tiers: [
+      { tier: 'luna', provider: 'openai', letter: 'L', seat: 0.2, model: 'gpt-5.6-luna', name: 'Luna' },
+      { tier: 'terra', provider: 'openai', letter: 'T', seat: 2, model: 'gpt-5.6-terra', name: 'Terra' },
+      { tier: 'sol', provider: 'openai', letter: 'S', seat: 5, model: 'gpt-5.6-sol', name: 'Sol' }],
     status: { installed: true, connected: true, source: 'path',
       version: '0.9.1', email: 'neoja.dev@gmail.com', kind: 'oauth' },
     hire_enabled: false, user_enabled: true,
     reason: 'hiring stays off until the provider adapter lands' },
-  { id: 'google', label: 'Antigravity', cli: 'Antigravity CLI', tiers: [],
+  { id: 'google', label: 'Antigravity', cli: 'Antigravity CLI', tiers: [
+    { tier: 'flash', provider: 'google', seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
+    { tier: 'pro', provider: 'google', seat: 2, model: 'antigravity-pro', letter: 'P', name: 'Pro' },
+  ],
     status: { installed: true, connected: false, source: 'path',
       version: '0.4.0' },
     hire_enabled: false, user_enabled: false,

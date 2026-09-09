@@ -5050,6 +5050,37 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    both classes — so a vendor head and a Runtime group head are the same
    object. Only the vendor colouring lives here. ---- */
 .acct-provider-head { margin-top: 4px; }
+.acct-provider-group { padding-bottom: 10px; }
+.acct-provider-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  margin: 7px 0 3px; font-size: 12px; line-height: 1.35; }
+.acct-provider-state { font-weight: 650; }
+.acct-provider-state.connected { color: var(--ok, #6fd377); }
+.acct-provider-state.requires-signin { color: var(--warn, #e6b450); }
+.acct-provider-state.unknown { color: var(--dim); }
+.acct-provider-state.missing { color: var(--dim); }
+.acct-provider-meta { color: var(--dim); }
+.acct-provider-path { margin: 2px 0 4px; font-size: 10.5px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.acct-provider-note { margin: 4px 0; line-height: 1.35; }
+.acct-provider-download { display: inline-block; margin: 4px 0 6px; font-size: 12px; }
+.acct-provider-tiers { display: grid; gap: 4px; margin: 8px 0 4px;
+  padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.acct-provider-tier-title { color: var(--dim); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; }
+.acct-provider-tier { display: grid; grid-template-columns: 20px minmax(72px, 1fr) minmax(100px, 1.5fr) auto;
+  align-items: center; gap: 7px; min-width: 0; padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 5px; background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  font-size: 12px; }
+.acct-provider-tier .tier { width: 18px; height: 18px; font-size: 10px; }
+.acct-provider-tier-name { font-weight: 650; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.acct-provider-tier-model { color: var(--dim); min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; }
+.acct-provider-tier-seat { color: var(--dim); white-space: nowrap; font-size: 11px; }
+.acct-provider-empty { margin: 8px 0 4px; }
+.acct-provider-update { margin: 6px 0; padding: 5px 7px; border-left: 2px solid var(--warn, #e6b450);
+  color: var(--ink); font-size: 11.5px; }
 /* ⚠ NO `margin-left: auto` HERE (D-222). The switch already claims the free
    space with one; a SECOND auto margin splits it, so the tag floated in the
    middle of the head instead of sitting with the control it qualifies —

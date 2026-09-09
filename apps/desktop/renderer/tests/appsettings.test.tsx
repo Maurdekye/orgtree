@@ -22,7 +22,18 @@ const provider = (id: 'claude' | 'openai' | 'google', on = true,
   label: id === 'openai' ? 'Codex' : id === 'google' ? 'Antigravity' : 'Claude',
   cli: id === 'openai' ? 'Codex CLI' : id === 'google' ? 'Antigravity CLI'
     : 'Claude Code',
-  tiers: [],
+  tiers: id === 'claude' ? [
+    { tier: 'haiku', provider: id, seat: 1, model: 'haiku', letter: 'H', name: 'Haiku' },
+    { tier: 'sonnet', provider: id, seat: 2, model: 'sonnet', letter: 'S', name: 'Sonnet' },
+    { tier: 'opus', provider: id, seat: 5, model: 'opus', letter: 'O', name: 'Opus' },
+  ] : id === 'openai' ? [
+    { tier: 'luna', provider: id, seat: 0.2, model: 'gpt-5.6-luna', letter: 'L', name: 'Luna' },
+    { tier: 'terra', provider: id, seat: 2, model: 'gpt-5.6-terra', letter: 'T', name: 'Terra' },
+    { tier: 'sol', provider: id, seat: 5, model: 'gpt-5.6-sol', letter: 'S', name: 'Sol' },
+  ] : [
+    { tier: 'flash', provider: id, seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
+    { tier: 'pro', provider: id, seat: 2, model: 'antigravity-pro', letter: 'P', name: 'Pro' },
+  ],
   status: { installed, connected: installed, source: 'path' },
   hire_enabled: installed && on,
   user_enabled: on,
@@ -148,6 +159,24 @@ test('§2 an installed provider turns off, remains visible, and sends the '
     assert.equal(after.checked, false)
     assert.match(view.el.textContent ?? '', /Claude/)
     assert.match(view.el.textContent ?? '', /off/)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§3 provider rows present status and model-tier detail', async () => {
+  localStorage.clear()
+  stubFetch([])
+  const view = await mountSettings()
+  try {
+    const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-providers')!
+    assert.equal(panel.querySelectorAll('.acct-provider-group').length, 3)
+    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 8)
+    assert.match(panel.textContent ?? '', /Installed · connected/)
+    assert.match(panel.textContent ?? '', /Model tiers/)
+    assert.match(panel.textContent ?? '', /Haiku/)
+    assert.match(panel.textContent ?? '', /Luna/)
+    assert.match(panel.textContent ?? '', /Flash/)
+    assert.match(panel.textContent ?? '', /gpt-5\.6/)
+    assert.match(panel.textContent ?? '', /seat 2/)
   } finally { await view.unmount(); delete g.fetch }
 })
 

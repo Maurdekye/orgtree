@@ -286,24 +286,37 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
-      {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className="set-group">
+      {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
-          {p.label}<span className="set-head-right">
-            {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className="acct-preview-tag">preview</span>}
+          <span>{p.label}<span className='dim'> · {p.cli}</span></span>
+          <span className='set-head-right'>
+            {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
             <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
         </div>
-        <p>{!p.status.installed ? 'Not installed' : p.status.connected === true ? 'Connected'
-          : p.status.connected === false ? 'Sign-in required' : 'Connection status unknown'}
-          {p.status.version && ` · ${p.status.version}`}</p>
-        {p.status.email && <p className="dim">{p.status.email}</p>}
-        {p.reason && <p className="dim">{p.reason}</p>}
-        {p.status.path && <p className="dim mono">{p.status.path}</p>}
-        {!p.status.installed && downloads[p.id] && <a href={downloads[p.id]} target="_blank" rel="noopener noreferrer">Download {p.label}</a>}
-        <div className="row">{p.tiers.map(t => <span className="badge" key={t.tier}>{t.name ?? t.tier}</span>)}</div>
-        {p.reserve && <p className="dim">Reserve capacity: {p.reserve.percent == null ? 'unknown' : `${p.reserve.percent}% used`}
-          {p.reserve.resets_at && ` · resets ${fmtFull(p.reserve.resets_at)}`}
-          {p.reserve.reason && ` · ${p.reserve.reason}`}</p>}
+        <div className='acct-provider-status'>
+          <span className={'acct-provider-state ' + (!p.status.installed ? 'missing' : p.status.connected === true ? 'connected' : p.status.connected === false ? 'requires-signin' : 'unknown')}>
+            {p.status.installed ? (p.status.connected === true ? 'Installed · connected' : p.status.connected === false ? 'Installed · sign-in required' : 'Installed · connection unknown') : 'Not installed'}
+          </span>
+          {p.status.version && <span className='acct-provider-meta'>version {p.status.version}</span>}
+          {p.status.email && <span className='acct-provider-meta'>account {p.status.email}</span>}
+          {p.status.kind && <span className='acct-provider-meta'>sign-in {p.status.kind}</span>}
+          {p.status.source && <span className='acct-provider-meta'>source {p.status.source}</span>}
+        </div>
+        {p.status.path && <p className='dim mono acct-provider-path'>{p.status.path}</p>}
+        {!p.status.installed && downloads[p.id] && <a className='acct-provider-download' href={downloads[p.id]} target='_blank' rel='noopener noreferrer'>Download {p.label}</a>}
+        {p.reason && <p className='dim acct-provider-note'>{p.reason}</p>}
+        {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
+          <div className='acct-provider-tier-title'>Model tiers</div>
+          {p.tiers.map(t => <div className='acct-provider-tier' key={t.tier}>
+            <span className={'tier t-' + t.tier}>{t.letter}</span>
+            <span className='acct-provider-tier-name'>{t.name ?? t.tier}</span>
+            <span className='acct-provider-tier-model'>{t.model}</span>
+            <span className='acct-provider-tier-seat'>seat {t.seat}</span>
+          </div>)}
+        </div> : <p className='dim acct-provider-empty'>No model tiers reported</p>}
+        {p.cli_version?.update_available === true && <p className='acct-provider-update'>CLI update available: {p.cli_version.latest ?? 'newer version'}</p>}
+        {p.reserve && <p className='dim acct-provider-note'>Reserve capacity: {p.reserve.percent == null ? 'unknown' : p.reserve.percent + '% used'}{p.reserve.resets_at && ' · resets ' + fmtFull(p.reserve.resets_at)}{p.reserve.reason && ' · ' + p.reserve.reason}</p>}
       </div>)}
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
