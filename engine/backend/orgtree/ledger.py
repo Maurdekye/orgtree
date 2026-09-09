@@ -9322,6 +9322,10 @@ class Org:
                 "title": n["title"],
                 "tier": n["model"],
                 "model_id": self.d["models"].get(n["model"], n["model"]),
+                # multi-account: the node's bound account id (or the
+                # missing:<provider> park sentinel) — the UI resolves tint
+                # and label from /api/accounts; absent pre-cutover
+                "account": n.get("account"),
                 "state": n["state"],
                 "seat": self.d["tiers"][n["model"]],
                 "grant": n["grant"],

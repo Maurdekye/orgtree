@@ -1,4 +1,5 @@
 import { ImportSettings } from './importsettings'
+import { AccountRegistrySection } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
 import { CharterDocumentsSetting } from './chartersettings'
@@ -401,6 +402,8 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
+      {/* multi-account (D5): the symmetric registry, providers together */}
+      <AccountRegistrySection toast={toast} />
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}

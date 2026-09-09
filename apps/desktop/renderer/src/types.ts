@@ -262,6 +262,12 @@ export interface TreeFrozen {
   until: string | null
   until_ts: number | null
   error: string | null
+  /** multi-account: the REGISTRY ACCOUNT this freeze describes, when the
+   *  node is bound — the wait belongs to that account's lane */
+  account?: string | null
+  /** multi-account: observed|inferred — an inferred (ride-along) park must
+   *  render as inferred, never as a measured limit (user ruling 18:18Z) */
+  provenance?: string | null
   /** the transient kind (2026-08-06): a network drop, not a usage limit —
    *  same resume machinery, different badge label */
   connection?: boolean | null

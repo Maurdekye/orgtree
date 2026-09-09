@@ -1522,6 +1522,14 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.frozen &&
             <button className="badge frozen"
               title={(node.frozen.error ? node.frozen.error + ' — ' : '')
+                + (node.frozen.account
+                  ? `account ${node.frozen.account}`
+                    + (node.frozen.provenance === 'inferred'
+                      ? ' (inferred from its pooled limit, not measured '
+                        + 'for this tier)'
+                      : '')
+                    + ' — '
+                  : '')
                 + 'click to UNSTICK (user override: releases every lock '
                 + 'and resumes)'}
               onPointerDown={(e) => e.stopPropagation()}
@@ -1535,7 +1543,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                     ...(r.warnings ?? [])]))
                   .catch((e2: Error) => toast([`error: ${e2.message}`]))
               }}><FrozenIcon fontSize="inherit" />{' '}
-              {FREEZE_LABEL_SHORT[freezeKind(node.frozen, node.limit_locked) ?? 'limit']}</button>}
+              {FREEZE_LABEL_SHORT[freezeKind(node.frozen, node.limit_locked) ?? 'limit']}
+              {node.frozen.provenance === 'inferred' ? ' (inferred)' : ''}</button>}
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">
