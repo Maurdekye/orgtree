@@ -67,6 +67,6 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`orgtree-eye-tray-${name}\\.ico`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')
   assert.ok((main.match(/\.setIcon\(runtimeIcon\(\)\)/g) ?? []).length >= 2, 'main and viewer windows start with runtime icon')
-  assert.match(read('apps/desktop/renderer/index.html'), /href="\.\/assets\/orgtree-eye\.svg"/)
+  assert.match(read('apps/desktop/renderer/index.html'), /href="\/assets\/orgtree-eye\.svg"/)
   assert.match(read('tools/build.mjs'), /copyFileSync\('apps\/desktop\/assets\/orgtree-eye\.svg', 'dist\/renderer\/assets\/orgtree-eye\.svg'\)/)
 })

@@ -9,7 +9,15 @@ await bundle({ entryPoints: ['apps/desktop/main/index.ts'], outfile: 'dist/main/
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
 await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/preload/index.cjs',
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
-await renderer({ root: 'apps/desktop/renderer', base: './',
+// Absolute, not relative: the backend serves this SAME index.html for every
+// client-routed path (`/`, `/o/<org>`, ...) via its SPA catch-all. A relative
+// base resolves "./assets/..." against whatever deep path the document was
+// actually loaded from, so a reload from `/o/<org>` requests
+// "/o/assets/index-*.js" — unmatched by the top-level `/assets` mount, so the
+// catch-all answers with index.html's own text/html instead of the module
+// script, and the app never boots (visible bug: Refresh on an open org turns
+// the window white until the app is closed and reopened back to `/`).
+await renderer({ root: 'apps/desktop/renderer', base: '/',
   build: { outDir: path.resolve('dist/renderer'), emptyOutDir: true } })
 // The favicon is also used by the packaged UI. Keep one SVG source beside the
 // Windows ICO and copy it into Vite's output rather than maintaining a duplicate.
