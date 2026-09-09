@@ -303,7 +303,9 @@ uiTest('§7 tray navigation survives: the row still goes to its agent',
     const el = await openTray(mount, undefined, ['ceo', 'cto'])
     const rows = [...el.querySelectorAll('.tray-row .tray-main')] as HTMLElement[]
     assert.equal(rows.length, 2, 'positive control: both agents are in the tray')
-    const controls = rows[1]!.parentElement?.querySelectorAll('.agent-list-control')
+    const primary = rows[1]!.parentElement
+    assert.ok(primary?.classList.contains('tray-primary'), 'controls stay in the primary row')
+    const controls = primary?.querySelectorAll('.agent-list-control')
     assert.equal(controls?.length, 2,
       'each tray row exposes native pin and popout controls beside navigation')
     // ⚠ SETTLE FIRST, THEN READ THE BEFORE. The camera is still animating from
@@ -324,31 +326,18 @@ uiTest('§7 tray navigation survives: the row still goes to its agent',
       'clicking the row moved no camera — tray navigation is broken')
   })
 
-uiTest('§8 direct-report pin control follows the real pinned state', async ({ mount }) => {
+uiTest('§8 desk jump cards keep navigation without list controls', async ({ mount }) => {
   const { NavChip } = await import('../src/canvas/desk')
   const report = { id: 'report', generation: 0, tier: 'haiku', state: 'live',
     busy: false, mail_pending: 0 } as CanvasNode
-  let pins = 0
-  let shows = 0
-  const unpinned = await mount(<NavChip n={report} dir="down" slug="mine"
-    onJump={() => {}} onPin={() => { pins++ }} />)
-  const pin = unpinned.el.querySelector<HTMLButtonElement>(
-    '[aria-label="pin report\'s desk as a window"]')
-  assert.ok(pin, 'an unpinned direct report exposes Pin')
-  assert.equal(unpinned.el.querySelector('[aria-label="show report\'s pinned desk"]'), null,
-    'an unpinned report does not expose a no-op Show action')
-  await inAct(() => { pin!.click() })
-  assert.equal(pins, 1, 'clicking Pin invokes the caller action')
-
-  const pinned = await mount(<NavChip n={report} dir="down" slug="mine"
-    onJump={() => {}} onShowPin={() => { shows++ }} />)
-  assert.equal(pinned.el.querySelector('[aria-label="pin report\'s desk as a window"]'), null,
-    'a pinned report does not expose Pin')
-  const show = pinned.el.querySelector<HTMLButtonElement>(
-    '[aria-label="show report\'s pinned desk"]')
-  assert.ok(show, 'a pinned direct report exposes Show')
-  await inAct(() => { show!.click() })
-  assert.equal(shows, 1, 'clicking Show invokes the caller action')
+  let jumps = 0
+  const chip = await mount(<NavChip n={report} dir="down" onJump={() => { jumps++ }} />)
+  const jump = chip.el.querySelector<HTMLButtonElement>('.desk-nav-chip')
+  assert.ok(jump, 'the direct-report jump card keeps its navigation button')
+  assert.equal(chip.el.querySelector('.agent-list-controls'), null,
+    'jump cards do not expose list pin/popout controls')
+  await inAct(() => { jump!.click() })
+  assert.equal(jumps, 1, 'clicking the jump card still navigates')
 })
 
 uiTest('Â§9 a registered list row opens its native desk surface', async ({ mount }) => {

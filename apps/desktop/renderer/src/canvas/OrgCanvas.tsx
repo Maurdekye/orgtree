@@ -2568,13 +2568,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
-              pinnedIds={pinnedIds}
-              onPinAgent={!isMobile ? (id) => {
-                if (!pinnedIds.has(id)) pinDesk(id)
-              } : undefined}
-              onShowPinAgent={!isMobile ? (id) => {
-                if (pinnedIds.has(id)) showPin(slug, id, vpSizeNow())
-              } : undefined}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
@@ -2879,7 +2872,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
                       + 'current filter, but a report under it does'
                     : undefined}
                   onClick={go}>
-                  <button type="button" className="tray-main"
+                  <div className="tray-primary">
+                    <button type="button" className="tray-main"
                     title={`go to ${n.id}`}>
                     <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
                     {n.pending_switch &&
@@ -2890,12 +2884,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
                     <ContextWheel occ={n.occupancy} cw={n.context_window}
                       est={n.occupancy_est} compactAt={tree.compact_at} />
                     <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
-                  </button>
+                    </button>
                   {!isMobile && <DeskListControls slug={slug} node={n}
                     onPin={!pinnedIds.has(n.id) ? () => pinDesk(n.id) : undefined}
                     onShowPin={pinnedIds.has(n.id)
                       ? () => showPin(slug, n.id, vpSizeNow()) : undefined}
                     onOpen={go} />}
+                  </div>
                   {/* ⚠ THE WHOLE SUMMARY, MATCHED BEFORE ANY TRUNCATION: a
                       slice here cuts tokens in half, and the clipping is the
                       stylesheet's job (`.tray-sum-text` is ellipsis-clipped).

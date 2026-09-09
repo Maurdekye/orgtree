@@ -1201,16 +1201,13 @@ interface NodeSquareProps {
   /** FR-3: the desk header's pin button — absent hides it (mobile, and
    *  every desk that is not the canvas desk: switchboard panels, the sheet) */
   onPin?: () => void
-  pinnedIds?: ReadonlySet<string>
-  onPinAgent?: (id: string) => void
-  onShowPinAgent?: (id: string) => void
   /** FR-3: the placeholder's click — raise, un-strand and flash the window */
   onShowPin?: () => void
 }
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onLineage, onOpenDoc, onOpenAgentGallery,
-  onRecenter, onJump, pinnedIds, onPinAgent, onShowPinAgent, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
+  onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
@@ -1570,8 +1567,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           onRecenter={onRecenter} onJump={onJump} maxTop={maxTop} pxc={pxc}
           pub={pub} onMailLink={onMailLink} onWorkLink={onWorkLink}
           onOpenDoc={onOpenDoc}
-          onPin={onPin} pinnedIds={pinnedIds}
-          onPinAgent={onPinAgent} onShowPinAgent={onShowPinAgent} />
+          onPin={onPin} />
       )}
       {/* FR-3: the desk is a pinned window — the desk's place holds a
           placeholder, and there is no second DeskChat anywhere in this card */}

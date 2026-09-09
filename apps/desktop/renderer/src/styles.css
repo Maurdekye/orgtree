@@ -4173,8 +4173,11 @@ svg.MuiSvgIcon-root {
    hold reference controls without nesting a button inside a button. It is
    stripped back to the row's own text: chrome here would draw a box around
    every agent in the tray. */
+.tray-primary {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
 .tray-main {
-  display: flex; align-items: center; gap: 8px; width: 100%;
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
   background: none; border: none; padding: 0; margin: 0;
   font: inherit; color: inherit; text-align: left; cursor: pointer;
 }
