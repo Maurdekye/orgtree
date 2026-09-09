@@ -45,7 +45,7 @@ function insideEye(x, y) {
   return hit
 }
 
-function pixel(size, x, y, color, center = color) {
+function pixel(size, x, y, color, center = color, iris = pupil) {
   const scale = 4
   const samples = []
   for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
@@ -53,7 +53,7 @@ function pixel(size, x, y, color, center = color) {
     const vy = (y + (sy + .5) / scale) * 256 / size
     if (!insideEye(vx, vy)) { samples.push([0, 0, 0, 0]); continue }
     const dx = vx - 128, dy = vy - 128, r = Math.hypot(dx, dy)
-    samples.push(r <= 57 ? (r <= 25 ? [...center, 255] : [...color, 255]) : [...color, 255])
+    samples.push(r <= 57 ? (r <= 25 ? [...center, 255] : [...iris, 255]) : [...color, 255])
   }
   const alpha = samples.reduce((sum, sample) => sum + sample[3], 0) / samples.length
   const rgb = samples.reduce((sum, sample) => sample[3] ? sum.map((v, i) => v + sample[i]) : sum, [0, 0, 0]).map(v => Math.round(v / (samples.filter(s => s[3]).length || 1)))
@@ -73,12 +73,12 @@ function chunk(type, data) {
   return out
 }
 
-function png(size, color, center = color) {
+function png(size, color, center = color, iris = pupil) {
   const rows = []
   for (let y = 0; y < size; y++) {
     const row = Buffer.alloc(1 + size * 4); row[0] = 0
     for (let x = 0; x < size; x++) {
-      const [r, g, b, a] = pixel(size, x, y, color, center); const offset = 1 + x * 4
+      const [r, g, b, a] = pixel(size, x, y, color, center, iris); const offset = 1 + x * 4
       row[offset] = r; row[offset + 1] = g; row[offset + 2] = b; row[offset + 3] = a
     }
     rows.push(row)
@@ -87,8 +87,8 @@ function png(size, color, center = color) {
   return Buffer.concat([Buffer.from('\x89PNG\r\n\x1a\n', 'binary'), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(Buffer.concat(rows), { level: 9 })), chunk('IEND', Buffer.alloc(0))])
 }
 
-function writeIcon(filename, color, center = color) {
-  const frames = sizes.map(size => png(size, color, center))
+function writeIcon(filename, color, center = color, iris = pupil) {
+  const frames = sizes.map(size => png(size, color, center, iris))
   const header = Buffer.alloc(6); header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(frames.length, 4)
   const entries = Buffer.alloc(frames.length * 16); let offset = 6 + entries.length
   for (let i = 0; i < frames.length; i++) {
@@ -104,5 +104,5 @@ function writeIcon(filename, color, center = color) {
 // The orange artwork remains the static app/installer icon. Tray and window
 // icons are monochrome variants so their state and the saved visual theme can
 // change without recoloring pixels in Electron's platform-specific bitmap.
-writeIcon('orgtree-eye.ico', orange, pupil)
-for (const [name, color] of Object.entries(trayColors)) writeIcon(`orgtree-eye-tray-${name}.ico`, color)
+writeIcon('orgtree-eye.ico', orange, orange, pupil)
+for (const [name, color] of Object.entries(trayColors)) writeIcon(`orgtree-eye-tray-${name}.ico`, color, color, pupil)

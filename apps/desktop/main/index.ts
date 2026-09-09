@@ -34,7 +34,12 @@ else {
     maximized: !!main && !main.isDestroyed() && main.isMaximized(),
   })
   const engine = new Engine()
-  const assetsPath = path.join(app.getAppPath(), 'apps/desktop/assets')
+  // Native image readers and Windows shell integration cannot reliably read
+  // files inside app.asar. Packaged runtime icons are unpacked by the build;
+  // development keeps the source-tree path.
+  const assetsPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime-icons')
+    : path.join(app.getAppPath(), 'apps/desktop/assets')
   const iconPath = path.join(assetsPath, 'orgtree-eye.ico')
   const trayIconNames: Record<VisualTheme | 'grey', string> = {
     grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
