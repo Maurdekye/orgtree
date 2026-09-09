@@ -3961,7 +3961,7 @@ def spawn_env(org: Org, tier: str | None = None,
     env = clean_env()
     if nid is not None:
         from . import agentauth
-        env.update(agentauth.child_env(org.d["slug"], nid))
+        env.update(agentauth.child_env(org.d["slug"], nid, generation=int(org.node(nid).get("generation", 0))))
     if sbx.is_sandboxed(org):
         return env
     # D-206 (fleet ruling 2026-08-30): turn on the CLI's own prompt-cache
@@ -8380,7 +8380,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
         chosen["orgtree"] = {
             "command": "python3",
             "args": ["/opt/orgtree-backend/orgtree/mcptool.py"],
-        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env": {**agentauth.child_env(slug, nid, generation=int(org.node(nid).get("generation", 0))), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                     "ORGTREE_BASE": sbx.bridge_url(),
                     "ORGTREE_BRIDGE_SECRET": bridge_credential,
                     deployment.PROFILE_ENV:
@@ -8391,7 +8391,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
         chosen["orgtree"] = {
             "command": sys.executable,
             "args": ["-m", "orgtree.mcptool"],
-        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env": {**agentauth.child_env(slug, nid, generation=int(org.node(nid).get("generation", 0))), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                     "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
                     "PYTHONPATH": BACKEND_DIR,
                     deployment.PROFILE_ENV:
@@ -11438,7 +11438,7 @@ def _codex_process_spec(org: Org, nid: str, *,
         "identity": ident,
         "config_overrides": (codexrun.mcp_config_overrides(mcp_chosen)
                              + _codex_tool_config(org.node(nid)["scope"])),
-        "env_extra": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+        "env_extra": {**agentauth.child_env(slug, nid, generation=int(org.node(nid).get("generation", 0))), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
                       **_codex_git_trust_env(org.node(nid)["scope"]),
                       # marker + home originate in the SAME spec (the codex

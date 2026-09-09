@@ -103,7 +103,8 @@ class EngineHTTPTests(unittest.TestCase):
         ui = root / 'ui'; ui.mkdir(); (ui / 'assets').mkdir()
         (ui / 'index.html').write_text('<!doctype html><title>UI positive control</title>', encoding='utf-8')
         env = dict(os.environ)
-        for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_PORT'):
+        for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_PORT',
+                    'ORGTREE_AGENT_PARENT_DATA', 'ORGTREE_AGENT_LEGACY_DATA'):
             env.pop(key, None)
         env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                    ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui))

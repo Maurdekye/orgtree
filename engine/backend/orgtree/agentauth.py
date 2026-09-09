@@ -15,14 +15,19 @@ def enable() -> None:
     _key = secrets.token_bytes(32)
 
 
-def child_env(slug: str, nid: str) -> dict[str, str]:
+def child_env(slug: str, nid: str, *, generation: int | None = None) -> dict[str, str]:
     if _key is None:
         return {}
-    from . import store
-    with store.DOC_LOCK:
-        node = store.load_org(slug).node(nid)
-        payload = json.dumps([slug, nid, int(node.get('generation', 0))],
-                             separators=(',', ':')).encode()
+    # Callers holding an Org snapshot already know its generation. Reusing it
+    # avoids reloading the whole organization once per forecasted agent. The
+    # HTTP authorization path still validates this generation against live state.
+    if generation is None:
+        from . import store
+        with store.DOC_LOCK:
+            generation = int(store.load_org(slug).node(nid).get('generation', 0))
+    if type(generation) is not int or generation < 0:
+        raise ValueError('Invalid agent generation')
+    payload = json.dumps([slug, nid, generation], separators=(',', ':')).encode()
     encoded = base64.urlsafe_b64encode(payload).decode().rstrip('=')
     signature = hmac.new(_key, encoded.encode(), hashlib.sha256).hexdigest()
     return {'ORGTREE_AGENT_TOKEN': encoded + '.' + signature}
