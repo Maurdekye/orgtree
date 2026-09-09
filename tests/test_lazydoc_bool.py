@@ -12,7 +12,14 @@ _root = tempfile.TemporaryDirectory(prefix='v2-lazydoc-bool-')
 os.environ.update(ORGTREE_DATA=_root.name, HOME=_root.name, USERPROFILE=_root.name)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 from orgtree import store  # noqa: E402
-assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
+if Path(store.DATA_ROOT).resolve() != Path(_root.name).resolve():
+    # `DATA_ROOT` binds at import time. Under `unittest discover`, another
+    # test module sharing this process may have already bound it to ITS
+    # root before this file's import ran — declare inert rather than
+    # asserting, so that shows up as a skip, not an opaque loader error.
+    raise unittest.SkipTest(
+        "store.DATA_ROOT already bound elsewhere in this process; "
+        "run this file on its own (see tests/test_transcript_lookup.py)")
 
 
 def tearDownModule():
