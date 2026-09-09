@@ -10,10 +10,12 @@ The one new artifact is the attach descriptor, engine-attach.json under the
 data root. It is written ONLY AFTER the ready handshake, because a persisted
 port can move during startup (an OS reservation makes the engine choose a
 fresh port); engine-port.json is therefore never authoritative for
-attachment. The descriptor carries the per-boot token, so it inherits the
-data root's profile ACL exactly like the provider credential files it is
-equivalent to. A desktop that finds it must still prove identity over
-/api/desktop/identity before trusting the endpoint.
+attachment. The descriptor carries the per-boot token; its protection IS the
+data root's ACL, which is why the desktop verifies the file's NTFS OWNER
+before trusting it (the identity round-trip that follows is a staleness
+check, not authentication). Run this host as the operator, unelevated — an
+Administrators-owned descriptor is refused by the desktop — and never point
+ORGTREE_V2_DATA at a directory other accounts can write.
 """
 
 from __future__ import annotations

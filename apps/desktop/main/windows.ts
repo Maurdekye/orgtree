@@ -1,17 +1,26 @@
 import { BrowserWindow, type Session } from 'electron'
 import { scopedHeaders, trustedUiUrl } from './policy'
 
+/** Origin/token sources may be live getters: after a boot-engine recovery the
+ *  desktop re-attaches with a NEW per-boot token (usually the same origin,
+ *  since the engine port persists), and the session hooks must sign with the
+ *  current credential rather than the one captured at configure time. Plain
+ *  strings remain accepted for fixed-lifetime uses and existing probes. */
+type Live = string | (() => string)
+const live = (value: Live): string => typeof value === 'function' ? value() : value
+
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {
   if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || !trustedUiUrl(event.senderFrame.url, origin)) throw new Error('Native operation refused for this document')
 }
 
-export function configureEngineSession(session: Session, origin: string, token: string): (window: BrowserWindow, portal?: boolean) => void {
+export function configureEngineSession(session: Session, liveOrigin: Live, liveToken: Live): (window: BrowserWindow, portal?: boolean) => void {
   const owners = new Map<number, { window: BrowserWindow; portal: boolean }>()
   session.webRequest.onBeforeRequest((details, callback) => {
     // srcdoc is not a network navigation. Foreign frame documents are never app UI.
     callback({ cancel: details.resourceType === 'subFrame' && !details.url.startsWith('about:') })
   })
   session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const origin = live(liveOrigin), token = live(liveToken)
     const owner = owners.get(details.webContentsId ?? -1)
     const top = owner && !owner.window.isDestroyed() ? owner.window.webContents.mainFrame : undefined
     const frame = details.frame
@@ -33,7 +42,7 @@ export function configureEngineSession(session: Session, origin: string, token: 
 }
 
 /** Preserve one mounted portal; blank children never boot a second App. */
-export function configureWindow(window: BrowserWindow, origin: string, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void): void {
+export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void): void {
   register?.(window, !isMain)
   if (!isMain) {
     // Chromium can leave an adopted about:blank document "hidden" even while
@@ -46,9 +55,10 @@ export function configureWindow(window: BrowserWindow, origin: string, isMain: b
     throttle()
   }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
-  window.webContents.on('will-navigate', (event, url) => { if (!isMain || !trustedUiUrl(url, origin)) event.preventDefault() })
-  window.webContents.on('will-redirect', (event, url) => { if (!isMain || !trustedUiUrl(url, origin)) event.preventDefault() })
+  window.webContents.on('will-navigate', (event, url) => { if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault() })
+  window.webContents.on('will-redirect', (event, url) => { if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault() })
   window.webContents.setWindowOpenHandler(({ url }) => {
+    const origin = live(liveOrigin)
     if (artifactUrl(url, origin) && (isMain ? trustedUiUrl(window.webContents.getURL(), origin) : window.webContents.getURL() === 'about:blank')) {
       openArtifact?.(url)
       return { action: 'deny' }
@@ -57,7 +67,7 @@ export function configureWindow(window: BrowserWindow, origin: string, isMain: b
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true,
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false } } }
   })
-  window.webContents.on('did-create-window', child => configureWindow(child, origin, false, register, openArtifact))
+  window.webContents.on('did-create-window', child => configureWindow(child, liveOrigin, false, register, openArtifact))
 }
 
 export function artifactUrl(value: string, origin: string): boolean {

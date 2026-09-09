@@ -3,9 +3,12 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot } from './policy'
+import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot, verifyDescriptorOwner, type DescriptorOwner } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
+// Must exceed the host's READY_TIMEOUT (service_host.py) so a desktop that
+// lost the boot race never gives up before a healthy host can publish.
+export const ATTACH_RETRY_BUDGET_MS = 150000
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 
@@ -34,10 +37,13 @@ export class Engine extends EventEmitter {
   /** Adopt a boot-host engine when a verifiable descriptor exists. Returns
    *  false (and records why) on any doubt so the caller falls back to a
    *  fresh managed spawn; the engine-side root lock arbitrates races. */
+  /** Injectable for tests; the default is the real NTFS owner query. */
+  ownerCheck: (file: string) => Promise<DescriptorOwner> = verifyDescriptorOwner
+
   /** Keep trying to attach for a bounded window. A missing descriptor only
    *  means no host has FINISHED starting — during the boot race the host may
    *  need most of its readiness budget before the file exists. */
-  async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = 90000, intervalMs = 1000): Promise<boolean> {
+  async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = ATTACH_RETRY_BUDGET_MS, intervalMs = 1000): Promise<boolean> {
     const deadline = Date.now() + deadlineMs
     for (;;) {
       if (await this.attach(options)) return true
@@ -58,7 +64,15 @@ export class Engine extends EventEmitter {
     try { raw = fs.readFileSync(file, 'utf8') } catch { return false }
     try {
       const attach = parseAttach(raw, realRoot)
+      // AUTHENTICATION happens here, before the token leaves this process:
+      // every later value is authored by whoever wrote the descriptor, so
+      // trust reduces to the file being owned by the current user (opus F1).
+      const owner = await this.ownerCheck(file)
+      if (!owner.ok) throw new Error('descriptor owner rejected: ' + owner.detail)
       const origin = `http://127.0.0.1:${attach.port}`
+      // STALENESS CHECK, not peer authentication: it proves the endpoint
+      // echoes this boot's descriptor (catching a recycled port), nothing
+      // about who is listening — the owner check above carries that weight.
       const response = await fetch(origin + '/api/desktop/identity',
         { headers: { [TOKEN_HEADER]: attach.token }, signal: AbortSignal.timeout(4000), redirect: 'error' })
       if (!response.ok) throw new Error(`identity check returned ${response.status}`)
@@ -141,8 +155,51 @@ export class Engine extends EventEmitter {
       if (!response.ok) throw new Error(String(response.status))
     } catch {
       this.endpoint = ''
-      this.state({ state: 'stopped', message: 'Background engine stopped. Restart Orgtree to reconnect.' })
+      this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     }
+  }
+
+  /** Autonomous recovery of a lost attachment (opus F2): re-attach if the
+   *  host republished (its port persists, so usually the same origin with a
+   *  NEW token), else spawn a managed engine, else — if the spawn was
+   *  refused because a host mid-restart owns the root — wait it out briefly.
+   *  Stays recoverable on failure: the poll loop simply tries again. */
+  async recoverAttached(options: EngineOptions): Promise<'attached' | 'spawned' | 'failed'> {
+    if (this.managed) return 'failed'
+    this.endpoint = ''
+    this.managed = true
+    if (await this.attach(options)) return 'attached'
+    try { await this.start(options); return 'spawned' }
+    catch (error) {
+      if (error instanceof Error && error.message.startsWith(ENGINE_REFUSED) && await this.attachWithRetry(options, 30000)) return 'attached'
+      this.managed = false
+      this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
+      return 'failed'
+    }
+  }
+
+  /** Graceful authenticated stop of the boot engine so an update can replace
+   *  its files; the installer restarts the task afterwards. Throws — with no
+   *  state disturbed — when the engine does not verifiably stop, so callers
+   *  refuse the update instead of installing over a live engine. */
+  async stopAttachedForUpdate(deadlineMs = 15000): Promise<void> {
+    if (this.managed || !this.endpoint) return
+    const endpoint = this.endpoint
+    try {
+      await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(5000), redirect: 'error' })
+    } catch { /* liveness decides below */ }
+    const deadline = Date.now() + deadlineMs
+    while (Date.now() < deadline) {
+      try {
+        await fetch(endpoint + '/api/desktop/identity', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(2000), redirect: 'error' })
+      } catch {
+        this.endpoint = ''
+        this.state({ state: 'stopped', message: 'Engine stopped' })
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    throw new Error('Background engine did not stop for the update')
   }
 
   async stats(): Promise<RuntimeStats | null> {

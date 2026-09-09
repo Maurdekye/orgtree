@@ -171,3 +171,132 @@ test('an attached engine that dies underneath us reads as stopped, not forever-r
   assert.match(engine.status.message, /Background engine stopped/)
   assert.equal(engine.origin, '')
 })
+
+test('the real owner check accepts a file this user just created (positive control)', async () => {
+  const file = path.join(realRoot, 'owned-probe.json')
+  fs.writeFileSync(file, '{}')
+  try {
+    const result = await policy.verifyDescriptorOwner(file)
+    assert.equal(result.ok, true, result.detail)
+    assert.match(result.detail, /^owner S-/)
+  } finally { fs.rmSync(file) }
+})
+
+test('a descriptor owned by someone else is rejected BEFORE the token is sent anywhere', async () => {
+  let identityRequests = 0
+  const { server, port } = await identityServer((request, response) => { identityRequests++; respond(response, 200, engineIdentity) })
+  try {
+    writeDescriptor(descriptor({ port }))
+    const engine = new Engine()
+    engine.ownerCheck = async () => ({ ok: false, detail: 'owner S-1-5-21-attacker is not current user S-1-5-21-me' })
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), false)
+    assert.match(engine.attachDiagnostic, /owner rejected/)
+    assert.equal(identityRequests, 0, 'the token must never reach an unauthenticated peer (opus F3)')
+    assert.equal(engine.managed, true)
+  } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})
+
+test('the attach retry budget covers the host readiness timeout', () => {
+  const host = fs.readFileSync('engine/service_host.py', 'utf8')
+  const ready = Number(/READY_TIMEOUT = (\d+)/.exec(host)?.[1])
+  assert.ok(Number.isFinite(ready) && ready > 0, 'READY_TIMEOUT not found in service_host.py')
+  const { ATTACH_RETRY_BUDGET_MS } = req(path.join(temp, 'engine.cjs'))
+  assert.ok(ATTACH_RETRY_BUDGET_MS >= (ready + 20) * 1000,
+    `retry budget ${ATTACH_RETRY_BUDGET_MS}ms must exceed host readiness ${ready}s plus margin`)
+})
+
+test('an attached update stop is graceful, verified, and refuses when the engine will not die', async () => {
+  let sawShutdown = ''
+  const { server, port } = await identityServer(() => {})
+  server.removeAllListeners('request')
+  server.on('request', (request, response) => {
+    if (request.method === 'POST' && request.url === '/api/desktop/shutdown') {
+      sawShutdown = request.headers['x-orgtree-desktop-token']
+      respond(response, 200, { accepted: true })
+      setTimeout(() => server.close(), 50)
+      return
+    }
+    if (request.url === '/api/desktop/identity' && request.headers['x-orgtree-desktop-token'] === token) return respond(response, 200, engineIdentity)
+    respond(response, 401, {})
+  })
+  const engine = new Engine()
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+  await engine.stopAttachedForUpdate(5000)
+  assert.equal(sawShutdown, token, 'shutdown goes through the authenticated route')
+  assert.equal(engine.status.state, 'stopped')
+
+  // Refusal: a peer that ignores shutdown and never dies (identity keeps
+  // answering, the shutdown POST 404s inside the helper server).
+  const alive = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const stubborn = new Engine()
+  try {
+    writeDescriptor(descriptor({ port: alive.port }))
+    assert.equal(await stubborn.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await assert.rejects(stubborn.stopAttachedForUpdate(1500), /did not stop/)
+  } finally { alive.server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
+})
+
+test('a lost attachment recovers by re-attaching to the republished host with its NEW token', async () => {
+  const first = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const engine = new Engine()
+  try {
+    writeDescriptor(descriptor({ port: first.port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+  await new Promise(resolve => first.server.close(resolve))
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'stopped')
+  assert.equal(engine.managed, false, 'still recoverable')
+
+  const newToken = 'cd'.repeat(32)
+  const second = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== newToken) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  try {
+    writeDescriptor(descriptor({ port: second.port, token: newToken }))
+    assert.equal(await engine.recoverAttached({ dataRoot, forbiddenRoot: forbidden }), 'attached')
+    assert.equal(engine.token, newToken, 'session signing must pick up the NEW per-boot token')
+    assert.equal(engine.origin, `http://127.0.0.1:${second.port}`)
+    assert.equal(engine.status.state, 'ready')
+  } finally { second.server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
+})
+
+test('recovery falls back to a managed spawn when no host republishes, and stays recoverable when nothing works', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-spawnstub-'))
+  fs.writeFileSync(path.join(directory, 'launch.py'), `
+    const http = require('node:http')
+    const srv = http.createServer((request, response) => {
+      if (request.method === 'POST' && request.url === '/api/desktop/shutdown') { response.end('{}'); process.exit(0) }
+      response.statusCode = 404; response.end()
+    })
+    srv.listen(0, '127.0.0.1', () => {
+      console.log(JSON.stringify({ type: 'ready', protocol: 1, port: srv.address().port, pid: process.pid, dataRootId: process.env.ORGTREE_DATA }))
+    })
+  `)
+  const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
+  const engine = new Engine()
+  engine.managed = false // simulate a previously attached engine that was lost
+  const outcome = await engine.recoverAttached(options)
+  assert.equal(outcome, 'spawned')
+  assert.equal(engine.managed, true)
+  assert.ok(engine.origin.startsWith('http://127.0.0.1:'), engine.origin)
+  await engine.stop()
+
+  const broken = new Engine()
+  broken.managed = false
+  const failed = await broken.recoverAttached({ ...options, python: path.join(directory, 'missing.exe') })
+  assert.equal(failed, 'failed')
+  assert.equal(broken.managed, false, 'a failed recovery must remain recoverable next poll')
+  assert.equal(broken.status.state, 'stopped')
+  assert.match(broken.status.message, /Reconnecting/)
+})

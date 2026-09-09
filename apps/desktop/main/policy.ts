@@ -81,6 +81,34 @@ export function canonicalPath(p: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
+export interface DescriptorOwner { ok: boolean; detail: string }
+
+/** THE authentication step of attachment (redteam-opus F1): everything in the
+ *  descriptor and the identity response is authored by whoever wrote the
+ *  file, so trust reduces to WHO CAN WRITE IT. Require the file's owner SID
+ *  to equal the current user's before the token is sent anywhere. Fail
+ *  closed: no platform support, no parse, no match — no attach. Cross-account
+ *  attack not measured on this machine (single account); the property relied
+ *  on is NTFS ownership of a freshly created file. */
+export function verifyDescriptorOwner(file: string): Promise<DescriptorOwner> {
+  if (process.platform !== 'win32') return Promise.resolve({ ok: false, detail: 'owner verification is Windows-only' })
+  const escaped = file.replace(/'/g, "''")
+  const script = `$o=(Get-Acl -LiteralPath '${escaped}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
+    `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;Write-Output ($o+'|'+$me)`
+  return new Promise(resolve => {
+    // Lazy import keeps policy.ts loadable in bundled unit tests without electron.
+    import('node:child_process').then(({ execFile }) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 10000, windowsHide: true },
+        (error, stdout) => {
+          if (error) return resolve({ ok: false, detail: `owner query failed: ${error.message.slice(0, 200)}` })
+          const [owner, current] = stdout.trim().split('|')
+          if (!owner || !current || !owner.startsWith('S-') || !current.startsWith('S-')) return resolve({ ok: false, detail: `owner query unparseable: ${stdout.trim().slice(0, 120)}` })
+          resolve(owner === current ? { ok: true, detail: `owner ${owner}` } : { ok: false, detail: `owner ${owner} is not current user ${current}` })
+        })
+    }, () => resolve({ ok: false, detail: 'child_process unavailable' }))
+  })
+}
+
 /** A structured startup refusal from the engine (e.g. another owner already
  *  holds the data root during the boot race). Distinguishable from a broken
  *  engine so the desktop can retry attachment instead of failing fatally. */

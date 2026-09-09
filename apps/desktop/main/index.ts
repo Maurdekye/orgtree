@@ -86,11 +86,14 @@ else {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
   const applyDownloadedUpdate = async () => {
-    // An attached boot-host engine keeps running from the install directory;
-    // replacing those files is the (elevated) installer's job, which also
-    // stops the boot task. Refusing here routes a maintenance request into
-    // its designed failure report instead of installing over a live engine.
-    if (!engine.managed) throw new Error('Update application requires the managed engine; stop the boot task first')
+    if (updateApplying || quitting) return
+    // A boot-host engine is stopped gracefully through its authenticated
+    // shutdown route before its files are replaced; the installer restarts
+    // the task afterwards. A stop that cannot be VERIFIED throws here, with
+    // no state disturbed — a maintenance request then lands in its designed
+    // failure report, and the idle auto-path simply retries later — because
+    // installing over a live engine is never acceptable.
+    if (!engine.managed) await engine.stopAttachedForUpdate()
     if (updateApplying || quitting) return
     updateApplying = true; quitting = true
     if (poll) clearInterval(poll)
@@ -199,11 +202,13 @@ else {
         }
       }
       const browserSession = session.fromPartition('persist:orgtree-v2')
-      const trustedOrigin = engine.origin
-      const register = configureEngineSession(browserSession, trustedOrigin, engine.token)
+      // The preload origin is fixed per window; session signing reads LIVE
+      // engine values so a recovered attachment's new token keeps working.
+      const initialOrigin = engine.origin
+      const register = configureEngineSession(browserSession, () => engine.origin, () => engine.token)
       const openArtifact = (url: string) => {
         const artifactSession = session.fromPartition(`artifact-${randomUUID()}`)
-        configureArtifactSession(artifactSession, url, trustedOrigin, engine.token)
+        configureArtifactSession(artifactSession, url, engine.origin, engine.token)
         // Artifact viewers do not receive the app bridge or renderer chrome;
         // retain the native title bar for this read-only auxiliary window.
         const viewer = new BrowserWindow({ width: 1000, height: 760, icon: iconPath, autoHideMenuBar: true,
@@ -217,7 +222,7 @@ else {
       }
       main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
         webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
-          sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${trustedOrigin}`] } })
+          sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
       main.setIcon(runtimeIcon())
       main.on('maximize', publishWindowState)
       main.on('unmaximize', publishWindowState)
@@ -225,7 +230,7 @@ else {
       main.on('restore', publishWindowState)
       main.on('show', publishWindowState)
       main.on('hide', publishWindowState)
-      configureWindow(main, trustedOrigin, true, register, openArtifact)
+      configureWindow(main, () => engine.origin, true, register, openArtifact)
       main.webContents.on('did-create-window', child => {
         child.setIcon(runtimeIcon())
         child.on('closed', quitAfterLastView)
@@ -242,13 +247,29 @@ else {
       const refresh = async () => {
         if (quitting) return
         stats = await engine.stats(); rebuildTray()
-        if (stats === null && !engine.managed) await engine.verifyAttached()
+        if (stats === null && !engine.managed) {
+          await engine.verifyAttached()
+          if (!engine.managed && engine.status.state === 'stopped' && !quitting) {
+            const outcome = await engine.recoverAttached(engineOptions)
+            if (outcome !== 'failed') {
+              // Same origin (the engine port persists): the live session
+              // getters already sign with the new token; reload the app so
+              // the renderer re-establishes its streams. A CHANGED origin
+              // needs the preload origin rebuilt — relaunch cleanly.
+              if (engine.origin === initialOrigin) main?.webContents.reload()
+              else { await saveWindowLayout(); app.relaunch(); app.quit() }
+            }
+            return
+          }
+        }
         if (stats?.maintenance || maintenance.hasFailures()) {
           await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
           return
         }
-        if (downloaded && engine.managed && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
-          await applyDownloadedUpdate()
+        if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
+          // An unverifiable attached-engine stop throws with state untouched;
+          // the next idle sample simply tries again.
+          await applyDownloadedUpdate().catch(() => {})
         }
       }
       let refreshing = false
