@@ -348,6 +348,61 @@ def fetch(force: bool = False) -> dict[str, Any]:
                 client.close()
 
 
+#: per-profile boards (multi-account D3), ISOLATED from the ambient board:
+#: keyed by the caller's cache key, and nothing here touches `_cache`,
+#: `_snapshots`, `_observed` or the ambient account stamp — a redirected
+#: home's numbers must never masquerade as (or evict) the machine login's.
+_home_cache: dict[str, dict[str, Any]] = {}
+
+
+def fetch_for_home(home: str, cache_key: str, *,
+                   force: bool = False) -> dict[str, Any]:
+    """A REDIRECTED PROFILE'S own usage board: the same app-server read as
+    `fetch`, launched with CODEX_HOME pinned to `home`, so the answer is
+    that profile's auth.json — the ambient race guard does not apply
+    because the home is pinned by argument, not by whoever `codex login`
+    names ambiently. One short-lived app-server per (uncached) read; the
+    client is closed in every path. The board is stamped with the HOME'S
+    OWN account digest (`_account_namespace(home)`), never the ambient
+    one. Tests fake the transport by patching codexrun.AppServerClient —
+    no live provider or login is involved."""
+    now = time.time()
+    with _lock:
+        ent = _home_cache.get(cache_key)
+        if (not force and ent is not None
+                and now - float(ent.get("at") or 0) <= CACHE_TTL):
+            return dict(ent["data"])
+    exe, _source = providers.codex_path()
+    if not exe:
+        return {"available": False, "error": "Codex CLI is not installed"}
+    digest, lane = _account_namespace(home)
+    client: codexrun.AppServerClient | None = None
+    try:
+        client = codexrun.AppServerClient(
+            providers.codex_argv(exe), codex_home=home)
+        client.initialize()
+        raw = client.request("account/rateLimits/read", {}, FETCH_TIMEOUT)
+        data = _normalize(raw, None)
+        if not data["available"]:
+            data["error"] = "Codex reported no usage-limit windows"
+        data["account"] = digest
+        data["lane"] = lane
+        with _lock:
+            _home_cache[cache_key] = {"at": time.time(), "data": dict(data)}
+        return dict(data)
+    except Exception as e:  # noqa: BLE001 — protocol failures degrade the panel
+        with _lock:
+            stale_ent = _home_cache.get(cache_key)
+            stale = stale_ent.get("data") if stale_ent else None
+        if isinstance(stale, dict):
+            return {**stale, "error": f"Codex usage refresh failed: {e}"}
+        return {"available": False, "account": digest,
+                "error": f"Codex usage fetch failed: {e}"}
+    finally:
+        if client is not None:
+            client.close()
+
+
 def _merge_sparse(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     merged = dict(old)
     for key, value in new.items():

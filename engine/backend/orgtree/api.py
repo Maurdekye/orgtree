@@ -3923,15 +3923,16 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
             return out
         out.update(limits.fetch_for_token(token, f"acct:{row['id']}"))
         return out
-    # openai profile rows: the board rides the app-server on ONE home
+    # openai profile rows: the ambient-home row serves the rich shared
+    # board; any OTHER home gets its OWN app-server read (fetch_for_home:
+    # isolated cache, pinned home, closed client, its own account digest)
     ambient = observe_ambient().get("openai")
     if ambient and os.path.normcase(os.path.normpath(cred["path"])) \
             == os.path.normcase(os.path.normpath(ambient)):
         out.update(codex_limits.fetch())
         return out
-    out.update(available=False, error=(
-        "per-profile Codex usage needs this home's own app-server — not "
-        "read on demand yet; identity/auth still verify via refresh"))
+    out.update(codex_limits.fetch_for_home(cred["path"],
+                                           f"acct:{row['id']}"))
     return out
 
 
