@@ -59,8 +59,10 @@ foreach($folder in @($data,$profile,$ui)) { [IO.Directory]::CreateDirectory($fol
 # Keep reviewed host bytes intact; shim ONLY selects the throwaway environment.
 [IO.File]::Move($paths.Host,(Join-Path $paths.Engine 'service_host.reviewed.py'))
 $shim=@'
-import os, pathlib, runpy
+import os, pathlib, runpy, sys, traceback
 install = pathlib.Path(__file__).resolve().parents[2]
+# Scheduled tasks have no console: preserve early failures and child stderr.
+sys.stderr = open(install/'host-stderr.log', 'a', encoding='utf-8', buffering=1)
 keep = {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','SYSTEMDRIVE','COMSPEC'}}
 os.environ.clear(); os.environ.update(keep)
 profile = install / 'probe-profile'
@@ -68,7 +70,14 @@ for k,p in {'USERPROFILE':profile,'HOME':profile,'APPDATA':profile/'AppData'/'Ro
     p.mkdir(parents=True, exist_ok=True); os.environ[k] = str(p)
 system32=pathlib.Path(keep['SYSTEMROOT'])/'System32'
 os.environ.update(ORGTREE_DATA=str(install/'probe-data'), ORGTREE_V2_DATA=str(install/'probe-data'), ORGTREE_V2_UI_DIR=str(install/'resources'/'ui'), ORGTREE_WARM='0', ORGTREE_V2_PORT='0', PATH=os.pathsep.join(map(str,(system32,system32/'WindowsPowerShell'/'v1.0'))))
-runpy.run_path(str(pathlib.Path(__file__).with_name('service_host.reviewed.py')), run_name='__main__')
+try:
+    runpy.run_path(str(pathlib.Path(__file__).with_name('service_host.reviewed.py')), run_name='__main__')
+except SystemExit as exc:
+    print('reviewed host exited:', exc.code, file=sys.stderr, flush=True)
+    raise
+except BaseException:
+    traceback.print_exc(file=sys.stderr)
+    raise
 '@
 [IO.File]::WriteAllText($paths.Host,$shim,[Text.UTF8Encoding]::new($false))
 # Instrument ONLY the copied runtime. Child is spawned after readiness, hence
@@ -77,14 +86,21 @@ $audit=@'
 import json, os, pathlib, subprocess, sys, threading, time
 engine = pathlib.Path(sys.executable).resolve().parent.parent
 install = engine.parent.parent
-powershell=pathlib.Path(os.environ['SYSTEMROOT'])/'System32'/'WindowsPowerShell'/'v1.0'/'powershell.exe'
+system32=pathlib.Path(os.environ['SYSTEMROOT'])/'System32'
+powershell=system32/'WindowsPowerShell'/'v1.0'/'powershell.exe'
 def resolve_probe_args(args):
-    if isinstance(args,(list,tuple)) and args and str(args[0]).lower() == 'powershell.exe':
-        return [str(powershell),*args[1:]]
-    return args
+    if not isinstance(args,(list,tuple)) or not args:
+        raise RuntimeError('paired probe requires explicit argument lists')
+    aliases={'powershell.exe':powershell,'whoami':system32/'whoami.exe','whoami.exe':system32/'whoami.exe',
+             'icacls':system32/'icacls.exe','icacls.exe':system32/'icacls.exe'}
+    return [str(aliases.get(str(args[0]).lower(),args[0])),*args[1:]]
 class ProbePopen(subprocess.Popen):
     def __init__(self,args,*rest,**kw):
-        super().__init__(resolve_probe_args(args),*rest,**kw)
+        args=resolve_probe_args(args)
+        # Windows audits executable=None unless it was explicitly supplied.
+        # Bind the exact permitted executable; do not parse a quoted command.
+        if kw.get('executable') is None: kw['executable']=args[0]
+        super().__init__(args,*rest,**kw)
 subprocess.Popen=ProbePopen
 def acl_readback(target):
     return ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
@@ -95,6 +111,8 @@ def audit(event, args):
     if event == 'socket.connect' and isinstance(args[1], tuple) and args[1][0] not in ('127.0.0.1','::1'):
         raise RuntimeError('paired probe denies remote connections')
     if event == 'subprocess.Popen':
+        if not isinstance(args[0],(str,bytes,os.PathLike)):
+            raise RuntimeError('paired probe requires an explicit executable')
         exe = pathlib.Path(args[0]).name.lower()
         if exe == 'powershell.exe':
             command=args[1] if isinstance(args[1],str) else subprocess.list2cmdline(args[1])
@@ -103,7 +121,8 @@ def audit(event, args):
             if str(args[0]).lower() != str(powershell).lower() or not allowed:
                 raise RuntimeError('paired probe denies non-ACL PowerShell command')
             return
-        if exe not in ('python.exe','whoami','whoami.exe','icacls','icacls.exe'):
+        permitted={str(pathlib.Path(sys.executable).resolve()).lower(),str(system32/'whoami.exe').lower(),str(system32/'icacls.exe').lower()}
+        if str(args[0]).lower() not in permitted:
             raise RuntimeError('paired probe denies non-runtime subprocess')
 sys.addaudithook(audit)
 (install / ('audit-loaded-'+str(os.getpid())+'.json')).write_text(json.dumps({'pid':os.getpid(),'image':sys.argv[0]}),encoding='utf-8')
@@ -135,7 +154,13 @@ try {
     Invoke-BootLifecycle Register $dir
     $descriptor=Join-Path $data 'engine-attach.json'; $control=Join-Path $dir 'child-control.json'
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
-    while ((-not [IO.File]::Exists($descriptor) -or -not [IO.File]::Exists($control)) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+    while ((-not [IO.File]::Exists($descriptor) -or -not [IO.File]::Exists($control)) -and [DateTime]::UtcNow -lt $deadline) {
+        $task=Find-BootTask (Get-BootFolder)
+        if ($null -ne $task -and [int]$task.State -eq 3 -and [int]$task.LastTaskResult -ne 0 -and @(Get-ChildItem -LiteralPath $dir -Filter 'audit-loaded-*.json').Count) {
+            throw ('Reviewed host exited early, task result '+$task.LastTaskResult+'; inspect '+(Join-Path $dir 'host-stderr.log'))
+        }
+        Start-Sleep -Milliseconds 200
+    }
     if (-not [IO.File]::Exists($descriptor) -or -not [IO.File]::Exists($control)) { throw 'Real host/guardian child control did not become ready.' }
     $ready=Get-Content -Raw -LiteralPath $descriptor | ConvertFrom-Json
     $child=Get-Content -Raw -LiteralPath $control | ConvertFrom-Json
@@ -161,6 +186,10 @@ try {
     # A hard stop may leave a descriptor: its absence is NOT a stop proof.
     Invoke-BootLifecycle Remove $dir
     $result.removed=$true
+} catch {
+    $result.failure=$_.Exception.Message
+    $result.diagnostic=Join-Path $dir 'host-stderr.log'
+    throw
 } finally {
     try { if ($null -ne $script:probeRecord) { Invoke-BootLifecycle Remove $dir } }
     catch { $result.cleanupError=$_.Exception.Message; throw }
