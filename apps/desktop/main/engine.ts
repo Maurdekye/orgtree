@@ -76,17 +76,19 @@ export class Engine extends EventEmitter {
     if (!fs.existsSync(root)) return false
     const realRoot = fs.realpathSync.native(root)
     const file = path.join(realRoot, 'engine-attach.json')
-    let raw: string
-    try { raw = fs.readFileSync(file, 'utf8') } catch { return false }
+    if (!fs.existsSync(file)) return false
     try {
-      const attach = parseAttach(raw, realRoot)
-      // AUTHENTICATION happens here, before the token leaves this process:
-      // every later value is authored by whoever can WRITE the descriptor,
-      // so trust is the write boundary — current-user ownership AND no
-      // foreign write/replace access on the file or its directory (opus F1,
-      // root ruling; covers a custom ORGTREE_V2_DATA in an unsafe location).
+      // AUTHENTICATION FIRST, before a single descriptor byte is trusted:
+      // everything in the file is authored by whoever can WRITE it, so trust
+      // is the write boundary — current-user ownership AND no foreign
+      // write/replace access on the file, its directory, or any ancestor
+      // (root ruling; covers a custom ORGTREE_V2_DATA in an unsafe
+      // location). Only after the boundary holds are the bytes read, so
+      // nothing parsed predates the trust decision.
       const trust = await this.trustCheck(file)
       if (!trust.ok) throw new Error('descriptor trust rejected: ' + trust.detail)
+      const raw = fs.readFileSync(file, 'utf8')
+      const attach = parseAttach(raw, realRoot)
       const origin = `http://127.0.0.1:${attach.port}`
       // STALENESS CHECK, not peer authentication: it proves the endpoint
       // echoes this boot's descriptor (catching a recycled port), nothing
@@ -205,17 +207,34 @@ export class Engine extends EventEmitter {
     }
   }
 
+  /** Can THIS process write byte 0 of the guardian's lock file? The
+   *  guardian holds an exclusive byte-range lock there until the WHOLE
+   *  engine tree is terminated, so a successful write (of the same byte the
+   *  lock file always contains) proves the tree released the root — the
+   *  proof root required beyond mere process exit. An absent file counts as
+   *  released; any denied write counts as held. */
+  private guardianReleased(lockFile: string): boolean {
+    if (!lockFile || !fs.existsSync(lockFile)) return true
+    try {
+      const fd = fs.openSync(lockFile, 'r+')
+      try { fs.writeSync(fd, Buffer.from('0'), 0, 1, 0) } finally { fs.closeSync(fd) }
+      return true
+    } catch { return false }
+  }
+
   /** Graceful authenticated stop of the boot engine so an update can replace
-   *  its files; the installer restarts the task afterwards. PROOF is two
-   *  layered facts, not one: the endpoint must stop answering AND the attach
-   *  descriptor must disappear — the host deletes it only after the engine
-   *  PROCESS has actually exited, so a dead socket with a lingering
-   *  descriptor means processes still hold files and the update is refused.
-   *  Throws — with no state disturbed — when either proof is missing. */
+   *  its files; the installer restarts the task afterwards. PROOF is three
+   *  layered facts: the endpoint stops answering with a CONNECTION failure
+   *  (a timeout is a busy engine, not a dead one), the attach descriptor
+   *  disappears (the host deletes it only after the engine PROCESS exited),
+   *  and the guardian's root lock releases (held until the whole TREE is
+   *  terminated). Throws — with no state disturbed — when any proof is
+   *  missing at the deadline, naming the missing one. */
   async stopAttachedForUpdate(deadlineMs = 15000): Promise<void> {
     if (this.managed || !this.endpoint) return
     const endpoint = this.endpoint
     const descriptorFile = this.attachedRoot ? path.join(this.attachedRoot, 'engine-attach.json') : ''
+    const lockFile = this.attachedRoot ? path.join(this.attachedRoot, '.desktop-engine.lock') : ''
     try {
       await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(5000), redirect: 'error' })
     } catch { /* liveness decides below */ }
@@ -232,16 +251,16 @@ export class Engine extends EventEmitter {
           if (name !== 'TimeoutError' && name !== 'AbortError') endpointDead = true
         }
       }
-      if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile))) {
+      if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile)) && this.guardianReleased(lockFile)) {
         this.endpoint = ''
         this.state({ state: 'stopped', message: 'Engine stopped' })
         return
       }
       await new Promise(resolve => setTimeout(resolve, 500))
     }
-    throw new Error(endpointDead
-      ? 'Background engine port closed but its host has not confirmed process exit; refusing the update'
-      : 'Background engine did not stop for the update')
+    if (!endpointDead) throw new Error('Background engine did not stop for the update')
+    if (descriptorFile && fs.existsSync(descriptorFile)) throw new Error('Background engine port closed but its host has not confirmed process exit; refusing the update')
+    throw new Error('Background engine tree has not released the data root (guardian lock still held); refusing the update')
   }
 
   async stats(): Promise<RuntimeStats | null> {

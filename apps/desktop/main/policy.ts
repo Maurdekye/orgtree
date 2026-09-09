@@ -100,20 +100,34 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
   if (process.platform !== 'win32') return Promise.resolve({ ok: false, detail: 'descriptor trust verification is Windows-only' })
   const escaped = file.replace(/'/g, "''")
   const directory = path.dirname(file).replace(/'/g, "''")
+  // File + immediate directory use the full write mask; ANCESTORS use the
+  // replacement mask (delete/delete-child/perm-change/take-ownership/
+  // generic-all): higher up, only the power to REPLACE a path component
+  // matters, and counting create rights there would flag every stock C:\.
+  // Inherit-only ACEs are skipped everywhere — they apply to future
+  // children, not to the object itself (the stock C:\ Authenticated Users
+  // ACE is exactly that shape).
   const script =
     `$ErrorActionPreference='Stop';` +
     `$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;` +
     `$allowed=@($me,'S-1-5-18','S-1-5-32-544','S-1-3-0');` +
-    `$mask=0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000;` +
-    `function BadWriters($p){$acl=Get-Acl -LiteralPath $p;$bad=@();` +
+    `$writeMask=0x116 -bor 0x40 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000;` +
+    `$replaceMask=0x10000 -bor 0x40 -bor 0x40000 -bor 0x80000 -bor 0x10000000;` +
+    `function BadWriters($p,$mask){$acl=Get-Acl -LiteralPath $p;$bad=@();` +
     `foreach($r in $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])){` +
-    `if($r.AccessControlType -ne 'Allow'){continue};$sid=$r.IdentityReference.Value;` +
+    `if($r.AccessControlType -ne 'Allow'){continue};` +
+    `if(($r.PropagationFlags.ToString()) -match 'InheritOnly'){continue};` +
+    `$sid=$r.IdentityReference.Value;` +
     `if($allowed -contains $sid){continue};` +
     `if(([int]$r.FileSystemRights -band $mask) -ne 0){$bad+=$sid}};` +
     `,@($bad | Select-Object -Unique)};` +
     `$owner=(Get-Acl -LiteralPath '${escaped}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value;` +
-    `$fileBad=BadWriters '${escaped}';$dirBad=BadWriters '${directory}';` +
-    `Write-Output ($me+'|'+$owner+'|'+($fileBad -join ',')+'|'+($dirBad -join ','))`
+    `$fileBad=BadWriters '${escaped}' $writeMask;$dirBad=BadWriters '${directory}' $writeMask;` +
+    `$ancestorBad=@();$a=Split-Path '${directory}';` +
+    `while($a){$hits=BadWriters $a $replaceMask;` +
+    `if($hits.Count -gt 0){$ancestorBad+=($a+'='+($hits -join ','))};` +
+    `$next=Split-Path $a;if($next -eq $a){break};$a=$next};` +
+    `Write-Output ($me+'|'+$owner+'|'+($fileBad -join ',')+'|'+($dirBad -join ',')+'|'+($ancestorBad -join ';'))`
   return new Promise(resolve => {
     // Lazy import keeps policy.ts loadable in bundled unit tests without electron.
     import('node:child_process').then(({ execFile }) => {
@@ -121,11 +135,12 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
         (error, stdout) => {
           if (error) return resolve({ ok: false, detail: `trust query failed: ${error.message.slice(0, 200)}` })
           const parts = stdout.trim().split('|')
-          if (parts.length !== 4 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
-          const [current, owner, fileBad, dirBad] = parts
+          if (parts.length !== 5 || !parts[0].startsWith('S-') || !parts[1].startsWith('S-')) return resolve({ ok: false, detail: `trust query unparseable: ${stdout.trim().slice(0, 120)}` })
+          const [current, owner, fileBad, dirBad, ancestorBad] = parts
           if (owner !== current) return resolve({ ok: false, detail: `owner ${owner} is not current user ${current}` })
           if (fileBad) return resolve({ ok: false, detail: `descriptor writable by ${fileBad}` })
           if (dirBad) return resolve({ ok: false, detail: `descriptor directory writable by ${dirBad}` })
+          if (ancestorBad) return resolve({ ok: false, detail: `path replaceable via ancestor ${ancestorBad.slice(0, 300)}` })
           resolve({ ok: true, detail: `owner ${owner}, exclusive write boundary` })
         })
     }, () => resolve({ ok: false, detail: 'child_process unavailable' }))

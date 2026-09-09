@@ -37,10 +37,13 @@ app.whenReady().then(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`
   const ses = session.fromPartition('shell-fixture')
-  const register = configureEngineSession(ses, origin, token)
+  // Live getters, as production wires them since boot-engine recovery: every
+  // existing assertion below now also proves the getter path signs requests.
+  let liveToken = token
+  const register = configureEngineSession(ses, () => origin, () => liveToken)
   const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, additionalArguments: [`--orgtree-ui-origin=${origin}`] } }
   const main = new BrowserWindow(options)
-  configureWindow(main, origin, true, register)
+  configureWindow(main, () => origin, true, register)
   ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
   await main.loadURL(origin)
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -55,6 +58,14 @@ app.whenReady().then(async () => {
   await main.loadURL(origin + '/o/test-org')
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' }, 'direct org reload exposes bridge')
   assert.ok(seen.some(r => r.url === '/o/test-org' && r.token === token), 'direct org reload authenticates document')
+  // Boot-engine recovery rotates the per-boot token: the session hook must
+  // sign with the CURRENT value, not the one captured at configure time.
+  const rotated = crypto.randomBytes(32).toString('hex')
+  liveToken = rotated
+  await main.webContents.executeJavaScript("fetch('/api/rotated').then(r=>r.text())")
+  assert.ok(seen.some(r => r.url === '/api/rotated' && r.token === rotated), 'live getter signs with the rotated token')
+  assert.ok(!seen.some(r => r.url === '/api/rotated' && r.token === token), 'the stale token is not used after rotation')
+  liveToken = token
   assert.ok(foreign.length >= 2)
   assert.ok(foreign.every(t => t === undefined), 'token never follows cross-origin redirect or fetch')
   await main.webContents.executeJavaScript(`window.attack=document.createElement('iframe'); attack.src=${JSON.stringify(foreignOrigin + '/frame')}; document.body.appendChild(attack); true`)
@@ -111,7 +122,7 @@ app.whenReady().then(async () => {
   assert.ok(foreign.every(t => !t), 'artifact internet resource never gets desktop auth')
   assert.equal(await viewer.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(foreignOrigin)}) === null`), true)
-  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true }))
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowDenied: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true }))
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   server.close(); outsider.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

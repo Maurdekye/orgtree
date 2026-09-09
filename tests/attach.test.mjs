@@ -51,6 +51,11 @@ const engineIdentity = { protocol: 1, pid: 4242, dataRootId: realRoot }
 // live there. Identity/lifecycle tests therefore stub it; the real check has
 // its own dedicated positive and negative controls on icacls-cleaned dirs.
 const trusting = engine => { engine.trustCheck = async () => ({ ok: true, detail: 'test stub' }); return engine }
+// REAL trust-check fixtures cannot live under %TEMP%: its ancestor chain
+// carries foreign delete-class ACEs on this machine, which the ancestor
+// replacement rule rightly refuses. The worktree's own chain is clean.
+const aclBase = fs.mkdtempSync(path.join(process.cwd(), 'acl-fixtures-'))
+test.after(() => { try { fs.rmSync(aclBase, { recursive: true, force: true }) } catch {} })
 
 test('attach adopts a verified boot engine and refuses to stop it', async () => {
   const { server, port } = await identityServer((request, response) => {
@@ -221,7 +226,7 @@ test('a disowned child exit cannot clobber a live attachment (forced ordering)',
 test('the real trust check accepts an owner-exclusive file (positive control)', async () => {
   const { execFileSync } = await import('node:child_process')
   const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
-  const clean = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-clean-'))
+  const clean = fs.mkdtempSync(path.join(aclBase, 'clean-'))
   execFileSync('icacls', [clean, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`], { stdio: 'pipe' })
   const file = path.join(clean, 'engine-attach.json')
   fs.writeFileSync(file, '{}')
@@ -234,7 +239,7 @@ test('the real trust check rejects foreign write access, measured with actual AC
   const { execFileSync } = await import('node:child_process')
   const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
   // A user-owned FILE that Everyone can write: ownership alone would pass it.
-  const looseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-file-'))
+  const looseDir = fs.mkdtempSync(path.join(aclBase, 'loose-'))
   execFileSync('icacls', [looseDir, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`], { stdio: 'pipe' })
   const looseFile = path.join(looseDir, 'engine-attach.json')
   fs.writeFileSync(looseFile, '{}')
@@ -244,7 +249,7 @@ test('the real trust check rejects foreign write access, measured with actual AC
   assert.match(fileVerdict.detail, /descriptor writable by .*S-1-1-0/)
   // A DIRECTORY others can write lets them replace the file wholesale; the
   // file itself stays owner-only (the Everyone grant is not object-inherit).
-  const openDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acl-dir-'))
+  const openDir = fs.mkdtempSync(path.join(aclBase, 'open-'))
   execFileSync('icacls', [openDir, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`, '/grant', '*S-1-1-0:(WD)'], { stdio: 'pipe' })
   const inside = path.join(openDir, 'engine-attach.json')
   fs.writeFileSync(inside, '{}')
@@ -418,4 +423,45 @@ test('recovery falls back to a managed spawn when no host republishes, and stays
   assert.equal(broken.managed, false, 'a failed recovery must remain recoverable next poll')
   assert.equal(broken.status.state, 'stopped')
   assert.match(broken.status.message, /Reconnecting/)
+})
+
+test('a replaceable ancestor is refused, measured with actual ACLs', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const me = process.env.USERDOMAIN + '\\' + process.env.USERNAME
+  const grand = fs.mkdtempSync(path.join(aclBase, 'grand-'))
+  execFileSync('icacls', [grand, '/inheritance:r', '/grant:r', `${me}:(OI)(CI)F`, '/grant', '*S-1-1-0:(D)'], { stdio: 'pipe' })
+  const mid = path.join(grand, 'mid'); fs.mkdirSync(mid)
+  const leaf = path.join(mid, 'engine-attach.json'); fs.writeFileSync(leaf, '{}')
+  const verdict = await policy.verifyDescriptorTrust(leaf)
+  assert.equal(verdict.ok, false)
+  assert.match(verdict.detail, /ancestor .*S-1-1-0/)
+})
+
+test('the update stop also demands the guardian tree release the root lock', async () => {
+  // Windows paths drop straight into python raw strings; no escaping games.
+  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(3);l.close();print('released',flush=True)`
+  const { spawn } = await import('node:child_process')
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
+    holder.on('exit', () => reject(new Error('lock holder died early')))
+    setTimeout(() => reject(new Error('lock holder never confirmed')), 10000)
+  })
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const engine = trusting(new Engine())
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
+  await new Promise(resolve => server.close(resolve))
+  // Endpoint dead (connection refused), descriptor gone — but the guardian
+  // still holds the root: the update must be refused, naming the lock.
+  await assert.rejects(engine.stopAttachedForUpdate(2000), /guardian lock still held/)
+  await new Promise(resolve => holder.on('exit', resolve))
+  // Tree released: the same stop now completes.
+  await engine.stopAttachedForUpdate(5000)
+  assert.equal(engine.status.state, 'stopped')
 })
