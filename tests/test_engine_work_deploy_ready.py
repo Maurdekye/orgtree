@@ -4,6 +4,8 @@ actionable, never `blocked`, never auto-archived like `done`."""
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -62,16 +64,28 @@ class DeployReadyLedgerTests(unittest.TestCase):
         self.assertNotEqual(org._work_status(item), 'blocked')
 
     def test_deploy_ready_does_not_auto_archive_like_done(self):
+        # POSITIVE CONTROL: a same-aged `done` item at the identical
+        # timestamp DOES archive at far_future — proving now_ts is actually
+        # driving the archive check here, and the deploy_ready assertion
+        # below isn't passing merely because nothing in this test can fail.
         org, owner = _org_with_owner('deploy-ready-noarchive')
-        created = org.work_create(owner, 'Ship it', 'objective', owner=owner)
-        slug = created['slug']
-        org.work_update(owner, slug, ['done'], ['deploy'], status='deploy_ready')
+        ready = org.work_create(owner, 'Ship it', 'objective', owner=owner)
+        finished = org.work_create(owner, 'Already shipped', 'objective',
+                                   owner=owner)
+        org.work_update(owner, ready['slug'], ['done'], ['deploy'],
+                        status='deploy_ready')
+        org.work_update(owner, finished['slug'], ['done'], [])
+        org.work_accept(ledger.USER, finished['slug'])
         far_future = time.time() + 7200  # strictly over the 1h archive age
         served = org.work_list(owner, include_archived=True, now_ts=far_future)
         slugs_active = {v['slug'] for v in served['items']}
         slugs_archived = {v['slug'] for v in served['archived']}
-        self.assertIn(slug, slugs_active)
-        self.assertNotIn(slug, slugs_archived)
+        self.assertIn(ready['slug'], slugs_active)
+        self.assertNotIn(ready['slug'], slugs_archived)
+        # CONTROL: the same-aged done item archives — the harness can detect
+        # archival, so deploy_ready staying out of `archived` above is real
+        self.assertIn(finished['slug'], slugs_archived)
+        self.assertNotIn(finished['slug'], slugs_active)
 
     def test_deploy_ready_is_nudged_unlike_blocked(self):
         org, owner = _org_with_owner('deploy-ready-nudge')
@@ -155,6 +169,56 @@ class GeneratedEventsInSyncTests(unittest.TestCase):
         actual = (REPO_ROOT / 'apps/desktop/renderer/src/generated/events.schema.json'
                  ).read_bytes().decode('utf-8')
         self.assertEqual(actual.replace('\r\n', '\n'), expected.replace('\r\n', '\n'))
+
+
+# `store.STORE_BACKEND` binds from ORGTREE_STORE at import time, exactly like
+# DATA_ROOT — so testing BOTH backends needs two separate processes, not two
+# test methods sharing this one. Each child creates an org, sets an item to
+# deploy_ready, saves, then RE-IMPORTS store fresh via a second process-local
+# load_org call and reads the status back — a real disk round trip, not a
+# same-process cache hit.
+_BACKEND_ENGINE = str(REPO_ROOT / 'engine' / 'backend')
+_ROUNDTRIP_SCRIPT = """
+import sys
+sys.path.insert(0, {engine_path!r})
+from orgtree import ledger, store
+
+org = store.create_org('deploy-ready-roundtrip')
+owner = org.hire(ledger.USER, None, 'haiku', 0, 'worker')['node']
+created = org.work_create(owner, 'Ship it', 'objective', owner=owner)
+org.work_update(owner, created['slug'], ['done'], ['deploy'], status='deploy_ready')
+store.save_org(org)
+
+reloaded = store.load_org('deploy-ready-roundtrip')
+served = reloaded.work_list(owner)['items'][0]
+assert served['status'] == 'deploy_ready', \
+    f"status was {{served['status']!r}} after {{sys.argv[1]}} reload, not deploy_ready"
+print('ROUNDTRIP_OK', served['status'])
+"""
+
+
+class DeployReadyStorageRoundtripTests(unittest.TestCase):
+    def _roundtrip(self, backend: str) -> None:
+        with tempfile.TemporaryDirectory(prefix=f'v2-deploy-ready-{backend}-') as root:
+            child_data = Path(root) / 'data'; child_data.mkdir()
+            child_home = Path(root) / 'home'; child_home.mkdir()
+            env = dict(os.environ)
+            env.update(ORGTREE_DATA=str(child_data), HOME=str(child_home),
+                      USERPROFILE=str(child_home), ORGTREE_STORE=backend)
+            script = _ROUNDTRIP_SCRIPT.format(engine_path=_BACKEND_ENGINE)
+            result = subprocess.run(
+                [sys.executable, '-c', script, backend],
+                env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0,
+                             f"{backend} roundtrip failed:\nSTDOUT: {result.stdout}"
+                             f"\nSTDERR: {result.stderr}")
+            self.assertIn('ROUNDTRIP_OK deploy_ready', result.stdout)
+
+    def test_sqlite_roundtrip_preserves_deploy_ready(self):
+        self._roundtrip('sqlite')
+
+    def test_json_roundtrip_preserves_deploy_ready(self):
+        self._roundtrip('json')
 
 
 if __name__ == '__main__':
