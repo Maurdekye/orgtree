@@ -29,6 +29,7 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   const app = read('apps/desktop/renderer/src/App.tsx')
   const controls = read('apps/desktop/renderer/src/window-controls.tsx')
   const styles = read('apps/desktop/renderer/src/styles.css')
+  const nativeProbe = read('tests/window-controls-native.probe.ts')
   assert.match(app, /<WindowControls \/>/)
   assert.match(app, /<header className="orgbar">[\s\S]*<WindowControls \/>/)
   assert.match(app, /<h1>[\s\S]*showControls && <WindowControls \/>[\s\S]*<\/h1>/)
@@ -43,4 +44,5 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(styles, /\.window-controls \{[^}]*-webkit-app-region: no-drag/)
   assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
   assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
+  assert.match(nativeProbe, /native BrowserWindow state operations only/)
 })

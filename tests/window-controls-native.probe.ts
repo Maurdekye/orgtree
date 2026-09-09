@@ -26,7 +26,10 @@ app.whenReady().then(async () => {
   window.restore(); await restoring
   assert.equal(window.isMinimized(), false, 'frameless window restores from taskbar')
   assert.deepEqual(window.getSize(), before, 'normal bounds survive maximize/minimize')
-  console.log('WINDOW_CONTROLS_NATIVE_PASS ' + JSON.stringify({ frame: false, resizable: true, maximize: true, restore: true, minimize: true, normalBounds: before }))
+  // This probe intentionally exercises Electron's native state transitions
+  // only. Rendered bridge/button wiring and drag regions are covered by the
+  // renderer checks; icon/theme transitions are covered by icon-assets tests.
+  console.log('WINDOW_CONTROLS_NATIVE_PASS ' + JSON.stringify({ scope: 'native BrowserWindow state operations only', frame: false, resizable: true, maximize: true, restore: true, minimize: true, normalBounds: before }))
   window.destroy(); app.exit(0)
 }).catch(error => { console.error(error); for (const window of BrowserWindow.getAllWindows()) window.destroy(); app.exit(1) })
 setTimeout(() => { console.error('Window controls native probe timed out'); app.exit(1) }, 30000).unref()
