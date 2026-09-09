@@ -5768,6 +5768,11 @@ label.set-row { cursor: pointer; }
   border-bottom: 1px solid var(--line); cursor: grab; touch-action: none;
 }
 .modalpin-bar.on:active { cursor: grabbing; }
+/* Pinned surfaces can overlap the frameless app header. Keep the whole
+   surface out of Electron's native drag region so pointer gestures reach
+   the modal's own move/resize handlers instead of moving the BrowserWindow. */
+.overlay.overlay-pinned .modalpin-win,
+.overlay.overlay-pinned .modalpin-win * { -webkit-app-region: no-drag; }
 .modalpin-bar .spacer { flex: 1; }
 .modalpin-glyph { font-size: 14px; color: var(--accent); flex: none; }
 .modalpin-name {
