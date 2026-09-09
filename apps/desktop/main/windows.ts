@@ -58,8 +58,9 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
   }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
   const routeExternal = (url: string): boolean => {
-    const origin = live(liveOrigin)
-    if (!isMain || !externalHttpUrl(url) || !trustedUiUrl(window.webContents.getURL(), origin)) return false
+    const origin = live(liveOrigin), current = window.webContents.getURL()
+    const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')
+    if (!trustedDocument || trustedUiUrl(url, origin) || artifactUrl(url, origin) || !externalHttpUrl(url)) return false
     try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
     return true
   }
@@ -77,7 +78,9 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
       openArtifact?.(url)
       return { action: 'deny' }
     }
-    if (isMain && externalHttpUrl(url) && trustedUiUrl(window.webContents.getURL(), origin)) {
+    const current = window.webContents.getURL()
+    const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')
+    if (trustedDocument && !trustedUiUrl(url, origin) && !artifactUrl(url, origin) && externalHttpUrl(url)) {
       try { void Promise.resolve(openExternal(url)).catch(() => {}) } catch { /* browser launch failure must not break the renderer */ }
       return { action: 'deny' }
     }

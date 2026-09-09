@@ -103,6 +103,9 @@ app.whenReady().then(async () => {
   // Chromium attributes this same-origin adopted portal to the owning App frame.
   // A portal shares trusted owner authority; artifact sessions are the isolation boundary.
   assert.ok(seen.some(r => r.url === '/api/portal-fetch' && r.token === token))
+  await child.webContents.executeJavaScript(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(foreignOrigin + '/popout')};a.target='_blank';document.body.appendChild(a);a.click();return true})()`)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.ok(openedExternal.includes(foreignOrigin + '/popout'), 'registered popout external link launches through the controlled browser callback')
   await main.webContents.executeJavaScript('document.body.appendChild(node); child.close(); true')
   assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'), 'same live draft')
   const impostor = new BrowserWindow(options)
@@ -121,6 +124,13 @@ app.whenReady().then(async () => {
   assert.ok(foreign.length > 2, 'artifact internet resource is permitted')
   assert.ok(foreign.every(t => !t), 'artifact internet resource never gets desktop auth')
   assert.equal(await viewer.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
+  const externalCountBeforeInternal = openedExternal.length
+  const internalObjectUrl = origin + '/o/internal-agent'
+  const internalArtifactUrl = origin + '/api/orgs/test/documents/sample/mockup'
+  assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(internalObjectUrl)}) === null`), true)
+  assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(internalArtifactUrl)}) === null`), true)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(openedExternal.length, externalCountBeforeInternal, 'internal app and artifact links never launch the external browser')
   assert.equal(await main.webContents.executeJavaScript(`window.open(${JSON.stringify(foreignOrigin)}) === null`), true)
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.ok(openedExternal.some(url => url === foreignOrigin || url === foreignOrigin + '/'), 'target blank external link launches through the controlled browser callback')
