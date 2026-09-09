@@ -189,6 +189,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   useEffect(() => {
     if (!trayOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
+      // A pinned or detached PinFrame is a window, not a centred modal. Its
+      // panel may be portalled away from trayWrapRef, so the ordinary tray
+      // containment check must not dismiss it from a main-window gesture.
+      const detached = restoredWindows(slug).some(r => r.kind === 'agent-list')
+      if (isModalPinned('agent-list') || detached) return
       const root = trayWrapRef.current
       if (!root) return
       const path = typeof event.composedPath === 'function'
@@ -201,7 +206,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       setTrayOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setTrayOpen(false)
+      if (event.key === 'Escape') {
+        if (isModalPinned('agent-list') || restoredWindows(slug).some(r => r.kind === 'agent-list')) return
+        setTrayOpen(false)
+      }
     }
     document.addEventListener('pointerdown', closeOnOutsidePointer, true)
     document.addEventListener('keydown', closeOnEscape)
@@ -209,7 +217,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [trayOpen])
+  }, [slug, trayOpen])
 
   const compact = isCompact()
   const compactRef = useRef(compact); compactRef.current = compact
@@ -309,6 +317,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   usePersistedModalOpen('user-config', slug, userCfg)
   usePersistedModalOpen('org-inbox', slug, oiOpen)
   usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
+  usePersistedModalOpen('agent-list', slug, trayOpen)
   useEffect(() => {
     if (restoredModalOrg.current === slug) return
     restoredModalOrg.current = slug
@@ -329,6 +338,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     setAgentDocketId(pinnedKind('agent-docket') ? (agent('agent-docket') ?? pinnedAgent('agent-docket')) : agent('agent-docket'))
     setUserCfg(pinnedKind('user-config') || rows.some(r => r.kind === 'user-config'))
     setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
+    setTrayOpen(pinnedKind('agent-list') || rows.some(r => r.kind === 'agent-list'))
     const watchdogRow = pinned.find(r => r.kind === 'watchdog') || rows.find(r => r.kind === 'watchdog')
     const watchdog = watchdogRow?.restore?.watchdog
     // Keep a pinned restore target even when watchdog data arrives later; the

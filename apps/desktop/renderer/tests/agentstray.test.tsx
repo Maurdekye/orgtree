@@ -29,7 +29,8 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
-import { MODAL_PINS_KEY } from '../src/canvas/modalpin'
+import { MODAL_OPEN_KEY, MODAL_PINS_KEY, forgetModalOpenCache, forgetModalPins, pinModal, rememberModalOpen } from '../src/canvas/modalpin'
+import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -355,6 +356,108 @@ uiTest('§10 the whole agents list reuses the shared pin and popout surface cont
   assert.equal(pin!.getAttribute('aria-pressed'), 'true', 'pinning updates the shared surface state')
   assert.ok(panel!.classList.contains('modalpin-win'), 'the list remains the same mounted surface when pinned')
   localStorage.removeItem(MODAL_PINS_KEY)
+})
+uiTest('§11 pinned agent lists ignore main dismissal, restore, close and scope by org', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { CurrentOrg } = await import('../src/popout')
+  const canvas = (ids: string[]) => <CurrentOrg.Provider value="mine"><OrgCanvas tree={treeWithStatus(ids)} op={() => Promise.resolve({} as never)}
+    slug="mine" toast={noop} mailEvt={null} /></CurrentOrg.Provider>
+  localStorage.clear()
+  forgetModalPins(); forgetModalOpenCache()
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 })
+  rememberModalOpen('agent-list', 'mine')
+  const first = await mount(canvas(['ceo', 'cto']))
+  await flush(5)
+  assert.ok(first.el.querySelector('.tray-panel'), 'a pinned agent list restores into its owning org')
+  await inAct(() => {
+    document.body.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await flush()
+  assert.ok(first.el.querySelector('.tray-panel'),
+    'main-window outside click and Escape must not dismiss a pinned list')
+  const unpin = first.el.querySelector<HTMLButtonElement>('[aria-label="unpin this window"]')
+  assert.ok(unpin, 'the pinned list exposes the shared unpin control')
+  await inAct(() => { unpin!.click() })
+  await flush(3)
+  const openRows = JSON.parse(localStorage.getItem(MODAL_OPEN_KEY) || '[]') as { kind: string }[]
+  assert.equal(openRows.some((r) => r.kind === 'agent-list'), false,
+    'unpin clears the durable open marker')
+  await inAct(() => {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await flush()
+  assert.equal(first.el.querySelector('.tray-panel'), null,
+    'after unpin, ordinary centred Escape dismissal still closes the list')
+
+  // A fresh mount models the renderer restart path: the pinned/open records
+  // are the only inputs needed to reopen the list, not an in-memory flag.
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 })
+  rememberModalOpen('agent-list', 'mine')
+  const restored = await mount(canvas(['ceo', 'cto']))
+  await flush(5)
+  assert.ok(restored.el.querySelector('.tray-panel'),
+    'a renderer restart restores the list from the pinned/open records')
+  localStorage.removeItem(MODAL_OPEN_KEY); forgetModalOpenCache()
+  rememberModalOpen('agent-list', 'other')
+  const foreign = await mount(canvas(['ceo']))
+  await flush(5)
+  assert.equal(foreign.el.querySelector('.tray-panel'), null,
+    'an open marker for another org must not reopen this org list')
+})
+
+uiTest('§12 a detached whole-agent list stays open through main clicks and redocks', async ({ mount }) => {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { CurrentOrg } = await import('../src/popout')
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  localStorage.removeItem(WINDOW_LAYOUT_KEY)
+  Object.defineProperty(window, 'orgtreeDesktop', { value: {}, configurable: true })
+  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
+  const childWindow = child.window as unknown as Window
+  childWindow.focus = () => {}
+  childWindow.requestAnimationFrame = () => 1
+  childWindow.cancelAnimationFrame = () => {}
+  const originalOpen = window.open
+  const originalObserver = globalThis.MutationObserver
+  window.open = (() => childWindow) as typeof window.open
+  globalThis.MutationObserver = child.window.MutationObserver
+  let view: Awaited<ReturnType<typeof mount>> | null = null
+  try {
+    view = await mount(<CurrentOrg.Provider value="mine"><OrgCanvas tree={treeWithStatus(['ceo', 'cto'])}
+      op={() => Promise.resolve({} as never)} slug="mine" toast={noop} mailEvt={null} /></CurrentOrg.Provider>)
+    await flush(5)
+    const toggle = view.el.querySelector<HTMLButtonElement>('.tray-toggle')!
+    await inAct(() => { toggle.click() })
+    await flush(3)
+    const panel = view.el.querySelector('.tray-panel') as HTMLElement | null
+    assert.ok(panel, 'the centred list is mounted before opening its native window')
+    const popout = panel!.querySelector<HTMLButtonElement>('[aria-label="Open in new window"]')
+    assert.ok(popout, 'the list exposes the existing native popout action')
+    await inAct(() => { popout!.click() })
+    await flush(10)
+    const childPanel = child.window.document.querySelector('.tray-panel') as HTMLElement | null
+    assert.ok(childPanel, 'the whole list moved into the native child window')
+    assert.equal(savedWindows().find(r => r.kind === 'agent-list')?.open, true,
+      'native popout persistence records the agent-list surface')
+    const outside = document.createElement('button'); document.body.appendChild(outside)
+    await inAct(() => { outside.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true })) })
+    await flush()
+    assert.ok(child.window.document.querySelector('.tray-panel'),
+      'a main-window outside click must not close a detached list')
+    const redock = child.window.document.querySelector<HTMLButtonElement>('[aria-label="Return to main window"]')
+    assert.ok(redock, 'the detached list exposes the existing redock action')
+    await inAct(() => { redock!.click() })
+    await flush(8)
+    assert.ok(view.el.querySelector('.tray-panel'), 'redocking returns the same list surface to main')
+    assert.equal(savedWindows().find(r => r.kind === 'agent-list')?.open, false,
+      'redocking closes the detached window record')
+    outside.remove()
+  } finally {
+    window.open = originalOpen
+    globalThis.MutationObserver = originalObserver
+    Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true })
+    child.window.close()
+  }
 })
 uiTest('Â§9 a registered list row opens its native desk surface', async ({ mount }) => {
   const { DeskHosts, DeskListControls, DeskSlot } = await import('../src/canvas/deskhosts')
