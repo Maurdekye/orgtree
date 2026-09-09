@@ -225,7 +225,12 @@ export class Engine extends EventEmitter {
       if (!endpointDead) {
         try {
           await fetch(endpoint + '/api/desktop/identity', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(2000), redirect: 'error' })
-        } catch { endpointDead = true }
+        } catch (error) {
+          // A TIMEOUT is a busy engine, not a dead one (root finding): only
+          // a connection-level failure counts as the port closing.
+          const name = error instanceof Error ? error.name : ''
+          if (name !== 'TimeoutError' && name !== 'AbortError') endpointDead = true
+        }
       }
       if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile))) {
         this.endpoint = ''

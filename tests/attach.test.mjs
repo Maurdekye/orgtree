@@ -328,6 +328,32 @@ test('an attached update stop needs BOTH proofs: dead endpoint and host-confirme
     assert.equal(await engine3.attach({ dataRoot, forbiddenRoot: forbidden }), true)
     await assert.rejects(engine3.stopAttachedForUpdate(1500), /did not stop/)
   } finally { alive.server.close(); fs.rmSync(descriptorPath, { force: true }) }
+
+  // Busy-but-alive: the engine accepts connections and never answers within
+  // the probe timeout, and the descriptor happens to be absent. A timeout
+  // must NOT count as the port closing (root finding), so the update is
+  // still refused rather than declared stopped over a live engine.
+  const busy = await new Promise(resolve => {
+    const server = http.createServer((request, response) => {
+      if (request.method === 'POST' && request.url === '/api/desktop/shutdown') return respond(response, 200, { accepted: true })
+      if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+      respond(response, 200, engineIdentity)
+    })
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }))
+  })
+  const engine4 = trusting(new Engine())
+  writeDescriptor(descriptor({ port: busy.port }))
+  assert.equal(await engine4.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+  fs.rmSync(descriptorPath, { force: true }) // no descriptor: the timeout is the only thing between busy and 'stopped'
+  busy.server.removeAllListeners('request')
+  busy.server.on('request', (request, response) => {
+    if (request.method === 'POST' && request.url === '/api/desktop/shutdown') return respond(response, 200, { accepted: true })
+    // identity requests hang: connection accepted, no answer within 2s probe
+  })
+  try {
+    await assert.rejects(engine4.stopAttachedForUpdate(3000), /did not stop/)
+    assert.notEqual(engine4.status.state, 'stopped', 'a busy engine must never be declared stopped on a timeout')
+  } finally { busy.server.closeAllConnections?.(); await new Promise(resolve => busy.server.close(resolve)) }
 })
 
 test('a lost attachment recovers by re-attaching to the republished host with its NEW token', async () => {
