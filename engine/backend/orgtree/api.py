@@ -107,6 +107,12 @@ app.include_router(history_router)
 
 # Optional diagnostics only: emits route-template timings, never content or credentials.
 # The normal path stays byte-for-byte silent beyond existing access logging.
+#
+# `_PROFILE_TIMING` (and everything below it — `_PROFILE_RECORDS`,
+# `_PROFILE_SEQ`) is bound ONCE, at module import — i.e. at process start.
+# There is no live toggle: an already-running process keeps whatever this
+# environment variable said when it started, and flipping it in the
+# environment only takes effect on the NEXT process that imports this module.
 _PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
 
 #: Bounded in-process sink for the same records `_access_emit` prints.
@@ -128,9 +134,10 @@ _PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
 #: errors). That safety is GIL-derived — a free-threaded build would need an
 #: actual lock here.
 _PROFILE_RECORDS: "collections.deque[dict[str, Any]]" = collections.deque(maxlen=2000)
-#: Monotonic — never reset, never reused — so a caller polling with `?since=`
-#: can tell "nothing new" from "some records already aged out of the 2000
-#: budget" (a gap in the sequence) rather than just seeing an empty diff either way.
+#: Monotonic, never reset, never reused. Every append consumes exactly one
+#: value, so `_PROFILE_SEQ - len(_PROFILE_RECORDS)` at any instant is exactly
+#: the count evicted so far — the read route exposes this directly as
+#: `dropped` rather than making a caller re-derive it from two snapshots.
 _PROFILE_SEQ = 0
 #: This route polls itself (TokenGate covers it like any other), and every
 #: request gets a `profile={}` from the middleware whether or not its handler
@@ -392,9 +399,14 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
             # Built fresh from known-safe fields, NOT from `record` above —
             # `record` already carries `**profile` unfiltered (that's what
             # printed), so reusing it here would still smuggle through
-            # whatever non-numeric value point (3) exists to keep out.
+            # whatever non-numeric/non-finite value point (3) exists to keep
+            # out. `math.isfinite` also rejects NaN/Infinity/-Infinity: both
+            # are valid Python floats (and `json.dumps` would happily emit
+            # the non-standard literals `NaN`/`Infinity`), so "numeric" alone
+            # is not the same promise as "a real number a reader can chart".
             numeric_profile = {k: v for k, v in profile.items()
-                               if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                               if isinstance(v, (int, float)) and not isinstance(v, bool)
+                               and math.isfinite(v)}
             _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
@@ -432,23 +444,35 @@ app.add_middleware(AccessRecord)
 
 
 @app.get("/api/desktop/profile-timing")
-def profile_timing(since: int = 0) -> dict[str, Any]:
+def profile_timing() -> dict[str, Any]:
     """Read-side of the bounded `_PROFILE_RECORDS` sink.
 
     Same auth as every other route (`TokenGate` wraps the whole app, launch.py
     §155) — no new auth surface. Always registered, even when profiling is
     off, so its presence never depends on the flag; only its content does
-    (`records` stays empty). Route templates and numbers only, oldest first.
+    (`records` stays empty, every metadata field is 0/null). Route templates
+    and finite numbers only, oldest first (see `_access_emit`).
 
-    `since`: return only records with `seq > since`. `seq` is monotonic and
-    never reused, so a caller polling with its own last-seen `seq` gets
-    exactly what is new — and can tell "nothing new happened" (an empty
-    `records` with `latest_seq` unchanged) from "some records aged out of the
-    2000 budget before I could read them" (`latest_seq - since` exceeds what
-    came back), which an un-numbered snapshot could not distinguish.
+    SNAPSHOT SEMANTICS. This is a plain read of the live buffer at the instant
+    of the call, not a subscription or a diff against a prior call — nothing
+    is consumed, reset, or remembered per-caller. `records[i]['seq']` is
+    however monotonic and never reused across the WHOLE process lifetime, so
+    two callers (or one caller polling twice) can compare their own two
+    snapshots directly: `newest_seq` unchanged means nothing happened since;
+    a `records[0]['seq']` greater than what a caller expected to still be
+    present means the gap between was evicted, and `dropped` already gives
+    that count without the caller having to compute it from two reads.
     """
-    records = [r for r in _PROFILE_RECORDS if r["seq"] > since] if since else list(_PROFILE_RECORDS)
-    return {"enabled": _PROFILE_TIMING, "records": records, "latest_seq": _PROFILE_SEQ}
+    # This handler runs in the threadpool (a plain sync `def`), concurrently
+    # with `_access_emit` appending on the event loop thread — `records` is
+    # captured ONCE and every other field below is derived from that same
+    # snapshot, never a second independent read of `_PROFILE_SEQ`/the deque,
+    # so `dropped` can never disagree with the `records` actually returned.
+    records = list(_PROFILE_RECORDS)
+    return {"enabled": _PROFILE_TIMING, "records": records,
+            "oldest_seq": records[0]["seq"] if records else None,
+            "newest_seq": records[-1]["seq"] if records else None,
+            "dropped": _PROFILE_SEQ - len(records)}
 
 
 @app.exception_handler(RequestValidationError)

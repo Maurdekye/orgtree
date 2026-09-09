@@ -96,43 +96,81 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
         # into request.state.profile_timing — every other handler leaves it
         # `{}`, and an empty profile must not become a (nearly-empty) record.
         client = TestClient(app)
-        latest_before = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()['latest_seq']
+        newest_before = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()['newest_seq']
         client.get('/api/orgs', headers=self.HEADERS)  # the list route: never touches profile_timing
         body = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()
         self.assertFalse(any(r.get('route') == '/api/orgs' for r in body['records']),
                          f"an uninstrumented route's empty profile must not be appended: {body['records']}")
         # And it must not have silently advanced the sequence either — an
         # untracked seq bump would be its own quiet form of the same leak.
-        self.assertEqual(body['latest_seq'], latest_before)
+        self.assertEqual(body['newest_seq'], newest_before)
 
-    def test_seq_is_monotonic_and_since_filters_to_only_whats_new(self):
+    def test_seq_is_monotonic_and_never_repeats(self):
         from orgtree import store
         client = TestClient(app)
         slug = 'profile-sink-seq-probe-org'
         store.create_org(slug)
         _orgs_created.append(slug)
-        client.get(f'/api/orgs/{slug}', headers=self.HEADERS)
-        checkpoint = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()['latest_seq']
-        client.get(f'/api/orgs/{slug}', headers=self.HEADERS)
-        client.get(f'/api/orgs/{slug}', headers=self.HEADERS)
-        after = client.get('/api/desktop/profile-timing', headers=self.HEADERS, params={'since': checkpoint}).json()
-        self.assertEqual(len(after['records']), 2, after)
-        self.assertTrue(all(r['seq'] > checkpoint for r in after['records']), after)
-        self.assertEqual(after['latest_seq'], checkpoint + 2)
-        # And each seq is strictly increasing across the WHOLE buffer, not
-        # just within this one poll's slice.
-        full = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()['records']
-        seqs = [r['seq'] for r in full]
+        for _ in range(3):
+            client.get(f'/api/orgs/{slug}', headers=self.HEADERS)
+        records = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()['records']
+        seqs = [r['seq'] for r in records]
         self.assertEqual(seqs, sorted(seqs), f'seq must be monotonic: {seqs}')
         self.assertEqual(len(seqs), len(set(seqs)), f'seq must never repeat: {seqs}')
 
-    def test_a_non_numeric_profile_value_never_reaches_the_sink(self):
-        # redteam-opus's finding #3: `**profile` merges whatever a handler's
-        # dict holds. Nothing upstream enforces numbers-only structurally —
-        # exercise `_access_emit` directly with a value no real handler sends
-        # today, to prove the FILTER holds rather than trusting that no
-        # handler will ever stash a string.
+    def test_snapshot_metadata_identifies_new_records_and_detects_eviction(self):
+        # Coordinator's exact ask: oldest/newest sequence and a dropped count
+        # are enough — no ?since= filter or streaming API needed, since a
+        # caller can already tell "nothing new" (newest_seq unchanged) from
+        # "records aged out before I read them" (dropped increased, or the
+        # remembered seq it expected is now below oldest_seq) from these
+        # three numbers plus its own memory of a prior snapshot.
         from orgtree import api
+        saved = list(api._PROFILE_RECORDS)
+        saved_seq = api._PROFILE_SEQ
+        try:
+            api._PROFILE_RECORDS.clear()
+            api._PROFILE_SEQ = 0
+            client = TestClient(app)
+            empty = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()
+            self.assertEqual(empty['oldest_seq'], None)
+            self.assertEqual(empty['newest_seq'], None)
+            self.assertEqual(empty['dropped'], 0)
+
+            class FakeRoute:
+                path = '/api/fake/{id}'
+            scope = {'route': FakeRoute(), 'method': 'GET', 'type': 'http'}
+            for i in range(5):
+                api._access_emit(scope, 200, 1.0, 1.0, 0, 1, profile={'n': float(i)})
+            first = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()
+            self.assertEqual(first['oldest_seq'], 1)
+            self.assertEqual(first['newest_seq'], 5)
+            self.assertEqual(first['dropped'], 0, 'nothing has evicted yet inside a 2000-cap buffer holding 5')
+            self.assertEqual([r['seq'] for r in first['records']], [1, 2, 3, 4, 5])
+
+            # Force real eviction (not a re-sized fixture): append past the
+            # real 2000 cap and confirm `dropped`/`oldest_seq` reflect it.
+            for _ in range(2000):
+                api._access_emit(scope, 200, 1.0, 1.0, 0, 1, profile={'n': 0.0})
+            after = client.get('/api/desktop/profile-timing', headers=self.HEADERS).json()
+            self.assertEqual(after['newest_seq'], 2005)
+            self.assertGreater(after['oldest_seq'], 1, 'the first 5 records must have aged out of the real 2000 cap')
+            self.assertEqual(after['dropped'], 2005 - len(after['records']))
+            self.assertGreater(after['dropped'], 0)
+        finally:
+            api._PROFILE_RECORDS.clear()
+            api._PROFILE_RECORDS.extend(saved)
+            api._PROFILE_SEQ = saved_seq
+
+    def test_a_non_numeric_or_nonfinite_profile_value_never_reaches_the_sink(self):
+        # redteam-opus's finding #3, extended per coordinator's "finite"
+        # wording: `**profile` merges whatever a handler's dict holds.
+        # Nothing upstream enforces numeric-and-finite structurally without
+        # this filter — exercise `_access_emit` directly with values no real
+        # handler sends today (a string, a bool, and each of the three ways a
+        # float can be non-finite) to prove the filter holds.
+        from orgtree import api
+        import math
 
         class FakeRoute:
             path = '/api/fake/{id}'
@@ -140,12 +178,13 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
         scope = {'route': FakeRoute(), 'method': 'GET', 'type': 'http'}
         before = len(api._PROFILE_RECORDS)
         api._access_emit(scope, 200, 1.0, 1.0, 0, 1,
-                         profile={'good_ms': 4.5, 'bad_field': 'not-a-number', 'sneaky_bool': True})
+                         profile={'good_ms': 4.5, 'bad_field': 'not-a-number', 'sneaky_bool': True,
+                                  'nan_ms': math.nan, 'inf_ms': math.inf, 'neg_inf_ms': -math.inf})
         self.assertEqual(len(api._PROFILE_RECORDS), before + 1)
         row = api._PROFILE_RECORDS[-1]
         self.assertEqual(row.get('good_ms'), 4.5)
-        self.assertNotIn('bad_field', row, f'a non-numeric profile value reached the sink: {row}')
-        self.assertNotIn('sneaky_bool', row, f'a bool (int subclass) must not pass as a timing number: {row}')
+        for rejected in ('bad_field', 'sneaky_bool', 'nan_ms', 'inf_ms', 'neg_inf_ms'):
+            self.assertNotIn(rejected, row, f'{rejected!r} must never reach the sink: {row}')
 
     def test_token_gate_still_covers_the_new_route(self):
         # Same TokenGate as every other route (launch.py §155-185) — proven
