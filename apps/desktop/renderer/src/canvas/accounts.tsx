@@ -12,6 +12,8 @@ import {
   setIdleDocketRemindersEnabled, setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
 } from '../api'
+import { desktop } from '../desktop'
+import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
   SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
 } from './settingskit'
@@ -241,6 +243,122 @@ function ProviderSwitch({ provider, busy, onChange }: {
         onChange={(e) => onChange(provider, e.target.checked)} />
       <span>{enabled ? 'on' : 'off'}</span>
     </label>
+  )
+}
+
+/** Whether each provider's door needs a code typed anywhere (D-231
+ *  expansion) — see providerlogin.ts's module docstring for the evidence.
+ *  Claude's CLI waits on stdin for a pasted code; Codex's own local
+ *  redirect server needs nothing typed anywhere and never leaves
+ *  'starting'. Antigravity has NO scriptable login door (no `agy login`,
+ *  no documented headless contract — see the coordinator report), so its
+ *  "code" support is false the same as Codex's; unlike either of them it
+ *  never reaches 'starting'/'awaiting_code' at all — see the `ok === null`
+ *  branch below, which is unique to it. */
+const LOGIN_LABELS: Record<LoginProvider, string> = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' }
+const SUPPORTS_CODE: Record<LoginProvider, boolean> = { claude: true, codex: false, antigravity: false }
+
+/** One provider's sign-in control — the settings panel's own row AND the
+ *  usage panel's 403-triggered button are the SAME component (imported into
+ *  App.tsx's UsageModal), so the two cannot drift on behavior the way two
+ *  hand-written copies would. The actual child process is spawned by the
+ *  MAIN process (providerlogin.ts), never the engine — see its module
+ *  docstring — so every call here rides the native bridge, not HTTP. */
+export function ProviderSignIn({ provider, connected, toast, onRefresh }: {
+  provider: LoginProvider
+  connected: boolean
+  toast: ToastFn
+  onRefresh: () => void
+}) {
+  const bridge = desktop()
+  const label = LOGIN_LABELS[provider]
+  const supportsCode = SUPPORTS_CODE[provider]
+  const [status, setStatus] = useState<ProviderLoginStatus | null>(null)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const phase = status?.phase ?? 'idle'
+  const active = phase === 'starting' || phase === 'awaiting_code'
+  useEffect(() => {
+    if (!active || !bridge) return
+    let stopped = false
+    const id = setInterval(() => {
+      bridge.getProviderLoginStatus(provider).then((s) => { if (!stopped) setStatus(s) }).catch(() => {})
+    }, 800)
+    return () => { stopped = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, provider, bridge])
+  useEffect(() => {
+    if (phase === 'done' && status?.ok) onRefresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
+  if (!bridge) return null
+  const begin = () => {
+    setBusy(true)
+    bridge.startProviderLogin(provider).then((s) => {
+      setStatus(s)
+      if (s.phase === 'error') toast([s.error === 'not-installed'
+        ? `${label} is not installed` : (s.error || 'could not start sign-in')])
+    }).catch((e: Error) => toast([e.message])).finally(() => setBusy(false))
+  }
+  const submit = () => {
+    const trimmed = code.trim()
+    if (!trimmed || !supportsCode) return
+    setBusy(true)
+    bridge.submitProviderLoginCode(provider, trimmed).then(setStatus)
+      .catch((e: Error) => toast([e.message]))
+      .finally(() => { setBusy(false); setCode('') })
+  }
+  const cancel = () => {
+    setBusy(true)
+    bridge.cancelProviderLogin(provider).then(() => setStatus(null)).catch(() => {})
+      .finally(() => setBusy(false))
+  }
+  if (phase === 'awaiting_code' && supportsCode) {
+    return (
+      <div className="acct-claude-login">
+        <input className="acct-claude-code" placeholder="verification code"
+          aria-label={`${label} verification code`} value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+          disabled={busy} autoFocus />
+        <button onClick={submit} disabled={busy || !code.trim()}>Submit code</button>
+        <button onClick={cancel} disabled={busy}>Cancel</button>
+      </div>
+    )
+  }
+  if (phase === 'starting' || phase === 'awaiting_code') {
+    return (
+      <div className="acct-claude-login">
+        <span className="dim">
+          {supportsCode ? 'Starting sign-in…' : `Waiting for the browser sign-in to ${label}…`}
+        </span>
+        <button onClick={cancel} disabled={busy}>Cancel</button>
+      </div>
+    )
+  }
+  if (phase === 'done' && status?.ok === null) {
+    // Antigravity only: providerlogin.ts resolves this the instant it opens
+    // a terminal window, without verifying anything — there is nothing to
+    // poll (see providerlogin.ts's launchAntigravityTerminal docstring), so
+    // this is a manual action, not the auto-refresh the true/false cases
+    // below get from the effect above.
+    return (
+      <div className="acct-claude-login">
+        <span className="dim">Terminal opened — sign in there, then refresh.</span>
+        <button onClick={onRefresh} disabled={busy}>Refresh</button>
+      </div>
+    )
+  }
+  const failed = phase === 'error' || (phase === 'done' && status?.ok === false)
+  return (
+    <div className="acct-claude-login">
+      <button onClick={begin} disabled={busy}>
+        {connected ? 'Sign in again' : 'Sign in'}
+      </button>
+      {failed && <span className="ask-warn">
+        {status?.timedOut ? 'Sign-in timed out.' : 'Sign-in did not complete.'}
+      </span>}
+    </div>
   )
 }
 

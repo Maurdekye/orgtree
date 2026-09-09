@@ -417,6 +417,8 @@ const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 export interface PinFrameProps {
   restore?: import('../windowlayout').WindowRestore
   pinnable?: boolean
+  /** Keep an unpinned surface in its original layout instead of an overlay. */
+  inline?: boolean
   dialogLabel?: string
   /** the window's identity in storage — stable, and unique per surface */
   kind: string
@@ -457,13 +459,14 @@ export function PinFrame(props: PinFrameProps) {
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,
-  onEsc, backdropClose = true, onPanelClick, pinnable = true, dialogLabel, restore, orgScope }: PinFrameProps & { orgScope: string | null }) {
+  onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope }: PinFrameProps & { orgScope: string | null }) {
   const pin = useModalPin(kind)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
   const ownerWindow = ownerDocument.defaultView ?? window
   const detached = !!surface?.detached
   const pinned = pin !== null && !detached
+  const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
   const [overlapsDesk, setOverlapsDesk] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -609,16 +612,16 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h }
     : undefined
   return (
-    <div className={'overlay' + (overlayClass ? ' ' + overlayClass : '')
+    <div className={(inPlace ? 'surface-inline' : 'overlay') + (overlayClass ? ' ' + overlayClass : '')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
       style={pin && !detached ? { zIndex: modalZIndex(pin.z) } : undefined}
-      onClick={pinned || detached || !backdropClose ? undefined
+      onClick={inPlace || pinned || detached || !backdropClose ? undefined
         : (e) => { e.stopPropagation(); closeSurface() }}
       onPointerDown={(e) => e.stopPropagation()}>
       {/* ⚠ SAME ELEMENT, SAME CHILDREN, IN BOTH MODES — see the header. Only
           the class list and the inline rect change, so React keeps the whole
           subtree mounted across a pin, an unpin, a drag and a resize. */}
-      <div ref={panelRef} role={dialogLabel ? "dialog" : undefined} aria-label={dialogLabel} className={panel + (pinned ? ' modalpin-win' : '')}
+      <div ref={panelRef} role={dialogLabel ? (inPlace ? "region" : "dialog") : undefined} aria-label={dialogLabel} className={panel + (pinned ? ' modalpin-win' : '')}
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}

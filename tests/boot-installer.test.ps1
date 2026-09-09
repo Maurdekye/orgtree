@@ -119,6 +119,12 @@ $script:task=New-FakeTask $xml
 $script:task.KeepProcesses=$true
 $script:processes=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; ExecutablePath=$paths.Python},[pscustomobject]@{ProcessId=102; ParentProcessId=101; CreationDate='B'; ExecutablePath='C:\provider\cli.exe'})
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
+Assert ($script:task.Enabled) 'Failed stop must restore the previously enabled boot task'
+$script:task.Enabled=$false
+Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
+Assert (-not $script:task.Enabled) 'Failed stop must preserve an intentionally disabled task'
+$script:task.Enabled=$true
+
 $known=@{}
 $null=Get-BootTree $script:processes $dir $known
 $orphan=@($script:processes[1])
@@ -159,14 +165,8 @@ $script:task.Instances=1
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
 $script:task.Instances=0
 
-# STOPPED-TASK RECOVERY (root's 19:56 ask): the two timeouts above already
-# left the task disabled with NO throw-path re-enabling it — Enabled is set
-# to $false before the wait loop even starts, so "did not stop" and "stopped
-# just fine" both leave it off. Prove precisely what a bare retry does and
-# does not fix, now that the engine has actually gone quiet (instances=0,
-# processes=@() from the two lines above): a retried Prepare alone SUCCEEDS
-# (no throw — the wait loop reads the now-clear state) but does NOT restore
-# boot-start capability, because Prepare only stops; it never re-registers.
+# A successful Prepare keeps the task disabled for file replacement.
+# A failed stop above restores its prior state, even if the engine exits later.
 Assert (-not $script:task.Enabled) 'Task must still read disabled once the engine finally went quiet'
 Invoke-BootLifecycle Prepare $dir $sid
 Assert (-not $script:task.Enabled) 'A bare Prepare retry stops again but must not silently re-enable boot-start'

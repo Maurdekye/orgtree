@@ -344,6 +344,10 @@ export const setProviderEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
   })
+// Sign in to a provider from the app (D-231) rides the NATIVE bridge, not
+// this HTTP client — see accounts.tsx's ProviderSignIn and
+// apps/desktop/main/providerlogin.ts's module docstring for why the child
+// process cannot be spawned on the engine side of this boundary.
 // the OpenRouter lane (2026-09-02): machine-wide like the provider switch —
 // the key (stored, never returned), the credit standing, the catalog page the
 // picker shows, and the favorites that become hireable tiers

@@ -32,6 +32,29 @@ export interface DesktopControlsState extends DesktopWindowState { minimized: bo
 export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state'; data: unknown }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
+/** Which provider CLIs an app-driven sign-in exists for (D-231). Native,
+ *  not domain/HTTP: the actual child process MUST be spawned by this
+ *  (always-interactive) main process, never by the engine, which may be a
+ *  boot-host running under a non-interactive Windows S4U session with no
+ *  desktop to open a browser into. See apps/desktop/main/providerlogin.ts. */
+export type LoginProvider = 'claude' | 'codex' | 'antigravity'
+/** One provider login attempt's state. `awaiting_code` only ever appears
+ *  for a door that supports one (Claude); Codex's own local redirect
+ *  server needs nothing typed anywhere and never reaches that phase.
+ *  Antigravity has no scriptable door at all (user-approved UX,
+ *  2026-09-09): it opens a visible terminal and resolves immediately with
+ *  `ok: null` — never `true`/`false`, since nothing here verifies whether
+ *  the user actually signed in. `null` is the renderer's cue to show a
+ *  manual Refresh action instead of a pass/fail result. */
+export interface ProviderLoginStatus {
+  phase: 'idle' | 'starting' | 'awaiting_code' | 'done' | 'error'
+  ok: boolean | null
+  timedOut: boolean
+  output: string
+  ageMs: number
+  started?: boolean
+  error?: string
+}
 export interface DesktopBridge {
   getStatus(): Promise<EngineStatus>
   getWindowState(): Promise<DesktopWindowState>
@@ -52,6 +75,13 @@ export interface DesktopBridge {
   getUpdateStatus(): Promise<UpdateStatus>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
+  // Provider sign-in (D-231): the ONE piece of "domain" surface on this
+  // bridge, and deliberately so — see LoginProvider's own comment for why
+  // the spawn cannot live on the engine side of the HTTP boundary.
+  startProviderLogin(provider: LoginProvider): Promise<ProviderLoginStatus>
+  getProviderLoginStatus(provider: LoginProvider): Promise<ProviderLoginStatus>
+  submitProviderLoginCode(provider: LoginProvider, code: string): Promise<ProviderLoginStatus>
+  cancelProviderLogin(provider: LoginProvider): Promise<ProviderLoginStatus>
 }
 
 export interface ReplyContext {

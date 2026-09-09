@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
 # stay under TYPE_CHECKING so the runtime import graph is unchanged.
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 # ⚠ BEFORE ANY orgtree MODULE IS IMPORTED, so nothing can print ahead of it.
 #
@@ -483,16 +483,12 @@ def profile_timing() -> dict[str, Any]:
     already gives that count without the caller having to compute it from two
     reads.
     """
-    # This handler runs in the threadpool (a plain sync `def`), concurrently
-    # with `_access_emit` appending on the event loop thread — `records` is
-    # captured ONCE and every other field below is derived from that same
-    # snapshot, never a second independent read of `_PROFILE_SEQ`/the deque,
-    # so `dropped` can never disagree with the `records` actually returned.
+    # Derive all metadata from one snapshot, including exact FIFO eviction.
     records = list(_PROFILE_RECORDS)
     return {"enabled": _PROFILE_TIMING, "instance": INSTANCE, "records": records,
             "oldest_seq": records[0]["seq"] if records else None,
             "newest_seq": records[-1]["seq"] if records else None,
-            "dropped": _PROFILE_SEQ - len(records)}
+            "dropped": records[0]["seq"] - 1 if records else 0}
 
 
 @app.exception_handler(RequestValidationError)
@@ -3363,10 +3359,27 @@ def host_info() -> dict[str, Any]:
                        "version": sys.version.split()[0]}}
 
 
-def _providers_payload() -> dict[str, Any]:
-    """Compose one provider document for reads and preference writes."""
+def _providers_payload(force: bool = False,
+                        force_provider: str | None = None) -> dict[str, Any]:
+    """Compose one provider document for reads and preference writes.
+
+    `force` (redteam-opus A3) punches through claude_install_state's and
+    codex/antigravity_status's own caches — the provider login flow's own
+    post-spawn verification read needs this, or a login that landed within
+    the cache window still reads as failed.
+
+    ⚠ `force_provider` (coordinator review, measured): the login
+    verification loop only ever confirms ONE provider's row landed, but a
+    bare `force=true` used to punch through EVERY provider's cache as a
+    side effect — forcing a real Codex/Antigravity CLI probe (the latter
+    measured up to ~45s on a machine with the real CLI) on every retry of a
+    Claude sign-in that has nothing to do with either. Naming the provider
+    ("claude"/"openai"/"google") narrows the punch-through to just that
+    one; omitting it keeps the old blanket behaviour for any future caller
+    that means "refresh the whole document"."""
     live = accounts.live_identity()
-    inst = supervisor.claude_install_state()
+    claude_force = force and (force_provider is None or force_provider == "claude")
+    inst = supervisor.claude_install_state(force=claude_force)
     return providers.providers_payload({
         "installed": bool(inst["installed"]),
         "path": inst["path"],
@@ -3374,7 +3387,7 @@ def _providers_payload() -> dict[str, Any]:
         "version": supervisor.cli_version() if inst["installed"] else None,
         "connected": bool(inst["installed"] and live.get("uuid")),
         "email": live.get("email") or None,
-    })
+    }, force=force, force_provider=force_provider)
 
 
 _TIER_DISCOVERY_FIELDS = (
@@ -3481,16 +3494,34 @@ def _tier_discovery_payload() -> dict[str, Any]:
 
 
 @app.get("/api/providers")
-async def providers_info() -> dict[str, Any]:
+async def providers_info(force: bool = False,
+                         force_provider: Literal["claude", "openai", "google"] | None = None
+                         ) -> dict[str, Any]:
     """The provider axis (FR-15 preview): each vendor's tier family and this
     machine's install/connect state for its CLI. The claude entry is composed
     from state the API layer already owns; the codex entry is providers.py's
     own read-only detection. Threadpooled: a cold codex probe may run a
     `--version` subprocess (hard 15s timeout), which must not stall the
-    event loop the way it would stall nothing else."""
+    event loop the way it would stall nothing else.
+
+    `force=true` (redteam-opus A3): bypasses codex/antigravity's 60s status
+    cache — the provider login flow's post-spawn verification needs this to
+    see a sign-in that just happened rather than the pre-login snapshot.
+    `force_provider` (coordinator review) narrows that punch-through to one
+    named provider ("claude"/"openai"/"google") instead of forcing all
+    three — see `_providers_payload`'s docstring.
+
+    ⚠ `Literal` here, not `str` (redteam-opus, measured on 2bf84b7): every
+    downstream predicate is `force_provider is None or force_provider ==
+    "<name>"`, which silently forces NOTHING for an unrecognized name —
+    the opposite of "omitting it forces everything". FastAPI rejects an
+    unrecognized value with a 422 before it ever reaches that predicate,
+    so a typo (this door's own comment elsewhere calls out "openai", never
+    "codex", as the trap) fails loudly instead of quietly forcing zero
+    providers and reporting a successful login as failed."""
     from fastapi.concurrency import run_in_threadpool
 
-    return await run_in_threadpool(_providers_payload)
+    return await run_in_threadpool(_providers_payload, force, force_provider)
 
 
 class ProviderPreference(Body):
@@ -3515,6 +3546,16 @@ async def provider_preference(
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
     return await run_in_threadpool(_providers_payload)
+
+
+# Provider sign-in (D-231) is NOT an HTTP door: the engine may be an
+# attached boot-host running under a non-interactive Windows S4U session
+# (see tools/boot-engine-task.ps1) with no desktop to open a browser into,
+# so the login child is spawned by the ALWAYS-interactive Electron main
+# process instead — apps/desktop/main/providerlogin.ts, over its native IPC
+# bridge, not this API. This module still owns provider detection: main
+# reads the resolved CLI path and verifies success from the existing
+# `/api/providers` document above, never by spawning from this side.
 
 
 # ── the OpenRouter lane's own doors (2026-09-02) ───────────────────────────

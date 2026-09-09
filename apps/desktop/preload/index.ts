@@ -1,6 +1,6 @@
 import { isAppPath } from '../../../packages/contracts/ui-route'
 import { contextBridge, ipcRenderer } from 'electron'
-import type { DesktopBridge, DesktopEvent } from '../../../packages/contracts/index'
+import type { DesktopBridge, DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
 
 // Blank portals inherit webPreferences but never receive their own bridge.
 const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-origin='))?.slice('--orgtree-ui-origin='.length)
@@ -22,6 +22,11 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
+    startProviderLogin: (provider: LoginProvider) => ipcRenderer.invoke('desktop:provider-login-start', provider),
+    getProviderLoginStatus: (provider: LoginProvider) => ipcRenderer.invoke('desktop:provider-login-status', provider),
+    submitProviderLoginCode: (provider: LoginProvider, code: string) =>
+      ipcRenderer.invoke('desktop:provider-login-code', provider, code),
+    cancelProviderLogin: (provider: LoginProvider) => ipcRenderer.invoke('desktop:provider-login-cancel', provider),
     onEvent: listener => {
       const handler = (_event: Electron.IpcRendererEvent, event: DesktopEvent) => listener(event)
       ipcRenderer.on('desktop:event', handler)

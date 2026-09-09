@@ -11,8 +11,9 @@ import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
 import { checkForUpdatesViaEvents, UpdateController } from './updater'
-import type { DesktopEvent } from '../../../packages/contracts/index'
+import type { DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
+import { cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
 import type { VisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
@@ -186,6 +187,14 @@ else {
     if (quitting) return
     quitting = true
     if (poll) clearInterval(poll)
+    // ⚠ a login left running when the app quits must not become an orphan
+    // (coordinator review): Claude/Codex spawn a REAL child process via
+    // providerlogin.ts, and neither engine.stop() below nor Electron's own
+    // teardown touches it. Antigravity is deliberately excluded — its
+    // terminal is a detached, user-owned window by design (see
+    // launchAntigravityTerminal's docstring) and must outlive the app.
+    cancelProviderLogin('claude', true)
+    cancelProviderLogin('codex', true)
     void saveWindowLayout().then(() => engine.stop()).finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
   })
   app.whenReady().then(async () => {
@@ -223,6 +232,21 @@ else {
     })
     handle('desktop:update-status', () => updater.current())
     handle('desktop:check-for-updates', () => updater.check())
+    // Provider sign-in (D-231): the child spawn lives ONLY in this process —
+    // see providerlogin.ts's module docstring for why. `assertNativeSender`
+    // (via `handle` above) already keeps this off any surface but the app's
+    // own authoritative renderer, same as every other native control here.
+    const asLoginProvider = (value: unknown): LoginProvider => {
+      if (value !== 'claude' && value !== 'codex') throw new Error('Unknown login provider')
+      return value
+    }
+    handle('desktop:provider-login-start', provider => startProviderLogin(engine.origin, engine.token, asLoginProvider(provider)))
+    handle('desktop:provider-login-status', provider => getProviderLoginStatus(asLoginProvider(provider)))
+    handle('desktop:provider-login-code', (provider, code) => {
+      if (typeof code !== 'string') throw new Error('code must be a string')
+      return submitProviderLoginCode(asLoginProvider(provider), code)
+    })
+    handle('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
     engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')

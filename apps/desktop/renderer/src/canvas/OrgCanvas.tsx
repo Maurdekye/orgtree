@@ -2784,7 +2784,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       <div ref={trayWrapRef} className="tray-wrap"
         onPointerDown={(e) => e.stopPropagation()}>
         {trayOpen && (
-          <PinFrame kind="agent-list" title="Agents" panel="tray-panel"
+          <PinFrame inline kind="agent-list" title="Agents" panel="tray-panel"
             close={() => setTrayOpen(false)} dialogLabel="Agents">
           <div className="tray">
             <input className="mail-filter tray-filter" placeholder="filter agents…"

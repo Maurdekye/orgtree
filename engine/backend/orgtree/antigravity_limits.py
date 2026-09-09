@@ -810,8 +810,26 @@ def fetch(force: bool = False) -> dict[str, Any]:
         return _account({"available": False,
                          "error": "Antigravity CLI is not installed"})
     if not status.get("connected"):
+        # D-231 expansion: the structured field is set for consistency with
+        # the other two providers' "installed, not signed in" cases — but
+        # NO app-driven sign-in action exists for it yet (see
+        # apps/desktop/main/providerlogin.ts's module docstring / the
+        # coordinator report, now an open question on this docket item):
+        # `agy` has no `login` subcommand, --help lists none, and the only
+        # evidence of how sign-in actually starts is the CLI's own
+        # changelog describing an interactive TUI screen, plus binary
+        # strings ("Launch the CLI without arguments to sign in", and a
+        # separate "headless auth"/"manually-entered auth code" path in
+        # --print mode with no documented contract). The frontend must not
+        # wire a button to this flag until that flow is confirmed against
+        # real docs rather than reverse-engineered blind.
+        # `reauth_evidence: "not_connected"` — same distinct-state rule as
+        # codex_limits.py: this is a LOCAL observation, never a measured
+        # 403, and must not be flattened into the same evidence as Claude's.
         return _account({"available": False,
-                         "error": "Antigravity CLI is not signed in"})
+                         "error": "Antigravity CLI is not signed in",
+                         "reauth_required": True,
+                         "reauth_evidence": "not_connected"})
     now = time.time()
     with _lock:
         wall, stale = _current(now)

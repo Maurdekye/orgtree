@@ -143,6 +143,21 @@ def _retry_after_seconds(err: urllib.error.HTTPError, now: float) -> float:
     return min(secs, MAX_RETRY_AFTER)
 
 
+def _is_credential_rejection(e: Exception) -> bool:
+    """Is `e` a genuine "this login is no good" answer — the ONE condition
+    under which the usage panel may offer a sign-in button (D-231 expansion).
+
+    ⚠ NOT every 403 qualifies — `_throttle_window` has ALREADY run by the
+    time a caller reaches this (see `fetch`'s except block) and reclassifies
+    a 403 that carries throttle evidence (`Retry-After`, `cf-mitigated`, a
+    rate-limit body) as a cooldown, never a login failure. Only a 403/401
+    that survived that filter — no throttle evidence at all — reaches here,
+    which is exactly the discrimination `_plain_error` already made for its
+    message; this reuses the SAME predicate rather than re-deriving it, so
+    the button and the sentence describing it can never disagree."""
+    return isinstance(e, urllib.error.HTTPError) and e.code in (401, 403)
+
+
 def _plain_error(e: Exception) -> str:
     """The message for a failure that did NOT open a window.
 
@@ -154,8 +169,9 @@ def _plain_error(e: Exception) -> str:
     when it fails they conclude their key is broken. Key rows no longer reach
     this endpoint at all, so a 401/403 here is the HOST subscription login,
     and the CLI is what fixes that."""
-    if isinstance(e, urllib.error.HTTPError) and e.code in (401, 403):
-        return (f"the host login was refused ({e.code}) — this is a sign-in "
+    if _is_credential_rejection(e):
+        code = cast("urllib.error.HTTPError", e).code
+        return (f"the host login was refused ({code}) — this is a sign-in "
                 "problem, not a usage limit. Sign in again with the Claude "
                 "CLI (`claude auth login`).")
     return f"usage fetch failed: {e}"
@@ -340,11 +356,30 @@ def _plan() -> str:
     return str(cast("dict[str, Any]", oauth_any).get("subscriptionType") or "")
 
 
+def _identity() -> dict[str, str]:
+    """`{"uuid", "email"}` of whoever is signed in right now — the same
+    metadata `providers_payload`/`_providers_payload` already trust for
+    "connected", never the credentials store `_plan` reads above (that file
+    carries the subscription tier, not an identity — `accounts.live_identity`
+    is the one place this codebase reads `~/.claude.json`'s `oauthAccount`).
+    Both empty strings when nobody is signed in.
+
+    Deferred import: `accounts` already imports `limits` (for the host
+    readout it composes into account rows), so a top-level import here would
+    cycle."""
+    from . import accounts                       # noqa: PLC0415 — cycle seam
+    return accounts.live_identity()
+
+
 def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
-    """The normalized readout: `{available, limits[], plan}`, or
-    `{available: False, error}`. Cached `CACHE_TTL`, and STALE-ON-ERROR — a
-    blip must show the last good bars rather than an error box, and must not
-    make a freeze forget a reset time it already knew.
+    """The normalized readout: `{available, limits[], plan, email}`, or
+    `{available: False, error}`. `email` (added for show-the-claude-
+    account-email-in-usage) is the signed-in profile's address, empty when
+    unknown — the usage panel already shows this for Codex/Antigravity via
+    their own `label`; Claude's was the one section missing it. Cached
+    `CACHE_TTL`, and STALE-ON-ERROR — a blip must show the last good bars
+    rather than an error box, and must not make a freeze forget a reset time
+    it already knew.
 
     `max_age` tightens the cache for one call. The freeze-correction pass
     needs it: a limit that just fired CHANGED the standing, and an entry the
@@ -354,14 +389,41 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
     storm of freezes into one request.
 
     Synchronous on purpose: the freeze path is a worker thread, and the modal
-    route hands it to a threadpool. Never raises."""
+    route hands it to a threadpool. Never raises.
+
+    ⚠ ACCOUNT-SCOPED (root's review of 3b4c589): `_cache` used to answer for
+    whoever was cached, not whoever is signed in NOW — after a `claude auth
+    login` as a different account, a cooldown or a transient network error
+    could still serve the PREVIOUS account's email and usage numbers,
+    because the stale-on-error path never asked whose data it was about to
+    hand back. `acct` is read once here and every stale/fresh check below
+    compares against it; a cache written under a different account reads as
+    absent, the same rule `codex_limits.fetch` already applies to its own
+    board via `_cache.get("account")`."""
     ttl = CACHE_TTL if max_age is None else max(0.0, max_age)
+    # read ONCE and reused for the whole call — the email that lands in a
+    # successful `data` below must be the SAME identity `acct` was compared
+    # against, not a second, possibly-different read taken moments later.
+    identity = _identity()
+    acct = identity.get("uuid") or ""
 
     def _fresh_enough() -> dict[str, Any] | None:
         with _lock:
             hit = cast("dict[str, Any] | None", _cache["data"])
             if (hit is not None
+                    and _cache.get("account") == acct
                     and time.time() - float(cast(float, _cache["at"])) < ttl):
+                return hit
+        return None
+
+    def _stale_for_this_account() -> dict[str, Any] | None:
+        """Like the public `cached()`, but refuses to hand back a readout
+        stamped for a DIFFERENT account — `cached()` itself stays as-is
+        (pressure/peek/the freeze path read it and were not part of this
+        finding; narrowing it would be a wider change than what was asked)."""
+        with _lock:
+            hit = cast("dict[str, Any] | None", _cache["data"])
+            if hit is not None and _cache.get("account") == acct:
                 return hit
         return None
 
@@ -377,7 +439,7 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
     # caller that would turn one rate limit into a storm of them.
     cool = _cooling(HOST_COOLDOWN_KEY, time.time())
     if cool is not None:
-        stale = cached()
+        stale = _stale_for_this_account()
         return stale if stale is not None else _cooldown_error(cool, time.time())
     with _fetch_lock:
         # the winner of the herd has just filled the cache — take its answer
@@ -409,7 +471,35 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
                 if secs is not None:
                     rl, until = True, _note_rate_limit(HOST_COOLDOWN_KEY,
                                                        secs, _n)
-            stale = cached()
+            # ⚠ a genuine credential rejection (coordinator review, measured)
+            # must surface immediately, never be masked by an older good
+            # readout for the SAME account: `_stale_for_this_account` exists
+            # for a network blip ("a blip must show the last good bars"),
+            # but a revoked/expired token is not a blip — it is an
+            # authoritative "you are signed out" answer, and the usage
+            # panel's sign-in button must appear the moment it happens, not
+            # only once the last-known-good cache eventually ages out past
+            # MAX_EVIDENCE_AGE. `rl` above has ALREADY reclassified a
+            # throttled 403 away from this branch, so nothing here can
+            # mistake an edge-mitigated request for a login failure.
+            if not rl and _is_credential_rejection(e):
+                out: dict[str, Any] = {"available": False, "error": _plain_error(e)}
+                # D-231 expansion: the ONE structured signal the usage panel
+                # may key a sign-in button off — never string-matched from
+                # `error`, which can be reworded without notice.
+                # `reauth_evidence` names WHICH fact produced
+                # `reauth_required`: root's review ruling — a MEASURED
+                # 403/401 (this provider) and Codex/Antigravity's
+                # locally-observed "installed but not connected" are
+                # DISTINCT auth states and must stay distinguishable, never
+                # flattened into one undifferentiated boolean as if they
+                # were the same kind of evidence (codex_limits.py /
+                # antigravity_limits.py carry "not_connected" for their own
+                # branch).
+                out["reauth_required"] = True
+                out["reauth_evidence"] = "measured_403"
+                return out
+            stale = _stale_for_this_account()
             if stale is not None:
                 return stale
             if rl:
@@ -419,12 +509,15 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
                                if isinstance(raw_any, dict) else {})
         observed_at = time.time()
         data: dict[str, Any] = {"available": True, "limits": _normalize(raw),
-                                "plan": _plan(),
+                                "plan": _plan(), "email": identity.get("email") or "",
                                 "observed_at": _iso(observed_at)}
         with _lock:
             # stamped when the answer ARRIVED, not when it was asked for: a
-            # 14-second response is already 14 seconds stale (redteam)
-            _cache.update(at=observed_at, data=data)
+            # 14-second response is already 14 seconds stale (redteam).
+            # `account=acct` (root's review of 3b4c589) is what lets a LATER
+            # call recognize this readout as belonging to a since-replaced
+            # identity and refuse to serve it as fresh or stale.
+            _cache.update(at=observed_at, data=data, account=acct)
         return data
 
 

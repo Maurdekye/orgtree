@@ -1448,8 +1448,27 @@ export interface UsageLimit {
 export interface UsagePayload {
   available: boolean
   error?: string
+  /** D-231 expansion: a REAL, structured "this login is no good" signal —
+   *  never inferred from `error`'s wording, which can be reworded any time.
+   *  Claude: a 401/403 from the usage API that survived throttle
+   *  discrimination (see limits.py's `_is_credential_rejection`). Absent
+   *  means "no", not "unknown" — omitted rather than false so an older
+   *  backend cannot be mistaken for "definitely fine". */
+  reauth_required?: boolean
+  /** WHICH fact produced `reauth_required` — kept distinct on purpose
+   *  (root's review ruling): `'measured_403'` is a server-rejected
+   *  credential (Claude); `'not_connected'` is a LOCAL observation
+   *  (Codex/Antigravity — their usage read never touches a raw HTTP
+   *  endpoint, so there is no 403 to measure). Never flatten these into
+   *  one undifferentiated "needs sign-in" fact. */
+  reauth_evidence?: 'measured_403' | 'not_connected'
   limits?: UsageLimit[]
   plan?: string
+  /** The signed-in profile's address (show-the-claude-account-email-in-
+   *  usage) — the same identity metadata `/api/providers` already shows in
+   *  App settings; Codex/Antigravity carry the equivalent on `label`. Empty
+   *  or absent when unknown, never a stale value from a previous sign-in. */
+  email?: string
   /** Time of the provider observation, not merely when the UI read it. */
   observed_at?: string | null
 }
@@ -1547,6 +1566,13 @@ export interface AccountUsage {
    *  not look the same. */
   unsupported?: boolean
   error?: string
+  /** D-231 expansion: see UsagePayload's own field — same trigger (the
+   *  panel shows a sign-in button either way), but `reauth_evidence` keeps
+   *  Codex/Antigravity's LOCAL "installed but not signed in" observation
+   *  distinct from Claude's server-measured 401/403 — never relabel one as
+   *  the other. */
+  reauth_required?: boolean
+  reauth_evidence?: 'measured_403' | 'not_connected'
   limits?: UsageLimit[]
   plan?: string
   /** Time of the provider observation, not merely when the UI read it. */

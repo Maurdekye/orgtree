@@ -38,7 +38,7 @@ import { FolderPickerHost } from './picker'
 import { activeDocCount, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, freezeKind, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
-import { AccountsPanel, UsageBars } from './canvas/accounts'
+import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryBrowser } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
@@ -1190,7 +1190,7 @@ export default function App() {
         <DefaultsPanel toast={toast} close={() => setShowDefaults(false)} />
       )}
       {showUsage && (
-        <UsageModal close={() => setShowUsage(false)} />
+        <UsageModal toast={toast} close={() => setShowUsage(false)} />
       )}
       {showHistory && slug && <HistoryBrowser key={slug} slug={slug} close={() => setShowHistory(false)} />}
       {showGallery && slug && (
@@ -1550,7 +1550,7 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
   </div>
 }
 
-export function UsageModal({ close }: { close: () => void }) {
+export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn }) {
   // ⚠ EVERY registered account, primary first then fallbacks in priority
   // order (user ruling 2026-08-25) — one section of bars per account. The
   // bar markup itself lives in UsageBars (canvas/accounts.tsx) so this modal
@@ -1589,8 +1589,15 @@ export function UsageModal({ close }: { close: () => void }) {
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
           {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
-            <div className="usage-acct-head"><span>Claude Code</span>
+            <div className="usage-acct-head">
+              <span>Claude Code{claude.value?.email && <span className="dim"> · {claude.value.email}</span>}</span>
               <UsageRefresh provider="Claude" state={claude} /></div>
+            {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
+                only in App settings — shown exactly when the usage fetch
+                came back a real, structured credential rejection (never
+                string-matched from `error`). */}
+            {claude.value?.reauth_required && <ProviderSignIn provider="claude"
+              connected toast={toast} onRefresh={() => { void claude.refresh(true) }} />}
             {claude.value
               ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
@@ -1601,6 +1608,8 @@ export function UsageModal({ close }: { close: () => void }) {
                 {codex.value?.label && <span className="dim"> · {codex.value.label}</span>}</span>
               <UsageRefresh provider="Codex" state={codex} />
             </div>
+            {codex.value?.reauth_required && <ProviderSignIn provider="codex"
+              connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
             {codex.value
               ? <UsageBars u={codex.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
@@ -1611,6 +1620,13 @@ export function UsageModal({ close }: { close: () => void }) {
                 {agy.value?.label && <span className="dim"> · {agy.value.label}</span>}</span>
               <UsageRefresh provider="Antigravity" state={agy} />
             </div>
+            {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
+                visible terminal running the CLI's own interactive entry
+                point rather than the browser/in-app-code flow Claude and
+                Codex use above — see providerlogin.ts's
+                launchAntigravityTerminal docstring. */}
+            {agy.value?.reauth_required && <ProviderSignIn provider="antigravity"
+              connected toast={toast} onRefresh={() => { void agy.refresh(true) }} />}
             {agy.value
               ? <><UsageBars u={agy.value} />
                 <AntigravityEstimateNote est={agy.value.usage_estimate} /></>

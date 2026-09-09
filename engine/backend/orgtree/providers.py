@@ -1214,11 +1214,29 @@ def reserve_status(status: dict[str, Any] | None = None) -> dict[str, Any]:
     return out
 
 
-def providers_payload(claude_status: dict[str, Any]) -> dict[str, Any]:
+def providers_payload(claude_status: dict[str, Any], force: bool = False,
+                      force_provider: str | None = None) -> dict[str, Any]:
     """The /api/providers document. `claude_status` is composed by the API
     layer from state it already owns (accounts registry, cli_version) — this
-    module never reaches into those, so it stays importable from anywhere."""
-    codex = codex_status()
+    module never reaches into those, so it stays importable from anywhere.
+
+    `force` punches through codex_status's/antigravity_status's own 60s
+    caches (redteam-opus A3, measured against a real login): the provider
+    login flow polls THIS document to confirm a sign-in landed, and a
+    verification read served from a pre-login cache reports failure for a
+    login that actually succeeded. Claude's own `connected` is already
+    always-fresh (`accounts.live_identity()`, no cache — see
+    `api._providers_payload`), so it needs no `force` of its own here.
+
+    ⚠ `force_provider` (coordinator review, measured): a bare `force=True`
+    used to punch through BOTH caches regardless of which single provider a
+    verification loop actually cares about — checking a Claude login forced
+    a real Antigravity CLI probe (measured up to ~45s on a machine with the
+    real `agy` installed) on every retry, for a provider the caller never
+    asked about. Naming "openai"/"google" here forces only that one; `None`
+    keeps forcing both for callers requesting the whole document. An unknown
+    name forces neither cache; the HTTP endpoint rejects it with 422."""
+    codex = codex_status(force=force and (force_provider is None or force_provider == "openai"))
     # asked once, before the document is built: the reserve rule reads the
     # usage board (a process spawn when its 30s cache is cold), and asking it
     # again inside a dict literal would double that work for one answer.
@@ -1231,7 +1249,8 @@ def providers_payload(claude_status: dict[str, Any]) -> dict[str, Any]:
                  if codex.get("connected") else _inventory_failure("offline"))
     codex_models = (set(inventory.get("models") or [])
                     if inventory.get("available") else set())
-    antigravity = antigravity_status()
+    antigravity = antigravity_status(
+        force=force and (force_provider is None or force_provider == "google"))
     orr = openrouter.status()
     choices = appsettings.provider_choices()
     claude_on = choices["claude"]

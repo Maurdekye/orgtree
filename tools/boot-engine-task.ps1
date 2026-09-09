@@ -171,28 +171,45 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
     $task = Find-BootTask $Folder
     $known = @{}
     $null = Get-BootTree (Get-BootProcesses) $InstallDir $known
-    if ($null -ne $task) {
-        Assert-OwnedBootTask $task $Record $InstallDir
-        # Stop only after ownership; disable first so restart-on-failure cannot
-        # relaunch the engine while the installer replaces its files.
-        $task.Enabled = $false
-        $task.Stop(0)
-    } elseif ($known.Count -ne 0) { throw 'Engine running without an owned boot task. Close Orgtree before continuing.' }
-    $clock = [Diagnostics.Stopwatch]::StartNew()
-    do {
-        $task = Find-BootTask $Folder
-        $instances = 0
+    $disabledByUs = $false
+    $wasEnabled = $false
+    try {
         if ($null -ne $task) {
             Assert-OwnedBootTask $task $Record $InstallDir
-            if ($task.Enabled) { throw 'Boot task re-enabled during stop; installation aborted.' }
-            $instances = $task.GetInstances(0).Count
-            if ($task.State -in @(2,4)) { $instances++ } # QUEUED or RUNNING also prevents copy
+            # Stop only after ownership; disable first so restart-on-failure cannot
+            # relaunch the engine while the installer replaces its files.
+            $wasEnabled = [bool]$task.Enabled
+            $disabledByUs = $true
+            $task.Enabled = $false
+            $task.Stop(0)
+        } elseif ($known.Count -ne 0) { throw 'Engine running without an owned boot task. Close Orgtree before continuing.' }
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        do {
+            $task = Find-BootTask $Folder
+            $instances = 0
+            if ($null -ne $task) {
+                Assert-OwnedBootTask $task $Record $InstallDir
+                if ($task.Enabled) { throw 'Boot task re-enabled during stop; installation aborted.' }
+                $instances = $task.GetInstances(0).Count
+                if ($task.State -in @(2,4)) { $instances++ } # QUEUED or RUNNING also prevents copy
+            }
+            $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
+            if ($instances -eq 0 -and $remaining.Count -eq 0) { return }
+            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'Boot engine or descendants did not stop. Installation files must not be replaced.' }
+            Start-Sleep -Milliseconds 200
+        } while ($true)
+    } catch {
+        $stopError = $_
+        if ($disabledByUs) {
+            try {
+                $restoreTask = Find-BootTask $Folder
+                if ($null -eq $restoreTask) { throw "Owned boot task disappeared during stop." }
+                Assert-OwnedBootTask $restoreTask $Record $InstallDir
+                $restoreTask.Enabled = $wasEnabled
+            } catch { Write-Warning "Could not restore boot task state after failed stop: $_" }
         }
-        $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
-        if ($instances -eq 0 -and $remaining.Count -eq 0) { return }
-        if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'Boot engine or descendants did not stop. Installation files must not be replaced.' }
-        Start-Sleep -Milliseconds 200
-    } while ($true)
+        throw $stopError
+    }
 }
 function Assert-BootDesktopClosed([string]$InstallDir) {
     $processes=@(Get-BootProcesses)

@@ -4156,6 +4156,9 @@ svg.MuiSvgIcon-root {
   padding: 0; border: 0; box-shadow: none;
 }
 .tray-panel.modalpin-win { max-width: none; }
+.tray-wrap > .surface-inline { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
+.surface-inline > .tray-panel { min-height: 0; max-height: 100%; }
+.tray-panel > .modalpin-bar:not(.on) { margin: 0 0 3px; }
 .tray-row {
   display: flex; align-items: center; gap: 8px;
   padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;
@@ -5100,6 +5103,15 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .acct-provider-head.prov-openrouter { border-bottom-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
 .acct-provider-head.prov-openrouter .acct-preview-tag { color: var(--prov-openrouter);
   border-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
+/* ---- sign in to Claude from the app (D-231): the claude card's own login
+   row, shown while `claude auth login` is running. `.acct-claude-code` is
+   the pasted-code field; sized for the CLI's actual code shape rather than
+   a full-width input, matching `.acct-panel .acct-main input`'s font size
+   so it does not look like a different control family. ---- */
+.acct-claude-login { display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin-top: 4px; }
+.acct-panel input.acct-claude-code { flex: 0 1 220px; min-width: 0;
+  font-size: 12.5px; padding: 5px 9px; font-family: var(--mono); }
 /* ---- the OpenRouter section (2026-09-02, user spec): a key row, then — once
    a key is registered — a ROW OF MODEL CARDS (the favorites) that highlights
    as one control and opens the model-selection modal. Cards are MONOGRAMS:

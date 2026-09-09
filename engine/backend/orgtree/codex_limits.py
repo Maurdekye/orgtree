@@ -267,7 +267,19 @@ def fetch(force: bool = False) -> dict[str, Any]:
     if not status.get("installed"):
         return _account({"available": False, "error": "Codex CLI is not installed"})
     if not status.get("connected"):
-        return _account({"available": False, "error": "Codex CLI is not signed in"})
+        # D-231 expansion: structured, not string-matched — "installed but
+        # not signed in" is the real (local, not-a-403) equivalent of the
+        # Claude host's 401/403 for a provider whose usage read never
+        # touches a raw HTTP endpoint of its own (it rides the local
+        # app-server, which answers this from `$CODEX_HOME/auth.json`).
+        # `reauth_evidence: "not_connected"` — DISTINCT from Claude's
+        # "measured_403" (root's review ruling: a locally-observed
+        # disconnected state and a server-measured rejection are different
+        # facts and must never be flattened into one undifferentiated
+        # boolean as if they were the same kind of evidence).
+        return _account({"available": False, "error": "Codex CLI is not signed in",
+                         "reauth_required": True,
+                         "reauth_evidence": "not_connected"})
     if status.get("kind") == "api-key":
         return _account({
             "available": False,
