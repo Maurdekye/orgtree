@@ -3907,7 +3907,8 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
 
 
 def spawn_env(org: Org, tier: str | None = None,
-              nid: str | None = None) -> dict[str, str]:
+              nid: str | None = None, *,
+              bind_node: str | None = None) -> dict[str, str]:
     """`clean_env` plus the ONE credential this spawn should bill — the
     complete environment for any `claude` process this org owns.
 
@@ -4041,16 +4042,19 @@ def spawn_env(org: Org, tier: str | None = None,
     # byte-for-byte. The injector writes marker + credential together (N2);
     # a binding that cannot be honored raises rather than running half-bound
     # — the admission gate is what turns "cannot run" into a named wait.
-    # ⚠ KNOWN GAP until the call-site sweep: compaction/oracle forks call
-    # spawn_env WITHOUT nid and so miss the binding, falling to the legacy
-    # lanes — the same fork-bills-wrong-lane shape this docstring already
-    # documents. The fork call sites gain nid in the integration slice.
-    if nid is not None:
-        bound = str((org.node(nid) or {}).get("account") or "")
+    # `bind_node` (the S3c fork sweep, closing the gap the earlier comment
+    # here pinned): a FORK bills the same lane as its agent but must not
+    # take the agent's env_overrides or agentauth tokens — those branches
+    # key on `nid`, this one keys on EITHER. Forks and the watchdog pass
+    # bind_node; real turns pass nid; passing neither stays ambient (the
+    # legacy pre-migration lanes).
+    _bnid = nid if nid is not None else bind_node
+    if _bnid is not None:
+        bound = str((org.node(_bnid) or {}).get("account") or "")
         if bound:
             if bound.startswith("missing:"):
                 raise RuntimeError(
-                    f"node {nid} is bound to no account ({bound}) — "
+                    f"node {_bnid} is bound to no account ({bound}) — "
                     f"admission should hold this turn; refusing an unbound "
                     f"spawn")
             row = registry.get_account(bound)
@@ -20688,7 +20692,11 @@ def _claude_fork_context(org: Org, nid: str) -> tuple[str, dict[str, str]]:
         from .desktop_native import native_session_path
         resume = native_session_path(org, nid) or resume
     return resume, spawn_env(org, tier=str(node.get('model') or ''),
-                             nid=nid if imported else None)
+                             nid=nid if imported else None,
+                             # a fork bills the SAME lane as its agent: the
+                             # binding rides bind_node so the fork carries
+                             # the agent's account without its overrides
+                             bind_node=nid)
 
 
 def _compact_split_body(slug: str, nid: str) -> None:
@@ -25513,8 +25521,10 @@ def _wd_popen(org: Org, owner: str, cmd: str,
         # spawn_env, not clean_env (the d840331 family rule): the dog runs
         # with the OWNER's hands, and the owner's own processes carry the
         # org's key — a keyless fork is exactly the misbilling class that
-        # guard exists to catch
-        env=spawn_env(org),
+        # guard exists to catch. bind_node carries the owner's ACCOUNT the
+        # same way (S3c): a bound owner's dog bills the owner's lane, with
+        # none of the owner's overrides.
+        env=spawn_env(org, bind_node=owner),
         creationflags=(subprocess.CREATE_NO_WINDOW      # type: ignore[attr-defined]
                        if os.name == "nt" else 0))
     # ⚠ WHICH TREE THIS CHILD BELONGS TO IS THE WHOLE QUESTION (D-176). It is

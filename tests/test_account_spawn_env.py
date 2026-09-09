@@ -138,14 +138,37 @@ class SpawnEnvBindingTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.supervisor.codex_bound_home(org2, "root")
 
-    def test_no_nid_stays_ambient_known_fork_gap(self):
-        # documents the KNOWN GAP the spawn_env comment names: no nid ⇒ no
-        # binding consulted (fork call sites gain nid in the integration
-        # slice); this pins today's behavior so the gap's closure is visible
+    def test_no_nid_no_bind_node_stays_ambient(self):
+        # passing NEITHER nid nor bind_node stays ambient (legacy lanes) —
+        # the deliberate residual, no longer a gap
         row = self._profile_row()
         org = self._org("forks", account=row["id"])
         env = self.supervisor.spawn_env(org, tier="opus")
         self.assertNotIn(self.registry.MARKER, env)
+
+    def test_bind_node_carries_binding_without_overrides(self):
+        # the S3c fork shape: bind_node gives the agent's ACCOUNT (marker +
+        # credential) while the nid-keyed branches (env_overrides/agentauth)
+        # stay untaken — asserted via the agentauth var the nid path injects
+        row = self._profile_row()
+        org = self._org("forks-bind", account=row["id"])
+        env = self.supervisor.spawn_env(org, tier="opus", bind_node="root")
+        self.assertEqual(env[self.registry.MARKER], row["id"])
+        self.assertEqual(env["CLAUDE_CONFIG_DIR"], row["credential"]["path"])
+        # the nid path ADDS agentauth/override vars over the ambient
+        # baseline; the bind_node path must add ONLY the binding pair —
+        # baselined against a bindingless call because the test process's
+        # own environment legitimately carries ORGTREE_* vars already
+        org_plain = self._org("forks-base")
+        baseline = set(self.supervisor.spawn_env(org_plain, tier="opus"))
+        env_full = self.supervisor.spawn_env(org, tier="opus", nid="root")
+        nid_added = set(env_full) - baseline - {
+            self.registry.MARKER, "CLAUDE_CONFIG_DIR"}
+        bind_added = set(env) - baseline
+        self.assertEqual(bind_added,
+                         {self.registry.MARKER, "CLAUDE_CONFIG_DIR"})
+        for k in nid_added:
+            self.assertNotIn(k, env, k)
 
 
 if __name__ == "__main__":
