@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
-import { SetGroup, SetToggle } from './settingskit'
+import type { UpdateStatus } from '../../../../../packages/contracts'
+import { describeUpdateStatus } from '../update-notice'
+import { SetGroup, SetRow, SetToggle } from './settingskit'
 
 export function DesktopSettings() {
   const bridge = desktop()
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [checking, setChecking] = useState(false)
   useEffect(() => {
     if (!bridge) return
     let alive = true
     bridge.getPreferences().then(p => { if (alive) setPrefs(p) })
       .catch((e: Error) => { if (alive) setError(e.message) })
+    if (bridge.getUpdateStatus) void bridge.getUpdateStatus().then(s => { if (alive) setUpdateStatus(s) }).catch(() => {})
     const unsubscribe = bridge.onEvent(e => {
-      if (e.type === 'preferences' && alive) setPrefs(e.data as NativePreferences)
+      if (!alive) return
+      if (e.type === 'preferences') setPrefs(e.data as NativePreferences)
+      else if (e.type === 'update') setUpdateStatus(e.data as UpdateStatus)
     })
     return () => { alive = false; unsubscribe() }
   }, [bridge])
@@ -23,6 +30,11 @@ export function DesktopSettings() {
     setBusy(true)
     bridge.setPreferences(patch).then(p => { setPrefs(p); setError('') })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
+  }
+  const checkForUpdates = () => {
+    if (!bridge.checkForUpdates) return
+    setChecking(true)
+    bridge.checkForUpdates().then(setUpdateStatus).finally(() => setChecking(false))
   }
   return <SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
@@ -35,5 +47,11 @@ export function DesktopSettings() {
     <SetToggle label="notify about routine activity" checked={prefs?.routineNotifications ?? false}
       disabled={!prefs || busy} onChange={routineNotifications => put({ routineNotifications })}
       hint="Questions, urgent mail and work needing attention notify by default." />
+    <SetRow label="updates"
+      hint={updateStatus ? describeUpdateStatus(updateStatus) ?? 'No update check has run yet.' : undefined}>
+      <button type="button" onClick={checkForUpdates} disabled={checking || !bridge.checkForUpdates}>
+        {checking ? 'Checking…' : 'Check for updates'}
+      </button>
+    </SetRow>
   </SetGroup>
 }

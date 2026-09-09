@@ -39,6 +39,35 @@ test('native settings save through bridge and adopt tray changes; failure leaves
   } finally { await v.unmount(); native() }
 })
 
+test('desktop settings "Check for updates" row calls the bridge, disables mid-check, and reflects both the resolved and pushed status', async () => {
+  let event: (e: { type: string; data: unknown }) => void = () => {}
+  let resolveCheck: (status: unknown) => void = () => {}
+  const calls: string[] = []
+  native({
+    getPreferences: async () => ({ startAtLogin: true, exitOnClose: false, routineNotifications: false }),
+    onEvent: fn => { event = fn as typeof event; return () => {} },
+    getUpdateStatus: async () => ({ state: 'idle' }),
+    checkForUpdates: async () => { calls.push('check'); return new Promise(resolve => { resolveCheck = resolve }) },
+  })
+  const v = await mountView(<DesktopSettings />, el => el)
+  try {
+    await inAct(async () => { await flush(5) })
+    const button = v.el.querySelector('button')!
+    assert.equal(button.textContent, 'Check for updates')
+    assert.equal(button.disabled, false)
+    await inAct(async () => { button.click() })
+    assert.equal(calls.length, 1, 'the bridge method is invoked exactly once per click')
+    assert.equal(button.textContent, 'Checking…')
+    assert.equal(button.disabled, true, 'a second click cannot fire a concurrent check')
+    await inAct(async () => { resolveCheck({ state: 'up-to-date' }); await flush(5) })
+    assert.equal(button.textContent, 'Check for updates')
+    assert.equal(button.disabled, false)
+    assert.match(v.el.textContent!, /up to date/)
+    await inAct(async () => { event({ type: 'update', data: { state: 'downloading', percent: 10 } }) })
+    assert.match(v.el.textContent!, /Downloading update… 10%/, 'a later pushed event updates the row without another click')
+  } finally { await v.unmount(); native() }
+})
+
 test('Connections renders real peers and sends sanitized remote settings without local owner credentials', async () => {
   const requests: { url: string; body: unknown }[] = []
   const original = globalThis.fetch

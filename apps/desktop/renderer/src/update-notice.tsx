@@ -14,6 +14,9 @@ const LABEL: Record<UpdateStatus['state'], (status: UpdateStatus) => string | nu
   failed: () => 'Update download failed',
 }
 
+/** Shared with the app Settings manual-check row, so the two surfaces never drift apart in wording. */
+export function describeUpdateStatus(status: UpdateStatus): string | null { return LABEL[status.state](status) }
+
 /** Purely informational — automatic install still only happens at idle, with
  * no user-triggered override (docket add-automatic-update-discovery-and-in-
  * app-instal). Self-contained: renders null when there is nothing to show
@@ -39,7 +42,7 @@ export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = 
     return () => { alive = false; unsubscribe(); if (hideTimer.current) clearTimeout(hideTimer.current) }
   }, [transientMs])
   if (!status || !visible) return null
-  const label = LABEL[status.state](status)
+  const label = describeUpdateStatus(status)
   if (!label) return null
   return <div className="update-notice" role="status" aria-live="polite">{label}</div>
 }
