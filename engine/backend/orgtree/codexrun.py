@@ -170,6 +170,40 @@ def limit_reset_epoch(snapshots: Any) -> float | None:
     return best
 
 
+def child_env(codex_home: str | None,
+              env_extra: dict[str, str] | None) -> dict[str, str]:
+    """THE codex child's environment — extracted so the hygiene is testable.
+
+    The claude lane's rules, mirrored: a codex child must never see Anthropic
+    credentials (one-credential-per-spawn, supervisor spawn_env) — and equally
+    never a stray OPENAI_API_KEY that would silently flip the billing lane
+    away from the subscription login.
+
+    §9.5 EXTENDED TO THIS LANE (multi-account D2b, Opus S3 finding: this
+    block is the codex lane's clean_env — supervisor.clean_env is not on this
+    path at all): an inherited host-level CODEX_HOME would capture every
+    codex spawn onto one profile while each node's UI shows the account it
+    thinks it is on, and an inherited ORGTREE_ACCOUNT_ID would mislabel the
+    spawn's attribution with total confidence. Both are stripped HERE, before
+    the explicit `codex_home` (and, later, the account binding's) re-inject —
+    strip-before-inject, never after. A spawn with no explicit home now falls
+    to the CLI's own ~/.codex default rather than a host redirect; the
+    migrated ambient row carries an observed redirect forward deliberately.
+    """
+    env = dict(os.environ)
+    for k in list(env):
+        if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_")) or k in (
+                "CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME",
+                "ORGTREE_ACCOUNT_ID"):
+            env.pop(k, None)
+    if codex_home:
+        env["CODEX_HOME"] = codex_home
+    if env_extra:
+        env.update(env_extra)
+    from . import devguard
+    return devguard.child_env(env)
+
+
 class CodexServerError(RuntimeError):
     """The app-server refused or never answered a protocol request."""
 
@@ -419,21 +453,7 @@ class AppServerClient:
         # _claude_argv(): production passes [codex.exe], tests pass
         # [python, fakecodex.py], and nobody ever routes through a .CMD shim
         # (the argv-truncation hazard the claude resolver documents).
-        env = dict(os.environ)
-        # the claude lane's hygiene, mirrored: a codex child must never see
-        # Anthropic credentials (one-credential-per-spawn, supervisor
-        # spawn_env) — and equally never a stray OPENAI_API_KEY that would
-        # silently flip the billing lane away from the subscription login.
-        for k in list(env):
-            if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_")) or k in (
-                    "CLAUDECODE", "OPENAI_API_KEY"):
-                env.pop(k, None)
-        if codex_home:
-            env["CODEX_HOME"] = codex_home
-        if env_extra:
-            env.update(env_extra)
-        from . import devguard
-        env = devguard.child_env(env)
+        env = child_env(codex_home, env_extra)
         # cwd is the agent's own scratch, same as the claude lane's Popen —
         # the process-level cwd, not just thread/start's `cwd` param, because
         # AGENTS.md discovery and any relative path the model touches resolve

@@ -129,6 +129,69 @@ class SpawnIdentityTests(unittest.TestCase):
         self.assertEqual(self.supervisor.identity_in_env({}),
                          accounts.PRIMARY)
 
+    def test_codex_child_env_strips_inherited_home_and_marker(self):
+        # the codex lane never passes through clean_env — codexrun.child_env
+        # IS that lane's hygiene, and it must strip the same §9.5 selectors
+        from engine.backend.orgtree import codexrun
+        seeded = {"CODEX_HOME": r"C:\hostile\codex",
+                  "ORGTREE_ACCOUNT_ID": "openai-9",
+                  "ANTHROPIC_API_KEY": "leak"}
+        saved = {k: os.environ.get(k) for k in seeded}
+        os.environ.update(seeded)
+        try:
+            env = codexrun.child_env(None, None)
+            for k in seeded:
+                self.assertNotIn(k, env, k)
+            # an EXPLICIT home still lands (the binding's future lane)
+            env2 = codexrun.child_env(r"C:\bound\codex", None)
+            self.assertEqual(env2["CODEX_HOME"], r"C:\bound\codex")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_token_row_marker_is_cross_checked_by_value(self):
+        from engine.backend.orgtree import tokens
+        managed = os.environ.pop("ORGTREE_DESKTOP_MANAGED", None)
+        try:
+            tokens.put("refA", "tokA")
+            tokens.put("refB", "tokB")
+            a = self.registry.create_account(
+                "claude", "ta", {"kind": "token", "token_ref": "refA"})
+            b = self.registry.create_account(
+                "claude", "tb", {"kind": "token", "token_ref": "refB"})
+            # happy pair: marker B with B's token
+            env = {self.registry.MARKER: b["id"],
+                   "CLAUDE_CODE_OAUTH_TOKEN": "tokB"}
+            self.assertIsNone(self.registry.identity_mismatch(env))
+            # marker B travelling with A's token ⇒ mismatch, never B
+            env_bad = {self.registry.MARKER: b["id"],
+                       "CLAUDE_CODE_OAUTH_TOKEN": "tokA"}
+            self.assertEqual(self.registry.identity_mismatch(env_bad),
+                             f"account-env-mismatch:{b['id']}")
+            # marker B with no token at all ⇒ mismatch
+            self.assertEqual(
+                self.registry.identity_mismatch(
+                    {self.registry.MARKER: b["id"]}),
+                f"account-env-mismatch:{b['id']}")
+            self.assertIsNotNone(a)
+        finally:
+            if managed is not None:
+                os.environ["ORGTREE_DESKTOP_MANAGED"] = managed
+
+    def test_org_key_marker_requires_its_lane(self):
+        row = self.registry.create_account(
+            "claude", "ok", {"kind": "token",
+                             "token_ref": "org-api-key:alpha"},
+            origin_org="alpha")
+        self.assertEqual(
+            self.registry.identity_mismatch({self.registry.MARKER: row["id"]}),
+            f"account-env-mismatch:{row['id']}")
+        self.assertIsNone(self.registry.identity_mismatch(
+            {self.registry.MARKER: row["id"], "ANTHROPIC_API_KEY": "k"}))
+
     def test_mismatch_never_marks_a_row(self):
         b = self._profile_row()
         ident = self.supervisor.identity_in_env(

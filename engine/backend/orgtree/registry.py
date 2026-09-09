@@ -317,6 +317,24 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
         var = PROFILE_VAR.get(row["provider"], "")
         if not var or env.get(var) != cred["path"]:
             return f"account-env-mismatch:{marker}"
+        return None
+    # TOKEN rows carry the same hazard (Opus S3 finding: an exempted kind
+    # would answer a marker travelling with the WRONG token as authoritative
+    # — the confident-wrong-attribution N2 exists to prevent). A legacy ref
+    # is verified by value: key_for_token maps the injected token back to its
+    # row id, marker says B and the token says A ⇒ mismatch. An org-key ref
+    # is verified by LANE PRESENCE only — value verification would mean
+    # comparing secrets the registry never holds, so the pair check is that
+    # the key lane is populated at all; attribution of a wrong org key is the
+    # api-key sentinel's existing territory.
+    ref = str(cred["token_ref"])
+    if ref.startswith("org-api-key:"):
+        if not env.get("ANTHROPIC_API_KEY"):
+            return f"account-env-mismatch:{marker}"
+    else:
+        from .accounts import key_for_token
+        if key_for_token(env.get("CLAUDE_CODE_OAUTH_TOKEN", "")) != ref:
+            return f"account-env-mismatch:{marker}"
     return None
 
 
