@@ -39,9 +39,9 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   // the update indicator (list-controls' placement rule: a sibling immediately
   // before WindowControls, in every native header state) — each bounded to its
   // OWN header/heading close so one site's indicator cannot satisfy another's.
-  assert.match(app, /<header className="orgbar fallback-orgbar">[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
+  assert.match(app, /<header className="orgbar fallback-orgbar native-header">[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
   assert.match(app, /<h1>[\s\S]*?showControls && <UpdateNotice \/>[\s\S]*?showControls && <WindowControls \/>[\s\S]*?<\/h1>/)
-  assert.match(app, /<header className="orgbar">[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
+  assert.match(app, /<header className=\{'orgbar' \+ \(desktop\(\) \? ' native-header' : ''\)\}>[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
   assert.match(app, /orgPanel\(false\)/)
   assert.match(controls, /aria-label="Minimize window"/)
   assert.match(controls, /aria-label="Refresh app view"/)

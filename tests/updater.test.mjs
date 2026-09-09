@@ -286,3 +286,64 @@ test('checkForUpdatesViaEvents settles only once even if an event and the falsy 
   listeners.get('update-available')({ version: '1.0.0' })
   assert.deepEqual(await promise, { hasUpdate: true, version: '1.0.0' }, 'the event that fired first wins; the later falsy resolve must not override it')
 })
+
+// ── composed: UpdateController driven by a real checkForUpdatesViaEvents(),
+// against a fake autoUpdater emitter, proving the two actual production event
+// orderings a real autoUpdater can deliver both leave the correct terminal state.
+function fakeAutoUpdater() {
+  const listeners = new Map()
+  return {
+    fire: (event, arg) => listeners.get(event)?.(arg),
+    once: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => { if (listeners.get(event) === listener) listeners.delete(event) },
+    checkForUpdates: () => new Promise(() => {}), // the events alone decide the outcome in these tests
+  }
+}
+
+test('composed: update-downloaded arriving before the check promise settles still ends pending-idle, not downloading', async () => {
+  const emitter = fakeAutoUpdater()
+  const { controller, reports } = rig({ run: () => checkForUpdatesViaEvents(emitter) })
+  const pending = controller.tick()
+  assert.equal(controller.current().state, 'checking')
+  // Both fire synchronously, before runCheck's `await this.callbacks.run()`
+  // continuation has had a chance to run (promise continuations are always
+  // queued as microtasks, never synchronous) - this is the exact ordering a
+  // fast/cached real download can produce: 'update-available' resolves
+  // checkForUpdatesViaEvents' promise, but 'update-downloaded' (wired directly
+  // to controller.downloaded(), independent of run() entirely) still reaches
+  // the controller FIRST, before that resolution's continuation runs.
+  emitter.fire('update-available', { version: '2.0.0' })
+  controller.downloaded('2.0.0')
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.0' }, 'downloaded() already won before runCheck\'s continuation could run')
+  await pending
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.0' }, 'the check\'s own continuation must not regress a terminal state that already arrived')
+  assert.deepEqual(reports.at(-1), { state: 'pending-idle', version: '2.0.0' })
+})
+
+test('composed: the ordinary order (check resolves, then the download completes) still works', async () => {
+  const emitter = fakeAutoUpdater()
+  const { controller } = rig({ run: () => checkForUpdatesViaEvents(emitter) })
+  const pending = controller.tick()
+  emitter.fire('update-available', { version: '2.0.0' })
+  await pending
+  assert.deepEqual(controller.current(), { state: 'downloading', version: '2.0.0' })
+  controller.downloaded('2.0.0')
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.0' })
+})
+
+test('composed: an error event arriving before the check promise settles still ends unavailable, with exactly one backoff step', async () => {
+  const emitter = fakeAutoUpdater()
+  const { controller, reports } = rig({ run: () => checkForUpdatesViaEvents(emitter), options: { periodicMs: 100000, backoffBaseMs: 1000 } })
+  const pending = controller.tick()
+  // The real autoUpdater.on('error', ...) permanent listener (wired in index.ts,
+  // not modeled by checkForUpdatesViaEvents' once-listeners here) would ALSO
+  // see this same emit - reached indirectly since checkForUpdatesViaEvents'
+  // own once-listener consumes it into run()'s rejection. errored()'s state
+  // guard (only applies while 'downloading') is what actually prevents a
+  // second, redundant backoff step if index.ts's permanent handler fires too;
+  // this test proves the check-time path alone lands on exactly one.
+  emitter.fire('error', new Error('offline'))
+  await pending
+  assert.deepEqual(controller.current(), { state: 'unavailable' })
+  assert.deepEqual(reports.filter(r => r.state === 'unavailable'), [{ state: 'unavailable' }], 'exactly one unavailable report, not two')
+})

@@ -47,42 +47,45 @@ test('idle status on mount renders nothing', async () => {
   await teardown()
 })
 
+// Margins here are deliberately generous (vs. an earlier 5/20/30ms version that
+// was flaky under real system load - a slow act()/render pass could itself eat
+// several ms, and 5ms left no room for that before the "still visible" check).
 test('a downloading push shows its percent and stays visible with no timer', async () => {
-  const { push, teardown } = await mount({ state: 'idle' }, 5)
+  const { push, teardown } = await mount({ state: 'idle' }, 50)
   await push({ state: 'downloading', version: '2.0.0-alpha.6', percent: 42 })
   assert.equal(document.querySelector('.update-notice').textContent, 'Downloading update… 42%')
-  await sleep(20)
+  await sleep(150)
   assert.ok(document.querySelector('.update-notice'), 'downloading is not a transient state — it must not auto-hide')
   await teardown()
 })
 
 test('pending-idle stays visible (no auto-hide) and reports the ready-to-install message', async () => {
-  const { push, teardown } = await mount({ state: 'idle' }, 5)
+  const { push, teardown } = await mount({ state: 'idle' }, 50)
   await push({ state: 'pending-idle', version: '2.0.0-alpha.6' })
   assert.match(document.querySelector('.update-notice').textContent, /installs automatically when idle/)
-  await sleep(20)
+  await sleep(150)
   assert.ok(document.querySelector('.update-notice'))
   await teardown()
 })
 
 test('up-to-date, unavailable and failed are transient feedback that auto-hides', async () => {
   for (const state of ['up-to-date', 'unavailable', 'failed']) {
-    const { push, teardown } = await mount({ state: 'idle' }, 5)
+    const { push, teardown } = await mount({ state: 'idle' }, 50)
     await push({ state })
     assert.ok(document.querySelector('.update-notice'), `${state} must show immediately`)
-    await sleep(30)
+    await sleep(200)
     assert.equal(document.querySelector('.update-notice'), null, `${state} must auto-hide after its timeout`)
     await teardown()
   }
 })
 
 test('a later push resets the hide timer instead of stacking with the earlier one', async () => {
-  const { push, teardown } = await mount({ state: 'idle' }, 15)
+  const { push, teardown } = await mount({ state: 'idle' }, 100)
   await push({ state: 'up-to-date' })
-  await sleep(10)
+  await sleep(60)
   await push({ state: 'unavailable' })
-  await sleep(10)
-  // 20ms since the first push (> its 15ms timer) but only 10ms since the second.
+  await sleep(60)
+  // 120ms since the first push (> its 100ms timer) but only 60ms since the second.
   assert.equal(document.querySelector('.update-notice').textContent, 'Update check unavailable', 'the second push\'s own timer, not the first\'s, governs visibility')
   await teardown()
 })

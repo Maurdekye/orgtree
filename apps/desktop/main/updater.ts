@@ -103,10 +103,21 @@ export class UpdateController {
         const result = await this.callbacks.run()
         this.consecutiveFailures = 0
         this.lastCheckAt = this.now()
-        this.setStatus(result.hasUpdate ? { state: 'downloading', version: result.version } : { state: 'up-to-date' })
+        // A fast/cached autoDownload can fire downloaded() (or errored(), once
+        // state reaches 'downloading') BEFORE run()'s own promise settles -
+        // Node dispatches 'update-available' and 'update-downloaded' as separate
+        // synchronous events, and this continuation only resumes on the next
+        // microtask after the first. Once state has moved past 'checking' the
+        // terminal event already won; overwriting it back to downloading/up-to-
+        // date here would regress a real pending-idle/failed result.
+        if (this.status.state === 'checking') {
+          this.setStatus(result.hasUpdate ? { state: 'downloading', version: result.version } : { state: 'up-to-date' })
+        }
       } catch {
-        this.scheduleBackoff()
-        this.setStatus({ state: 'unavailable' })
+        if (this.status.state === 'checking') {
+          this.scheduleBackoff()
+          this.setStatus({ state: 'unavailable' })
+        }
       } finally { this.inFlight = null }
       return this.status
     })()

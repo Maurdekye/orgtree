@@ -14,8 +14,11 @@ const LABEL: Record<UpdateStatus['state'], (status: UpdateStatus) => string | nu
   failed: () => 'Update download failed',
 }
 
-/** Shared with the app Settings manual-check row, so the two surfaces never drift apart in wording. */
-export function describeUpdateStatus(status: UpdateStatus): string | null { return LABEL[status.state](status) }
+/** Shared with the app Settings manual-check row, so the two surfaces never drift apart in wording.
+ *  Looked up defensively: `status` crosses the IPC boundary as `unknown` data cast at the call site,
+ *  so an unrecognized state (a future addition, or a bug that leaks a different channel's vocabulary
+ *  onto this one - see the 'maintenance' channel split) renders nothing instead of throwing. */
+export function describeUpdateStatus(status: UpdateStatus): string | null { return LABEL[status.state]?.(status) ?? null }
 
 /** Purely informational — automatic install still only happens at idle, with
  * no user-triggered override (docket add-automatic-update-discovery-and-in-

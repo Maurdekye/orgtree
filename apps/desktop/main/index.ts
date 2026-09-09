@@ -141,14 +141,18 @@ else {
         const result = await autoUpdater.checkForUpdates()
         if (!result) return 'unavailable'
         if (result.downloadPromise) {
-          void result.downloadPromise.catch(() => broadcast({ type: 'update', data: { state: 'unavailable' } }))
+          void result.downloadPromise.catch(() => broadcast({ type: 'maintenance', data: { state: 'unavailable' } }))
           return 'pending'
         }
         return result.updateInfo.version === app.getVersion() ? 'up-to-date' : 'unavailable'
       } catch { return 'unavailable' }
     },
     report: state => {
-      broadcast({ type: 'update', data: { state } })
+      // Distinct from UpdateController's own 'update' channel below: this is the
+      // engine-issued maintenance flow (restart/update-on-request), a separate
+      // state vocabulary ('pending', 'failure-record-unavailable', ...) that a
+      // renderer listening for UpdateStatus must never be handed.
+      broadcast({ type: 'maintenance', data: { state } })
       if (state === 'failed' || state === 'failure-record-unavailable') {
         void dialog.showMessageBox({ type: 'error', message: 'Orgtree maintenance did not complete.',
           detail: state === 'failed' ? 'The request failed and will not be executed again automatically. Automatic update application is paused until a new update request. Reopen Orgtree if its engine stopped.'
