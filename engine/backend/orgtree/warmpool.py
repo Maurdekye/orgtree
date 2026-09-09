@@ -1035,7 +1035,15 @@ def identity_snapshot(org: Any, nid: str, *,
                    + b"\x00native-startup\x00" + native.encode("ascii")),
         "argv": json.dumps(_argv_normalized(cmd), ensure_ascii=False)
                     .encode("utf-8", "replace"),
-        "cred": sup.identity_in_env(env).encode("utf-8", "replace"),
+        # identity PLUS the profile selector (multi-account finding 1: "an
+        # app-server launched under the old login must not be claimed after
+        # a login switch" — the codex precedent, applied to every lane): a
+        # row whose PATH is repointed must dirty parked processes even
+        # though its id did not change.
+        "cred": (sup.identity_in_env(env)
+                 + "\x00" + env.get("CLAUDE_CONFIG_DIR", "")
+                 + "\x00" + env.get("CODEX_HOME", "")
+                 ).encode("utf-8", "replace"),
         "envov": json.dumps(overrides, sort_keys=True, ensure_ascii=False)
                      .encode("utf-8", "replace"),
     }

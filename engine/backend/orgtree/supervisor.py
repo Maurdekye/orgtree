@@ -4034,6 +4034,40 @@ def spawn_env(org: Org, tier: str | None = None,
                         "CLAUDE_CODE_SUBAGENT_MODEL"):
                 env[var] = model
         return env
+    # THE NODE BINDING WINS UNIFORMLY (multi-account D2/D2e, user ruling
+    # 2026-09-09 18:38Z): a bound node reaches exactly its bound account —
+    # placed BEFORE the org-key branch so the old precedence cannot fire for
+    # bound nodes, while an UNBOUND node (pre-migration) keeps today's lanes
+    # byte-for-byte. The injector writes marker + credential together (N2);
+    # a binding that cannot be honored raises rather than running half-bound
+    # — the admission gate is what turns "cannot run" into a named wait.
+    # ⚠ KNOWN GAP until the call-site sweep: compaction/oracle forks call
+    # spawn_env WITHOUT nid and so miss the binding, falling to the legacy
+    # lanes — the same fork-bills-wrong-lane shape this docstring already
+    # documents. The fork call sites gain nid in the integration slice.
+    if nid is not None:
+        bound = str((org.node(nid) or {}).get("account") or "")
+        if bound:
+            if bound.startswith("missing:"):
+                raise RuntimeError(
+                    f"node {nid} is bound to no account ({bound}) — "
+                    f"admission should hold this turn; refusing an unbound "
+                    f"spawn")
+            row = registry.get_account(bound)
+            def _secret(ref: str) -> str:
+                if ref.startswith("org-api-key:"):
+                    slug = ref.split(":", 1)[1]
+                    if slug != str(org.d.get("slug") or ""):
+                        # the binding validator prevents this; defense in
+                        # depth against a foreign org's key ever injecting
+                        raise RuntimeError(
+                            f"account {bound} carries {ref!r} but this org "
+                            f"is {org.d.get('slug')!r} — refusing a foreign "
+                            f"org key")
+                    return str(org.d.get("api_key") or "")
+                return tokens.get(ref) or ""
+            return registry.inject_binding(env, row,
+                                           secret_resolver=_secret)
     key = str(org.d.get("api_key") or "")
     if key:
         # api_fallback (user feature 2026-08-17): with the option ON the key
