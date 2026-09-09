@@ -143,7 +143,11 @@ function New-BootTaskXml($Record) {
 }
 function Get-BootTree($Processes, [string]$InstallDir, $Known) {
     $Processes = @($Processes | Where-Object { $null -ne $_ })
-    Assert-BootProcessPaths $Processes $InstallDir
+    # CIM can lose an exiting process's path before the process disappears.
+    # An exact previously captured PID + creation time stays LIVE below; only
+    # its path re-validation is unnecessary. Unknown/reused identities refuse.
+    $unidentified = @($Processes | Where-Object { -not $_.CreationDate -or -not $Known.ContainsKey((Get-BootProcessKey $_)) })
+    Assert-BootProcessPaths $unidentified $InstallDir
     $paths = Get-BootPaths $InstallDir
     $parents = @{}
     foreach ($p in $Processes) {

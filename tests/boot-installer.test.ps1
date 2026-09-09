@@ -125,6 +125,35 @@ $orphan=@($script:processes[1])
 Assert (@(Get-BootTree $orphan $dir $known).Count -eq 1) 'Orphan descendant escaped identity tracking'
 $reused=@([pscustomobject]@{ProcessId=102; ParentProcessId=1; CreationDate='NEW'; ExecutablePath='C:\unrelated.exe'})
 Assert (@(Get-BootTree $reused $dir $known).Count -eq 0) 'Reused PID mistaken for owned descendant'
+# A disappearing CIM path is not proof of exit: exact known identities stay
+# counted until absent; a recycled PID or missing timestamp gets no exemption.
+$pathless=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='A'; Name='python.exe'; ExecutablePath=$null},[pscustomobject]@{ProcessId=102; ParentProcessId=101; CreationDate='B'; Name='cli.exe'; ExecutablePath=$null})
+Assert (@(Get-BootTree $pathless $dir $known).Count -eq 2) 'Known pathless processes stopped counting as live'
+Assert (@(Get-BootTree @() $dir $known).Count -eq 0) 'Absent known processes still count as live'
+$unknown=@([pscustomobject]@{ProcessId=109; ParentProcessId=1; CreationDate='A'; Name='python.exe'; ExecutablePath=$null})
+Refuses { Get-BootTree $unknown $dir $known } 'Cannot verify executable path'
+$reuseHidden=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate='NEW'; Name='python.exe'; ExecutablePath=$null})
+Refuses { Get-BootTree $reuseHidden $dir $known } 'Cannot verify executable path'
+$noTimestamp=@([pscustomobject]@{ProcessId=101; ParentProcessId=1; CreationDate=$null; Name='python.exe'; ExecutablePath=$null})
+Refuses { Get-BootTree $noTimestamp $dir $known } 'Cannot verify executable path'
+
+# Actual stop loop: readable -> pathless (still waiting) -> absent (complete).
+$savedProcesses=${function:Get-BootProcesses}
+$script:lossReads=0; $script:pathlessFixture=$pathless; $script:seedFixture=$script:processes
+$script:keepPathless=$false
+function Get-BootProcesses {
+    $script:lossReads++
+    if ($script:lossReads -eq 1) { return $script:seedFixture }
+    if ($script:lossReads -eq 2 -or $script:keepPathless) { return $script:pathlessFixture }
+    return @()
+}
+$script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
+Stop-OwnedBootTask $script:folder $original $dir 2
+Assert ($script:lossReads -eq 3) 'Stop did not wait for the known pathless processes to disappear'
+Assert (-not $script:task.Enabled) 'Path-loss handling must not re-enable the task'
+$script:lossReads=0; $script:keepPathless=$true
+Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
+Set-Item Function:Get-BootProcesses $savedProcesses
 $script:processes=@()
 $script:task.Instances=1
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
