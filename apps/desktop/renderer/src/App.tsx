@@ -794,7 +794,7 @@ export default function App() {
               itself (below) instead, because that's where a connectivity
               blip after load would otherwise push the canvas down. */}
           {!tree && <>
-            {desktop() && <header className="orgbar fallback-orgbar">
+            {desktop() && <header className="orgbar fallback-orgbar native-header">
               <h2>orgtree</h2>
               <WindowControls />
             </header>}
@@ -802,7 +802,8 @@ export default function App() {
           </>}
           {tree ? (
             <>
-              <header className="orgbar">
+              <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
+                <div className="native-header-main">
                 {!tree.public &&
                   <button className="iconbtn" onClick={() => setDrawer(true)}><MenuIcon fontSize="inherit" /></button>}
                 <span className="orgname-wrap">
@@ -1089,6 +1090,7 @@ export default function App() {
                 <a className="gh-link" href="https://github.com/Maurdekye/claude-orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
+                </div>
                 {/* Native WindowControls owns refresh in the desktop shell; keep
                     the renderer-only action available when running in a browser. */}
                 {!desktop() && <button type="button" className="iconbtn" title="refresh app view"

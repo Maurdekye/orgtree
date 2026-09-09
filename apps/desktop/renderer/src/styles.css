@@ -6082,43 +6082,38 @@ html.mobile .popout-button { display: none; }
 .onboard-swatch { width: .8rem; height: .8rem; border-radius: 50%; display: inline-block; }
 .onboard-actions { display: flex; justify-content: space-between; align-items: center;
   margin-top: 1rem; gap: .75rem; }
-
-/* Keep the native control group in the active org header row while the
-   desktop header is narrow. The detail run may compress, but the four
-   controls stay fixed-size and reachable at the row's trailing edge. */
+/* Native headers keep normal actions in a bounded flow slot beside the updater
+   and fixed controls. Browser headers retain their ordinary wrapping. */
+.native-header-main { display: contents; }
 @media (min-width: 600px) and (max-width: 780px) {
-  .orgbar {
+  .orgbar.native-header {
     position: relative;
     flex-wrap: nowrap;
     overflow: hidden;
-    padding-right: 192px;
   }
-  .orgbar > .bar-detail {
+  .orgbar.native-header > .native-header-main {
     display: flex;
+    align-items: center;
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
+    gap: 8px;
   }
-  .orgbar > .bar-detail > * {
+  .orgbar.native-header > .native-header-main > * {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 0 1 auto;
   }
-  .orgbar > .update-notice {
-    position: absolute;
-    top: 50%;
-    right: 192px;
+  .orgbar.native-header > .update-notice {
+    position: static;
+    flex: 0 0 180px;
     width: 180px;
-    transform: translateY(-50%);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .orgbar > .window-controls {
-    position: absolute;
-    top: 0;
-    right: 0;
+  .orgbar.native-header > .window-controls {
+    position: static;
+    flex: 0 0 auto;
   }
 }
