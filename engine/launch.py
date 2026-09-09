@@ -9,9 +9,11 @@ cannot leak into provider children.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 from pathlib import Path
+import random
 import socket
 import sys
 from typing import Any, Awaitable, Callable
@@ -57,6 +59,39 @@ def data_root_id(root: Path) -> str:
     return str(root.resolve())
 
 
+# Windows reserves shifting blocks of its dynamic range (49152 and up) for
+# Hyper-V/WinNAT on every boot. A first port drawn from that range can turn
+# unbindable after a reboot even though nothing listens on it.
+_FRESH_PORT_RANGE = (20000, 49151)
+_IN_USE = {errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", errno.EADDRINUSE)}
+
+
+def _bind_error(port: int) -> OSError | None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as exc:
+            return exc
+    return None
+
+
+def _fresh_port() -> int:
+    low, high = _FRESH_PORT_RANGE
+    for _ in range(64):
+        candidate = random.randint(low, high)
+        if _bind_error(candidate) is None:
+            return candidate
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def _persist_port(config: Path, port: int) -> None:
+    temporary = config.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"port": port}) + chr(10), encoding="utf-8")
+    os.replace(temporary, config)
+
+
 def _port(data: Path) -> int:
     raw = os.environ.get("ORGTREE_V2_PORT", "0").strip()
     try:
@@ -67,8 +102,11 @@ def _port(data: Path) -> int:
     if requested:
         if not 1 <= requested <= 65535:
             raise RuntimeError("ORGTREE_V2_PORT must be between 1 and 65535")
-        port = requested
-    elif config.exists():
+        error = _bind_error(requested)
+        if error is not None:
+            raise RuntimeError(f"engine port {requested} is occupied") from error
+        return requested
+    if config.exists():
         try:
             saved = json.loads(config.read_text(encoding="utf-8"))
             port = int(saved.get("port"))
@@ -76,20 +114,19 @@ def _port(data: Path) -> int:
             raise RuntimeError(f"invalid persisted engine port: {config}") from exc
         if not 1 <= port <= 65535:
             raise RuntimeError(f"invalid persisted engine port: {port}")
-    else:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = int(probe.getsockname()[1])
-        temporary = config.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"port": port}) + "\n", encoding="utf-8")
-        os.replace(temporary, config)
-    # A stored port belongs to this fresh engine only; refuse a collision
-    # instead of silently changing the UI origin or attaching to a listener.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError as exc:
-            raise RuntimeError(f"engine port {port} is occupied") from exc
+        error = _bind_error(port)
+        if error is None:
+            return port
+        # A stored port belongs to this fresh engine only; a live listener is
+        # refused instead of silently changing the UI origin or attaching to
+        # it. Any other bind failure (Windows WSAEACCES on a reserved range)
+        # means nobody can ever listen there, so the origin must move.
+        if error.errno in _IN_USE:
+            raise RuntimeError(f"engine port {port} is occupied") from error
+        print(f"persisted engine port {port} is no longer bindable ({error.errno}); choosing a fresh port",
+              file=sys.stderr, flush=True)
+    port = _fresh_port()
+    _persist_port(config, port)
     return port
 
 
