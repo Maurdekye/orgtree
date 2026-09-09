@@ -6088,16 +6088,38 @@ html.mobile .popout-button { display: none; }
    the tier choice and its gating stay in SpawnChips */
 .sq.hire-reveal > .hsof:not(.side) { opacity: 1; pointer-events: auto; }
 
-/* resize-reply-annotations-above-the-message-box: full composer width (0
-   horizontal margin, matching .cc-composer and its siblings .attach-row/
-   .sendmode, which all stretch edge-to-edge instead of inset) and a quote
-   capped near the composer's own default height — its textarea defaults to
-   `rows={2}`, so 2 lines (2.8em, scaling with this block's own font-size)
-   is the matching proportion. Still scrollable past that: longer quoted
-   context stays readable, it just is not the default shape any more. */
-.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 0; padding: 6px 10px; background: #8090b015; font-size: 12px; }
+/* `<aside>` is ALSO the bare tag the app's left sidebar uses (`aside {
+   width: 264px; display: flex; ...}` above), and ReplyPreview renders an
+   `<aside>` of its own for its own unrelated reason (semantic markup, not
+   sidebar intent) — every property that rule sets and `.reply-preview`
+   does not (width, display, flex-direction, gap, border-right) leaked
+   through uncontested (a bare-tag rule loses on specificity only for
+   properties BOTH rules declare; width/display were never contested, so
+   the sidebar's values won by default). That silently pinned every
+   ReplyPreview instance at a fixed 264px flex column, which is the REAL
+   reason resizing this by margin alone never worked — caught by
+   replysize_probe.py's real Edge render, not by the CSS-value test above
+   it, which only reads this rule's own text and had no way to see a
+   property this rule never mentions. Escape it explicitly rather than
+   relying on this rule happening to out-specificity a selector it was
+   never written against. */
+.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; display: block; width: auto; border-right: 0; }
 .reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 2.8em; overflow: auto; }
+.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
+/* resize-reply-annotations-above-the-message-box (user clarification: the
+   composer's OWN reply annotation only — not a settled message's quoted-
+   reply card, which keeps the rules above unchanged). `.reply-preview-
+   composing` is added by replypreview.tsx only when `onRemove` is passed,
+   which happens only at the composer call site (desk.tsx). Full composer
+   width (0 horizontal margin, matching .cc-composer and its siblings
+   .attach-row/.sendmode, which all stretch edge-to-edge instead of inset)
+   and a quote capped near the composer's own default height — its
+   textarea defaults to `rows={2}`, so 2 lines (2.8em, scaling with this
+   block's own font-size) is the matching proportion. Still scrollable
+   past that: longer quoted context stays readable, it just is not the
+   default shape any more. */
+.reply-preview-composing { margin: 6px 0; }
+.reply-preview-composing blockquote { max-height: 2.8em; }
 .reply-event { display: contents; }
 
 .connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }

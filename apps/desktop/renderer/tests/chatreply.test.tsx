@@ -4,6 +4,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
+import { ReplyPreview } from '../src/canvas/replypreview'
 import type { CanvasNode } from '../src/canvas/shared'
 import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
@@ -286,31 +287,72 @@ test('opening mid-stream preserves the polled prefix and newer websocket source 
   } finally { await v.unmount(); resetConvos() }
 })
 
-// resize-reply-annotations-above-the-message-box. jsdom does not lay out
-// flex boxes (no real geometry to assert on — the cardlayout.test.tsx CSS
-// checks take the same shape for the same reason), so this checks CSS
-// ownership against the shipped stylesheet, the way that file's own last
-// test does. Two claims: WIDTH (no horizontal margin — `.reply-preview`
-// stretches edge to edge, matching `.cc-composer` and its siblings
-// `.attach-row`/`.sendmode`, none of which carry one either) and DEFAULT
-// HEIGHT (the quote caps near 2 lines, the same proportion as the
-// composer's own `rows={2}` textarea default — see desk.tsx's `<textarea
-// rows={2} .../>`).
-test('the reply preview above the composer is full width and capped near the '
-  + "composer's own default height, not a narrow, tall box", () => {
+// resize-reply-annotations-above-the-message-box. User clarification
+// (2026-09-09 11:07): the composer's OWN reply annotation only — NOT a
+// settled message's quoted-reply card (`renderReply(m.reply_to)` etc.),
+// which must keep its original narrow/tall shape. `ReplyPreview` adds
+// `.reply-preview-composing` exactly when `onRemove` is supplied, which is
+// exactly the composer call site (desk.tsx) — every other caller renders
+// read-only, with no remove control.
+//
+// jsdom does not lay out flex boxes (no real geometry to assert on — the
+// cardlayout.test.tsx CSS checks take the same shape, for the same reason;
+// replysize_probe.py covers the real computed geometry separately, in a
+// real browser), so this checks CSS ownership against the shipped
+// stylesheet, the way that file's own last test does.
+test('ReplyPreview only wears the composer-sized class when it has a '
+  + 'remove control — every other caller stays read-only-shaped', async () => {
+  const noop = () => {}
+  const reply: ReplyContext = { org: 'org', agent: 'writer', generation: 1, eventId: 'e', quote: 'q' }
+  const composing = await mountView(<ReplyPreview reply={reply} available onLocate={noop} onRemove={noop} />, el => el)
+  try {
+    assert.ok(composing.el.querySelector('.reply-preview.reply-preview-composing'),
+      'a remove control means this is the live composer annotation')
+  } finally { await composing.unmount() }
+  const settled = await mountView(<ReplyPreview reply={reply} available onLocate={noop} />, el => el)
+  try {
+    assert.ok(settled.el.querySelector('.reply-preview'))
+    assert.equal(settled.el.querySelector('.reply-preview-composing'), null,
+      'no remove control means this is a settled/read-only annotation — it must '
+      + 'NOT pick up the composer sizing')
+  } finally { await settled.unmount() }
+})
+
+test('the composer reply annotation is full width and capped near the '
+  + "composer's own default height — its settled/read-only sibling rule "
+  + 'is untouched', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const rule = css.match(/\.reply-preview\s*\{[^}]*\}/)?.[0]
-  assert.ok(rule, 'positive control: the rule exists in the shipped stylesheet at all')
-  assert.doesNotMatch(rule!, /margin:\s*[\d.]+\S*\s+[1-9]/,
-    `no horizontal margin narrowing it below the composer's own edges: ${rule}`)
-  const quote = css.match(/\.reply-preview blockquote\s*\{[^}]*\}/)?.[0]
-  assert.ok(quote, 'positive control: the blockquote rule exists')
-  assert.doesNotMatch(quote!, /max-height:\s*(100|[1-9]\d{2,})px/,
-    `quote height must not still be pinned to the old ~100px+ cap: ${quote}`)
-  assert.match(quote!, /max-height:\s*2(\.\d+)?em/,
+  // the BASE rule (every non-composer usage) must be EXACTLY what it always
+  // was — this is the anti-leak half: proves the scoped class, not a
+  // blanket change, is what did the resizing.
+  const base = css.match(/\.reply-preview\s*\{[^}]*\}/)?.[0]
+  assert.ok(base, 'positive control: the base rule exists in the shipped stylesheet at all')
+  assert.match(base!, /margin:\s*6px 8px/,
+    `a settled reply annotation must keep its original inset shape: ${base}`)
+  const baseQuote = css.match(/\.reply-preview blockquote\s*\{[^}]*\}/)?.[0]
+  assert.ok(baseQuote, 'positive control: the base blockquote rule exists')
+  assert.match(baseQuote!, /max-height:\s*100px/,
+    `a settled reply annotation must keep its original quote cap: ${baseQuote}`)
+  // the COMPOSING rule is where the resize actually lives.
+  const composingRule = css.match(/\.reply-preview-composing\s*\{[^}]*\}/)?.[0]
+  assert.ok(composingRule, 'positive control: the composing modifier rule exists')
+  assert.doesNotMatch(composingRule!, /margin:\s*[\d.]+\S*\s+[1-9]/,
+    `no horizontal margin narrowing it below the composer's own edges: ${composingRule}`)
+  const composingQuote = css.match(/\.reply-preview-composing blockquote\s*\{[^}]*\}/)?.[0]
+  assert.ok(composingQuote, 'positive control: the composing blockquote rule exists')
+  assert.doesNotMatch(composingQuote!, /max-height:\s*(100|[1-9]\d{2,})px/,
+    `quote height must not still be pinned to the old ~100px+ cap: ${composingQuote}`)
+  assert.match(composingQuote!, /max-height:\s*2(\.\d+)?em/,
     `quote height should be proportioned to ~2 lines, matching the composer's `
-    + `own rows={2} default, not left unbounded: ${quote}`)
-  assert.match(quote!, /overflow:\s*auto/,
-    'a longer quote must still scroll into view rather than being clipped — '
-    + 'the fix caps the DEFAULT height, it does not truncate reply context')
+    + `own rows={2} default, not left unbounded: ${composingQuote}`)
+  // overflow:auto is inherited from the base blockquote rule (never
+  // overridden by the composing modifier), so a longer quote still
+  // scrolls into view rather than being clipped — the fix caps the
+  // DEFAULT height, it does not truncate reply context.
+  assert.doesNotMatch(composingQuote!, /overflow:/,
+    'the composing modifier must not override the base rule\'s scroll '
+    + `behaviour: ${composingQuote}`)
+  assert.match(baseQuote!, /overflow:\s*auto/,
+    'the base rule (inherited by the composer instance too) keeps a long '
+    + `quote scrollable rather than clipped: ${baseQuote}`)
 })
