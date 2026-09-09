@@ -839,13 +839,6 @@ export default function App() {
                     </button>
                   )
                 })()}
-                {/* A renderer-only reload keeps localStorage-backed drafts and
-                    leaves the backend and every agent process untouched. */}
-                <button type="button" className="iconbtn" title="refresh app view"
-                  aria-label="refresh app view"
-                  onClick={() => window.location.reload()}>
-                  <AutorenewIcon fontSize="inherit" />
-                </button>
                 {/* desktop: display:contents — the chips stay direct flex
                     items of the orgbar, byte-identical layout. Compact: the
                     whole run collapses behind ⋯ (D-125 orgbar ruling; the

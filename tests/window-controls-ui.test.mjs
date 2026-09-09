@@ -23,7 +23,8 @@ await build({
         export const CloseIcon = Icon
         export const MaximizeIcon = Icon
         export const MinimizeIcon = Icon
-        export const RestoreIcon = Icon`,
+        export const RestoreIcon = Icon
+        export const AutorenewIcon = Icon`,
       loader: 'tsx',
     }))
   }}],
@@ -46,13 +47,14 @@ test('mounted window controls invoke the scoped bridge and track maximize events
   const { WindowControls } = createRequire(import.meta.url)(output)
   const target = document.getElementById('app')
   const rootNode = createRoot(target)
-  await act(async () => rootNode.render(React.createElement(WindowControls)))
-  assert.equal(document.querySelectorAll('.window-control').length, 3)
+  await act(async () => rootNode.render(React.createElement(WindowControls, { onRefresh: () => calls.push('refresh') })))
+  assert.equal(document.querySelectorAll('.window-control').length, 4)
   assert.equal(document.querySelector('[aria-label="Window controls"]').getAttribute('role'), 'group')
+  await act(async () => document.querySelector('[aria-label="Refresh app view"]').click())
   await act(async () => document.querySelector('[aria-label="Minimize window"]').click())
   await act(async () => document.querySelector('[aria-label="Maximize window"]').click())
   await act(async () => document.querySelector('[aria-label="Close window"]').click())
-  assert.deepEqual(calls, ['minimize', 'toggle-maximize', 'close'])
+  assert.deepEqual(calls, ['refresh', 'minimize', 'toggle-maximize', 'close'])
   await act(async () => { for (const listener of listeners) listener({ type: 'window-state', data: { visible: true, restoreWindows: true, minimized: false, maximized: true } }) })
   assert.ok(document.querySelector('[aria-label="Restore window"]'))
   await act(async () => rootNode.unmount())

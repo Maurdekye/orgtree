@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { desktop } from './desktop'
-import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon } from './icons'
+import { AutorenewIcon, CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon } from './icons'
 import type { DesktopControlsState } from '../../../../packages/contracts'
 
 /** The native frame replacement. Every command goes through the opener's
  * sender-scoped bridge; the canvas and surrounding margins remain separate
  * drag regions. */
-export function WindowControls() {
+export function WindowControls({ onRefresh = () => window.location.reload() }: { onRefresh?: () => void } = {}) {
   const [state, setState] = useState<DesktopControlsState | null>(null)
   useEffect(() => {
     const bridge = desktop()
@@ -23,6 +23,8 @@ export function WindowControls() {
   const action = (run: () => Promise<void>) => { void run().catch(() => {}) }
   return (
     <div className="window-controls" role="group" aria-label="Window controls">
+      <button type="button" className="window-control" aria-label="Refresh app view" title="Refresh app view"
+        onClick={onRefresh}><AutorenewIcon fontSize="inherit" /></button>
       <button type="button" className="window-control" aria-label="Minimize window" title="Minimize window"
         onClick={() => action(bridge.minimizeWindow)}><MinimizeIcon fontSize="inherit" /></button>
       <button type="button" className="window-control" aria-label={state.maximized ? 'Restore window' : 'Maximize window'}
