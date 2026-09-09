@@ -78,8 +78,10 @@ class EngineLaunchTests(unittest.TestCase):
 
     def test_unbindable_persisted_port_is_replaced_and_persisted(self):
         # Windows answers a bind inside a Hyper-V/WinNAT reserved range with
-        # WSAEACCES although nothing listens there. That port can never serve
-        # the UI again, so startup must move the origin instead of refusing.
+        # WSAEACCES although nothing listens there. Nothing this process can
+        # do makes that port serve the UI on this boot, so startup moves the
+        # origin instead of refusing. The reservation may well be gone after
+        # the next reboot; the point is only that waiting does not help now.
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
             reserved = 49928
@@ -96,9 +98,9 @@ class EngineLaunchTests(unittest.TestCase):
             self.assertEqual(_port(path), port)
 
     def test_unrecognised_bind_failure_keeps_the_origin(self):
-        # Moving the origin throws away the drafts and layout stored under the
-        # old one, so a bind failure that is neither a listener nor a reserved
-        # range refuses startup rather than guessing that the port is dead.
+        # Moving the origin leaves behind whatever the browser stored under
+        # the old one, so a bind failure that is neither a listener nor a
+        # reserved range refuses startup rather than guessing about the port.
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
             (path / "engine-port.json").write_text(json.dumps({"port": 31337}))

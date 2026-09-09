@@ -61,15 +61,19 @@ def data_root_id(root: Path) -> str:
 
 # Windows reserves shifting blocks of its dynamic range (49152 and up) for
 # Hyper-V/WinNAT on every boot. A first port drawn from that range can turn
-# unbindable after a reboot even though nothing listens on it.
+# unbindable after a reboot even though nothing listens on it. This is the
+# PREFERRED range, not a guarantee: `_fresh_port` falls back to an
+# OS-assigned port when it cannot find a free one here.
 _FRESH_PORT_RANGE = (20000, 49151)
 _IN_USE = {errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", errno.EADDRINUSE)}
 # Windows answers a bind inside a reserved range with WSAEACCES (winerror
 # 10013, which Python surfaces as errno 13). Measured on this machine: every
 # kind of real occupancy — plain listener, SO_REUSEADDR, SO_EXCLUSIVEADDRUSE,
-# bound-but-not-listening — reports EADDRINUSE instead. Moving the origin
-# discards the user's drafts and layout with it, so it is done only for the
-# access-denied reason that is known to be permanent.
+# bound-but-not-listening — reports EADDRINUSE instead, so access-denied says
+# "a reservation, not a listener". It does NOT say the port is unusable
+# forever — reservations shift on the next boot too — only that this process
+# cannot serve the UI there now. Moving the origin leaves behind whatever the
+# browser stored under the old one, so it is done only for this case.
 _RESERVED = {errno.EACCES, getattr(errno, "WSAEACCES", errno.EACCES)}
 
 
@@ -88,6 +92,11 @@ def _fresh_port() -> int:
         candidate = random.randint(low, high)
         if _bind_error(candidate) is None:
             return candidate
+    # 64 draws found nothing free in the preferred range, so take whatever the
+    # OS hands out rather than refusing to start. That port comes FROM the
+    # dynamic range this function is trying to avoid, and can be reserved out
+    # from under the next boot — the recovery path in `_port` is what catches
+    # that. Say "preferred range with a fallback", never "always below 49152".
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
@@ -127,7 +136,9 @@ def _port(data: Path) -> int:
         # A stored port belongs to this fresh engine only; a live listener is
         # refused instead of silently changing the UI origin or attaching to
         # it. An access-denied failure (Windows WSAEACCES on a reserved range)
-        # means nobody can ever listen there, so the origin must move.
+        # says the port is UNAVAILABLE NOW to this process for a reason no
+        # amount of waiting fixes — not that it is unusable forever — so the
+        # origin moves rather than leaving the app unable to start.
         if error.errno in _IN_USE:
             raise RuntimeError(f"engine port {port} is occupied") from error
         if error.errno not in _RESERVED:
