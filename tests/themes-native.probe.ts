@@ -39,7 +39,9 @@ app.whenReady().then(async()=>{
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
   const origin=`http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`
   const register=configureEngineSession(session.defaultSession,origin,'theme-fixture')
-  const main=new BrowserWindow({show:false,width:1000,height:760,webPreferences:{preload:path.join(root,'preload.cjs'),additionalArguments:[`--orgtree-ui-origin=${origin}`],sandbox:true,nodeIntegration:false,contextIsolation:true}})
+  // Match the production window; Electron's default menu can otherwise appear
+  // when redocking focuses a hidden framed fixture and shrink its viewport.
+  const main=new BrowserWindow({show:false,width:1000,height:760,frame:false,autoHideMenuBar:true,webPreferences:{preload:path.join(root,'preload.cjs'),additionalArguments:[`--orgtree-ui-origin=${origin}`],sandbox:true,nodeIntegration:false,contextIsolation:true}})
   configureWindow(main,origin,true,register,()=>{})
   main.webContents.on('console-message',event=>console.log('renderer',event.message))
   await main.loadURL(origin)
@@ -48,6 +50,7 @@ app.whenReady().then(async()=>{
   const inspect=`(()=>{const root=getComputedStyle(document.documentElement),panel=document.querySelector('.settings').getBoundingClientRect();return {accent:root.getPropertyValue('--accent').trim(),ok:root.getPropertyValue('--ok').trim(),bad:root.getPropertyValue('--bad').trim(),font:getComputedStyle(document.querySelector('.settings')).fontFamily,background:getComputedStyle(document.querySelector('.settings')).backgroundColor,button:getComputedStyle(document.querySelector('.primary')).backgroundColor,provider:getComputedStyle(document.querySelector('.prov-openai')).getPropertyValue('--accent').trim(),width:panel.width,height:panel.height,text:document.querySelector('.settings').textContent,draft:document.querySelector('textarea').value}})()`
   console.log('stage: initial inspect')
   const before=await main.webContents.executeJavaScript(inspect)
+  const viewportBefore=await main.webContents.executeJavaScript('({innerHeight,innerWidth})')
   assert.equal(before.accent,'#d97757','fresh native startup uses the Claude fallback palette')
   assert.equal(before.provider,'#22c4bd','real provider identity positive control')
   await new Promise(r=>setTimeout(r,300))
@@ -78,6 +81,7 @@ app.whenReady().then(async()=>{
   await child.webContents.executeJavaScript(`document.querySelector('[aria-label="Return to main window"]').click();true`)
   await waitFor(main,'!!document.querySelector("select")')
   const after=await main.webContents.executeJavaScript(inspect)
+  assert.deepEqual(await main.webContents.executeJavaScript('({innerHeight,innerWidth})'),viewportBefore,'redock keeps the production frameless viewport')
   for(const key of ['ok','bad','provider','font','background','width','height','text','draft'])assert.equal(after[key],before[key],`redock preserves ${key}`)
   fs.writeFileSync(path.join(root,'openrouter-main.png'),await screenshot(main))
   await main.reload()
