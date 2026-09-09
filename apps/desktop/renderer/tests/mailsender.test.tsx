@@ -147,6 +147,15 @@ const typedMessage = (from: string, relationship = 'your peer', body = 'a word a
   }] }],
 })
 
+/** The UNTYPED sibling of `typedMessage` — no `ev` at all, which is the
+ *  ORDINARY case for agent-to-agent mail (a plain body, no schema'd event):
+ *  `decodeEventRow` reads it as `legacy`, not `known`. §13 below is the only
+ *  section that exercises this row shape. */
+const legacyMessage = (from: string, kind = 'status', relationship = 'your report', body = 'a word about the build'): ChatMessage => ({
+  role: 'user', text: 'Agent projection fallback', seq: 1, ts: '2026-09-05T10:00:00Z',
+  segments: [{ kind: 'mail', rows: [{id: 'legacy-fixture', from, relationship, kind, at: '2026-09-05T10:00:00Z', body}] }],
+})
+
 function uiTest(name: string,
   body: (k: { mount: (el: React.ReactElement) => Promise<{ el: HTMLElement }> }) => Promise<void>,
 ): void {
@@ -1340,4 +1349,80 @@ uiTest('§11.10 an unreadable block in the MIDDLE refuses the whole envelope',
     assert.ok(txt(el).includes('SOME FUTURE SHAPE'),
       'and every line of it is still on screen')
     assert.ok(txt(el).includes('first body'), 'including the part we could read')
+  })
+
+// ═══════════════════════════════════════════════════════════════════ §13
+// label-subordinate-messages-and-link-their-sender.
+//
+// EVERY test above this line uses `typedMessage` — a row carrying a
+// schema'd `ev`, which `decodeEventRow` reads as `known` and which `card`'s
+// own heading already draws a chip/route/badge for. But an ORDINARY
+// agent-to-agent send (a plain `orgtree_message` body, no typed event) has
+// no `ev` at all: `decodeEventRow` reads it as `legacy`, `card(row, false,
+// "header")` returns null for that part, and `SegmentList`'s own fallback
+// used to draw `<b>{row.from}</b><span>{row.kind}</span>` — bare text with
+// neither a model chip/route nor a badge. This is the row the coordinator's
+// screenshot showed (a subordinate's mid-task status report): sender and
+// type both unmarked. §13 is the first section to exercise this shape.
+// ═══════════════════════════════════════════════════════════════════ §13
+
+uiTest('§13.1 an untyped (legacy) mail row wears a type badge for its kind',
+  async ({ mount }) => {
+    const { el } = await mount(
+      <AgentDirectoryProvider value={dirAll}>
+        <Msg m={legacyMessage('list-controls', 'status')} slug="org" nid="me" />
+      </AgentDirectoryProvider>)
+    const h = head(el)
+    const badge = q(h, '.event-row-kind')
+    assert.equal(badge.length, 1, 'the kind gets the same badge class the '
+      + 'mailbox list row already uses for a typed event (mail.tsx)')
+    assert.equal(txt(badge[0]!), 'status', 'labelled with the envelope kind, verbatim')
+  })
+
+uiTest('§13.2 …and a DIFFERENT kind proves the badge reads the row, not a '
+  + 'hardcoded label', async ({ mount }) => {
+    const { el } = await mount(
+      <AgentDirectoryProvider value={dirAll}>
+        <Msg m={legacyMessage('list-controls', 'question')} slug="org" nid="me" />
+      </AgentDirectoryProvider>)
+    const badge = q(head(el), '.event-row-kind')
+    assert.equal(badge.length, 1)
+    assert.equal(txt(badge[0]!), 'question')
+  })
+
+uiTest('§13.3 …and its sender wears the SAME model chip and route a typed '
+  + 'row gets — the fix is not special to `known` events', async ({ mount }) => {
+    const { el } = await mount(
+      <AgentDirectoryProvider value={dirAll}>
+        <Msg m={legacyMessage('list-controls')} slug="org" nid="me" />
+      </AgentDirectoryProvider>)
+    const h = head(el)
+    assert.equal(q(h, '.tier').length, 1, 'the chip comes from the directory, '
+      + 'exactly as it does for a typed row (§2.1)')
+    const jump = q(h, 'button.cc-name-jump')
+    assert.equal(jump.length, 1, 'the name is a route')
+    assert.equal(txt(jump[0]!), 'list-controls', 'labelled with the sender, verbatim')
+  })
+
+uiTest('§13.4 CONTROL: with no directory above it, the legacy row degrades '
+  + 'exactly like a typed one — plain name, no chip, no route',
+  async ({ mount }) => {
+    const { el } = await mount(<Msg m={legacyMessage('list-controls')} slug="org" nid="me" />)
+    const h = head(el)
+    assert.ok(txt(h).includes('list-controls'), 'the name is still there')
+    absent(h, '.tier', 'no chip without a directory — same rule as §2.2')
+    absent(h, 'button.cc-name-jump', 'and no jump')
+    // the badge is unaffected by the directory: it does not depend on identity
+    assert.equal(q(h, '.event-row-kind').length, 1, 'the type badge still renders')
+  })
+
+uiTest('§13.5 …and the relationship line survives beside the new badge — '
+  + 'the fix adds a badge, it does not replace what was already there',
+  async ({ mount }) => {
+    const { el } = await mount(
+      <AgentDirectoryProvider value={dirAll}>
+        <Msg m={legacyMessage('list-controls', 'status', 'your report')} slug="org" nid="me" />
+      </AgentDirectoryProvider>)
+    assert.ok(txt(head(el)).includes('your report'),
+      'the sender/recipient relationship word is still rendered')
   })

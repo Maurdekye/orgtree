@@ -71,7 +71,20 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
       case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) => <section key={row.id ?? j}
         {...eventSurface(row, profile)} className={'turn-mail ' + eventSurface(row, profile).className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
-          {decodeEventRow(row, profile).kind !== 'known' && <><b>{row.from}</b><span>{row.kind}</span></>}
+          {decodeEventRow(row, profile).kind !== 'known' && <>
+            {/* label-subordinate-messages-and-link-their-sender: an untyped
+                row (most agent-to-agent mail — plain body, no schema'd `ev`)
+                used to fall to `<b>{row.from}</b><span>{row.kind}</span>`,
+                bare text with neither the model chip/route every OTHER
+                sender in this app wears (identity.tsx's `AgentName`, wired
+                everywhere via `actor`) nor a badge for its type — the exact
+                two things `card`'s known-event heading draws for free
+                (`event-actor`, and `.event-row-kind` per mail.tsx's list
+                row). Same classes, same look, whether or not this row ever
+                got a typed event. */}
+            <span className="event-actor">{actor ? actor(row.from) : row.from}</span>
+            <span className="event-row-kind">{row.kind}</span>
+          </>}
           {row.relationship && <span>{row.relationship}</span>}
           {row.kind === 'notice' && <span className="turn-mail-passive">no reply expected</span>}
         </header>
