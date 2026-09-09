@@ -10,6 +10,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
+import { UpdateController } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
 import type { VisualTheme } from '../../../packages/contracts/visual-theme'
@@ -92,6 +93,7 @@ else {
     tray.setToolTip(`Orgtree - ${label()}`)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Open Orgtree', click: show }, { label: label(), enabled: false }, { type: 'separator' },
+      { label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       { label: 'Routine mail and completion notifications', type: 'checkbox', checked: prefs.routineNotifications, click: item => setPreferences({ routineNotifications: item.checked }) },
@@ -154,6 +156,19 @@ else {
       }
     },
   }, path.join(app.getPath('userData'), 'maintenance-failures.json'))
+  // Independent of the engine-driven maintenance flow above: this is the
+  // plain "is a newer release available" question, checked on its own
+  // schedule and surfaced directly to the header/Settings - not gated on
+  // any engine-issued request.
+  const updater = new UpdateController({
+    run: async () => {
+      if (!app.isPackaged) return { hasUpdate: false }
+      const result = await autoUpdater.checkForUpdates()
+      if (!result || result.updateInfo.version === app.getVersion()) return { hasUpdate: false }
+      return { hasUpdate: true, version: result.updateInfo.version }
+    },
+    report: status => broadcast({ type: 'update', data: status }),
+  })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.
   app.on('web-contents-created', (_event, contents) => {
@@ -203,6 +218,8 @@ else {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
     })
+    handle('desktop:update-status', () => updater.current())
+    handle('desktop:check-for-updates', () => updater.check())
     engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
@@ -277,6 +294,7 @@ else {
       const refresh = async () => {
         if (quitting) return
         stats = await engine.stats(); rebuildTray()
+        void updater.tick().catch(() => {})
         if (stats === null && !engine.managed) {
           await engine.verifyAttached()
           if (!engine.managed && engine.status.state === 'stopped' && !quitting) {
@@ -308,9 +326,9 @@ else {
       if (app.isPackaged) {
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
-        autoUpdater.on('error', () => { broadcast({ type: 'update', data: { state: 'unavailable' } }) })
-        autoUpdater.on('update-downloaded', () => { downloaded = true; broadcast({ type: 'update', data: { state: 'pending-idle' } }) })
-        void autoUpdater.checkForUpdates().catch(() => {})
+        autoUpdater.on('error', () => updater.errored())
+        autoUpdater.on('update-downloaded', () => { downloaded = true; updater.downloaded() })
+        autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
       }
     } catch (error) {
       await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not start its engine.', detail: error instanceof Error ? error.message : 'Unknown startup error' })
