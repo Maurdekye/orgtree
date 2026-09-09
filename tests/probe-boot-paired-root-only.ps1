@@ -144,7 +144,13 @@ if pathlib.Path(sys.argv[0]).name == 'launch.py':
         while not marker.exists() and time.monotonic()<deadline: time.sleep(.1)
         if not marker.exists(): return
         child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(120)'])
-        (install/'child-control.json').write_text(json.dumps({'engine':os.getpid(),'child':child.pid}),encoding='utf-8')
+        child_audit=install/f'audit-loaded-{child.pid}.json'
+        audit_deadline=time.monotonic()+10
+        while not child_audit.exists() and child.poll() is None and time.monotonic()<audit_deadline: time.sleep(.05)
+        if not child_audit.exists(): raise RuntimeError('Child isolation audit did not initialize')
+        receipt=install/f'child-control-{os.getpid()}.tmp'
+        receipt.write_text(json.dumps({'engine':os.getpid(),'child':child.pid}),encoding='utf-8')
+        os.replace(receipt,install/'child-control.json')
     threading.Thread(target=child_control,daemon=True).start()
 '@
 $site=Join-Path (Split-Path $paths.Python) 'Lib\site-packages\sitecustomize.py'
