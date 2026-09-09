@@ -19,15 +19,21 @@ export interface DesktopNotification {
 }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }
 export interface WindowLease { key: string; epoch: number; owner: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'notification-click' | 'main-window-shown'; data: unknown }
+export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
+export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'notification-click' | 'main-window-shown' | 'window-state'; data: unknown }
 export interface DesktopBridge {
   getStatus(): Promise<EngineStatus>
-  getWindowState(): Promise<{ visible: boolean; restoreWindows: boolean }>
+  getWindowState(): Promise<DesktopWindowState>
+  getWindowControlsState(): Promise<DesktopControlsState>
   getPreferences(): Promise<DesktopPreferences>
   setPreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>
   // Domain transport stays relative HTTP/WebSocket; no arbitrary path IPC.
   showMainWindow(): Promise<void>
   quit(): Promise<void>
+  minimizeWindow(): Promise<void>
+  toggleMaximizeWindow(): Promise<void>
+  closeWindow(): Promise<void>
   getHarnesses(): Promise<{ id: 'claude' | 'codex' | 'antigravity'; detected: boolean; url: string }[]>
   notify(notification: DesktopNotification): Promise<boolean>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>

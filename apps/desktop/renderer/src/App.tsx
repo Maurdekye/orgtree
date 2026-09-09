@@ -28,7 +28,7 @@ import { KillSwitch } from './KillSwitch'
 import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
   DataUsageIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
-  LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
+  LockOpenIcon, MailIcon, MaximizeIcon, MenuIcon, MinimizeIcon, PlayIcon, PublicIcon, RestoreIcon, SettingsIcon,
   SparkIcon, StopIcon, StorageIcon, WarnIcon,
 } from './icons'
 import { DirList } from './forms'
@@ -57,6 +57,7 @@ import type {
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
+import type { DesktopControlsState } from '../../../../packages/contracts'
 
 /** the cost chip's hover split: how much of the org total was billed to the
  *  api_fallback key vs the subscription. '' when the org has never used (and
@@ -184,6 +185,36 @@ export const activeOrgTitle = (orgs: Pick<OrgListEntry, 'name' | 'working'>[]): 
   return active.length
     ? `active agents by organization — ${active.map((org) => `${org.name}: ${org.working}`).join(' · ')}`
     : 'active agents by organization — none'
+}
+
+function WindowControls() {
+  const [state, setState] = useState<DesktopControlsState | null>(null)
+  useEffect(() => {
+    const bridge = desktop()
+    if (!bridge?.getWindowControlsState) return
+    let alive = true
+    void bridge.getWindowControlsState().then(next => { if (alive) setState(next) }).catch(() => {})
+    const unsubscribe = bridge.onEvent(event => {
+      if (alive && event.type === 'window-state') setState(event.data as DesktopControlsState)
+    })
+    return () => { alive = false; unsubscribe() }
+  }, [])
+  const bridge = desktop()
+  if (!state || !bridge) return null
+  const action = (run: () => Promise<void>) => { void run().catch(() => {}) }
+  return (
+      <div className="window-controls" role="group" aria-label="Window controls">
+        <button type="button" className="window-control" aria-label="Minimize window" title="Minimize window"
+          onClick={() => action(bridge.minimizeWindow)}><MinimizeIcon fontSize="inherit" /></button>
+        <button type="button" className="window-control" aria-label={state.maximized ? 'Restore window' : 'Maximize window'}
+          title={state.maximized ? 'Restore window' : 'Maximize window'}
+          onClick={() => action(bridge.toggleMaximizeWindow)}>
+          {state.maximized ? <RestoreIcon fontSize="inherit" /> : <MaximizeIcon fontSize="inherit" />}
+        </button>
+        <button type="button" className="window-control close" aria-label="Close window" title="Close window"
+          onClick={() => action(bridge.closeWindow)}><CloseIcon fontSize="inherit" /></button>
+      </div>
+  )
 }
 
 /** The provider-neutral header summary. It deliberately walks ALL_TIERS:
@@ -707,7 +738,8 @@ export default function App() {
           <button className="h1-usage" title="App settings"
             onClick={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}>
             <SettingsIcon fontSize="inherit" />
-          </button>}</h1>
+          </button>}
+        <WindowControls /></h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> all organizations</button>}
       <nav>
         {orgs.map((o) => (
@@ -1076,7 +1108,10 @@ export default function App() {
                 <a className="gh-link" href="https://github.com/Maurdekye/claude-orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
+                <WindowControls />
               </header>
+              <div className="canvas-stage">
+              <div className="window-drag-margin" aria-hidden="true" />
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
                 mailEvt={mailEvt}
                 focusAgent={focusAgent}
@@ -1097,6 +1132,8 @@ export default function App() {
                   setDocketJump(jumpTo(item))
                   setShowDocket(true)
                 }} />
+              <div className="window-drag-margin" aria-hidden="true" />
+              </div>
               {/* hard-full is a STATE, not an event: the alert persists (and
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}

@@ -6,9 +6,17 @@ import zlib from 'node:zlib'
 // small rasterizer creates the Windows ICO frames used by Electron/electron-builder.
 const sizes = [16, 24, 32, 48, 64, 128, 256]
 const root = path.resolve(import.meta.dirname, '..')
-const output = path.join(root, 'apps/desktop/assets/orgtree-eye.ico')
+const outputDirectory = path.join(root, 'apps/desktop/assets')
 const orange = [245, 130, 32]
 const pupil = [24, 35, 45]
+const trayColors = {
+  grey: [127, 135, 148],
+  orgtree: [182, 189, 200],
+  claude: [217, 119, 87],
+  codex: [34, 196, 189],
+  antigravity: [117, 165, 255],
+  openrouter: [182, 154, 250],
+}
 
 const eyePolygon = (() => {
   const points = []
@@ -37,7 +45,7 @@ function insideEye(x, y) {
   return hit
 }
 
-function pixel(size, x, y) {
+function pixel(size, x, y, color, center = color) {
   const scale = 4
   const samples = []
   for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
@@ -45,7 +53,7 @@ function pixel(size, x, y) {
     const vy = (y + (sy + .5) / scale) * 256 / size
     if (!insideEye(vx, vy)) { samples.push([0, 0, 0, 0]); continue }
     const dx = vx - 128, dy = vy - 128, r = Math.hypot(dx, dy)
-    samples.push(r <= 57 ? (r <= 25 ? [...orange, 255] : [...pupil, 255]) : [...orange, 255])
+    samples.push(r <= 57 ? (r <= 25 ? [...center, 255] : [...color, 255]) : [...color, 255])
   }
   const alpha = samples.reduce((sum, sample) => sum + sample[3], 0) / samples.length
   const rgb = samples.reduce((sum, sample) => sample[3] ? sum.map((v, i) => v + sample[i]) : sum, [0, 0, 0]).map(v => Math.round(v / (samples.filter(s => s[3]).length || 1)))
@@ -65,12 +73,12 @@ function chunk(type, data) {
   return out
 }
 
-function png(size) {
+function png(size, color, center = color) {
   const rows = []
   for (let y = 0; y < size; y++) {
     const row = Buffer.alloc(1 + size * 4); row[0] = 0
     for (let x = 0; x < size; x++) {
-      const [r, g, b, a] = pixel(size, x, y); const offset = 1 + x * 4
+      const [r, g, b, a] = pixel(size, x, y, color, center); const offset = 1 + x * 4
       row[offset] = r; row[offset + 1] = g; row[offset + 2] = b; row[offset + 3] = a
     }
     rows.push(row)
@@ -79,13 +87,22 @@ function png(size) {
   return Buffer.concat([Buffer.from('\x89PNG\r\n\x1a\n', 'binary'), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(Buffer.concat(rows), { level: 9 })), chunk('IEND', Buffer.alloc(0))])
 }
 
-const frames = sizes.map(size => png(size))
-const header = Buffer.alloc(6); header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(frames.length, 4)
-const entries = Buffer.alloc(frames.length * 16); let offset = 6 + entries.length
-for (let i = 0; i < frames.length; i++) {
-  const size = sizes[i], frame = frames[i], at = i * 16
-  entries[at] = size === 256 ? 0 : size; entries[at + 1] = size === 256 ? 0 : size; entries[at + 2] = 0; entries[at + 3] = 0
-  entries.writeUInt16LE(1, at + 4); entries.writeUInt16LE(32, at + 6); entries.writeUInt32LE(frame.length, at + 8); entries.writeUInt32LE(offset, at + 12); offset += frame.length
+function writeIcon(filename, color, center = color) {
+  const frames = sizes.map(size => png(size, color, center))
+  const header = Buffer.alloc(6); header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(frames.length, 4)
+  const entries = Buffer.alloc(frames.length * 16); let offset = 6 + entries.length
+  for (let i = 0; i < frames.length; i++) {
+    const size = sizes[i], frame = frames[i], at = i * 16
+    entries[at] = size === 256 ? 0 : size; entries[at + 1] = size === 256 ? 0 : size; entries[at + 2] = 0; entries[at + 3] = 0
+    entries.writeUInt16LE(1, at + 4); entries.writeUInt16LE(32, at + 6); entries.writeUInt32LE(frame.length, at + 8); entries.writeUInt32LE(offset, at + 12); offset += frame.length
+  }
+  const output = path.join(outputDirectory, filename)
+  fs.writeFileSync(output, Buffer.concat([header, entries, ...frames]))
+  console.log(`wrote ${output} (${sizes.join(', ')}px PNG frames)`)
 }
-fs.writeFileSync(output, Buffer.concat([header, entries, ...frames]))
-console.log(`wrote ${output} (${sizes.join(', ')}px PNG frames)`)
+
+// The orange artwork remains the static app/installer icon. Tray and window
+// icons are monochrome variants so their state and the saved visual theme can
+// change without recoloring pixels in Electron's platform-specific bitmap.
+writeIcon('orgtree-eye.ico', orange, pupil)
+for (const [name, color] of Object.entries(trayColors)) writeIcon(`orgtree-eye-tray-${name}.ico`, color)

@@ -78,6 +78,14 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 
 .app { display: flex; min-height: 100vh; }
+.window-controls { display: flex; height: 28px; margin-left: 4px; -webkit-app-region: no-drag; }
+.window-control {
+  width: 46px; height: 100%; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--dim); display: grid; place-items: center;
+  font-size: 15px; -webkit-app-region: no-drag;
+}
+.window-control:hover { background: var(--panel-2); color: var(--ink-strong); }
+.window-control.close:hover { background: #c42b1c; color: #fff; }
 
 /* ------------------------------------------------------------------ sidebar */
 aside {
@@ -3455,10 +3463,20 @@ button.danger.solid {
 }
 button.danger.solid:hover { background: rgba(241, 76, 76, .24); }
 
+.canvas-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.window-drag-margin {
+  flex: 0 0 10px; min-height: 10px; -webkit-app-region: drag;
+}
+.canvas-stage > .viewport { flex: 1; min-height: 0; -webkit-app-region: no-drag; }
 .orgbar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft);
+  -webkit-app-region: drag;
 }
+.welcome-card h1 { -webkit-app-region: drag; }
+.welcome-card h1 button, .welcome-card h1 a { -webkit-app-region: no-drag; }
+.orgbar button, .orgbar a, .orgbar input, .orgbar select, .orgbar .chip,
+.orgbar .orgname-wrap, .orgbar [role="button"] { -webkit-app-region: no-drag; }
 .orgbar h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-strong); }
 
 /* the org-name + connectivity-error pair: `position: relative` here (not on

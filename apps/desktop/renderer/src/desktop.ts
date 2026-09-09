@@ -1,4 +1,4 @@
-import type { DesktopBridge, DesktopPreferences } from '../../../../packages/contracts'
+import type { DesktopBridge, DesktopControlsState, DesktopPreferences, DesktopWindowState } from '../../../../packages/contracts'
 
 export interface NativeNotice {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
@@ -11,7 +11,8 @@ export type NativeDesktop = Omit<DesktopBridge, 'getPreferences' | 'setPreferenc
   getPreferences(): Promise<NativePreferences>
   setPreferences(patch: Partial<NativePreferences>): Promise<NativePreferences>
   notify?(notice: NativeNotice): Promise<boolean>
-  getWindowState?(): Promise<{ visible: boolean; restoreWindows: boolean }>
+  getWindowState?(): Promise<DesktopWindowState>
+  getWindowControlsState?(): Promise<DesktopControlsState>
 }
 export const desktop = (): NativeDesktop | undefined =>
   (window as Window & { orgtreeDesktop?: NativeDesktop }).orgtreeDesktop

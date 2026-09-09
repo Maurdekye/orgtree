@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import test from 'node:test'
+
+const root = path.resolve(import.meta.dirname, '..')
+const read = file => fs.readFileSync(path.join(root, file), 'utf8')
+
+test('frameless windows expose only sender-scoped window controls', () => {
+  const main = read('apps/desktop/main/index.ts')
+  const preload = read('apps/desktop/preload/index.ts')
+  const contracts = read('packages/contracts/index.ts')
+  assert.match(main, /frame: false/)
+  assert.match(main, /desktop:window-minimize/)
+  assert.match(main, /desktop:window-toggle-maximize/)
+  assert.match(main, /desktop:window-close/)
+  assert.match(main, /desktop:window-controls-state/)
+  assert.match(main, /assertNativeSender\(event, main, engine\.origin\)/)
+  assert.match(preload, /minimizeWindow: \(\) => ipcRenderer\.invoke\('desktop:window-minimize'\)/)
+  assert.match(preload, /getWindowControlsState: \(\) => ipcRenderer\.invoke\('desktop:window-controls-state'\)/)
+  assert.match(preload, /toggleMaximizeWindow: \(\) => ipcRenderer\.invoke\('desktop:window-toggle-maximize'\)/)
+  assert.match(preload, /closeWindow: \(\) => ipcRenderer\.invoke\('desktop:window-close'\)/)
+  assert.match(contracts, /minimizeWindow\(\): Promise<void>/)
+  assert.match(contracts, /toggleMaximizeWindow\(\): Promise<void>/)
+  assert.match(contracts, /closeWindow\(\): Promise<void>/)
+})
+
+test('renderer keeps interactive controls out of drag regions and offers top/bottom margins', () => {
+  const app = read('apps/desktop/renderer/src/App.tsx')
+  const styles = read('apps/desktop/renderer/src/styles.css')
+  assert.match(app, /<WindowControls \/>/)
+  assert.match(app, /<header className="orgbar">[\s\S]*<WindowControls \/>/)
+  assert.match(app, /<h1>[\s\S]*<WindowControls \/><\/h1>/)
+  assert.match(app, /aria-label="Minimize window"/)
+  assert.match(app, /aria-label=\{state\.maximized \? 'Restore window' : 'Maximize window'\}/)
+  assert.match(app, /aria-label="Close window"/)
+  assert.equal((app.match(/className="window-drag-margin"/g) ?? []).length, 2, 'top and bottom canvas margins')
+  assert.match(styles, /\.window-controls \{[^}]*-webkit-app-region: no-drag/)
+  assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
+  assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
+})

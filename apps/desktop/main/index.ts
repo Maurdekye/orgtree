@@ -11,6 +11,7 @@ import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
 import type { DesktopEvent } from '../../../packages/contracts/index'
+import type { VisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
 app.setAppUserModelId('com.maurdekye.orgtree')
@@ -23,12 +24,33 @@ else {
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
   let restoreWindows = !process.argv.includes('--background')
-  const windowState = () => ({ visible: !!main && !main.isDestroyed() && main.isVisible(), restoreWindows })
+  const windowState = () => ({
+    visible: !!main && !main.isDestroyed() && main.isVisible(),
+    restoreWindows,
+  })
+  const windowControlsState = () => ({
+    ...windowState(),
+    minimized: !!main && !main.isDestroyed() && main.isMinimized(),
+    maximized: !!main && !main.isDestroyed() && main.isMaximized(),
+  })
   const engine = new Engine()
-  const iconPath = path.join(app.getAppPath(), 'apps/desktop/assets/orgtree-eye.ico')
+  const assetsPath = path.join(app.getAppPath(), 'apps/desktop/assets')
+  const iconPath = path.join(assetsPath, 'orgtree-eye.ico')
+  const trayIconNames: Record<VisualTheme | 'grey', string> = {
+    grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
+    claude: 'orgtree-eye-tray-claude.ico', codex: 'orgtree-eye-tray-codex.ico',
+    antigravity: 'orgtree-eye-tray-antigravity.ico', openrouter: 'orgtree-eye-tray-openrouter.ico',
+  }
+  const runtimeIcon = () => {
+    const theme = preferences?.get().visualTheme ?? 'orgtree'
+    const name = engine.status.state === 'ready' ? trayIconNames[theme] : trayIconNames.grey
+    const image = nativeImage.createFromPath(path.join(assetsPath, name))
+    return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
+  }
   const notifications = new NotificationGate()
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); main.restore(); main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
+  const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
   const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} agents` : `Engine ${engine.status.state}`
   const loginPreference = () => {
     // Never register the development electron.exe as a login application.
@@ -39,6 +61,9 @@ else {
     broadcast({ type: 'preferences', data: next }); return next
   }
   const rebuildTray = () => {
+    const image = runtimeIcon()
+    tray?.setImage(image)
+    for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
@@ -117,10 +142,17 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
-    tray = new Tray(nativeImage.createFromPath(iconPath))
+    tray = new Tray(runtimeIcon())
     tray.on('double-click', show); rebuildTray()
     handle('desktop:status', () => engine.status)
     handle('desktop:window-state', () => windowState())
+    handle('desktop:window-controls-state', () => windowControlsState())
+    handle('desktop:window-minimize', () => { main?.minimize() })
+    handle('desktop:window-toggle-maximize', () => {
+      if (!main) return
+      if (main.isMaximized()) main.unmaximize(); else main.maximize()
+    })
+    handle('desktop:window-close', () => { main?.close() })
     handle('desktop:preferences', () => preferences.get())
     handle('desktop:set-preferences', value => setPreferences(value))
     handle('desktop:show', () => show())
@@ -154,19 +186,30 @@ else {
       const openArtifact = (url: string) => {
         const artifactSession = session.fromPartition(`artifact-${randomUUID()}`)
         configureArtifactSession(artifactSession, url, trustedOrigin, engine.token)
+        // Artifact viewers do not receive the app bridge or renderer chrome;
+        // retain the native title bar for this read-only auxiliary window.
         const viewer = new BrowserWindow({ width: 1000, height: 760, icon: iconPath, autoHideMenuBar: true,
           webPreferences: { session: artifactSession, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
+        viewer.setIcon(runtimeIcon())
         viewer.on('closed', quitAfterLastView)
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
-      main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, show: false, icon: iconPath, autoHideMenuBar: true,
+      main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
         webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
           sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${trustedOrigin}`] } })
+      main.setIcon(runtimeIcon())
+      main.on('maximize', publishWindowState)
+      main.on('unmaximize', publishWindowState)
+      main.on('minimize', publishWindowState)
+      main.on('restore', publishWindowState)
+      main.on('show', publishWindowState)
+      main.on('hide', publishWindowState)
       configureWindow(main, trustedOrigin, true, register, openArtifact)
       main.webContents.on('did-create-window', child => {
+        child.setIcon(runtimeIcon())
         child.on('closed', quitAfterLastView)
       })
       main.on('close', event => {
