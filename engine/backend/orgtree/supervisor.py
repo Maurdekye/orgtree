@@ -10767,6 +10767,45 @@ def _retire_breadcrumb_splice(slug: str, nid: str) -> None:
         pass
 
 
+def check_switch_account(org: Org, slug: str, nid: str, tier: str,
+                         account: str | None) -> None:
+    """The multi-account rule for a MODEL SWITCH, shared by both doors and
+    the boundary apply (D2d): a cross-provider switch on a BOUND node must
+    carry the account choice in the same act — silently rebinding would be
+    an implicit account decision rule 2 forbids — and any supplied account
+    is validated against the NEW tier through the one binding validator.
+    Raises; the boundary apply converts the raise into the recorded no-op
+    drop (never a raise in the shared finally)."""
+    node = org.node(nid)
+    bound = str(node.get("account") or "")
+    if bound and not bound.startswith("missing:"):
+        if (providers.provider_of(str(node.get("model") or ""))
+                != providers.provider_of(str(tier or ""))) and not account:
+            raise registry.BindingRefused(
+                f"a cross-provider switch of {nid} needs the account to run "
+                f"on — its binding {bound} cannot follow the tier across "
+                f"providers, and choosing one silently is the implicit "
+                f"account decision the no-rollover rule forbids; pass "
+                f"`account`")
+    if account:
+        registry.validate_binding(slug, str(tier or ""), account)
+
+
+def finish_switch_binding(org: Org, slug: str, nid: str,
+                          account: str | None, actor: str) -> None:
+    """The rebind half of an ATOMIC switch+rebind, on the caller's doc under
+    the caller's save window (both doors after an immediate apply; the
+    boundary apply for a queued one)."""
+    if not account or nid not in org.nodes:
+        return
+    node = org.node(nid)
+    previous = str(node.get("account") or "")
+    node["account"] = account
+    org._log("account_assign", actor,
+             {"account": account, "previous_account": previous or None,
+              "via": "switch_model"}, [])
+
+
 def _apply_pending_switch_locked(o2: Org, slug: str, nid: str) -> bool:
     """D-234: apply the model switch queued behind `nid`'s turn, on the doc
     the caller already holds under DOC_LOCK (the caller saves). True when the
@@ -10774,9 +10813,40 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str) -> bool:
     same save window, exactly as the API doors do for an immediate switch."""
     if nid not in o2.nodes or not o2.node(nid).get("pending_switch"):
         return False
+    # multi-account D2d, checked BEFORE the ledger pops and applies: an
+    # accountless cross-provider switch on a bound node (queued before this
+    # feature, or against a binding that appeared meanwhile) is a RECORDED
+    # NO-OP, never a raise — this call sits inside _run_one_turn_recorded's
+    # shared finally, the block every turn exit passes through, and a raise
+    # here lands in the turn's own bookkeeping (Opus seam warning). The
+    # refusal reuses the ledger's own never-silently-forgotten drop shape:
+    # pend removed, logged, node stays whole on its old tier.
+    _pend = dict(o2.node(nid).get("pending_switch") or {})
+    _p_tier = str(_pend.get("tier") or "")
+    _p_acct = _pend.get("account") or None
+    try:
+        check_switch_account(o2, slug, nid, _p_tier, _p_acct)
+    except Exception as _e:  # noqa: BLE001 — DELIBERATELY broad: inside the
+        # shared finally even a programming error in the check must become a
+        # recorded drop, never a raise into the turn's bookkeeping
+        reason = str(_e)
+        o2.node(nid).pop("pending_switch", None)
+        o2._log("switch_queue_dropped", str(_pend.get("by") or "USER"),
+                {"node": nid, "to": _p_tier, "reason": reason,
+                 "queued_at": _pend.get("at")},
+                [f"the queued switch of {nid} to {_p_tier} was DROPPED at "
+                 f"the end of its turn: {reason}. It stays on "
+                 f"{o2.node(nid).get('model')}; ask again with the account "
+                 f"choice."])
+        print(f"[orgtree] {slug}/{nid}: queued model switch DROPPED — "
+              f"{reason}")
+        return True
     r = o2.apply_pending_switch(nid)
     if r is None:
         return False
+    if not r.get("dropped"):
+        finish_switch_binding(o2, slug, nid, _p_acct,
+                              str(_pend.get("by") or "USER"))
     if r.get("old_session"):
         export_predecessor_transcript(o2, nid,
                                       old_sid=cast(str, r["old_session"]),

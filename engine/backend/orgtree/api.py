@@ -8196,13 +8196,29 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 result = org.reallocate(body.node, a.get("node"), _arg_num(a, "delta", 0))  # type: ignore[arg-type]  # node() 422s on None; _arg_num: an int here turned {"delta": 0.5} into a silent no-op
             elif body.tool == "orgtree_switch_model":
                 provider_hire_gate(org, a.get("tier"))
+                # multi-account D2d: a cross-provider switch on a bound node
+                # carries its account choice in the same act, validated
+                # against the NEW tier at enqueue — the shared rule both
+                # doors call
+                _sw_acct = str(a.get("account") or "") or None
+                try:
+                    supervisor.check_switch_account(
+                        org, body.org, str(a.get("node") or ""),
+                        str(a.get("tier") or ""), _sw_acct)
+                except ValueError as e:
+                    raise HTTPException(422, str(e))
                 # D-234: the supervisor's live answer rides in — the ledger
                 # also reads the seat's durable inflight marker; either says
                 # "mid-turn" and the switch QUEUES instead of applying
                 result = org.switch_model(
                     body.node, a.get("node", ""), a.get("tier", ""),
+                    account=_sw_acct,
                     busy=bool(a.get("node") and supervisor.state(
                         body.org, str(a.get("node")))["busy"]))
+                if not result.get("queued") and not result.get("cancelled"):
+                    supervisor.finish_switch_binding(
+                        org, body.org, str(a.get("node") or ""), _sw_acct,
+                        body.node)
                 if result.get("old_session"):
                     # a crossing archived the old session as a bearer — the
                     # transcript copy into the seat's scratch rides the same
@@ -9562,6 +9578,9 @@ class Op(Body):
     delta: float | None = None
     new_parent: str | None = None  # promote / demote
     dir: str | None = None        # revoke_dir
+    # multi-account D2d: the account chosen WITH a cross-provider
+    # switch_model (required when the node is bound; validated at the door)
+    account: str | None = None
     # ceiling spec §1: the one-action bridge — re-send the same op with this
     # set and an over-ceiling admin grant raises the ceiling to fit (logged,
     # named, never silent). Ignored for visitors: no legal raise path exists.
@@ -9944,11 +9963,23 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
             if body.tier is None:
                 raise LedgerError("switch_model needs tier")
             provider_hire_gate(org, body.tier)
+            # multi-account D2d: same shared rule as the agent door — the
+            # operator does not bypass the cross-provider account choice
+            _sw_acct = str(getattr(body, "account", "") or "") or None
+            try:
+                supervisor.check_switch_account(
+                    org, slug, cast(str, body.node), body.tier, _sw_acct)
+            except ValueError as e:
+                raise LedgerError(str(e)) from None
             # D-234: mid-turn → queued (see the agent door)
             result = org.switch_model(
                 body.actor, body.node, body.tier,  # type: ignore[arg-type]
+                account=_sw_acct,
                 busy=bool(body.node
                           and supervisor.state(slug, body.node)["busy"]))
+            if not result.get("queued") and not result.get("cancelled"):
+                supervisor.finish_switch_binding(
+                    org, slug, cast(str, body.node), _sw_acct, body.actor)
             if result.get("old_session"):
                 # a crossing archived the old session as a bearer — the
                 # transcript copy rides the same save window as for

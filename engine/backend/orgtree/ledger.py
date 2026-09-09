@@ -4131,6 +4131,7 @@ class Org:
     # ------------------------------------------------------------- reallocate
     def switch_model(self, actor: str, nid: str, tier: str, *,
                      busy: bool | None = None,
+                     account: str | None = None,
                      _queued: dict[str, Any] | None = None) -> dict[str, Any]:
         """User spec: swap an agent's model ON THE FLY, mid-life — the session
         survives (№16: --resume honors a changed --model; the next turn runs
@@ -4218,7 +4219,12 @@ class Org:
                 actor, nid, tier, _queued={"at": now(), "by": actor})
             replaced = pend["tier"] if pend else None
             n["pending_switch"] = {"tier": tier, "from": old, "by": actor,
-                                   "at": now(), "crossing": crossed}
+                                   "at": now(), "crossing": crossed,
+                                   # multi-account D2d: the account chosen
+                                   # WITH a cross-provider switch (validated
+                                   # at the door; the ledger is pure and
+                                   # only carries it to the boundary apply)
+                                   "account": account}
             gen = n.get("generation", 0)
             w = ((f"Replaces the queued switch to {replaced}. " if replaced else "")
                  + f"QUEUED, not switched: {nid} is mid-turn, so it stays on "
