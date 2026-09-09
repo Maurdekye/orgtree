@@ -72,6 +72,28 @@ class ReplyLifecycleTests(unittest.TestCase):
         rows = self.chat()['transient']
         self.assertEqual([(r['kind'], r['text']) for r in rows], [('error', 'Provider unavailable')])
 
+    def test_command_output_row_always_carries_the_cmd_output_marker(self):
+        # render-inline-html-custom-responses (redteam-opus review,
+        # 2026-09-09): the renderer's html-response grant trusts this
+        # marker to tell command output apart from a genuine agent reply
+        # — both `local_command` live_row call sites build their payload
+        # through this one function specifically so a THIRD emitter added
+        # later inherits the marker rather than needing to remember it.
+        # A shape check on the two current call sites would not catch a
+        # future one that builds the dict by hand and forgets it; this
+        # asserts the function's own behaviour instead.
+        plain = supervisor._command_output_row('some output', cap=2000)
+        self.assertEqual(plain['kind'], 'text')
+        self.assertIs(plain['cmd_output'], True)
+        self.assertNotIn('sticky', plain)
+        sticky = supervisor._command_output_row('some output', cap=20000, sticky=True)
+        self.assertIs(sticky['cmd_output'], True)
+        self.assertIs(sticky['sticky'], True)
+        # the cap is honored — a command-output row must never carry more
+        # than the renderer/backend agreed to show live
+        long = supervisor._command_output_row('x' * 50, cap=10)
+        self.assertEqual(long['text'], 'x' * 10)
+
 
 if __name__ == '__main__':
     unittest.main()

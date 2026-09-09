@@ -1318,6 +1318,23 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
     stream(slug, nid, payload)
 
 
+def _command_output_row(text: str, *, cap: int, sticky: bool = False) -> dict[str, Any]:
+    """The one place a slash-command's live output becomes a `live_row`
+    payload — render-inline-html-custom-responses (redteam-opus review,
+    2026-09-09): a THIRD command-output emitter, added later, inherits the
+    `cmd_output` marker automatically by calling this instead of building
+    the dict by hand. `kind` stays "text" (see the call sites this
+    replaces for why: `_text_became_durable` reads it), so the marker is
+    what tells the renderer this row is NOT agent prose despite that.
+    `tests/test_reply_lifecycle.py` asserts the marker directly, on this
+    function — a shape check on the two current call sites would not have
+    caught a third one forgetting it."""
+    row: dict[str, Any] = {"kind": "text", "cmd_output": True, "text": text[:cap]}
+    if sticky:
+        row["sticky"] = True
+    return row
+
+
 def state(slug: str, nid: str) -> dict[str, Any]:
     with _state_lock:
         return _state.setdefault((slug, nid), {
@@ -15456,20 +15473,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     if (ev.get("type") == "system"
                             and ev.get("subtype") == "local_command"):
                         # slash-command output (e.g. /context): show it live
-                        # too — the history projection keeps it durable
-                        #
-                        # render-inline-html-custom-responses: `cmd_output`
-                        # marks this row as NOT agent prose, even though it
-                        # shares `kind: "text"` with a genuine reply (that
-                        # kind drives `_text_became_durable` above and other
-                        # bookkeeping this must not disturb — a NEW field,
-                        # not a renamed kind). The renderer's html-response
-                        # grant reads this to stay closed for command output.
+                        # too — the history projection keeps it durable.
+                        # `_command_output_row` marks this NOT agent prose —
+                        # see its docstring for why `kind` stays "text".
                         body = _cmd_stdout(ev.get("content") or "")
                         if body:
-                            live_row(slug, nid, {"kind": "text",
-                                                 "cmd_output": True,
-                                                 "text": body[:2000]})
+                            live_row(slug, nid,
+                                     _command_output_row(body, cap=2000))
                         continue
                     if (ev.get("type") == "system"
                             and ev.get("subtype") == "api_retry"):
@@ -21714,14 +21724,11 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
         except Exception as e:                               # noqa: BLE001
             out_text = f"⚠ /{word} failed: {e}"
         # sticky: this output exists in NO transcript — the live-feed
-        # reconciliation must never sweep it on a refresh or turn end
-        #
-        # render-inline-html-custom-responses: `cmd_output` — see the sister
-        # local_command live_row above for why this is a new field rather
-        # than a different `kind`.
-        live_row(slug, nid, {"kind": "text", "sticky": True,
-                             "cmd_output": True,
-                             "text": out_text[:20000]})
+        # reconciliation must never sweep it on a refresh or turn end.
+        # `_command_output_row` marks this NOT agent prose — see its
+        # docstring.
+        live_row(slug, nid,
+                 _command_output_row(out_text, cap=20000, sticky=True))
         # the fork transcript is a full COPY of the session — delete it, or
         # every /context banks megabytes (kiosk storage included) for nothing
         if fork_sid and fork_sid != sid:
