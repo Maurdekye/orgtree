@@ -3,7 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), os = require('node:o
 const {execFileSync} = require('node:child_process'), {createHash} = require('node:crypto');
 const repo=path.resolve(__dirname,'..'), revision=process.argv[2];
 if (!/^[0-9a-f]{40}$/.test(revision || '')) throw Error('Pass the exact reviewed full commit SHA');
-const git=args=>execFileSync('git',['-C',repo,...args]);
+const git=args=>execFileSync('git',['-C',repo,...args],{maxBuffer:32*1024*1024});
 if (git(['rev-parse',revision]).toString().trim() !== revision) throw Error('Commit mismatch');
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'orgtree-paired-snapshot-'));
 const selected=['engine','tools/boot-engine-task.ps1','tests/probe-boot-paired-root-only.ps1'];
