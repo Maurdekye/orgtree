@@ -6,12 +6,15 @@ import type { EventProfile } from './decode'
 import { EventCard, eventSurface } from './card'
 import { eventSummary } from './project'
 import { RefMdBody } from '../canvas/refmd'
+import { ReplyPreview } from '../canvas/replypreview'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import { md } from '../canvas/shared'
 import { fileBase, fileUrl } from '../api'
 import { AttachThumb, fmtBytes, isImg } from '../canvas/img'
 import { DownloadIcon } from '../icons'
 import { fmtFull } from '../timefmt'
+import { replyContext } from '../eventReply'
+import type { ReplyContext } from '../eventReply'
 
 /** Approved machine-only composition is retained for agents and storage,
  * but contributes no empty heading to the human transcript. */
@@ -50,8 +53,19 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
   })}</div>
 }
 interface SegmentProps { segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
-  world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode }
-export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor }: SegmentProps) {
+  world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode
+  /** show-reply-context-on-sent-user-messages: whether a settled mail row's
+   *  OWN reply reference can be located in THIS loaded conversation, and
+   *  where to scroll if so — the same two facts `DeskChat`'s `renderReply`
+   *  already computes for the top-level composing annotation
+   *  (`replyAvailable`/`locateReply`), reused here rather than duplicated.
+   *  Omitted by callers with no conversation to scroll (mailbox reading
+   *  pane, docket, gallery) — the reference/excerpt still render, just not
+   *  as a click target, the same graceful degradation `actor` already has. */
+  replyAvailable?: (r: ReplyContext) => boolean
+  onLocateReply?: (r: ReplyContext) => void }
+export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor,
+  replyAvailable, onLocateReply }: SegmentProps) {
   const base = fileBase(slug, nid)
   const card = (row: unknown, preview: boolean, part?: "header" | "body", headerMeta?: ReactNode) => <EventCard row={row} profile={profile} org={slug}
     preview={preview} part={part} headerMeta={headerMeta} world={world} onOpen={onOpen} actor={actor} imgBase={base} />
@@ -88,6 +102,16 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
           {row.relationship && <span>{row.relationship}</span>}
           {row.kind === 'notice' && <span className="turn-mail-passive">no reply expected</span>}
         </header>
+        {/* show-reply-context-on-sent-user-messages: the row's OWN reply
+            reference (this row is itself a reply to something), distinct
+            from — and rendered independently of — the live composing
+            annotation (`.reply-preview`, no `-composing` modifier here, so
+            it keeps its ordinary read-only shape). The backend already
+            threads `reply_to` this far (ledger.post_mail -> journal_row ->
+            _segments_for's mail rows), it was simply never rendered. */}
+        {(() => { const rc = replyContext(row.reply_to)
+          return rc && <ReplyPreview reply={rc} available={Boolean(replyAvailable?.(rc))}
+            onLocate={() => onLocateReply?.(rc)} /> })()}
         {card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>
         {row.attachments_missing?.map((name,k)=><div key={k} className="dim">Attachment unavailable: {name}</div>)}
       </section>)}</div>

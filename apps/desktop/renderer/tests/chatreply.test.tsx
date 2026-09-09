@@ -356,3 +356,154 @@ test('the composer reply annotation is full width and capped near the '
     'the base rule (inherited by the composer instance too) keeps a long '
     + `quote scrollable rather than clipped: ${baseQuote}`)
 })
+
+// ═══════════════════════════════════════════════════════════════════
+// show-reply-context-on-sent-user-messages. The backend already threads a
+// sent reply's `reply_to` this far — ledger.post_mail records it on the
+// mail entry, and once that entry is drained into a turn `_segments_for`
+// carries it, UNCHANGED, into `segments[].rows[].reply_to` on the SETTLED
+// message (confirmed by calling those two functions directly against a
+// real Org — see the docket's own investigation notes). Nothing rendered
+// it: `SegmentList`'s mail case drew the row's actor/kind/relationship but
+// never looked at `row.reply_to`. This fixture reproduces the settled
+// shape exactly (a `kind:'mail'` segment row with `reply_to`), through
+// the REAL DeskChat + FakeServer, not a hand-built provider — the same
+// standard mailsender.test.tsx's §1 holds itself to.
+// ═══════════════════════════════════════════════════════════════════
+
+// ⚠ ANTI-VACUITY: `existingEventId` is the id an EARLIER message in this
+// same fixture actually carries; `targetEventId` (default: the same id) is
+// what the reply CLAIMS to point at. §-CONTROL below passes a different
+// value for the second so the "original event is gone" case is a REAL
+// absence, not the trivial one a single shared id would always avoid.
+function settledReplyDesk(existingEventId: string, targetEventId = existingEventId) {
+  const server = new FakeServer()
+  server.messages = [
+    { role: 'assistant', text: 'Original answer', seq: 0, ts: '2026-09-09T10:00:00Z', event_id: existingEventId },
+    { role: 'user', text: 'fallback prose, never shown while segments decode', seq: 1,
+      ts: '2026-09-09T10:05:00Z', event_id: 'user-reply-1',
+      segments: [{ kind: 'mail', rows: [{
+        id: 'mailrow-1', from: '@user', kind: 'message', body: 'reply body text',
+        at: '2026-09-09T10:05:00Z',
+        reply_to: {
+          source_event_ref: { org: 'org', agent: 'writer', generation: 2, eventId: targetEventId },
+          quoted_context: 'Original answer',
+        },
+        ev: { v: 1, variant: 'ordinary.message',
+          actor: { kind: 'user', id: '@user' }, object: null, engine_authored: false,
+          body: 'reply body text' },
+      }] }] },
+  ]
+  installFetch(server)
+  return server
+}
+
+test('a settled user message carries its own reply reference and excerpt, '
+  + 'distinct from the composer annotation', async () => {
+  localStorage.clear(); resetConvos()
+  settledReplyDesk('assistant-1')
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const previews = view.el.querySelectorAll<HTMLElement>('.reply-preview')
+    assert.equal(previews.length, 1, 'exactly one reply annotation — the settled '
+      + 'row\'s own, not a composing one (nothing is being composed here)')
+    assert.equal(previews[0]!.classList.contains('reply-preview-composing'), false,
+      'the settled annotation must NOT wear the composer-sized class — the user '
+      + 'clarification on the sibling docket item is explicit that these are distinct')
+    assert.match(previews[0]!.textContent!, /Reply to writer/,
+      `the reference names who is being replied to: ${previews[0]!.textContent}`)
+    assert.match(previews[0]!.textContent!, /Original answer/,
+      `the excerpt is the quoted original text: ${previews[0]!.textContent}`)
+  } finally { await view.unmount(); resetConvos() }
+})
+
+test('…and when the original is still in this loaded conversation, the '
+  + 'reference is a real route to it — the same click-to-locate every '
+  + 'other reply annotation offers', async () => {
+  localStorage.clear(); resetConvos()
+  settledReplyDesk('assistant-1')
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const button = view.el.querySelector<HTMLButtonElement>('.reply-preview .reply-preview-head button')!
+    assert.equal(button.disabled, false,
+      'the original event IS in this conversation (assistant-1), so the '
+      + `locate route must be live, not the "unavailable" fallback: ${button.title}`)
+    const target = view.el.querySelector('[data-reply-event="assistant-1"]')!
+    const scrolled: Element[] = []
+    ;(target as unknown as { scrollIntoView: () => void }).scrollIntoView =
+      () => { scrolled.push(target) }
+    await inAct(() => { button.click() })
+    assert.deepEqual(scrolled, [target], 'clicking the reference scrolls to the original message')
+  } finally { await view.unmount(); resetConvos() }
+})
+
+test('…and CONTROL: when the original is NOT in this conversation, the '
+  + 'reference still shows — inert, not silently dropped', async () => {
+  localStorage.clear(); resetConvos()
+  // the fixture's earlier message keeps a REAL, present id (assistant-1) —
+  // only the reply's own claimed target differs, so this is a genuine
+  // absence rather than a fixture that never has anything to find
+  settledReplyDesk('assistant-1', 'an-event-id-nowhere-in-this-transcript')
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const preview = view.el.querySelector<HTMLElement>('.reply-preview')!
+    assert.ok(preview, 'the reference/excerpt still render — this is not the same '
+      + 'thing as availability')
+    const button = preview.querySelector<HTMLButtonElement>('.reply-preview-head button')!
+    assert.equal(button.disabled, true, 'but the route is honestly disabled')
+    assert.match(preview.textContent!, /Original answer/,
+      'and the quoted excerpt is still readable even though the source is gone')
+  } finally { await view.unmount(); resetConvos() }
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// show-reply-context-on-sent-user-messages, part 2 (user spec, relayed
+// 14:16:54): "starting replies [must] auto-focus the corresponding
+// messagebox" — clicking Reply used to leave the cursor wherever it
+// already was; the user has to notice the new annotation and click into
+// the box themselves. `desk()` mounts `bare` on purpose here: that flag
+// is what SUPPRESSES this file's other autofocus (the one-time mount
+// focus in desk.tsx's textarea ref callback explicitly skips `bare`
+// surfaces — the switchboard/pin/popout case), so any focus this test
+// observes can only be the NEW behaviour firing on the reply click
+// itself, not the pre-existing mount-time one masking it.
+// ═══════════════════════════════════════════════════════════════════
+
+test('starting a reply focuses the message box — the composer, not '
+  + 'wherever focus already was', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer(); installFetch(server)
+  server.messages = [{ role: 'assistant', text: 'Original answer', seq: 0, event_id: 'assistant-1' }]
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    const textarea = view.el.querySelector<HTMLTextAreaElement>('textarea')!
+    // ⚠ NEVER `assert.equal`/`assert.notEqual` a DOM node in this repo —
+    // node's diff walks the whole jsdom element and can die with "Array
+    // buffer allocation failed" with no readable message (mailsender.
+    // test.tsx's `absent` helper documents the same pitfall). Compare a
+    // boolean instead.
+    //
+    // positive control for the BASELINE: this `bare` desk does not
+    // autofocus on its own (the mount-time effect explicitly skips it —
+    // see desk.tsx), so if this assertion ever failed for some other
+    // reason, the real test below would pass VACUOUSLY (focus already
+    // there before the click did anything)
+    assert.equal(document.activeElement === textarea, false,
+      'baseline: a bare desk must not already have focused the composer '
+      + 'on mount, or the click below would prove nothing')
+    const source = view.el.querySelector<HTMLElement>('[data-reply-event="assistant-1"]')!
+    const item = await replyOn(source)
+    await inAct(() => { item.click() })
+    // the focus() call is deferred one frame (requestAnimationFrame,
+    // polyfilled onto a real setTimeout in this file's tests — no fake
+    // clock here) so the composer has time to mount if the click arrived
+    // from a tab switch; wait past it before asserting
+    await new Promise((r) => setTimeout(r, 40))
+    assert.equal(document.activeElement === textarea, true,
+      'clicking Reply must move focus into the message box')
+  } finally { await view.unmount(); resetConvos() }
+})

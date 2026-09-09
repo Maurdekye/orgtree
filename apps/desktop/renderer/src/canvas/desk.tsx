@@ -1318,7 +1318,21 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
-      onSelect: () => { if (source) { setReply(source); setView('chat') } } }])
+      onSelect: () => { if (source) {
+        setReply(source); setView('chat')
+        // show-reply-context-on-sent-user-messages (user spec, 2026-09-09
+        // 14:16:54): starting a reply must land the cursor in the message
+        // box, not just open it. `setView` may still be mounting the chat
+        // tab's own textarea this same tick (switching FROM another tab —
+        // files, history — the composer is not in the DOM yet), so a
+        // synchronous `taRef.current?.focus()` here would silently do
+        // nothing on that path; defer one frame so React has committed
+        // the tab switch first. `taRef` is declared later in this same
+        // component body, but closures resolve free variables at CALL
+        // time, not definition time, and this only ever runs from a later
+        // click — never during the render that defines it.
+        requestAnimationFrame(() => taRef.current?.focus())
+      } } }])
   }
   const sameReplyIdentity = (r: ReplyContext) => r.org === slug && r.agent === node.id && r.generation === (node.generation ?? 0)
   const sourceIds = new Set([
@@ -2321,7 +2335,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
                 {renderReply(m.reply_to)}
                 <Msg m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
-                  onWorkLink={onWorkLink} refs={deskRefs} />
+                  onWorkLink={onWorkLink} refs={deskRefs}
+                  replyAvailable={replyAvailable} onLocateReply={locateReply} />
               </div>
             )
           })}
@@ -3185,18 +3200,25 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
 }
 
 // №21: memoized — rows are static once fetched; only identity changes matter
-export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, refs }: {
+export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, refs,
+  replyAvailable, onLocateReply }: {
   m: ChatMessage; slug: string; nid: string
   onMailLink?: MailLinkFn; onWorkLink?: WorkLinkFn
   /** canonical references in this row's prose. Omitted = plain text, which is
    *  what a surface with nowhere to send anybody should render. */
   refs?: RefRoutes
+  /** show-reply-context-on-sent-user-messages: whether/where a settled row's
+   *  OWN reply reference can be located — see SegmentProps for the full
+   *  contract. Omitted = the reference/excerpt still render, just inert. */
+  replyAvailable?: (r: ReplyContext) => boolean
+  onLocateReply?: (r: ReplyContext) => void
 }) {
   if (m.role === 'system') return <SysLine m={m} />
   const profile = BASE ? 'public' : 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
     <SegmentList segments={m.segments} profile={profile} slug={slug} nid={nid}
-      world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />} />
+      world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />}
+      replyAvailable={replyAvailable} onLocateReply={onLocateReply} />
     {m.truncated && <div className="trunc-note">Shown truncated ? the agent received the full message</div>}
     {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
   </div>
