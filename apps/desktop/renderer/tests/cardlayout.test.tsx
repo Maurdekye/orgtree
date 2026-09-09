@@ -212,3 +212,26 @@ test('a busy card shows spinning arrow, working state word, and elapsed turn tim
       'a busy card shows the old age badge')
   } finally { await view.unmount() }
 })
+
+
+test('bound account shades reach mounted cards without changing work-state colors', async () => {
+  const base = node('base', 'sonnet', true)
+  const alt = node('alt', 'sonnet', true)
+  const unbound = node('unbound', 'sonnet', true)
+  base.account = 'a'; base.account_tint_ordinal = 1
+  alt.account = 'b'; alt.account_tint_ordinal = 2
+  const mounted = await mountView(<>{card(base, 'norm', noop)}{card(alt, 'norm', noop)}{card(unbound, 'norm', noop)}</>, el => el)
+  try {
+    const cards = [...mounted.el.querySelectorAll<HTMLElement>('.sq')]
+    const find = (id: string) => cards.find(c => c.querySelector('.name')?.textContent === id)!
+    assert.ok(find('base'))
+    const channel = (id: string) => find(id).style.getPropertyValue('--provider-accent')
+    assert.ok(channel('base')); assert.ok(channel('alt'))
+    assert.notEqual(channel('base'), channel('alt'))
+    assert.equal(channel('unbound'), '')
+    for (const id of ['base', 'alt', 'unbound']) {
+      assert.equal(find(id).style.getPropertyValue('--work-accent'), '')
+      assert.equal(find(id).style.getPropertyValue('--accent'), '')
+    }
+  } finally { await mounted.unmount() }
+})

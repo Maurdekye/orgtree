@@ -16,7 +16,7 @@
 function hexToHsl(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
   if (!m) return null
-  const v = parseInt(m[1], 16)
+  const v = parseInt(m[1]!, 16)
   const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255,
     b = (v & 255) / 255
   const max = Math.max(r, g, b), min = Math.min(r, g, b)

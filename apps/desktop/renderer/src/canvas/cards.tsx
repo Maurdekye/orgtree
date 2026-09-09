@@ -9,6 +9,8 @@ import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { audienceAction, getCharters, unstickNode } from '../api'
+import { accountTint } from '../accounttint'
+import { THEMES } from '../themes'
 import {
   CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, DocIcon,
@@ -1330,6 +1332,14 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     width: NODE_W, height: NODE_H,
     zIndex: focused ? 5 : dragging ? 8 : undefined,
   }
+  if (node.account && node.account_tint_ordinal != null) {
+    const family = providerOf(node.tier ?? '')
+    const base = family === 'openai' ? THEMES.codex.accent
+      : family === 'google' ? THEMES.antigravity.accent
+      : family === 'openrouter' ? THEMES.openrouter.accent : THEMES.claude.accent
+    // Only the provider channel varies; work/status colors remain independent.
+    Object.assign(style, { '--provider-accent': accountTint(base, node.account_tint_ordinal) })
+  }
   // compact MAP tier (mobile wave, D-123/D-125): the card is a locator, not a
   // work surface — the desk lives in the full-screen sheet. Tier block, name,
   // status, last-turn stamp (FR-23 stays glanceable), watchdog count-dot
@@ -1424,7 +1434,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="queued-mark" title={queuedSwitchTitle(node)}>
               →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-          <span className="name" title={node.id}>{node.id}</span>
+          <span className="name" title={node.account ? `${node.id}: account ${node.account_label || node.account}` : node.id}>{node.id}</span>
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}

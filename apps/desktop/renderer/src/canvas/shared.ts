@@ -638,6 +638,8 @@ export interface CanvasNode {
   /** multi-account: the bound account id, a missing:<provider> park, or
    *  absent pre-cutover (projected from the tree payload) */
   account?: string | null
+  account_tint_ordinal?: number
+  account_label?: string
   children: CanvasNode[]
   title?: string
   /** set by flatten(): the parent card's id (null on the eye root) */

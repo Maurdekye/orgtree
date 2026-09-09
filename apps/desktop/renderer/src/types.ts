@@ -321,6 +321,8 @@ export interface TreeNode {
   /** multi-account: the bound account id, a missing:<provider> park, or
    *  absent pre-cutover */
   account?: string | null
+  account_tint_ordinal?: number
+  account_label?: string
   state: NodeState
   seat: number
   grant: number

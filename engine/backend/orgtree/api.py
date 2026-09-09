@@ -1843,7 +1843,14 @@ def org_tree(slug: str, request: Request) -> dict[str, Any]:
     # one roster read per TIER per render, not per frozen node
     _cap_cache: dict[str, dict[str, Any]] = {}
 
+    # Resolve display metadata once for the graph, never once per card.
+    account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
+
     def annotate(node: dict[str, Any]) -> None:
+        account_row = account_rows.get(node.get("account"))
+        if account_row:
+            node["account_tint_ordinal"] = account_row["tint_ordinal"]
+            node["account_label"] = account_row["label"]
         _rederive_freeze_reset(node, _cap_cache)
         # A model capability is derived from the tier, not historical turn
         # state. Existing nodes may still carry an older CLI observation in
