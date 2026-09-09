@@ -14743,6 +14743,50 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # blocked on a turn slot is NOT running (№12) — the UI shows it hollow
         if is_cmd:
             turn_view = text
+        # ── multi-account D2c path (ii): THE PRE-SLOT ACCOUNT GATE. A
+        # STATELESS check against durable marks, evaluated at every admission
+        # attempt — nothing in memory holds a wait, so a restart re-derives
+        # it. A bound node whose account carries a live mark for its tier
+        # writes the SAME durable freeze record path (i) writes (until_ts IS
+        # the mark's until; provenance rides along; auto_resume owns the wake
+        # for both paths) and then proceeds into the slot, where the existing
+        # frozen check refuses with the mail STILL BOXED — the slot is held
+        # for milliseconds, never for the limit window (the measured
+        # three-agent wedge this gate exists to avoid).
+        try:
+            _g_org = store.load_org(slug)
+            _g_node = (_g_org.node(nid)
+                       if nid in _g_org.nodes else None)
+        except Exception:                                    # noqa: BLE001
+            _g_node = None
+        if _g_node is not None and not _g_node.get("frozen"):
+            _g_acct = str(_g_node.get("account") or "")
+            _g_mark = None
+            if _g_acct and not _g_acct.startswith("missing:"):
+                try:
+                    registry.get_account(_g_acct)
+                    _g_mark = registry.active_mark(
+                        _g_acct, str(_g_node.get("model") or ""))
+                except registry.UnknownAccount:
+                    _g_mark = None
+            if _g_mark:
+                with store.DOC_LOCK:
+                    o_g = store.load_org(slug)
+                    if (nid in o_g.nodes
+                            and not o_g.node(nid).get("frozen")):
+                        _g_tier = str(o_g.node(nid).get("model") or "")
+                        fzg = _ensure_frozen(o_g.node(nid))
+                        fzg["limit"] = True
+                        fzg["provider"] = providers.provider_of(_g_tier)
+                        fzg["account"] = _g_acct
+                        fzg["provenance"] = str(_g_mark["provenance"])
+                        fzg["until_ts"] = float(_g_mark["until"])
+                        fzg["until"] = _reset_label(float(_g_mark["until"]))
+                        fzg["reset_src"] = "account-mark"
+                        fzg["resource_pool"] = (
+                            accounts.FABLE if _g_tier == accounts.FABLE
+                            else "+".join(accounts.POOLED))
+                        store.save_org(o_g)
         st["waiting"] = True
         _slot_wait_t0 = time.monotonic()
         with _InterruptibleTurnSlot(st):
@@ -17164,6 +17208,31 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # field's whole job is saying what the window was
                             # priced on (redteam 2026-08-18)
                             fz["reset_src"] = _rsrc if _rts else "inherited"
+                            # ── multi-account D2c: THE FREEZE'S HORIZON IS
+                            # THE MARK'S HORIZON, by READING THE MARK — not
+                            # by a parallel computation that can diverge
+                            # (Opus Q1: earlier-waking freeze ⇒ wake/refuse/
+                            # re-freeze loop; later ⇒ over-park). For a
+                            # bound (registry-id) serving account the mark
+                            # recorded moments ago is the single source of
+                            # truth, and its provenance rides along so the
+                            # desk never renders an inferred park as a
+                            # measured one (both STRING values — the
+                            # `_resumable` unknown-True-key trap takes
+                            # booleans only, see the `auth` comment above).
+                            _acct_served = str(st.get("ran_as") or "")
+                            if _acct_served:
+                                try:
+                                    registry.get_account(_acct_served)
+                                    _m = registry.active_mark(
+                                        _acct_served,
+                                        str(o2.node(nid).get("model") or ""))
+                                except registry.UnknownAccount:
+                                    _m = None
+                                if _m:
+                                    fz["until_ts"] = float(_m["until"])
+                                    fz["provenance"] = str(_m["provenance"])
+                                    fz["reset_src"] = "account-mark"
                             _uts = fz.get("until_ts")
                             # a readout time is minute-exact, timezone-safe
                             # and lane-aware, so it OVERWRITES a prose label

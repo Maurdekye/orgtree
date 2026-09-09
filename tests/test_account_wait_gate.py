@@ -1,0 +1,134 @@
+"""S4 pre-slot account gate: durable freeze from marks, equality invariant,
+no-loop, and the gate-writes-nothing negative. All observables are ON-DOC
+(the durable state), driven through the REAL _run_one_turn admission path —
+the gate and the in-slot frozen refusal both fire before any CLI spawn, so
+no provider process is ever launched here.
+"""
+import os
+import tempfile
+import unittest
+
+
+class WaitGateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.root = tempfile.mkdtemp(prefix="orgtree-waitgate-")
+        os.environ["ORGTREE_DATA"] = cls.root
+        from engine.backend.orgtree import ledger, registry, store, supervisor
+        if not str(store.DATA_ROOT).lower().startswith(cls.root.lower()):
+            raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
+        cls.ledger = ledger
+        cls.registry = registry
+        cls.store = store
+        cls.supervisor = supervisor
+
+    def setUp(self):
+        path = self.registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    _seq = 0
+
+    def _fixture(self, slug, until=None, provenance="observed", spend=False):
+        WaitGateTests._seq += 1
+        row = self.registry.create_account(
+            "claude", "t",
+            {"kind": "managed",
+             "path": os.path.join(self.root, f"wg-{self._seq}")})
+        org = self.ledger.Org.create(slug)
+        org.nodes["root"] = {"state": "live", "parent": None,
+                             "generation": 1, "model": "opus",
+                             "account": row["id"]}
+        if spend:
+            org.d["spend_frozen"] = True
+        self.store.save_org(org)
+        if until is not None:
+            import time as _t
+            ok = self.registry.record_mark(
+                row["id"], "opus", until=_t.time() + until,
+                provenance=provenance)
+            self.assertTrue(ok)
+        return row
+
+    def _drive(self, slug):
+        try:
+            self.supervisor._run_one_turn(slug, "root", "hello")
+        except Exception:
+            pass  # refusal paths raise; the assertions read the DOC
+
+    def _frozen(self, slug):
+        return (self.store.load_org(slug).node("root") or {}).get("frozen")
+
+    def test_live_mark_freezes_durably_with_mark_horizon_and_provenance(self):
+        row = self._fixture("wg-live", until=86400.0, provenance="observed")
+        self._drive("wg-live")
+        fz = self._frozen("wg-live")
+        self.assertIsInstance(fz, dict)
+        mark = self.registry.active_mark(row["id"], "opus")
+        # THE EQUALITY INVARIANT: one wait, one timestamp
+        self.assertEqual(fz["until_ts"], mark["until"])
+        self.assertEqual(fz["provenance"], "observed")
+        self.assertEqual(fz["account"], row["id"])
+        self.assertEqual(fz["reset_src"], "account-mark")
+        self.assertTrue(fz["limit"])
+
+    def test_inferred_mark_carries_inferred_provenance(self):
+        row = self._fixture("wg-inferred")
+        import time as _t
+        # a pooled limit rides onto fable as inferred; bind a fable node
+        self.registry.record_mark(row["id"], "sonnet",
+                                  until=_t.time() + 3600.0)
+        org = self.store.load_org("wg-inferred")
+        org.node("root")["model"] = "fable"
+        self.store.save_org(org)
+        self._drive("wg-inferred")
+        fz = self._frozen("wg-inferred")
+        self.assertEqual(fz["provenance"], "inferred")
+
+    def test_no_mark_writes_no_freeze(self):
+        # spend_frozen stops the turn INSIDE the slot for an unrelated
+        # reason, so this proves the GATE wrote nothing (a freeze here
+        # would be the gate firing without a mark)
+        self._fixture("wg-none", until=None, spend=True)
+        self._drive("wg-none")
+        self.assertIsNone(self._frozen("wg-none"))
+
+    def test_expired_mark_writes_no_freeze(self):
+        row = self._fixture("wg-expired", spend=True)
+        import time as _t
+        self.registry.record_mark(row["id"], "opus", until=_t.time() + 0.05)
+        _t.sleep(0.1)
+        self._drive("wg-expired")
+        self.assertIsNone(self._frozen("wg-expired"))
+
+    def test_second_attempt_does_not_churn_the_freeze(self):
+        # no-loop shape: an already-frozen node skips the gate (the frozen
+        # check owns it) — the record is written ONCE and its horizon is
+        # stable across repeated admission attempts
+        self._fixture("wg-loop", until=86400.0)
+        self._drive("wg-loop")
+        first = dict(self._frozen("wg-loop"))
+        self._drive("wg-loop")
+        second = self._frozen("wg-loop")
+        self.assertEqual(second["until_ts"], first["until_ts"])
+        self.assertEqual(second["reset_src"], "account-mark")
+
+    def test_stateless_over_durable_state(self):
+        # the wait re-derives from the DOC + registry alone: wipe the
+        # per-process runtime state (the restart-shaped in-memory loss) and
+        # the gate still refuses from durable marks
+        self._fixture("wg-restart", until=86400.0)
+        self._drive("wg-restart")
+        self.assertIsNotNone(self._frozen("wg-restart"))
+        with self.supervisor._state_lock:
+            self.supervisor._state.pop(("wg-restart", "root"), None)
+        # freeze survives on doc; a fresh attempt still refuses (raises
+        # inside the slot) and does not clear or alter the record
+        before = dict(self._frozen("wg-restart"))
+        self._drive("wg-restart")
+        self.assertEqual(self._frozen("wg-restart")["until_ts"],
+                         before["until_ts"])
+
+
+if __name__ == "__main__":
+    unittest.main()
