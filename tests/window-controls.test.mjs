@@ -42,6 +42,8 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.equal((app.match(/className="window-drag-margin"/g) ?? []).length, 2, 'top and bottom canvas margins')
   assert.match(app, /desktop\(\) && <div className="window-drag-margin"/)
   assert.match(styles, /\.window-controls \{[^}]*-webkit-app-region: no-drag/)
+  assert.match(styles, /\.window-controls \{[^}]*flex: 0 0 auto[^}]*flex-wrap: nowrap/)
+  assert.match(styles, /\.window-control \{[^}]*flex: 0 0 46px/)
   assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
   assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
   assert.match(nativeProbe, /native BrowserWindow state operations only/)

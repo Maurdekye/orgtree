@@ -78,9 +78,13 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 
 .app { display: flex; min-height: 100vh; }
-.window-controls { display: flex; height: 28px; margin-left: 4px; -webkit-app-region: no-drag; }
+.window-controls {
+  display: flex; flex: 0 0 auto; flex-wrap: nowrap; white-space: nowrap;
+  height: 28px; margin-left: 4px; -webkit-app-region: no-drag;
+}
 .window-control {
-  width: 46px; height: 100%; padding: 0; border: 0; border-radius: 0;
+  flex: 0 0 46px; width: 46px; height: 100%; padding: 0;
+  border: 0; border-radius: 0;
   background: transparent; color: var(--dim); display: grid; place-items: center;
   font-size: 15px; -webkit-app-region: no-drag;
 }
