@@ -3815,6 +3815,47 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
     return {**row, "standing": registry.standing_of(row)}
 
 
+@app.get("/api/accounts/{account_id}/identity")
+async def accounts_identity(account_id: str) -> dict[str, Any]:
+    """Resolve WHO an account currently is, from its own profile (design
+    D4/S7): the seam providerlogin's per-profile sign-in verifies against.
+    Reads the row's directory (claude: <dir>/.claude.json metadata; openai:
+    the codex account digest for that home), updates the row's identity and
+    auth state from what was OBSERVED — found ⇒ authenticated,
+    absent-for-a-profile-that-should-have-one ⇒ unauthenticated, and a
+    provider we cannot read (AG) stays unobserved rather than fabricated."""
+    try:
+        row = registry.get_account(account_id)
+    except registry.UnknownAccount:
+        raise HTTPException(404, f"no account {account_id!r}")
+    cred = row["credential"]
+    identity: dict[str, Any] = {}
+    auth = "unobserved"
+    if cred["kind"] in ("imported", "managed"):
+        if row["provider"] == "claude":
+            ident = accounts.profile_identity(cred["path"])
+            identity = {k: v for k, v in ident.items() if v}
+            auth = "authenticated" if ident.get("uuid") else "unauthenticated"
+        elif row["provider"] == "openai":
+            digest, lane = supervisor._cache_codex_account_namespace(
+                cred["path"])
+            if digest and digest != "unobserved":
+                identity = {"account_digest": digest, "lane": lane}
+                auth = "authenticated"
+            else:
+                auth = "unauthenticated"
+        # google: no readable identity surface yet — stays unobserved
+    elif cred["kind"] == "token":
+        # a legacy key row's identity is whatever registration resolved;
+        # nothing here can re-observe it without spending the credential
+        identity = dict(row.get("identity") or {})
+        auth = row.get("auth", "unobserved")
+    registry.set_identity(account_id, identity)
+    if auth != "unobserved" or row.get("auth") == "unobserved":
+        registry.set_auth(account_id, auth)
+    return {"account": account_id, "identity": identity, "auth": auth}
+
+
 @app.delete("/api/accounts/{account_id}")
 async def accounts_remove(account_id: str) -> dict[str, Any]:
     """Remove a registry row. REFUSED while any node is bound to it (design

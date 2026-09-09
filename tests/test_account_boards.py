@@ -82,5 +82,50 @@ class BoardsTests(unittest.TestCase):
         self.assertTrue(self.registry.remove_account(row["id"]))
 
 
+    # S7: the profile-aware identity read and its endpoint logic — the
+    # feasibility gate's AUTOMATED half (read-side behavior on synthetic
+    # profile dirs; whether a REAL redirected login writes here stays an
+    # explicitly unverified precondition until the live gate runs).
+
+    def test_profile_identity_reads_redirected_config(self):
+        from engine.backend.orgtree import accounts
+        import json as _json
+        prof = os.path.join(self.root, "ident-prof")
+        os.makedirs(prof, exist_ok=True)
+        with open(os.path.join(prof, ".claude.json"), "w",
+                  encoding="utf-8") as f:
+            _json.dump({"oauthAccount": {"accountUuid": "u-1",
+                                         "emailAddress": "a@b.c"}}, f)
+        self.assertEqual(accounts.profile_identity(prof),
+                         {"uuid": "u-1", "email": "a@b.c"})
+        # absent file reads as nobody, never a guess
+        empty = os.path.join(self.root, "ident-empty")
+        os.makedirs(empty, exist_ok=True)
+        self.assertEqual(accounts.profile_identity(empty),
+                         {"uuid": "", "email": ""})
+
+    def test_identity_endpoint_updates_row_auth_from_observation(self):
+        import asyncio
+        import json as _json
+        row = self._row()
+        prof = row["credential"]["path"]
+        os.makedirs(prof, exist_ok=True)
+        # not signed in yet: endpoint observes and records unauthenticated
+        out = asyncio.run(self.api.accounts_identity(row["id"]))
+        self.assertEqual(out["auth"], "unauthenticated")
+        self.assertEqual(
+            self.registry.get_account(row["id"])["auth"], "unauthenticated")
+        # a sign-in lands the config; the endpoint observes authenticated
+        with open(os.path.join(prof, ".claude.json"), "w",
+                  encoding="utf-8") as f:
+            _json.dump({"oauthAccount": {"accountUuid": "u-9",
+                                         "emailAddress": "x@y.z"}}, f)
+        out2 = asyncio.run(self.api.accounts_identity(row["id"]))
+        self.assertEqual(out2["auth"], "authenticated")
+        fresh = self.registry.get_account(row["id"])
+        self.assertEqual(fresh["identity"]["uuid"], "u-9")
+        self.assertEqual(fresh["auth"], "authenticated")
+
+
 if __name__ == "__main__":
     unittest.main()

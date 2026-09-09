@@ -278,18 +278,12 @@ def save(doc: dict[str, Any]) -> None:
 LIVE_CONFIG = os.path.expanduser("~/.claude.json")
 
 
-def live_identity() -> dict[str, str]:
-    """WHO this machine is signed in as — `{"uuid", "email"}`, both "" when
-    nobody is (missing/unreadable config, or no `oauthAccount`).
-
-    Read from the CLI's CONFIG, never from the credentials store: this must
-    stay a metadata read, cheap enough for every readout and every spawn, and
-    incapable of touching a token. The uuid is the discriminator (identical
-    across a token refresh, different between accounts — the old probe
-    battery's one durable finding); the email is display only.
-    """
+def _identity_from(config_path: str) -> dict[str, str]:
+    """The one implementation of the claude-config identity read — a
+    metadata read, never a credentials read, `{"uuid","email"}` with ""
+    when absent/unreadable."""
     try:
-        with open(LIVE_CONFIG, encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             doc = json.load(f)
     except (OSError, json.JSONDecodeError, ValueError):
         return {"uuid": "", "email": ""}
@@ -300,6 +294,31 @@ def live_identity() -> dict[str, str]:
         return {"uuid": "", "email": ""}
     return {"uuid": str(acct.get("accountUuid") or ""),
             "email": str(acct.get("emailAddress") or "")}
+
+
+def live_identity() -> dict[str, str]:
+    """WHO this machine is signed in as — `{"uuid", "email"}`, both "" when
+    nobody is (missing/unreadable config, or no `oauthAccount`).
+
+    Read from the CLI's CONFIG, never from the credentials store: this must
+    stay a metadata read, cheap enough for every readout and every spawn, and
+    incapable of touching a token. The uuid is the discriminator (identical
+    across a token refresh, different between accounts — the old probe
+    battery's one durable finding); the email is display only.
+    """
+    return _identity_from(LIVE_CONFIG)
+
+
+def profile_identity(profile_dir: str) -> dict[str, str]:
+    """The PROFILE-DIR-AWARE identity read the multi-account system needs
+    (design D4: live_identity is hardcoded to the ambient path, so a
+    parameterized sign-in had nothing to verify against). With
+    CLAUDE_CONFIG_DIR set, the CLI keeps its config INSIDE that directory —
+    the candidate is `<dir>/.claude.json`, and an absent file reads as
+    nobody-signed-in rather than a guess. ⚠ The rule-5 feasibility gate is
+    what verifies a REAL redirected login actually writes here; this read
+    reports what exists and claims nothing more."""
+    return _identity_from(os.path.join(profile_dir, ".claude.json"))
 
 
 # ------------------------------------------------------------------- key rows
