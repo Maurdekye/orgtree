@@ -5444,7 +5444,7 @@ label.set-row { cursor: pointer; }
 .usage-refresh-button { border: 0; border-radius: 4px;
   background: transparent; color: var(--dim); padding: 2px 6px;
   cursor: pointer; font: inherit; }
-.usage-refresh-button:hover:not(:disabled) { color: var(--ink-strong); }
+.usage-refresh-button:hover:not(:disabled) { color: var(--ink-strong); background: transparent; border-color: transparent; }
 .usage-refresh-button:disabled { cursor: wait; opacity: .7; }
 .usage-updated { color: var(--dim); white-space: nowrap; }
 .usage-refresh-error { color: var(--warn, #e5c07b); }
