@@ -109,9 +109,10 @@ class ProbePopen(subprocess.Popen):
         super().__init__(args,*rest,**kw)
 subprocess.Popen=ProbePopen
 def acl_readback(target):
-    return ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
-            "GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
-            "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
+    return ("$acl=Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "';"
+            "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+            "Write-Output ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value"
+            "+'|'+(@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
             "+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
 def audit(event, args):
     if event == 'socket.connect' and isinstance(args[1], tuple) and args[1][0] not in ('127.0.0.1','::1'):
@@ -206,6 +207,13 @@ try {
         Start-Sleep -Milliseconds 200
     }
     if (-not [IO.File]::Exists($descriptor) -or -not [IO.File]::Exists($control)) { throw 'Real host/guardian child control did not become ready.' }
+    # Check the published file under the ACTUAL task token before reading its
+    # secret. Identity HTTP alone cannot detect an owner the desktop refuses.
+    $descriptorOwner=(Get-Acl -LiteralPath $descriptor).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($descriptorOwner -ne $OperatorSid) { throw "Descriptor owner mismatch: expected $OperatorSid, found $descriptorOwner" }
+    $result.descriptorOwner=$descriptorOwner
+    $result.expectedOperatorSid=$OperatorSid
+    $result.descriptorOwnerVerified=$true
     $ready=Get-Content -Raw -LiteralPath $descriptor | ConvertFrom-Json
     $child=Get-Content -Raw -LiteralPath $control | ConvertFrom-Json
     if ($ready.dataRootId -ine $data -or $ready.enginePid -ne $child.engine) { throw 'Wrong root or engine receipt.' }

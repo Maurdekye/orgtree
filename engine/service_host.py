@@ -159,7 +159,11 @@ def create_protected_exclusive(path: Path, sid: str) -> int:
                                    w.DWORD, w.DWORD, w.HANDLE]
     kernel.CreateFileW.restype = w.HANDLE
     kernel.LocalFree.argtypes = [ctypes.c_void_p]
-    sddl = f"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"
+    # The owner is set EXPLICITLY. The boot task's S4U logon of an
+    # administrator account carries Administrators as its default owner even
+    # at LeastPrivilege, and a descriptor owned by anyone but the operator is
+    # refused by the desktop's trust check before its token is ever read.
+    sddl = f"O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})"
     descriptor = ctypes.c_void_p()
     if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl, 1, ctypes.byref(descriptor), None):
@@ -182,21 +186,23 @@ def create_protected_exclusive(path: Path, sid: str) -> int:
 
 
 def verify_restricted_acl(target: Path) -> bool:
-    """Read back that the DACL is EXACTLY operator+SYSTEM+Administrators with
-    nothing inherited. icacls exiting 0 is a request receipt, not proof; the
-    token is published only on this verified state (fail closed)."""
+    """Read back that the owner is the operator and the DACL is EXACTLY
+    operator+SYSTEM+Administrators with nothing inherited. icacls exiting 0
+    is a request receipt, not proof; the token is published only on this
+    verified state (fail closed)."""
     sid = _current_user_sid()
     if os.name != "nt" or not sid:
         return False
-    script = ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
-              "GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
-              "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
+    script = ("$acl=Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "';"
+              "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+              "Write-Output ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value"
+              "+'|'+(@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
               "+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
     try:
         output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                                 capture_output=True, text=True, timeout=30, check=True).stdout.strip()
-        sids, inherited = output.rsplit("|", 1)
-        return inherited == "0" and set(sids.split(",")) == {sid, "S-1-5-18", "S-1-5-32-544"}
+        owner, sids, inherited = output.split("|")
+        return owner == sid and inherited == "0" and set(sids.split(",")) == {sid, "S-1-5-18", "S-1-5-32-544"}
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
 

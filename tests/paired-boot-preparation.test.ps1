@@ -105,7 +105,7 @@ sid='S-1-5-21-111-222-333-1001'; observed=[]
 def fake_run(args,**kw):
     args=scope['resolve_probe_args'](args); observed.append(pathlib.Path(args[0]).name.lower())
     sys.audit('subprocess.Popen',args[0],subprocess.list2cmdline(args),None,None)
-    return types.SimpleNamespace(stdout=(f'{sid},S-1-5-18,S-1-5-32-544|0' if args[0] == str(ps) else f'"operator","{sid}"'))
+    return types.SimpleNamespace(stdout=(f'{sid}|{sid},S-1-5-18,S-1-5-32-544|0' if args[0] == str(ps) else f'"operator","{sid}"'))
 names={'_current_user_sid','restrict_descriptor_acl','verify_restricted_acl'}
 nodes=[n for n in ast.parse(sources['host']).body if isinstance(n,ast.FunctionDef) and n.name in names]
 assert len(nodes)==3

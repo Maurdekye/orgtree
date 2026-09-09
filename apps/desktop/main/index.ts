@@ -198,7 +198,13 @@ else {
           // boot host mid-startup, whose descriptor appears when it becomes
           // ready. Retry attaching instead of showing the fatal dialog.
           if (!(error instanceof Error) || !error.message.startsWith(ENGINE_REFUSED)) throw error
-          if (!await engine.attachWithRetry(engineOptions)) throw error
+          if (!await engine.attachWithRetry(engineOptions)) {
+            // The root is owned AND no descriptor verified for the whole
+            // budget: the reason it was declined is the actual diagnosis
+            // (an unverifiable owner, a stale port), not the lock refusal.
+            if (engine.attachDiagnostic) throw new Error(`${error.message}\nBoot engine descriptor rejected: ${engine.attachDiagnostic}`)
+            throw error
+          }
         }
       }
       const browserSession = session.fromPartition('persist:orgtree-v2')

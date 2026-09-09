@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from unittest.mock import patch
 import urllib.error
 import urllib.request
@@ -107,6 +108,47 @@ class ServiceHostUnitTests(unittest.TestCase):
             self.assertEqual(sorted(set(sids.split(","))),
                              sorted({service_host._current_user_sid(), "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "the token must never sit under inherited ACLs")
+
+    def test_published_descriptor_is_owned_by_the_operator(self):
+        # The desktop refuses any descriptor whose owner is not the current
+        # user. An elevated or S4U token defaults new files to Administrators,
+        # so the owner must be stamped explicitly at creation.
+        if os.name != "nt":
+            raise unittest.SkipTest("NTFS ownership is Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            script = ("Write-Output ((Get-Acl -LiteralPath '" + str(published).replace("'", "''") + "')"
+                      ".GetOwner([System.Security.Principal.SecurityIdentifier]).Value)")
+            owner = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                                   capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+            self.assertEqual(owner, service_host._current_user_sid())
+
+    def test_verification_refuses_a_descriptor_owned_by_someone_else(self):
+        # A non-elevated test cannot hand ownership to Administrators, so the
+        # mismatch is produced from the other side: the file stays owned by
+        # this account while the operator SID the host expects is different.
+        if os.name != "nt":
+            raise unittest.SkipTest("NTFS ownership is Windows-only")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / DESCRIPTOR
+            me = service_host._current_user_sid()
+            # Ordinary file creation may default to Administrators under an
+            # elevated token. Establish the intended owner before the control.
+            fd = service_host.create_protected_exclusive(target, me)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write("{}")
+            self.assertTrue(service_host.verify_restricted_acl(target))
+            other = "S-1-5-19"  # LOCAL SERVICE: resolvable, never this account
+            # The DACL is made EXACTLY what the host expects for `other`, so
+            # the only thing left to refuse is the owner.
+            subprocess.run(["icacls", str(target), "/inheritance:r", "/grant:r", f"*{other}:F",
+                            "/grant", "*S-1-5-18:F", "/grant", "*S-1-5-32-544:F", "/grant", f"*{me}:F"],
+                           capture_output=True, timeout=15, check=True)
+            subprocess.run(["icacls", str(target), "/remove:g", f"*{me}"],
+                           capture_output=True, timeout=15, check=True)
+            with mock.patch.object(service_host, "_current_user_sid", return_value=other):
+                self.assertFalse(service_host.verify_restricted_acl(target),
+                                 f"owner {me} is not the expected operator {other}")
 
     def test_write_descriptor_fails_closed_when_protection_unavailable(self):
         with tempfile.TemporaryDirectory() as root:
