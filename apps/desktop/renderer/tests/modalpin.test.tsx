@@ -45,14 +45,17 @@ import {
   closeIfCentred, forgetModalPins, isModalPinned, MODAL_FALLBACK_RECT,
   MODAL_PINS_KEY, MODAL_Z_BASE, MODAL_Z_TOP, modalZIndex, PinFrame, pinModal,
   raiseModal, readModalPins, unpinModal, commitModalRect, measureRect,
+  MODAL_OPEN_KEY, readModalOpen, rememberModalOpen, forgetModalOpen, forgetModalOpenCache, usePersistedModalOpen,
 } from '../src/canvas/modalpin'
 import { PIN_MIN_H, PIN_MIN_W } from '../src/canvas/pins'
 import { DocReader } from '../src/canvas/docs'
 import { WatchdogPanel } from '../src/canvas/modals'
 import type { Watchdog } from '../src/types'
+import { restoredAgent } from '../src/windowlayout'
+import { CurrentOrg } from '../src/popout'
 
 const noop = () => {}
-const reset = () => { localStorage.clear(); forgetModalPins() }
+const reset = () => { localStorage.clear(); forgetModalPins(); forgetModalOpenCache() }
 
 // ------------------------------------------------------------------ events
 function stubPointerCapture(): () => void {
@@ -122,7 +125,28 @@ const shot = (host: HTMLElement): Shot => {
     closes: closes.n,
   }
 }
-const frame = (kind = 'usage') => (
+function RestartHarness() {
+  const [open, setOpen] = useState(() => readModalOpen(null).some(r => r.kind === 'usage' && isModalPinned('usage')))
+  usePersistedModalOpen('usage', null, open)
+  return open
+    ? <PinFrame kind="usage" title="usage limits" panel="settings usage-modal" close={() => setOpen(false)}>
+        <button className="child-close" onClick={() => setOpen(false)}>close</button>
+      </PinFrame>
+    : <button className="open-modal" onClick={() => setOpen(true)}>open</button>
+}
+function OrgSwitchHarness({ initial = 'a' }: { initial?: string }) {
+  const [org, setOrg] = useState(initial)
+  const [open, setOpen] = useState(() => readModalOpen(initial).some(r => r.kind === 'node-config' && isModalPinned('node-config')))
+  usePersistedModalOpen('node-config', org, open, open ? { agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 } : undefined)
+  return <CurrentOrg.Provider value={org}>
+    <button className="switch-org" onClick={() => setOrg(org === 'a' ? 'b' : 'a')}>switch</button>
+    {open
+      ? <PinFrame kind="node-config" title="settings" panel="settings" restore={{ agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 }} close={() => setOpen(false)}>
+          <button className="child-close" onClick={() => setOpen(false)}>close</button>
+        </PinFrame>
+      : <button className="open-modal" onClick={() => setOpen(true)}>open</button>}
+  </CurrentOrg.Provider>
+}const frame = (kind = 'usage') => (
   <PinFrame kind={kind} title="usage limits" panel="settings usage-modal"
     close={() => { closes.n += 1 }}>
     <h3>usage limits</h3>
@@ -193,6 +217,25 @@ test('§1 the store: pin, raise, unpin, the z band, and what garbage reads as', 
   reset()
 })
 
+test('§1d pinned modal open state survives storage reload and is scoped by org', () => {
+  reset()
+  rememberModalOpen('node-config', 'acme', { agent: 'worker', generation: 2 })
+  rememberModalOpen('usage', null)
+  assert.deepEqual(readModalOpen('acme'), [
+    { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
+    { kind: 'usage', org: null },
+  ])
+  assert.deepEqual(readModalOpen('other'), [{ kind: 'usage', org: null }])
+  forgetModalOpenCache()
+  assert.equal(localStorage.getItem(MODAL_OPEN_KEY)?.includes('node-config'), true)
+  assert.deepEqual(readModalOpen('acme'), [
+    { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
+    { kind: 'usage', org: null },
+  ])
+  forgetModalOpen('node-config', 'acme')
+  assert.deepEqual(readModalOpen('acme'), [{ kind: 'usage', org: null }])
+  reset()
+})
 test('§1b the clamp and the size floor are the agent window\'s, not a second set', () => {
   reset()
   // window is 1024×768 in jsdom; a window dragged off the right edge comes back
@@ -220,6 +263,100 @@ test('§1c measureRect: an unmeasurable panel falls back rather than to 0×0', (
 })
 
 // ========================================================== §2 the two modes
+test('§1e pinned agent restore accepts only the current generation', () => {
+  const nodes = new Map([['worker', { generation: 4 }]])
+  const base = { key: 'saved', kind: 'node-config', org: 'acme', open: true, rect: { x: 0, y: 0, width: 200, height: 150 } }
+  assert.equal(restoredAgent({ ...base, restore: { agent: 'worker', generation: 3 } }, nodes), null)
+  assert.equal(restoredAgent({ ...base, restore: { agent: 'worker', generation: 4 } }, nodes), 'worker')
+})
+
+test('org switch does not copy pinned open state', async () => {
+  reset()
+  let v = await mountView(<OrgSwitchHarness />, shot)
+  await inAct(() => { click(v.el.querySelector('.open-modal')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
+  await flush()
+  assert.ok(readModalOpen('a').some(r => r.kind === 'node-config' && r.org === 'a' && r.restore?.agent === 'alice'))
+  rememberModalOpen('node-config', 'b', { agent: 'bob', generation: 2 })
+  await inAct(() => { click(v.el.querySelector('.switch-org')!) })
+  await flush()
+  assert.equal(readModalOpen('b').find(r => r.kind === 'node-config' && r.org === 'b')?.restore?.agent, 'bob', 'B keeps its own restore target')
+  assert.ok(readModalOpen('a').some(r => r.kind === 'node-config' && r.org === 'a' && r.restore?.agent === 'alice'))
+  forgetModalOpen('node-config', 'b')
+  assert.equal(readModalOpen('b').some(r => r.kind === 'node-config' && r.org === 'b'), false, 'a closed B stays closed')
+  await v.unmount()
+  forgetModalPins(); forgetModalOpenCache()
+  v = await mountView(<OrgSwitchHarness initial="b" />, shot)
+  assert.equal(v.last().overlay, null, 'B does not inherit A open state after restart')
+  await v.unmount()
+  forgetModalOpenCache()
+  v = await mountView(<OrgSwitchHarness initial="a" />, shot)
+  assert.ok(v.last().overlay, 'A retains its own pinned open state after restart')
+  await v.unmount()
+  reset()
+})
+test('§2b a pinned modal reopens after remount, while close and unpin stay closed', async () => {
+  reset()
+  let v = await mountView(<RestartHarness />, shot)
+  await inAct(() => { click(v.el.querySelector('.open-modal')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
+  await flush()
+  assert.equal(v.last().pinned, true)
+  assert.ok(readModalOpen(null).some(r => r.kind === 'usage'))
+
+  await v.unmount()
+  forgetModalPins(); forgetModalOpenCache()
+  v = await mountView(<RestartHarness />, shot)
+  assert.equal(v.last().pinned, true, 'a fresh mount restores the pinned open surface')
+
+  await inAct(() => { click(v.el.querySelector('.child-close')!) })
+  await flush()
+  assert.equal(localStorage.getItem(MODAL_OPEN_KEY), null, 'a child close clears its open marker')
+  await v.unmount()
+  forgetModalPins(); forgetModalOpenCache()
+  v = await mountView(<RestartHarness />, shot)
+  assert.equal(v.last().overlay, null, 'a child-closed modal is not resurrected after remount')
+  await v.unmount()
+  reset()
+
+  // The bar-close path is independently checked after a fresh pin.
+  v = await mountView(<RestartHarness />, shot)
+  await inAct(() => { click(v.el.querySelector('.open-modal')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-x')!) })
+  await flush()
+  assert.equal(localStorage.getItem(MODAL_OPEN_KEY), null, 'closing the pinned bar clears its open marker')
+  await inAct(() => { click(v.el.querySelector('.open-modal')!) })
+  await flush()
+  assert.ok(readModalOpen(null).some(r => r.kind === 'usage'), 'normal reopen restores the marker')
+  await v.unmount()
+  forgetModalPins(); forgetModalOpenCache()
+  v = await mountView(<RestartHarness />, shot)
+  assert.equal(v.last().overlay?.className, 'overlay overlay-pinned', 'a normally reopened modal returns after remount')
+  await v.unmount()
+  reset()
+
+  // Re-open, pin, then unpin without closing: unpinning removes the restart
+  // marker even though the centred surface remains visible in this session.
+  v = await mountView(<RestartHarness />, shot)
+  await inAct(() => { click(v.el.querySelector('.open-modal')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
+  await flush()
+  await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
+  await flush()
+  assert.equal(localStorage.getItem(MODAL_OPEN_KEY), null)
+  await v.unmount()
+  forgetModalPins(); forgetModalOpenCache()
+  v = await mountView(<RestartHarness />, shot)
+  assert.equal(v.last().overlay, null, 'unpinning does not cause a later remount to reopen it')
+  await v.unmount()
+  reset()
+})
 test('§2 centred is exactly what it was; pinned is a window', async () => {
   reset()
   const v = await mount()

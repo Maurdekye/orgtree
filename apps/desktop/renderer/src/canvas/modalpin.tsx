@@ -53,6 +53,7 @@ import { CloseIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
+import type { WindowRestore } from '../windowlayout'
 import { useEsc } from './shared'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -78,6 +79,8 @@ export const modalZIndex = (z: number): number =>
 export const MODAL_OVER_PINS_Z = 31
 
 export const MODAL_PINS_KEY = 'orgtree-modal-pins'
+export const MODAL_OPEN_KEY = 'orgtree-modal-open'
+export interface ModalOpenState { kind: string; org: string | null; restore?: WindowRestore }
 
 export const MODAL_OVERLAP_KEY = 'orgtree-modal-overlap-fade'
 export interface ModalOverlapSetting { enabled: boolean; opacity: number }
@@ -203,6 +206,87 @@ const write = (next: PinMap): void => {
 /** drop the cached copy so the next read comes from storage again — for a
  *  `storage` event from another tab, and for tests that clear localStorage */
 export const forgetModalPins = (): void => { cache = null; notify() }
+
+const validRestore = (v: unknown): v is WindowRestore => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  return Object.entries(v).every(([key, value]) => key === 'generation'
+    ? Number.isSafeInteger(value) && Number(value) >= 0
+    : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
+}
+const validOpen = (v: unknown): v is ModalOpenState => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const o = v as Partial<ModalOpenState>
+  return typeof o.kind === 'string' && o.kind.length > 0 && o.kind.length <= 512
+    && (o.org === null || typeof o.org === 'string')
+    && (o.restore === undefined || validRestore(o.restore))
+}
+let openCache: ModalOpenState[] | null = null
+const openSuppressed = new Set<string>()
+const openKey = (kind: string, org: string | null) => `${org ?? ''}\u0000${kind}`
+export const readModalOpen = (org?: string | null): ModalOpenState[] => {
+  if (!openCache) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MODAL_OPEN_KEY) || '[]') as unknown
+      openCache = Array.isArray(parsed) ? parsed.filter(validOpen).map((o) => ({
+        kind: o.kind, org: o.org, ...(o.restore ? { restore: { ...o.restore } } : {}),
+      })) : []
+    } catch { openCache = [] }
+  }
+  return openCache.filter((o) => org === undefined || o.org === null || o.org === org)
+}
+const writeOpen = (next: ModalOpenState[]): void => {
+  openCache = next
+  try {
+    if (next.length) localStorage.setItem(MODAL_OPEN_KEY, JSON.stringify(next))
+    else localStorage.removeItem(MODAL_OPEN_KEY)
+  } catch { /* private mode */ }
+}
+export const rememberModalOpen = (kind: string, org: string | null, restore?: WindowRestore): void => {
+  openSuppressed.delete(openKey(kind, org))
+  const all = readModalOpen()
+  const next = all.filter((o) => openKey(o.kind, o.org) !== openKey(kind, org))
+  next.push({ kind, org, ...(restore ? { restore: { ...restore } } : {}) })
+  writeOpen(next)
+}
+export const forgetModalOpen = (kind: string, org: string | null): void => {
+  openSuppressed.add(openKey(kind, org))
+  const all = readModalOpen()
+  const next = all.filter((o) => openKey(o.kind, o.org) !== openKey(kind, org))
+  if (next.length !== all.length) writeOpen(next)
+}
+export const forgetModalOpenCache = (): void => { openCache = null; openSuppressed.clear() }
+/** Keep the durable open marker aligned with an owning component's state.
+ * The first render is intentionally not treated as a close: restoration sets
+ * state in an effect after the component mounts. */
+export const usePersistedModalOpen = (kind: string, org: string | null, open: boolean, restore?: WindowRestore): void => {
+  const seen = useRef<string | null>(null)
+  const restoreKey = restore ? JSON.stringify(restore) : ''
+  useEffect(() => {
+    const key = openKey(kind, org)
+    if (seen.current !== key) {
+      // Organization switches can leave the previous owner's state true for
+      // one render. Do not write, suppress, or refresh the destination until
+      // its own restoration effect has supplied the authoritative state.
+      seen.current = key
+      return
+    }
+    if (!isModalPinned(kind)) {
+      return
+    }
+    if (openSuppressed.has(key)) {
+      // A real opener may reopen a still-pinned surface after closing it.
+      // Unpin remains suppressed because the pin guard above wins.
+      if (open) {
+        openSuppressed.delete(key)
+        rememberModalOpen(kind, org, restore)
+      }
+      seen.current = key
+      return
+    }
+    if (open) rememberModalOpen(kind, org, restore)
+    else forgetModalOpen(kind, org)
+  }, [kind, org, open, restoreKey])
+}
 
 const subscribe = (fn: () => void): (() => void) => {
   subs.add(fn)
@@ -369,11 +453,11 @@ export interface PinFrameProps {
 export function PinFrame(props: PinFrameProps) {
   const org = useCurrentOrg()
   const scope = ['usage', 'defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
-  return <MovableSurface key={scope} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} /></MovableSurface>
+  return <MovableSurface key={scope} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,
-  onEsc, backdropClose = true, onPanelClick, pinnable = true, dialogLabel }: PinFrameProps) {
+  onEsc, backdropClose = true, onPanelClick, pinnable = true, dialogLabel, restore, orgScope }: PinFrameProps & { orgScope: string | null }) {
   const pin = useModalPin(kind)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
@@ -490,9 +574,15 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   }
 
   const toggle = () => {
-    if (pinned) unpinModal(kind)
-    else pinModal(kind, measureRect(panelRef.current))
+    if (pinned) {
+      unpinModal(kind)
+      forgetModalOpen(kind, orgScope)
+    } else {
+      pinModal(kind, measureRect(panelRef.current))
+      rememberModalOpen(kind, orgScope, restore)
+    }
   }
+  const closeSurface = () => { forgetModalOpen(kind, orgScope); close() }
   // THE BAR'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): the three controls
   // the bar already carries — pin/unpin, the pop-out (surface.open/redock,
   // exactly what PopoutButton calls), close — by name. State-dependent
@@ -511,7 +601,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           : 'pin this to the window, so it stays put and can be dragged around',
         onSelect: toggle })
     }
-    entries.push('sep', { label: 'Close', onSelect: close })
+    entries.push('sep', { label: 'Close', onSelect: closeSurface })
     return entries
   }
 
@@ -523,7 +613,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
       style={pin && !detached ? { zIndex: modalZIndex(pin.z) } : undefined}
       onClick={pinned || detached || !backdropClose ? undefined
-        : (e) => { e.stopPropagation(); close() }}
+        : (e) => { e.stopPropagation(); closeSurface() }}
       onPointerDown={(e) => e.stopPropagation()}>
       {/* ⚠ SAME ELEMENT, SAME CHILDREN, IN BOTH MODES — see the header. Only
           the class list and the inline rect change, so React keeps the whole
@@ -573,7 +663,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
             <button type="button" className="modalpin-btn modalpin-x" title="close"
               aria-label="close this window"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); close() }}>
+              onClick={(e) => { e.stopPropagation(); closeSurface() }}>
               <CloseIcon fontSize="inherit" />
             </button>
           )}

@@ -40,7 +40,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned } from './modalpin'
+import { isModalPinned, readModalOpen, usePersistedModalOpen } from './modalpin'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -175,6 +175,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
   const [dogView, setDogView] = useState<string | null>(null)  // FR-18 panel
+
   // ---- mobile wave (D-123/D-125) ----
   // the desk SHEET: explicit state, mobile-only. This deliberately does NOT
   // touch focusId — at compact the zoom clamps below Z_DESK so the camera-
@@ -300,18 +301,41 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const vroot = useMemo(() => canonPiles(withDraftTree(tree, draft)),
     [tree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   const map = useMemo(() => flatten(vroot, seats), [vroot])   // eslint-disable-line
+  usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
+  usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
+  usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
+  usePersistedModalOpen('agent-docket', slug, agentDocketId !== null, agentDocketId ? { agent: agentDocketId, generation: map.get(agentDocketId)?.generation } : undefined)
+  usePersistedModalOpen('watchdog', slug, dogView !== null, dogView ? { watchdog: dogView } : undefined)
+  usePersistedModalOpen('user-config', slug, userCfg)
+  usePersistedModalOpen('org-inbox', slug, oiOpen)
+  usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
   useEffect(() => {
     if (restoredModalOrg.current === slug) return
     restoredModalOrg.current = slug
     const rows = restoredWindows(slug)
+    const pinned = readModalOpen(slug)
+    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind))
     const agent = (kind: string) => restoredAgent(rows.find(r => r.kind === kind), map)
-    setConfigId(agent('node-config')); setLineageId(agent('lineage'))
-    setInboxId(agent('node-inbox')); setAgentDocketId(agent('agent-docket'))
-    setUserCfg(rows.some(r => r.kind === 'user-config'))
-    setOiOpen(rows.some(r => r.kind === 'org-inbox'))
-    const watchdog = rows.find(r => r.kind === 'watchdog')?.restore?.watchdog
-    setDogView(watchdog && tree.watchdogs?.some(w => w.id === watchdog) ? watchdog : null)
-    setDocView(rows.find(r => r.kind === 'doc')?.restore?.document ?? null)
+    const pinnedAgent = (kind: string) => {
+      const row = pinned.find(r => r.kind === kind && r.restore?.agent)
+      return row ? restoredAgent({
+        key: `pinned:${slug}:${kind}`, kind, org: slug, open: true,
+        rect: { x: 0, y: 0, width: 200, height: 150 }, restore: row.restore,
+      }, map) : null
+    }
+    setConfigId(pinnedKind('node-config') ? (agent('node-config') ?? pinnedAgent('node-config')) : agent('node-config'))
+    setLineageId(pinnedKind('lineage') ? (agent('lineage') ?? pinnedAgent('lineage')) : agent('lineage'))
+    setInboxId(pinnedKind('node-inbox') ? (agent('node-inbox') ?? pinnedAgent('node-inbox')) : agent('node-inbox'))
+    setAgentDocketId(pinnedKind('agent-docket') ? (agent('agent-docket') ?? pinnedAgent('agent-docket')) : agent('agent-docket'))
+    setUserCfg(pinnedKind('user-config') || rows.some(r => r.kind === 'user-config'))
+    setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
+    const watchdogRow = pinned.find(r => r.kind === 'watchdog') || rows.find(r => r.kind === 'watchdog')
+    const watchdog = watchdogRow?.restore?.watchdog
+    // Keep a pinned restore target even when watchdog data arrives later; the
+    // panel render below already waits for the matching tree entry.
+    setDogView(watchdog && (pinnedKind('watchdog') || !!rows.find(r => r.kind === 'watchdog')) ? watchdog : null)
+    const pinnedDoc = pinned.find(r => r.kind === 'doc' && r.restore?.document)
+    setDocView(pinnedDoc?.restore?.document ?? rows.find(r => r.kind === 'doc')?.restore?.document ?? null)
     setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
     const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
     if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])

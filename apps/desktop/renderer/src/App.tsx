@@ -41,7 +41,7 @@ import { AccountsPanel, UsageBars } from './canvas/accounts'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryBrowser } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, readModalOpen, usePersistedModalOpen } from './canvas/modalpin'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
@@ -279,6 +279,7 @@ export default function App() {
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
   const [showAccounts, setShowAccounts] = useState(false)   // D-144 account registry
   const [showUsage, setShowUsage] = useState(false)         // host subscription usage bars
+
   // the documents gallery (user request 2026-09-03): every presented card,
   // org-wide, one place. It reads in its OWN right-hand pane (the mail
   // idiom the user asked for), so nothing about the canvas's reader is
@@ -298,6 +299,15 @@ export default function App() {
   // requests, and the panel's latch compares the request — see `jumpTo`
   // in shared.ts.
   const [docketJump, setDocketJump] = useState<JumpReq | null>(null)
+  usePersistedModalOpen('usage', null, showUsage)
+  usePersistedModalOpen('defaults', null, showDefaults)
+  usePersistedModalOpen('app-settings', null, showAccounts)
+  usePersistedModalOpen('org-settings', slug, showSettings)
+  usePersistedModalOpen('connections', slug, showConnections)
+  usePersistedModalOpen('inbox', slug, showInbox)
+  usePersistedModalOpen('gallery', slug, showGallery)
+  usePersistedModalOpen('docket', slug, showDocket)
+  usePersistedModalOpen('retained-history', slug, showHistory)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs
@@ -363,20 +373,22 @@ export default function App() {
     if (notice.org !== slug) setSlug(notice.org)
   })
   useEffect(() => {
-    setShowUsage(restoreWindowKind('usage', null))
-    setShowAccounts(restoreWindowKind('app-settings', null))
-    setShowDefaults(restoreWindowKind('defaults', null))
+    setShowUsage((isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
+    setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
+    setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
   const restoredOrg = useRef<string | null>(null)
   useEffect(() => {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
     restoredOrg.current = slug
-    setShowSettings(restoreWindowKind('org-settings', slug))
-    setShowConnections(restoreWindowKind('connections', slug))
-    setShowInbox(restoreWindowKind('inbox', slug))
-    setShowGallery(restoreWindowKind('gallery', slug))
-    setShowDocket(restoreWindowKind('docket', slug))
-    setShowHistory(restoreWindowKind('retained-history', slug))
+    const pinned = readModalOpen(slug)
+    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind))
+    setShowSettings(pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
+    setShowConnections(pinnedKind('connections') || restoreWindowKind('connections', slug))
+    setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
+    setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
+    setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
+    setShowHistory(pinnedKind('retained-history') || restoreWindowKind('retained-history', slug))
     setAgentGalleryId(restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
