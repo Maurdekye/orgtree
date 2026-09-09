@@ -18,6 +18,9 @@ import sys
 import time
 
 mode = os.environ.get("FIXTURE_MODE", "success")
+if os.environ.get("FIXTURE_PROFILE_PROBE"):
+    with open(os.environ["FIXTURE_PROFILE_PROBE"], "w", encoding="utf-8") as probe:
+        json.dump({key: os.environ.get(key) for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME")}, probe)
 
 if mode == "crash":
     sys.stderr.write("fixture: simulated codex login crash\n")

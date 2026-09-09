@@ -58,3 +58,13 @@ test('creating a managed account uses the selected provider and no imported path
   assert.equal(create.url, '/api/accounts')
   assert.deepEqual(JSON.parse(create.body), { provider: 'claude', kind: 'managed' })
 })
+
+
+test('usage opens for the selected account without polling every collapsed row', async t => {
+  const { el, calls } = await setup(t, [account('one'), account('two')])
+  assert.equal(calls.some(c => c.url.endsWith('/usage')), false)
+  const detail = el.querySelectorAll('details')[1]!
+  await inAct(async () => { detail.open = true; detail.dispatchEvent(new Event('toggle')); await flush() })
+  assert.ok(calls.some(c => c.url === '/api/accounts/two/usage'))
+  assert.equal(calls.some(c => c.url === '/api/accounts/one/usage'), false)
+})

@@ -29,7 +29,7 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
       .catch((e: Error) => setError(e.message))
   }, [accountId])
   useEffect(() => { reload() }, [reload])
-  if (error) return <p className="dim">usage: {error}</p>
+  if (error) return <div className="dim">usage: {error} <button onClick={reload}>retry</button></div>
   if (!u) return <p className="dim">reading usage…</p>
   return <div className="account-usage">
     {u.available

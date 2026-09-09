@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { req } from '../api'
 import { accountTint } from '../accounttint'
+import { AccountUsagePanel } from '../accountusage'
 import { THEMES } from '../themes'
 import { ProviderSignIn } from './accounts'
 import { SetGroup } from './settingskit'
@@ -42,6 +43,7 @@ function markLine(pool: string,
 export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
   const [rows, setRows] = useState<AccountRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [usageOpen, setUsageOpen] = useState<Record<string, boolean>>({})
   const [addProvider, setAddProvider] = useState('claude')
   const [importPath, setImportPath] = useState('')
 
@@ -139,6 +141,11 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
             ? 'reassign its agents explicitly first'
             : 'remove this account'}
           onClick={() => remove(r.id)}>remove</button>
+        <details style={{ flexBasis: '100%' }}
+          onToggle={(e) => { const open = e.currentTarget.open; setUsageOpen(old => ({ ...old, [r.id]: open })) }}>
+          <summary>Usage</summary>
+          {usageOpen[r.id] && <AccountUsagePanel accountId={r.id} />}
+        </details>
       </div>
     })}
     <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>

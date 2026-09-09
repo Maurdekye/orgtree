@@ -74,10 +74,15 @@ function providersServer(state, { forceDelayMs = 0 } = {}) {
   return new Promise(resolve => {
     const server = http.createServer((request, response) => {
       requests.push({ url: request.url, at: Date.now() })
-      if (!request.url.startsWith('/api/providers')) { response.writeHead(404); response.end(); return }
+      if (!request.url.startsWith('/api/providers') && !request.url.startsWith('/api/accounts/')) { response.writeHead(404); response.end(); return }
       if (request.headers['x-orgtree-desktop-token'] !== TOKEN) {
         response.writeHead(401, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ detail: 'invalid desktop token' }))
+        return
+      }
+      if (request.url.startsWith('/api/accounts/')) {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ auth: state.profileAuth ?? 'unauthenticated' }))
         return
       }
       const respond = () => {
@@ -542,3 +547,37 @@ test('antigravity: cancel with nothing tracked is a harmless no-op, before or af
   await providerlogin.startProviderLogin(handle.origin, TOKEN, 'antigravity')
   assert.equal(providerlogin.cancelProviderLogin('antigravity').phase, 'idle')
 })
+
+
+for (const provider of ['claude', 'codex']) {
+  for (const profileOk of [true, false]) {
+    test(`${provider}: redirected login verifies its own account despite opposite ambient status (${profileOk})`, async () => {
+      const state = freshState()
+      state[provider].connected = !profileOk
+      state.profileAuth = profileOk ? 'authenticated' : 'unauthenticated'
+      await new Promise(resolve => handle.server.close(resolve))
+      handle = await providersServer(state)
+      const profileDir = path.join(temp, `profile-${provider}-${profileOk}`)
+      const probe = path.join(temp, `profile-env-${provider}-${profileOk}.json`)
+      const oldProbe = process.env.FIXTURE_PROFILE_PROBE
+      process.env.FIXTURE_PROFILE_PROBE = probe
+      process.env.FIXTURE_MODE = 'no_write'
+      try {
+        await providerlogin.startProviderLogin(handle.origin, TOKEN, provider, { profileDir, accountId: 'selected-account' })
+        if (provider === 'claude') {
+          await eventually(async () => (await providerlogin.getProviderLoginStatus(provider)).phase === 'awaiting_code')
+          providerlogin.submitProviderLoginCode(provider, 'fixture-only')
+        }
+        await eventually(async () => (await providerlogin.getProviderLoginStatus(provider)).phase === 'done')
+        assert.equal((await providerlogin.getProviderLoginStatus(provider)).ok, profileOk)
+        const env = JSON.parse(fs.readFileSync(probe, 'utf8'))
+        assert.equal(env[provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'], profileDir)
+        assert.ok(handle.requests.some(r => r.url === '/api/accounts/selected-account/identity'))
+        assert.equal(handle.requests.some(r => r.url.includes('force=true')), false)
+      } finally {
+        if (oldProbe === undefined) delete process.env.FIXTURE_PROFILE_PROBE
+        else process.env.FIXTURE_PROFILE_PROBE = oldProbe
+      }
+    })
+  }
+}
