@@ -54,6 +54,10 @@ const trusting = engine => { engine.trustCheck = async () => ({ ok: true, detail
 // REAL trust-check fixtures cannot live under %TEMP%: its ancestor chain
 // carries foreign delete-class ACEs on this machine, which the ancestor
 // replacement rule rightly refuses. The worktree's own chain is clean.
+// The guardian's lock FILE persists after release (only the byte-range lock
+// drops), so an attached root normally HAS the file; fail-closed release
+// checks need it present in fixtures.
+fs.writeFileSync(path.join(realRoot, '.desktop-engine.lock'), '0')
 const aclBase = fs.mkdtempSync(path.join(process.cwd(), 'acl-fixtures-'))
 test.after(() => { try { fs.rmSync(aclBase, { recursive: true, force: true }) } catch {} })
 
@@ -501,4 +505,21 @@ test('a busy engine (probes fail, tree signals alive) is never declared dead', a
   await engine.verifyAttached()
   await engine.verifyAttached()
   assert.equal(engine.status.state, 'stopped')
+})
+
+test('an absent guardian lock is a refusal, not a release (fail closed)', async () => {
+  const bareRoot = path.join(temp, 'v2-bare'); fs.mkdirSync(bareRoot)
+  const real2 = fs.realpathSync.native(bareRoot)
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, { protocol: 1, pid: 4242, dataRootId: real2 })
+  })
+  const engine = trusting(new Engine())
+  fs.writeFileSync(path.join(real2, 'engine-attach.json'), JSON.stringify(descriptor({ port, dataRootId: real2 })))
+  assert.equal(await engine.attach({ dataRoot: bareRoot, forbiddenRoot: forbidden }), true)
+  // Endpoint dead and descriptor gone — the two weak signals both say yes —
+  // but with no lock file the strong signal cannot be established: refuse.
+  fs.rmSync(path.join(real2, 'engine-attach.json'))
+  await new Promise(resolve => server.close(resolve))
+  await assert.rejects(engine.stopAttachedForUpdate(2000), /unverifiable/)
 })

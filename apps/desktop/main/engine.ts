@@ -221,7 +221,12 @@ export class Engine extends EventEmitter {
    *  proof root required beyond mere process exit. An absent file counts as
    *  released; any denied write counts as held. */
   private guardianReleased(lockFile: string): boolean {
-    if (!lockFile || !fs.existsSync(lockFile)) return true
+    // FAIL CLOSED (opus): this is the one strong signal in the stop
+    // conjunction, so "I could not look" — no path, no file — must refuse,
+    // never pass. The guardian's lock FILE survives release (only the
+    // byte-range lock is dropped), so a genuinely released root still has
+    // the file and answers yes through the write probe.
+    if (!lockFile || !fs.existsSync(lockFile)) return false
     try {
       const fd = fs.openSync(lockFile, 'r+')
       try { fs.writeSync(fd, Buffer.from('0'), 0, 1, 0) } finally { fs.closeSync(fd) }
@@ -267,7 +272,7 @@ export class Engine extends EventEmitter {
     }
     if (!endpointDead) throw new Error('Background engine did not stop for the update')
     if (descriptorFile && fs.existsSync(descriptorFile)) throw new Error('Background engine port closed but its host has not confirmed process exit; refusing the update')
-    throw new Error('Background engine tree has not released the data root (guardian lock still held); refusing the update')
+    throw new Error('Background engine tree release could not be established (guardian lock still held or unverifiable); refusing the update')
   }
 
   async stats(): Promise<RuntimeStats | null> {
