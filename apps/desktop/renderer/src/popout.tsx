@@ -192,17 +192,28 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
 
+  // The emergency box is a LAST RESORT, held only while nothing else can
+  // host the surface. The moment any real destination is found — here or in
+  // the reattach effect below — the stale box must go with it: left in
+  // place, its `fixed; inset: 40px` covers nearly the whole window and traps
+  // every click until this component fully unmounts (an org switch), even
+  // though the surface itself already moved out of it.
+  const discardFallback = () => { fallback.current?.remove(); fallback.current = null }
   const destination = () => {
     const a = latest.current.anchor === undefined ? placeholder.current : latest.current.anchor
-    if (a?.isConnected) return a
+    if (a?.isConnected) { discardFallback(); return a }
     const overlay = latest.current.parent?.overlays
-    if (overlay?.isConnected) return overlay
+    if (overlay?.isConnected) { discardFallback(); return overlay }
     if (!fallback.current) {
       fallback.current = document.createElement('div')
       fallback.current.className = 'popout-recovery'
       document.body.appendChild(fallback.current)
     }
     return fallback.current
+  }
+  const place = (target: HTMLElement) => {
+    if (fallback.current && fallback.current !== target) discardFallback()
+    target.appendChild(parts.container)
   }
   const redock = () => {
     const restore = pendingRestore.current ?? preservePosition(parts.container)
@@ -212,7 +223,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
     closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
-    destination().appendChild(parts.container)
+    place(destination())
     initialOwner.current = document
     parts.container.classList.remove('detached')
     setOwner(parts.container.ownerDocument); setDetached(false)
@@ -308,6 +319,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || transaction !== epoch.current) throw new Error('The new window closed before it was ready.')
       // COMMIT POINT. Even a partially successful append that THEN throws is
       // rolled back below, by adopting the SAME container into its anchor.
+      discardFallback()
       mount.appendChild(parts.container)
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
@@ -334,7 +346,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         // React state is owned at App/OrgCanvas level.
         const target = anchor === undefined && initialOwner.current !== document && !parent
           && !initialOwner.current.defaultView?.closed ? initialOwner.current.body : a
-        if (parts.container.parentElement !== target) target.appendChild(parts.container)
+        if (parts.container.parentElement !== target) place(target)
+        else if (fallback.current && fallback.current !== target) discardFallback()
         setOwner(parts.container.ownerDocument)
         // Descendant layout effects (notably the composer auto-height) must
         // first run in a connected document, not in a detached zero-size box.

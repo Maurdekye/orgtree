@@ -363,6 +363,30 @@ def main():
             assert page.get_by_placeholder('message builder\u2026', exact=True).input_value() == 'persist through accepted reload'
             assert child.is_closed()
             results.append('actual API restart waits for explicit reload; opener reloads, child closes, composer restores')
+            # Real DeskChat again: pop the desk out, then let its anchor vanish
+            # WHILE detached (deskProbe.navigate(), same probe the mounted-
+            # writer test above already uses) — the ordinary shape of "free
+            # the main window and look elsewhere" while a popout stays open —
+            # and close the native window from that state. Redock has no live
+            # anchor to return to, so it must fall back to the emergency
+            # `.popout-recovery` box ONLY until a real destination exists
+            # again; the box must not survive to keep trapping every click.
+            page.goto(f'http://127.0.0.1:{server.server_port}/?desk=1')
+            draft = page.get_by_placeholder('message builder…', exact=True)
+            draft.fill('draft before vanishing anchor')
+            with page.expect_popup() as popup:
+                page.get_by_role('button', name='Open in new window').click()
+            child = popup.value
+            child.get_by_placeholder('message builder…', exact=True).wait_for()
+            page.evaluate('deskProbe.navigate()')
+            assert page.locator('textarea').count() == 0, 'the anchor must actually be gone before closing'
+            child.close()
+            page.wait_for_timeout(500)
+            page.evaluate('deskProbe.return()')
+            page.get_by_placeholder('message builder…', exact=True).wait_for()
+            assert page.locator('.popout-recovery').count() == 0, 'no orphaned recovery box survives redock with no anchor'
+            assert page.get_by_placeholder('message builder…', exact=True).input_value() == 'draft before vanishing anchor'
+            results.append('closing a popout whose anchor vanished while detached leaves no blocking recovery box behind')
             page.goto(f'http://127.0.0.1:{server.server_port}/k/probe-token/?desk=1&public=1')
             page.get_by_placeholder('message builder\u2026', exact=True).fill('visitor draft')
             with page.expect_popup() as popup:
