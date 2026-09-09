@@ -45,7 +45,7 @@ from typing import Any, Final, Protocol, cast
 from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_limits, events,
                codex_route, deployment, envelope, failfix, handoff, imgblock,
                limits, localtime, net, openrouter, opreceipts, providers,
-               sandbox as sbx, store,
+               registry, sandbox as sbx, store,
                tokens, turnlog, turnusage, warmpool)
 from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
                      freeze_describes_provider, now as now_iso)
@@ -3832,6 +3832,19 @@ def clean_env() -> dict[str, str]:
     # org's OWN key only.
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
+    # the §9.5 rule extended to PROFILE selectors (multi-account design D2b,
+    # 2026-09-09): a host-level CLAUDE_CONFIG_DIR or CODEX_HOME would capture
+    # every claude-lane spawn onto one profile while each node's UI shows the
+    # account it thinks it is on — the same silent-switch failure as the
+    # host-level key, in a new variable. The binding seam (registry.
+    # inject_binding) re-injects the bound row's OWN selector, paired with
+    # ORGTREE_ACCOUNT_ID, which is likewise strip-then-reinject so an
+    # inherited marker can never mislabel a spawn. (codexrun builds its env
+    # from os.environ directly with its own hygiene block — its binding
+    # injection lands there, not here.)
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    env.pop("CODEX_HOME", None)
+    env.pop("ORGTREE_ACCOUNT_ID", None)
     from . import devguard
     return devguard.child_env(env)
 
@@ -4164,12 +4177,26 @@ def identity_in_env(env: dict[str, str]) -> str:
     have moved since this env was built — and it is precisely the difference
     between a diagnosis and a guess when a turn runs as the wrong account.
 
-    Returns `accounts.PRIMARY`, a key row id, or one of the sentinels below
-    ("api-key", "key:unattributed"). Never a secret: the injected token is
+    Returns a REGISTRY ACCOUNT ID when the spawn carries the multi-account
+    marker (design D2b, 2026-09-09), else `accounts.PRIMARY`, a key row id,
+    or one of the sentinels below ("api-key", "key:unattributed",
+    "account-env-mismatch:<id>"). Never a secret: the injected token is
     matched back to its row id inside `accounts.key_for_token` and only the
     id leaves. An injected token no stored row explains degrades to the
     named unknown rather than silently reading as the primary login.
+
+    ⚠ THE MARKER IS CROSS-CHECKED, NOT TRUSTED (N2): a marker naming a
+    profile-kind row must travel with that row's exact profile var — the
+    pair is written by ONE injector. A divergent pair answers the named
+    mismatch, which record_limit refuses-and-logs like any unknown id;
+    answering the marker alone would turn a mis-paired spawn into a
+    CONFIDENT wrong attribution, worse than the visibly-default PRIMARY
+    the same bug used to produce.
     """
+    marker = env.get(registry.MARKER)
+    if marker:
+        mismatch = registry.identity_mismatch(env)
+        return mismatch if mismatch else str(marker)
     tok = env.get("CLAUDE_CODE_OAUTH_TOKEN")
     if tok:
         return accounts.key_for_token(tok) or "key:unattributed"

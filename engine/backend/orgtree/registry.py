@@ -249,6 +249,77 @@ def remove_account(account_id: str) -> bool:
         return True
 
 
+# ------------------------------------------------------------------ the seam
+#: the provider's profile-credential variable — the ONE mapping the injector
+#: and the identity cross-check both read, so they cannot disagree.
+PROFILE_VAR = {"claude": "CLAUDE_CONFIG_DIR", "openai": "CODEX_HOME"}
+
+#: the marker every bound spawn carries. Stripped by clean_env and re-injected
+#: here only — an inherited value can never survive into a spawn.
+MARKER = "ORGTREE_ACCOUNT_ID"
+
+
+def inject_binding(env: dict[str, str], row: dict[str, Any], *,
+                   secret_resolver: Any = None) -> dict[str, str]:
+    """THE single injector (design N2): the marker and its credential are
+    written together, by this function only, so no code path can set one
+    without the other and `identity_in_env`'s cross-check has a pair to check.
+
+    Profile rows set the provider's profile var to the row's path. Token rows
+    need the caller's `secret_resolver(token_ref) -> str` (key material lives
+    outside the registry): an org-key ref (`org-api-key:<slug>`) injects
+    ANTHROPIC_API_KEY — the same lane that credential always billed — and a
+    legacy ref injects CLAUDE_CODE_OAUTH_TOKEN, the retained key lane. A
+    resolver miss RAISES: a spawn with a binding it cannot honor must fail
+    loudly at build time, never run half-bound (the admission gate, not this
+    seam, owns "account cannot run" waits)."""
+    cred = row["credential"]
+    kind = cred["kind"]
+    if kind in ("imported", "managed"):
+        var = PROFILE_VAR.get(row["provider"])
+        if not var:
+            raise RuntimeError(
+                f"no spawn binding lane exists yet for provider "
+                f"{row['provider']!r} (account {row['id']})")
+        env[var] = cred["path"]
+    else:
+        if secret_resolver is None:
+            raise RuntimeError(
+                f"token account {row['id']} needs a secret resolver")
+        secret = secret_resolver(cred["token_ref"])
+        if not secret:
+            raise RuntimeError(
+                f"token account {row['id']}: credential "
+                f"{cred['token_ref']!r} did not resolve — refusing a "
+                f"half-bound spawn")
+        if str(cred["token_ref"]).startswith("org-api-key:"):
+            env["ANTHROPIC_API_KEY"] = secret
+        else:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = secret
+    env[MARKER] = row["id"]
+    return env
+
+
+def identity_mismatch(env: dict[str, str]) -> str | None:
+    """The N2 cross-check, shared by identity_in_env and the spawn assertion:
+    a marker naming a profile-kind row must travel with exactly that row's
+    profile var. Answers the named mismatch, or None when the pair is sound
+    (or no marker is present)."""
+    marker = env.get(MARKER)
+    if not marker:
+        return None
+    try:
+        row = get_account(marker)
+    except UnknownAccount:
+        return f"account-env-mismatch:{marker}"
+    cred = row["credential"]
+    if cred["kind"] in ("imported", "managed"):
+        var = PROFILE_VAR.get(row["provider"], "")
+        if not var or env.get(var) != cred["path"]:
+            return f"account-env-mismatch:{marker}"
+    return None
+
+
 # ---------------------------------------------------------------------- marks
 def record_mark(account_id: str, tier: str, until: float, *,
                 window: str = "", provenance: str = "observed",
