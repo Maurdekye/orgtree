@@ -49,7 +49,7 @@
     "files": ["dist/**/*", "apps/desktop/assets/**/*", "package.json", "LICENSE"],
     "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }, { "from": "dist/build-info.json", "to": "build-info.json" }],
     "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false, "createStartMenuShortcut": true, "shortcutName": "Orgtree", "menuCategory": "Orgtree" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false, "createStartMenuShortcut": true, "shortcutName": "Orgtree", "menuCategory": "Orgtree", "include": "build/installer.nsh" },
     "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "prerelease" }]
   }
 }
