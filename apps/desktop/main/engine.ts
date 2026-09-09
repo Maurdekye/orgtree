@@ -3,7 +3,9 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { canonicalPath, parseAttach, parseReady, TOKEN_HEADER, validateDataRoot } from './policy'
+import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot } from './policy'
+
+export const ENGINE_REFUSED = 'Engine start refused: '
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 
@@ -32,8 +34,22 @@ export class Engine extends EventEmitter {
   /** Adopt a boot-host engine when a verifiable descriptor exists. Returns
    *  false (and records why) on any doubt so the caller falls back to a
    *  fresh managed spawn; the engine-side root lock arbitrates races. */
+  /** Keep trying to attach for a bounded window. A missing descriptor only
+   *  means no host has FINISHED starting — during the boot race the host may
+   *  need most of its readiness budget before the file exists. */
+  async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = 90000, intervalMs = 1000): Promise<boolean> {
+    const deadline = Date.now() + deadlineMs
+    for (;;) {
+      if (await this.attach(options)) return true
+      if (Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
+  }
+
   async attach(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>): Promise<boolean> {
-    if (this.child || !this.managed) throw new Error('Engine already started')
+    // A child that already EXITED (a spawn that lost the boot race) does not
+    // block attachment; a live child or an existing attachment does.
+    if ((this.child && this.child.exitCode === null) || !this.managed) throw new Error('Engine already started')
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     if (!fs.existsSync(root)) return false
     const realRoot = fs.realpathSync.native(root)
@@ -79,20 +95,28 @@ export class Engine extends EventEmitter {
     const child = spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
-    child.on('exit', () => { this.endpoint = ''; this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' }) })
+    child.on('exit', () => {
+      // A child disowned by a failed spawn must not clobber a later attach.
+      if (this.child !== child) return
+      this.endpoint = ''; this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' })
+    })
     await new Promise<void>((resolve, reject) => {
       let buffered = '', settled = false
       const finish = (error?: Error) => {
         if (settled) return
         settled = true; clearTimeout(timer); child.stdout.off('data', onData)
         child.stdout.resume()
-        if (error) { child.kill(); this.state({ state: 'unavailable', message: error.message }); reject(error) } else resolve()
+        // A failed spawn no longer occupies this engine: the boot-race path
+        // retries attach() on the same instance after a structured refusal.
+        if (error) { child.kill(); this.child = undefined; this.state({ state: 'unavailable', message: error.message }); reject(error) } else resolve()
       }
       const onData = (chunk: Buffer) => {
         buffered += chunk.toString('utf8')
         if (buffered.length > 65536) return finish(new Error('Engine readiness exceeded size limit'))
         while (buffered.includes('\n')) {
           const at = buffered.indexOf('\n'), line = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 1)
+          const refusal = parseRefusal(line)
+          if (refusal) return finish(new Error(ENGINE_REFUSED + refusal))
           try {
             const ready = parseReady(line, realRoot, child.pid ?? -1)
             if (ready) { this.endpoint = `http://127.0.0.1:${ready.port}`; this.state({ state: 'ready' }); finish(); return }
@@ -104,6 +128,21 @@ export class Engine extends EventEmitter {
       child.once('error', () => finish(new Error('Python engine could not start')))
       child.once('exit', () => finish(new Error('Python engine exited before readiness')))
     })
+  }
+
+  /** Attached engines have no child to observe: probe identity when stats
+   *  fail so a boot engine stopped underneath us reads as stopped, not as a
+   *  forever-'ready' UI pointed at a dead port. */
+  async verifyAttached(): Promise<void> {
+    if (this.managed || !this.endpoint || this.status.state !== 'ready') return
+    try {
+      const response = await fetch(this.endpoint + '/api/desktop/identity',
+        { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(4000), redirect: 'error' })
+      if (!response.ok) throw new Error(String(response.status))
+    } catch {
+      this.endpoint = ''
+      this.state({ state: 'stopped', message: 'Background engine stopped. Restart Orgtree to reconnect.' })
+    }
   }
 
   async stats(): Promise<RuntimeStats | null> {

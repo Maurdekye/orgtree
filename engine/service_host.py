@@ -122,6 +122,48 @@ def remove_descriptor(root: Path) -> None:
         pass
 
 
+def _canon(p: str | Path) -> str:
+    resolved = str(Path(p).resolve())
+    return resolved.lower() if os.name == "nt" else resolved
+
+
+def clear_stale_descriptor(root: Path) -> None:
+    """A leftover descriptor is stale by definition — this host is about to
+    own the root — EXCEPT when its endpoint still answers with a verified
+    identity for this root, which means another live host owns it and this
+    one must neither start nor touch that host's file (raises).
+
+    Without this, a host killed without cleanup followed by a failed startup
+    would leave the previous boot's descriptor for the desktop to act on.
+    """
+    descriptor = root / DESCRIPTOR
+    try:
+        raw = descriptor.read_text(encoding="utf-8")
+    except OSError:
+        return  # absent (the common case) or unreadable: nothing to clear
+    live = False
+    try:
+        value = json.loads(raw)
+        port, token = value.get("port"), value.get("token")
+        if isinstance(port, int) and 1 <= port <= 65535 and isinstance(token, str):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/desktop/identity",
+                headers={"X-Orgtree-Desktop-Token": token})
+            with urllib.request.urlopen(request, timeout=3) as response:
+                identity = json.loads(response.read().decode("utf-8"))
+            live = (identity.get("protocol") == 1
+                    and isinstance(identity.get("dataRootId"), str)
+                    and _canon(identity["dataRootId"]) == _canon(root))
+    except (urllib.error.URLError, OSError, ValueError):
+        live = False  # dead port, refused token or garbage content: stale
+    if live:
+        raise RuntimeError("another boot host already serves this data root")
+    try:
+        descriptor.unlink()
+    except OSError:
+        pass
+
+
 def request_shutdown(port: int, token: str) -> bool:
     request = urllib.request.Request(f"http://127.0.0.1:{port}/api/desktop/shutdown",
                                      method="POST", data=b"",
@@ -137,6 +179,11 @@ def main() -> int:
     root = resolve_data_root()
     ui = resolve_ui_dir()
     root.mkdir(parents=True, exist_ok=True)
+    try:
+        clear_stale_descriptor(root)
+    except RuntimeError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     token = secrets.token_hex(32)
     env = pin_profile_environment({**os.environ})
     env.update({"ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": token,
@@ -177,33 +224,44 @@ def main() -> int:
 
     reader = threading.Thread(target=read_stdout, daemon=True)
     reader.start()
-    deadline = time.monotonic() + READY_TIMEOUT
-    while not ready and not failure and child.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.05)
-    if not ready:
-        reason = failure[0] if failure else (
-            "engine exited before readiness" if child.poll() is not None
-            else "engine did not become ready in time")
-        if child.poll() is None:
-            child.kill()
-        print(f"service host: {reason}", file=sys.stderr, flush=True)
-        return 1
-
-    port = int(ready["port"])
-    write_descriptor(root, port, child.pid, token)
-    print(f"service host: engine ready on 127.0.0.1:{port} (pid {child.pid})", file=sys.stderr, flush=True)
-
-    stopping = {"value": False}
-    def stop(*_args: Any) -> None:
-        if stopping["value"]:
-            return
-        stopping["value"] = True
-        request_shutdown(port, token)
-    for name in ("SIGTERM", "SIGINT", "SIGBREAK"):
-        if hasattr(signal, name):
-            signal.signal(getattr(signal, name), stop)
-
+    # Every path from here runs the cleanup: remove_descriptor() only removes
+    # a file carrying OUR pid, so pre-write failures are a safe no-op and a
+    # newer host's file can never be taken down by a dying older one.
     try:
+        deadline = time.monotonic() + READY_TIMEOUT
+        while not ready and not failure and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not ready:
+            reason = failure[0] if failure else (
+                "engine exited before readiness" if child.poll() is not None
+                else "engine did not become ready in time")
+            if child.poll() is None:
+                child.kill()
+            print(f"service host: {reason}", file=sys.stderr, flush=True)
+            return 1
+
+        port = int(ready["port"])
+        try:
+            write_descriptor(root, port, child.pid, token)
+        except OSError as exc:
+            # Fail through the same clean path as every other startup error;
+            # a crash here would loop a restart-on-failure task setting on a
+            # traceback instead of a reason.
+            print(f"service host: could not write attach descriptor: {exc}", file=sys.stderr, flush=True)
+            child.kill()
+            return 1
+        print(f"service host: engine ready on 127.0.0.1:{port} (pid {child.pid})", file=sys.stderr, flush=True)
+
+        stopping = {"value": False}
+        def stop(*_args: Any) -> None:
+            if stopping["value"]:
+                return
+            stopping["value"] = True
+            request_shutdown(port, token)
+        for name in ("SIGTERM", "SIGINT", "SIGBREAK"):
+            if hasattr(signal, name):
+                signal.signal(getattr(signal, name), stop)
+
         while child.poll() is None:
             if stopping["value"]:
                 try:
@@ -212,14 +270,14 @@ def main() -> int:
                     child.kill()
                 break
             time.sleep(0.2)
+        if stopping["value"]:
+            # A requested stop exits 0 so a restart-on-failure task setting
+            # does not resurrect an engine that was deliberately stopped.
+            return 0
+        code = child.returncode
+        return code if isinstance(code, int) and code != 0 else (0 if code == 0 else 1)
     finally:
         remove_descriptor(root)
-    if stopping["value"]:
-        # A requested stop exits 0 so a restart-on-failure task setting does
-        # not resurrect an engine that was deliberately stopped.
-        return 0
-    code = child.returncode
-    return code if isinstance(code, int) and code != 0 else (0 if code == 0 else 1)
 
 
 if __name__ == "__main__":

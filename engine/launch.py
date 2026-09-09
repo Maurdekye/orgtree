@@ -309,7 +309,15 @@ def main() -> None:
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     from engine.process_lifetime import arm_process_lifetime
     parent = os.environ.get("ORGTREE_V2_PARENT_PID", "").strip()
-    guardian_pid = arm_process_lifetime(data, parent_pid=int(parent) if parent else None)
+    try:
+        guardian_pid = arm_process_lifetime(data, parent_pid=int(parent) if parent else None)
+    except RuntimeError as exc:
+        # The desktop parses stdout: a structured refusal lets it tell a lost
+        # boot race (another owner holds this root) from a broken engine and
+        # retry attachment instead of showing a fatal startup dialog.
+        print(json.dumps({"type": "refused", "reason": str(exc)[:300]},
+                         separators=(",", ":")), flush=True)
+        raise
     app, _token, data, port, stopping = load_app()
     # The v2 loopback hub is a sibling service, not an alternate API. Start it
     # only after the explicit root has been validated and the real API loaded;

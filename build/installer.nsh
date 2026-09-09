@@ -18,6 +18,14 @@
 
 !macro customInit
   Var /GLOBAL BootTaskExisted
+  Var /GLOBAL BootOperator
+  # Recorded in EVERY instance; the elevated inner instance later replaces
+  # its own value with the OUTER instance's, so the task always runs as the
+  # operator who launched the installer, never as an alternate admin account
+  # that merely approved the UAC prompt.
+  ReadEnvStr $R1 USERDOMAIN
+  ReadEnvStr $R2 USERNAME
+  StrCpy $BootOperator "$R1\$R2"
   StrCpy $BootTaskExisted "0"
   nsExec::Exec 'schtasks /Query /TN "Orgtree Background Engine"'
   Pop $0
@@ -30,11 +38,12 @@
 
 !macro customInstall
   ${if} $installMode == "all"
-    ReadEnvStr $R1 USERDOMAIN
-    ReadEnvStr $R2 USERNAME
-    nsExec::Exec 'schtasks /Create /F /NP /RL LIMITED /SC ONSTART /RU "$R1\$R2" /TN "Orgtree Background Engine" /TR "$\"$INSTDIR\resources\engine\runtime\python.exe$\" $\"$INSTDIR\resources\engine\service_host.py$\""'
+    ${if} ${UAC_IsInnerInstance}
+      !insertmacro UAC_AsUser_GetGlobalVar $BootOperator
+    ${endif}
+    nsExec::Exec 'schtasks /Create /F /NP /RL LIMITED /SC ONSTART /RU "$BootOperator" /TN "Orgtree Background Engine" /TR "$\"$INSTDIR\resources\engine\runtime\python.exe$\" $\"$INSTDIR\resources\engine\service_host.py$\""'
     Pop $0
-    DetailPrint "Orgtree boot engine task registration: $0"
+    DetailPrint "Orgtree boot engine task registration for $BootOperator: $0"
     ${if} $BootTaskExisted == "1"
       nsExec::Exec 'schtasks /Run /TN "Orgtree Background Engine"'
       Pop $0

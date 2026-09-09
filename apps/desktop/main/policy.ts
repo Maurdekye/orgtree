@@ -81,6 +81,18 @@ export function canonicalPath(p: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved
 }
 
+/** A structured startup refusal from the engine (e.g. another owner already
+ *  holds the data root during the boot race). Distinguishable from a broken
+ *  engine so the desktop can retry attachment instead of failing fatally. */
+export function parseRefusal(line: string): string | null {
+  let value: unknown
+  try { value = JSON.parse(line) } catch { return null }
+  if (!value || typeof value !== 'object') return null
+  const r = value as { type?: unknown; reason?: unknown }
+  if (r.type !== 'refused' || typeof r.reason !== 'string') return null
+  return r.reason.slice(0, 300)
+}
+
 export function engineUrl(value: string, origin: string): boolean {
   try {
     const u = new URL(value), expected = new URL(origin)

@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { autoUpdater } from 'electron-updater'
-import { Engine, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
@@ -189,7 +189,14 @@ else {
       // attach descriptor; adopt it instead of racing it for the root lock.
       if (!await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
-        await engine.start(engineOptions)
+        try { await engine.start(engineOptions) }
+        catch (error) {
+          // A structured refusal means another owner holds this root — the
+          // boot host mid-startup, whose descriptor appears when it becomes
+          // ready. Retry attaching instead of showing the fatal dialog.
+          if (!(error instanceof Error) || !error.message.startsWith(ENGINE_REFUSED)) throw error
+          if (!await engine.attachWithRetry(engineOptions)) throw error
+        }
       }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       const trustedOrigin = engine.origin
@@ -235,6 +242,7 @@ else {
       const refresh = async () => {
         if (quitting) return
         stats = await engine.stats(); rebuildTray()
+        if (stats === null && !engine.managed) await engine.verifyAttached()
         if (stats?.maintenance || maintenance.hasFailures()) {
           await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
           return

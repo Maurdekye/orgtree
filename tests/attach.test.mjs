@@ -14,7 +14,7 @@ async function load(name) {
   await build({ entryPoints: [`apps/desktop/main/${name}.ts`], outfile: out, bundle: true, platform: 'node', format: 'cjs' })
   return req(out)
 }
-const policy = await load('policy'), { Engine } = await load('engine')
+const policy = await load('policy'), { Engine, ENGINE_REFUSED } = await load('engine')
 
 const forbidden = path.join(temp, 'v1'); fs.mkdirSync(forbidden)
 const dataRoot = path.join(temp, 'v2'); fs.mkdirSync(dataRoot)
@@ -107,4 +107,67 @@ test('wrong token, wrong process, wrong root and dead port are each rejected wit
     assert.notEqual(engine.attachDiagnostic, '')
     assert.equal(engine.managed, true)
   } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})
+
+test('refusal line parses and everything else does not', () => {
+  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', reason: 'another engine owns this data root' })), 'another engine owns this data root')
+  for (const bad of ['not json', '{}', JSON.stringify({ type: 'ready' }), JSON.stringify({ type: 'refused', reason: 7 })])
+    assert.equal(policy.parseRefusal(bad), null)
+  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', reason: 'x'.repeat(999) })).length, 300)
+})
+
+test('a refused spawn is distinguishable and the same engine can then attach (boot race recovery)', async () => {
+  // node runs the stub "launch.py" (its content is JavaScript; the engine
+  // only cares about the absolute interpreter path and the stdout protocol).
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-refused-'))
+  fs.writeFileSync(path.join(directory, 'launch.py'),
+    `console.log(JSON.stringify({ type: 'refused', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' }))`)
+  const engine = new Engine()
+  const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
+  await assert.rejects(engine.start(options), error => error.message.startsWith(ENGINE_REFUSED) && /owns this data root/.test(error.message))
+  // The lost race resolves by attaching once the winning host publishes.
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach(options), true, 'attach must be possible after a lost-race spawn')
+    assert.equal(engine.managed, false)
+  } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+})
+
+test('attachWithRetry waits out a host that has not published yet, and gives up on a bounded deadline', async () => {
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  try {
+    const late = setTimeout(() => writeDescriptor(descriptor({ port })), 300)
+    const engine = new Engine()
+    assert.equal(await engine.attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 3000, 100), true)
+    clearTimeout(late)
+  } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true }) }
+  const start = Date.now()
+  assert.equal(await new Engine().attachWithRetry({ dataRoot, forbiddenRoot: forbidden }, 400, 100), false)
+  assert.ok(Date.now() - start < 2000, 'the retry window is bounded')
+})
+
+test('an attached engine that dies underneath us reads as stopped, not forever-ready', async () => {
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const engine = new Engine()
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await engine.verifyAttached()
+    assert.equal(engine.status.state, 'ready', 'a live attachment stays ready')
+  } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+  await new Promise(resolve => setTimeout(resolve, 50))
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'stopped')
+  assert.match(engine.status.message, /Background engine stopped/)
+  assert.equal(engine.origin, '')
 })
