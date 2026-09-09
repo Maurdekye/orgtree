@@ -44,12 +44,28 @@ export class Engine extends EventEmitter {
    *  means no host has FINISHED starting — during the boot race the host may
    *  need most of its readiness budget before the file exists. */
   async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = ATTACH_RETRY_BUDGET_MS, intervalMs = 1000): Promise<boolean> {
+    // The wait is long and windowless (opus N5): flip back to 'starting' so
+    // the tray — the only surface that exists yet — reads as waiting rather
+    // than carrying the failed spawn's 'unavailable'. (The contract's
+    // starting state carries no message; a fuller waiting UI is a renderer
+    // follow-up outside this scope.)
+    this.state({ state: 'starting' })
     const deadline = Date.now() + deadlineMs
     for (;;) {
       if (await this.attach(options)) return true
       if (Date.now() >= deadline) return false
       await new Promise(resolve => setTimeout(resolve, intervalMs))
     }
+  }
+
+  /** A method (not an inline closure) so tests can FORCE the ordering the
+   *  real race only sometimes produces: a child disowned by a failed spawn
+   *  can deliver its 'exit' after a later attach reached ready, and must not
+   *  clobber it (opus N3 — the guard was real but untestable inline). */
+  childExited(child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) return
+    this.endpoint = ''
+    this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' })
   }
 
   async attach(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>): Promise<boolean> {
@@ -86,6 +102,7 @@ export class Engine extends EventEmitter {
       this.endpoint = origin
       this.managed = false
       this.attachedRoot = realRoot
+      this.attachProbeFailures = 0
       this.state({ state: 'ready' })
       return true
     } catch (error) {
@@ -112,11 +129,7 @@ export class Engine extends EventEmitter {
     const child = spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
-    child.on('exit', () => {
-      // A child disowned by a failed spawn must not clobber a later attach.
-      if (this.child !== child) return
-      this.endpoint = ''; this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' })
-    })
+    child.on('exit', () => this.childExited(child))
     await new Promise<void>((resolve, reject) => {
       let buffered = '', settled = false
       const finish = (error?: Error) => {
@@ -147,16 +160,27 @@ export class Engine extends EventEmitter {
     })
   }
 
+  /** Consecutive identity-probe failures; one blip on a busy engine is not
+   *  evidence of death (opus N2 — a single-sample verdict was effectively
+   *  terminal for the session before recovery existed, and even with
+   *  recovery it forces a needless window reload). */
+  private attachProbeFailures = 0
+
   /** Attached engines have no child to observe: probe identity when stats
    *  fail so a boot engine stopped underneath us reads as stopped, not as a
-   *  forever-'ready' UI pointed at a dead port. */
+   *  forever-'ready' UI pointed at a dead port. Declares death only on TWO
+   *  consecutive probe failures; recovery then re-attaches or spawns. */
   async verifyAttached(): Promise<void> {
     if (this.managed || !this.endpoint || this.status.state !== 'ready') return
     try {
       const response = await fetch(this.endpoint + '/api/desktop/identity',
         { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(4000), redirect: 'error' })
       if (!response.ok) throw new Error(String(response.status))
+      this.attachProbeFailures = 0
     } catch {
+      this.attachProbeFailures += 1
+      if (this.attachProbeFailures < 2) return
+      this.attachProbeFailures = 0
       this.endpoint = ''
       this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     }

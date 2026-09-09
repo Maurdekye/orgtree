@@ -227,6 +227,8 @@ class LaunchRefusalTests(unittest.TestCase):
                          if l.strip().startswith("{")]
                 refusals = [l for l in lines if l.get("type") == "refused"]
                 self.assertEqual(len(refusals), 1, result.stdout[-500:])
+                self.assertEqual(refusals[0]["code"], "root-owned",
+                                 "the desktop retries on the machine code, not prose")
                 self.assertIn("owns this data root", refusals[0]["reason"])
             finally:
                 lock.close()

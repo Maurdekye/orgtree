@@ -114,11 +114,14 @@ test('wrong token, wrong process, wrong root and dead port are each rejected wit
   } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
 })
 
-test('refusal line parses and everything else does not', () => {
-  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', reason: 'another engine owns this data root' })), 'another engine owns this data root')
-  for (const bad of ['not json', '{}', JSON.stringify({ type: 'ready' }), JSON.stringify({ type: 'refused', reason: 7 })])
-    assert.equal(policy.parseRefusal(bad), null)
-  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', reason: 'x'.repeat(999) })).length, 300)
+test('only the root-owned refusal code parses; everything else fails fast', () => {
+  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', code: 'root-owned', reason: 'another engine owns this data root' })), 'another engine owns this data root')
+  for (const bad of ['not json', '{}', JSON.stringify({ type: 'ready' }),
+    JSON.stringify({ type: 'refused', reason: 'no code at all' }),
+    JSON.stringify({ type: 'refused', code: 'future-unknown', reason: 'x' }),
+    JSON.stringify({ type: 'refused', code: 'root-owned', reason: 7 })])
+    assert.equal(policy.parseRefusal(bad), null, bad)
+  assert.equal(policy.parseRefusal(JSON.stringify({ type: 'refused', code: 'root-owned', reason: 'x'.repeat(999) })).length, 300)
 })
 
 test('a refused spawn is distinguishable and the same engine can then attach (boot race recovery)', async () => {
@@ -126,7 +129,7 @@ test('a refused spawn is distinguishable and the same engine can then attach (bo
   // only cares about the absolute interpreter path and the stdout protocol).
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-refused-'))
   fs.writeFileSync(path.join(directory, 'launch.py'),
-    `console.log(JSON.stringify({ type: 'refused', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' }))`)
+    `console.log(JSON.stringify({ type: 'refused', code: 'root-owned', reason: 'another engine owns this data root; inspect .desktop-engine-status.json' }))`)
   const engine = trusting(new Engine())
   const options = { directory, python: process.execPath, dataRoot, forbiddenRoot: forbidden, uiDirectory: directory }
   await assert.rejects(engine.start(options), error => error.message.startsWith(ENGINE_REFUSED) && /owns this data root/.test(error.message))
@@ -163,7 +166,43 @@ test('attachWithRetry waits out a host that has not published yet, and gives up 
   assert.ok(Date.now() - start < 2000, 'the retry window is bounded')
 })
 
-test('an attached engine that dies underneath us reads as stopped, not forever-ready', async () => {
+test('attached death needs two consecutive probe failures; a blip resets', async () => {
+  const handler = (request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  }
+  const { server, port } = await identityServer(handler)
+  const engine = trusting(new Engine())
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await engine.verifyAttached()
+    assert.equal(engine.status.state, 'ready', 'a live attachment stays ready')
+  } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
+  // One failed sample is a blip on a busy engine, not death.
+  await new Promise(resolve => server.close(resolve))
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'ready', 'one probe failure must not declare death')
+  // The engine answers again on the SAME port: the failure count resets…
+  const revived = http.createServer((request, response) => {
+    if (request.url === '/api/desktop/identity') return handler(request, response)
+    response.writeHead(404); response.end()
+  })
+  await new Promise(resolve => revived.listen(port, '127.0.0.1', resolve))
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'ready')
+  await new Promise(resolve => revived.close(resolve))
+  // …so the next single failure is again only a blip (reset is observable)…
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'ready', 'the counter must reset on a successful probe')
+  // …and the SECOND consecutive failure declares death.
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'stopped')
+  assert.match(engine.status.message, /Background engine stopped/)
+  assert.equal(engine.origin, '')
+})
+
+test('a disowned child exit cannot clobber a live attachment (forced ordering)', async () => {
   const { server, port } = await identityServer((request, response) => {
     if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
     respond(response, 200, engineIdentity)
@@ -172,14 +211,11 @@ test('an attached engine that dies underneath us reads as stopped, not forever-r
   try {
     writeDescriptor(descriptor({ port }))
     assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
-    await engine.verifyAttached()
-    assert.equal(engine.status.state, 'ready', 'a live attachment stays ready')
+    // The exact late-exit ordering the real race only sometimes produces.
+    engine.childExited({ fake: 'disowned child object' })
+    assert.equal(engine.status.state, 'ready', 'a disowned exit must be ignored')
+    assert.equal(engine.origin, `http://127.0.0.1:${port}`)
   } finally { server.close(); fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
-  await new Promise(resolve => setTimeout(resolve, 50))
-  await engine.verifyAttached()
-  assert.equal(engine.status.state, 'stopped')
-  assert.match(engine.status.message, /Background engine stopped/)
-  assert.equal(engine.origin, '')
 })
 
 test('the real trust check accepts an owner-exclusive file (positive control)', async () => {
@@ -306,6 +342,7 @@ test('a lost attachment recovers by re-attaching to the republished host with it
   } finally { fs.rmSync(path.join(realRoot, 'engine-attach.json')) }
   await new Promise(resolve => first.server.close(resolve))
   await engine.verifyAttached()
+  await engine.verifyAttached() // death needs two consecutive failed probes
   assert.equal(engine.status.state, 'stopped')
   assert.equal(engine.managed, false, 'still recoverable')
 
@@ -342,6 +379,10 @@ test('recovery falls back to a managed spawn when no host republishes, and stays
   assert.equal(outcome, 'spawned')
   assert.equal(engine.managed, true)
   assert.ok(engine.origin.startsWith('http://127.0.0.1:'), engine.origin)
+  // Positive control for the disowned-exit guard: the CURRENT child's exit
+  // is honored (so the guard is a filter, not a dead branch).
+  engine.childExited(engine.child)
+  assert.equal(engine.status.state, 'stopped', 'the current child must still be honored')
   await engine.stop()
 
   const broken = trusting(new Engine())

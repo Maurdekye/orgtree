@@ -132,15 +132,17 @@ export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
   })
 }
 
-/** A structured startup refusal from the engine (e.g. another owner already
- *  holds the data root during the boot race). Distinguishable from a broken
- *  engine so the desktop can retry attachment instead of failing fatally. */
+/** A structured startup refusal from the engine. ONLY the machine code
+ *  "root-owned" qualifies — that is the lost boot race, the one condition
+ *  where retrying attachment is right. Any other refusal shape (or a future
+ *  code this build does not know) is treated as a plain failure so a broken
+ *  engine can never feed the retry loop (opus N1). */
 export function parseRefusal(line: string): string | null {
   let value: unknown
   try { value = JSON.parse(line) } catch { return null }
   if (!value || typeof value !== 'object') return null
-  const r = value as { type?: unknown; reason?: unknown }
-  if (r.type !== 'refused' || typeof r.reason !== 'string') return null
+  const r = value as { type?: unknown; code?: unknown; reason?: unknown }
+  if (r.type !== 'refused' || r.code !== 'root-owned' || typeof r.reason !== 'string') return null
   return r.reason.slice(0, 300)
 }
 

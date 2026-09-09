@@ -319,7 +319,11 @@ def main() -> None:
         # guardian timeout, a bad parent PID) is a real fault and must fail
         # fast, never trigger an attach-retry loop.
         if "owns this data root" in str(exc):
-            print(json.dumps({"type": "refused", "reason": str(exc)[:300]},
+            # The machine-readable code is what the desktop retries on; the
+            # prose is display-only. Keeps the retry decision decoupled from
+            # exception wording (opus N1).
+            print(json.dumps({"type": "refused", "code": "root-owned",
+                              "reason": str(exc)[:300]},
                              separators=(",", ":")), flush=True)
         raise
     app, _token, data, port, stopping = load_app()
