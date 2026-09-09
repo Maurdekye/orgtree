@@ -28,12 +28,15 @@ $host_ = Join-Path $ResourcesDir 'engine\service_host.py'
 if (-not (Test-Path $python)) { throw "missing packaged runtime: $python" }
 if (-not (Test-Path $host_)) { throw "missing service host: $host_" }
 
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $action = New-ScheduledTaskAction -Execute $python -Argument "`"$host_`"" -WorkingDirectory (Split-Path $host_)
 $trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $identity.User.Value -LogonType S4U -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
   -MultipleInstances IgnoreNew
+# -Force is intentional here and here only: this is OUR fixed production task
+# name, and re-running the script after an update must refresh its paths.
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "Registered '$TaskName' (S4U, at startup) running $python"
+Write-Host "Registered '$TaskName' (S4U, at startup) for $($identity.Name) running $python"
 Write-Host "Start now without rebooting:  Start-ScheduledTask -TaskName '$TaskName'"
