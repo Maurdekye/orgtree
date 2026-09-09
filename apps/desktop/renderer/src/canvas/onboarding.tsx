@@ -61,10 +61,11 @@ export async function onboardingCreate<T>(
   return made
 }
 
-export function Onboarding({ children }: {
+export function Onboarding({ children, windowControls }: {
   /** the real organization-creation form (App's NewOrg), embedded as step 3,
    *  with its onCreate already wrapped in `onboardingCreate` by the caller */
   children: ReactNode
+  windowControls?: ReactNode
 }) {
   const bridge = desktop()
   const [prefs, setPrefs] = useState<NativePreferences | null>(null)
@@ -110,7 +111,7 @@ export function Onboarding({ children }: {
   const theme = prefs && isVisualTheme(prefs.visualTheme) ? prefs.visualTheme : 'orgtree'
   return (
     <div className="welcome-card onboarding">
-      <h2>Welcome to Orgtree</h2>
+      <h2 className="onboarding-head">Welcome to Orgtree{windowControls}</h2>
       <p className="dim">A minute of setup — everything here can be changed
         later in Settings.</p>
       {error && <p role="alert" className="error">{error}</p>}

@@ -6042,6 +6042,8 @@ html.mobile .popout-button { display: none; }
 /* first-run setup (onboarding) on the welcome screen */
 .onboarding { max-width: 34rem; }
 .onboarding h2 { margin: 0 0 .25rem; }
+.onboarding-head { display: flex; align-items: center; gap: 6px; }
+.onboarding-head .window-controls { margin-left: auto; }
 .onboard-themes { display: flex; flex-wrap: wrap; gap: .5rem; margin: .25rem 0 .75rem; }
 .onboard-theme { display: inline-flex; align-items: center; gap: .45rem;
   padding: .35rem .7rem; border-radius: 999px; border: 1px solid var(--line, #3a3f47);
