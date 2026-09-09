@@ -66,21 +66,43 @@ os.environ.clear(); os.environ.update(keep)
 profile = install / 'probe-profile'
 for k,p in {'USERPROFILE':profile,'HOME':profile,'APPDATA':profile/'AppData'/'Roaming','LOCALAPPDATA':profile/'AppData'/'Local','TEMP':profile/'Temp','TMP':profile/'Temp','CODEX_HOME':profile/'.codex','CLAUDE_CONFIG_DIR':profile/'.claude'}.items():
     p.mkdir(parents=True, exist_ok=True); os.environ[k] = str(p)
-os.environ.update(ORGTREE_DATA=str(install/'probe-data'), ORGTREE_V2_DATA=str(install/'probe-data'), ORGTREE_V2_UI_DIR=str(install/'resources'/'ui'), ORGTREE_WARM='0', ORGTREE_V2_PORT='0', PATH=str(pathlib.Path(keep['SYSTEMROOT'])/'System32'))
+system32=pathlib.Path(keep['SYSTEMROOT'])/'System32'
+os.environ.update(ORGTREE_DATA=str(install/'probe-data'), ORGTREE_V2_DATA=str(install/'probe-data'), ORGTREE_V2_UI_DIR=str(install/'resources'/'ui'), ORGTREE_WARM='0', ORGTREE_V2_PORT='0', PATH=os.pathsep.join(map(str,(system32,system32/'WindowsPowerShell'/'v1.0'))))
 runpy.run_path(str(pathlib.Path(__file__).with_name('service_host.reviewed.py')), run_name='__main__')
 '@
 [IO.File]::WriteAllText($paths.Host,$shim,[Text.UTF8Encoding]::new($false))
 # Instrument ONLY the copied runtime. Child is spawned after readiness, hence
 # after launch.py is enrolled in the real guardian Job; it is not a provider.
 $audit=@'
-import json, os, pathlib, sys, threading, time
+import json, os, pathlib, subprocess, sys, threading, time
 engine = pathlib.Path(sys.executable).resolve().parent.parent
 install = engine.parent.parent
+powershell=pathlib.Path(os.environ['SYSTEMROOT'])/'System32'/'WindowsPowerShell'/'v1.0'/'powershell.exe'
+def resolve_probe_args(args):
+    if isinstance(args,(list,tuple)) and args and str(args[0]).lower() == 'powershell.exe':
+        return [str(powershell),*args[1:]]
+    return args
+class ProbePopen(subprocess.Popen):
+    def __init__(self,args,*rest,**kw):
+        super().__init__(resolve_probe_args(args),*rest,**kw)
+subprocess.Popen=ProbePopen
+def acl_readback(target):
+    return ("$rules=(Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "')."
+            "GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
+            "Write-Output ((@($rules | ForEach-Object { $_.IdentityReference.Value }) -join ',')"
+            "+'|'+@($rules | Where-Object { $_.IsInherited }).Count)")
 def audit(event, args):
     if event == 'socket.connect' and isinstance(args[1], tuple) and args[1][0] not in ('127.0.0.1','::1'):
         raise RuntimeError('paired probe denies remote connections')
     if event == 'subprocess.Popen':
         exe = pathlib.Path(args[0]).name.lower()
+        if exe == 'powershell.exe':
+            command=args[1] if isinstance(args[1],str) else subprocess.list2cmdline(args[1])
+            allowed=any(command == subprocess.list2cmdline([str(powershell),'-NoProfile','-NonInteractive','-Command',acl_readback(target)])
+                        for target in (install/'probe-data').glob(f'.engine-attach-{os.getpid()}-*.tmp'))
+            if str(args[0]).lower() != str(powershell).lower() or not allowed:
+                raise RuntimeError('paired probe denies non-ACL PowerShell command')
+            return
         if exe not in ('python.exe','whoami','whoami.exe','icacls','icacls.exe'):
             raise RuntimeError('paired probe denies non-runtime subprocess')
 sys.addaudithook(audit)
