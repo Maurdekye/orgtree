@@ -249,6 +249,23 @@ def remove_account(account_id: str) -> bool:
         return True
 
 
+# ------------------------------------------------------------------ standing
+def standing_of(row: dict[str, Any],
+                now: float | None = None) -> dict[str, Any]:
+    """The account's live standing for boards (design D3): its ACTIVE marks
+    per pool, each carrying its own provenance and native window label —
+    nothing is summed or collapsed across providers, and an inferred mark is
+    never presented as a measurement. `auth` rides along (authenticated /
+    unauthenticated / unobserved — the third state gates nothing and renders
+    as itself, never as ready)."""
+    now = time.time() if now is None else now
+    marks = {k: dict(m) for k, m in (row.get("marks") or {}).items()
+             if float(m.get("until", 0)) > now}
+    return {"auth": row.get("auth", "unobserved"),
+            "state": "limited" if marks else "ready",
+            "marks": marks}
+
+
 # --------------------------------------------------------- binding validator
 class BindingRefused(ValueError):
     """A binding the validator refuses — the reason names both sides."""

@@ -27,6 +27,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -79,6 +80,7 @@ from pydantic import BaseModel, model_validator
 
 from . import crashreports
 from . import events
+from . import registry
 from . import refs
 from . import deployment
 from . import frozen_install
@@ -3728,6 +3730,105 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, bool]:
 class Reorder(Body):
     before: str | None = None
     after: str | None = None
+
+
+def _account_bindings() -> dict[str, list[dict[str, str]]]:
+    """WHICH nodes are bound to each account, across every org — the
+    removal guard's evidence and the boards' placement column ("usage and
+    placement identify the selected account"). A doc that fails to load is
+    SKIPPED, not treated as unbound: this feeds a refusal, and a load error
+    must not make a bound account look free."""
+    out: dict[str, list[dict[str, str]]] = {}
+    try:
+        names = sorted(os.listdir(store._orgs_dir()))
+    except OSError:
+        return out
+    seen = set()
+    for f in names:
+        slug = f[:-5] if f.endswith(".json") else (
+            f[:-3] if f.endswith(".db") else "")
+        if not slug or slug in seen or f.endswith(".premigration"):
+            continue
+        seen.add(slug)
+        try:
+            org = store.load_org(slug)
+        except Exception:                                    # noqa: BLE001
+            continue
+        for nid, node in (org.d.get("nodes") or {}).items():
+            acct = str((node or {}).get("account") or "")
+            if acct and not acct.startswith("missing:"):
+                out.setdefault(acct, []).append(
+                    {"org": slug, "node": str(nid),
+                     "state": str((node or {}).get("state") or "")})
+    return out
+
+
+@app.get("/api/accounts")
+async def accounts_list(org: str | None = None) -> dict[str, Any]:
+    """The account registry with live standing (multi-account D3/D5): every
+    row, each with marks-derived standing (per-pool, provenance-carrying,
+    provider-native windows — never summed) and its placements. `org`
+    filters to the accounts AVAILABLE to that org (origin-org scoping)."""
+    rows = registry.list_accounts(org)
+    bindings = _account_bindings()
+    return {"accounts": [
+        {**{k: v for k, v in r.items() if k != "marks"},
+         "standing": registry.standing_of(r),
+         "bound": bindings.get(r["id"], [])}
+        for r in rows],
+        "primary": registry.resolve_alias("primary")}
+
+
+class AccountCreate(Body):
+    provider: str
+    kind: str                     # imported | managed
+    path: str | None = None      # imported: the existing profile directory
+    label: str | None = None
+
+
+@app.post("/api/accounts")
+async def accounts_create(body: AccountCreate) -> dict[str, Any]:
+    """Register an account (design D4): IMPORTED points at an existing
+    profile directory; MANAGED mints a fresh one under the engine data root.
+    No credential passes through here — sign-in happens through the
+    harness's own flow (providerlogin) against the row's directory."""
+    if body.kind == "imported":
+        path = str(body.path or "")
+        if not path or not os.path.isdir(path):
+            raise HTTPException(
+                422, f"imported account needs an existing profile "
+                     f"directory (got {path!r})")
+    elif body.kind == "managed":
+        base = os.path.join(store.DATA_ROOT, "profiles")
+        os.makedirs(base, exist_ok=True)
+        path = tempfile.mkdtemp(prefix=f"{body.provider}-", dir=base)
+    else:
+        raise HTTPException(422, "kind must be imported|managed — token "
+                                 "rows are compatibility only and are never "
+                                 "minted by setup (Q1 ruling)")
+    try:
+        row = registry.create_account(
+            body.provider, str(body.label or ""),
+            {"kind": body.kind, "path": path})
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {**row, "standing": registry.standing_of(row)}
+
+
+@app.delete("/api/accounts/{account_id}")
+async def accounts_remove(account_id: str) -> dict[str, Any]:
+    """Remove a registry row. REFUSED while any node is bound to it (design
+    D5): explicit reassignment first — a removal that silently unbinds
+    agents would be the automatic movement the rules forbid."""
+    bound = _account_bindings().get(account_id, [])
+    if bound:
+        names = ", ".join(f"{b['org']}/{b['node']}" for b in bound[:8])
+        raise HTTPException(
+            422, f"account {account_id} has {len(bound)} bound agent(s) "
+                 f"({names}) — reassign them explicitly first")
+    if not registry.remove_account(account_id):
+        raise HTTPException(404, f"no account {account_id!r}")
+    return {"removed": account_id}
 
 
 class AccountAssign(Body):
