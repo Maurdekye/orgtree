@@ -20,6 +20,8 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getHarnesses: () => ipcRenderer.invoke('desktop:harnesses'),
     notify: notification => ipcRenderer.invoke('desktop:notify', notification),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
+    getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
+    checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
     onEvent: listener => {
       const handler = (_event: Electron.IpcRendererEvent, event: DesktopEvent) => listener(event)
       ipcRenderer.on('desktop:event', handler)

@@ -30,6 +30,8 @@ export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'notification-click' | 'main-window-shown' | 'window-state'; data: unknown }
+export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
+export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
 export interface DesktopBridge {
   getStatus(): Promise<EngineStatus>
   getWindowState(): Promise<DesktopWindowState>
@@ -47,6 +49,8 @@ export interface DesktopBridge {
   getHarnesses(): Promise<{ id: 'claude' | 'codex' | 'antigravity'; detected: boolean; url: string }[]>
   notify(notification: DesktopNotification): Promise<boolean>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
+  getUpdateStatus(): Promise<UpdateStatus>
+  checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
 }
 
