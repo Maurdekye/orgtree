@@ -2362,17 +2362,26 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                       truncated={f.truncated} slug={slug} nid={node.id}
                       refs={deskRefs} />
                   : <div key={f.n ?? 'f' + i} className="msg assistant live">
-                      {/* render-inline-html-custom-responses: this default
-                          branch ALSO carries slash-command stdout
-                          (supervisor.py's local_command live_row calls) —
-                          it shares `kind: "text"` with a genuine agent
-                          reply row and is indistinguishable without the
-                          `cmd_output` marker (found by redteam-opus review:
-                          the ruling's excluded tool-output class was
-                          reachable here). The grant is agent prose only. */}
+                      {/* render-inline-html-custom-responses: a POSITIVE
+                          allowlist, not "everything not excluded" — this
+                          default branch is reached by any `f.kind` the three
+                          cases above don't name, and coordinator-astra's
+                          ruling (after redteam-opus found slash-command
+                          stdout reachable here, sharing `kind: "text"` with
+                          a genuine agent reply) is that a FUTURE unnamed
+                          kind must fail closed, not open. `kind === 'text'`
+                          is the only value the backend ever uses for actual
+                          agent prose in this branch (Codex message/plan
+                          text, Claude message content); `cmd_output` is the
+                          two `local_command` live_row calls' own marker for
+                          the one non-prose case that also uses it. Anything
+                          else reaching this branch — a kind added next
+                          month, say — renders exactly as today, just never
+                          executable. */}
                       <RefMdBody className="md" world={deskRefs.world}
                         onOpen={deskRefs.onOpen}
-                        html={md(f.text, fileBase(slug, node.id), !f.cmd_output)} />
+                        html={md(f.text, fileBase(slug, node.id),
+                          f.kind === 'text' && !f.cmd_output)} />
                       {/* the live copy is capped at 2000 chars server-side —
                           declare the cut; the transcript row that replaces
                           this one carries the whole text */}

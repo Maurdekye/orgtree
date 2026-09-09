@@ -125,11 +125,11 @@ test('⭐ scope ruling, in the real component: a USER-authored durable message w
 // agent reply row and are indistinguishable without the `cmd_output`
 // marker this fixes (found by redteam-opus's mutation review of ac588dd).
 
-test('⭐ redteam-opus finding #1, fixed: a live cmd_output row (slash-command stdout) stays inert even with the exact fence', async () => {
+test('⭐ redteam-opus finding #1, fixed: live cmd_output shape #1 — plain local_command output mid-turn — stays inert even with the exact fence', async () => {
   localStorage.clear(); resetConvos()
   const server = new FakeServer()
-  // exactly the shape supervisor.py's local_command live_row calls emit —
-  // kind "text", the SAME kind a genuine agent reply row carries
+  // exactly supervisor.py's FIRST local_command live_row call (no `sticky`)
+  // — kind "text", the SAME kind a genuine agent reply row carries
   server.live = [{ kind: 'text', cmd_output: true, text: FENCE, n: 1 } as never]
   installFetch(server)
   const view = await mountView(desk(), el => el)
@@ -143,8 +143,27 @@ test('⭐ redteam-opus finding #1, fixed: a live cmd_output row (slash-command s
   }
 })
 
-test('⭐ positive control for the above: an ordinary live agent-reply row (no cmd_output) with the same fence DOES render the frame', async () => {
-  // proves the instrument works and the two rows differ ONLY by the
+test('⭐ redteam-opus finding #1, fixed: live cmd_output shape #2 — sticky /command output — also stays inert', async () => {
+  // supervisor.py's SECOND local_command producer (the /command handler)
+  // carries `sticky: true` as well — a distinct shape from #1, both must
+  // be covered independently rather than assuming one test proves both
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.live = [{ kind: 'text', cmd_output: true, sticky: true, text: FENCE, n: 1 } as never]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `sticky slash-command output must never get the live frame: ${view.el.innerHTML}`)
+    assert.match(view.el.textContent!, /it renders/)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('⭐ positive control for both shapes above: an ordinary live agent-reply row (kind "text", no cmd_output) with the same fence DOES render the frame', async () => {
+  // proves the instrument works and the rows differ ONLY by the
   // cmd_output marker — the exact bytes reviewer found "execute while the
   // turn is live" for the wrong reason must still execute for the RIGHT one
   localStorage.clear(); resetConvos()
@@ -156,6 +175,45 @@ test('⭐ positive control for the above: an ordinary live agent-reply row (no c
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
     assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 1,
       `a genuine live agent reply should still render the frame: ${view.el.innerHTML}`)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('⭐ coordinator-astra ruling: a POSITIVE allowlist, not a blocklist — an unrecognized future live kind fails CLOSED even with no cmd_output marker at all', async () => {
+  // the point of `f.kind === \'text\' && !f.cmd_output` over `!f.cmd_output`
+  // alone: a kind this switch has never seen, with NEITHER cmd_output NOR
+  // any other signal, must default to inert — not executable by omission
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.live = [{ kind: 'some_future_kind_nobody_named_yet', text: FENCE, n: 1 } as never]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `an unrecognized live kind must fail closed, not execute by default: ${view.el.innerHTML}`)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('⭐ durable parity: the settled cmd_out row (post-reload) and the live cmd_output row agree — both inert', async () => {
+  // the durable side (SysLine, desk.tsx) has always called md(m.cmd_out)
+  // with no grant at all — this pins that explicitly, alongside the live
+  // fix, so the two paths are never asserted to disagree again
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.messages = [
+    { role: 'system', text: '', cmd_out: FENCE, seq: 0, event_id: 'cmd-1' } as never,
+  ]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `the durable cmd_out row must stay inert, matching the live row: ${view.el.innerHTML}`)
+    assert.match(view.el.textContent!, /it renders/)
   } finally {
     await view.unmount()
   }
