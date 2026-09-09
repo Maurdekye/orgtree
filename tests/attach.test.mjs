@@ -465,3 +465,40 @@ test('the update stop also demands the guardian tree release the root lock', asy
   await engine.stopAttachedForUpdate(5000)
   assert.equal(engine.status.state, 'stopped')
 })
+
+test('a busy engine (probes fail, tree signals alive) is never declared dead', async () => {
+  // Real held root lock + present descriptor = the tree is alive; HTTP
+  // failures alone must not flip the attachment to stopped (opus: HTTP can
+  // only prove ALIVE — the lock and descriptor own the death verdict).
+  const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(4);l.close()`
+  const { spawn } = await import('node:child_process')
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise((resolve, reject) => {
+    holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
+    holder.on('exit', () => reject(new Error('lock holder died early')))
+    setTimeout(() => reject(new Error('lock holder never confirmed')), 10000)
+  })
+  const { server, port } = await identityServer((request, response) => {
+    if (request.headers['x-orgtree-desktop-token'] !== token) return respond(response, 401, {})
+    respond(response, 200, engineIdentity)
+  })
+  const engine = trusting(new Engine())
+  try {
+    writeDescriptor(descriptor({ port }))
+    assert.equal(await engine.attach({ dataRoot, forbiddenRoot: forbidden }), true)
+    await new Promise(resolve => server.close(resolve))
+    // Descriptor still present, lock still held: four failed probes in a row
+    // must not produce a death verdict.
+    for (let i = 0; i < 4; i++) await engine.verifyAttached()
+    assert.equal(engine.status.state, 'ready', 'alive-by-lock must never read as stopped')
+    assert.notEqual(engine.origin, '', 'the attachment survives')
+  } finally {
+    fs.rmSync(path.join(realRoot, 'engine-attach.json'), { force: true })
+    await new Promise(resolve => holder.on('exit', resolve))
+  }
+  // Signals now say gone (descriptor removed, lock released): two more
+  // failed probes produce the verdict.
+  await engine.verifyAttached()
+  await engine.verifyAttached()
+  assert.equal(engine.status.state, 'stopped')
+})

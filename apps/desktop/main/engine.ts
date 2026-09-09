@@ -182,7 +182,15 @@ export class Engine extends EventEmitter {
     } catch {
       this.attachProbeFailures += 1
       if (this.attachProbeFailures < 2) return
+      // HTTP can only prove the engine ALIVE — a busy engine times out
+      // exactly like a dead one (opus). The death VERDICT comes from the
+      // real signals: the guardian's root lock releasing (held until the
+      // whole tree is gone) or the descriptor removed by a graceful stop.
+      const descriptorFile = this.attachedRoot ? path.join(this.attachedRoot, 'engine-attach.json') : ''
+      const lockFile = this.attachedRoot ? path.join(this.attachedRoot, '.desktop-engine.lock') : ''
+      const gone = this.guardianReleased(lockFile) || (descriptorFile !== '' && !fs.existsSync(descriptorFile))
       this.attachProbeFailures = 0
+      if (!gone) return // busy, not dead: keep the attachment and try again
       this.endpoint = ''
       this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     }
