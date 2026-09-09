@@ -159,6 +159,18 @@ $script:task.Instances=1
 Refuses { Stop-OwnedBootTask $script:folder $original $dir 0 } 'did not stop'
 $script:task.Instances=0
 
+# STOPPED-TASK RECOVERY (root's 19:56 ask): the two timeouts above already
+# left the task disabled with NO throw-path re-enabling it — Enabled is set
+# to $false before the wait loop even starts, so "did not stop" and "stopped
+# just fine" both leave it off. Prove precisely what a bare retry does and
+# does not fix, now that the engine has actually gone quiet (instances=0,
+# processes=@() from the two lines above): a retried Prepare alone SUCCEEDS
+# (no throw — the wait loop reads the now-clear state) but does NOT restore
+# boot-start capability, because Prepare only stops; it never re-registers.
+Assert (-not $script:task.Enabled) 'Task must still read disabled once the engine finally went quiet'
+Invoke-BootLifecycle Prepare $dir $sid
+Assert (-not $script:task.Enabled) 'A bare Prepare retry stops again but must not silently re-enable boot-start'
+
 # Actual files here are empty synthetic resources, never executed.
 [IO.Directory]::CreateDirectory((Split-Path $paths.Python)) | Out-Null
 [IO.File]::WriteAllText($paths.Python,'fixture')
@@ -166,6 +178,13 @@ $script:task.Instances=0
 $script:events.Clear()
 Invoke-BootLifecycle Register $dir
 Assert ($script:events -contains 'register:20') 'Owned update must preserve the explicit principal ACL'
+# The SUPPORTED recovery: completing the same installer through Register (not
+# just Prepare) re-creates the task from the approved XML — which the real
+# task definition always sets Enabled=true in (New-BootTaskXml's own
+# template) — restoring boot-start. This is what re-running the ordinary
+# installer after a "did not stop" failure actually does; no special
+# recovery script is needed or should be reused.
+Assert ($script:task.Enabled) 'Completing Register must restore boot-start after an earlier disabled state'
 Assert ($script:events -contains 'run') 'Registered task not started'
 $script:events.Clear()
 Invoke-BootLifecycle Remove $dir
