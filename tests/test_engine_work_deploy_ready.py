@@ -172,11 +172,14 @@ class GeneratedEventsInSyncTests(unittest.TestCase):
 
 
 # `store.STORE_BACKEND` binds from ORGTREE_STORE at import time, exactly like
-# DATA_ROOT — so testing BOTH backends needs two separate processes, not two
-# test methods sharing this one. Each child creates an org, sets an item to
-# deploy_ready, saves, then RE-IMPORTS store fresh via a second process-local
-# load_org call and reads the status back — a real disk round trip, not a
-# same-process cache hit.
+# DATA_ROOT — so testing BOTH backends needs two separate subprocesses, one
+# per backend, not two test methods sharing this process's binding. Each
+# child creates an org, sets an item to deploy_ready, calls store.save_org,
+# then store.load_org — both calls in that SAME child process (this is a
+# save/load round trip through the real on-disk format for that backend —
+# the actual JSON file rewrite or SQLite transaction — not a cross-process
+# restart; it does not cover a second process re-reading what a first one
+# wrote).
 _BACKEND_ENGINE = str(REPO_ROOT / 'engine' / 'backend')
 _ROUNDTRIP_SCRIPT = """
 import sys
