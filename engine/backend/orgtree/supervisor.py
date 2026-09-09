@@ -1123,6 +1123,50 @@ SLOT_WAIT_WARN_S = float(os.environ.get("ORGTREE_SLOT_WAIT_WARN_S", "5"))
 MCP_READINESS_TIMEOUT_S = 30.0
 
 _turn_slots = threading.Semaphore(MAX_CONCURRENT)
+
+
+class _AdmissionCancelled(RuntimeError):
+    """A queued turn was interrupted before it acquired a turn slot."""
+
+class _InterruptibleTurnSlot:
+    """Acquire the global turn slot while allowing manual interruption."""
+
+    def __init__(self, state: dict[str, Any]) -> None:
+        self._state = state
+        self._token = object()
+        self._acquired = False
+
+    def __enter__(self) -> None:
+        with _state_lock:
+            self._state["waiting"] = True
+            self._state["admission_waiting"] = True
+            self._state["admission_wait_token"] = self._token
+        while True:
+            with _state_lock:
+                if self._state.get("admission_cancel_token") is self._token:
+                    self._state.pop("admission_cancel_token", None)
+                    self._state.pop("admission_wait_token", None)
+                    self._state["waiting"] = False
+                    self._state["admission_waiting"] = False
+                    raise _AdmissionCancelled()
+            if _turn_slots.acquire(timeout=0.1):
+                self._acquired = True
+                with _state_lock:
+                    self._state["waiting"] = False
+                    self._state["admission_waiting"] = False
+                    self._state.pop("admission_wait_token", None)
+                    if self._state.get("admission_cancel_token") is self._token:
+                        self._state.pop("admission_cancel_token", None)
+                        self._acquired = False
+                        _turn_slots.release()
+                        raise _AdmissionCancelled()
+                return None
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._acquired:
+            _turn_slots.release()
+
+
 # per-(slug, nid) in-memory runtime state — see state() for the key set
 # (busy/waiting/queue/steer/proc/responding/…); values are heterogeneous
 _state: dict[tuple[str, str], dict[str, Any]] = {}
@@ -14596,7 +14640,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             turn_view = text
         st["waiting"] = True
         _slot_wait_t0 = time.monotonic()
-        with _turn_slots:
+        with _InterruptibleTurnSlot(st):
             st["waiting"] = False
             turnlog.emit(_trec, "start",
                          slot_wait_ms=int((time.monotonic() - _slot_wait_t0) * 1000))
@@ -17701,6 +17745,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 if _release_limit_probe(slug, nid, success=True,
                                         token=probe_token):
                     probe_token = None
+    except _AdmissionCancelled:
+        if _trec is not None:
+            _trec.dispose("interrupted")
     except _CodexTurnDone:
         pass    # the codex leg booked its turn; only the shared finally runs
     except _AntigravityTurnDone:
@@ -20658,9 +20705,11 @@ def manual_compact(slug: str, nid: str) -> None:
         # `waiting` is the established "blocked on a slot, not running" flag
         # (№12 — the UI draws it hollow).
         st["waiting"] = True
-        with _turn_slots:
+        with _InterruptibleTurnSlot(st):
             st["waiting"] = False
             _compact_split(slug, nid)
+    except _AdmissionCancelled:
+        pass
     finally:
         st["waiting"] = False
         nxt = None
@@ -21081,10 +21130,17 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         antigravity_turn = (st.get("antigravity_turn")
                             if st.get("responding") else None)
         readiness_wait = bool(st.get("mcp_readiness_waiting"))
+        admission_waiting = bool(st.get("admission_waiting"))
+        admission_token = st.get("admission_wait_token")
         readiness_event = st.get("mcp_tool_event") if readiness_wait else None
-        if proc is not None or codex_turn is not None \
-                or antigravity_turn is not None or readiness_wait:
+        if admission_waiting:
+            st["admission_cancel_token"] = admission_token
+        elif (proc is not None or codex_turn is not None \
+              or antigravity_turn is not None or readiness_wait):
             st["interrupted"] = True
+    if (admission_waiting and not readiness_wait and proc is None
+            and codex_turn is None and antigravity_turn is None):
+        return {"interrupted": True, "reason": "turn waiting for a turn slot"}
     if readiness_wait:
         # No provider prompt has been admitted yet. Wake the bounded gate
         # itself instead of sending an interrupt verb to a turn that does not
@@ -21113,7 +21169,8 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         return {"interrupted": False,
                 "reason": "the turn was already over"}
     if proc is None:
-        return {"interrupted": False, "reason": "the agent is not mid-response"}
+        return {"interrupted": False,
+                "reason": "the turn is admitted but no provider call is active"}
     try:
         proc.stdin.write(json.dumps({
             "type": "control_request",
