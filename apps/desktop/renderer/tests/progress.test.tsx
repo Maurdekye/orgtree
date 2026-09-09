@@ -975,6 +975,8 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
     { id: 'doc-agent-md', title: 'Agent report', at: '2026-09-05T09:00:00.000Z', format: 'markdown' },
     { id: 'doc-agent-html', title: 'Agent preview', at: '2026-09-05T09:01:00.000Z', format: 'html' },
   ] })
+  server.documents = n.documents!.map((d) => ({ ...d, node: 'agent', evicted: false,
+    node_state: 'live', tier: n.tier ?? null }))
   const view = await mountView(
     <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop}
       pub={false} bare onJump={noop} onOpenDoc={(id) => { opened.push(id) }} />,
@@ -1004,9 +1006,10 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   await act(async () => { markdown!.click() })
   assert.ok(markdown!.classList.contains('on'))
   assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /Agent report/)
+  server.documents = []
   await view.render(
-    <DeskChat node={node({ id: 'agent', documents: [] })}
-      map={new Map([['agent', node({ id: 'agent', documents: [] })]])}
+    <DeskChat node={node({ id: 'agent-empty', documents: [] })}
+      map={new Map([['agent-empty', node({ id: 'agent-empty', documents: [] })]])}
       op={op} slug="prog" toast={noop} pub={false} bare onJump={noop}
       onOpenDoc={(id) => { opened.push(id) }} />)
   await flush()

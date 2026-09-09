@@ -143,6 +143,8 @@ export class FakeServer {
   workItems: unknown[] = []
   workArchived: unknown[] = []
   workBacklogged: unknown[] = []
+  /** metadata returned by the agent-scoped document gallery endpoint */
+  documents: unknown[] = []
   /** every chat request the client has made, newest last */
   requests: { last: number | null; at: number }[] = []
   /** every `/upload` request this server answered, newest last — a test
@@ -316,6 +318,8 @@ export function installFetch(server: FakeServer): Transport {
               { name: 'notes.txt', dir: false, size: 12 }],
         }
         : /\/history$/.test(u.pathname) ? { items: [] }
+          : /\/documents$/.test(u.pathname)
+            ? { documents: server.documents, total: server.documents.length, next_offset: null }
           : /\/work-items$/.test(u.pathname)
             ? {
               items: server.workItems,
