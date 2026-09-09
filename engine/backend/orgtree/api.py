@@ -14,6 +14,7 @@ pings "changed" after every successful op so the UI refreshes. Session spawning 
 from __future__ import annotations
 
 import asyncio
+import collections
 import importlib.util
 import ipaddress
 import json
@@ -107,6 +108,20 @@ app.include_router(history_router)
 # Optional diagnostics only: emits route-template timings, never content or credentials.
 # The normal path stays byte-for-byte silent beyond existing access logging.
 _PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
+
+#: Bounded in-process sink for the same records `_access_emit` prints.
+#:
+#: The printed `[orgtree.profile]` lines land on this process's stdout, which
+#: neither real launch path (the boot host's service_host.py nor the desktop's
+#: own spawn in engine.ts) persists anywhere: both only read stdout until the
+#: JSON readiness line arrives, then stop consuming it. A deque is in-memory
+#: only (no file locking/rotation to get wrong, no disk-full failure mode),
+#: bounded by `maxlen` so it can never grow the process, and empty whenever
+#: `_PROFILE_TIMING` is off — this data structure exists either way, but nothing
+#: ever appends to it unless the operator opted in. Route TEMPLATES and numeric
+#: timings only (see `_access_emit`): never a request body, header or path
+#: parameter value.
+_PROFILE_RECORDS: "collections.deque[dict[str, Any]]" = collections.deque(maxlen=2000)
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -339,11 +354,13 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
           f"handler={handler_ms:.0f}ms total={total_ms:.0f}ms "
           f"bytes={nbytes} inflight={depth}", flush=True)
     if profile is not None:
-        print("[orgtree.profile] " + _route_label(scope) + " " +
-              json.dumps({"handler_ms": round(handler_ms, 3),
-                         "total_ms": round(total_ms, 3),
-                         "bytes": nbytes, **profile}, sort_keys=True),
-              flush=True)
+        record = {"route": route, "handler_ms": round(handler_ms, 3),
+                  "total_ms": round(total_ms, 3), "bytes": nbytes, **profile}
+        print("[orgtree.profile] " + route + " " +
+              json.dumps(record, sort_keys=True), flush=True)
+        # Same call already sits behind the caller's `except Exception: pass`
+        # (a log line must never fail a request) — no second guard needed here.
+        _PROFILE_RECORDS.append(record)
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -374,6 +391,18 @@ app.add_middleware(FrozenAdminBoundary)
 # LAST, therefore OUTERMOST: it must time the whole stack, including
 # `FrozenAdminBoundary`'s own rejections, or it is measuring a subset again.
 app.add_middleware(AccessRecord)
+
+
+@app.get("/api/desktop/profile-timing")
+def profile_timing() -> dict[str, Any]:
+    """Read-side of the bounded `_PROFILE_RECORDS` sink.
+
+    Same auth as every other route (`TokenGate` wraps the whole app, launch.py
+    §155) — no new auth surface. Always registered, even when profiling is
+    off, so its presence never depends on the flag; only its content does
+    (`records` stays empty). Route templates and numbers only, oldest first.
+    """
+    return {"enabled": _PROFILE_TIMING, "records": list(_PROFILE_RECORDS)}
 
 
 @app.exception_handler(RequestValidationError)
