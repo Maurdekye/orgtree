@@ -95,3 +95,25 @@ test('an ordinary durable message with no fence renders exactly as before, in th
     await view.unmount()
   }
 })
+
+test('⭐ scope ruling, in the real component: a USER-authored durable message with the identical fence stays inert', async () => {
+  // the ruling is explicit that mail/user/tool/document paths are inert —
+  // this is the user-authored case, exercised through the real Msg
+  // component rather than a direct md() call, so a future desk.tsx change
+  // that stops passing `m.role === 'assistant'` correctly would fail HERE.
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.messages = [
+    { role: 'user', text: FENCE, seq: 0, event_id: 'prompt-1' },
+  ]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `a user's own message must never get the live frame, even with the exact agent tag: ${view.el.innerHTML}`)
+    assert.match(view.el.textContent!, /it renders/, 'the fence still shows as a labeled code sample, just inert')
+  } finally {
+    await view.unmount()
+  }
+})

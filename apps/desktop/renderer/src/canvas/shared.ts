@@ -1727,14 +1727,22 @@ export const CopyIcon =
 const CheckIcon =
   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
   + '<path d="M3 8.5l3.5 3.5L13 4.5"/></svg>'
-const wrapCodeBlocks = (html: string, imgBase?: string) => {
+const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: boolean) => {
   if (!html.includes('<pre') && !html.includes('<img')) return html
   const tpl = document.createElement('template')
   tpl.innerHTML = html
   // render-inline-html-custom-responses: an explicit ```orgtree-html-response
   // fence becomes a sandboxed frame BEFORE the generic pre-wrapping below —
   // it has no code left to attach a copy button to once swapped.
-  renderHtmlResponses(tpl.content, document)
+  //
+  // ⚠ SCOPE RULING: this is EXPLICITLY OPT IN PER CALL SITE, not "every
+  // markdown surface" — `agentHtmlResponse` is true ONLY where `md()` is
+  // rendering an agent's OWN chat response text (desk.tsx, gated on
+  // `role === 'assistant'`). Mail bodies, the user's own messages, tool
+  // output (`cmd_out`) and presented documents all call `md()` WITHOUT it,
+  // and the exact same fence there renders as an inert, ordinary code block
+  // — see the cache-key note on `md()` for why this can't leak between them.
+  if (agentHtmlResponse) renderHtmlResponses(tpl.content, document)
   tpl.content.querySelectorAll('pre').forEach(pre => {
     const wrap = document.createElement('div')
     wrap.className = 'codewrap'
@@ -1795,9 +1803,18 @@ if (typeof document !== 'undefined') document.addEventListener('click', copyCode
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
  *  files are known; the cache keys on it (NUL joins the halves — it never
  *  occurs in a URL prefix, so two pairs cannot alias), and the same text
- *  rendered for two nodes never crosses. */
+ *  rendered for two nodes never crosses.
+ *
+ *  `agentHtmlResponse` (optional, default off — render-inline-html-custom-
+ *  responses): the ONE call passed `true` where the caller can vouch this
+ *  text is a genuine agent chat response, and nowhere else. It is IN THE
+ *  CACHE KEY for exactly the reason `imgBase` is: without it, an assistant
+ *  message and a mail body that happened to hold the identical text could
+ *  share one cache entry — whichever rendered first would decide whether
+ *  BOTH surfaces got the live sandboxed frame, silently making the mail
+ *  surface (which must stay inert) match whatever the chat surface did. */
 export const md = (text: string | null | undefined,
-                   imgBase?: string): { __html: string } => {
+                   imgBase?: string, agentHtmlResponse?: boolean): { __html: string } => {
   // assignment 19: server-written prose carries its timestamps as canonical
   // instants in `⟦t:…⟧` tokens, and this is where they become the user's
   // local time. Doing it here rather than at each call site means every
@@ -1818,12 +1835,12 @@ export const md = (text: string | null | undefined,
   // Hit-path cost is one `includes('⟦t:')` — `localizeStamps` returns its
   // input unchanged when there is no token, which is almost every string.
   const local = localizeStamps(text ?? '')
-  const key = (imgBase ?? '') + '\u0000' + local
+  const key = (imgBase ?? '') + '\u0000' + (agentHtmlResponse ? '1' : '0') + '\u0000' + local
   let hit = _mdCache.get(key)
   if (hit === undefined) {
     hit = { __html: wrapCodeBlocks(DOMPurify.sanitize(
       marked.parse(escapeAngles(local),
-        { gfm: true, breaks: true, async: false })), imgBase) }
+        { gfm: true, breaks: true, async: false })), imgBase, agentHtmlResponse) }
     if (_mdCache.size > 800) _mdCache.clear()   // bounded; refills on demand
     _mdCache.set(key, hit)
   }

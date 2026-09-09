@@ -2362,9 +2362,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                       truncated={f.truncated} slug={slug} nid={node.id}
                       refs={deskRefs} />
                   : <div key={f.n ?? 'f' + i} className="msg assistant live">
+                      {/* render-inline-html-custom-responses: `true` here is
+                          the agent's own live streaming reply text — the
+                          narrowest possible grant, never mail/user/tool/doc */}
                       <RefMdBody className="md" world={deskRefs.world}
                         onOpen={deskRefs.onOpen}
-                        html={md(f.text, fileBase(slug, node.id))} />
+                        html={md(f.text, fileBase(slug, node.id), true)} />
                       {/* the live copy is capped at 2000 chars server-side —
                           declare the cut; the transcript row that replaces
                           this one carries the whole text */}
@@ -2381,8 +2384,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 ? <div className="msg live thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text}</div>
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
+              // render-inline-html-custom-responses: these transient rows are
+              // always 'system' (starting/error) or 'assistant' (draft/delta)
+              // — capture_reply_stream never produces 'user' here — but the
+              // grant still names the agent-response case explicitly rather
+              // than defaulting open on "not user".
               : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
-                  html={md(row.event_id === convo.draftEventId && draft ? draft : row.text, fileBase(slug, node.id))} />}
+                  html={md(row.event_id === convo.draftEventId && draft ? draft : row.text,
+                    fileBase(slug, node.id), row.role === 'assistant')} />}
           </div>)}
           {!transientThinking && thinkSecs !== null && chat?.busy && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
@@ -2397,7 +2406,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           {!transientDraft && draft && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
             onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
-            html={md(draft, fileBase(slug, node.id))} /></div>}
+            html={md(draft, fileBase(slug, node.id), true)} /></div>}
           {/* D-29: the turn has begun but the CLI has not produced anything
               yet — process launch, hooks, `init`, roughly six seconds during
               which the panel showed nothing but a spinner in the chrome. This
@@ -3207,8 +3216,13 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
         ? <div key={i} className="tools"><DotIcon fontSize="inherit" className="tooldot" /> {t}</div>
         : <ToolChip key={t.id ?? i} t={t} slug={slug} nid={nid}
             onMailLink={onMailLink} onWorkLink={onWorkLink} />))}
+      {/* render-inline-html-custom-responses: this row renders BOTH roles —
+          the agent's own settled reply AND the user's own settled message
+          (the non-segment path above). Only `assistant` is a genuine agent
+          response; the user's own text must stay exactly as inert as mail,
+          tool output and presented documents. */}
       {text && <RefMdBody className="msgtext md" world={refs?.world}
-        onOpen={refs?.onOpen} html={md(text, fb)} />}
+        onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />}
       {/* the display copy was capped server-side (steered-log per-row cap) —
           without this line the tail is just silently missing and the message
           reads as complete (user report 2026-08-17) */}

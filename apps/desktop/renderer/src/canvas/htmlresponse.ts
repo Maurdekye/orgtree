@@ -29,17 +29,31 @@
 // on re-render and needs no separate DOM pass or cheap-exit tracking the way
 // a per-render effect (`refmd.tsx`'s linkifyRefs) would.
 //
-// ISOLATION, by construction:
+// ISOLATION, two independent layers — CSP inside the frame, and a session-
+// level request guard in the ASSEMBLED APP outside it. Neither is sufficient
+// alone; do not describe this feature's isolation from only one of them.
+//
+// LAYER 1 — the frame's own sandbox + CSP:
 //  - `sandbox="allow-scripts"` and nothing else: no allow-same-origin (the
 //    frame gets an opaque origin — no access to the parent DOM, cookies,
 //    storage or IPC), no allow-forms, no allow-top-navigation, no
 //    allow-popups. Together these mean the frame can never reach outside
 //    its own rectangle: it cannot navigate the parent tab, open a new
 //    window/tab, or touch anything the app itself holds.
-//  - the payload is assigned to the `.srcdoc` DOM PROPERTY, never written
-//    into an HTML string that gets re-parsed — so it needs no attribute
-//    escaping (unlike the backend's new-tab mockup wrapper, which builds a
-//    srcdoc="..." attribute in a text response and must escape it there).
+//  - the payload is assigned to the `.srcdoc` DOM PROPERTY, not written into
+//    an HTML string by hand — but `wrapCodeBlocks` DOES end by serializing
+//    the whole template back to a string (`tpl.innerHTML`), and `md()`'s
+//    caller sets THAT via `dangerouslySetInnerHTML`, which the browser
+//    re-parses. So the round trip is real, not skipped — the safety
+//    property is that both halves (`Element.innerHTML` getter, then the
+//    browser's own HTML parser on the way back in) are the platform's own
+//    serializer and parser, not hand-written string concatenation. That is
+//    exactly the escaping discipline the backend's new-tab mockup wrapper
+//    has to perform ITSELF with `html.escape(payload, quote=True)` because
+//    it is building a text HTTP response by hand; here the browser does it,
+//    correctly, for free. `htmlresponse.test.ts` exercises this exact
+//    round trip (parses `md()`'s returned string a second time and reads
+//    `.srcdoc` back) rather than assuming it.
 //  - a strict CSP is carried as a <meta> tag INSIDE that srcdoc document
 //    (there is no HTTP response here to carry a header): default-src 'none'
 //    blocks every FETCH-governed network path by default (fetch/XHR/
@@ -47,20 +61,32 @@
 //    script-src/style-src 'unsafe-inline' is what lets the agent's own
 //    inline <script>/<style> run; img/font/media-src data: allows embedded
 //    data URIs without allowing a network fetch.
+//  - what this layer does NOT cover: CSP's fetch directives (default-src,
+//    connect-src included) do not govern NAVIGATION — a clicked <a href>,
+//    a script `location = ...`, or a <meta http-equiv=refresh> is not a
+//    fetch, so CSP alone does not stop the frame sending ITSELF (never the
+//    parent tab — allow-top-navigation is what would allow that, and it is
+//    not granted) to an external URL. No CSP directive with reliable
+//    cross-browser support closes this (`navigate-to` exists on paper and
+//    is not shipped anywhere).
 //
-//  ⚠ WHAT THIS DOES NOT COVER — CSP's fetch directives (default-src,
-//    connect-src included) explicitly do not govern NAVIGATION: a clicked
-//    `<a href>`, a script `location = ...`, or a `<meta http-equiv=refresh>`
-//    can still send the FRAME ITSELF (never the parent tab — that is what
-//    the missing allow-top-navigation prevents) to an external URL. No CSP
-//    directive with reliable cross-browser support blocks this today
-//    (`navigate-to` exists on paper and is not shipped). This is a property
-//    of iframes in general, not a gap specific to this feature — the same
-//    is true of the document-mockup route's frame (api.py), which accepts
-//    it deliberately by permitting outbound network altogether. Here it is
-//    a real, open residual: contained to the frame's own rectangle (it
-//    still cannot read anything the app holds), but it IS an outbound
-//    network action a "no network by default" claim should not paper over.
+// LAYER 2 — the actual defense against that gap, OUTSIDE this module:
+//    `apps/desktop/main/windows.ts`'s `configureEngineSession` installs a
+//    SESSION-LEVEL `webRequest.onBeforeRequest` on the app's session —
+//    every request Chromium's network stack would make for ANY frame in
+//    that session, main or sub, passes through it before it is sent. Its
+//    rule cancels every `resourceType === 'subFrame'` request whose URL
+//    does not start with `about:` — the srcdoc load itself (`about:srcdoc`)
+//    is exempt, but a navigation attempt to `https://…` from inside the
+//    frame is exactly a non-`about:` subFrame request and is cancelled at
+//    the network layer before it leaves the process. This is a general app
+//    guard, not code added for this feature, and it is why the CSP gap
+//    above is closed in the app agents actually run in — Opus confirmed
+//    empirically (bounded Electron check, this session): the navigation
+//    attempt was blocked and the parent window remained responsive
+//    (a bounded measurement — no memory-exhaustion guarantee is claimed).
+//    Do not restate the CSP-only gap as still-open without also naming this
+//    layer; do not claim the isolation as airtight from the CSP alone.
 export const HTML_RESPONSE_LANG = 'orgtree-html-response'
 const HTML_RESPONSE_CLASS = 'language-' + HTML_RESPONSE_LANG
 
