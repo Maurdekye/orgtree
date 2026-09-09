@@ -40,6 +40,32 @@ class LazyDocBoolTests(unittest.TestCase):
         self.assertTrue(bool(doc))
         self.assertEqual(doc._unmaterialized(), set())
 
+    def test_clear_makes_the_doc_falsy(self):
+        # clear() leaves the section in `_present` (by design, so a later
+        # `__contains__`/materialize can't resurrect it) while also adding
+        # it to `_dropped` — __bool__ must read that as empty, not present.
+        doc = store.LazyDoc("somebody")
+        doc._present.add("mail_log")
+        self.assertTrue(bool(doc))
+        doc.clear()
+        self.assertFalse(bool(doc))
+        self.assertIn("mail_log", doc._present)
+
+    def test_deleting_the_last_present_section_makes_the_doc_falsy(self):
+        doc = store.LazyDoc("somebody")
+        doc._present.add("mail_log")
+        dict.__setitem__(doc, "mail_log", [])
+        self.assertTrue(bool(doc))
+        del doc["mail_log"]
+        self.assertFalse(bool(doc))
+
+    def test_popping_the_last_present_section_makes_the_doc_falsy(self):
+        doc = store.LazyDoc("somebody")
+        doc._present.add("mail_log")
+        dict.__setitem__(doc, "mail_log", [])
+        doc.pop("mail_log")
+        self.assertFalse(bool(doc))
+
     def test_local_net_slugs_does_not_materialize_the_passed_org(self):
         org = store.create_org("Bool Trap Org")
         slug = org.d["slug"]

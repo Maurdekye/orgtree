@@ -1521,7 +1521,12 @@ class LazyDoc(dict[str, Any]):
         # `local_net_slugs`' `(loaded or {})` hit this materialising the
         # whole doc for one already-loaded org, measured costing the
         # majority of an `org_tree` render.
-        return dict.__len__(self) > 0 or bool(self._present)
+        #
+        # ⚠ `_present` alone overcounts: `clear()` and deleting/popping a
+        # section both leave it in `_present` while adding it to `_dropped`
+        # (see both methods below) — a cleared or fully-emptied doc must
+        # not read as truthy. Same exclusion `__contains__` already applies.
+        return dict.__len__(self) > 0 or bool(self._present - self._dropped)
 
     def __len__(self) -> int:
         self.materialize_all()
