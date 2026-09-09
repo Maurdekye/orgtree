@@ -15,8 +15,11 @@ await build({ entryPoints: ['apps/desktop/renderer/src/history.tsx'], outfile: o
   plugins: [{ name: 'history-fixtures', setup(build) {
     build.onResolve({ filter: /^\.\/api$/ }, args => args.importer.endsWith('history.tsx') ? ({ path: 'api', namespace: 'fixture' }) : undefined)
     build.onResolve({ filter: /^\.\/canvas\/modalpin$/ }, () => ({ path: 'frame', namespace: 'fixture' }))
+     build.onResolve({ filter: /^\.\/icons$/ }, () => ({ path: 'icons', namespace: 'fixture' }))
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'api'
       ? 'export const req = (...args) => globalThis.historyRequest(...args)'
+      : args.path === 'icons'
+        ? 'import React from "react"; const I = ({fontSize, ...props}) => React.createElement("span", props); export const AutorenewIcon=I, ArrowUpIcon=I, FolderIcon=I, HomeIcon=I, StorageIcon=I, AddIcon=I, ArrowDownIcon=I, ChevronLeftIcon=I, ChevronRightIcon=I, CloseIcon=I, PinIcon=I, SettingsIcon=I, DeleteIcon=I'
       : 'import React from "react"; export const PinFrame = ({children}) => React.createElement("section", null, children)',
       resolveDir: process.cwd() }))
   }}] })
@@ -41,7 +44,7 @@ test('history browse replaces bounded pages, changes collections and recovers fr
       : {items:[{body:'newest mail'},{body:'second mail'}],total:3,next_cursor:'older'}
   }
   const root = createRoot(document.getElementById('app'))
-  const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text)
+  const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text || b.getAttribute('aria-label') === text)
   await act(async () => root.render(React.createElement(HistoryBrowser, {slug:'fixture',close(){}})))
   assert.match(document.body.textContent, /newest mail/)
   assert.equal(document.querySelectorAll('details').length,2)
@@ -54,7 +57,7 @@ test('history browse replaces bounded pages, changes collections and recovers fr
   expired = true
   await act(async () => button('Older').click())
   assert.match(document.querySelector('[role=alert]').textContent, /History changed/)
-  await act(async () => button('Refresh').click())
+  await act(async () => button('Refresh history').click())
   assert.match(document.body.textContent,/newest mail/)
   const select=document.querySelector('[aria-label="History records"]')
   await act(async () => { select.value='chat';select.dispatchEvent(new window.Event('change',{bubbles:true})) })

@@ -5441,8 +5441,8 @@ label.set-row { cursor: pointer; }
   justify-content: space-between; gap: 8px; }
 .usage-refresh { display: inline-flex; align-items: center; flex-wrap: wrap;
   justify-content: flex-end; gap: 5px; font-size: 10px; }
-.usage-refresh-button { border: 1px solid var(--line); border-radius: 4px;
-  background: var(--panel-2); color: var(--dim); padding: 2px 6px;
+.usage-refresh-button { border: 0; border-radius: 4px;
+  background: transparent; color: var(--dim); padding: 2px 6px;
   cursor: pointer; font: inherit; }
 .usage-refresh-button:hover:not(:disabled) { color: var(--ink-strong); }
 .usage-refresh-button:disabled { cursor: wait; opacity: .7; }

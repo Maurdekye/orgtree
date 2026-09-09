@@ -5,6 +5,7 @@
 // has since crashed — open it in a fresh tab after a freeze.
 import { useState } from 'react'
 import { clearFreezeLog, readFreezeLog, type FreezeEntry } from './freezelog'
+import { AutorenewIcon } from './icons'
 
 export function isFreezeLogPath(pathname: string = location.pathname): boolean {
   return /\/debug\/freezes\/?$/.test(pathname)
@@ -40,7 +41,7 @@ export default function FreezeLogPage() {
         the sampler's CSV is UTC.
       </p>
       <p style={{ margin: '0 0 12px' }}>
-        <button type="button" onClick={() => setEntries(readFreezeLog())}>Refresh</button>{' '}
+        <button type="button" className="iconbtn" aria-label="Refresh freeze log" title="Refresh freeze log" onClick={() => setEntries(readFreezeLog())}><AutorenewIcon fontSize="inherit" /></button>{' '}
         <button type="button" onClick={copy}>{copied ? 'Copied' : 'Copy JSON'}</button>{' '}
         <button type="button" onClick={() => { clearFreezeLog(); setEntries([]) }}>Clear</button>
       </p>

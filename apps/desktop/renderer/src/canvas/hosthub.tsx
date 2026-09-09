@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { req } from '../api'
+import { AutorenewIcon } from '../icons'
 
 interface HubConfig {
   version: 1; enabled: boolean; bind_host: '127.0.0.1' | '0.0.0.0'; port: number; advertise_host: string
@@ -68,7 +69,7 @@ export function HostHub() {
         </>}
         {config.warning && <p className="ask-warn">{config.warning}</p>}
         <div className="row"><button type="submit" disabled={publicHost && config.enabled && !config.tls_configured && (!certificate.trim() || !key.trim())}>Save hosting settings</button>
-          <button type="button" onClick={() => { void load() }}>Refresh hub status</button></div>
+          <button type="button" className="iconbtn" aria-label="Refresh hub status" title="Refresh hub status" onClick={() => { void load() }}><AutorenewIcon fontSize="inherit" /></button></div>
       </fieldset>
       {saved && <p role="status">{saved}</p>}
     </form>}

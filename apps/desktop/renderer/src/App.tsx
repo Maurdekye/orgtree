@@ -1534,7 +1534,7 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
       aria-label={`refresh ${provider} usage`}
       title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
       onClick={() => { void state.refresh(true) }}>
-      {state.pending ? 'refreshing…' : 'refresh'}
+      <AutorenewIcon fontSize="inherit" className={state.pending ? 'cc-spin' : undefined} />
     </button>
     {state.updatedAt !== null && <span className="usage-updated" aria-live="polite">
       updated {fmtClock(state.updatedAt)}

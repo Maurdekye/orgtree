@@ -3,6 +3,7 @@ import { req } from './api'
 import { PinFrame } from './canvas/modalpin'
 import { DocumentDownload } from './canvas/download'
 import { MockupOpen } from './canvas/docs'
+import { AutorenewIcon } from './icons'
 
 type Collection = { id: string; label: string; needs_node: boolean }
 type Sources = { collections: Collection[]; nodes: { id: string; state: string; generation: number }[] }
@@ -46,7 +47,7 @@ export function HistoryBrowser({ slug, close }: { slug: string; close: () => voi
       {needsNode && <label>Agent <select aria-label="History agent" value={node} onChange={e => {
         setNode(e.target.value); setCursors([''])
       }}>{sources?.nodes.map(n => <option key={n.id} value={n.id}>{n.id}{n.state === 'live' ? '' : ` (${n.state})`}</option>)}</select></label>}
-      <button onClick={restart}>Refresh</button>
+      <button type="button" className="iconbtn" aria-label="Refresh history" title="Refresh history" onClick={restart}><AutorenewIcon fontSize="inherit" /></button>
       <button aria-label="Close history" onClick={close}>Close</button>
     </div>
     <p className="dim">Records are kept until manually removed. Newest entries appear first.</p>

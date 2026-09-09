@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { listOrgs, req } from '../api'
+import { AutorenewIcon } from '../icons'
 
 export interface RecoveryNode {
   node: string; attempt: string; phase: string
@@ -76,7 +77,7 @@ export function ImportRecovery({ active = true }: { active?: boolean }) {
   return <section className="import-recovery">
     <h3>Imported work recovery</h3>
     <p>Review work whose resumption was held or whose outcome is uncertain. No action here runs automatically.</p>
-    <button disabled={loading || !!working} onClick={() => { setOutcome(''); setRevision(v => v + 1) }}>Refresh recovery</button>
+    <button type="button" className="iconbtn" aria-label="Refresh recovery" title="Refresh recovery" disabled={loading || !!working} onClick={() => { setOutcome(''); setRevision(v => v + 1) }}><AutorenewIcon fontSize="inherit" /></button>
     {loading && <p role="status">Checking imported work...</p>}
     {error && <p className="ask-warn" role="alert">Could not check recovery: {error}</p>}
     {outcome && <pre className={outcomeError ? 'ask-warn' : 'dim'} role={outcomeError ? 'alert' : 'status'}
