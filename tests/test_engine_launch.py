@@ -98,9 +98,10 @@ class EngineLaunchTests(unittest.TestCase):
             self.assertEqual(_port(path), port)
 
     def test_unrecognised_bind_failure_keeps_the_origin(self):
-        # Moving the origin leaves behind whatever the browser stored under
-        # the old one, so a bind failure that is neither a listener nor a
-        # reserved range refuses startup rather than guessing about the port.
+        # Moving the origin makes whatever the browser stored under the old
+        # one unreachable (storage is per origin; it is not deleted), so a
+        # bind failure that is neither a listener nor a reserved range
+        # refuses startup rather than guessing about the port.
         with tempfile.TemporaryDirectory() as root:
             path = Path(root)
             (path / "engine-port.json").write_text(json.dumps({"port": 31337}))

@@ -72,8 +72,10 @@ _IN_USE = {errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", errno.EADDRINUSE)}
 # bound-but-not-listening — reports EADDRINUSE instead, so access-denied says
 # "a reservation, not a listener". It does NOT say the port is unusable
 # forever — reservations shift on the next boot too — only that this process
-# cannot serve the UI there now. Moving the origin leaves behind whatever the
-# browser stored under the old one, so it is done only for this case.
+# cannot serve the UI there now. Moving the origin does not DELETE what the
+# browser stored under the old one — browser storage is per origin, so that
+# data simply stops being reachable from the new one — but the user sees the
+# same thing either way, so the move is made only for this case.
 _RESERVED = {errno.EACCES, getattr(errno, "WSAEACCES", errno.EACCES)}
 
 
