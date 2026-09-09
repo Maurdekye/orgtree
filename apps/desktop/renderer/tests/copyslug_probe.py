@@ -96,6 +96,38 @@ def main() -> int:
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{server.server_port}")
             page.locator(".docket-modal .docket-row").first.wait_for()
+            # The same production DocketModal can be adopted into a native
+            # popout. Give the child document a private clipboard spy and
+            # leave the opener's clipboard at a sentinel: this catches the
+            # tempting regression that reads module-level navigator instead
+            # of the row's ownerDocument navigator.
+            page.evaluate("navigator.clipboard.writeText('POPout-MAIN-SENTINEL')")
+            with page.expect_popup() as popup_info:
+                page.locator(".docket-modal .popout-button").click()
+            popup = popup_info.value
+            popup.locator(".docket-row").first.wait_for()
+            popup.evaluate("""() => {
+              window.__childCopy = '';
+              navigator.clipboard.writeText = (value) => {
+                window.__childCopy = value;
+                return Promise.resolve();
+              };
+            }""")
+            popup_target = row(popup, SLUG)
+            popup_box = popup_target.bounding_box()
+            popup.mouse.dblclick(popup_box["x"] + popup_box["width"] * 0.75,
+                                 popup_box["y"] + popup_box["height"] / 2)
+            popup_target.locator(".docket-copied").wait_for(state="visible", timeout=2500)
+            child_copy = popup.evaluate("window.__childCopy")
+            opener_clip = page.evaluate("navigator.clipboard.readText()")
+            if child_copy != SLUG:
+                failures.append(f"popped-out row did not use its child clipboard: {child_copy!r}")
+            if opener_clip != "POPout-MAIN-SENTINEL":
+                failures.append(f"popped-out copy touched the opener clipboard: {opener_clip!r}")
+            popup.close()
+            page.wait_for_timeout(250)
+            if page.locator(".docket-modal .docket-row").count() == 0:
+                failures.append("closing the docket popout did not return the mounted row")
             page.evaluate("navigator.clipboard.writeText('SENTINEL-NOT-COPIED')")
 
             # ── 1 and 2: the copy, and where the confirmation lands ────────
@@ -256,7 +288,7 @@ def main() -> int:
         for f in failures:
             print("  -", f)
         return 1
-    print("PASS - 9 browser checks: the exact slug reaches the real clipboard; "
+    print("PASS - 10 browser checks: main and popped-out rows use their owning document clipboard; "
           "Copied! appears inside the row, near the pointer horizontally AND "
           "vertically, and clears itself; a second copy at the same point "
           "restarts it and replays its animation; embedded controls and single "

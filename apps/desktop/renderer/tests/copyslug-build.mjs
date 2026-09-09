@@ -7,6 +7,7 @@
 //   node tests/copyslug-build.mjs no-control-guard  embedded controls copy too
 //   node tests/copyslug-build.mjs flat-top       bubble ignores the click's Y
 //   node tests/copyslug-build.mjs no-ticket      repeats at one point stop restarting
+//   node tests/copyslug-build.mjs global-clipboard  popped-out rows use the opener clipboard
 //
 // A mutation that does not find its anchor throws INERT rather than building a
 // fixture that is quietly identical to the real one.
@@ -34,6 +35,9 @@ const ANCHORS = {
     `if ((e.target as Element | null)?.closest?.(
       'button, input, textarea, select, a, .docket-copied')) return`,
     'if (false) return'],
+  'global-clipboard': [
+    'const clip = row.ownerDocument.defaultView?.navigator?.clipboard',
+    'const clip = navigator.clipboard'],
 }
 if (mutation && !(mutation in ANCHORS)) throw Error('Unknown mutation ' + mutation)
 
