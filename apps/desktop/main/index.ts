@@ -86,6 +86,11 @@ else {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
   const applyDownloadedUpdate = async () => {
+    // An attached boot-host engine keeps running from the install directory;
+    // replacing those files is the (elevated) installer's job, which also
+    // stops the boot task. Refusing here routes a maintenance request into
+    // its designed failure report instead of installing over a live engine.
+    if (!engine.managed) throw new Error('Update application requires the managed engine; stop the boot task first')
     if (updateApplying || quitting) return
     updateApplying = true; quitting = true
     if (poll) clearInterval(poll)
@@ -175,11 +180,17 @@ else {
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
     try {
-      await engine.start({ directory,
+      const engineOptions = { directory,
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data'),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
-        uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') })
+        uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
+      // A boot-host engine (operator's scheduled task) publishes a verified
+      // attach descriptor; adopt it instead of racing it for the root lock.
+      if (!await engine.attach(engineOptions)) {
+        if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
+        await engine.start(engineOptions)
+      }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       const trustedOrigin = engine.origin
       const register = configureEngineSession(browserSession, trustedOrigin, engine.token)
@@ -228,7 +239,7 @@ else {
           await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
           return
         }
-        if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
+        if (downloaded && engine.managed && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
           await applyDownloadedUpdate()
         }
       }

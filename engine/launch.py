@@ -185,7 +185,7 @@ class TokenGate:
         await self.app(scope, receive, send)
 
 
-def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
+def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) -> None:
     from orgtree import desktop_recovery
     from orgtree.ledger import LedgerError
     from fastapi import HTTPException
@@ -233,6 +233,13 @@ def _install_desktop_routes(api_app: Any, stop: Callable[[], None]) -> None:
     def desktop_shutdown() -> dict[str, bool]:
         stop()
         return {"accepted": True}
+
+    # Attachment identity: lets a token holder prove WHICH engine it reached
+    # (root and process), because a persisted port can move between boots and
+    # possession of a stale descriptor must never pass for the right engine.
+    @api_app.get("/api/desktop/identity")
+    def desktop_identity() -> dict[str, Any]:
+        return {"protocol": 1, "pid": os.getpid(), "dataRootId": data_root_id(data)}
 
     @api_app.get("/api/desktop/notifications")
     def desktop_notifications() -> dict[str, Any]:
@@ -288,7 +295,7 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     api.app.include_router(desktop_import.router)
     desktop_policy.install_routes(api.app)
     stopping = {"value": False}
-    _install_desktop_routes(api.app, lambda: stopping.__setitem__("value", True))
+    _install_desktop_routes(api.app, data, lambda: stopping.__setitem__("value", True))
     # The copied API installs its SPA fallback during import, before desktop
     # routers exist. Keep that fallback last when a packaged UI is present.
     routes = api.app.router.routes

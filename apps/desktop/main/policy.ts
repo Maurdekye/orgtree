@@ -56,6 +56,31 @@ export function parseReady(line: string, expectedRoot: string, expectedPid: numb
   return r
 }
 
+export interface EngineAttach { port: number; enginePid: number; token: string }
+
+/** Validate a boot host's attach descriptor. Possession of the file is not
+ *  authorization by itself: the caller must still prove identity over
+ *  /api/desktop/identity, because a persisted port can move between boots.
+ *  Throws on anything structurally wrong so a stale or foreign descriptor is
+ *  reported, never silently trusted. */
+export function parseAttach(raw: string, expectedRoot: string): EngineAttach {
+  let value: unknown
+  try { value = JSON.parse(raw) } catch { throw new Error('attach descriptor is not JSON') }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid attach descriptor')
+  const r = value as { type?: unknown; protocol?: unknown; port?: unknown; enginePid?: unknown; dataRootId?: unknown; token?: unknown }
+  if (r.type !== 'attach' || r.protocol !== 1) throw new Error('unsupported attach descriptor')
+  if (!Number.isInteger(r.port) || (r.port as number) < 1 || (r.port as number) > 65535) throw new Error('invalid attach port')
+  if (!Number.isInteger(r.enginePid) || (r.enginePid as number) < 1) throw new Error('invalid attach engine PID')
+  if (typeof r.token !== 'string' || !/^[0-9a-f]{64}$/.test(r.token)) throw new Error('invalid attach token')
+  if (typeof r.dataRootId !== 'string' || !path.isAbsolute(r.dataRootId) || canonicalPath(r.dataRootId) !== canonicalPath(expectedRoot)) throw new Error('attach descriptor root mismatch')
+  return { port: r.port as number, enginePid: r.enginePid as number, token: r.token }
+}
+
+export function canonicalPath(p: string): string {
+  const resolved = path.resolve(p)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
 export function engineUrl(value: string, origin: string): boolean {
   try {
     const u = new URL(value), expected = new URL(origin)

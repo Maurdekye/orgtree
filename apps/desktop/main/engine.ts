@@ -3,24 +3,65 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseReady, TOKEN_HEADER, validateDataRoot } from './policy'
+import { canonicalPath, parseAttach, parseReady, TOKEN_HEADER, validateDataRoot } from './policy'
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
 export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; maintenance?: MaintenanceRequest }
 
-/** One fresh managed child. Never discovers or attaches by a .port file. */
+/** One fresh managed child, or an authenticated attachment to the boot
+ *  host's engine. Never discovers or attaches by a bare .port file: attaching
+ *  requires the descriptor's token AND an /api/desktop/identity proof of
+ *  root and process, because a persisted port can move between boots. */
 export class Engine extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams
   private credential = randomBytes(32).toString('hex')
   private endpoint = ''
   private stopping = false
+  /** False when attached to a boot-host engine this process must not stop. */
+  managed = true
+  /** Why the last attach attempt was declined; empty when no descriptor existed. */
+  attachDiagnostic = ''
   status: EngineStatus = { state: 'starting' }
   get origin(): string { return this.endpoint }
   // Main-process only; never include this field in bridge responses or logs.
   get token(): string { return this.credential }
   private state(status: EngineStatus) { this.status = status; this.emit('status', status) }
+
+  /** Adopt a boot-host engine when a verifiable descriptor exists. Returns
+   *  false (and records why) on any doubt so the caller falls back to a
+   *  fresh managed spawn; the engine-side root lock arbitrates races. */
+  async attach(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>): Promise<boolean> {
+    if (this.child || !this.managed) throw new Error('Engine already started')
+    const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
+    if (!fs.existsSync(root)) return false
+    const realRoot = fs.realpathSync.native(root)
+    const file = path.join(realRoot, 'engine-attach.json')
+    let raw: string
+    try { raw = fs.readFileSync(file, 'utf8') } catch { return false }
+    try {
+      const attach = parseAttach(raw, realRoot)
+      const origin = `http://127.0.0.1:${attach.port}`
+      const response = await fetch(origin + '/api/desktop/identity',
+        { headers: { [TOKEN_HEADER]: attach.token }, signal: AbortSignal.timeout(4000), redirect: 'error' })
+      if (!response.ok) throw new Error(`identity check returned ${response.status}`)
+      const identity = await response.json() as { protocol?: unknown; pid?: unknown; dataRootId?: unknown }
+      if (identity.protocol !== 1) throw new Error('identity protocol mismatch')
+      if (identity.pid !== attach.enginePid) throw new Error('identity process mismatch')
+      if (typeof identity.dataRootId !== 'string' || canonicalPath(identity.dataRootId) !== canonicalPath(realRoot)) throw new Error('identity root mismatch')
+      this.credential = attach.token
+      this.endpoint = origin
+      this.managed = false
+      this.state({ state: 'ready' })
+      return true
+    } catch (error) {
+      // A descriptor existed but did not verify: stale after a crash or a
+      // port move, or foreign. Say so; never trust, never delete blindly.
+      this.attachDiagnostic = error instanceof Error ? error.message : 'attach descriptor rejected'
+      return false
+    }
+  }
 
   async start(options: EngineOptions): Promise<void> {
     if (this.child) throw new Error('Engine already started')
@@ -101,6 +142,9 @@ export class Engine extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    // An attached boot-host engine outlives this window by design; only the
+    // host (or the operator's task controls) stops it.
+    if (!this.managed) return
     this.stopping = true
     const child = this.child
     if (!child || child.exitCode !== null) return
