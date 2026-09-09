@@ -32,8 +32,20 @@ export function configureEngineSession(session: Session, liveOrigin: Live, liveT
     const permitted = Boolean(initialApp || appRequest || portalAsset)
     callback({ requestHeaders: scopedHeaders(details.requestHeaders, details.url, permitted ? origin : '', token) })
   })
-  session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  session.setPermissionCheckHandler(() => false)
+  // Copy gestures belong to trusted app documents and registered portals only.
+  // Clipboard reads and every unrelated permission remain denied.
+  const canCopy = (contents: Electron.WebContents | null, permission: string,
+    details: { isMainFrame: boolean; requestingUrl?: string }) => {
+    if (!contents || permission !== 'clipboard-sanitized-write' || !details.isMainFrame) return false
+    const owner = owners.get(contents.id)
+    if (!owner || owner.window.isDestroyed()) return false
+    const topUrl = contents.mainFrame.url
+    return owner.portal
+      ? topUrl === 'about:blank' && details.requestingUrl === 'about:blank'
+      : trustedUiUrl(topUrl, live(liveOrigin)) && trustedUiUrl(details.requestingUrl ?? '', live(liveOrigin))
+  }
+  session.setPermissionRequestHandler((contents, permission, callback, details) => callback(canCopy(contents, permission, details)))
+  session.setPermissionCheckHandler((contents, permission, _origin, details) => canCopy(contents, permission, details))
   return (window, portal = false) => {
     owners.set(window.webContents.id, { window, portal })
     const id = window.webContents.id
