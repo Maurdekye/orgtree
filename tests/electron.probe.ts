@@ -58,6 +58,21 @@ app.whenReady().then(async () => {
   await main.loadURL(origin + '/o/test-org')
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' }, 'direct org reload exposes bridge')
   assert.ok(seen.some(r => r.url === '/o/test-org' && r.token === token), 'direct org reload authenticates document')
+  // Exercise the renderer-only Refresh action that the native header now owns.
+  // The callback is intentionally injected as a plain location.reload() so this
+  // probe proves a real renderer click does not route through the external-open
+  // callback or launch a browser while the document reloads.
+  assert.equal(openedExternal.length, 0, 'refresh starts with no external-browser opens')
+  const refreshed = new Promise<void>(resolve => main.webContents.once('did-finish-load', () => resolve()))
+  await main.webContents.executeJavaScript(`(()=>{const b=document.createElement('button');b.id='probe-refresh';b.onclick=()=>window.location.reload();document.body.appendChild(b);b.click();return true})()`)
+  await refreshed
+  assert.equal(openedExternal.length, 0, 'renderer Refresh reload does not invoke external browser')
+  assert.ok(seen.filter(r => r.url === '/o/test-org' && r.token === token).length >= 2, 'renderer Refresh performs an authenticated reload')
+  const externalBeforeRefreshFollowup = openedExternal.length
+  await main.webContents.executeJavaScript(`(()=>{const a=document.createElement('a');a.href=${JSON.stringify(foreignOrigin + '/refresh-followup')};document.body.appendChild(a);a.click();return true})()`)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(openedExternal.length, externalBeforeRefreshFollowup + 1, 'genuine external click increments controlled browser opens')
+  assert.ok(openedExternal.includes(foreignOrigin + '/refresh-followup'), 'genuine external click reaches controlled browser callback')
   // Boot-engine recovery rotates the per-boot token: the session hook must
   // sign with the CURRENT value, not the one captured at configure time.
   const rotated = crypto.randomBytes(32).toString('hex')
