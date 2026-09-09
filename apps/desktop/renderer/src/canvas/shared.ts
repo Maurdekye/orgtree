@@ -856,6 +856,10 @@ export interface LiveRow {
   text: string
   secs?: number
   sticky?: boolean
+  /** render-inline-html-custom-responses: a `kind: "text"` row that is
+   *  slash-command stdout, not agent prose — see types.ts LiveRowPayload
+   *  for why this is a separate field rather than a distinct `kind`. */
+  cmd_output?: boolean
   _at?: number
   node?: string
   t?: number

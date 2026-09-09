@@ -999,6 +999,12 @@ export interface LiveRowPayload {
   id?: string
   secs?: number
   sticky?: boolean
+  /** render-inline-html-custom-responses: a `kind: "text"` row that is
+   *  slash-command stdout (supervisor.py's two `local_command` live_row
+   *  calls), NOT agent prose — the two share `kind` because that value
+   *  also drives durability bookkeeping this must not disturb. The
+   *  renderer's html-response grant must read this and stay closed. */
+  cmd_output?: boolean
   at?: string
   /** per-node monotonic row id — the render key (see LiveRow.n) */
   n?: number

@@ -15457,9 +15457,18 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             and ev.get("subtype") == "local_command"):
                         # slash-command output (e.g. /context): show it live
                         # too — the history projection keeps it durable
+                        #
+                        # render-inline-html-custom-responses: `cmd_output`
+                        # marks this row as NOT agent prose, even though it
+                        # shares `kind: "text"` with a genuine reply (that
+                        # kind drives `_text_became_durable` above and other
+                        # bookkeeping this must not disturb — a NEW field,
+                        # not a renamed kind). The renderer's html-response
+                        # grant reads this to stay closed for command output.
                         body = _cmd_stdout(ev.get("content") or "")
                         if body:
                             live_row(slug, nid, {"kind": "text",
+                                                 "cmd_output": True,
                                                  "text": body[:2000]})
                         continue
                     if (ev.get("type") == "system"
@@ -21706,7 +21715,12 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
             out_text = f"⚠ /{word} failed: {e}"
         # sticky: this output exists in NO transcript — the live-feed
         # reconciliation must never sweep it on a refresh or turn end
+        #
+        # render-inline-html-custom-responses: `cmd_output` — see the sister
+        # local_command live_row above for why this is a new field rather
+        # than a different `kind`.
         live_row(slug, nid, {"kind": "text", "sticky": True,
+                             "cmd_output": True,
                              "text": out_text[:20000]})
         # the fork transcript is a full COPY of the session — delete it, or
         # every /context banks megabytes (kiosk storage included) for nothing

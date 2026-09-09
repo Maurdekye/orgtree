@@ -117,3 +117,72 @@ test('⭐ scope ruling, in the real component: a USER-authored durable message w
     await view.unmount()
   }
 })
+
+// ------------------------------------------------ redteam-opus finding #1
+// The live-feed default row (the one branch that grants the agent-response
+// flag) ALSO carries slash-command stdout — supervisor.py's two
+// `local_command` live_row calls share `kind: "text"` with a genuine
+// agent reply row and are indistinguishable without the `cmd_output`
+// marker this fixes (found by redteam-opus's mutation review of ac588dd).
+
+test('⭐ redteam-opus finding #1, fixed: a live cmd_output row (slash-command stdout) stays inert even with the exact fence', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  // exactly the shape supervisor.py's local_command live_row calls emit —
+  // kind "text", the SAME kind a genuine agent reply row carries
+  server.live = [{ kind: 'text', cmd_output: true, text: FENCE, n: 1 } as never]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `slash-command output must never get the live frame: ${view.el.innerHTML}`)
+    assert.match(view.el.textContent!, /it renders/)
+  } finally {
+    await view.unmount()
+  }
+})
+
+test('⭐ positive control for the above: an ordinary live agent-reply row (no cmd_output) with the same fence DOES render the frame', async () => {
+  // proves the instrument works and the two rows differ ONLY by the
+  // cmd_output marker — the exact bytes reviewer found "execute while the
+  // turn is live" for the wrong reason must still execute for the RIGHT one
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.live = [{ kind: 'text', text: FENCE, n: 1 } as never]
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 1,
+      `a genuine live agent reply should still render the frame: ${view.el.innerHTML}`)
+  } finally {
+    await view.unmount()
+  }
+})
+
+// ------------------------------------------------ redteam-opus finding #2
+// The transient-row guard (desk.tsx, `row.role === 'assistant'`) is
+// correct but was untested — nothing failed when the reviewer replaced it
+// with `true`. The backend cannot currently produce a 'user' transient row
+// (supervisor.py sets 'system' or 'assistant' only), so this pins the
+// guard against a 'system' row instead — the one non-assistant role the
+// backend really does emit here (kind 'error'/'starting').
+
+test('⭐ redteam-opus finding #2, hardened: a transient SYSTEM row (not assistant) with the fence stays inert', async () => {
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  const chat = server.chat.bind(server)
+  server.chat = n => ({ ...chat(n), transient: [
+    { event_id: 'err-1', role: 'system', kind: 'error', text: FENCE },
+  ] })
+  installFetch(server)
+  const view = await mountView(desk(), el => el)
+  try {
+    await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+    assert.equal(view.el.querySelectorAll('iframe.html-response-frame').length, 0,
+      `a system transient row must never get the live frame: ${view.el.innerHTML}`)
+  } finally {
+    await view.unmount()
+  }
+})
