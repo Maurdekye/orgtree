@@ -2832,6 +2832,9 @@ main.solo { width: 100%; }
 .drawer-backdrop {
   position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 18;
 }
+/* Native drag regions ignore the drawer's visual stacking. Cancel the
+   underlying header region while the drawer is open so its controls click. */
+.drawer-backdrop, .drawer-backdrop * { -webkit-app-region: no-drag; }
 .drawer {
   position: fixed; left: 0; top: 0; bottom: 0; width: 280px; z-index: 19;
   box-shadow: 8px 0 30px rgba(0, 0, 0, .5);
