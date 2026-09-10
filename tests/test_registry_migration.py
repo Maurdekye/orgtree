@@ -55,6 +55,48 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(report["changed_orgs"], ["alpha"])
         self.assertEqual(report["bound_nodes"], 2)
 
+    def test_ambient_claude_default_config_marking(self):
+        # Measured CLI semantics (root 2026-09-10): unset selector writes
+        # HOME/.claude.json, so the unredirected machine login is a
+        # default-config row; an explicit CLAUDE_CONFIG_DIR — EVEN AT THE
+        # SAME PATH — stays redirected. Asserted at the MINT boundary: the
+        # registry-side persistence of the field is root's half of the
+        # split (credential validation), not migration's.
+        from unittest.mock import patch
+        home = os.path.join(self.root, "home")
+        default_dir = os.path.join(home, ".claude")
+        os.makedirs(default_dir, exist_ok=True)
+        minted = []
+        real_create = self.registry.create_account
+
+        def recording(provider, label, credential, **kw):
+            minted.append((provider, dict(credential)))
+            return real_create(provider, label, credential, **kw)
+
+        def run(claude_path):
+            minted.clear()
+            path = self.registry.registry_path()
+            if os.path.exists(path):
+                os.unlink(path)
+            with patch.object(self.registry, "create_account", recording):
+                self.migration.run_migration(
+                    [], {"claude": claude_path, "openai": None,
+                         "google": None})
+            [cred] = [c for p, c in minted if p == "claude"]
+            return cred
+
+        env = {"USERPROFILE": home, "HOME": home}
+        # unset selector + canonical default path → default_config rides
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            self.assertIs(run(default_dir).get("default_config"), True)
+            # unset selector but a NON-default path: redirected, no flag
+            self.assertNotIn("default_config", run(self.claude_dir))
+        # explicit selector at the SAME path: still redirected, no flag
+        with patch.dict(os.environ, dict(env, CLAUDE_CONFIG_DIR=default_dir),
+                        clear=False):
+            self.assertNotIn("default_config", run(default_dir))
+
     def test_missing_provider_parks_named_and_reported(self):
         org = self._org("beta", {"c": {"model": "luna"}})
         report = self.migration.run_migration([org], self._ambient(openai=False))

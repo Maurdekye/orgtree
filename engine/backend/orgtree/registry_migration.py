@@ -194,6 +194,20 @@ def _node_provider(node: dict[str, Any]) -> str:
     return providers.provider_of(str(node.get("model") or ""))
 
 
+def _claude_default_config(path: str) -> bool:
+    """Measured CLI semantics (root, 2026-09-10): with NO selector the CLI
+    writes HOME/.claude.json — identity BESIDE the config dir — so the
+    unredirected machine login is a DEFAULT-CONFIG row. An explicit
+    CLAUDE_CONFIG_DIR, even pointing at that same directory, writes
+    <dir>/.claude.json and must stay a redirected row. Hence: default only
+    when the selector is unset AND the path canonically IS ~/.claude."""
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        return False
+    default = os.path.expanduser("~/.claude")
+    return (os.path.normcase(os.path.realpath(path))
+            == os.path.normcase(os.path.realpath(default)))
+
+
 def _same_path(a: Any, b: Any) -> bool:
     a, b = str(a or ""), str(b or "")
     if not a or not b:
@@ -252,9 +266,13 @@ def run_migration(org_docs: list[dict[str, Any]],
     for provider, path in ambient.items():
         if not path:
             continue
+        cred: dict[str, Any] = {"kind": "imported", "path": path}
+        if provider == "claude" and _claude_default_config(path):
+            # persisted by registry validation (root's half of the split);
+            # the injector reads it to leave the selector UNSET for spawns
+            cred["default_config"] = True
         row = _reuse_or_create(
-            provider, f"{provider} (machine login)",
-            {"kind": "imported", "path": path},
+            provider, f"{provider} (machine login)", cred,
             registered_from="migration:ambient")
         ambient_ids[provider] = row["id"]
         report["ambient_rows"][provider] = row["id"]
