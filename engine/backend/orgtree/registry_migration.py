@@ -94,9 +94,11 @@ def run_startup_migration() -> dict[str, Any] | None:
     """The startup adapter: gated on CUTOVER_ENV=1, loads every org doc,
     runs the pure engine, persists exactly the orgs the engine changed,
     writes the report, and marks completion ONLY when all of that
-    succeeded. A partial failure raises MigrationIncomplete with the
-    truthful report — minted rows and saved bindings stay, the marker does
-    not, and the next startup with the flag finishes the remainder.
+    succeeded — an unloadable org (or an unlistable orgs dir) holds
+    completion too, since its nodes missed placement. Any partial failure
+    raises MigrationIncomplete with the truthful report — minted rows and
+    saved bindings stay, the marker does not, and the next startup with
+    the flag finishes the remainder.
     Returns the report, or None when the gate is closed."""
     from . import store
     if os.environ.get(CUTOVER_ENV) != "1":
@@ -106,8 +108,13 @@ def run_startup_migration() -> dict[str, Any] | None:
         seen: set[str] = set()
         try:
             names = sorted(os.listdir(store._orgs_dir()))
-        except OSError:
-            names = []
+        except OSError as e:
+            # an unreadable orgs dir must never read as an empty fleet
+            # migrated to completion — hold, truthfully
+            raise MigrationIncomplete(
+                f"cannot list the orgs directory: {e}",
+                {"completed": False, "inert": False,
+                 "error": f"orgs directory unreadable: {e}"}) from None
         for f in names:
             slug = f[:-5] if f.endswith(".json") else (
                 f[:-3] if f.endswith(".db") else "")
@@ -115,12 +122,14 @@ def run_startup_migration() -> dict[str, Any] | None:
                 seen.add(slug)
                 slugs.append(slug)
         orgs = []
+        unloadable: dict[str, str] = {}
         for slug in slugs:
             try:
                 orgs.append(store.load_org(slug))
-            except Exception:                                # noqa: BLE001
-                # an unloadable org is reported, never guessed at
-                continue
+            except Exception as e:                           # noqa: BLE001
+                # an unloadable org is reported AND holds completion: its
+                # nodes missed placement, so the fleet is not migrated
+                unloadable[slug] = f"{type(e).__name__}: {e}"
         docs = [o.d for o in orgs]
         report = run_migration(docs)
         if report.get("reason") == "already migrated":
@@ -144,20 +153,21 @@ def run_startup_migration() -> dict[str, Any] | None:
                 save_failures[slug] = f"{type(e).__name__}: {e}"
             else:
                 saved.append(slug)
-    report["skipped_unloadable"] = sorted(set(slugs)
-                                          - {str(o.d.get("slug") or "")
-                                             for o in orgs})
+    report["skipped_unloadable"] = sorted(unloadable)
+    report["unloadable_errors"] = unloadable
     report["saved_orgs"] = saved
     report["save_failures"] = save_failures
-    report["completed"] = not save_failures
+    report["completed"] = not save_failures and not unloadable
     write_err = _write_report(report, store.DATA_ROOT)
-    if save_failures or write_err:
+    if save_failures or unloadable or write_err:
         report["completed"] = False
         if write_err:
             report["report_write_error"] = write_err
         raise MigrationIncomplete(
             f"saved {len(saved)}/{len(changed)} changed orgs"
             + (f", save failures: {save_failures}" if save_failures else "")
+            + (f", unloadable orgs missed placement: {unloadable}"
+               if unloadable else "")
             + (f", report write failed: {write_err}" if write_err else ""),
             report)
     mark_migrated()

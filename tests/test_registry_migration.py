@@ -308,6 +308,65 @@ class MigrationTests(unittest.TestCase):
         finally:
             os.environ.pop(self.migration.CUTOVER_ENV, None)
 
+    def test_unloadable_org_holds_completion_until_readable(self):
+        # a damaged/unavailable org must not permanently miss placement:
+        # completion is HELD while any org cannot load, and the retry
+        # finishes the remainder once it reads again
+        from unittest.mock import patch
+        from engine.backend.orgtree import store
+        self._stored_org("u-one")
+        self._stored_org("u-two")
+        real_load = store.load_org
+
+        def flaky_load(slug):
+            if slug == "u-two":
+                raise OSError("unreadable (injected)")
+            return real_load(slug)
+
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            with patch.object(store, "load_org", flaky_load):
+                with self.assertRaises(
+                        self.migration.MigrationIncomplete) as ctx:
+                    self.migration.run_startup_migration()
+            rep = ctx.exception.report
+            self.assertEqual(rep["skipped_unloadable"], ["u-two"])
+            self.assertIn("unreadable (injected)",
+                          rep["unloadable_errors"]["u-two"])
+            self.assertFalse(rep["completed"])
+            self.assertFalse(self.registry.load().get("migrated_at"))
+            one = store.load_org("u-one").node("n").get("account")
+            self.assertTrue(one)               # the loadable org DID bind
+            minted = {row["id"] for row in self.registry.list_accounts()}
+            # org readable again: the retry finishes the remainder
+            report2 = self.migration.run_startup_migration()
+            self.assertTrue(report2["completed"])
+            self.assertEqual(report2["skipped_unloadable"], [])
+            self.assertEqual(
+                store.load_org("u-two").node("n").get("account"), one)
+            self.assertEqual(
+                {row["id"] for row in self.registry.list_accounts()}, minted)
+            self.assertTrue(self.registry.load().get("migrated_at"))
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
+
+    def test_orgs_dir_listing_failure_raises_not_empty_fleet(self):
+        # an unreadable orgs DIRECTORY must never read as an empty fleet
+        # migrated to completion
+        from unittest.mock import patch
+        from engine.backend.orgtree import store
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            with patch.object(store, "_orgs_dir",
+                              return_value=os.path.join(self.root,
+                                                        "no-such-dir")):
+                with self.assertRaises(self.migration.MigrationIncomplete):
+                    self.migration.run_startup_migration()
+            self.assertFalse(self.registry.load().get("migrated_at"))
+            self.assertEqual(self.registry.list_accounts(), [])  # no half-run
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
+
     def test_report_write_failure_holds_completion(self):
         from engine.backend.orgtree import store
         self._stored_org("rw-org")
