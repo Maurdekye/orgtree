@@ -705,7 +705,7 @@ export default function App() {
               + (build.branch ? ` (branch ${build.branch})` : '')
               + ` — started ${fmtFull(build.started_at)}`}>
             {build.branch ? `${build.branch}@${build.commit}` : build.commit}</span>}
-        <a className="gh-link h1-gh" href="https://github.com/Maurdekye/claude-orgtree"
+        <a className="gh-link h1-gh" href="https://github.com/Maurdekye/orgtree"
           target="_blank" rel="noreferrer" title="orgtree on GitHub">
           <GitHubIcon fontSize="inherit" /></a>
         {!BASE &&
@@ -1090,7 +1090,7 @@ export default function App() {
                 <button onClick={() => setShowConnections(true)}>Connections</button>
                 {!tree.public &&
                   <button onClick={() => setShowSettings(v => isModalPinned('org-settings') ? !v : true)}><SettingsIcon fontSize="inherit" /> settings</button>}
-                <a className="gh-link" href="https://github.com/Maurdekye/claude-orgtree"
+                <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
                 </div>
