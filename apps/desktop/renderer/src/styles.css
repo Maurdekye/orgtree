@@ -152,6 +152,18 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   display: inline-flex; align-items: center; gap: 2px;
   color: var(--accent); font-size: 11px; line-height: 1;
 }
+/* hide-retired: the retired-list token under a parent card — the one canvas
+   surface for retirees the setting hides. World-positioned like the cards
+   (transform carries the translate), quiet like the retired pile's grey. */
+.retired-token {
+  position: absolute; left: 0; top: 0;
+  background: var(--panel-2); color: var(--dim);
+  border: 1px solid var(--line-soft); border-radius: 9px;
+  padding: 1px 8px; font-size: 10px; line-height: 1.5;
+  cursor: pointer; white-space: nowrap;
+}
+.retired-token:hover { color: var(--ink-strong); border-color: var(--dim); }
+
 /* F-06: hub connectivity dot on the mailbox node — grey connecting,
    green all-up, amber partial */
 .oi-dot {

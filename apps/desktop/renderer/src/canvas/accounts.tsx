@@ -22,9 +22,9 @@ import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import {
-  setCrowdPilesOn, setDeskDpi, setOpenRouterTiers, setStartView, setStartZoomOn,
+  setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
   TIER_LETTER,
-  useCrowdPiles, useDeskDpi, useStartView, useStartZoom,
+  useCrowdPiles, useDeskDpi, useHideRetired, useStartView, useStartZoom,
 } from './shared'
 import { fmtFull, fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
@@ -186,6 +186,17 @@ function CrowdStackToggle() {
       onChange={setCrowdPilesOn}
       hint={'a team with more than 8 active agents draws as a single '
         + 'stack instead of 8+ separate cards'} />
+  )
+}
+
+function HideRetiredToggle() {
+  const on = useHideRetired()
+  return (
+    <SetToggle label="hide retired agents" checked={on}
+      onChange={setHideRetiredOn}
+      hint={'retired agents leave the canvas and agent lists; reach them '
+        + 'through the "N retired" token on their old team, or the '
+        + 'switchboard’s archived rows'} />
   )
 }
 
@@ -469,7 +480,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><ModalOverlapSettings /></SetGroup>
+      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>

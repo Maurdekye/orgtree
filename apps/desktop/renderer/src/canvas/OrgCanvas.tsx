@@ -19,7 +19,7 @@ import {
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, anyTierSeat, attentionPip, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, fallbackActive, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
-  providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, useCrowdPiles, usePolled, USER, USER_H,
+  providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
   USER_W, withDraftTree, Z_DESK, Z_MAX, Z_MINI,
 } from './shared'
 import type {
@@ -144,6 +144,44 @@ let firstCanvasSlug: string | null = null
 let leftFirstOrg = false
 /** tests only: put the module back in the fresh-session state */
 export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
+
+/** hide-retired's DISPLAY prune of the layout tree (pure — the canvas memos
+ *  it; tests call it directly). Removes archived subtrees from the children
+ *  lists, EXCEPT: a knowledge bearer (its floating card is an active
+ *  consultation surface), an archived node with a LIVE descendant (hiding it
+ *  would hide live agents), and anything the session has revealed. Returns
+ *  the pruned root, the hidden retirees grouped by their visible parent (the
+ *  retired-list token's data), and the full id set of everything pruned
+ *  (centerOn's reveal hook). */
+export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
+  shownRetired: ReadonlySet<string>): {
+  root: CanvasNode
+  retiredByParent: Map<string, CanvasNode[]>
+  prunedIds: Set<string>
+} {
+  const retiredByParent = new Map<string, CanvasNode[]>()
+  const prunedIds = new Set<string>()
+  if (!hideRetired) return { root, retiredByParent, prunedIds }
+  const hasLive = (n: CanvasNode): boolean => n.state === 'live'
+    || (n.children ?? []).some(hasLive)
+  const collect = (n: CanvasNode) => {
+    prunedIds.add(n.id)
+    ;(n.children ?? []).forEach(collect)
+  }
+  const walk = (n: CanvasNode): CanvasNode => {
+    const keep: CanvasNode[] = []
+    const gone: CanvasNode[] = []
+    for (const c of n.children ?? []) {
+      if (c.state === 'archived' && !c.isBearerOf && !shownRetired.has(c.id)
+          && !hasLive(c)) { gone.push(c); collect(c) }
+      else keep.push(walk(c))
+    }
+    if (gone.length) retiredByParent.set(n.id, gone)
+    return gone.length || keep.some((c, i) => c !== (n.children ?? [])[i])
+      ? { ...n, children: keep } : n
+  }
+  return { root: walk(root), retiredByParent, prunedIds }
+}
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
@@ -322,9 +360,30 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     const after = kids.slice(at).filter((c) => c.state !== 'archived')
     return { ...n, children: [...before, ...arch, ...after] }
   }
-  const vroot = useMemo(() => canonPiles(withDraftTree(tree, draft)),
+  const vrootFull = useMemo(() => canonPiles(withDraftTree(tree, draft)),
     [tree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
-  const map = useMemo(() => flatten(vroot, seats), [vroot])   // eslint-disable-line
+  // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
+  // LAYOUT tree only. `map` stays FULL below, so desks, mail routing, the
+  // agents tray's archived rows, lineage and window restoration keep every
+  // retiree addressable — a hidden retiree simply has no canvas position
+  // until something reveals it. Reveals are per-session (state, reset on an
+  // org switch), and three things reveal: the retired-list token, the
+  // switchboard's archived rows, and ANY jump to the retiree (centerOn).
+  // ⚠ never prune an archived node that still has a LIVE descendant (a
+  // transiently un-reassigned subtree) — hiding it would hide live agents —
+  // and never prune a knowledge BEARER: its floating card over the successor
+  // is an active consultation surface, not a resting retiree.
+  const hideRetired = useHideRetired()
+  const [shownRetired, setShownRetired] = useState<ReadonlySet<string>>(() => new Set<string>())
+  useEffect(() => { setShownRetired(new Set<string>()) }, [slug])
+  const prunedView = useMemo(() => pruneRetiredView(vrootFull, hideRetired, shownRetired),
+    [vrootFull, hideRetired, shownRetired])
+  const vroot = prunedView.root
+  const prunedRef = useRef(prunedView.prunedIds)
+  useEffect(() => { prunedRef.current = prunedView.prunedIds }, [prunedView])
+  // the retired-list token's open menu: the parent id whose list is showing
+  const [retiredOpen, setRetiredOpen] = useState<string | null>(null)
+  const map = useMemo(() => flatten(vrootFull, seats), [vrootFull])   // eslint-disable-line
   usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
@@ -1334,6 +1393,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     // the placeholder and the switchboard tab already call.
     if (pinnedIdsRef.current.has(id)) {
       showPin(slug, id, vpSizeNow())
+      return
+    }
+    // a HIDDEN retiree (hide-retired setting) is revealed by ANY jump to it —
+    // desk-nav chips, tray rows, mail sender links, the retired-list token —
+    // then the glide lands once the re-layout gives it a position. Archived
+    // ancestors hidden with it are revealed too, or the card would have no
+    // column to appear in. Same two-frame retry as the pile-front case below.
+    if (prunedRef.current.has(id)) {
+      const add: string[] = []
+      let cur: string | undefined = id
+      while (cur && prunedRef.current.has(cur)) {
+        add.push(cur)
+        cur = mapRef.current.get(cur)?.parent ?? undefined
+      }
+      setShownRetired((s) => new Set([...s, ...add]))
+      requestAnimationFrame(() => requestAnimationFrame(() =>
+        centerRef.current?.(id, z)))
       return
     }
     // focusing a BURIED pile member brings it to the front first (user spec
@@ -2658,6 +2734,25 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             </span>
           )
         })}
+        {/* hide-retired: the retired-list TOKEN — the one place hidden
+            retirees surface on the canvas. It sits under the parent card
+            that has retired subordinates; clicking lists them (the same
+            picker the retired pile uses) and picking one reveals it. */}
+        {[...prunedView.retiredByParent.entries()].map(([pid, gone]) => {
+          const p = posOf(pid)
+          if (!p) return null
+          const size = sizeOf(pid)
+          if (!intersectsViewport({ ...p, ...size }, visibleRect)) return null
+          return (
+            <button key={'rt' + pid} className="retired-token"
+              style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + 4}px)` }}
+              title={`${gone.length} retired agent${gone.length === 1 ? '' : 's'} hidden here — click to list`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); setRetiredOpen(pid) }}>
+              {gone.length} retired
+            </button>
+          )
+        })}
         {/* FR-18: watchdog chips — tiny satellite cards beside their owner
             (the user's spec: named; click for the detail + sent-events
             panel). Not agents: no chrome beyond name + state glyph.
@@ -3007,6 +3102,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
         <MaybePortal><PilePicker pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
           onPick={(nid) => { setFront(pileOpen, nid); setPileOpen(null) }}
           close={() => setPileOpen(null)} /></MaybePortal>
+      )}
+      {/* hide-retired: the token's list — the same picker the retired pile
+          uses (ordering, turn stats, the op-gated delete-all row), fed a
+          synthesized pile of the HIDDEN retirees under this parent. Picking
+          one routes through centerOn, whose reveal hook shows the card and
+          glides to it. */}
+      {retiredOpen && prunedView.retiredByParent.has(retiredOpen) && (
+        <MaybePortal><PilePicker map={map} op={op} toast={toast}
+          pile={{ key: retiredOpen + '|h', parent: retiredOpen, kind: 'a',
+            list: prunedView.retiredByParent.get(retiredOpen)!.map((c) => c.id),
+            front: prunedView.retiredByParent.get(retiredOpen)![0]!.id }}
+          onPick={(nid) => { setRetiredOpen(null); centerOn(nid) }}
+          close={() => setRetiredOpen(null)} /></MaybePortal>
       )}
       {oiOpen && (
         <MaybePortal><OrgInboxModal inbox={tree.org_inbox} net={tree.net} map={map} slug={slug} toast={toast}

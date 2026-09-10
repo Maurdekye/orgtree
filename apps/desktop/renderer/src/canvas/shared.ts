@@ -1084,6 +1084,33 @@ const subscribeCrowdPiles = (fn: () => void): (() => void) => {
 export const useCrowdPiles = (): boolean =>
   useSyncExternalStore(subscribeCrowdPiles, crowdPilesOn)
 
+/* --------------------------- hide retired agents (user resumed 2026-09-10)
+   OPT-IN and OFF BY CONSTRUCTION, same contract as the crowd toggle above
+   (unset localStorage reads null, null !== '1'). When ON, retired agents
+   leave the agent views — canvas cards included — and stay reachable only
+   through the retired-list token on a parent that has retired subordinates
+   and through the switchboard's archived rows for retired top-levels; any
+   jump to a hidden retiree reveals it. A DISPLAY preference only: no org
+   record changes, and app-wide, not per-org, for the crowd toggle's reason. */
+export const HIDE_RETIRED_KEY = 'orgtree-hide-retired'
+export const hideRetiredOn = (): boolean => {
+  try { return localStorage.getItem(HIDE_RETIRED_KEY) === '1' } catch { return false }
+}
+const hideRetiredSubs = new Set<() => void>()
+export const setHideRetiredOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(HIDE_RETIRED_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...hideRetiredSubs]) fn()    // copy: a listener may detach
+}
+const subscribeHideRetired = (fn: () => void): (() => void) => {
+  hideRetiredSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { hideRetiredSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useHideRetired = (): boolean =>
+  useSyncExternalStore(subscribeHideRetired, hideRetiredOn)
+
 /* ------------------------------------------- the startup view (D-228)
    What the canvas shows the moment an org OPENS, and whether it glides there.
    Two settings, because they answer two different questions:
