@@ -1341,3 +1341,20 @@ convoTest('a new conversation discards the old history cursor and old page rows'
   await inAct(()=>loadOlder(SL,ND,8));await advance(100)
   assert.equal(d.now().chat!.messages.length,16,'the new cursor remains usable without remount')
 })
+
+convoTest('a changed ordering epoch drops held ranks and adopts the fresh cursor', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  let epoch=0
+  const original=s.chat.bind(s)
+  s.chat=(last)=>({...original(last),conversation_id:'same-session',order_epoch:epoch})
+  for(let i=0;i<30;i++)s.assistantMsg(`row ${i}`)
+  const d=await desk();await advance(100)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().paged,true)
+  epoch=1
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.equal(d.now().paged,false)
+  assert.equal(d.now().chat!.messages.length,8)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().chat!.messages.length,16)
+})

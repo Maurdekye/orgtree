@@ -50,9 +50,8 @@ def capture(slug, nid, *, beginning=False, backfill=False):
         records.ingest(source, str(filename), count, {'bytes_read': 0})
         with _lock:
             _fresh.discard(source)
-    views = getattr(records, 'ingest_prompt_views', None)
-    if views is not None:
-        views(key, sup._prompt_view_path(slug, node['session_id']))
+    records.ingest_prompt_views(records.views_source(slug, node['session_id']),
+                                sup._prompt_view_path(slug, node['session_id']))
 
 
 def capture_safely(slug, nid, **kwargs):
@@ -74,16 +73,12 @@ def start():
     def run():
         from . import store, supervisor as sup
         queue = collections.deque()
-        refreshed = 0.0
         while True:
             try:
-                now = time.monotonic()
-                if not queue or now - refreshed > 60:
-                    queue.clear()
+                if not queue:
                     for row in store.list_orgs():
                         org = store.load_org(row['slug'])
                         queue.extend((row['slug'], nid) for nid in org.nodes)
-                    refreshed = now
                 with sup._state_lock:
                     active = [key for key, state in sup._state.items() if state.get('busy')]
                 for slug, nid in active:

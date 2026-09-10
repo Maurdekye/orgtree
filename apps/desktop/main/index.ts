@@ -6,7 +6,7 @@ import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
-import { configureTaskbar } from './taskbar'
+import { appUserModelId, configureTaskbar } from './taskbar'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
 import { detectHarnesses } from './harnesses'
@@ -20,7 +20,8 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
-app.setAppUserModelId('com.maurdekye.orgtree')
+// Development notifications must not register Electron against the installed app.
+app.setAppUserModelId(appUserModelId(app.isPackaged))
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 const single = app.requestSingleInstanceLock()

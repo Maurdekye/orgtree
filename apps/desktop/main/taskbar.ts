@@ -1,8 +1,13 @@
 import type { BrowserWindow } from 'electron'
 
-export function configureTaskbar(window: BrowserWindow, executable: string, icon: string): void {
+export function appUserModelId(packaged: boolean): string {
+  return packaged ? 'com.maurdekye.orgtree' : 'com.maurdekye.orgtree.dev'
+}
+
+export function configureTaskbar(window: BrowserWindow, executable: string, icon: string,
+                                 appId = appUserModelId(true)): void {
   window.setAppDetails({
-    appId: 'com.maurdekye.orgtree', appIconPath: icon, appIconIndex: 0,
+    appId, appIconPath: icon, appIconIndex: 0,
     relaunchCommand: `"${executable}"`, relaunchDisplayName: 'Orgtree',
   })
 }

@@ -482,8 +482,10 @@ export function refreshConvo(slug: string, nid: string,
     // latest-STARTED request wins, not latest-landed — see Entry.installed
     if (startedAt < e.installed) return
     e.installed = startedAt
-    const changedConversation = !!c.conversation_id && !!e.s.chat?.conversation_id
-      && c.conversation_id !== e.s.chat.conversation_id
+    const changedConversation = (!!c.conversation_id && !!e.s.chat?.conversation_id
+      && c.conversation_id !== e.s.chat.conversation_id)
+      || (c.order_epoch !== undefined && e.s.chat?.order_epoch !== undefined
+        && c.order_epoch !== e.s.chat.order_epoch)
     if (changedConversation) e.committedRows.clear()
     // A burst can exceed one viewport between polls. Fill only that new
     // interval before joining it to already loaded history; never silently

@@ -42,6 +42,15 @@ class CaptureTests(unittest.TestCase):
                 sup._run_one_turn(self.org.d['slug'],'agent','hello')
         self.path.unlink()
         self.assertEqual(len(self.rows()),40)
+    def test_prompt_projection_is_durable_before_any_desk_read(self):
+        import hashlib
+        sid=self.org.node('agent')['session_id'];slug=self.org.d['slug']
+        raw='provider envelope and human message'
+        sup._record_prompt_view(slug,sid,raw,'human message')
+        Path(sup._prompt_view_path(slug,sid)).unlink()
+        rows=records.prompt_views_for(records.views_source(slug,sid),hashlib.sha256(raw.encode()).hexdigest())
+        self.assertEqual([r['visible'] for r in rows],['human message'])
+
     def test_known_session_suffix_is_captured_and_history_backfills_in_slices(self):
         self.write(0,180)
         ingest.capture(self.org.d['slug'],'agent',beginning=True)

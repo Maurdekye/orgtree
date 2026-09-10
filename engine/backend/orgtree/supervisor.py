@@ -3172,6 +3172,15 @@ def _record_prompt_view(slug: str, session_id: str, raw: str, visible: str,
         # the typed composition (design §6), persisted WITH the projection so an
         # archived/copied transcript keeps its snapshots after the mail_log cap rolls
         row["segments"] = segments
+    from . import transcript_records
+    import sqlite3
+    try:
+        transcript_records.append_prompt_view(
+            transcript_records.views_source(slug, session_id), row)
+    except (OSError, sqlite3.Error) as error:
+        # Keep the sidecar as recoverable input if durable indexing is briefly
+        # unavailable; the capture worker imports it on its next pass.
+        print(f"[orgtree] {slug}: prompt-view index deferred: {type(error).__name__}")
     try:
         path = _prompt_view_path(slug, session_id)
         with _view_journal_lock:

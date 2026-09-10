@@ -1043,6 +1043,7 @@ export interface LiveRowPayload {
 export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
+  order_epoch?: number
   conversation_id?: string
   /** Bounded source projection: seq is an identity, not a row count. */
   windowed?: boolean

@@ -57,6 +57,30 @@ class WindowTests(unittest.TestCase):
             sup.commit_steer(self.org.d['slug'],'agent',['not durable'])
         self.assertNotIn('committed_row_raw',send.call_args.args[2])
 
+    def test_committed_steer_wire_projects_each_socket_without_raw_event_leak(self):
+        import asyncio
+        from orgtree.api import Hub
+        class Socket:
+            def __init__(self): self.frames=[]
+            async def send_json(self, row): self.frames.append(row)
+        admin=Socket();visitor=Socket();hub=Hub()
+        hub.rooms['room']={admin,visitor};hub.public.add(visitor)
+        row={'role':'user','text':'visible','row_id':'same-id','segments':[
+            {'kind':'mail','rows':[{'id':'mail-one','body':'visible',
+                'ev_raw':{'private':'must stay internal'},
+                'ev_error':{'code':'bad_structure','private':'details'}}]}]}
+        asyncio.run(hub._send('room',{'kind':'steered','committed_row_raw':row}))
+        self.assertNotIn('committed_row_raw',admin.frames[0])
+        self.assertNotIn('committed_row_raw',visitor.frames[0])
+        self.assertEqual(admin.frames[0]['committed_row']['row_id'],'same-id')
+        self.assertEqual(visitor.frames[0]['committed_row']['row_id'],'same-id')
+        ar=admin.frames[0]['committed_row']['segments'][0]['rows'][0]
+        vr=visitor.frames[0]['committed_row']['segments'][0]['rows'][0]
+        self.assertIn('ev_raw',ar,'operator control retains diagnostic provenance')
+        self.assertNotIn('ev_raw',vr)
+        self.assertEqual(vr['ev_error'],{'code':'bad_structure'})
+        self.assertIn('ev_raw',row['segments'][0]['rows'][0],'projection does not mutate the stored record')
+
     def test_large_file_reads_tail_then_queries_sqlite_without_reparsing(self):
         self.write([self.rec(i, f'message {i} '+('x'*6000)) for i in range(7000)])
         first=self.read()
