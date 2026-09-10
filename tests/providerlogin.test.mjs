@@ -624,3 +624,17 @@ test('default Claude account login strips inherited selector and verifies select
     else process.env.CLAUDE_CONFIG_DIR = oldSelector
   }
 })
+
+
+test('native login validation accepts every implemented provider and rejects unknown inputs', () => {
+  for (const provider of ['claude', 'codex', 'antigravity']) {
+    assert.equal(providerlogin.asLoginProvider(provider), provider)
+  }
+  for (const unknown of ['google', 'openai', 'constructor', '__proto__', '', null, {}, 1]) {
+    assert.throws(() => providerlogin.asLoginProvider(unknown), /Unknown login provider/)
+  }
+  const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.match(main, /import \{ asLoginProvider,.*from '\.\/providerlogin'/)
+  assert.equal((main.match(/asLoginProvider\(provider\)/g) ?? []).length, 4,
+    'start, status, code and cancel all use the tested validator')
+})

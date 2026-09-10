@@ -51,6 +51,14 @@ const DOORS: Record<LoginProvider, Door> = {
   antigravity: { apiId: 'google', supportsCode: false, extraArgs: [] },
 }
 
+/** Runtime validation for every native sign-in IPC entry point. */
+export function asLoginProvider(value: unknown): LoginProvider {
+  if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(DOORS, value)) {
+    throw new Error('Unknown login provider')
+  }
+  return value as LoginProvider
+}
+
 /** The argv for spawning `exe` — a `.py` path (the test double,
  *  tests/providerlogin.test.mjs) runs under `python`, the same test-double
  *  convention the Python side already uses (`codex_argv`/`_login_argv`).

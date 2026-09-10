@@ -13,9 +13,9 @@ import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
 import { checkForUpdatesViaEvents, installDownloadedUpdate, UpdateController } from './updater'
-import type { DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
+import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
-import { cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
+import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 
@@ -328,10 +328,6 @@ else {
     // see providerlogin.ts's module docstring for why. `assertNativeSender`
     // (via `handle` above) already keeps this off any surface but the app's
     // own authoritative renderer, same as every other native control here.
-    const asLoginProvider = (value: unknown): LoginProvider => {
-      if (value !== 'claude' && value !== 'codex') throw new Error('Unknown login provider')
-      return value
-    }
     handle('desktop:provider-login-start', (provider, opts) => {
       // multi-account: the optional {profileDir, accountId} pair rides to
       // the login spawn; only these two string fields pass, nothing else
