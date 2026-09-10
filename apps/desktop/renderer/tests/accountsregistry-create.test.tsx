@@ -28,7 +28,7 @@ test('creating a managed account shows the new row with its sign-in action', asy
     const method = init?.method || 'GET'
     calls.push({ url: String(url), method, body: String(init?.body || '') })
     if (method === 'POST') {
-      const made = { ...account('fresh-managed', 'unobserved'),
+      const made = { ...account('fresh-managed', 'unobserved'), label: 'claude-0',
         credential: { kind: 'managed', path: 'C:/fixture/fresh-managed' } }
       rows.push(made)
       return new Response(JSON.stringify(made), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -54,7 +54,8 @@ test('creating a managed account shows the new row with its sign-in action', asy
   assert.deepEqual(JSON.parse(create.body), { provider: 'claude', kind: 'managed' })
   const row = el.querySelector<HTMLElement>('.account-row')
   assert.ok(row, 'the created account is VISIBLE after the reload')
-  assert.match(row!.textContent || '', /fresh-managed/)
+  assert.equal(row!.querySelector('strong')?.textContent, 'claude-0')
+  assert.equal(row!.querySelector('strong')?.title, 'Account ID: fresh-managed')
   assert.ok([...row!.querySelectorAll('button')].some(b => /sign in/i.test(b.textContent || '')),
     'the new profile exposes its sign-in action')
 })

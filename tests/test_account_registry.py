@@ -48,6 +48,26 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(d["tint_ordinal"], 4)
         self.assertNotEqual(d["id"], b["id"])
 
+    def test_display_names_reuse_free_numbers_without_reusing_identity(self):
+        def create(label=""):
+            return self.registry.create_account("claude", label,
+                {"kind": "managed", "path": os.path.join(self.root, "p")})
+        first = create()
+        self.assertEqual(first["label"], "claude-0")
+        self.registry.remove_account(first["id"])
+        second = create()
+        self.assertEqual(second["label"], "claude-0")
+        self.assertNotEqual(first["id"], second["id"])
+        third = create()
+        self.assertEqual(third["label"], "claude-1")
+        self.registry.remove_account(second["id"])
+        fourth = create()
+        self.assertEqual(fourth["label"], "claude-0")
+        self.assertEqual(self.registry.get_account(third["id"])["label"], "claude-1")
+        named = create("claude-2")
+        self.assertEqual(create()["label"], "claude-3")
+        self.assertEqual(self.registry.get_account(named["id"])["label"], "claude-2")
+
     def test_openrouter_and_unknown_providers_refused(self):
         for bad in ("openrouter", "xai", ""):
             with self.assertRaises(ValueError):

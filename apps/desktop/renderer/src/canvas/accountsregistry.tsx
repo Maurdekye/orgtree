@@ -115,8 +115,7 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
                    background: accountTint(
                      PROVIDER_BASE[r.provider] ?? '#b6bdc8',
                      r.tint_ordinal) }} />
-        <strong>{r.id}</strong>
-        <span>{r.label}</span>
+        <strong title={`Account ID: ${r.id}`}>{r.label || r.id}</strong>
         <span className="dim">{r.credential.kind}
           {r.origin_org ? ` · restricted to ${r.origin_org}` : ''}</span>
         <span className="dim">
