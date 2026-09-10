@@ -558,6 +558,7 @@ for (const provider of ['claude', 'codex']) {
       await new Promise(resolve => handle.server.close(resolve))
       handle = await providersServer(state)
       const profileDir = path.join(temp, `profile-${provider}-${profileOk}`)
+      fs.mkdirSync(profileDir, { recursive: true })
       const probe = path.join(temp, `profile-env-${provider}-${profileOk}.json`)
       const oldProbe = process.env.FIXTURE_PROFILE_PROBE
       process.env.FIXTURE_PROFILE_PROBE = probe
@@ -581,6 +582,18 @@ for (const provider of ['claude', 'codex']) {
     })
   }
 }
+
+test('an unwritable profile is reported before launching browser authentication', async () => {
+  const profileDir = path.join(temp, 'not-a-profile-directory')
+  fs.writeFileSync(profileDir, 'fixture-only')
+  const result = await providerlogin.startProviderLogin(handle.origin, TOKEN, 'claude',
+    { profileDir, accountId: 'selected-account' })
+  assert.equal(result.started, false)
+  assert.equal(result.phase, 'error')
+  assert.match(result.error, /profile is not writable/)
+  assert.equal(handle.requests.length, 0)
+  assert.equal(providerlogin.getProviderLoginStatus('claude').phase, 'idle')
+})
 
 
 test('default Claude account login strips inherited selector and verifies selected account', async () => {

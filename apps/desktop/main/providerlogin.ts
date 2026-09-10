@@ -1,4 +1,7 @@
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { open, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { TOKEN_HEADER } from './policy'
 import type { LoginProvider, ProviderLoginStatus } from '../../../packages/contracts/index'
 
@@ -362,6 +365,15 @@ const sessions = new Map<LoginProvider, LoginSession>()
 // hasn't produced a session yet.
 const pending = new Map<LoginProvider, AbortController>()
 
+async function verifyProfileWritable(profileDir: string): Promise<void> {
+  // fs.access(W_OK) does not check Windows DACL write permission. Exercise
+  // the actual desktop user's write before sending them through OAuth.
+  const probe = path.join(profileDir, `.orgtree-login-write-${randomUUID()}`)
+  const file = await open(probe, 'wx', 0o600)
+  try { await file.writeFile('') }
+  finally { await file.close(); await unlink(probe) }
+}
+
 export async function startProviderLogin(
   engineOrigin: string, engineToken: string, provider: LoginProvider,
   opts?: { profileDir?: string; accountId?: string },
@@ -378,6 +390,13 @@ export async function startProviderLogin(
   pending.set(provider, controller)
   try {
     const door = DOORS[provider]
+    if (opts?.profileDir) {
+      try { await verifyProfileWritable(opts.profileDir) }
+      catch {
+        return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
+          error: 'The selected account profile is not writable. Its folder permissions must allow your Windows user before signing in.' }
+      }
+    }
     let rows: ProviderRow[]
     try {
       // the pending controller's signal ties the CLI-path lookup itself to

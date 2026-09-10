@@ -3836,9 +3836,12 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
                 422, f"imported account needs an existing profile "
                      f"directory (got {path!r})")
     elif body.kind == "managed":
+        if body.provider not in registry.PROVIDERS:
+            raise HTTPException(422, "unsupported account provider")
+        from .managed_profiles import create_profile
         base = os.path.join(store.DATA_ROOT, "profiles")
         os.makedirs(base, exist_ok=True)
-        path = tempfile.mkdtemp(prefix=f"{body.provider}-", dir=base)
+        path = create_profile(base, body.provider)
     else:
         raise HTTPException(422, "kind must be imported|managed — token "
                                  "rows are compatibility only and are never "
