@@ -29,7 +29,7 @@ test('history browse replaces bounded pages, changes collections and recovers fr
   globalThis.window = dom.window; globalThis.document = dom.window.document
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   globalThis.localStorage = window.localStorage
-  const { HistoryBrowser } = createRequire(import.meta.url)(output)
+  const { HistoryView } = createRequire(import.meta.url)(output)
   const calls = []
   let expired = false
   globalThis.historyRequest = async url => {
@@ -45,7 +45,7 @@ test('history browse replaces bounded pages, changes collections and recovers fr
   }
   const root = createRoot(document.getElementById('app'))
   const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text || b.getAttribute('aria-label') === text)
-  await act(async () => root.render(React.createElement(HistoryBrowser, {slug:'fixture',close(){}})))
+  await act(async () => root.render(React.createElement(HistoryView, {slug:'fixture'})))
   assert.match(document.body.textContent, /newest mail/)
   assert.equal(document.querySelectorAll('details').length,2)
   await act(async () => button('Older').click())
