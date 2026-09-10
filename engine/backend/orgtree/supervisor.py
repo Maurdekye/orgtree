@@ -3141,10 +3141,16 @@ def _prompt_view_path(slug: str, session_id: str) -> str:
                         session_id + ".views.ndjson")
 
 
+def _transcript_incarnation(org, nid):
+    from . import transcript_records
+    return transcript_records.incarnation(org, nid)
+
+
 def _record_prompt_view(slug: str, session_id: str, raw: str, visible: str,
                         at: str | None = None,
                         spans: list[dict[str, Any]] | None = None,
-                        segments: list[dict[str, Any]] | None = None) -> None:
+                        segments: list[dict[str, Any]] | None = None,
+                        incarnation: str | None = None) -> None:
     """Durably pair a raw provider user event with its human projection.
 
     Best effort and fail-open for turn admission: losing display metadata may
@@ -3176,7 +3182,7 @@ def _record_prompt_view(slug: str, session_id: str, raw: str, visible: str,
     import sqlite3
     try:
         transcript_records.append_prompt_view(
-            transcript_records.views_source(slug, session_id), row)
+            transcript_records.views_source(slug, session_id, incarnation), row)
     except (OSError, sqlite3.Error) as error:
         # Keep the sidecar as recoverable input if durable indexing is briefly
         # unavailable; the capture worker imports it on its next pass.
@@ -11185,7 +11191,8 @@ def _iso_ts(t: float) -> str:
         t, tz=_dtm.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _codex_journal(slug: str, sid: str, recs: list[dict[str, Any]]) -> None:
+def _codex_journal(slug: str, sid: str, recs: list[dict[str, Any]], *,
+                   incarnation: str | None = None) -> None:
     """Append turn records to the per-agent journal (see journal_store).
     Best-effort by design: journaling must never be the reason a completed
     turn is reported failed — the mail's delivery evidence is the turn
@@ -11196,7 +11203,7 @@ def _codex_journal(slug: str, sid: str, recs: list[dict[str, Any]]) -> None:
         d = os.path.join(journal_store(), "projects", slug)
         os.makedirs(d, exist_ok=True)
         from . import transcript_records
-        transcript_records.append_owned(slug, sid, os.path.join(d, sid + ".jsonl"), recs)
+        transcript_records.append_owned(slug, sid, os.path.join(d, sid + ".jsonl"), recs, incarnation=incarnation)
         with open(os.path.join(d, sid + ".jsonl"), "a",
                   encoding="utf-8", newline="\n") as f:
             for r in recs:
@@ -12547,7 +12554,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 pending_recs = list(jstate["pending"])
                 jstate["pending"].clear()
                 if sid and pending_recs:
-                    _codex_journal(slug, sid, pending_recs)
+                    _codex_journal(slug, sid, pending_recs, incarnation=_transcript_incarnation(org, nid))
                 jstate["barrier"] = False
                 held = cast("list[Callable[[], None]]", jstate["held"])[:]
                 cast("list[Any]", jstate["held"]).clear()
@@ -12630,7 +12637,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             if not sid or jstate["barrier"]:
                 jstate["pending"].extend(recs)
                 return
-            _codex_journal(slug, sid, recs)
+            _codex_journal(slug, sid, recs, incarnation=_transcript_incarnation(org, nid))
 
     def _event_ts(params: dict[str, Any], completed: bool) -> str:
         raw = params.get("completedAtMs" if completed else "startedAtMs")
@@ -13181,12 +13188,13 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 pending_recs = list(jstate["pending"])
                 jstate["pending"].clear()
                 _record_prompt_view(slug, jstate["sid"], text, turn_view,
-                                    at=_iso_ts(t0), spans=view_spans, segments=view_segments)
+                                    at=_iso_ts(t0), spans=view_spans, segments=view_segments,
+                                    incarnation=_transcript_incarnation(org, nid))
                 _codex_journal(slug, jstate["sid"], [
                     {"type": "user", "timestamp": _iso_ts(t0),
                      "message": {"role": "user", "content": text}},
                     *pending_recs,
-                ])
+                ], incarnation=_transcript_incarnation(org, nid))
                 jstate["barrier"] = False
                 held = cast("list[Callable[[], None]]", jstate["held"])[:]
                 cast("list[Any]", jstate["held"]).clear()
@@ -14196,7 +14204,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         if not sid:
             jstate["pending"].extend(recs)
             return
-        _codex_journal(slug, sid, recs)
+        _codex_journal(slug, sid, recs, incarnation=_transcript_incarnation(org, nid))
 
     def _journal_records(recs: list[dict[str, Any]]) -> None:
         """Serialize reader-thread step events with the turn thread's start /
@@ -14401,12 +14409,13 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                 pending_recs = list(jstate["pending"])
                 jstate["pending"].clear()
                 _record_prompt_view(slug, jstate["sid"], text, turn_view,
-                                    at=_iso_ts(t0), spans=view_spans, segments=view_segments)
+                                    at=_iso_ts(t0), spans=view_spans, segments=view_segments,
+                                    incarnation=_transcript_incarnation(org, nid))
                 _codex_journal(slug, jstate["sid"], [
                     {"type": "user", "timestamp": _iso_ts(t0),
                      "message": {"role": "user", "content": text}},
                     *pending_recs,
-                ])
+                ], incarnation=_transcript_incarnation(org, nid))
                 held = cast("list[Callable[[], None]]", jstate["held"])[:]
                 cast("list[Any]", jstate["held"]).clear()
             for emit in held:
@@ -15777,7 +15786,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     _mcp_gate_terminal(_mcp_wait_for_surface(
                         org, nid, proc, "claude", turn_mcp_fingerprint))
                     _record_prompt_view(slug, sid, text, turn_view,
-                                        spans=view_spans, segments=view_segments)
+                                        spans=view_spans, segments=view_segments,
+                                        incarnation=_transcript_incarnation(org, nid))
                     proc.stdin.write(_user_event(text, turn_images))   # pyright: ignore[reportOptionalMemberAccess]
                     proc.stdin.flush()                # pyright: ignore[reportOptionalMemberAccess]
                 except (OSError, ValueError):
@@ -16701,7 +16711,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         + "\n\n" + nxt)
                                 _record_prompt_view(slug, ran_sid or sid,
                                                     str(nxt), nview,
-                                                    spans=nspans, segments=nsegs)
+                                                    spans=nspans, segments=nsegs,
+                                                    incarnation=_transcript_incarnation(org, nid))
                                 proc.stdin.write(_user_event(nxt, nimgs))   # pyright: ignore[reportOptionalMemberAccess]
                                 proc.stdin.flush()                   # pyright: ignore[reportOptionalMemberAccess]
                                 # C1 again: confirmed by the next consuming
@@ -20839,7 +20850,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
                         "usage": {"input_tokens": occ_new,
                                   "cache_read_input_tokens": 0,
                                   "output_tokens": 0}}})
-            _codex_journal(slug, new_sid, records)
+            _codex_journal(slug, new_sid, records, incarnation=_transcript_incarnation(org, nid))
         except OSError as e:
             print(f"[orgtree] {slug}/{nid}: compacted Codex journal copy "
                   f"failed: {e!r}")

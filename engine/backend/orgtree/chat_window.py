@@ -170,7 +170,7 @@ def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *,
             chronological, stats, key=key,
             view_source=transcript_records.views_source(
                 org.d["slug"], org.node(nid)["session_id"],
-                reply_events.incarnation(org, nid)))
+                transcript_records.incarnation(org, nid)))
         built = sup._read_chat_source(org, nid,
             _lines=(row[1] for row in chronological),
             _record_offsets=(row[0] for row in chronological),
@@ -197,8 +197,8 @@ def source_key(org, nid, imported=False):
         # copies, and the slug is mutable — neither may key the journal
         return transcript_records.journal_source(
             org.d['slug'], node.get('session_id'),
-            reply_events.incarnation(org, nid))
-    return json.dumps([reply_events.incarnation(org, nid),
+            transcript_records.incarnation(org, nid))
+    return json.dumps([transcript_records.incarnation(org, nid),
                        node.get('session_id'), bool(imported)])
 
 

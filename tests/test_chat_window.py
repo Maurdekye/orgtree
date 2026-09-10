@@ -81,6 +81,17 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(vr['ev_error'],{'code':'bad_structure'})
         self.assertIn('ev_raw',row['segments'][0]['rows'][0],'projection does not mutate the stored record')
 
+    def test_clearing_reply_quotes_keeps_durable_transcript_history(self):
+        from orgtree import reply_events
+        self.write([self.rec(i) for i in range(10)])
+        before=self.read()
+        source=chat_window.source_key(self.org,'agent')
+        self.path.unlink()
+        reply_events.clear(self.org,'agent')
+        after=self.read()
+        self.assertEqual(chat_window.source_key(self.org,'agent'),source)
+        self.assertEqual([r['text'] for r in before['messages']],[r['text'] for r in after['messages']])
+
     def test_large_file_reads_tail_then_queries_sqlite_without_reparsing(self):
         self.write([self.rec(i, f'message {i} '+('x'*6000)) for i in range(7000)])
         first=self.read()

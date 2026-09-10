@@ -9740,7 +9740,7 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     except LedgerError as e:
         raise HTTPException(404, str(e))
     from . import reply_events
-    conversation = str(reply_events.incarnation(org, nid)) + ":" + str(org.node(nid).get("session_id") or "")
+    conversation = str(supervisor._transcript_incarnation(org, nid)) + ":" + str(org.node(nid).get("session_id") or "")
     if before:
         from .chat_window import read_page
         try:

@@ -410,6 +410,26 @@ def retained_view(source, position):
     return json.loads(found[0]) if found else None
 
 
+def incarnation(org, nid):
+    """Stable transcript identity, independent of deleting retained reply quotes.
+
+    Seed existing conversations from their current identity so adoption does not
+    rename committed sources. Once captured, quote-clear cannot rotate it.
+    """
+    if org.node(nid).get('transcript_incarnation'):
+        return org.node(nid)['transcript_incarnation']
+    from . import reply_events, store
+    identity = reply_events.incarnation(org, nid)
+    with store.DOC_LOCK:
+        persisted = Path(store.org_path(org.d['slug'])).exists()
+        current = store.load_org(org.d['slug']) if persisted else org
+        value = current.node(nid).setdefault('transcript_incarnation', identity)
+        if persisted:
+            store.save_org(current)
+        org.node(nid)['transcript_incarnation'] = value
+    return value
+
+
 def views_source(slug, sid, incarnation=None) -> str:
     """The durable prompt-view index's per-conversation key. ONE string for
     all three doors — supervisor._write_prompt_view (append_prompt_view),

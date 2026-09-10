@@ -50,7 +50,7 @@ def capture(slug, nid, *, beginning=False, backfill=False):
         records.ingest(source, str(filename), count, {'bytes_read': 0})
         with _lock:
             _fresh.discard(source)
-    records.ingest_prompt_views(records.views_source(slug, node['session_id']),
+    records.ingest_prompt_views(records.views_source(slug, node['session_id'], records.incarnation(org, nid)),
                                 sup._prompt_view_path(slug, node['session_id']))
 
 
