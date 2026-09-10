@@ -201,5 +201,23 @@ class SpawnIdentityTests(unittest.TestCase):
         self.assertIsNone(self.registry.active_mark(b["id"], "opus", now=1.0))
 
 
+    def test_default_claude_binding_preserves_home_metadata_location(self):
+        home = os.path.join(self.root, "default-home")
+        row = self.registry.create_account("claude", "default", {
+            "kind": "imported", "path": os.path.join(home, ".claude"),
+            "default_config": True})
+        env = {"CLAUDE_CONFIG_DIR": "hostile", "HOME": "other", "USERPROFILE": "other"}
+        self.registry.inject_binding(env, row)
+        self.assertNotIn("CLAUDE_CONFIG_DIR", env)
+        self.assertEqual(env["HOME"], os.path.abspath(home))
+        self.assertEqual(env["USERPROFILE"], os.path.abspath(home))
+        self.assertIsNone(self.registry.identity_mismatch(env))
+        env["CLAUDE_CONFIG_DIR"] = row["credential"]["path"]
+        self.assertIsNotNone(self.registry.identity_mismatch(env))
+        env.pop("CLAUDE_CONFIG_DIR")
+        env["USERPROFILE"] = "wrong-home"
+        self.assertIsNotNone(self.registry.identity_mismatch(env))
+
+
 if __name__ == "__main__":
     unittest.main()

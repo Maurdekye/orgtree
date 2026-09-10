@@ -157,12 +157,38 @@ class BoardsTests(unittest.TestCase):
         cx = self.registry.create_account(
             "openai", "cx", {"kind": "managed",
                              "path": os.path.join(self.root, "cx-u")})
-        out4 = asyncio.run(self.api.accounts_usage(cx["id"]))
+        from unittest.mock import patch
+        from engine.backend.orgtree import codex_limits
+        with patch.object(codex_limits, "fetch_for_home", return_value={
+                "available": False, "error": "fixture app-server unavailable"}) as fetch:
+            out4 = asyncio.run(self.api.accounts_usage(cx["id"]))
+        fetch.assert_called_once_with(cx["credential"]["path"], "acct:" + cx["id"])
         self.assertFalse(out4["available"])
         self.assertIn("app-server", out4["error"])
         # standing rides every answer
         for o in (out, out2, out3, out4):
             self.assertIn("standing", o)
+
+
+    def test_default_and_redirected_identity_never_borrow_each_others_metadata(self):
+        import asyncio, json
+        from pathlib import Path
+        home = Path(self.root) / "default-identity"
+        profile = home / ".claude"
+        profile.mkdir(parents=True, exist_ok=True)
+        (home / ".claude.json").write_text(json.dumps({"oauthAccount": {
+            "accountUuid": "default-id", "emailAddress": "default@example.test"}}), encoding="utf-8")
+        default = self.registry.create_account("claude", "default", {
+            "kind": "imported", "path": str(profile), "default_config": True})
+        redirected = self.registry.create_account("claude", "redirected", {
+            "kind": "imported", "path": str(profile)})
+        actual = asyncio.run(self.api.accounts_identity(default["id"]))
+        self.assertEqual(actual["identity"]["uuid"], "default-id")
+        self.assertEqual(asyncio.run(self.api.accounts_identity(redirected["id"]))["auth"], "unauthenticated")
+        (profile / ".claude.json").write_text(json.dumps({"oauthAccount": {
+            "accountUuid": "redirected-id"}}), encoding="utf-8")
+        self.assertEqual(asyncio.run(self.api.accounts_identity(redirected["id"]))["identity"]["uuid"], "redirected-id")
+        self.assertEqual(asyncio.run(self.api.accounts_identity(default["id"]))["identity"]["uuid"], "default-id")
 
 
 if __name__ == "__main__":

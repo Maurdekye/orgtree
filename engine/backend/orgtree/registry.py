@@ -148,7 +148,12 @@ def _validate_credential(credential: Any) -> dict[str, Any]:
         path = credential.get("path")
         if not path or not isinstance(path, str):
             raise ValueError(f"a {kind} credential needs a profile path")
-        return {"kind": kind, "path": path}
+        out = {"kind": kind, "path": path}
+        if credential.get("default_config") is True:
+            if kind != "imported":
+                raise ValueError("default config is only valid for imported profiles")
+            out["default_config"] = True
+        return out
     ref = credential.get("token_ref")
     if not ref or not isinstance(ref, str):
         raise ValueError("a token credential needs the legacy store row id")
@@ -165,6 +170,8 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
             f"unknown provider {provider!r} — the account model covers "
             f"harness-authenticated providers only (design D6)")
     credential = _validate_credential(credential)
+    if credential.get("default_config") and provider != "claude":
+        raise ValueError("default config selector is Claude-only")
     with _lock:
         doc = load(strict=True)
         n = int(doc["id_counters"].get(provider, 0)) + 1
@@ -343,7 +350,15 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
             raise RuntimeError(
                 f"no spawn binding lane exists yet for provider "
                 f"{row['provider']!r} (account {row['id']})")
-        env[var] = cred["path"]
+        if cred.get("default_config"):
+            # Setting CLAUDE_CONFIG_DIR even to ~/.claude moves the CLI's
+            # metadata from ~/.claude.json to ~/.claude/.claude.json.
+            env.pop(var, None)
+            home = os.path.dirname(os.path.abspath(cred["path"]))
+            env["HOME"] = home
+            env["USERPROFILE"] = home
+        else:
+            env[var] = cred["path"]
     else:
         if secret_resolver is None:
             raise RuntimeError(
@@ -377,7 +392,12 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
     cred = row["credential"]
     if cred["kind"] in ("imported", "managed"):
         var = PROFILE_VAR.get(row["provider"], "")
-        if not var or env.get(var) != cred["path"]:
+        if cred.get("default_config"):
+            home = os.path.normcase(os.path.dirname(os.path.abspath(cred["path"])))
+            if (env.get(var) or any(os.path.normcase(os.path.abspath(env.get(k) or ".")) != home
+                                    for k in ("HOME", "USERPROFILE"))):
+                return f"account-env-mismatch:{marker}"
+        elif not var or env.get(var) != cred["path"]:
             return f"account-env-mismatch:{marker}"
         return None
     # TOKEN rows carry the same hazard (Opus S3 finding: an exempted kind

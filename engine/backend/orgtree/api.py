@@ -3861,7 +3861,7 @@ async def accounts_identity(account_id: str) -> dict[str, Any]:
     auth = "unobserved"
     if cred["kind"] in ("imported", "managed"):
         if row["provider"] == "claude":
-            ident = accounts.profile_identity(cred["path"])
+            ident = accounts.profile_identity(cred["path"], default_config=bool(cred.get("default_config")))
             identity = {k: v for k, v in ident.items() if v}
             auth = "authenticated" if ident.get("uuid") else "unauthenticated"
         elif row["provider"] == "openai":

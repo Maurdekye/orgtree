@@ -581,3 +581,33 @@ for (const provider of ['claude', 'codex']) {
     })
   }
 }
+
+
+test('default Claude account login strips inherited selector and verifies selected account', async () => {
+  const state = freshState()
+  state.claude.connected = false
+  state.profileAuth = 'authenticated'
+  await new Promise(resolve => handle.server.close(resolve))
+  handle = await providersServer(state)
+  const probe = path.join(temp, 'default-profile-env.json')
+  const oldProbe = process.env.FIXTURE_PROFILE_PROBE
+  const oldSelector = process.env.CLAUDE_CONFIG_DIR
+  process.env.FIXTURE_PROFILE_PROBE = probe
+  process.env.CLAUDE_CONFIG_DIR = 'hostile-profile'
+  process.env.FIXTURE_MODE = 'no_write'
+  try {
+    await providerlogin.startProviderLogin(handle.origin, TOKEN, 'claude', { accountId: 'selected-account' })
+    await eventually(async () => (await providerlogin.getProviderLoginStatus('claude')).phase === 'awaiting_code')
+    providerlogin.submitProviderLoginCode('claude', 'fixture-only')
+    await eventually(async () => (await providerlogin.getProviderLoginStatus('claude')).phase === 'done')
+    assert.equal((await providerlogin.getProviderLoginStatus('claude')).ok, true)
+    const env = JSON.parse(fs.readFileSync(probe, 'utf8'))
+    assert.ok(!env.CLAUDE_CONFIG_DIR)
+    assert.ok(handle.requests.some(r => r.url === '/api/accounts/selected-account/identity'))
+  } finally {
+    if (oldProbe === undefined) delete process.env.FIXTURE_PROFILE_PROBE
+    else process.env.FIXTURE_PROFILE_PROBE = oldProbe
+    if (oldSelector === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = oldSelector
+  }
+})

@@ -21,7 +21,7 @@ type Standing = {
 }
 type AccountRow = {
   id: string; provider: string; harness: string; label: string
-  credential: { kind: string; path?: string }
+  credential: { kind: string; path?: string; default_config?: boolean }
   identity: Record<string, string>
   auth: string; tint_ordinal: number; origin_org?: string
   standing: Standing
@@ -132,7 +132,7 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
         {loginProvider &&
           <ProviderSignIn provider={loginProvider}
             connected={r.standing.auth === 'authenticated'}
-            toast={toast} profileDir={r.credential.path}
+            toast={toast} profileDir={r.credential.default_config ? undefined : r.credential.path}
             accountId={r.id}
             onRefresh={() => refreshIdentity(r.id)} />}
         <button onClick={() => refreshIdentity(r.id)}>refresh</button>

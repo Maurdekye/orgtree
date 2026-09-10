@@ -204,12 +204,17 @@ class LoginSession {
     // sign-in-as-account is the parameterized form of the ambient flow,
     // never a different flow. Absent profileDir keeps ambient semantics
     // byte-for-byte.
-    const env = profileDir
+    const env: NodeJS.ProcessEnv | undefined = profileDir
       ? { ...process.env,
           ...(this.door.apiId === 'openai'
             ? { CODEX_HOME: profileDir }
             : { CLAUDE_CONFIG_DIR: profileDir }) }
-      : undefined
+      : accountId && this.door.apiId === 'claude' ? { ...process.env } : undefined
+    // An account without a directory selector is the imported default
+    // Claude login; discard a host override before starting its login.
+    if (env && accountId && !profileDir && this.door.apiId === 'claude') {
+      delete env.CLAUDE_CONFIG_DIR
+    }
     this.proc = spawn(argv[0], argv.slice(1),
       { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
         ...(env ? { env } : {}) })

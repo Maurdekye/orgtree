@@ -309,7 +309,7 @@ def live_identity() -> dict[str, str]:
     return _identity_from(LIVE_CONFIG)
 
 
-def profile_identity(profile_dir: str) -> dict[str, str]:
+def profile_identity(profile_dir: str, *, default_config: bool = False) -> dict[str, str]:
     """The PROFILE-DIR-AWARE identity read the multi-account system needs
     (design D4: live_identity is hardcoded to the ambient path, so a
     parameterized sign-in had nothing to verify against). With
@@ -317,8 +317,12 @@ def profile_identity(profile_dir: str) -> dict[str, str]:
     the candidate is `<dir>/.claude.json`, and an absent file reads as
     nobody-signed-in rather than a guess. ⚠ The rule-5 feasibility gate is
     what verifies a REAL redirected login actually writes here; this read
-    reports what exists and claims nothing more."""
-    return _identity_from(os.path.join(profile_dir, ".claude.json"))
+    reports what exists and claims nothing more. The imported default login
+    sets default_config=True: with no CLI selector its metadata is in the
+    parent home directory instead, even though credentials live in .claude.
+    Never fall back between these two locations."""
+    config_dir = os.path.dirname(os.path.abspath(profile_dir)) if default_config else profile_dir
+    return _identity_from(os.path.join(config_dir, ".claude.json"))
 
 
 # ------------------------------------------------------------------- key rows

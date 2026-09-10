@@ -302,7 +302,7 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   const begin = () => {
     setBusy(true)
     bridge.startProviderLogin(provider,
-      profileDir ? { profileDir, accountId } : undefined).then((s) => {
+      (profileDir || accountId) ? { profileDir, accountId } : undefined).then((s) => {
       setStatus(s)
       if (s.phase === 'error') toast([s.error === 'not-installed'
         ? `${label} is not installed` : (s.error || 'could not start sign-in')])
