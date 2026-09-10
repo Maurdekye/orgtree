@@ -4559,6 +4559,10 @@ svg.MuiSvgIcon-root {
 /* mail attachments (user spec 2026-07-31): staged chips on the composer,
    ride-along chips on pending bubbles and the inbox reading pane */
 .attach-row { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 2px; }
+/* ticket attachments (docket pane): same section margins as .docket-list,
+   without wearing that class (it means "a progress list" elsewhere) */
+.docket-attachments { margin: 0 0 12px; }
+.docket-attachments .docket-attach-add { margin-top: 4px; cursor: pointer; }
 .attach-chip {
   display: inline-flex; align-items: center; gap: 4px;
   border: 1px solid var(--line); border-radius: 9px; background: var(--input);

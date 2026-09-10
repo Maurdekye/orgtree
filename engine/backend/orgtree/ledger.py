@@ -9727,6 +9727,7 @@ class Org:
     # holds it — the badge must open onto a visible row (Astra 2026-09-05).
     WORK_ACTIVE_MAX: Final = 200
     WORK_EVIDENCE_MAX: Final = 50
+    WORK_ATTACHMENTS_MAX: Final = 20         # files attached TO the item
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
     # the attention reason, which now has to hold requested-against-delivered,
@@ -10525,6 +10526,9 @@ class Org:
                 "working_on_next", "docket_at", "last_updater",
                 "manual_attention", "acceptance", "evidence",
                 "accepted")},
+            # files attached TO the item (user feature 2026-09-10) — records
+            # only; the bytes are served by the attachments GET route
+            "attachments": list(it.get("attachments") or []),
             # ⚠ DERIVED ON READ FOR OLDER ITEMS, never written back. Deriving
             # in place would stamp a "state changed" time onto items during an
             # ordinary read, which is a durable claim made by a viewer.
@@ -11738,6 +11742,46 @@ class Org:
                    "ref": r, **({"note": str(note).strip()[:500]} if note else {})})
         self._work_hist(it, actor, "evidence", {"kind": kind})
         return {"evidence": len(ev), "rev": it["rev"]}
+
+    def work_attach(self, actor: str, wid: str, name: str, nbytes: int,
+                    stored: str) -> dict[str, Any]:
+        """Register a file ATTACHED TO the item itself (user feature
+        2026-09-10: images and files on tickets) — distinct from a reply
+        attachment, which is mail to the assignee. The bytes are stored by
+        the API layer outside the document; this records the durable fact.
+        Same standing as evidence: anyone who can read the item may add."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        atts = it.setdefault("attachments", [])
+        if len(atts) >= self.WORK_ATTACHMENTS_MAX:
+            raise LedgerError(
+                f"this item already holds {len(atts)} attachments (cap "
+                f"{self.WORK_ATTACHMENTS_MAX}); nothing is replaced — remove "
+                f"one first")
+        n = int(it.get("attachment_seq") or 0) + 1
+        it["attachment_seq"] = n
+        rec = {"id": f"a{n}", "at": now(), "by": self._work_actor(actor),
+               "name": str(name)[:160], "bytes": int(nbytes),
+               "path": str(stored)}
+        atts.append(rec)
+        self._work_hist(it, actor, "attach", {"name": rec["name"]})
+        return dict(rec)
+
+    def work_detach(self, actor: str, wid: str, aid: str) -> dict[str, Any]:
+        """Remove one attachment record by id and return it — the API layer
+        deletes the stored bytes. Permanent; there is no undelete."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        atts = it.get("attachments") or []
+        for i, a in enumerate(atts):
+            if str(a.get("id")) == str(aid):
+                removed = atts.pop(i)
+                self._work_hist(it, actor, "detach",
+                                {"name": str(removed.get("name") or "")})
+                return dict(removed)
+        raise LedgerError(f"no attachment {aid!r} on this item")
 
     def work_claim(self, actor: str, wid: str, stage: str,
                    ref: str | None = None, note: str | None = None

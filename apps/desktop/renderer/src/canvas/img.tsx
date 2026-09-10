@@ -87,7 +87,8 @@ export function ImgCardCaption({ name, bytes, href, note }: {
  *  lightbox), a caption with the name + size, a download link, and — on the
  *  composer's staged copies — the remove ✕. Non-images keep their existing
  *  chips at every call site; this component is only ever handed an image. */
-export function AttachThumb({ href, name, meta, note, dim, onRemove }: {
+export function AttachThumb({ href, name, meta, note, dim, onRemove,
+  removeTitle }: {
   href: string
   name: string
   /** pre-formatted size/detail suffix (call sites hold bytes OR a size string) */
@@ -95,6 +96,9 @@ export function AttachThumb({ href, name, meta, note, dim, onRemove }: {
   note?: string
   dim?: boolean
   onRemove?: () => void
+  /** what the ✕ actually does here — the composer default says "remove from
+   *  this message", which is wrong for a surface where removal is permanent */
+  removeTitle?: string
 }) {
   return (
     <span className={'attach-thumbwrap' + (dim ? ' dim' : '')}>
@@ -108,7 +112,7 @@ export function AttachThumb({ href, name, meta, note, dim, onRemove }: {
           onClick={(e) => e.stopPropagation()}>
           <DownloadIcon fontSize="inherit" /></a>
         {onRemove && (
-          <button className="chip-x" title="remove from this message"
+          <button className="chip-x" title={removeTitle ?? 'remove from this message'}
             onClick={onRemove}><CloseIcon fontSize="inherit" /></button>)}
       </span>
       {note && <span className="fc-note">{note}</span>}

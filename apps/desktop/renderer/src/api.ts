@@ -21,6 +21,7 @@ import type {
   AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
   WorkItemsPayload, WorkItemPayload, WorkItemReplyResult, DismissAttentionResult,
+  WorkItemAttachment,
 } from './types'
 
 // Desktop uses the private engine origin; public token routes are excluded.
@@ -304,6 +305,20 @@ export const replyWorkItem = (slug: string, id: string, body: string, to?: strin
     body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}),
       ...(attachments?.length ? { attachments } : {}) }),
   })
+// ---- ticket attachments (user feature 2026-09-10): files/images ON the
+// item itself, not mail to the assignee. Raw-body upload like uploadFile.
+export const uploadWorkItemAttachment = (slug: string, id: string, file: File):
+  Promise<{ attachment: WorkItemAttachment }> =>
+  req(`/api/orgs/${slug}/work-items/${id}/attachments?name=${encodeURIComponent(file.name)}`,
+    { method: 'POST', body: file }, SLOW_TIMEOUT_MS)
+// direct <img>/<a href> target — BASE-aware like fileUrl
+export const workItemAttachmentUrl = (slug: string, id: string, aid: string): string =>
+  u(`/api/orgs/${slug}/work-items/${id}/attachments/${encodeURIComponent(aid)}`)
+// ⚠ permanent: the record and the stored bytes both go; there is no undelete
+export const deleteWorkItemAttachment = (slug: string, id: string, aid: string):
+  Promise<{ removed: string }> =>
+  req(`/api/orgs/${slug}/work-items/${id}/attachments/${encodeURIComponent(aid)}`,
+    { method: 'DELETE' })
 export const dismissWorkItemAttention = (slug: string, id: string, setRev: number):
   Promise<DismissAttentionResult> =>
   req(`/api/orgs/${slug}/work-items/${id}/dismiss-attention`, {

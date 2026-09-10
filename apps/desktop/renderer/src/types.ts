@@ -2003,6 +2003,18 @@ export interface WorkDismissal {
  *  actually renders or mutates are typed strictly; delivery/evidence/
  *  acceptance/dependencies/history ride along unread (spec: "preserve useful
  *  backend delivery/evidence metadata without adding crowded UI"). */
+/** one file attached TO a work item — `name` is the stored, de-duplicated
+ *  filename (what you see listed is exactly what is stored) */
+export interface WorkItemAttachment {
+  id: string
+  at: string
+  by: WorkActor | string
+  name: string
+  bytes: number
+  /** storage-internal relative path; the UI addresses bytes by `id` */
+  path?: string
+}
+
 export interface WorkItem {
   /** THE ONLY IDENTIFIER (user 2026-09-05: "uniquely and solely identifiable
    *  by their readable slugs, no more ids of any sort"). Derived from the
@@ -2111,6 +2123,11 @@ export interface WorkItem {
   parent: string | null
   parent_visible?: boolean | null
   evidence: { at: string; by: string; kind: string; ref?: string; note?: string }[]
+  /** files/images attached TO the item itself (user feature 2026-09-10) —
+   *  distinct from reply attachments, which are mail. The bytes are served
+   *  by GET /work-items/{wid}/attachments/{id}. Optional on the wire: an
+   *  older backend does not send the field. */
+  attachments?: WorkItemAttachment[]
   delivery: Record<string, unknown> | null
   accepted: { at: string; by: string; note?: string } | null
   superseded_by: string | null

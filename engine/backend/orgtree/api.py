@@ -5266,11 +5266,145 @@ def work_item_delete(slug: str, wid: str, note: str = "") -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(404, str(e))
         try:
+            item_slug = str(org._work_find(wid)[0]["slug"])
             r = org.work_delete(USER, wid, note)
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
+    # the deleted record's stored attachment bytes go with it — the record
+    # that named them no longer exists anywhere (delete erases the archive
+    # too), so keeping the files would be an unlisted orphan pile
+    adir = _work_attach_dir(slug, item_slug)
+    if os.path.isdir(adir):
+        shutil.rmtree(adir, ignore_errors=True)
     return r
+
+
+# ---------------------------- ticket attachments (user feature 2026-09-10)
+# Files and images attached TO a work item itself — distinct from a reply
+# attachment, which is mail to the assignee. The records live on the item
+# (ledger work_attach/work_detach, listed on every read); the bytes live
+# under DATA_ROOT/work-attachments/<org>/<item>/ and are served by the GET
+# route below, so the docket pane renders images inline (AttachThumb) and
+# offers plain downloads for everything else.
+_WORK_ATTACH_DIRNAME = "work-attachments"
+
+
+def _work_attach_dir(slug: str, item_slug: str) -> str:
+    return os.path.join(store.DATA_ROOT, _WORK_ATTACH_DIRNAME,
+                        _no_nul(slug), _no_nul(item_slug))
+
+
+@app.post("/api/orgs/{slug}/work-items/{wid}/attachments")
+async def work_item_attach(slug: str, wid: str, request: Request,
+                           name: str = "") -> dict[str, Any]:
+    """Attach one file to the item: raw request body, same contract and caps
+    as node_upload (no multipart dependency). The stored name is the
+    sanitized, de-duplicated one the record carries — what you see listed is
+    exactly what is stored."""
+    data = await request.body()
+    if not data:
+        raise HTTPException(422, "empty upload")
+    if len(data) > _UPLOAD_MAX:
+        raise HTTPException(413, f"file exceeds the {_UPLOAD_MAX // 1048576} "
+                                 f"MB upload cap")
+    safe = re.sub(r"[^\w .()+\-]", "_",
+                  os.path.basename(name or "upload.bin")).strip(" .") or "upload.bin"
+    stem, ext = os.path.splitext(safe)
+    stem, ext = (stem[:120] or "upload"), ext[:20]
+    with store.DOC_LOCK:
+        try:
+            org = store.load_org(slug)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        try:
+            _work_identity_ready(org, slug)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        try:
+            it, _ = org._work_find(wid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        adir = _work_attach_dir(slug, str(it["slug"]))
+        os.makedirs(adir, exist_ok=True)
+        final, i = stem + ext, 2
+        while os.path.exists(os.path.join(adir, final)):
+            final, i = f"{stem}-{i}{ext}", i + 1
+        try:
+            with open(os.path.join(adir, final), "wb") as f:
+                f.write(data)
+        except OSError as e:
+            raise HTTPException(422, f"could not store the attachment: {e}")
+        try:
+            rec = org.work_attach(USER, wid, final, len(data), final)
+            store.save_org(org)
+        except LedgerError as e:
+            # the record was refused, so the bytes must not linger unlisted
+            try:
+                os.unlink(os.path.join(adir, final))
+            except OSError:
+                pass
+            raise HTTPException(422, str(e))
+    return {"attachment": rec}
+
+
+@app.get("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}")
+def work_item_attachment_file(slug: str, wid: str, aid: str) -> FileResponse:
+    """Raw download/view of one attachment — resolved by RECORD id, never by
+    a caller-supplied path, so the only files reachable are ones the item
+    actually lists."""
+    try:
+        org = store.load_org(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    _work_identity_guard(org)
+    try:
+        it, _ = org._work_find(wid)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    rec = next((a for a in (it.get("attachments") or [])
+                if str(a.get("id")) == aid), None)
+    if rec is None:
+        raise HTTPException(404, f"no attachment {aid!r} on this item")
+    base = os.path.realpath(_work_attach_dir(slug, str(it["slug"])))
+    full = os.path.realpath(os.path.join(
+        base, _no_nul(str(rec.get("path") or "")).lstrip("/\\")))
+    if not full.startswith(base + os.sep):
+        raise HTTPException(422, "attachment path escapes its storage")
+    if not os.path.isfile(full):
+        raise HTTPException(404, "the stored file is missing on disk")
+    return FileResponse(full, filename=str(rec.get("name")
+                                           or os.path.basename(full)))
+
+
+@app.delete("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}")
+def work_item_detach(slug: str, wid: str, aid: str) -> dict[str, Any]:
+    """Remove one attachment permanently: the record via the ledger, then
+    the stored bytes. There is no undelete."""
+    with store.DOC_LOCK:
+        try:
+            org = store.load_org(slug)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        try:
+            _work_identity_ready(org, slug)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        try:
+            it, _ = org._work_find(wid)
+            removed = org.work_detach(USER, wid, aid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        store.save_org(org)
+        base = os.path.realpath(_work_attach_dir(slug, str(it["slug"])))
+        full = os.path.realpath(os.path.join(
+            base, str(removed.get("path") or "")))
+        if full.startswith(base + os.sep) and os.path.isfile(full):
+            try:
+                os.unlink(full)
+            except OSError:
+                pass
+    return {"removed": aid}
 
 
 def _row_out(row: Mapping[str, Any], *, public: bool) -> dict[str, Any]:

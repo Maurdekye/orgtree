@@ -30,9 +30,11 @@ import type {
   AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem,
 } from '../types'
 import {
-  dismissWorkItemAttention, getWorkItems, replyWorkItem,
+  deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems,
+  replyWorkItem, uploadWorkItemAttachment, workItemAttachmentUrl,
 } from '../api'
-import { CloseIcon, DocketIcon } from '../icons'
+import { CloseIcon, DocketIcon, DownloadIcon } from '../icons'
+import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { closeIfCentred, PinFrame } from './modalpin'
@@ -968,7 +970,8 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                           asksById={asksById} onDismiss={onDismiss}
                           close={navClose} onFocusAgent={onFocusAgent} facts={facts}
                           refIndex={refIndex} onGoToItem={goToItem}
-                          refWorld={refWorld} onOpenRef={openRef} />
+                          refWorld={refWorld} onOpenRef={openRef}
+                          refresh={() => setBump((n) => n + 1)} />
                       : missedJump
                         ? <div className="pad mailer-none docket-nojump">
                             <b>{missedJump}</b> is not an item in this org, or
@@ -1171,7 +1174,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                       close={() => setSelId(null)} onFocusAgent={onFocusAgent}
                       facts={facts} refIndex={refIndex}
                       onGoToItem={(id) => { if (byName.has(id)) setSelId(id) }}
-                      refWorld={refWorld} onOpenRef={openRef} />
+                      refWorld={refWorld} onOpenRef={openRef}
+                      refresh={() => onChanged?.()} />
                   : <div className="dim pad mailer-none">select an item to view it</div>}
               </div>
             </div>
@@ -1428,8 +1432,76 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
 }
 
 
+/** the ATTACHMENTS section of the pane (user feature 2026-09-10): files and
+ *  images ON the ticket itself. Images reuse the chat's own AttachThumb
+ *  (bounded thumbnail, lightbox on click, download); everything else is the
+ *  established attach-chip download link. Adding uses the same raw-body
+ *  upload contract as the chat composer; removal is PERMANENT (record and
+ *  bytes both), and the ✕ says so. */
+function DocketAttachments({ slug, item, toast, refresh }: {
+  slug: string
+  item: WorkItem
+  toast: ToastFn
+  refresh: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const atts = item.attachments ?? []
+  const add = (file: File) => {
+    setBusy(true)
+    uploadWorkItemAttachment(slug, item.slug, file)
+      .then(() => refresh())
+      .catch((e: Error) => toast([`attach ${file.name}: ${e.message}`]))
+      .finally(() => setBusy(false))
+  }
+  const remove = (aid: string, name: string) => {
+    deleteWorkItemAttachment(slug, item.slug, aid)
+      .then(() => { toast([`removed ${name}`]); refresh() })
+      .catch((e: Error) => toast([`remove ${name}: ${e.message}`]))
+  }
+  return (
+    // NOT `.docket-list`: that class means "one of the two progress lists"
+    // to tests and styles alike (§6 counts exactly two); this section keeps
+    // the same margins via its own rule
+    <div className="docket-attachments">
+      <div className="docket-list-heading dim">ATTACHMENTS</div>
+      {atts.length > 0 && (
+        <div className="attach-row">
+          {atts.map((a) => {
+            const href = workItemAttachmentUrl(slug, item.slug, a.id)
+            return isImg(a.name)
+              ? <AttachThumb key={a.id} href={href} name={a.name}
+                  meta={fmtBytes(a.bytes)}
+                  removeTitle="remove from this item — permanent"
+                  onRemove={() => remove(a.id, a.name)} />
+              : <a key={a.id} className="attach-chip" href={href}
+                  download={a.name} title="download">
+                  <DownloadIcon fontSize="inherit" /> {a.name}
+                  <span className="dim"> {fmtBytes(a.bytes)}</span>
+                  <button className="chip-x" title="remove from this item — permanent"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation()
+                      remove(a.id, a.name) }}>
+                    <CloseIcon fontSize="inherit" /></button>
+                </a>
+          })}
+        </div>
+      )}
+      <button type="button" className="badge docket-attach-add" disabled={busy}
+        title="attach images or files to this item"
+        onClick={() => fileRef.current?.click()}>
+        {busy ? 'attaching…' : 'Attach files…'}</button>
+      <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
+        aria-label="attach files to this item"
+        onChange={(e) => {
+          [...(e.target.files ?? [])].forEach(add)
+          e.target.value = ''
+        }} />
+    </div>
+  )
+}
+
 function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgent,
-  facts, refIndex, onGoToItem, refWorld, onOpenRef }: {
+  facts, refIndex, onGoToItem, refWorld, onOpenRef, refresh }: {
   slug: string
   item: WorkItem
   toast: ToastFn
@@ -1442,6 +1514,9 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
   onGoToItem?: (id: string) => void
   refWorld: RefWorld
   onOpenRef?: (r: ResolvedRef) => void
+  /** immediate list refetch after an attachment mutation — the 5 s poll
+   *  alone would leave the pane showing the pre-mutation copy */
+  refresh: () => void
 }) {
   const attention = item.effective_attention
   const label = attention ? 'Needs attention' : statusLabel(item.status)
@@ -1591,6 +1666,8 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         mark="next" refIndex={refIndex} onGoToItem={onGoToItem}
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
+      <DocketAttachments slug={slug} item={item} toast={toast}
+        refresh={refresh} />
       {manualAttn && (
         <div className="docket-attention-box">
           <div className="docket-question-head">
