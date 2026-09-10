@@ -8,6 +8,7 @@ independently of how much older history this particular viewer requested.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import sqlite3
@@ -68,72 +69,94 @@ def _stamp(value):
 
 def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int], *,
            key=None, view_source: str | None = None):
-    """The human projections for the selected prompt occurrences.
+    """Match only the displayed prompt occurrences, using the nearest timestamp.
 
-    With a `view_source`, the sidecar's NEW lines are first captured into
-    the durable index (bounded: bytes past the committed cursor only) and
-    matching runs against that index per digest — no full-sidecar scan on
-    display, and a sidecar that has since disappeared still projects
-    (coordinator scope 2026-09-10 17:28). Without one, the legacy
-    newest-first file scan is retained. Both share the rule the scan
-    established: sidecars are written BEFORE provider echoes, so a later
-    queued copy of identical text must not replace an older occurrence."""
+    Existing sidecars are searched backwards just far enough to cover this
+    window. Whole-file import belongs to the bounded background capture.
+    Provider timestamps may precede our write clock; both projection matchers
+    allow the same symmetric five-minute tolerance.
+    """
     from . import transcript_records
     key = key or path
-    needed: dict[str, list[tuple[float | None, int]]] = {}
-    stamps = [_stamp(rec.get('timestamp')) for _, _, rec in records]
-    earliest = min((s for s in stamps if s is not None), default=None)
-    for offset, _, rec in reversed(records):
+    needed = []
+    for offset, _, rec in records:
         prompt = _prompt(rec)
         if prompt is not None:
-            digest = hashlib.sha256(prompt.encode()).hexdigest()
-            needed.setdefault(digest, []).append((_stamp(rec.get('timestamp')), offset))
-    found: dict[str, list[dict]] = {}
+            needed.append((hashlib.sha256(prompt.encode()).hexdigest(),
+                           _stamp(rec.get('timestamp')), offset))
     if not needed:
-        return found
+        return {}
+    candidates = {}
+    def add(row):
+        if isinstance(row, dict) and isinstance(row.get('visible'), str):
+            digest = row.get('sha256')
+            if any(digest == item[0] for item in needed):
+                # Same occurrence rewritten in a sidecar: last file row wins.
+                at = str(row.get('at') or '')
+                identity = at or json.dumps(row, sort_keys=True)
+                candidates.setdefault(digest, {}).setdefault(identity, row)
 
-    def match_row(row: dict) -> bool:
+    times = [stamp for _, stamp, _ in needed if stamp is not None]
+    earliest = min(times) if times else None
+    lines = reverse_lines(path, stats) if Path(path).is_file() else ()
+    for _, line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
         stamp = _stamp(row.get('at'))
-        events = needed.get(row.get("sha256"), [])
-        match = next((i for i, (event, _) in enumerate(events)
-                      if event is None or stamp is None or 0 <= event - stamp <= 300), None)
-        if match is None:
-            return False
-        _, offset = events.pop(match)
-        transcript_records.remember_view(key, offset, row)
-        found.setdefault(row["sha256"], []).append(row)
-        return True
-
+        if earliest is not None and stamp is not None and stamp < earliest - 300:
+            break
+        add(row)
+        # Once all events have candidates and this descending scan is older
+        # than every candidate's lower distance bound, no unseen older row
+        # can be closer. Repeated identical text still gets separate rows.
+        bounds = []
+        for digest, event, _ in needed:
+            rows = list(candidates.get(digest, {}).values())
+            distances = [abs(event - at) for r in rows
+                         if event is not None and (at := _stamp(r.get('at'))) is not None]
+            if not distances or min(distances) > 300:
+                break
+            bounds.append(event - min(distances))
+        if len(bounds) == len(needed) and stamp is not None and stamp <= min(bounds):
+            break
     if view_source is not None:
-        if Path(path).is_file():
-            transcript_records.ingest_prompt_views(view_source, path, stats)
-        for digest in list(needed):
-            # oldest-first from the index; matched newest-first, exactly as
-            # the file scan (which read the file backwards) always did
-            for row in reversed(transcript_records.prompt_views_for(view_source, digest)):
-                if not needed.get(digest):
-                    break
-                match_row(row)
-    else:
-        lines = reverse_lines(path, stats) if Path(path).is_file() else ()
-        for _, line in lines:
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, dict) or not isinstance(row.get("visible"), str):
-                continue
-            stamp = _stamp(row.get('at'))
-            if earliest is not None and stamp is not None and stamp < earliest - 300:
-                break
-            if match_row(row) and not any(needed.values()):
-                break
-    for digest, events in needed.items():
-        for _, offset in events:
-            retained = transcript_records.retained_view(key, offset)
-            if retained is not None:
-                found.setdefault(digest, []).append(retained)
-    return {key: sorted(rows, key=lambda row: str(row.get('at') or '')) for key, rows in found.items()}
+        for digest in {item[0] for item in needed}:
+            for row in reversed(transcript_records.prompt_views_for(view_source, digest,
+                    earliest=min(times)-300 if times else None,
+                    latest=max(times)+300 if times else None)):
+                add(row)
+    # Assign the closest pairs first. Otherwise an earlier unmatched event
+    # can steal a later event's exact match merely because it was visited first.
+    pairs = []
+    for digest, event, offset in needed:
+        for identity, row in candidates.get(digest, {}).items():
+            at = _stamp(row.get('at'))
+            distance = abs(event-at) if event is not None and at is not None else 0
+            if distance <= 300:
+                pairs.append((distance, at is not None and event is not None and at > event,
+                              offset, digest, identity, row))
+    assigned, used = {}, set()
+    for _, _, offset, digest, identity, row in sorted(pairs, key=lambda x: x[:5]):
+        if offset not in assigned and (digest, identity) not in used:
+            assigned[offset] = row
+            used.add((digest, identity))
+    found = {}
+    for digest, _, offset in needed:
+        row = assigned.get(offset)
+        if row is not None:
+            transcript_records.remember_view(key, offset, row)
+            if view_source is not None:
+                transcript_records.append_prompt_view(view_source, row)
+        else:
+            row = transcript_records.retained_view(key, offset)
+        if row is not None:
+            found.setdefault(digest, []).append(row)
+    return {digest: sorted(rows, key=lambda row: str(row.get('at') or ''))
+            for digest, rows in found.items()}
 
 
 
@@ -228,7 +251,7 @@ def read_page(org, nid, want, before):
     stats = {'bytes_read': 0, 'records_parsed': 0}
     node = org.node(nid)
     history = imported_history_path(org, nid)
-    path = history if phase else sup.transcript_path(node['session_id'], sup._transcript_root(org, nid))
+    path = history if phase else sup.transcript_path_for_node(org, nid)
     if not path:
         with transcript_records.database() as conn:
             retained = conn.execute('SELECT path FROM transcript_sources WHERE source=?',
@@ -312,7 +335,7 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                               before=before)
     version_before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
-    with sqlite3.connect(database, timeout=10) as conn:
+    with contextlib.closing(sqlite3.connect(database, timeout=10)) as conn, conn:
         if str(database) not in _index_wal:
             # WAL so a projection being cached never blocks another desk's
             # cache READ of a different conversation (review F6); the pragma
@@ -360,7 +383,7 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
     from .desktop_import import imported_history_path
     want = max(1, min(int(want), 1_000_000))
     node = org.node(nid)
-    path = sup.transcript_path(node["session_id"], sup._transcript_root(org, nid))
+    path = sup.transcript_path_for_node(org, nid)
     if not path:
         from . import transcript_records
         with transcript_records.database() as conn:

@@ -69,8 +69,10 @@ export interface PendingGhost {
   mailId?: string
   text: string
   seen: number
+  /** Same-text sends already queued when this send was made. */
+  queuedSeen: number
   /** the newest transcript `seq` the payload showed when this ghost was made.
-   *  It is what makes the ghost's retirement REACHABLE: see `scrolledPast`.
+   *  It is what makes the ghost's retirement REACHABLE: see `legacyGhostVisible`.
    *  UNKNOWN_SEQ when no payload had loaded yet — see addPending. */
   seq0: number
   /** when this ghost was made (Date.now). The floor under the idle rule —
@@ -115,33 +117,13 @@ const UNKNOWN_SEQ = Number.MAX_SAFE_INTEGER
 /** ghost identity mint — see PendingGhost.id */
 let GHOST_ID = 0
 
-/** Has the fetched window moved entirely PAST where this ghost's message would
- *  sit?
- *
- *  The count baseline can otherwise become unreachable, which is the fourth
- *  costume of this bug (D-53 lead 3 → D-55 flagged it → D-57 ④ raised
- *  COPIES_WINDOW to 200 against a measured maximum burial of 138 rows). The
- *  raise did nothing, because `read_chat` only ever returns CHAT_WINDOW = 120
- *  rows: the newest-200 slice IS the whole payload, so the effective window
- *  stayed at 120 — under the measured maximum. Bury the message deeper than
- *  that and the server can never show a copy again; the ghost sits at the
- *  bottom of the desk for the rest of the session, presenting a message that
- *  was answered ten minutes ago as though it were still queued.
- *
- *  The test is evidence, not a guess: if the OLDEST row now in the window is
- *  newer than the NEWEST row that existed when the message was sent, the
- *  message cannot be in the window — it is behind it. The only other place it
- *  could be is the mailbox, and `serverCopies` counts that, so a message still
- *  waiting is still covered. (It also cannot fire early: the window has to
- *  turn over completely — 120 rows — and the CLI's echo of the message is the
- *  FIRST of those rows, so the transcript has long since taken over.) */
-function scrolledPast(c: ChatPayload, g: PendingGhost): boolean {
-  if (c.windowed) return false // bounded source rows cannot prove an unseen send was displayed
-  const oldest = c.messages[0]?.seq
-  // `seq0 + 1` is the earliest row the message could occupy, so this is the
-  // strict form: the window must start after the message's own place, not
-  // merely after the last row that preceded it.
-  return oldest != null && oldest > g.seq0 + 1
+/** Legacy responses lack a stable mail id. Require an actual replacement
+ *  after this send's baseline, including a complete pending queue. */
+function legacyGhostVisible(c: ChatPayload, g: PendingGhost): boolean {
+  if (!c.windowed) return serverCopies(c, g.text) > g.seen
+  if (g.seq0 === UNKNOWN_SEQ) return serverCopies(c, g.text) > g.seen
+  return serverCopies({ ...c, messages: c.messages.filter(row =>
+    typeof row.seq === 'number' && row.seq > g.seq0) }, g.text, true) > g.queuedSeen
 }
 
 export interface Convo {
@@ -409,10 +391,10 @@ const COPIES_NEEDLE = 200
 
 /** how many copies of `text` the server is currently showing — the mailbox and
  *  the transcript both count, since a message passes through them in order */
-function serverCopies(c: ChatPayload | null, text: string): number {
+function serverCopies(c: ChatPayload | null, text: string, entireWindow = false): number {
   if (!c) return 0
   const needle = text.slice(0, COPIES_NEEDLE)
-  return c.messages.slice(-COPIES_WINDOW)
+  return (entireWindow ? c.messages : c.messages.slice(-COPIES_WINDOW))
     .filter((m) => m.role === 'user' && m.segments === undefined && (m.text || '').includes(needle)).length
     + (c.pending_mail ?? []).filter((m) => decodeEventRow(m, BASE ? 'public' : 'operator').kind === 'legacy' && (m.body || '').includes(needle)).length
 }
@@ -510,7 +492,8 @@ export function refreshConvo(slug: string, nid: string,
     const needsProof = () => {
       const ids = serverMailIds(c)
       const oldest = c.messages[0]?.seq
-      return e.s.pending.some(g => !!g.mailId && !ids.has(g.mailId)
+      return e.s.pending.some(g => !g.failed && !g.cmd
+        && (g.mailId ? !ids.has(g.mailId) : !legacyGhostVisible(c, g))
         && typeof oldest === 'number' && g.seq0 !== UNKNOWN_SEQ && oldest > g.seq0)
     }
     while (!changedConversation && proofCursor && needsProof()) {
@@ -579,11 +562,11 @@ export function refreshConvo(slug: string, nid: string,
       // filter below and leaves only when the user dismisses it
       .filter((g) => g.failed
         || (g.mailId ? !mailIds.has(g.mailId)
-          : serverCopies(c, g.text) <= g.seen && !scrolledPast(c, g)))
+          : !legacyGhostVisible(c, g)))
       // a ghost made before the first payload has no seq baseline (see
       // addPending). This survivor's message is NOT in this payload — its
       // eventual row must come after everything the payload shows — so the
-      // payload's newest seq is a sound baseline, and scrolledPast becomes
+      // payload's newest seq is a sound baseline, and proof paging becomes
       // reachable for it from here on.
       .map((g) => g.seq0 === UNKNOWN_SEQ
         ? { ...g, seq0: c.messages.length ? (c.messages[c.messages.length - 1]?.seq ?? -1) : -1 }
@@ -704,6 +687,11 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       e.pageInFlight = false
       if (!e.subs.size || conversation !== e.s.chat.conversation_id) { patchEntry(e, { loadingOlder: false }, version); return }
       const current = e.s.chat
+      if ((page.order_epoch ?? 0) !== (current.order_epoch ?? 0)) {
+        patchEntry(e, { loadingOlder: false, paged: false }, version)
+        void refreshConvo(slug, nid, { force: true })
+        return
+      }
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       const added = page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq))
       patchEntry(e, { paged: true, loadingOlder: false,
@@ -737,6 +725,8 @@ export function addPending(slug: string, nid: string, text: string, reply?: Repl
     pending: [...e.s.pending, {
       id: ghostId,
       text, reply, attachments,
+      queuedSeen: serverCopies(e.s.chat ? { ...e.s.chat, messages: [] } : null, text)
+        + e.s.pending.filter(g => g.text === text).length,
       seen: serverCopies(e.s.chat, text)
         + e.s.pending.filter((g) => g.text === text).length,
       // −1 on a LOADED-and-empty transcript: the message will be row 0, so

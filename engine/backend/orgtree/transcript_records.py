@@ -7,6 +7,7 @@ deletes an earlier incarnation. Each ingestion position commits with its rows.
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import hashlib
 import json
 import os
@@ -341,17 +342,6 @@ def tail(source: str, count: int, *, before=None):
     return list(reversed(rows)), bool(meta and meta[0]) or total > len(rows)
 
 
-def append(source: str, records: list[dict]):
-    """Commit app-owned records directly; no provider file is required."""
-    with database() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        last = conn.execute("SELECT COALESCE(MAX(position),-1) FROM transcript_records WHERE source=? AND epoch=0",
-                            (source,)).fetchone()[0]
-        conn.executemany("INSERT INTO transcript_records VALUES (?,0,?,?)",
-                         ((source, last + i + 1, json.dumps(rec, ensure_ascii=False))
-                          for i, rec in enumerate(records)))
-
-
 def _journal_identity(sid, incarnation) -> str | None:
     return (json.dumps([str(incarnation), str(sid)])
             if incarnation else None)
@@ -451,7 +441,7 @@ def views_source(slug, sid, incarnation=None) -> str:
             has_new = conn.execute("SELECT 1 FROM transcript_view_sources WHERE source=?",
                                    (name,)).fetchone()
             has_legacy = None if has_new else conn.execute(
-                "SELECT 1 FROM transcript_view_sources WHERE source=?",
+                "SELECT 1 FROM transcript_view_rows WHERE source=? LIMIT 1",
                 (legacy,)).fetchone()
         if has_legacy:
             with database() as conn:
@@ -467,6 +457,16 @@ def views_source(slug, sid, incarnation=None) -> str:
     return name
 
 
+def _view_time_key(value):
+    try:
+        stamp = dt.datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=dt.timezone.utc)
+        return stamp.astimezone(dt.timezone.utc).isoformat(timespec='microseconds')
+    except (ValueError, TypeError):
+        return ''
+
+
 def _insert_view_row(conn, source, row) -> None:
     if not isinstance(row, dict) or not isinstance(row.get("visible"), str):
         return
@@ -476,7 +476,7 @@ def _insert_view_row(conn, source, row) -> None:
     body = json.dumps(row, ensure_ascii=False, sort_keys=True)
     key = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     conn.execute("INSERT OR IGNORE INTO transcript_view_rows VALUES (?,?,?,?,?)",
-                 (source, digest, str(row.get("at") or ""), key,
+                 (source, digest, _view_time_key(row.get("at")), key,
                   json.dumps(row, ensure_ascii=False)))
 
 
@@ -490,10 +490,10 @@ def append_prompt_view(source: str, row: dict) -> None:
         _insert_view_row(conn, source, row)
 
 
-def ingest_prompt_views(source: str, path: str, stats: dict | None = None) -> None:
+def ingest_prompt_views(source: str, path: str, stats: dict | None = None, *, max_records=256) -> None:
     """Bounded, idempotent sidecar capture: new complete lines past the
     committed upper byte only; a rewritten or shrunk sidecar (boundary
-    anchor mismatch) is re-read whole, with the unique key deduplicating
+    anchor mismatch) restarts capture in bounded chunks, with the unique key deduplicating
     and later insertions winning per occurrence, so corrections land while
     rows pruned from the file stay durably indexed. An unchanged sidecar
     takes no write lock (review F6)."""
@@ -528,7 +528,7 @@ def ingest_prompt_views(source: str, path: str, stats: dict | None = None) -> No
                 upper = 0
             if size > upper:
                 stream.seek(upper)
-                while True:
+                for _ in range(max_records):
                     line = stream.readline()
                     if stats is not None:
                         stats["bytes_read"] += len(line)
@@ -545,15 +545,19 @@ def ingest_prompt_views(source: str, path: str, stats: dict | None = None) -> No
                      (source, str(path), upper, anchor))
 
 
-def prompt_views_for(source: str, digest: str) -> list[dict]:
+def prompt_views_for(source: str, digest: str, *, earliest=None, latest=None) -> list[dict]:
     """Every indexed view for one prompt digest, oldest first; where a
     correction re-imported the same occurrence, the LATEST insertion wins."""
+    clause, params = '', [source, digest]
+    if earliest is not None and latest is not None:
+        clause = " AND (at='' OR (at>=? AND at<=?))"
+        params += [dt.datetime.fromtimestamp(t, dt.timezone.utc).isoformat(timespec='microseconds')
+                   for t in (earliest, latest)]
     with database() as conn:
         rows = conn.execute(
-            "SELECT body FROM transcript_view_rows WHERE source=? AND digest=? AND rowid IN ("
-            " SELECT MAX(rowid) FROM transcript_view_rows WHERE source=? AND digest=? GROUP BY at)"
-            " ORDER BY at",
-            (source, digest, source, digest)).fetchall()
+            "SELECT body FROM transcript_view_rows WHERE rowid IN ("
+            " SELECT MAX(rowid) FROM transcript_view_rows WHERE source=? AND digest=?" + clause +
+            " GROUP BY CASE WHEN at='' THEN key ELSE at END) ORDER BY at", params).fetchall()
     return [json.loads(r[0]) for r in rows]
 
 
@@ -632,7 +636,7 @@ def _drain_spool() -> bool:
                           if head.get("slug") and head.get("sid")
                           else head["source"])
                 try:
-                    _commit_owned(target, str(head.get("path") or ""),
+                    committed = _commit_owned(target, str(head.get("path") or ""),
                                   [(e["id"], e["rec"]) for e in batch],
                                   identity=_journal_identity(head.get("sid"),
                                                              head.get("scope")))
@@ -640,6 +644,17 @@ def _drain_spool() -> bool:
                     # SQLite is still unavailable: keep the whole spool —
                     # ids already committed are skipped on the next replay
                     return False
+                mirror = str(head.get('path') or '')
+                if committed and mirror:
+                    try:
+                        Path(mirror).parent.mkdir(parents=True, exist_ok=True)
+                        with open(mirror, 'a', encoding='utf-8', newline='\n') as output:
+                            for rec in committed:
+                                output.write(json.dumps(rec, ensure_ascii=False) + '\n')
+                    except OSError:
+                        # The database is canonical. A failed compatibility
+                        # mirror never undoes a durable recovered record.
+                        pass
                 i = j
             try:
                 path.unlink()
@@ -650,7 +665,7 @@ def _drain_spool() -> bool:
         _spool_state.draining = False
 
 
-def _commit_owned(source, path, entries, identity=None) -> None:
+def _commit_owned(source, path, entries, identity=None) -> list[dict]:
     """One owned batch into the database: lazy legacy import first, then the
     records at continuing positions. `entries` are (record_id, rec) pairs;
     an id already marked in transcript_spooled is skipped (idempotent
@@ -669,6 +684,7 @@ def _commit_owned(source, path, entries, identity=None) -> None:
         meta = conn.execute("SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?", (source,)).fetchone()
         epoch, lower, position = meta or (0, 0, 0)
         wrote = False
+        committed = []
         for record_id, rec in entries:
             if conn.execute("SELECT 1 FROM transcript_spooled WHERE source=? AND record_id=?",
                             (source, record_id)).fetchone():
@@ -679,13 +695,15 @@ def _commit_owned(source, path, entries, identity=None) -> None:
             conn.execute("INSERT INTO transcript_spooled VALUES (?,?)", (source, record_id))
             position += len((body + "\n").encode("utf-8"))
             wrote = True
+            committed.append(rec)
         if wrote or meta is None:
             conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
                          (source, path, epoch, "", lower, position))
         conn.execute("INSERT OR IGNORE INTO transcript_owned VALUES (?)", (source,))
+    return committed
 
 
-def append_owned(slug, sid, path, recs, incarnation=None):
+def append_owned(slug, sid, path, recs, incarnation=None) -> bool:
     """Database commit precedes the compatibility JSONL mirror.
 
     Previously existing JSONL history is imported lazily. After this first
@@ -698,7 +716,8 @@ def append_owned(slug, sid, path, recs, incarnation=None):
     cannot be written either (disk gone), the OSError SURFACES to the
     caller with nothing half-committed — a storage failure is reported,
     never swallowed into a silent gap. The caller's JSONL mirror write
-    still happens after a successful return, whichever path was taken.
+    happens only when True is returned (committed). False means spooled;
+    replay appends its compatibility mirror after the database commit.
 
     `incarnation` (reply_events.incarnation) is the collision-safe,
     rename-stable scope for the journal's identity — pass it whenever the
@@ -714,13 +733,14 @@ def append_owned(slug, sid, path, recs, incarnation=None):
         try:
             _commit_owned(source, str(path), entries,
                           identity=_journal_identity(sid, incarnation))
-            return
+            return True
         except sqlite3.Error:
             pass
     _spool([{"source": source, "path": str(path), "id": record_id,
              "rec": rec, "slug": str(slug), "sid": str(sid),
              **({"scope": str(incarnation)} if incarnation else {})}
             for record_id, rec in entries])
+    return False
 
 
 def _known_ranks(conn, source, rows) -> dict:

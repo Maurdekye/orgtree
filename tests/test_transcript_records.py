@@ -85,9 +85,9 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual(self.texts(), ["0", "1", "2", "3", "4", "5"])
 
     def test_application_owned_records_need_no_jsonl_file(self):
-        records.append(self.source, [{"text": "same"}, {"text": "same"}])
+        records.append_owned("org", self.source, self.path, [{"text": "same"}, {"text": "same"}])
         self.assertFalse(self.path.exists())
-        rows, more = records.tail(self.source, 8)
+        rows, more = records.tail(records.journal_source("org", self.source), 8)
         self.assertFalse(more)
         self.assertEqual(len(rows), 2)
         self.assertNotEqual(rows[0][:2], rows[1][:2])
@@ -301,7 +301,7 @@ class RecordsTests(unittest.TestCase):
         view = {"sha256": "d9", "at": "2026-09-10T12:00:00Z", "visible": "kept view"}
         sidecar.write_text(json.dumps(view) + "\n", encoding="utf8")
         legacy = records.views_source('org-a', self.source)
-        records.ingest_prompt_views(legacy, str(sidecar))
+        records.append_prompt_view(legacy, view)
         self.assertEqual(len(records.prompt_views_for(legacy, "d9")), 1,
                          'control: the legacy key holds the row')
         scoped = records.views_source('org-a', self.source, 'inc-v')
@@ -356,6 +356,38 @@ class RecordsTests(unittest.TestCase):
         got = [v["visible"] for v in records.prompt_views_for(source, "d1")]
         self.assertEqual(got, ["corrected", "second"])
 
+
+    def test_background_sidecar_capture_is_bounded_and_resumable(self):
+        sidecar = self.path
+        sidecar.write_text(''.join(json.dumps({'sha256': str(i), 'visible': str(i)})+'\n'
+                                   for i in range(700)), encoding='utf-8')
+        source = records.views_source('org', self.source)
+        records.ingest_prompt_views(source, str(sidecar))
+        with records.database() as conn:
+            count = conn.execute('SELECT COUNT(*) FROM transcript_view_rows WHERE source=?',(source,)).fetchone()[0]
+        self.assertEqual(count, 256)
+        records.ingest_prompt_views(source, str(sidecar))
+        records.ingest_prompt_views(source, str(sidecar))
+        self.assertEqual(records.prompt_views_for(source, '699')[0]['visible'], '699')
+
+    def test_first_journal_outage_replays_once_with_the_real_mirror_writer(self):
+        from orgtree import supervisor as sup
+        source = records.journal_source('spool-org', self.source)
+        with patch.object(records, '_commit_owned', side_effect=sqlite3.OperationalError('fixture outage')):
+            sup._codex_journal('spool-org', self.source, [{'text':'first'}, {'text':'second'}])
+        mirror = Path(sup.journal_store())/'projects/spool-org'/(self.source+'.jsonl')
+        self.assertFalse(mirror.exists(), 'uncommitted records cannot enter the legacy-import mirror')
+        rows, _ = records.tail(source, 8)
+        self.assertEqual([json.loads(r[2])['text'] for r in rows], ['first', 'second'])
+        self.assertEqual(len(mirror.read_text(encoding='utf-8').splitlines()), 2)
+        sup._codex_journal('spool-org', self.source, [{'text':'third'}])
+        self.assertEqual([json.loads(r[2])['text'] for r in records.tail(source,8)[0]], ['first','second','third'])
+
+    def test_untimestamped_view_occurrences_remain_distinct(self):
+        source = records.views_source('org', self.source)
+        for visible in ['one','two']:
+            records.append_prompt_view(source, {'sha256':'same', 'visible':visible})
+        self.assertEqual({r['visible'] for r in records.prompt_views_for(source,'same')}, {'one','two'})
 
 if __name__ == "__main__":
     unittest.main()

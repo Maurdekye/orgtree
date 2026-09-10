@@ -11242,7 +11242,9 @@ def _codex_journal(slug: str, sid: str, recs: list[dict[str, Any]], *,
         d = os.path.join(journal_store(), "projects", slug)
         os.makedirs(d, exist_ok=True)
         from . import transcript_records
-        transcript_records.append_owned(slug, sid, os.path.join(d, sid + ".jsonl"), recs, incarnation=incarnation)
+        committed = transcript_records.append_owned(slug, sid, os.path.join(d, sid + ".jsonl"), recs, incarnation=incarnation)
+        if not committed:
+            return  # recovery replay owns the mirror after its database commit
         with open(os.path.join(d, sid + ".jsonl"), "a",
                   encoding="utf-8", newline="\n") as f:
             for r in recs:
@@ -24962,7 +24964,14 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
     sid = str(n.get("session_id") or "")
     if not sid:
         return None
-    return transcript_path(sid, _transcript_root(org, nid))
+    from . import desktop_native
+    if desktop_native.provider_for(n) in {'claude', 'openrouter'}:
+        native = n.get('desktop_import', {}).get('native_continuity', {})
+        if native.get('status') == 'ready':
+            # A bound imported conversation is resolved from its own node.
+            # Ordinary conversations never search the entire imported fleet.
+            return desktop_native.native_session_path(org, nid)
+    return transcript_path(sid, _transcript_root(org, nid) or os.path.expanduser('~/.claude'))
 
 
 def ack_steer(slug: str, nid: str, delivery_id: str, tool_use_id: str) -> dict[str, Any]:
@@ -28257,7 +28266,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
            # panel prefers this identity comparison over a timestamp guess
            # and falls back to the timestamp only when this is absent.
            "codex_turn_id": st.get("codex_turn_id")}
-    tpath = _path or transcript_path(n["session_id"], _transcript_root(org, nid))
+    tpath = _path or transcript_path_for_node(org, nid)
     if not tpath:
         return out
     # Structured source metadata, not marker parsing, decides which parts of

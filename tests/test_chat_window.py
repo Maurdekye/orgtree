@@ -293,10 +293,8 @@ class WindowTests(unittest.TestCase):
                          'a record appended during projection appears on the next read')
 
     def test_prompt_views_survive_sidecar_loss_for_never_displayed_history(self):
-        # coordinator scope 2026-09-10 17:28: display captures the sidecar
-        # into the durable index, so prompts whose occurrences were NEVER
-        # matched on screen still project after the sidecar disappears —
-        # retained per-offset views alone cannot answer for those.
+        # Background capture preserves historical projections independently
+        # of which rows a desk has displayed. Display itself stays bounded.
         import hashlib
         raw = 'identical prompt'
         self.write([self.rec(i, raw, role='user') for i in range(30)])
@@ -308,6 +306,9 @@ class WindowTests(unittest.TestCase):
             json.dumps({'sha256': digest, 'at': self.rec(i)['timestamp'],
                         'visible': f'visible {i}'}) + '\n'
             for i in range(30)), encoding='utf-8')
+        from orgtree import transcript_records as records
+        records.ingest_prompt_views(records.views_source(self.org.d['slug'],
+            self.org.node('agent')['session_id'], records.incarnation(self.org, 'agent')), str(sidecar))
         first = self.read(2)      # displays (and retains) only the newest few
         self.assertIn('visible', first['messages'][-1]['text'])
         sidecar.unlink()

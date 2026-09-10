@@ -26,7 +26,7 @@ def capture(slug, nid, *, beginning=False, backfill=False):
     if not node.get('session_id'):
         return
     key = source_key(org, nid)
-    path = sup.transcript_path(node['session_id'], sup._transcript_root(org, nid))
+    path = sup.transcript_path_for_node(org, nid)
     if beginning and not path:
         with _lock:
             _fresh.add(key)

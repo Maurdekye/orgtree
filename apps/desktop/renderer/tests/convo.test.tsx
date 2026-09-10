@@ -699,6 +699,7 @@ convoTest('§3.6 a turn that buries the message strands no ghost, at any depth',
     // The invariant is not "always exactly one copy": a message 260 rows back
     // is legitimately off the top of the window, like any other old message.
     // It is "never two, and never a ghost that cannot die".
+    s.cursorPages = true // actual backend always offers cursor history
     const d = await desk()
     await advance(3000)
     for (const depth of [10, 138, 260]) {
@@ -733,6 +734,7 @@ convoTest('§3.6b …even when no refresh lands while the message is visible',
     // the OTHER ordering — the D-55 race: the mail is drained and echoed before
     // any refresh, so the ghost is still alive when the turn buries the row
     // past the fetched window. Then the count can never rise again.
+    s.cursorPages = true // actual backend always offers cursor history
     const d = await desk()
     await advance(3000)
     for (const depth of [138, 260]) {
@@ -747,9 +749,11 @@ convoTest('§3.6b …even when no refresh lands while the message is visible',
       for (let i = 0; i < depth; i++) s.assistantMsg(`filler ${depth} step ${i}`)
       s.endTurn()
       await advance(20000)
-      assert.equal((d.now().chat?.messages ?? [])
+      assert.equal(s.chat(CHAT_WINDOW).messages
         .some((m) => m.role === 'user' && (m.text || '').includes(token)), false,
-      `${depth}: precondition — the row really is outside the fetched window`)
+      `${depth}: precondition — a tail-only fetch cannot contain this row`)
+      assert.ok(d.frames.some(frame => frame.chat?.messages.some(m => m.role === 'user' && m.text.includes(token))),
+        `${depth}: the replacement must actually have been presented before graduation`)
       assert.equal(d.now().pending.length, 0,
         `${depth}: the ghost is stranded; nothing can ever retire it`)
     }
@@ -1354,6 +1358,35 @@ convoTest('a changed ordering epoch drops held ranks and adopts the fresh cursor
   epoch=1
   await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
   assert.equal(d.now().paged,false)
+  assert.equal(d.now().chat!.messages.length,8)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().chat!.messages.length,16)
+})
+
+convoTest('legacy send buried past a viewport keeps its replacement visible at graduation', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  for(let i=0;i<30;i++)s.assistantMsg(`prior ${i}`)
+  const d=await desk();await advance(100)
+  await inAct(()=>addPending(SL,ND,'legacy echo'))
+  const echo=s.userMsg('legacy echo')
+  for(let i=0;i<25;i++)s.assistantMsg(`burst ${i}`)
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.equal(d.now().pending.length,0)
+  assert.ok(d.now().chat!.messages.some(row=>row.seq===echo.seq))
+  assert.ok(s.requests.some(row=>row.before))
+})
+
+convoTest('page returned from a changed ordering epoch is discarded before refresh', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  let epoch=0
+  const original=s.chat.bind(s)
+  s.chat=(last)=>({...original(last),conversation_id:'same-session',order_epoch:epoch})
+  for(let i=0;i<30;i++)s.assistantMsg(`row ${i}`)
+  const d=await desk();await advance(100)
+  epoch=1
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().paged,false)
+  assert.equal(d.now().chat!.order_epoch,1)
   assert.equal(d.now().chat!.messages.length,8)
   await inAct(()=>loadOlder(SL,ND,8));await advance(100)
   assert.equal(d.now().chat!.messages.length,16)

@@ -72,7 +72,8 @@ class TranscriptLookupTests(unittest.TestCase):
             'message': {'id':'message-1','role':'assistant','content':[{'type':'text','text':'hello'}]}}])
         try:
             for _ in range(2):
-                with patch.object(supervisor, 'transcript_path', wraps=supervisor.transcript_path) as resolved:
+                with patch.object(supervisor, 'transcript_path', wraps=supervisor.transcript_path) as resolved, \
+                        patch.object(native, '_native_inventory', side_effect=AssertionError('ordinary desk scanned imported fleet')):
                     chat = supervisor.read_chat(org, 'agent', last=1, hold_back=False)
                 self.assertEqual(chat['messages'][0]['text'], 'hello')
                 self.assertEqual(resolved.call_count, 1)
