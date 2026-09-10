@@ -235,15 +235,15 @@ def main() -> int:
             # offset as the norm gear, on the mini card. It must reach the
             # card's drag/focus pipeline and fire no shortcut callback.
             values["preClick"] = page.evaluate(
-                "() => ({ starts: [...window.dragStarts], configured: [...window.configured],"
-                " opened: [...window.opened] })")
+                "() => ({ starts: [...window.dragStarts], ends: [...window.dragEnds],"
+                " configured: [...window.configured], opened: [...window.opened] })")
             rel = values["normHitControl"]["rel"]
             mini_box = page.locator("#mini .sq").nth(0).bounding_box()
             page.mouse.click(mini_box["x"] + min(rel["dx"], mini_box["width"] - 2),
                              mini_box["y"] + min(rel["dy"], mini_box["height"] - 2))
             values["postClick"] = page.evaluate(
-                "() => ({ starts: [...window.dragStarts], configured: [...window.configured],"
-                " opened: [...window.opened] })")
+                "() => ({ starts: [...window.dragStarts], ends: [...window.dragEnds],"
+                " configured: [...window.configured], opened: [...window.opened] })")
             page.reload()
             page.wait_for_selector("#normal .sq")
             page.evaluate("() => document.documentElement.style.setProperty('--invzf', '1')")
@@ -329,11 +329,19 @@ def main() -> int:
         failures.append(f"mini card still mounts hire chips/bridges: {medge!r}")
     if medge.get("chipHit") or medge.get("buttonHit"):
         failures.append(f"mini bottom edge still hit-targets a hire control: {medge!r}")
+    # BOTH halves of the click must reach the card with the SAME agent id —
+    # endNodeDrag focuses only when the up follows a matching down, and a
+    # button's stopPropagation eats the down while the up still bubbles, so
+    # pointer-down alone would not establish the focus route
     pre, post = values.get("preClick") or {}, values.get("postClick") or {}
     if len(post.get("starts", [])) <= len(pre.get("starts", [])):
-        failures.append(f"mini body click never reached the card drag/focus pipeline: {pre!r} -> {post!r}")
+        failures.append(f"mini body click's pointer-down never reached the card: {pre!r} -> {post!r}")
     elif post["starts"][-1] != "claude-agent":
-        failures.append(f"mini click routed to the wrong card: {post['starts']!r}")
+        failures.append(f"mini click's pointer-down routed to the wrong card: {post['starts']!r}")
+    if len(post.get("ends", [])) <= len(pre.get("ends", [])):
+        failures.append(f"mini body click's pointer-up never reached the card: {pre!r} -> {post!r}")
+    elif post["ends"][-1] != "claude-agent":
+        failures.append(f"mini click's pointer-up routed to the wrong card: {post['ends']!r}")
     if post.get("configured") != pre.get("configured") or post.get("opened") != pre.get("opened"):
         failures.append(f"mini click fired a shortcut callback: {pre!r} -> {post!r}")
     by_id = {row["id"]: row for row in values["normal"]}

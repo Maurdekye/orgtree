@@ -12,10 +12,13 @@ const seats = { haiku: 1, terra: 2, sol: 5, luna: .2, flash: 1 }
 const hire = { enabled: true, installed: true, reason: null }
 const opened: string[] = []
 const configured: string[] = []
-// the click→focus pipeline's first hop: a pointerdown that reaches the CARD
-// (not a shortcut button's stopPropagation) calls onDragStart — recording it
-// lets the probe prove a far-zoom click is routed to focusing, not swallowed
+// the click→focus pipeline, BOTH halves (coordinator 2026-09-10: down alone
+// does not establish focus): a pointerdown that reaches the CARD (not a
+// shortcut button's stopPropagation) calls onDragStart, and the pointerup
+// calls onDragEnd — the real endNodeDrag focuses only when the up follows a
+// matching down without movement, so the probe requires the PAIR, same id
 const dragStarts: string[] = []
+const dragEnds: string[] = []
 
 // an idle node has a COMPLETED TURN, so its age actually renders — without one
 // LastTurnAge draws nothing and the placement check would measure an empty seat
@@ -47,7 +50,8 @@ function card(n: CanvasNode, lod: 'norm' | 'mini', pinned = false,
     onLineage={noop} onOpenDoc={noop} onRecenter={noop}
     onOpenAgentGallery={noop}
     onJump={noop} onMailLink={noop}
-    onDragStart={(_e, id) => { dragStarts.push(id) }} onDragMove={noop} onDragEnd={noop}
+    onDragStart={(_e, id) => { dragStarts.push(id) }} onDragMove={noop}
+    onDragEnd={(_e, id) => { dragEnds.push(id) }}
     onDragCancel={noop} onPin={() => { opened.push(n.id) }} pinned={pinned} />
 }
 
@@ -71,3 +75,4 @@ createRoot(document.getElementById('root')!).render(<>
 ;(window as unknown as { opened: string[]; configured: string[] }).opened = opened
 ;(window as unknown as { configured: string[] }).configured = configured
 ;(window as unknown as { dragStarts: string[] }).dragStarts = dragStarts
+;(window as unknown as { dragEnds: string[] }).dragEnds = dragEnds
