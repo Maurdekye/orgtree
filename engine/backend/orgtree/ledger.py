@@ -6585,7 +6585,13 @@ class Org:
                    {"kind": "batch", "org": str(self.d.get("slug") or ""),
                     "id": str(first["id"]), "node": nid},
                    sections=sections)
-        return {"node": nid, "body": events.render_agent(ev), "ev": ev}
+        # which records this submit resolved, so the caller can stamp the
+        # composed answer's mail id onto each (bind_answer_mail)
+        resolved = {"ask": str(ask["id"]) if ask is not None else None,
+                    "credits": str(cr["id"]) if cr is not None else None,
+                    "scope": str(sr["id"]) if sr is not None else None}
+        return {"node": nid, "body": events.render_agent(ev), "ev": ev,
+                "resolved": resolved}
 
     # ---------------------------------------------------- FR-18 watchdogs
     WATCHDOG_KINDS: Final = ("file", "command", "process", "stream")
@@ -8118,6 +8124,29 @@ class Org:
     def _ask_ref(self, a: Mapping[str, Any]) -> dict[str, Any]:
         return {"kind": "ask", "org": str(self.d.get("slug") or ""),
                 "id": str(a["id"]), "node": str(a["node"])}
+
+    def bind_answer_mail(self, mail_id: str, *, ask: str | None = None,
+                         credits: str | None = None,
+                         scope: str | None = None) -> None:
+        """Stamp the id of the mail an answer/decision travelled as onto the
+        record(s) the submit just resolved (message-visibility invariant,
+        user ruling 2026-09-10 13:22Z). `node_ask` lingers the freshest
+        resolved record for 15 minutes, and the desk keeps that panel as the
+        answer's ONE visible representation until this very mail id renders
+        in the transcript — so every payload of the lingering card must
+        carry the id. Called by the API endpoints under the same DOC_LOCK
+        that posted the mail; a missing record (raced retirement) or an
+        empty id is a no-op rather than an error."""
+        if not mail_id:
+            return
+        for store_key, rid in (("asks", ask), ("credit_requests", credits),
+                               ("scope_requests", scope)):
+            if not rid:
+                continue
+            rec = next((x for x in self.d.get(store_key, [])
+                        if str(x.get("id")) == str(rid)), None)
+            if rec is not None:
+                rec["answer_mail"] = str(mail_id)
 
     def ask_answer(self, aid: str, selected: list[Any] | None = None,
                    text: str | None = None,

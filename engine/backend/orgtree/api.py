@@ -4595,8 +4595,11 @@ async def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, An
             if notice and req["node"] in org.nodes:
                 # typed: decision.credit rides the result as `ev`; the body is
                 # its rendering (== `notice`)
-                drive = not org.post_mail(
-                    USER, req["node"], "", ev=req["ev"]).get("deferred")
+                posted = org.post_mail(USER, req["node"], "", ev=req["ev"])
+                drive = not posted.get("deferred")
+                # message-visibility invariant: see ask_answer
+                org.bind_answer_mail(str(posted.get("id") or ""),
+                                     credits=body.id)
             req = {k: v for k, v in req.items() if k != "ev"}
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -5532,7 +5535,13 @@ async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             r = (org.ask_dismiss(aid) if body.dismiss
                  else org.ask_answer(aid, selected=body.selected,
                                      text=body.text, rev=body.rev))
-            drive = not org.post_mail(USER, r["node"], "", ev=r["ev"]).get("deferred")
+            posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
+            drive = not posted.get("deferred")
+            # message-visibility invariant (user 2026-09-10): the answer's
+            # mail id rides the lingering card, so the desk can keep the
+            # panel as the answer's one representation until the transcript
+            # renders this exact mail
+            org.bind_answer_mail(str(posted.get("id") or ""), ask=aid)
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
@@ -5546,7 +5555,8 @@ async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             "question — proceed accordingly.", mail_ping=True,
             ping_reason="ask_answer")
     await hub.changed(slug)
-    return {"answered": aid, "node": r["node"]}
+    return {"answered": aid, "node": r["node"],
+            "mail": posted.get("id")}
 
 
 class BatchResolve(Body):
@@ -5574,7 +5584,16 @@ async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, An
             r = org.resolve_batch(nid, body.revs, answers=body.answers,
                                   credits=body.credits, scope=body.scope)
             _kiosk_cap_check(org)
-            drive = not org.post_mail(USER, r["node"], "", ev=r["ev"]).get("deferred")
+            posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
+            drive = not posted.get("deferred")
+            # message-visibility invariant: see ask_answer — the composed
+            # batch answer is ONE mail; whichever resolved record node_ask
+            # lingers must carry its id
+            comps = r.get("resolved") or {}
+            org.bind_answer_mail(str(posted.get("id") or ""),
+                                 ask=comps.get("ask"),
+                                 credits=comps.get("credits"),
+                                 scope=comps.get("scope"))
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)

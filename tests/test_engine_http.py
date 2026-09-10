@@ -26,6 +26,10 @@ def seeded():
     supervisor.start_usage_warm_loop = lambda: None
     supervisor.start_cred_watcher = lambda: None
     warmpool.start_warm_pool = lambda: None
+    # No real CLI turns in this HTTP-boundary fixture: answering the seeded
+    # ask below would otherwise spawn a provider process against the temp
+    # HOME (and flip activeAgents under the status assertions).
+    supervisor.send_message = lambda *a, **k: None
     from orgtree.ledger import USER
     org = store.create_org("auth-fixture")
     org.hire(USER, None, "haiku", 0, "caller")
@@ -84,6 +88,11 @@ def seeded():
             return 'delivery-probe', ['STEERING ROUTE POSITIVE CONTROL']
         return original_claim(slug, nid, *args)
     supervisor.claim_steer = probe_claim
+    # message-visibility invariant: a parked question to answer over the API
+    ask_org = store.load_org('auth-fixture')
+    ask_org.ask_user('caller', question='Proceed with the fixture?', options=['yes', 'no'])
+    store.save_org(ask_org)
+    print(json.dumps({"askId": ask_org.d['asks'][-1]['id']}), flush=True)
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
     import os
@@ -135,6 +144,8 @@ class EngineHTTPTests(unittest.TestCase):
                 if 'fixtureToken' in row:
                     cls.token = row['fixtureToken']
                     cls.stale = row['staleToken']
+                if 'askId' in row:
+                    cls.ask_id = row['askId']
                 if 'guardEnv' in row:
                     cls.guard_env = row['guardEnv']
                 if row.get('type') == 'ready':
@@ -233,6 +244,38 @@ class EngineHTTPTests(unittest.TestCase):
         status, body = self.request('/api/desktop/status', operator=True)
         self.assertEqual(status, 200)
         self.assertEqual(body['totalAgents'], live)
+
+    def test_ask_answer_binds_its_mail_for_the_visibility_handoff(self):
+        # Message-visibility invariant (user 2026-09-10 13:22Z): the answer's
+        # mail id must ride BOTH the response and the lingering ask payload,
+        # and the same mail must be queued for the agent — that pair is what
+        # lets the desk keep the submitted panel as the answer's one visible
+        # representation until the transcript renders this exact mail.
+        status, body = self.request(
+            f'/api/orgs/auth-fixture/asks/{self.ask_id}/answer',
+            {'selected': ['yes']}, operator=True)
+        self.assertEqual(status, 200, body)
+        mail = body.get('mail')
+        self.assertTrue(mail, 'the answer endpoint reports the mail it posted')
+        status, tree = self.request('/api/orgs/auth-fixture', operator=True)
+        self.assertEqual(status, 200)
+        def find(nodes):
+            for n in nodes:
+                if n['id'] == 'caller':
+                    return n
+                hit = find(n.get('children') or [])
+                if hit is not None:
+                    return hit
+            return None
+        ask = (find(tree['roots']) or {}).get('ask') or {}
+        self.assertEqual(ask.get('status'), 'answered')
+        self.assertEqual(ask.get('answer_mail'), mail,
+                         'the lingering card carries the mail id every payload')
+        status, chat = self.request(
+            '/api/orgs/auth-fixture/nodes/caller/chat', operator=True)
+        self.assertEqual(status, 200)
+        self.assertIn(mail, [m.get('id') for m in chat.get('pending_mail') or []],
+                      'the same mail is the queued (arriving) representation')
 
     def test_duplicate_native_ids_do_not_prevent_real_startup(self):
         status, body = self.request('/api/orgs',operator=True)

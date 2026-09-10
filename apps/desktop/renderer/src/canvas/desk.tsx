@@ -1622,7 +1622,53 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // sit, question and all (user report 2026-09-01).
   // Steered mail (`delivering`, no `via`) stays below too: it arrived DURING
   // the turn, so the live rows above it really did happen first.
-  const pendMail = chat?.pending_mail ?? []
+  // ── MESSAGE-VISIBILITY INVARIANT (user ruling 2026-09-10 13:22Z, canonical
+  // in message-visibility-invariant.md): every message is visible EXACTLY
+  // ONCE across pending → arriving → sent. For a submitted ask answer the
+  // QUESTION PANEL is the pending representation: it stays pinned — never
+  // also a pending bubble — until the answer mail actually RENDERS in the
+  // transcript, and the handoff is atomic because both facts (the transcript
+  // row and the pending row) come out of the SAME chat payload the desk is
+  // rendering. Server acceptance, the tree payload flipping ask.status, or a
+  // planned refresh are explicitly NOT enough to unpin.
+  const ask = node.ask
+  const askLive = !!ask && (ask.status === 'open' || ask.status === 'pending')
+  // the mail the answer travelled as (stamped by the backend at resolution)
+  const answerMail = !askLive ? ask?.answer_mail : undefined
+  const rawPendMail = chat?.pending_mail ?? []
+  const answerInTranscript = useMemo(() => {
+    if (!answerMail || !chat) return false
+    for (const row of [...chat.messages, ...(chat.live ?? [])]) {
+      const segs = (row as { segments?: unknown }).segments
+      if (!Array.isArray(segs)) continue
+      for (const seg of segs as { kind?: string; rows?: { id?: string | null }[] }[]) {
+        if (seg?.kind === 'mail' && (seg.rows ?? []).some(r => r?.id === answerMail)) return true
+      }
+    }
+    return false
+  }, [answerMail, chat])
+  // "was ever listed as pending, and no longer is" — the answer scrolled into
+  // (or past) the transcript window; latched per mail id so the check cannot
+  // fire in the gap BEFORE the first payload lists the freshly-posted mail
+  const answerSeenPending = useRef<string | null>(null)
+  if (answerMail && rawPendMail.some(m => m.id === answerMail)) answerSeenPending.current = answerMail
+  const answerHandedOff = !answerMail ? true
+    : answerInTranscript || (answerSeenPending.current === answerMail
+      && convo.loaded && !rawPendMail.some(m => m.id === answerMail))
+  // never a separate pending bubble for a message the panel represents: the
+  // resolved answer by its stamped id, and — race-proof, straight from the
+  // payload — any answer-decision event that references THIS card, which
+  // covers the window before the tree payload delivers the stamp
+  const askAnswerRow = (m: PendingMail): boolean => {
+    if (!ask) return false
+    if (answerMail && m.id === answerMail) return true
+    const d = decodeEventRow(m, BASE ? 'public' : 'operator')
+    if (d.kind !== 'known') return false
+    const ev = d.event as { variant: string; object?: { kind?: string; id?: string } | null }
+    return (ev.variant === 'answer.ask' || ev.variant === 'answer.batch')
+      && String(ev.object?.id ?? '') === String(ask.id)
+  }
+  const pendMail = rawPendMail.filter((m) => !askAnswerRow(m))
   const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
   const pendLater = pendMail.filter((m) => !(m.delivering && m.via === 'turn'))
   // ONE renderer, two places (it is the same bubble; only its position says
@@ -2476,14 +2522,18 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           .then(() => refresh(true))
           // rethrow: InboxView's optimistic hide rolls back on rejection
           .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />}
-      {/* F-04/F-05: the ask card — pinned above the composer ONLY while the
-          ask is open ("a question answering ui should appear on the agent").
-          Once answered it leaves the pin (user ruling 2026-08-04: the answer
-          belongs in the chat scroll, not a bar stuck to the message area) —
-          and it already IS in the scroll, as the answer mail the agent
-          received. Nulled/interrupted states stay visible on the inbox rows. */}
-      {node.ask && (node.ask.status === 'open' || node.ask.status === 'pending') && (
-        <AskCard ask={node.ask} slug={slug} toast={toast}
+      {/* F-04/F-05: the ask card — pinned above the composer while the ask is
+          open ("a question answering ui should appear on the agent"), AND —
+          message-visibility invariant, user 2026-09-10, superseding the
+          2026-08-04 "answered leaves the pin immediately" — while its
+          submitted answer has not yet RENDERED in the transcript: the
+          resolved panel is the answer's one representation for exactly that
+          window (the separate pending bubble is suppressed above), and it
+          unpins in the same render that shows the transcript row. Once handed
+          off it leaves the pin as before — the answer IS in the scroll now —
+          and nulled/interrupted states stay visible on the inbox rows. */}
+      {ask && (askLive || (!!answerMail && !answerHandedOff)) && (
+        <AskCard ask={ask} slug={slug} toast={toast}
           seat={node.seat ?? 0}
           committed={(node.grant ?? 0) - (node.free ?? 0)}
           segments={node.children.filter((c) => c.state === 'live' && !c.isBearerOf)

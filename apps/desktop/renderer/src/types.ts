@@ -494,6 +494,12 @@ export interface AskInfo {
   work_items?: string[]
   resolved_at?: string
   reason?: string
+  /** message-visibility invariant (user 2026-09-10): the id of the mail the
+   *  answer/decision travelled as, stamped at resolution. The desk keeps the
+   *  resolved panel pinned — as the answer's ONE representation — until this
+   *  mail id renders in the transcript, and never also shows it as a pending
+   *  bubble. Absent on open cards and on rows from older backends. */
+  answer_mail?: string
   // question kind — options mirror AskUserQuestion ({label, description?});
   // header is the short chip label (ledger normalizes plain strings away)
   question?: string
