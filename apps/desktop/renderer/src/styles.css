@@ -6174,52 +6174,56 @@ html.mobile .popout-button { display: none; }
 .onboard-actions { display: flex; justify-content: space-between; align-items: center;
   margin-top: 1rem; gap: .75rem; }
 /* Native headers keep normal actions in a bounded, horizontally scrollable
-   flow slot beside the updater and fixed controls. Browser headers retain
-   their ordinary wrapping. */
+   flow slot beside the updater and fixed controls, at EVERY width: the
+   native frame replacement (refresh/min/max/close) must never wrap to a
+   second row. These rules were previously scoped to a 600–780px media
+   band, so any wider window with enough header content wrapped the
+   controls anyway (user report, installed alpha.6). Browser headers
+   retain their ordinary wrapping. */
 .native-header-main { display: contents; }
-@media (min-width: 600px) and (max-width: 780px) {
-  .orgbar.native-header {
-    position: relative;
-    flex-wrap: nowrap;
-    overflow: hidden;
-  }
-  .orgbar.native-header > .native-header-main {
-    display: flex;
-    align-items: center;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    gap: 8px;
-  }
-  .orgbar.native-header > .native-header-main > * {
-    min-width: max-content;
-    flex: 0 0 auto;
-  }
-  .orgbar.native-header > .native-header-main > .bar-detail {
-    display: flex;
-    align-items: center;
-    flex: 0 0 auto;
-    gap: 8px;
-  }
-  .orgbar.native-header > .native-header-main > span[style] {
-    flex: 0 0 8px !important;
-  }
-  html.mobile .orgbar.native-header > .native-header-main > .bar-detail {
-    display: none;
-  }
-  .orgbar.native-header > .update-notice {
-    position: static;
-    flex: 0 0 180px;
-    width: 180px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .orgbar.native-header > .window-controls {
-    position: static;
-    flex: 0 0 auto;
-  }
+.orgbar.native-header {
+  position: relative;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.orgbar.native-header > .native-header-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  gap: 8px;
+}
+.orgbar.native-header > .native-header-main > * {
+  min-width: max-content;
+  flex: 0 0 auto;
+}
+.orgbar.native-header > .native-header-main > .bar-detail {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.orgbar.native-header > .native-header-main > span[style] {
+  flex: 0 0 8px !important;
+}
+html.mobile .orgbar.native-header > .native-header-main > .bar-detail {
+  display: none;
+}
+/* shrink-to-content up to the tight-width slot: no dead space when the
+   notice is short or absent, truncation instead of a wrap when it is not */
+.orgbar.native-header > .update-notice {
+  position: static;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orgbar.native-header > .window-controls {
+  position: static;
+  flex: 0 0 auto;
 }
