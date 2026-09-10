@@ -3834,6 +3834,22 @@ def _ambient_covered(row: dict[str, Any], primary: str,
             == os.path.normcase(os.path.normpath(home)))
 
 
+def _account_display_identity(row: dict[str, Any]) -> dict[str, Any]:
+    """Profile-local display metadata; never an authentication decision."""
+    identity = dict(row.get("identity") or {})
+    cred = row.get("credential") or {}
+    if row.get("provider") == "openai" and cred.get("kind") in ("managed", "imported"):
+        from . import providers
+        # Never fall back to the ambient home or retain a previous login's email.
+        identity.pop("email", None)
+        path = cred.get("path")
+        if isinstance(path, str) and path:
+            email = providers._codex_account(path).get("email")
+            if email:
+                identity["email"] = email
+    return identity
+
+
 @app.get("/api/accounts")
 async def accounts_list(org: str | None = None) -> dict[str, Any]:
     """The account registry with live standing (multi-account D3/D5): every
@@ -3851,6 +3867,7 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
     ambient_paths = observe_ambient()
     return {"accounts": [
         {**{k: v for k, v in r.items() if k != "marks"},
+         "identity": _account_display_identity(r),
          "standing": registry.standing_of(r),
          "ambient": _ambient_covered(r, primary, ambient_paths),
          "bound": bindings.get(r["id"], [])}
@@ -3927,6 +3944,9 @@ async def accounts_identity(account_id: str) -> dict[str, Any]:
                 cred["path"])
             if digest and digest != "unobserved":
                 identity = {"account_digest": digest, "lane": lane}
+                email = _account_display_identity(row).get("email")
+                if email:
+                    identity["email"] = email
                 auth = "authenticated"
             else:
                 auth = "unauthenticated"

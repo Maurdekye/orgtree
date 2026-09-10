@@ -138,3 +138,23 @@ test('a registry answering an alien shape reads as an older backend, not as no a
     delete g.fetch
   }
 })
+
+
+test('secondary Codex usage shows its own email beside its label', async () => {
+  const g = globalThis as unknown as Record<string, unknown>
+  const row = { ...REGISTRY.accounts[1]!, id: 'openai-2', provider: 'openai',
+    label: 'openai-0', identity: { email: 'codex-second@example.test' } }
+  g.fetch = mockFetch({
+    '/api/usage': HOST_CLAUDE, '/api/providers': PROVIDERS,
+    '/api/accounts': { primary: REGISTRY.primary, accounts: [row] },
+    '/api/accounts/openai-2/usage': { ...SECONDARY_USAGE, account: 'openai-2', provider: 'openai' },
+  })
+  try {
+    const view = await mountView(<UsageModal close={() => {}} toast={() => {}} />, el => el)
+    await inAct(async () => { await flush(8) })
+    const section = view.el.querySelector('[data-account="openai-2"]')!
+    assert.ok(section)
+    assert.match(section.textContent ?? '', /Codex.*openai-0.*codex-second@example\.test/)
+    assert.doesNotMatch(section.textContent ?? '', /primary@example/)
+  } finally { delete g.fetch }
+})

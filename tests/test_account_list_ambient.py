@@ -93,6 +93,49 @@ class AccountListAmbientTests(unittest.TestCase):
         self.assertEqual(rows[0]["id"], row["id"])
         self.assertFalse(rows[0]["ambient"])
 
+    def test_codex_email_comes_from_own_profile_and_tracks_signin_changes(self):
+        import base64
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+        host = Path(tempfile.mkdtemp(dir=self.root))
+        other = Path(tempfile.mkdtemp(dir=self.root))
+        def signin(home, email):
+            payload = base64.urlsafe_b64encode(json.dumps({"email": email}).encode()).decode().rstrip("=")
+            (home / "auth.json").write_text(json.dumps({"tokens": {
+                "id_token": "header." + payload + ".signature",
+                "access_token": "secret-must-not-be-returned"}}))
+        signin(host, "host@example.test")
+        signin(other, "secondary@example.test")
+        row = self.registry.create_account("openai", "second",
+            {"kind": "managed", "path": str(other)})
+        self.registry.set_identity(row["id"], {"account_digest": "digest", "email": "old@example.test"})
+        with patch.dict(os.environ, {"CODEX_HOME": str(host)}):
+            data = self._list({"openai": str(host)})
+            self.assertEqual(data["accounts"][0]["identity"]["email"], "secondary@example.test")
+            self.assertNotIn("secret-must-not-be-returned", json.dumps(data))
+            # The read projection must not rewrite stored routing/auth identity.
+            self.assertEqual(self.registry.get_account(row["id"])["identity"]["email"], "old@example.test")
+            signin(other, "changed@example.test")
+            self.assertEqual(self._list({})["accounts"][0]["identity"]["email"], "changed@example.test")
+            (other / "auth.json").write_text('{broken')
+            self.assertNotIn("email", self._list({})["accounts"][0]["identity"])
+            (other / "auth.json").unlink()
+            self.assertNotIn("email", self._list({})["accounts"][0]["identity"])
+
+    def test_codex_identity_refresh_keeps_profile_email(self):
+        from unittest.mock import patch
+        from engine.backend.orgtree import providers
+        row = self.registry.create_account("openai", "second",
+            {"kind": "managed", "path": os.path.join(self.root, "refresh-home")})
+        with patch.object(self.api.supervisor, "_cache_codex_account_namespace", return_value=("digest", "subscription")), \
+             patch.object(providers, "_codex_account", return_value={"email": "second@example.test"}) as read:
+            data = asyncio.run(self.api.accounts_identity(row["id"]))
+        read.assert_called_once_with(row["credential"]["path"])
+        self.assertEqual(data["identity"]["email"], "second@example.test")
+        self.assertEqual(data["identity"]["account_digest"], "digest")
+        self.assertEqual(data["auth"], "authenticated")
+
     def test_every_row_carries_the_flag(self):
         self.registry.create_account(
             "google", "agy", {"kind": "managed",

@@ -493,16 +493,19 @@ def _codex_home() -> str:
     return os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
 
 
-def _codex_account() -> dict[str, Any]:
+def _codex_account(home: str | None = None) -> dict[str, Any]:
     """Connect state from $CODEX_HOME/auth.json — EXISTENCE and display
     identity only, never credential material. The id_token is a JWT whose
     payload names the account; decoding the payload is a base64 read, not a
     verification, and it is used for nothing but the panel label."""
-    auth = os.path.join(_codex_home(), "auth.json")
+    auth = os.path.join(home if home is not None else _codex_home(), "auth.json")
     out: dict[str, Any] = {"connected": False, "email": None, "kind": None}
     try:
-        doc: dict[str, Any] = json.load(open(auth, encoding="utf-8"))
+        with open(auth, encoding="utf-8") as stream:
+            doc: dict[str, Any] = json.load(stream)
     except (OSError, json.JSONDecodeError):
+        return out
+    if not isinstance(doc, dict):
         return out
     if doc.get("OPENAI_API_KEY"):
         out["connected"] = True
