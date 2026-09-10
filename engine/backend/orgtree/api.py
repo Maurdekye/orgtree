@@ -959,11 +959,13 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
         print(f"[orgtree] accounts cutover migration INCOMPLETE: {e} — "
               f"completion not marked; fix the cause and restart with the "
               f"flag set to finish the remainder (see {registry_migration.REPORT_NAME})")
+        raise
     except Exception as e:                                   # noqa: BLE001
         print(f"[orgtree] accounts cutover migration FAILED before "
               f"completion: {e} — completion not marked; any rows or "
               f"bindings already written are preserved and reused when it "
               f"reruns at next startup with the flag set")
+        raise
     # Mark that THIS process began watching the Antigravity lane. Without it
     # the window record cannot tell "orgtree was down, a wall may have passed
     # unseen" from "nothing happened", and every reconstructed window would

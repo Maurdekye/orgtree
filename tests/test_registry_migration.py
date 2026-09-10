@@ -395,5 +395,37 @@ class MigrationTests(unittest.TestCase):
             os.environ.pop(self.migration.CUTOVER_ENV, None)
 
 
+    def test_reuse_distinguishes_default_and_redirected_config(self):
+        cred = {"kind": "imported", "path": self.claude_dir}
+        redirected = self.registry.create_account("claude", "redirected", cred)
+        default = self.migration._reuse_or_create("claude", "default", {
+            **cred, "default_config": True})
+        self.assertNotEqual(default["id"], redirected["id"])
+        self.assertEqual(self.migration._reuse_or_create("claude", "again", {
+            **cred, "default_config": True})["id"], default["id"])
+        self.assertEqual(self.migration._reuse_or_create("claude", "again", cred)["id"], redirected["id"])
+
+    def test_real_startup_hook_does_not_start_workers_after_migration_failure(self):
+        import asyncio
+        from unittest.mock import patch
+        from engine.backend.orgtree import api
+        class LaterStartupReached(RuntimeError):
+            pass
+        # The first background thread is an explicit positive control for
+        # reaching later startup, without launching any actual worker.
+        with patch.object(api, "_deployment_preflight"), patch.object(
+                api.threading, "Thread", side_effect=LaterStartupReached) as later:
+            for error in [self.migration.MigrationIncomplete("partial", {}), OSError("registry unreadable")]:
+                with patch.object(self.migration, "run_startup_migration", side_effect=error):
+                    with self.assertRaises(type(error)) as raised:
+                        asyncio.run(api._wire_notify())
+                    self.assertIs(raised.exception, error)
+                    later.assert_not_called()
+            with patch.object(self.migration, "run_startup_migration", return_value=None):
+                with self.assertRaises(LaterStartupReached):
+                    asyncio.run(api._wire_notify())
+                later.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

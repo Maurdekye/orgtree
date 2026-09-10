@@ -243,7 +243,10 @@ def _reuse_or_create(provider: str, label: str, credential: dict[str, Any],
             if str(c.get("token_ref") or "") == str(
                     credential.get("token_ref") or ""):
                 return row
-        elif _same_path(c.get("path"), credential.get("path")):
+        elif (_same_path(c.get("path"), credential.get("path"))
+              and bool(c.get("default_config")) == bool(credential.get("default_config"))):
+            # The same directory with/without CLAUDE_CONFIG_DIR selects
+            # different metadata, so those are different account identities.
             return row
     return registry.create_account(provider, label, credential,
                                    origin_org=origin_org,
