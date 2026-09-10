@@ -488,6 +488,27 @@ def record_mark(account_id: str, tier: str, until: float, *,
         return True
 
 
+def correct_mark(account_id: str, tier: str, expected_until: float | None,
+                 until: float, *, provenance: str) -> bool:
+    """Replace only the exact mark whose background lookup we own."""
+    if provenance not in PROVENANCE or until <= time.time():
+        return False
+    with _lock:
+        doc = load(strict=True)
+        try:
+            row = get_account(account_id, doc)
+        except UnknownAccount:
+            return False
+        key = pool_key(tier)
+        mark = row['marks'].get(key)
+        if mark is None or mark['until'] != expected_until:
+            return False
+        row['marks'][key] = {**mark, 'until': float(until), 'provenance': provenance,
+                             'observed_at': time.time()}
+        save(doc)
+        return True
+
+
 def active_mark(account_id: str, tier: str,
                 now: float | None = None) -> dict[str, Any] | None:
     """The live mark gating `tier` on this account, or None. Stateless over

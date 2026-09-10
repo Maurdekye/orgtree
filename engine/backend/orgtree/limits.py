@@ -521,27 +521,26 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
         return data
 
 
+_profile_fetch_locks: dict[str, Any] = {}
+
+
 def fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
-    """⚠ NO PRODUCTION CALLER SINCE 2026-08-25 (D-147), AND DO NOT ADD ONE FOR
-    A `claude setup-token` KEY. Those are inference-only; this endpoint needs
-    `user:profile`, which they never carry, so every such call is refused
-    before it leaves the machine and repeated attempts earn hour-long
-    rate-limit windows. `accounts.account_usage` answers key rows from local
-    state instead. Kept — with its tests — as the ready-made path for a token
-    that DOES hold the scope, should one ever exist; the cooldown machinery it
-    shares with `fetch` is live either way.
+    """Single flight per profile across UI refreshes and freeze corrections."""
+    with _lock:
+        gate = _profile_fetch_locks.setdefault(cache_key, threading.Lock())
+    with gate:
+        return _fetch_for_token(token, cache_key)
 
-    The same normalized readout for an ARBITRARY account token.
-    `{available, limits[]}` or
-    `{available: False, error}`; cached per `cache_key` for `CACHE_TTL`,
-    stale-on-error, never raises.
 
-    Same contract as `fetch`, three deliberate differences: no `plan` (that
-    field is read from the HOST credentials store, which describes a
-    different account than this token); no single-flight herd lock (these are
-    clicked one row at a time, not stormed by N freezing nodes); and nothing
-    here feeds `cached()`/`peek()`/`pressure()` — freeze timing and the
-    header glow describe the host subscription only."""
+def _fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
+    """Read a profile OAuth token's usage with a per-account cache/cooldown.
+
+    This requires the profile scope of a full CLI login; inference-only
+    setup-token keys must not call it. The public wrapper serializes requests
+    for the same account, so simultaneous UI and freeze refreshes share the
+    result. Errors retain the last good board without refreshing its age.
+    The host subscription cache remains separate.
+    """
     if not str(token or ""):
         return {"available": False, "error": "no key stored for this row"}
     now = time.time()
@@ -591,6 +590,29 @@ def fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
     return data
 
 
+def account_readout(account: str, *, allow_fetch: bool = False):
+    """Read only this registered Claude profile's board, never another login.
+
+    The synchronous freeze path is cache-only. Credential refresh and HTTPS
+    are confined to the existing background correction/warm passes.
+    """
+    from . import registry
+    try:
+        row = registry.get_account(account)
+    except registry.UnknownAccount:
+        return None, float('inf')
+    cred = row['credential']
+    if row['provider'] != 'claude' or cred['kind'] not in ('managed', 'imported'):
+        return None, float('inf')
+    key = f'acct:{row["id"]}'
+    if allow_fetch:
+        token = subproxy.profile_access_token(cred['path'])
+        fetch_for_token(token, key)
+    with _lock:
+        entry = _key_cache.get(key) or {}
+        return entry.get('data'), max(0.0, time.time() - float(entry.get('at') or 0))
+
+
 def available() -> bool:
     """Is there a subscription to read lanes from at all? (An API-key-only
     host has none — the warm loop stays silent rather than logging a failure
@@ -617,12 +639,12 @@ def cached() -> dict[str, Any] | None:
         return cast("dict[str, Any] | None", _cache["data"])
 
 
-def pressure() -> float:
+def pressure(data: dict[str, Any] | None = None) -> float:
     """The highest lane utilization in the cached readout, 0..100 (0 when
     nothing is cached). The warm loop paces itself on it — a lane at 99% is
     minutes from freezing something, and a stamp is only as good as the
     readout behind it."""
-    data = cached()
+    data = cached() if data is None else data
     if not data or not data.get("available"):
         return 0.0
     top = 0.0
@@ -640,7 +662,7 @@ def pressure() -> float:
     return top
 
 
-def next_reset(now: float | None = None) -> float | None:
+def next_reset(now: float | None = None, data: dict[str, Any] | None = None) -> float | None:
     """The soonest FUTURE reset on the cached board, or None — cache-only.
 
     This is a clock, not a price. Where `reset_for` bands a candidate by the
@@ -654,7 +676,7 @@ def next_reset(now: float | None = None) -> float | None:
     the cached readout stops being true, and it is knowable in advance.
     """
     now = time.time() if now is None else now
-    data = cached()
+    data = cached() if data is None else data
     if not data or not data.get("available"):
         return None
     soonest: float | None = None
@@ -947,7 +969,7 @@ def lane_applies(lim: Mapping[str, Any], tier: str) -> bool:
 def reset_for(blob: str, now: float | None = None,
               allow_fetch: bool = False,
               trust_lane: bool = True,
-              tier: str = "") -> tuple[float | None, str]:
+              tier: str = "", account: str = "", require_exhausted: bool = False) -> tuple[float | None, str]:
     """The authoritative reset for the limit this error is about →
     `(epoch, "usage:<lane>")`; `(None, "")` when the readout cannot answer.
 
@@ -998,10 +1020,14 @@ def reset_for(blob: str, now: float | None = None,
     and be answered from a lane seven days out for a wall that does not exist
     (redteam 2026-08-18)."""
     now = time.time() if now is None else now
-    data = fetch(max_age=REREAD_MAX_AGE) if allow_fetch else cached()
+    if account:
+        data, age = account_readout(account, allow_fetch=allow_fetch)
+    else:
+        data = fetch(max_age=REREAD_MAX_AGE) if allow_fetch else cached()
+        age = cache_age()
     if not data or not data.get("available"):
         return None, ""
-    if cache_age() > MAX_EVIDENCE_AGE:
+    if age > MAX_EVIDENCE_AGE:
         # a readout this old is a memory, not a measurement — and a broken
         # upstream serves one indefinitely (redteam). Decline, and let the
         # caller's 5-minute probe floor have it.
@@ -1010,6 +1036,13 @@ def reset_for(blob: str, now: float | None = None,
             for x in cast("list[Any]", data.get("limits") or [])
             if isinstance(x, dict)
             and lane_applies(cast("dict[str, Any]", x), tier)]
+    # A generic 429 can describe subscription exhaustion or a short throttle.
+    # Only actual exhaustion on an applicable lane permits the usage fallback;
+    # the existing unnamed-lane shortest/session-capped policy still applies.
+    if require_exhausted and not any(
+            isinstance(x.get('percent'), (int, float)) and x['percent'] >= 100
+            and _candidate(x, now) is not None for x in lims):
+        return None, ''
     def _within(pool: list[dict[str, Any]], at: float,
                 lane: str | None) -> list[dict[str, Any]]:
         """The entries whose reset lands inside `lane`'s own length."""

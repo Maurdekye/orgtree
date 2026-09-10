@@ -4929,13 +4929,13 @@ def _result_names_a_limit(text: str) -> bool:
 def _limit_reset_ts(blob: str, allow_fetch: bool = False,
                     subscription: bool = True,
                     trusted: bool = True,
-                    tier: str = "") -> tuple[float | None, str]:
+                    tier: str = "", account: str = "") -> tuple[float | None, str]:
     """When does the limit behind this error lift? → `(epoch, source)`.
 
     ⚠ THE ORDER IS THE USER'S RULING (2026-09-07 14:56Z) and it holds for
     every provider: the time IN THE MESSAGE first; the cached usage readout
     only when the message carries none, and then matched to model (`tier`),
-    account lane (`subscription`) and limit type (`limits.reset_for`). No
+    account (`account`, or the host `subscription`) and limit type (`limits.reset_for`). No
     caller may put a cached value in front of a `"text"` answer from here —
     the freeze stamp and the correction pass both did, through
     `limits.recovery_deadline`, until that ruling.
@@ -4953,7 +4953,7 @@ def _limit_reset_ts(blob: str, allow_fetch: bool = False,
     path calls this under the document lock, and the endpoint routinely takes
     over a second. `_spawn_reset_refresh` does the fetching pass.
 
-    ⚠ `subscription=False` says the turn billed the ORG'S KEY, so the wall it
+    ⚠ Without a registered profile, `subscription=False` means the wall it
     hit was the API's and the host subscription's lanes describe someone
     else's quota entirely (redteam 2026-08-18: a per-minute API rate limit was
     parking nodes for four hours on the subscription's session lane). Prose
@@ -4969,7 +4969,8 @@ def _limit_reset_ts(blob: str, allow_fetch: bool = False,
     ts = _parse_limit_reset_ts(blob, kind, trusted=trusted)
     if ts:
         return ts, "text"
-    if not subscription or limits.is_rate_limit(blob):
+    if (not subscription and not account) or re.search(
+            r'per[-_ ](?:minute|second)|requests? per (?:minute|second)|\b(?:tpm|rpm)\b', blob, re.I):
         # ⚠ a per-minute RATE limit is not a usage LANE. Both match
         # `_looks_like_usage_limit` (deliberately broad), but the readout
         # describes 5-hour and weekly pools, so answering a 429 from it parked
@@ -4981,7 +4982,8 @@ def _limit_reset_ts(blob: str, allow_fetch: bool = False,
         return None, ""
     try:
         return limits.reset_for(blob, allow_fetch=allow_fetch,
-                                trust_lane=trusted, tier=tier)
+                                trust_lane=trusted, tier=tier, account=account,
+                                require_exhausted=limits.is_rate_limit(blob))
     except Exception as e:                                    # noqa: BLE001
         # a readout is a nicety; the freeze path must survive it failing
         print(f"[orgtree] usage readout failed while timing a freeze: {e}")
@@ -5086,13 +5088,21 @@ REREAD_TRIES = 3
 REREAD_BACKOFF = 2.0        # seconds, multiplied by the attempt number
 
 
+def _record_account_reset(account: str, tier: str, blob: str,
+                          ts: float | None, source: str, trusted: bool) -> bool:
+    """Record the deadline with its actual evidence; a retry floor is a guess."""
+    measured = ts and _usage_schedule_kind(blob, source, trusted) == 'observed-deadline'
+    return registry.record_mark(account, tier, ts or time.time() + PROBE_FLOOR,
+                                provenance='observed' if measured else 'inferred')
+
+
 def _refresh_freeze_reset(slug: str, nid: str, blob: str,
                           stamped_ts: float | None,
                           stamped_win: float | None,
                           subscription: bool = True,
                           trusted: bool = True,
                           tier: str = "",
-                          stamped_kind: str | None = None) -> bool:
+                          stamped_kind: str | None = None, account: str = "") -> bool:
     """Correct a freeze's reset time with a FETCHED readout — the pass that
     runs off the document lock (user report 2026-08-18: the usage endpoint
     routinely takes over a second, and a freeze must not hold the lock, or
@@ -5111,7 +5121,7 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
     # a key-billed freeze never consults the readout, so every attempt would
     # return the same prose answer — the retry loop would just sleep
     # REREAD_BACKOFF*(1+2) seconds in a live thread (redteam 2026-08-18)
-    tries = REREAD_TRIES if subscription else 1
+    tries = REREAD_TRIES if subscription or account else 1
     for attempt in range(tries):
         if attempt:
             # a readout that failed once usually failed for a reason that
@@ -5122,7 +5132,7 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
         try:
             billing_ts, billing_src = _limit_reset_ts(
                 blob, allow_fetch=True, subscription=subscription,
-                trusted=trusted, tier=tier)
+                trusted=trusted, tier=tier, account=account)
         except Exception as e:                                # noqa: BLE001
             print(f"[orgtree] {slug}/{nid}: usage re-read failed: {e}")
         if billing_ts:
@@ -5154,11 +5164,18 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
             return False
         if nid not in o.nodes:
             return False
+        if account and o.node(nid).get('account') != account:
+            return False  # a completed account reassignment owns the new lane
         fz = o.node(nid).get("frozen")
         if (freeze_moved and fz and fz.get("limit")
                 and fz.get("until_ts") == stamped_ts
                 and (stamped_kind is None
                      or fz.get("schedule_kind") == stamped_kind)):
+            if account:
+                provenance = 'observed' if schedule_kind == 'observed-deadline' else 'inferred'
+                if not registry.correct_mark(account, tier, stamped_ts, ts, provenance=provenance):
+                    return False
+                fz['provenance'] = provenance
             fz["until_ts"] = ts
             fz["until"] = (("capacity recheck " if schedule_kind == "probe"
                             else "") + _reset_label(ts))
@@ -5191,13 +5208,13 @@ def _spawn_reset_refresh(slug: str, nid: str, blob: str,
                          subscription: bool = True,
                          trusted: bool = True,
                          tier: str = "",
-                         stamped_kind: str | None = None) -> None:
+                         stamped_kind: str | None = None, account: str = "") -> None:
     """`_refresh_freeze_reset` on its own thread — the freeze path calls this
     the moment it lets go of the document lock."""
     threading.Thread(
         target=_refresh_freeze_reset, daemon=True,
         args=(slug, nid, blob, stamped_ts, stamped_win, subscription,
-              trusted, tier, stamped_kind),
+              trusted, tier, stamped_kind, account),
         name=f"usage-reset-{slug}-{nid}").start()
 
 
@@ -5264,6 +5281,21 @@ def _warm_next(aim: float | None, misses: int, nxt: float | None,
     return delay, (nxt if nxt is not None and nxt <= now + delay else None), 0
 
 
+def _warm_registered_usage() -> list[dict[str, Any]]:
+    """Warm authenticated profile boards without borrowing host credentials."""
+    boards = []
+    for row in registry.list_accounts():
+        if row['provider'] != 'claude' or row.get('auth') != 'authenticated':
+            continue
+        try:
+            board, age = limits.account_readout(row['id'], allow_fetch=True)
+            if board and board.get('available') and age <= limits.MAX_EVIDENCE_AGE:
+                boards.append(board)
+        except Exception as error:
+            print(f"[orgtree] account usage warm-up failed: {type(error).__name__}")
+    return boards
+
+
 _warm_started = False
 
 
@@ -5289,9 +5321,9 @@ def start_usage_warm_loop() -> None:
     freeze landing in that gap stamps from a board that already knows the wall
     is gone.
 
-    One HTTPS GET per tick, account-wide — not per org, not per turn. It goes
-    quiet entirely when the host has no Claude credentials (an API-key-only
-    install has no subscription lanes to read)."""
+    Requests are shared per account across orgs and turns. Authenticated
+    registered Claude profiles warm independently of host credentials; key
+    rows and profiles without confirmed authentication are not queried."""
     global _warm_started
     if _warm_started:
         return
@@ -5301,6 +5333,7 @@ def start_usage_warm_loop() -> None:
         aim: float | None = None      # the boundary this sleep was cut for
         misses = 0                    # …that the upstream has not rolled yet
         while True:
+            boards = []
             try:
                 # nothing to warm the cache FOR on an install with no orgs —
                 # 288 requests a day at a semi-documented endpoint, each one
@@ -5311,13 +5344,19 @@ def start_usage_warm_loop() -> None:
                     # this call is never on a turn path and its isolated CLI
                     # request cannot block a spawn.
                     accounts.probe_fallback_keys()
+                    boards = _warm_registered_usage()
                     if limits.available():
                         limits.fetch(force=True)
             except Exception as e:                            # noqa: BLE001
                 print(f"[orgtree] usage warm-up failed: {e}")
             now = time.time()
+            resets = [t for board in boards if (t := limits.next_reset(now, board)) is not None]
+            host_reset = limits.next_reset(now)
+            if host_reset is not None:
+                resets.append(host_reset)
+            top = max([limits.pressure(), *(limits.pressure(board) for board in boards)])
             delay, aim, misses = _warm_next(
-                aim, misses, limits.next_reset(now), limits.pressure(), now)
+                aim, misses, min(resets) if resets else None, top, now)
             time.sleep(delay)
     threading.Thread(target=loop, daemon=True, name="usage-warm").start()
 
@@ -15016,7 +15055,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         fzg["account"] = _g_acct
                         fzg["provenance"] = str(_g_mark["provenance"])
                         fzg["until_ts"] = float(_g_mark["until"])
-                        fzg["until"] = _reset_label(float(_g_mark["until"]))
+                        fzg['schedule_kind'] = ('observed-deadline'
+                            if _g_mark['provenance'] == 'observed' else 'probe')
+                        fzg["until"] = (('capacity recheck ' if fzg['schedule_kind'] == 'probe' else '')
+                                         + _reset_label(float(_g_mark["until"])))
                         fzg["reset_src"] = "account-mark"
                         fzg["resource_pool"] = (
                             accounts.FABLE if _g_tier == accounts.FABLE
@@ -17206,11 +17248,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             _reg_row = registry.get_account(_served)
                         except registry.UnknownAccount:
                             _reg_row = None  # legacy identity — old roster
-                        # host usage readout describes the HOST login only:
-                        # for a registry account it may time the mark ONLY
-                        # when that account IS the aliased ambient row —
-                        # anything else is the wrong-account parking bug
-                        # this comment block already warns about.
+                        # Registry accounts read their own profile board; the
+                        # subscription flag is used only for legacy identities.
                         if _reg_row is not None:
                             _sub_for_mark = (registry.resolve_alias("primary")
                                              == _reg_row["id"])
@@ -17223,10 +17262,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # refresh time projected from it — followed the
                         # readout's latest active lane instead of the wall
                         # the message described
-                        _rts, _ = _limit_reset_ts(
+                        _rts, _mark_src = _limit_reset_ts(
                             err_blob,
                             subscription=_sub_for_mark,
-                            trusted=_trusted, tier=_tier)
+                            trusted=_trusted, tier=_tier,
+                            account=_served if _reg_row is not None else "")
                         if _reg_row is not None:
                             # BOUND NODES NEVER RE-DRIVE (no-rollover ruling
                             # 18:11Z): record the observed mark on exactly
@@ -17236,10 +17276,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # this freeze never asked the resolver, so
                             # capacity appearing elsewhere must not wake it;
                             # the mark's own horizon (auto-resume) does.
-                            registry.record_mark(
-                                _served, _tier,
-                                _rts or time.time() + PROBE_FLOOR,
-                                provenance="observed")
+                            _record_account_reset(
+                                _served, _tier, err_blob, _rts, _mark_src, _trusted)
                             log_failover_refusal(slug, nid, (
                                 f"usage limit recorded for {_tier} on bound "
                                 f"account {_served}; this node waits for "
@@ -17415,7 +17453,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             _billing_ts, _billing_src = _limit_reset_ts(
                                 err_blob, subscription=_sub_lane,
                                 trusted=_trusted_blob,
-                                tier=str(o2.node(nid).get("model") or ""))
+                                tier=str(o2.node(nid).get("model") or ""),
+                                account=str(o2.node(nid).get("account") or ""))
                             _rts = _billing_ts
                             _rsrc = _billing_src
                             fz["schedule_kind"] = _usage_schedule_kind(
@@ -17470,6 +17509,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     fz["until_ts"] = float(_m["until"])
                                     fz["provenance"] = str(_m["provenance"])
                                     fz["reset_src"] = "account-mark"
+                                    fz['schedule_kind'] = ('observed-deadline'
+                                        if _m['provenance'] == 'observed' else 'probe')
                             _uts = fz.get("until_ts")
                             # a readout time is minute-exact, timezone-safe
                             # and lane-aware, so it OVERWRITES a prose label
@@ -17822,7 +17863,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         _spawn_reset_refresh(slug, nid, err_blob,
                                              _stamped_ts, _stamped_win,
                                              _sub_lane, _trusted_blob,
-                                             _tier, _stamped_kind)
+                                             _tier, _stamped_kind,
+                                             account=str(o2.node(nid).get("account") or ""))
                     notify(slug, nid, "frozen")
                     # ⚠ …and `notify` is an SSE EVENT, not a message. It paints
                     # a badge on a canvas nobody is necessarily looking at,
