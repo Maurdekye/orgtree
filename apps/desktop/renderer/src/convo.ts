@@ -479,6 +479,7 @@ export function refreshConvo(slug: string, nid: string,
              && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
         const page = await getChat(slug, nid, e.s.win, cursor)
         if (!ownsRequest()) return
+        if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
         if (!page.messages.length || page.before === cursor) break
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
         c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
@@ -499,6 +500,7 @@ export function refreshConvo(slug: string, nid: string,
     while (!changedConversation && proofCursor && needsProof()) {
       const page = await getChat(slug, nid, e.s.win, proofCursor)
       if (!ownsRequest()) return
+      if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
       if (!page.messages.length || page.before === proofCursor) break
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }

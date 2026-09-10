@@ -35,6 +35,20 @@ class RecordsTests(unittest.TestCase):
     def texts(self, count=8):
         return [json.loads(row[2])["text"] for row in records.tail(self.source, count)[0]]
 
+    def test_repeated_prompt_index_decodes_only_the_requested_time_range(self):
+        import datetime as dt
+        base = dt.datetime(2026, 9, 10, tzinfo=dt.timezone.utc)
+        for i in range(600):
+            records.append_prompt_view(self.source, {'sha256': 'same',
+                'at': (base + dt.timedelta(seconds=i)).isoformat(), 'visible': str(i)})
+        with patch.object(records.json, 'loads', wraps=json.loads) as decoded:
+            rows = records.prompt_views_for(self.source, 'same',
+                earliest=base.timestamp()+590, latest=base.timestamp()+599)
+        self.assertEqual([r['visible'] for r in rows], [str(i) for i in range(590, 600)])
+        self.assertEqual(decoded.call_count, 10, 'unrelated occurrences must stay encoded in SQLite')
+        self.assertEqual(len(records.prompt_views_for(self.source, 'same')), 600,
+                         'positive control: the omitted history really exists')
+
     def test_lazily_backfills_without_reordering_existing_occurrences(self):
         self.write(20000)
         stats = self.ingest()

@@ -1391,3 +1391,28 @@ convoTest('page returned from a changed ordering epoch is discarded before refre
   await inAct(()=>loadOlder(SL,ND,8));await advance(100)
   assert.equal(d.now().chat!.messages.length,16)
 })
+
+convoTest('proof paging never merges records from a new order epoch into the old tail', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  let epoch=0, changeDuringRead=false, reads=0
+  const original=s.chat.bind(s)
+  s.chat=(last)=>{
+    if(changeDuringRead && ++reads===2) epoch=1
+    return {...original(last),conversation_id:'same-session',order_epoch:epoch}
+  }
+  for(let i=0;i<30;i++)s.assistantMsg(`prior ${i}`)
+  const d=await desk();await advance(100);let ghost=0
+  await inAct(()=>{ghost=addPending(SL,ND,'continue');bindPendingMail(SL,ND,ghost,typedRow('epoch-buried'))})
+  const echo=s.userMsg('continue');echo.segments=[{kind:'mail',rows:[typedRow('epoch-buried')]}]
+  for(let i=0;i<25;i++)s.assistantMsg(`burst ${i}`)
+  changeDuringRead=true
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.ok(reads>=2,'the epoch must actually change during the page fetch')
+  assert.equal(d.now().chat!.order_epoch,0,'inconsistent page leaves the installed payload intact')
+  assert.equal(d.now().pending.length,1,'preview remains visible until a consistent replacement arrives')
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.equal(d.now().chat!.order_epoch,1)
+  assert.equal(d.now().pending.length,0)
+  assert.ok(d.now().chat!.messages.some(row=>row.seq===echo.seq))
+})

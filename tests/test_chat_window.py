@@ -41,6 +41,28 @@ class WindowTests(unittest.TestCase):
         return {'type':role,'uuid':f'id-{i}','timestamp':f'2026-09-10T12:{i//60%60:02d}:{i%60:02d}Z',
                 'message':{'id':f'm-{i}','role':role,'content':text or f'message {i}'}}
     def read(self,n=8): return chat_window.read_window(self.org,'agent',n)
+    def test_db_only_history_survives_compaction_retirement_and_rehire(self):
+        from orgtree import transcript_records
+        self.org.node('agent')['model'] = 'luna'
+        store.save_org(self.org)
+        sid = self.org.node('agent')['session_id']
+        scope = transcript_records.incarnation(self.org, 'agent')
+        sup._codex_journal(self.org.d['slug'], sid, [self.rec(1, 'old session')], incarnation=scope)
+        journal = Path(sup.journal_store()) / 'projects' / self.org.d['slug'] / (sid + '.jsonl')
+        journal.unlink()
+        with patch.object(sup, 'transcript_path_for_node', return_value=None):
+            self.assertEqual(self.read()['messages'][0]['text'], 'old session')
+            pred = self.org.compact_split('agent', str(uuid.uuid4()))
+            store.save_org(self.org)
+            self.assertEqual(chat_window.read_window(self.org, pred, 8)['messages'][0]['text'], 'old session')
+            self.assertEqual(self.read()['messages'], [], 'successor must not borrow predecessor history')
+            self.org.retire(ledger.USER, 'agent')
+            store.save_org(self.org)
+            self.org.rehire(ledger.USER, 'agent')
+            store.save_org(self.org)
+            self.assertEqual(chat_window.read_window(self.org, pred, 8)['messages'][0]['text'], 'old session')
+            self.assertEqual(self.read()['messages'], [])
+
     def test_committed_steer_frame_contains_the_same_saved_complete_row(self):
         frames=[]
         text='accepted words '+('x'*4000)
