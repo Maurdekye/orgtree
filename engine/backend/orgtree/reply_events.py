@@ -56,6 +56,17 @@ def lookup(slug, nid, generation, eid, scope):
     return row[0] if row is not None else None
 
 
+def count(slug, nid):
+    path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
+    if not path.exists():
+        return 0
+    connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15)
+    try:
+        return connection.execute('SELECT COUNT(*) FROM events WHERE org=? AND agent=?', (slug, nid)).fetchone()[0]
+    finally:
+        connection.close()
+
+
 def clear(org, nid):
     with _connect() as connection:
         deleted = connection.execute('DELETE FROM events WHERE org=? AND agent=?', (org.d['slug'],nid)).rowcount

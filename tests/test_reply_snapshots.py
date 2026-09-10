@@ -59,7 +59,11 @@ class ReplySnapshotsTests(unittest.TestCase):
         client = TestClient(TokenGate(api.app,'operator'))
         route = '/api/orgs/recreated/nodes/agent/reply-events'
         self.assertEqual(client.delete(route).status_code,401)
+        self.assertEqual(client.get(route).status_code, 401)
+        self.assertEqual(client.get(route, headers={'X-Orgtree-Desktop-Token':'operator'}).json(), {'count': 1})
+        self.assertEqual(reply_events.count('recreated', 'another-agent'), 0)
         result = client.delete(route,headers={'X-Orgtree-Desktop-Token':'operator'})
+        self.assertEqual(client.get(route, headers={'X-Orgtree-Desktop-Token':'operator'}).json(), {'count': 0})
         self.assertEqual(result.status_code,200,result.text)
         self.assertGreaterEqual(result.json()['removed'],1)
         with patch.object(supervisor,'read_chat',return_value={'messages':[]}):

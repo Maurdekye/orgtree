@@ -235,3 +235,35 @@ domTest('flipping the setting off mid-session brings every retiree back', async 
   assert.ok(shown.includes('solo-ret'), 'retirees return without a reload')
   assert.equal(el.querySelector('.retired-token'), null)
 })
+
+test('zoomed desk replaces retired jumps with a picker and hides retired audiences reactively', async () => {
+  const { FakeServer, installFetch } = await import('./harness')
+  const { DeskChat } = await import('../src/canvas/desk')
+  const { RetiredFold } = await import('../src/canvas/mail')
+  const { resetConvos } = await import('../src/convo')
+  localStorage.clear(); resetConvos(); setHideRetiredOn(false)
+  installFetch(new FakeServer())
+  const boss = mk(FIXTURE[0]!)
+  const map = new Map([boss, ...boss.children].map(n => [n.id, n]))
+  const jumps: string[] = []
+  const v = await mountView(<><DeskChat node={boss} map={map} slug="hr"
+    op={async () => ({})} toast={noop} pub={false} bare onJump={id => { jumps.push(id) }} />
+    <RetiredFold ids={['ret-audience']} render={id => <span key={id} className="test-retired-audience">{id}</span>} /></>, el => el)
+  try {
+    const old = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'show 2 retired')!
+    assert.ok(old, 'setting-off positive control exposes old jump expansion')
+    await inAct(() => { old.click(); (v.el.querySelector('.retired-fold') as HTMLButtonElement).click() })
+    assert.ok(v.el.querySelector('.test-retired-audience'))
+    await inAct(() => setHideRetiredOn(true))
+    assert.equal(v.el.querySelector('.retired-fold'), null)
+    assert.equal(v.el.querySelector('.test-retired-audience'), null)
+    assert.equal([...v.el.querySelectorAll('button')].some(b => /show 2 retired|hide retired/.test(b.textContent || '')), false)
+    const token = v.el.querySelector<HTMLButtonElement>('.desk-retired-token')!
+    assert.equal(token.textContent, '2 retired')
+    await inAct(() => token.click())
+    const pick = [...document.querySelectorAll<HTMLButtonElement>('.pile-row')].find(b => b.textContent?.includes('ret-one'))
+    assert.ok(pick, 'retired list opens over zoomed desk')
+    await inAct(() => pick.click())
+    assert.deepEqual(jumps, ['ret-one'])
+  } finally { await v.unmount(); setHideRetiredOn(false); resetConvos() }
+})

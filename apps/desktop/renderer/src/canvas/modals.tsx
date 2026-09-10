@@ -718,6 +718,15 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const [asking, setAsking] =
     useState<'delete' | 'dissolve' | 'retire' | 'rescind' | 'crossprovider' | 'reply-quotes' | null>(null)
   const [removingQuotes, setRemovingQuotes] = useState(false)
+  const [retainedQuotes, setRetainedQuotes] = useState(0)
+  useEffect(() => {
+    let current = true
+    setRetainedQuotes(0)
+    req<{ count: number }>(`/api/orgs/${slug}/nodes/${node.id}/reply-events`)
+      .then(r => { if (current) setRetainedQuotes(r.count || 0) })
+      .catch(() => {})
+    return () => { current = false }
+  }, [slug, node.id])
   // every card that opens a config panel carries a scope (real nodes and
   // bearer stubs both) — only the eye root and drafts lack one
   const scope = node.scope!
@@ -1038,8 +1047,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </div>
 
         <div className="row">
-          <button className="danger" disabled={removingQuotes}
-            onClick={() => setAsking('reply-quotes')}>Remove retained reply quotes</button>
+          <>{retainedQuotes > 0 && <button className="danger" disabled={removingQuotes}
+            onClick={() => setAsking('reply-quotes')}>Remove retained reply quotes</button>}</>
         </div>
 
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
@@ -1286,7 +1295,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               {acctRows
                 .filter((r) => r.provider === providerOf(model))
                 .map((r) => <option key={r.id} value={r.id}>
-                  {r.id} · {r.label}
+                  {r.label || r.id}
                   {r.standing.state === 'limited' ? ' (limited — will wait)' : ''}
                 </option>)}
             </select>
@@ -1341,7 +1350,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           onConfirm={() => {
             setRemovingQuotes(true)
             removeReplyEvents(slug, node.id)
-              .then(r => toast([`Removed ${r.removed} retained reply quote${r.removed === 1 ? '' : 's'} for ${node.id}.`]))
+              .then(r => { setRetainedQuotes(0); toast([`Removed ${r.removed} retained reply quote${r.removed === 1 ? '' : 's'} for ${node.id}.`]) })
               .catch((e: Error) => toast([`error: ${e.message}`]))
               .finally(() => setRemovingQuotes(false))
           }} />

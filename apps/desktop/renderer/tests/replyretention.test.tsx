@@ -11,11 +11,14 @@ test('retained quote removal requires confirmation, targets the shown agent, and
   installFetch(new FakeServer())
   const fallback = globalThis.fetch
   const calls: { url: string; method: string | undefined }[] = []
-  let fail = false
+  let fail = true
+  let count = 3
   globalThis.fetch = async (url, init) => {
     if (String(url).endsWith('/reply-events')) {
+      if (!init?.method || init.method === 'GET') return { ok: true, headers: new Headers(), json: async () => ({ count }) } as Response
       calls.push({ url: String(url), method: init?.method })
       if (fail) throw new Error('refused')
+      count = 0
       return { ok: true, headers: new Headers(), json: async () => ({ removed: 3 }) } as Response
     }
     return fallback(url, init)
@@ -44,12 +47,14 @@ test('retained quote removal requires confirmation, targets the shown agent, and
     await inAct(() => { launch().click() })
     const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].filter(b => b.textContent === 'Remove retained reply quotes').at(-1)!
     await inAct(async () => { confirm.click(); await flush(10) })
-    assert.deepEqual(calls, [{ url: '/api/orgs/org/nodes/agent/reply-events', method: 'DELETE' }])
-    assert.match(messages.join(' '), /Removed 3 retained reply quotes for agent/)
-    fail = true
+    assert.match(messages.at(-1)!, /refused/)
+    assert.equal(launch().disabled, false, 'failure preserves the action for retry')
+    fail = false
     await inAct(() => { launch().click() })
     await inAct(async () => { [...document.querySelectorAll<HTMLButtonElement>('button')].filter(b => b.textContent === 'Remove retained reply quotes').at(-1)!.click(); await flush(10) })
-    assert.match(messages.at(-1)!, /refused/)
-    assert.equal(launch().disabled, false, 'failure allows an explicit retry')
+    assert.equal(calls.length, 2)
+    assert.ok(calls.every(c => c.method === 'DELETE' && c.url === '/api/orgs/org/nodes/agent/reply-events'))
+    assert.match(messages.at(-1)!, /Removed 3 retained reply quotes for agent/)
+    assert.equal(launch(), undefined, 'empty retained quotes hides the removal button immediately')
   } finally { await v.unmount(); globalThis.fetch = original }
 })

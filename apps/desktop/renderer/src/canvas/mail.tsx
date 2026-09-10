@@ -19,7 +19,7 @@ import {
 } from '../icons'
 import {
   EXTERN, fmtCredits, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
-  usePolled,
+  useHideRetired, usePolled,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentName } from './identity'
@@ -839,7 +839,8 @@ export function RetiredFold({ ids, render }: {
   render: (id: string) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  if (!ids.length) return null
+  const hideRetired = useHideRetired()
+  if (hideRetired || !ids.length) return null
   return (<>
     <button type="button" className="badge dim retired-fold"
       title={open ? 'collapse the retired entries' : ids.join(', ')}

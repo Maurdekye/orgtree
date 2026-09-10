@@ -38,7 +38,7 @@ import {
   PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
 } from '../icons'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, usePolled } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -50,7 +50,7 @@ import type { PendingGhost } from '../convo'
 import type {
   ActivityInfo, CanvasNode, LiveRow, MailLinkFn, OpFn, WorkLinkFn,
 } from './shared'
-import { ConfirmModal } from './modals'
+import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
 import { AgentDocketView, agentItems } from './docket'
@@ -1395,6 +1395,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const [askCompact, setAskCompact] = useState(false)
   // F-01 footer: retired reports collapsed behind one chip (user ruling)
   const [showRetired, setShowRetired] = useState(false)
+  const hideRetired = useHideRetired()
+  const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
   // The process control is a server-side CAS. This local latch only prevents
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
@@ -2565,7 +2567,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         return (
           <div className="desk-nav">
             {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
-            {retired.length > 0 && (
+            {hideRetired && retired.length > 0 && <>
+              <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
+                {retired.length} retired
+              </button>
+              {retiredMenuOpen && <ModalOverPins><PilePicker
+                pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
+                map={map} close={() => setRetiredMenuOpen(false)}
+                onPick={id => { setRetiredMenuOpen(false); onJump(id) }} /></ModalOverPins>}
+            </>}
+            {!hideRetired && retired.length > 0 && (
               <button className="desk-nav-chip dim"
                 title={showRetired ? 'collapse the retired reports'
                   : retired.map((c) => c.id).join(', ')}
@@ -2574,7 +2585,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                   : `show ${retired.length} retired`}
               </button>
             )}
-            {showRetired && retired.map((c) =>
+            {!hideRetired && showRetired && retired.map((c) =>
                 <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
           </div>
         )

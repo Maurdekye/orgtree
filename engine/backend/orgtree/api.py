@@ -9886,6 +9886,14 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     return out
 
 
+@app.get("/api/orgs/{slug}/nodes/{nid}/reply-events")
+def retained_reply_events(slug: str, nid: str) -> dict[str, Any]:
+    from . import reply_events
+    org = store.load_org(slug)
+    org.node(nid)
+    return {'count': reply_events.count(slug, nid)}
+
+
 @app.delete("/api/orgs/{slug}/nodes/{nid}/reply-events")
 def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
     """Explicit operator removal of retained reply quotes for one agent."""
