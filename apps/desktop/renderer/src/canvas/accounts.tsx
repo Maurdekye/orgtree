@@ -444,7 +444,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
           </div>)}
         </div> : <p className='dim acct-provider-empty'>No model tiers reported</p>}
         {p.cli_version?.update_available === true && <p className='acct-provider-update'>CLI update available: {p.cli_version.latest ?? 'newer version'}</p>}
-        {p.reserve && <p className='dim acct-provider-note'>Reserve capacity: {p.reserve.percent == null ? 'unknown' : p.reserve.percent + '% used'}{p.reserve.resets_at && ' · resets ' + fmtFull(p.reserve.resets_at)}{p.reserve.reason && ' · ' + p.reserve.reason}</p>}
+        {p.id !== 'openai' && p.reserve && <p className='dim acct-provider-note'>Reserve capacity: {p.reserve.percent == null ? 'unknown' : p.reserve.percent + '% used'}{p.reserve.resets_at && ' · resets ' + fmtFull(p.reserve.resets_at)}{p.reserve.reason && ' · ' + p.reserve.reason}</p>}
       </div>)}
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}

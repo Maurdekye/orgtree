@@ -31,9 +31,14 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
   useEffect(() => { reload() }, [reload])
   if (error) return <div className="dim">usage: {error} <button onClick={reload}>retry</button></div>
   if (!u) return <p className="dim">reading usage…</p>
+  // Accounts omits Codex reserve usage; other usage surfaces retain it.
+  const codex = ['openai', 'codex'].includes((u.provider ?? '').toLowerCase())
+  const displayed = codex
+    ? { ...u, limits: u.limits?.filter(l => l.model !== 'gpt-reserve') }
+    : u
   return <div className="account-usage">
     {u.available
-      ? <UsageBars u={u} />
+      ? <UsageBars u={displayed} />
       : <p className="dim">{u.unsupported
           ? `${u.provider}: no usage surface`
           : (u.error ?? 'usage unavailable')}</p>}

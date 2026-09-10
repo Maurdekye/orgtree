@@ -8,6 +8,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { AccountUsagePanel } from '../src/accountusage'
 import type { AccountsPayload, ProviderInfo, ProvidersPayload } from '../src/types'
 
 const ACCOUNTS: AccountsPayload = {
@@ -104,6 +105,30 @@ async function mountSettings() {
   await inAct(async () => { await flush(10) })
   return view
 }
+
+test('Accounts omits Codex reserve usage but preserves regular usage', async () => {
+  localStorage.clear()
+  const codex = provider('openai')
+  codex.reserve = { percent: 82, reason: 'reserve fixture' } as ProviderInfo['reserve']
+  stubFetch([], { providers: [codex] })
+  const settings = await mountSettings()
+  try {
+    assert.match(settings.el.textContent ?? '', /Codex CLI/)
+    assert.doesNotMatch(settings.el.textContent ?? '', /Reserve capacity|reserve fixture/)
+  } finally { await settings.unmount() }
+  const payload = { account: 'a1', provider: 'Codex', available: true, limits: [
+    { kind: 'weekly', group: 'all', percent: 37, model: null, label: 'Regular weekly', resets_at: null, severity: null },
+    { kind: 'weekly', group: 'model', percent: 82, model: 'gpt-reserve', label: 'Reserve weekly', resets_at: null, severity: null },
+  ] }
+  g.fetch = () => Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(payload) })
+  const usage = await mountView(<AccountUsagePanel accountId="a1" />, el => el)
+  try {
+    await inAct(async () => { await flush(10) })
+    assert.match(usage.el.textContent ?? '', /37%/)
+    assert.doesNotMatch(usage.el.textContent ?? '', /82%|Reserve weekly/)
+    assert.equal(payload.limits.length, 2, 'Display filtering must not mutate account data')
+  } finally { await usage.unmount(); delete g.fetch }
+})
 
 test('§1 stable accessible tabs navigate by key without swapping identity',
   async () => {
