@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Iterator
 
 BLOCK = 64 * 1024
+#: chat-window-index paths already switched to WAL this process (review F6)
+_index_wal: set[str] = set()
 
 
 def reverse_lines(path: str, stats: dict[str, int]) -> Iterator[tuple[int, str]]:
@@ -64,8 +66,18 @@ def _stamp(value):
         return None
 
 
-def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int], *, key=None):
-    """Read only the sidecar suffix needed by the selected prompt occurrences."""
+def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int], *,
+           key=None, view_source: str | None = None):
+    """The human projections for the selected prompt occurrences.
+
+    With a `view_source`, the sidecar's NEW lines are first captured into
+    the durable index (bounded: bytes past the committed cursor only) and
+    matching runs against that index per digest — no full-sidecar scan on
+    display, and a sidecar that has since disappeared still projects
+    (coordinator scope 2026-09-10 17:28). Without one, the legacy
+    newest-first file scan is retained. Both share the rule the scan
+    established: sidecars are written BEFORE provider echoes, so a later
+    queued copy of identical text must not replace an older occurrence."""
     from . import transcript_records
     key = key or path
     needed: dict[str, list[tuple[float | None, int]]] = {}
@@ -79,28 +91,42 @@ def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int
     found: dict[str, list[dict]] = {}
     if not needed:
         return found
-    lines = reverse_lines(path, stats) if Path(path).is_file() else ()
-    for _, line in lines:
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict) or not isinstance(row.get("visible"), str):
-            continue
+
+    def match_row(row: dict) -> bool:
         stamp = _stamp(row.get('at'))
-        if earliest is not None and stamp is not None and stamp < earliest - 300:
-            break
-        digest = row.get("sha256")
-        events = needed.get(digest, [])
-        # Sidecars are written BEFORE provider echoes. A later queued copy of
-        # identical text must not replace an older occurrence already on disk.
+        events = needed.get(row.get("sha256"), [])
         match = next((i for i, (event, _) in enumerate(events)
                       if event is None or stamp is None or 0 <= event - stamp <= 300), None)
-        if match is not None:
-            _, offset = events.pop(match)
-            transcript_records.remember_view(key, offset, row)
-            found.setdefault(digest, []).append(row)
-            if not any(needed.values()):
+        if match is None:
+            return False
+        _, offset = events.pop(match)
+        transcript_records.remember_view(key, offset, row)
+        found.setdefault(row["sha256"], []).append(row)
+        return True
+
+    if view_source is not None:
+        if Path(path).is_file():
+            transcript_records.ingest_prompt_views(view_source, path, stats)
+        for digest in list(needed):
+            # oldest-first from the index; matched newest-first, exactly as
+            # the file scan (which read the file backwards) always did
+            for row in reversed(transcript_records.prompt_views_for(view_source, digest)):
+                if not needed.get(digest):
+                    break
+                match_row(row)
+    else:
+        lines = reverse_lines(path, stats) if Path(path).is_file() else ()
+        for _, line in lines:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict) or not isinstance(row.get("visible"), str):
+                continue
+            stamp = _stamp(row.get('at'))
+            if earliest is not None and stamp is not None and stamp < earliest - 300:
+                break
+            if match_row(row) and not any(needed.values()):
                 break
     for digest, events in needed.items():
         for _, offset in events:
@@ -139,8 +165,11 @@ def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *,
                 position = epoch * (1 << 40) + offset
                 if position > before:
                     chronological.append((position, body, json.loads(body)))
-        views = {} if imported else _views(sup._prompt_view_path(
-            org.d["slug"], org.node(nid)["session_id"]), chronological, stats, key=key)
+        views = {} if imported else _views(
+            sup._prompt_view_path(org.d["slug"], org.node(nid)["session_id"]),
+            chronological, stats, key=key,
+            view_source=transcript_records.views_source(
+                org.d["slug"], org.node(nid)["session_id"]))
         built = sup._read_chat_source(org, nid,
             _lines=(row[1] for row in chronological),
             _record_offsets=(row[0] for row in chronological),
@@ -235,10 +264,13 @@ def read_page(org, nid, want, before):
     rows = [{**sup._public_row(row), 'event_id': sup._stable_event_id(org, nid, row)} for row in selected]
     # The existing boundary provides a stable right-hand ordering anchor.
     anchor = {'event_id': cursor['id']}
-    transcript_records.order(source_key(org, nid), rows + [anchor])
+    order_epoch = transcript_records.order(source_key(org, nid), rows + [anchor])
     for row in rows:
         row['row_id'] = row['event_id']
     out = {'messages': rows, 'has_older': more, 'windowed': True, 'window_read': stats,
+           # bumps only when a rank rebalance ran (review F9): held client
+           # seq values stop comparing against fresh ones at that moment
+           'order_epoch': order_epoch,
            'before': _cursor(org, nid, rows, raw) if more else None}
     return reply_events.annotate(org, nid, out)
 
@@ -262,9 +294,25 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                                         (source_key(org, nid),)).fetchone()[0] if imported else None
         return json.dumps([sup._file_version(path), None if imported else sup._file_version(sidecar),
                            sup.context_window(node, org.d.get('models')), persisted, native_count])
+    # Ingest BEFORE the version snapshot: the projection's own lazy import
+    # legitimately advances the persisted cursor, and taking the snapshot
+    # first would make every COLD read invalidate its own cache write (the
+    # snapshot is what the cache is stored under — review F2). A further
+    # advance during projection (a concurrent append, or the demand loop
+    # doubling its target) leaves the cache stored under a version that no
+    # longer matches, which costs one rebuild and never serves stale rows.
+    from . import transcript_records
+    transcript_records.ingest(raw_key, path, max(8, want * 2), stats,
+                              before=before)
     version_before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
     with sqlite3.connect(database, timeout=10) as conn:
+        if str(database) not in _index_wal:
+            # WAL so a projection being cached never blocks another desk's
+            # cache READ of a different conversation (review F6); the pragma
+            # is persistent in the file, re-issued once per process
+            conn.execute('PRAGMA journal_mode=WAL')
+            _index_wal.add(str(database))
         conn.execute('CREATE TABLE IF NOT EXISTS sources (key TEXT PRIMARY KEY, version TEXT, more INTEGER, state TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS rows (source TEXT, ordinal INTEGER, body TEXT, PRIMARY KEY(source,ordinal)) WITHOUT ROWID')
         meta = conn.execute('SELECT version,more,state FROM sources WHERE key=?', (key,)).fetchone()
@@ -288,8 +336,16 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
             conn.executemany('INSERT INTO rows VALUES (?,?,?)',
                              ((key,i,json.dumps(row,ensure_ascii=False)) for i,row in enumerate(source['messages'])))
             cached = {'fill': source['fill'].__dict__, 'context_cap': source['context_cap']}
+            # ⚠ CACHED UNDER version_before, NEVER `after` (review F2): the
+            # rows describe the state that was READ. A record committed
+            # DURING projection advances `after`'s persisted cursor — the
+            # [:3] guard above deliberately ignores it — and caching under
+            # `after` would pin those rows as current, hiding the appended
+            # record until some unrelated later mutation. Under
+            # version_before the very next read sees a version mismatch and
+            # rebuilds — stale is stored, stale is never served.
             conn.execute('INSERT OR REPLACE INTO sources VALUES (?,?,?,?)',
-                         (key,after,int(more),json.dumps(cached)))
+                         (key,version_before,int(more),json.dumps(cached)))
         return dynamic, source, more
 
 
@@ -349,13 +405,13 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
     visible_count = len(out['messages'])
     out['messages'] = out['messages'][-want:]
     from . import transcript_records
-    transcript_records.order(source_key(org, nid), out['messages'])
+    order_epoch = transcript_records.order(source_key(org, nid), out['messages'])
     for row in out['messages']:
         # reply_events annotates event_id with an immutable quote revision;
         # row_id continues to identify the mutable conversation occurrence.
         row['row_id'] = row['event_id']
     out.update(has_older=more or visible_count > want, windowed=True,
-               window_read=stats)
+               window_read=stats, order_epoch=order_epoch)
     out['before'] = _cursor(org, nid, out['messages'], base) if out['has_older'] else None
     st = sup.state(org.d["slug"], nid)
     with sup._state_lock:

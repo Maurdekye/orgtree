@@ -210,6 +210,70 @@ class WindowTests(unittest.TestCase):
                         self.fail('paging did not terminate')
                 self.assertEqual([row['text'] for row in all_rows], [f'message {i}' for i in range(40)])
 
+    def test_concurrent_append_during_projection_is_not_pinned_stale(self):
+        # review F2: a record committed between the projection's row read and
+        # its version snapshot must appear on the VERY NEXT read — the cache
+        # is stored under the pre-projection version, so any mid-projection
+        # advance is a mismatch and rebuilds, never a hit over missing rows.
+        from orgtree import transcript_records
+        node = self.org.node('agent')
+        node['model'] = 'luna'
+        slug, sid = self.org.d['slug'], node['session_id']
+        journal = Path(sup.journal_store()) / 'projects' / slug / (sid + '.jsonl')
+        sup._codex_journal(slug, sid, [self.rec(1, 'first')])
+        journal.unlink()          # absent mirror: file version stays constant
+        raced = {'done': False}
+        original_tail = transcript_records.tail
+
+        def racy_tail(source, count, before=None):
+            out = original_tail(source, count, before=before)
+            if not raced['done']:
+                raced['done'] = True
+                transcript_records.append_owned(slug, sid, journal,
+                                                [self.rec(2, 'raced')])
+            return out
+        with patch.object(sup, 'transcript_path', return_value=None):
+            with patch.object(transcript_records, 'tail', side_effect=racy_tail):
+                during = self.read()
+            self.assertEqual(during['messages'][-1]['text'], 'first',
+                             'control: the raced record landed after the row read')
+            after = self.read()
+        self.assertEqual(after['messages'][-1]['text'], 'raced',
+                         'a record appended during projection appears on the next read')
+
+    def test_prompt_views_survive_sidecar_loss_for_never_displayed_history(self):
+        # coordinator scope 2026-09-10 17:28: display captures the sidecar
+        # into the durable index, so prompts whose occurrences were NEVER
+        # matched on screen still project after the sidecar disappears —
+        # retained per-offset views alone cannot answer for those.
+        import hashlib
+        raw = 'identical prompt'
+        self.write([self.rec(i, raw, role='user') for i in range(30)])
+        sidecar = Path(sup._prompt_view_path(self.org.d['slug'],
+                                             self.org.node('agent')['session_id']))
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        sidecar.write_text(''.join(
+            json.dumps({'sha256': digest, 'at': self.rec(i)['timestamp'],
+                        'visible': f'visible {i}'}) + '\n'
+            for i in range(30)), encoding='utf-8')
+        first = self.read(2)      # displays (and retains) only the newest few
+        self.assertIn('visible', first['messages'][-1]['text'])
+        sidecar.unlink()
+        (Path(store.DATA_ROOT) / 'chat-window-index.sqlite3').unlink()
+        wide = self.read(30)      # needs occurrences never displayed before
+        self.assertEqual([m['text'] for m in wide['messages']],
+                         [f'visible {i}' for i in range(30)],
+                         'unseen history keeps its human projection without the sidecar')
+
+    def test_payloads_carry_the_order_epoch(self):
+        self.write([self.rec(i) for i in range(40)])
+        newest = self.read(8)
+        self.assertIn('order_epoch', newest)
+        page = chat_window.read_page(self.org, 'agent', 8, newest['before'])
+        self.assertIn('order_epoch', page)
+        self.assertEqual(page['order_epoch'], newest['order_epoch'])
+
     def test_http_route_uses_bounded_index_not_full_reader(self):
         from fastapi.testclient import TestClient
         self.write([self.rec(i) for i in range(100)])
