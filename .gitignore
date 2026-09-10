@@ -9,3 +9,6 @@ __pycache__/
 test-results/
 engine/runtime/
 .runtime-cache/
+
+# regenerated on every cardlayout probe run — evidence artifact, not source
+apps/desktop/renderer/tests/gear-browser-evidence.png
