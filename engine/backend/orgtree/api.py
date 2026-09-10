@@ -5840,15 +5840,14 @@ def user_inbox(slug: str, request: Request = cast(Request, None)) -> dict[str, A
     identically): unread mail + the read archive + the Sent folder (every user
     message is mail and gets recorded)."""
     try:
-        d = store.load_org_snapshot(
-            slug, ("user_mail_log", "user_outbox")).d
+        d = store.read_user_inbox(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
     pub = _public_slug(request) is not None
-    return {"pending": _mail_refs(slug, "user", d.get("user_inbox", []), public=pub),
+    return {"pending": _mail_refs(slug, "user", d["pending"], public=pub),
             "delivered": _mail_refs(slug, "user",
-                                    d.get("user_mail_log", [])[-50:], public=pub),
-            "sent": _sent_refs(slug, d.get("user_outbox", [])[-50:], public=pub)}
+                                    d["delivered"], public=pub),
+            "sent": _sent_refs(slug, d["sent"], public=pub)}
 
 
 class InboxRead(Body):

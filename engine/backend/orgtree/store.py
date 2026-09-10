@@ -2763,6 +2763,52 @@ def _load_sqlite_org(slug: str, preload: Iterable[str] = ()) -> Org:
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
 
+def read_user_inbox(slug: str) -> dict[str, Any]:
+    """Read the pending box and two 50-row tails in one SQLite snapshot.
+
+    This is a read projection, never an Org that could be saved. It avoids
+    loading the roster, unrelated pending notices and entire mail histories.
+    JSON remains the rollback reader. Pending mail is intentionally complete.
+    """
+    if STORE_BACKEND != "sqlite":
+        d = load_org(slug).d
+        return {"pending": d.get("user_inbox", []),
+                "delivered": d.get("user_mail_log", [])[-50:],
+                "sent": d.get("user_outbox", [])[-50:]}
+    slug = _safe_slug(slug)
+    _ensure_migrated(slug)
+    db = _db_path(slug)
+    if not os.path.exists(db):
+        raise LedgerError(f"no such org: {slug!r}")
+    try:
+        with _POOL.acquire(slug) as conn:
+            conn.execute("BEGIN")
+            try:
+                if _meta_get(conn, "schema_version") is None:
+                    raise LedgerError(f"{db!r} is not an intact orgtree database (no schema_version row)")
+                blobs = dict(conn.execute("SELECT key,val FROM doc WHERE key IN "
+                                          "('user_inbox','user_mail_log','user_outbox')"))
+                result = {"pending": json.loads(blobs.get("user_inbox", "[]"))}
+                for name, section in (("delivered", "user_mail_log"), ("sent", "user_outbox")):
+                    if section in blobs:
+                        # Historical non-rowed storage keeps exactly its old semantics.
+                        result[name] = json.loads(blobs[section])[-50:]
+                    else:
+                        rows = conn.execute("SELECT val FROM log_l WHERE sect=? "
+                                            "ORDER BY seq DESC LIMIT 50", (section,)).fetchall()
+                        result[name] = [json.loads(row[0]) for row in reversed(rows)]
+                conn.execute("COMMIT")
+                return result
+            except BaseException:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+    except sqlite3.OperationalError as e:
+        if not os.path.exists(db):
+            raise LedgerError(f"no such org: {slug!r}") from None
+        raise LedgerError(f"cannot open org {slug!r}: {e}") from e
+
+
 def load_org_snapshot(slug: str, sections: Iterable[str]) -> Org:
     """Load one coherent projection without retaining a read transaction.
 
