@@ -3834,10 +3834,14 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
         raise HTTPException(422, "kind must be imported|managed — token "
                                  "rows are compatibility only and are never "
                                  "minted by setup (Q1 ruling)")
+    credential = {"kind": body.kind, "path": path}
+    if body.kind == "imported" and body.provider == "claude":
+        from .registry_migration import _claude_default_config
+        if _claude_default_config(path):
+            credential["default_config"] = True
     try:
         row = registry.create_account(
-            body.provider, str(body.label or ""),
-            {"kind": body.kind, "path": path})
+            body.provider, str(body.label or ""), credential)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {**row, "standing": registry.standing_of(row)}

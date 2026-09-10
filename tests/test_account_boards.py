@@ -191,5 +191,21 @@ class BoardsTests(unittest.TestCase):
         self.assertEqual(asyncio.run(self.api.accounts_identity(default["id"]))["identity"]["uuid"], "default-id")
 
 
+    def test_importing_default_claude_profile_keeps_its_selector(self):
+        import asyncio
+        from unittest.mock import patch
+        from engine.backend.orgtree import registry_migration
+        profile = os.path.join(self.root, "import-default", ".claude")
+        os.makedirs(profile, exist_ok=True)
+        with patch.object(registry_migration, "_claude_default_config", return_value=True):
+            row = asyncio.run(self.api.accounts_create(self.api.AccountCreate(
+                provider="claude", kind="imported", path=profile)))
+        self.assertTrue(row["credential"]["default_config"])
+        with patch.object(registry_migration, "_claude_default_config", return_value=False):
+            redirected = asyncio.run(self.api.accounts_create(self.api.AccountCreate(
+                provider="claude", kind="imported", path=profile)))
+        self.assertNotIn("default_config", redirected["credential"])
+
+
 if __name__ == "__main__":
     unittest.main()
