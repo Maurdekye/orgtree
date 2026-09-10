@@ -130,8 +130,8 @@ export const runOp = (slug: string, body: OpRequest): Promise<OpResult> =>
     body: JSON.stringify(body),
   })
 
-export const getChat = (slug: string, nid: string, last?: number): Promise<ChatPayload> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/chat${last ? `?last=${last}` : ''}`)
+export const getChat = (slug: string, nid: string, last?: number, before?: string): Promise<ChatPayload> =>
+  req(`/api/orgs/${slug}/nodes/${nid}/chat?last=${last ?? 300}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 
 /** multi-account: reassign a node's account (operator surface). The result
  * is the full disclosure set — billing mode, standing with provenance, the

@@ -163,6 +163,7 @@ export interface Convo {
   thinkSecs: number | null
   win: number
   loadingOlder: boolean
+  paged?: boolean
   /** a fetch has completed at least once — the first load always sticks */
   loaded: boolean
 }
@@ -173,6 +174,7 @@ const BLANK: Convo = {
 }
 
 interface Entry {
+  pageInFlight?: boolean
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -366,6 +368,11 @@ export function useConvo(slug: string, nid: string): Convo {
         // nobody is rendering thinkSecs — stop patching it at 1 Hz. thinkT0
         // stays set, so a resubscribe resumes with the true elapsed time.
         stopClock(e)
+        if (e.s.paged && e.s.chat) {
+          e.s = { ...e.s, paged: false, chat: { ...e.s.chat,
+            messages: e.s.chat.messages.slice(-e.s.win), before: undefined } }
+          e.dirty = true
+        }
       }
     }
   }, [k, slug, nid])
@@ -452,13 +459,35 @@ export function refreshConvo(slug: string, nid: string,
   const ownsRequest = (): boolean =>
     M.get(e.ownerKey) === e && e.ownerVersion === ownerVersion
       && e.requestSerial === requestSerial
-  return getChat(slug, nid, e.s.win).then((c) => {
+  return getChat(slug, nid, e.s.win).then(async (c) => {
     if (!ownsRequest()) return
-    e.inflight = false
     e.fetchedAt = Date.now()
     // latest-STARTED request wins, not latest-landed — see Entry.installed
     if (startedAt < e.installed) return
     e.installed = startedAt
+    // A burst can exceed one viewport between polls. Fill only that new
+    // interval before joining it to already loaded history; never silently
+    // join two disjoint ranges and make the intervening messages disappear.
+    if (e.s.paged && e.s.chat?.messages.length && c.messages.length) {
+      const previousLast = e.s.chat.messages.at(-1)!.seq
+      let cursor = c.before
+      while (cursor && typeof previousLast === 'number'
+             && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
+        const page = await getChat(slug, nid, e.s.win, cursor)
+        if (!ownsRequest()) return
+        if (!page.messages.length || page.before === cursor) break
+        const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+        c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+        cursor = page.before
+      }
+    }
+    e.inflight = false
+    if (e.s.paged && e.s.chat && c.messages.length) {
+      const first = c.messages[0]!.seq
+      const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
+      c = { ...c, messages: [...older, ...c.messages],
+        before: e.s.chat.before, has_older: e.s.chat.has_older }
+    }
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
     // CONTAINMENT, not equality, since the turn text is a mail envelope by
     // then. Two things count as visible, and both must, because the message
@@ -606,7 +635,7 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    patchEntry(e, { chat: c, loaded: true, loadingOlder: false, pending, live, ...retire }, ownerVersion)
+    patchEntry(e, { chat: c, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
   }).catch(() => {
     if (!ownsRequest()) return
     e.inflight = false
@@ -619,10 +648,28 @@ export function refreshConvo(slug: string, nid: string,
 // transcript. This file no longer decides what to retire; it renders what the
 // server retired.)
 
-export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW): boolean {
+export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewport = false): boolean {
   const k = key(slug, nid)
   const e = entry(k)
-  if (e.s.loadingOlder || e.s.win >= MAX_WINDOW) return false
+  if (e.s.loadingOlder || e.pageInFlight || e.s.win >= MAX_WINDOW) return false
+  const before = e.s.chat?.before
+  if (before && !viewport) {
+    const version = e.ownerVersion
+    e.pageInFlight = true
+    patchEntry(e, { loadingOlder: true })
+    void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
+      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) return
+      e.pageInFlight = false
+      if (!e.subs.size) { patchEntry(e, { loadingOlder: false }, version); return }
+      const current = e.s.chat
+      const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      const added = page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq))
+      patchEntry(e, { paged: true, loadingOlder: false,
+        chat: { ...current, messages: [...added, ...current.messages],
+          before: page.before, has_older: page.has_older } }, version)
+    }).catch(() => { e.pageInFlight = false; patchEntry(e, { loadingOlder: false }, version) })
+    return true
+  }
   patch(k, { loadingOlder: true, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
   void refreshConvo(slug, nid, { force: true })
   return true

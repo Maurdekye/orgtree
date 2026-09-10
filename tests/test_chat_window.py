@@ -128,6 +128,11 @@ class WindowTests(unittest.TestCase):
         views[39]['visible']='corrected projection'
         sidecar.write_text(''.join(json.dumps(v)+'\n' for v in views),encoding='utf-8')
         self.assertEqual(self.read()['messages'][-1]['text'],'corrected projection')
+        sidecar.unlink()
+        self.path.unlink()
+        (Path(store.DATA_ROOT) / 'chat-window-index.sqlite3').unlink()
+        with patch.object(sup, 'transcript_path', return_value=None):
+            self.assertEqual(self.read()['messages'][-1]['text'], 'corrected projection')
 
     def test_imported_only_and_clone_merge_keep_distinct_records(self):
         archive=Path(fixture.name)/'archive.jsonl'
@@ -150,6 +155,60 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(out['messages'],[])
         self.assertFalse(out['has_older'])
         self.assertTrue(out['windowed'])
+
+    def test_cursor_reads_only_older_page_and_keeps_existing_sequence(self):
+        self.write([self.rec(i) for i in range(400)])
+        newest = self.read(8)
+        page = chat_window.read_page(self.org, 'agent', 8, newest['before'])
+        self.assertEqual([m['text'] for m in page['messages']], [f'message {i}' for i in range(384,392)])
+        self.assertLess(page['window_read']['records_parsed'], 40)
+        self.assertLess(page['messages'][-1]['seq'], newest['messages'][0]['seq'])
+        next_page = chat_window.read_page(self.org, 'agent', 8, page['before'])
+        self.assertEqual([m['text'] for m in next_page['messages']], [f'message {i}' for i in range(376,384)])
+        again = self.read(8)
+        self.assertEqual([m['seq'] for m in again['messages']], [m['seq'] for m in newest['messages']])
+        self.assertEqual(len({m['row_id'] for m in next_page['messages'] + page['messages'] + newest['messages']}),24)
+
+    def test_cursor_rejects_other_conversation(self):
+        self.write([self.rec(i) for i in range(40)])
+        before = self.read()['before']
+        self.org.node('agent')['session_id'] = 'different-session'
+        with self.assertRaises(ValueError):
+            chat_window.read_page(self.org, 'agent', 8, before)
+
+    def test_older_page_keeps_tool_result_from_a_later_page(self):
+        call = self.rec(10)
+        call['message']['content'] = [{'type':'tool_use','id':'later-result','name':'Read','input':{'file_path':'example'}}]
+        self.write([self.rec(i) for i in range(10)] + [call])
+        self.read()
+        result = self.rec(20, role='user')
+        result['message']['content'] = [{'type':'tool_result','tool_use_id':'later-result','content':'completed result'}]
+        self.write([self.rec(i) for i in range(11,20)] + [result] + [self.rec(i) for i in range(21,32)], 'a')
+        current = self.read(8)
+        while not any(row.get('tools') for row in current['messages']):
+            self.assertTrue(current['before'], 'call must remain reachable through history pages')
+            current = chat_window.read_page(self.org, 'agent', 8, current['before'])
+        tool = next(row['tools'][0] for row in current['messages'] if row.get('tools'))
+        self.assertEqual(tool['result'], 'completed result')
+
+    def test_cursor_crosses_import_boundary_without_repeating_clone_rows(self):
+        archive = Path(fixture.name) / 'cursor-archive.jsonl'
+        archive.write_text(''.join(json.dumps(self.rec(i))+'\n' for i in range(30)), encoding='utf8')
+        for cloned in (False, True):
+            with self.subTest(cloned=cloned):
+                self.org.node('agent')['session_id'] = uuid.uuid4().hex
+                self.write([self.rec(i) for i in range(0 if cloned else 30,40)])
+                with patch('orgtree.desktop_import.imported_history_path', return_value=str(archive)):
+                    page = self.read(8)
+                    all_rows = page['messages']
+                    for _ in range(20):
+                        if not page['before']:
+                            break
+                        page = chat_window.read_page(self.org, 'agent', 8, page['before'])
+                        all_rows = page['messages'] + all_rows
+                    else:
+                        self.fail('paging did not terminate')
+                self.assertEqual([row['text'] for row in all_rows], [f'message {i}' for i in range(40)])
 
     def test_http_route_uses_bounded_index_not_full_reader(self):
         from fastapi.testclient import TestClient

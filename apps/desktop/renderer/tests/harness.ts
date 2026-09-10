@@ -125,6 +125,7 @@ export const REPS = Number(process.env.ORGTREE_TEST_REPS || '1') || 1
  *  the server's business, but `pending_mail` → transcript IS, and the handover
  *  between them is where D-51/D-52/D-55 all lived. */
 export class FakeServer {
+  cursorPages = false
   busy = false
   responding = false
   queued = 0
@@ -146,7 +147,7 @@ export class FakeServer {
   /** metadata returned by the agent-scoped document gallery endpoint */
   documents: unknown[] = []
   /** every chat request the client has made, newest last */
-  requests: { last: number | null; at: number }[] = []
+  requests: { last: number | null; at: number; before?: string }[] = []
   /** every `/upload` request this server answered, newest last — a test
    *  asserts against this rather than the fetch call directly, the same
    *  shape `requests` already gives the `/chat` poller */
@@ -298,7 +299,7 @@ export function installFetch(server: FakeServer): Transport {
     t.requests++
     const last = u.searchParams.get('last')
     if (/\/chat$/.test(u.pathname)) {
-      server.requests.push({ last: last ? Number(last) : null, at: Date.now() })
+      server.requests.push({ last: last ? Number(last) : null, at: Date.now(), ...(u.searchParams.get('before') ? {before:u.searchParams.get('before')!} : {}) })
     }
     const status = server.fail
     const lat = server.onceLatency ?? server.latency
@@ -344,6 +345,15 @@ export function installFetch(server: FakeServer): Transport {
                 return { path, bytes: 0 }
               })()
               : { ok: true }
+    if (server.cursorPages && /\/chat$/.test(u.pathname)) {
+      const chat = body as ChatPayload
+      const before = u.searchParams.get('before')
+      const available = before ? server.messages.filter(row => (row.seq ?? 0) < Number(before)) : server.messages
+      chat.messages = available.slice(-(Number(last) || 8)).map(row => ({...row, row_id:`mock-${row.seq}`}))
+      chat.windowed = true
+      chat.has_older = available.length > chat.messages.length
+      chat.before = chat.has_older ? String(chat.messages[0]!.seq) : null
+    }
     return new Promise((resolve, reject) => {
       // every real response carries the answering process's id; the stub does
       // too, or the restart detector in `req` would be exercised by nothing

@@ -7,6 +7,7 @@ independently of how much older history this particular viewer requested.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import sqlite3
@@ -63,9 +64,10 @@ def _stamp(value):
         return None
 
 
-def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int]):
+def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int], *, key=None):
     """Read only the sidecar suffix needed by the selected prompt occurrences."""
     from . import transcript_records
+    key = key or path
     needed: dict[str, list[tuple[float | None, int]]] = {}
     stamps = [_stamp(rec.get('timestamp')) for _, _, rec in records]
     earliest = min((s for s in stamps if s is not None), default=None)
@@ -96,27 +98,27 @@ def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int
                       if event is None or stamp is None or 0 <= event - stamp <= 300), None)
         if match is not None:
             _, offset = events.pop(match)
-            transcript_records.remember_view(path, offset, row)
+            transcript_records.remember_view(key, offset, row)
             found.setdefault(digest, []).append(row)
             if not any(needed.values()):
                 break
     for digest, events in needed.items():
         for _, offset in events:
-            retained = transcript_records.retained_view(path, offset)
+            retained = transcript_records.retained_view(key, offset)
             if retained is not None:
                 found.setdefault(digest, []).append(retained)
     return {key: sorted(rows, key=lambda row: str(row.get('at') or '')) for key, rows in found.items()}
 
 
 
-def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False):
+def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False, before=None):
     from . import supervisor as sup
     from . import transcript_records
     key = source_key(org, nid, imported)
     target = max(8, want * 2)
     while True:
-        transcript_records.ingest(key, path, target, stats)
-        stored, more = transcript_records.tail(key, target)
+        transcript_records.ingest(key, path, target, stats, before=before)
+        stored, more = transcript_records.tail(key, target, before=before)
         chronological = []
         for epoch, offset, line in stored:
             try:
@@ -126,14 +128,26 @@ def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *,
                 continue
             if isinstance(rec, dict):
                 chronological.append((epoch * (1 << 40) + offset, line, rec))
+        if before is not None:
+            calls = []
+            for _, _, rec in chronological:
+                content = rec.get('message', {}).get('content') if isinstance(rec.get('message'), dict) else None
+                if isinstance(content, list):
+                    calls.extend(str(block['id']) for block in content if isinstance(block, dict)
+                                 and block.get('type') == 'tool_use' and block.get('id'))
+            for epoch, offset, body in transcript_records.results_for(key, calls):
+                position = epoch * (1 << 40) + offset
+                if position > before:
+                    chronological.append((position, body, json.loads(body)))
         views = {} if imported else _views(sup._prompt_view_path(
-            org.d["slug"], org.node(nid)["session_id"]), chronological, stats)
+            org.d["slug"], org.node(nid)["session_id"]), chronological, stats, key=key)
         built = sup._read_chat_source(org, nid,
             _lines=(row[1] for row in chronological),
             _record_offsets=(row[0] for row in chronological),
             _source_namespace=hashlib.sha256(key.encode()).hexdigest()[:16],
             _prompt_views=views, _source_only=True, _path=Path(path))
         source, dynamic = built["source"], built["out"]
+        source['messages'] = transcript_records.native_rows(source_key(org, nid), source['messages'], remember=not imported)
         sup._source_metadata(source)
         if not more or len(source["messages"]) >= want + 2:
             return dynamic, source, more
@@ -153,7 +167,83 @@ def source_key(org, nid, imported=False):
                        node.get('session_id'), bool(imported)])
 
 
-def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False):
+def _cursor(org, nid, rows, raw):
+    if not rows:
+        return None
+    first = rows[0]
+    identity = first.get('row_id') or first.get('event_id')
+    anchor = next((r for r in raw if r.get('event_id') == identity), None)
+    if anchor is None:
+        anchor = next((r for r in raw if str(r.get('ts') or '') >= str(first.get('ts') or '')), None)
+    payload = {'scope': source_key(org, nid), 'id': identity, 'ts': first.get('ts'),
+               'position': anchor.get('_byte_offset') if anchor else None,
+               'imported': bool(anchor and anchor.get('imported_history'))}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+def read_page(org, nid, want, before):
+    """Read an older range without sweeping or replacing the current live tail."""
+    from . import supervisor as sup, transcript_records, reply_events
+    from .desktop_import import imported_history_path
+    cursor = json.loads(base64.urlsafe_b64decode(before))
+    if cursor.get('scope') != source_key(org, nid):
+        raise ValueError('Transcript cursor belongs to a different conversation')
+    want = max(1, min(int(want), 1000))
+    phase = bool(cursor.get('imported'))
+    stats = {'bytes_read': 0, 'records_parsed': 0}
+    node = org.node(nid)
+    history = imported_history_path(org, nid)
+    path = history if phase else sup.transcript_path(node['session_id'], sup._transcript_root(org, nid))
+    if not path:
+        with transcript_records.database() as conn:
+            retained = conn.execute('SELECT path FROM transcript_sources WHERE source=?',
+                                    (source_key(org, nid, phase),)).fetchone()
+        path = retained[0] if retained else None
+    raw, more = [], False
+    if path and cursor.get('position') is not None:
+        _, source, more = project_tail(org, nid, path, want + 2, stats,
+                                      imported=phase, before=int(cursor['position']))
+        withheld = sup._visible_unresolved(source, org, nid, True)
+        raw = [row for i, row in enumerate(source['messages']) if i not in withheld]
+        for row in raw:
+            if phase:
+                row['imported_history'] = True
+        # The boundary record is included for tool/thinking context, then
+        # removed together with every row at or after the visible cursor.
+        cut = next((i for i, row in enumerate(raw) if row.get('event_id') == cursor['id']), None)
+        raw = raw[:cut] if cut is not None else [row for row in raw if
+              row.get('_byte_offset', -1) < cursor['position']]
+    if not phase and history and not more and len(raw) < want + 2:
+        _, archive, more = project_tail(org, nid, history, want - len(raw) + 2, stats, imported=True)
+        for row in archive['messages']:
+            row['imported_history'] = True
+        raw = archive['messages'] + raw
+    synthetic = sup._synthetic_chat_rows(org, nid)
+    cut = next((i for i, row in enumerate(synthetic)
+                if sup._stable_event_id(org, nid, row) == cursor['id']), None)
+    synthetic = synthetic[:cut] if cut is not None else [row for row in synthetic if
+                str(row.get('ts') or '') < str(cursor.get('ts') or '')]
+    if more and raw:
+        synthetic = [row for row in synthetic if str(row.get('ts') or '') >= str(raw[0].get('ts') or '')]
+    selected = list(raw)
+    for row in synthetic:
+        index = next((i for i, existing in enumerate(selected)
+                      if str(existing.get('ts') or '') > str(row.get('ts') or '')), len(selected))
+        selected.insert(index, row)
+    more = more or len(selected) > want
+    selected = selected[-want:]
+    rows = [{**sup._public_row(row), 'event_id': sup._stable_event_id(org, nid, row)} for row in selected]
+    # The existing boundary provides a stable right-hand ordering anchor.
+    anchor = {'event_id': cursor['id']}
+    transcript_records.order(source_key(org, nid), rows + [anchor])
+    for row in rows:
+        row['row_id'] = row['event_id']
+    out = {'messages': rows, 'has_older': more, 'windowed': True, 'window_read': stats,
+           'before': _cursor(org, nid, rows, raw) if more else None}
+    return reply_events.annotate(org, nid, out)
+
+
+def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False, before=None):
     """Cache the visible projection of canonical SQLite transcript records.
 
     Only this derived presentation can be rebuilt. Its durable input records
@@ -161,21 +251,24 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
     """
     from . import store, supervisor as sup
     node = org.node(nid)
-    key = source_key(org, nid, imported)
+    raw_key = source_key(org, nid, imported)
+    key = json.dumps([raw_key, before])
     sidecar = sup._prompt_view_path(org.d['slug'], node['session_id'])
     def version():
         from . import transcript_records
         with transcript_records.database() as conn:
-            persisted = conn.execute('SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?', (key,)).fetchone()
+            persisted = conn.execute('SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?', (raw_key,)).fetchone()
+            native_count = conn.execute('SELECT COUNT(*) FROM transcript_native_rows WHERE source=?',
+                                        (source_key(org, nid),)).fetchone()[0] if imported else None
         return json.dumps([sup._file_version(path), None if imported else sup._file_version(sidecar),
-                           sup.context_window(node, org.d.get('models')), persisted])
-    before = version()
+                           sup.context_window(node, org.d.get('models')), persisted, native_count])
+    version_before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
     with sqlite3.connect(database, timeout=10) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS sources (key TEXT PRIMARY KEY, version TEXT, more INTEGER, state TEXT)')
         conn.execute('CREATE TABLE IF NOT EXISTS rows (source TEXT, ordinal INTEGER, body TEXT, PRIMARY KEY(source,ordinal)) WITHOUT ROWID')
         meta = conn.execute('SELECT version,more,state FROM sources WHERE key=?', (key,)).fetchone()
-        if meta and meta[0] == before:
+        if meta and meta[0] == version_before:
             rows = conn.execute('SELECT body FROM rows WHERE source=? ORDER BY ordinal DESC LIMIT ?',
                                 (key,want + 2)).fetchall()
             if len(rows) >= want + 2 or not meta[1]:
@@ -188,9 +281,9 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                 stats['index_hit'] = 1
                 count = conn.execute('SELECT COUNT(*) FROM rows WHERE source=?', (key,)).fetchone()[0]
                 return dynamic, source, bool(meta[1]) or count > len(rows)
-        dynamic, source, more = _project_tail(org,nid,path,want,stats,imported=imported)
+        dynamic, source, more = _project_tail(org,nid,path,want,stats,imported=imported,before=before)
         after = version()
-        if json.loads(after)[:3] == json.loads(before)[:3]:
+        if json.loads(after)[:3] == json.loads(version_before)[:3]:
             conn.execute('DELETE FROM rows WHERE source=?',(key,))
             conn.executemany('INSERT INTO rows VALUES (?,?,?)',
                              ((key,i,json.dumps(row,ensure_ascii=False)) for i,row in enumerate(source['messages'])))
@@ -263,6 +356,7 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
         row['row_id'] = row['event_id']
     out.update(has_older=more or visible_count > want, windowed=True,
                window_read=stats)
+    out['before'] = _cursor(org, nid, out['messages'], base) if out['has_older'] else None
     st = sup.state(org.d["slug"], nid)
     with sup._state_lock:
         if not st["busy"]:
