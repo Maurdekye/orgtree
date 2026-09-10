@@ -122,8 +122,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
         () => setSelId((id) => id === r.id ? null : id)),
     })
   const openDocument = (id: string) => {
-    if (onOpenDocument) onOpenDocument(id)
-    else setSelId(id)
+    setSelId(id)
   }
   const cur = rows?.find((r) => r.id === selId)
   // ⚠ A DOCUMENT REFERENCING A DOCUMENT STAYS HERE. This panel IS the

@@ -634,3 +634,15 @@ uiTest('AgentGalleryView: authoritative evicted result stays empty over node fal
   assert.equal(rows(el).length, 0)
   assert.match(el.textContent ?? '', /No presented documents/)
 })
+
+uiTest('org gallery row uses its own preview even when shell navigation is available', async mount => {
+  mockDocs([row({id:'d1',title:'inline plan'})], {d1:'A document visible inside the organization gallery'})
+  const opened: string[] = []
+  const { el } = await mount(<DocGalleryModal slug="org1" close={noop} toast={noop}
+    onOpenDocument={id => opened.push(id)} />)
+  await flush()
+  await inAct(() => (el.querySelector('.mailrow') as HTMLElement).click())
+  await flush()
+  assert.match(pane(el)?.textContent ?? '', /A document visible inside the organization gallery/)
+  assert.deepEqual(opened, [], 'must not open another agent modal')
+})

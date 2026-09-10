@@ -64,7 +64,7 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(styles, /\.orgbar\.native-header \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto auto/)
   assert.match(styles, /\.orgbar\.native-header > \.native-header-main \{[^}]*flex-wrap: wrap[^}]*overflow: visible/)
   assert.match(styles, /\.orgbar\.native-header > \.window-controls \{[^}]*grid-column: 3[^}]*grid-row: 1/)
-  assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
+  assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select,[\s\S]*?\.orgbar \[role="button"\]/)
   assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
   assert.match(nativeProbe, /native BrowserWindow state operations only/)
 })

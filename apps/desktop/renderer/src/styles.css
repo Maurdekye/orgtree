@@ -3528,8 +3528,10 @@ button.danger.solid:hover { background: rgba(241, 76, 76, .24); }
 }
 .welcome-card h1 { -webkit-app-region: drag; }
 .welcome-card h1 button, .welcome-card h1 a { -webkit-app-region: no-drag; }
-.orgbar button, .orgbar a, .orgbar input, .orgbar select, .orgbar .chip,
-.orgbar .orgname-wrap, .orgbar [role="button"] { -webkit-app-region: no-drag; }
+/* Static title/chips and empty header space remain window drag targets. */
+.orgbar :where(.orgname-wrap, .chip) { -webkit-app-region: drag; }
+.orgbar button, .orgbar a, .orgbar input, .orgbar select,
+.orgbar [role="button"] { -webkit-app-region: no-drag; }
 .orgbar h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink-strong); }
 
 /* the org-name + connectivity-error pair: `position: relative` here (not on
