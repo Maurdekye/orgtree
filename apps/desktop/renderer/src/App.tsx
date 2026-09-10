@@ -222,6 +222,50 @@ export function ActiveAgentSummary({ tree, orgs = [] }: {
   )
 }
 
+/** The org list rows — the same columns the tray's primary-click list shows
+ * (user spec 2026-09-10): an activity cell (spinner ONLY while that org has a
+ * turn executing), the name, and an always-visible n/m count where n = agents
+ * active now (`working`, supervisor.working_count()) and m = currently hired
+ * agents (`live`). Every row renders every cell so the columns line up when
+ * idle; a public listing row (no `working` — deliberately omitted server-side)
+ * shows its hired count alone rather than inventing a zero. */
+export function OrgRows({ orgs, slug, onPick, onDelete }: {
+  orgs: OrgListEntry[]; slug: string | null
+  onPick: (slug: string) => void; onDelete: (org: OrgListEntry) => void
+}) {
+  return <>
+    {orgs.map((o) => (
+      <div key={o.slug} role="button" tabIndex={0}
+        className={'org' + (o.slug === slug ? ' current' : '')
+          + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
+        onClick={() => onPick(o.slug)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
+        <span className="org-activity">
+          {(o.working ?? 0) > 0 &&
+            <span className="working-ct"
+              title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
+              <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
+        </span>
+        <span className="org-name">
+          <span className="org-name-text">{o.name}</span>
+          {(o.kiosk_cfg || o.kiosk) &&
+            <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
+        </span>
+        <span className="org-counts dim" title="active / hired agents">
+          {typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
+        </span>
+        {/* kiosk orgs delete like any other (user report 2026-07-31: the
+            old !o.kiosk gate left NO UI path at all — the server already
+            refuses public deletes, so hiding the trash from the admin
+            protected nothing) */}
+        <button className="org-del"
+          onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
+      </div>
+    ))}
+    {!orgs.length && <div className="dim pad">no organizations yet</div>}
+  </>
+}
+
 // live-feed state threaded into OrgCanvas (boundary shapes — Canvas declares
 // its own; reconcile if they drift)
 // text is required on the OUT side: the backend sends it on every stream()
@@ -373,6 +417,19 @@ export default function App() {
     setNativeTarget(notice)
     if (notice.org !== slug) setSlug(notice.org)
   })
+  // the tray's org list (primary click on the tray icon): the main process
+  // has already shown the window and broadcasts the chosen org; making it
+  // the active slug runs the ordinary switch path, which restores that
+  // org's own saved pins, popouts and camera
+  useEffect(() => {
+    const bridge = desktop()
+    if (!bridge) return
+    return bridge.onEvent(event => {
+      if ((event.type as string) !== 'open-org') return
+      const org = (event.data as { org?: unknown } | null)?.org
+      if (typeof org === 'string' && org) setSlug(org)
+    })
+  }, [setSlug])
   useEffect(() => {
     setShowUsage((isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
@@ -726,30 +783,8 @@ export default function App() {
         {showControls && <WindowControls />}</h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> all organizations</button>}
       <nav>
-        {orgs.map((o) => (
-          <div key={o.slug} role="button" tabIndex={0}
-            className={'org' + (o.slug === slug ? ' current' : '')
-              + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
-            onClick={() => pick(o.slug)}
-            onKeyDown={(e) => { if (e.key === 'Enter') pick(o.slug) }}>
-            <span>{o.name}</span>
-            {(o.kiosk_cfg || o.kiosk) &&
-              <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
-            <span className="spacer" />
-            {(o.working ?? 0) > 0 &&
-              <span className="working-ct"
-                title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
-                <AutorenewIcon fontSize="inherit" className="cc-spin" /> {o.working}</span>}
-            <span className="dim">{o.live}/{o.nodes} live</span>
-            {/* kiosk orgs delete like any other (user report 2026-07-31: the
-                old !o.kiosk gate left NO UI path at all — the server already
-                refuses public deletes, so hiding the trash from the admin
-                protected nothing) */}
-            <button className="org-del"
-              onClick={(e) => { e.stopPropagation(); setDoomedOrg(o) }}><DeleteIcon fontSize="inherit" /></button>
-          </div>
-        ))}
-        {!orgs.length && <div className="dim pad">no organizations yet</div>}
+        <OrgRows orgs={orgs} slug={slug} onPick={pick}
+          onDelete={(o) => setDoomedOrg(o)} />
       </nav>
       {!BASE && <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
         createOrg(name, dirs, netAuto, netHubs)

@@ -207,9 +207,14 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
 
     @api_app.get("/api/desktop/status")
     def desktop_status() -> dict[str, Any]:
+        # totalAgents means CURRENTLY HIRED agents (user spec 2026-09-10):
+        # the tray tooltip and the per-org rows both say n/m active/hired,
+        # so this sums the same `live` count the org listing reports —
+        # counting every node ever hired (archived seats included) made the
+        # tray disagree with every other surface.
         total = 0
         for row in store.list_orgs():
-            total += int(row.get("nodes") or 0)
+            total += int(row.get("live") or 0)
         with supervisor._state_lock:
             states = list(supervisor._state.values())
             active = sum(bool(s.get("busy")) for s in states)

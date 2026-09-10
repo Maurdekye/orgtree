@@ -29,7 +29,7 @@ export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'docum
 export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state' | 'open-org'; data: unknown }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
 /** Which provider CLIs an app-driven sign-in exists for (D-231). Native,

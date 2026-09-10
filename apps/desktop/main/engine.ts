@@ -11,6 +11,7 @@ export const ENGINE_REFUSED = 'Engine start refused: '
 export const ATTACH_RETRY_BUDGET_MS = 150000
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
+import { orgActivityRows, type OrgActivityRow } from './traylist'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
 export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; maintenance?: MaintenanceRequest }
@@ -286,6 +287,18 @@ export class Engine extends EventEmitter {
       if (!Number.isInteger(value.activeAgents) || !Number.isInteger(value.totalAgents) || value.activeAgents < 0 || value.totalAgents < value.activeAgents || typeof value.idle !== 'boolean' || (value.idle && value.activeAgents > 0)) return null
       const maintenance = maintenanceRequest(value.maintenance)
       return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle, ...(maintenance ? { maintenance } : {}) }
+    } catch { return null }
+  }
+
+  /** The per-org rows behind the tray's primary-click list, fetched on
+   *  demand (a click), never on the poll — GET /api/orgs parses every org
+   *  document server-side, which is fine per click and waste per 5 s tick. */
+  async orgActivity(): Promise<OrgActivityRow[] | null> {
+    if (!this.endpoint) return null
+    try {
+      const r = await fetch(this.endpoint + '/api/orgs', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(4000), redirect: 'error' })
+      if (!r.ok) return null
+      return orgActivityRows(await r.json())
     } catch { return null }
   }
 

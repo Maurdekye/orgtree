@@ -129,6 +129,21 @@ const migrateClientNodeState = (slug: string, from: string, to: string): void =>
   } catch { /* private mode or hand-edited state — never block tree updates */ }
 }
 
+// Switching organizations restores each org's OWN saved camera (user spec
+// 2026-09-10: selecting an org from the tray list or the sidebar reopens its
+// saved pins, popouts and canvas position — pins and popouts already restore
+// per org; the camera is this pair's job). Only the FIRST canvas a session
+// shows keeps the configured start-view intro (org glide / switchboard /
+// remember): a later switch is a return to a place the user already
+// arranged, so it restores like 'remember' does. Module-level on purpose —
+// an org switch unmounts the canvas, so the fact "this session already
+// showed a canvas" must live outside the component; a page reload starts a
+// fresh session and plays the configured intro again.
+let firstCanvasSlug: string | null = null
+let leftFirstOrg = false
+/** tests only: put the module back in the fresh-session state */
+export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery }: OrgCanvasProps) {
@@ -1524,7 +1539,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     if (!vp || !eye) { fitAll(false); return }
     const mode = startView()
     fitFollowing.current = false
-    const saved = mode === 'remember' ? savedView(tree.slug) : null
+    // an org SWITCH restores the org's saved camera whatever the start-view
+    // mode; only the session's first org keeps the configured intro (an org
+    // with no saved camera still introduces itself below, as in 'remember')
+    if (firstCanvasSlug === null) firstCanvasSlug = tree.slug
+    else if (firstCanvasSlug !== tree.slug) leftFirstOrg = true
+    const saved = mode === 'remember' || leftFirstOrg ? savedView(tree.slug) : null
     if (saved) {
       viewRef.current = saved
       setView(saved)

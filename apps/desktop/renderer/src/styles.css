@@ -124,14 +124,28 @@ aside h1 svg, .welcome-card h1 svg { color: var(--accent); }
 aside footer { margin-top: auto; color: #6e6e6e; font-size: 11px; padding: 0 4px; }
 
 nav { display: flex; flex-direction: column; gap: 2px; }
+/* org rows are aligned COLUMNS (user spec 2026-09-10): activity spinner,
+   name, n/m active/hired — the same shape the tray's primary-click list
+   draws, so the two surfaces read as one list */
 .org {
-  display: flex; align-items: center; gap: 8px;
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) max-content auto;
+  align-items: center; column-gap: 8px;
   width: 100%; text-align: left; padding: 6px 10px; border-radius: 4px;
   border: 1px solid transparent; border-left: 2px solid transparent;
   background: none; color: var(--ink); cursor: pointer; font-size: 13px;
 }
-.org .spacer { flex: 1; }
-/* F-09: agents-currently-working count — only rendered when > 0 */
+/* the activity column exists in EVERY row so names start flush; the spinner
+   inside it renders only while that org has a turn executing */
+.org-activity { display: inline-flex; align-items: center; justify-content: center; }
+.org-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.org-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* n/m active/hired — kept visible when idle; right-aligned tabular digits
+   with a shared floor width, so the counts read as one column across rows */
+.org-counts {
+  font-variant-numeric: tabular-nums; text-align: right;
+  min-width: 3.2em; font-size: 12px;
+}
+/* F-09: agents-currently-working spinner chip */
 .working-ct {
   display: inline-flex; align-items: center; gap: 2px;
   color: var(--accent); font-size: 11px; line-height: 1;

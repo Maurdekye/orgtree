@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -14,6 +14,7 @@ import { checkForUpdatesViaEvents, UpdateController } from './updater'
 import type { DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
 import { cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
+import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
@@ -68,7 +69,55 @@ else {
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); main.restore(); main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
-  const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} agents` : `Engine ${engine.status.state}`
+  // n/m active/hired (user spec 2026-09-10) — the same two counts every org
+  // row shows, summed: totalAgents is currently HIRED agents (launch.py).
+  const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} hired` : `Engine ${engine.status.state}`
+  // ------------------------------------------------------- tray org list
+  // Primary click on the tray icon (user spec 2026-09-10): a popup listing
+  // every organization as aligned spinner/name/n-m columns; selecting a row
+  // opens that org in the main window (whose renderer then restores the
+  // org's own saved pins, popouts and camera). Content and geometry are
+  // pure functions in traylist.ts; this block owns only the window.
+  let trayPopup: BrowserWindow | undefined
+  let trayPopupSeq = 0
+  const closeTrayPopup = () => {
+    const popup = trayPopup
+    trayPopup = undefined
+    if (popup && !popup.isDestroyed()) popup.destroy()
+  }
+  const openOrgFromTray = (slug: string) => { closeTrayPopup(); show(); broadcast({ type: 'open-org', data: { org: slug } }) }
+  const showTrayList = async (anchor: Electron.Rectangle) => {
+    const seq = ++trayPopupSeq
+    // fetched per click, not cached from the poll: the list must say what is
+    // active NOW, and a click is rare enough to afford the fresh read
+    const rows = await engine.orgActivity()
+    if (seq !== trayPopupSeq || quitting) return   // a newer click or quit superseded this fetch
+    closeTrayPopup()
+    // Windows hands the icon rect on click; an empty rect falls back to the
+    // cursor so the popup still lands on the right display
+    const point = anchor.width > 0 ? { x: anchor.x + Math.round(anchor.width / 2), y: anchor.y } : screen.getCursorScreenPoint()
+    const area = screen.getDisplayNearestPoint(point).workArea
+    const bounds = popupBounds(anchor.width > 0 ? anchor : { ...point, width: 0, height: 0 }, area, rows?.length ?? 1)
+    // no preload, no node, sandboxed, scriptless document (CSP: no sources):
+    // the popup is a picture of a list — selection is a CANCELLED navigation
+    // to a reserved .invalid origin, so it never gains any other capability
+    const popup = new BrowserWindow({ ...bounds, frame: false, show: false, resizable: false, movable: false,
+      minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, autoHideMenuBar: true,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
+    const followSelection = (url: string) => {
+      const slug = trayNavigationSlug(url)
+      if (slug) openOrgFromTray(slug)
+    }
+    popup.webContents.setWindowOpenHandler(({ url }) => { followSelection(url); return { action: 'deny' } })
+    popup.webContents.on('will-navigate', (event, url) => { event.preventDefault(); followSelection(url) })
+    // identity-guarded: a superseded popup's late blur must not close its successor
+    popup.on('blur', () => { if (trayPopup === popup) closeTrayPopup() })
+    trayPopup = popup
+    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(rows))) }
+    catch { if (trayPopup === popup) closeTrayPopup(); return }
+    if (trayPopup !== popup || popup.isDestroyed()) return
+    popup.show()
+  }
   const loginPreference = () => {
     // Never register the development electron.exe as a login application.
     if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: preferences.get().startAtLogin, path: process.execPath, args: ['--background'] })
@@ -187,6 +236,7 @@ else {
     if (quitting) return
     quitting = true
     if (poll) clearInterval(poll)
+    trayPopupSeq++; closeTrayPopup()
     // ⚠ a login left running when the app quits must not become an orphan
     // (coordinator review): Claude/Codex spawn a REAL child process via
     // providerlogin.ts, and neither engine.stop() below nor Electron's own
@@ -201,7 +251,11 @@ else {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
     tray = new Tray(runtimeIcon())
-    tray.on('double-click', show); rebuildTray()
+    // primary click = the org activity list; double-click keeps opening the
+    // app itself (second click of the pair dismisses the just-shown popup)
+    tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })
+    tray.on('double-click', () => { trayPopupSeq++; closeTrayPopup(); show() })
+    rebuildTray()
     handle('desktop:status', () => engine.status)
     handle('desktop:window-state', () => windowState())
     handle('desktop:window-controls-state', () => windowControlsState())

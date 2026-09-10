@@ -181,6 +181,27 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(body['activeAgents'], 0)
         self.assertTrue(body['idle'])
 
+    def test_desktop_status_total_counts_hired_agents_only(self):
+        # n/m active/hired (user spec 2026-09-10): the tray tooltip's total is
+        # CURRENTLY HIRED agents — the same `live` every org row reports — not
+        # every node ever recorded. The fixture proves the distinction is real:
+        # 'ordinary-missing' holds a worker whose state degraded to
+        # 'unrecoverable', so the two sums genuinely differ here (a fixture of
+        # only-live nodes would pass this vacuously).
+        status, orgs = self.request('/api/orgs', operator=True)
+        self.assertEqual(status, 200)
+        live = sum(int(o.get('live') or 0) for o in orgs)
+        nodes = sum(int(o.get('nodes') or 0) for o in orgs)
+        self.assertGreater(nodes, live)
+        self.assertGreater(live, 0)
+        for row in orgs:
+            # both halves of the n/m column every listing surface renders
+            self.assertIn('live', row)
+            self.assertIn('working', row)
+        status, body = self.request('/api/desktop/status', operator=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(body['totalAgents'], live)
+
     def test_duplicate_native_ids_do_not_prevent_real_startup(self):
         status, body = self.request('/api/orgs',operator=True)
         self.assertEqual(status,200)
