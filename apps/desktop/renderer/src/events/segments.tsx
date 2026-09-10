@@ -82,8 +82,29 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
       }
       case 'notices': return <div key={i} className="event-notices">{segment.rows.map((row, j) => <div key={j}>
         {card(row, false, undefined, <time className="event-time">{fmtFull(row.at)}</time>)}</div>)}</div>
-      case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) => <section key={row.id ?? j}
-        {...eventSurface(row, profile)} className={'turn-mail ' + eventSurface(row, profile).className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id}>
+      case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) =>
+        <MailMessage key={row.id ?? j} row={row} profile={profile} slug={slug} nid={nid}
+          world={world} onOpen={onOpen} actor={actor}
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}</div>
+    }
+    const unhandled: never = segment
+    return unhandled
+  })}</div>
+}
+
+/** Pending and delivered mail share the same card, metadata and attachments. */
+export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
+  replyAvailable, onLocateReply }: Omit<SegmentProps, 'segments'> & { row: {
+    id?: string | null; from: string; kind?: string; body: string; at: string;
+    relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
+    reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
+  } }) {
+  const base = fileBase(slug, nid)
+  const card = (value: unknown, preview: boolean, part?: "header" | "body") =>
+    <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
+      world={world} onOpen={onOpen} actor={actor} imgBase={base} />
+  return <section
+        {...eventSurface(row, profile)} className={'turn-mail ' + eventSurface(row, profile).className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
           {decodeEventRow(row, profile).kind !== 'known' && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
@@ -114,9 +135,5 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
             onLocate={() => onLocateReply?.(rc)} /> })()}
         {card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>
         {row.attachments_missing?.map((name,k)=><div key={k} className="dim">Attachment unavailable: {name}</div>)}
-      </section>)}</div>
-    }
-    const unhandled: never = segment
-    return unhandled
-  })}</div>
+  </section>
 }

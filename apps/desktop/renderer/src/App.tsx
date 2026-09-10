@@ -1684,9 +1684,6 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           </div>}
-        <div className="row">
-          <button className="primary" type="button" onClick={close}>done</button>
-        </div>
     </PinFrame>
   )
 }

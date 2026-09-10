@@ -979,6 +979,8 @@ export interface PendingMail {
   delivery?: unknown
   id: string | null
   from: string
+  kind?: string
+  relationship?: string | null
   body: string
   at: string
   delivering?: boolean

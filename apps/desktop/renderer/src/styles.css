@@ -1374,14 +1374,14 @@ button.cc-name:hover {
   align-self: stretch; background: var(--input);
   border: 1px solid var(--line-soft); border-radius: 6px; padding: 6px 9px;
 }
-.msg.user.pending { opacity: .65; }   /* sent, waiting for its turn */
+/* Pending status is carried by its receipt; message styling stays unchanged. */
 /* the optimistic ghost now carries its own actions (user bug 2026-09-03 —
    it was the one bubble with no way to dismiss it). Same flex shape as the
    durable .pendrow so the ✕ lands where the eye already looks for it. */
 .pendghost { display: flex; align-items: flex-start; gap: 6px; }
 .ghost-acts { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 /* a FAILED ghost stops being dim: it is not waiting any more, it is news */
-.msg.user.pending.failed { opacity: 1; border-color: var(--warn, #e5c07b); }
+.pending.failed { opacity: 1; border-color: var(--warn, #e5c07b); }
 .ghost-why {
   flex-basis: 100%; order: 3; margin-top: 4px;
   font-size: 11px; color: var(--warn, #e5c07b);

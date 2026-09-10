@@ -97,7 +97,7 @@ function rows(el: HTMLElement): { kind: string; text: string }[] {
   const out: { kind: string; text: string }[] = []
   // direct descendants only where it matters: transcript rows are wrapped one
   // level deep (the seq key + gap divider), the rest are children of .msgs
-  for (const n of msgs!.querySelectorAll('.msg')) {
+  for (const n of msgs!.querySelectorAll('.msg, .pendrow')) {
     const c = n.classList
     const kind = c.contains('pending') && c.contains('pendrow') ? 'pending'
       : c.contains('pending') ? 'ghost'
@@ -105,7 +105,7 @@ function rows(el: HTMLElement): { kind: string; text: string }[] {
           : c.contains('live') ? 'live'
             : c.contains('user') ? 'user'
               : c.contains('sys') ? 'sys' : 'assistant'
-    out.push({ kind, text: (n.textContent || '').trim().slice(0, 40) })
+    out.push({ kind, text: ((kind === 'pending' ? n.querySelector('.event-prose')?.textContent : n.textContent) || '').trim().slice(0, 40) })
   }
   return out
 }

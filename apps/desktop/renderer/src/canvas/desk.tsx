@@ -61,6 +61,7 @@ import type { RefRoutes } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
+import { MailMessage } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
 import { isMobile } from '../mobile'
@@ -1619,45 +1620,19 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // sit, question and all (user report 2026-09-01).
   // Steered mail (`delivering`, no `via`) stays below too: it arrived DURING
   // the turn, so the live rows above it really did happen first.
-  const pendMail = (chat?.pending_mail ?? []).filter(m => decodeEventRow(m, BASE ? 'public' : 'operator').kind !== 'legacy' || m.from === USER)
+  const pendMail = chat?.pending_mail ?? []
   const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
   const pendLater = pendMail.filter((m) => !(m.delivering && m.via === 'turn'))
   // ONE renderer, two places (it is the same bubble; only its position says
   // something different). Kept as a function rather than a component so it
   // keeps closing over this desk's slug/node/refresh exactly as it did inline.
   const pendBubble = (m: PendingMail) => (
-    <div key={m.id ?? m.at} data-reply-event={m.event_id} data-reply-quote={m.body} onContextMenu={e => openReply(e, m)} {...eventSurface(m, BASE ? 'public' : 'operator')} className={"msg user pending pendrow " + eventSurface(m, BASE ? 'public' : 'operator').className}>
-      {/* ⚠ THIS IS A PREVIEW OF `Msg`, SO IT IS BUILT LIKE `Msg`
-          (user, 2026-08-28): text in its own block, then the attachments in an
-          `.attach-row` beneath it — a COLUMN. It used to lay text and
-          thumbnails side by side, so the same message rearranged itself the
-          instant it was delivered; a preview that does not predict its own
-          result is the bug. Ruling (user): "the columnar display is best for
-          this, yes".
-          ⚠ The two blocks are GATED like Msg's too — an empty body renders no
-          text block and no attachments render no row, so an image with no
-          caption has no blank line above it and text with no image has no
-          empty row below it.
-          The `.pendrow` flex stays, with exactly one content child: that is
-          what keeps the delivery tag / retract ✕ pinned at the top right where
-          it already was, which the user asked for by name. */}
+    <div key={m.id ?? m.at} data-reply-event={m.event_id} data-reply-quote={m.body}
+      onContextMenu={e => openReply(e, m)} className="pending pendrow">
       <div className="pendbody">
-        {renderReply(m.reply_to)}
-        {eventSurface(m, BASE ? 'public' : 'operator').className && <header className="event-head"><EventCard part="header" row={m} profile={BASE ? 'public' : 'operator'} org={slug}
-          world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />} /></header>}
-        <EventCard part="body" row={m} profile={BASE ? 'public' : 'operator'} org={slug} preview
+        <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={node.id}
           world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />}
-          imgBase={fileBase(slug, node.id)} />
-        {/* a queued image renders viewable (dimmed like the bubble) — the
-            upload already landed, only the MAIL is undelivered */}
-        {(m.attachments ?? []).length > 0 && (
-          <div className="attach-row">
-            {(m.attachments ?? []).map((a) => (a.path && isImg(a.name ?? a.path)
-              ? <AttachThumb key={a.path} dim href={fileUrl(slug, node.id, a.path)}
-                  name={a.name ?? a.path} meta={a.bytes != null ? fmtBytes(a.bytes) : undefined} />
-              : <span key={a.path ?? a.name} className="attach-chip dim">
-                  <FileIcon fontSize="inherit" /> {a.name}</span>))}
-          </div>)}
+          replyAvailable={replyAvailable} onLocateReply={locateReply} />
       </div>
       {/* journal-riding mail (drained for a mid-task delivery) shows as queued
           but is past the point of retraction. The tag is the message's
@@ -2447,12 +2422,13 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               ours to overwrite. */}
           {pending.map((p) => (
             <div key={'q' + p.id} data-reply-event="" onContextMenu={e => openReply(e, {})}
-              className={'msg user pending pendghost md' + (p.failed
+              className={'msg pending pendghost' + (p.failed
                 ? ' failed event-surface event-runtime_recovery' : '')}>
               {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
-              <RefMdBody className="pendbody"
-                world={deskRefs.world} onOpen={deskRefs.onOpen}
-                html={md(p.text, fileBase(slug, node.id))} />
+              <div className="pendbody"><MailMessage
+                row={{from: USER, kind: 'message', body: p.text, at: new Date(p.at).toISOString(), attachments: p.attachments}}
+                profile={BASE ? 'public' : 'operator'} slug={slug} nid={node.id}
+                world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />} /></div>
               {p.failed && (
                 <div className="ghost-why" role="status">
                   <WarnIcon fontSize="inherit" /> {p.error
