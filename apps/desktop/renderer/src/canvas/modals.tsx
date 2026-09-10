@@ -114,7 +114,7 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
     }
   }, [ownerDocument])
   return (
-    <div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
+    <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings content-height confirm-box" ref={boxRef} tabIndex={-1}
         role="dialog" aria-modal="true"
         aria-labelledby={titleId}
@@ -131,7 +131,7 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
           <button ref={cancelRef} onClick={close}>cancel</button>
         </div>
       </div>
-    </div>
+    </div></ModalOverPins>
   )
 }
 // FR-18: the watchdog detail panel — the click-through half of the user's
@@ -1452,7 +1452,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
     close()
   }
   return (
-    <div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
+    <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings content-height pile-picker" onClick={(e) => e.stopPropagation()}>
         <h3><LayersIcon fontSize="inherit" /> {crowd ? 'team stack' : 'retired pile'}
           <span className="dim"> · {pile.list.length} agents</span></h3>
@@ -1515,6 +1515,6 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
             close={() => setAsking(false)} />
         )}
       </div>
-    </div>
+    </div></ModalOverPins>
   )
 }

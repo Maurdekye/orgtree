@@ -92,7 +92,7 @@ test('the HIRE SHEET states the declaration on every offered OpenRouter tier',
         onHire={noop} onClose={noop} />,
       (el) => el)
     await inAct(async () => { await flush() })
-    const buttons = Array.from(view.el.querySelectorAll('.hs-tier'))
+    const buttons = Array.from(view.el.ownerDocument.querySelectorAll('.hs-tier'))
     // ⚠ POSITIVE CONTROL FOR EVERY ABSENCE BELOW: the rows exist at all, so
     // a missing string means a missing note rather than a missing row.
     assert.ok(buttons.length, 'the sheet rendered tier buttons')

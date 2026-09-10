@@ -213,6 +213,8 @@ domTest('the token lists the retirees and picking one REVEALS it through the rea
   await inAct(async () => { token.click(); await flush() })
   const picker = el.ownerDocument.querySelector('.pile-picker')
   assert.ok(picker, 'the picker opened')
+  assert.equal(el.contains(picker), false, 'picker escapes the canvas stacking context')
+  assert.ok(picker!.closest('.modalpin-over'), 'picker uses the above-pins dialog layer')
   const row = [...picker!.querySelectorAll('button')]
     .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
   assert.ok(row, 'ret-one is listed')

@@ -112,7 +112,7 @@ function uiTest(name: string, body: (mount: (el: React.ReactElement)
     await body(async (el) => {
       const v = await mountView(el, (host) => host)
       open.push(v)
-      return v.el
+      return v.el.ownerDocument.body
     })
   })
 }

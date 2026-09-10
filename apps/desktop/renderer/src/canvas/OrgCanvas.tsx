@@ -41,7 +41,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -3340,7 +3340,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
     useState<'below' | 'left' | 'right' | 'above'>('below')
   const ok = /^[a-z][a-z0-9-]{1,29}$/.test(name.trim()) && !!tier
   return (
-    <div className="overlay" onPointerDown={(e) => e.stopPropagation()}>
+    <ModalOverPins><div className="overlay" onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings hire-sheet">
         <h3>hire{placement === 'below' ? ` under ${anchor.id}`
           : placement === 'above' ? ` above ${anchor.id}`
@@ -3425,6 +3425,6 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
           <button onClick={onClose}>cancel</button>
         </div>
       </div>
-    </div>
+    </div></ModalOverPins>
   )
 }
