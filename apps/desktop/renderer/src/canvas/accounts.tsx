@@ -490,7 +490,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><AgentShortcutsToggle /><HideRetiredToggle /><ModalOverlapSettings /></SetGroup>
+      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>

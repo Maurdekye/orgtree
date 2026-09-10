@@ -2580,9 +2580,9 @@ export function SettingsPanel({ tree, toast, close }: {
     return () => { current = false }
   }, [tree.slug, orgMdRetry])
   return (
-    <PinFrame kind="org-settings" title={`${tree.name} — settings`}
+    <PinFrame kind="org-settings" title={`${tree.name} - org settings`}
       panel="settings" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> {tree.name} — settings</h3>
+        <h3><SettingsIcon fontSize="inherit" /> {tree.name} - org settings</h3>
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab}
           idBase="org-settings" label="Organization settings sections" />
 

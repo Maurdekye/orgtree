@@ -507,6 +507,10 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
 
   const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds) : null
   const layout = usePinSurface(orgScope, kind, rect, true)
+  useEffect(() => {
+    if (pinned) raisePinnedModal(kind, orgScope)
+  }, [pinned, kind, orgScope])
+
   const candidate = (r: PinRect, disabled: boolean) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds),
     readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds)
 
@@ -620,7 +624,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
-        onPointerDown={pinned ? () => {raiseModal(kind, orgScope); raisePinSurface(layout.key)} : undefined}>
+        onPointerDownCapture={pinned ? () => raisePinnedModal(kind, orgScope) : undefined}
+        onClickCapture={pinned ? () => raisePinnedModal(kind, orgScope) : undefined}>
         <div className={'modalpin-bar' + (pinned ? ' on' : '')}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'

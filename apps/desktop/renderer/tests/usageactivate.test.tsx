@@ -37,6 +37,7 @@ async function mountFrame(kind: string) {
     <CurrentOrg.Provider value={ORG}>
       <PinFrame kind={kind} title={kind} panel="settings" close={noop}>
         <h3>{kind}</h3>
+        <button className="stopping-child" onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>child action</button>
       </PinFrame>
     </CurrentOrg.Provider>
   )
@@ -152,4 +153,28 @@ test('reopening a closed pinned window mounts it on top of the band', async () =
     `reopened usage (${reopened.z()}) mounts above docket (${docket.z()})`)
   await docket.unmount(); await reopened.unmount()
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+})
+
+
+test('clicking inside a pin raises it even when the child stops bubbling', async () => {
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const first = await mountFrame('usage')
+  const second = await mountFrame('docket')
+  try {
+    await inAct(async () => { first.q('button[aria-label="pin this to the window"]')!.click(); await flush() })
+    await inAct(async () => { second.q('button[aria-label="pin this to the window"]')!.click(); await flush() })
+    assert.ok(second.z() > first.z(), 'newly pinned modal starts in front')
+    await inAct(async () => {
+      first.q('.stopping-child')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+      await flush()
+    })
+    assert.ok(first.z() > second.z(), 'pointer capture raises before child stops bubbling')
+    await inAct(async () => { second.q('.stopping-child')!.click(); await flush() })
+    assert.ok(second.z() > first.z(), 'click activation also raises')
+    assert.equal(isModalPinned('usage', ORG), true)
+    assert.equal(isModalPinned('docket', ORG), true)
+  } finally {
+    await second.unmount(); await first.unmount()
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  }
 })

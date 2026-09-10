@@ -1,3 +1,4 @@
+import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
 // unreadprov.test.tsx — unread counts and jump accents wear the TARGET
 // agent's provider theme (user spec 2026-09-01).
 //
@@ -112,6 +113,8 @@ test('nav/jump chips theme by DESTINATION, not by the themed desk hosting them',
 })
 
 test('an agent card\'s own mail count is themed by that agent\'s provider', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => { localStorage.removeItem(AGENT_SHORTCUTS_KEY) })
   useFakeClock()
   installFetch(new FakeServer())
   t.after(() => realClock())

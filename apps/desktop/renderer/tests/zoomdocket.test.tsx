@@ -1,3 +1,4 @@
+import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -6,6 +7,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 
 const click = async (e:Element|null) => { assert.ok(e); await inAct(()=>{(e as HTMLElement).click()}); await flush() }
 test('overview Docket opens the selected agent, archive toggle and details reuse existing view',async t=>{
+ setAgentShortcutsOn(true); t.after(()=>{localStorage.removeItem(AGENT_SHORTCUTS_KEY)})
  useFakeClock(); const calls:string[]=[]
  globalThis.fetch=async (url,init)=>{
   assert.equal(init?.method??'GET','GET','no mutation requested')
