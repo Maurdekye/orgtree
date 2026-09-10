@@ -729,15 +729,15 @@ uiTest('§28 a @doc token opens the reader, on the id the token named',
     await flush()
     const chip = el.querySelector('.docket-desc button.ref-chip.ref-doc')
     assert.ok(chip, 'the document token is a live control, not an inert chip')
-    assert.equal(el.querySelector('.doc-reader'), null,
+    assert.equal(el.querySelector('.gallery-modal'), null,
       'and nothing is open before it is clicked')
 
     await inAct(() => (chip as HTMLElement).click())
     await flush()
-    const reader = el.querySelector('.doc-reader')
+    const reader = el.querySelector('.gallery-modal')
     assert.ok(reader, 'clicking the reference opened the document reader')
     assert.match(reader!.textContent ?? '', /The contract/)
-    assert.match(reader!.querySelector('.doc-reader-body')?.textContent ?? '',
+    assert.match(reader!.querySelector('.gallery-modal .mailer-read')?.textContent ?? '',
       /body of the contract/)
     // ⚠ THE EXACT GET, NOT "a reader appeared". One request, for THAT id —
     // the whole reason this panel may open documents without holding a list
@@ -763,9 +763,9 @@ uiTest('§29 CONTROL — a document this org does not have is reported BY THE '
     assert.ok(chip, 'the reference is offered')
     await inAct(() => (chip as HTMLElement).click())
     await flush()
-    assert.ok(el.querySelector('.doc-reader'), 'the reader opened')
-    assert.match(el.querySelector('.doc-reader .ask-warn')?.textContent ?? '',
-      /could not load the document/,
+    assert.ok(el.querySelector('.gallery-modal'), 'the reader opened')
+    assert.match(el.querySelector('.gallery-modal .ask-warn')?.textContent ?? '',
+      /Could not load presentation/,
       'the failure is stated where the user asked the question')
     assert.deepEqual(served.docUrls.map((u) => u.split('/').pop()), ['gone'])
     // ⚠ AND THE CHIP DID NOT CHANGE ITS STORY. A panel that flipped the
@@ -792,10 +792,10 @@ uiTest('§30 CONTROL — while the fetch is in flight the reader says nothing '
     await flush()
     // ⚠ THE POSITIVE HALF FIRST, or this passes for the boring reason: the
     // reader must be MOUNTED. "No error message" is free if nothing is open.
-    assert.ok(el.querySelector('.doc-reader'), 'the reader is open')
-    assert.equal(el.querySelector('.doc-reader .ask-warn'), null,
+    assert.ok(el.querySelector('.gallery-modal'), 'the reader is open')
+    assert.equal(el.querySelector('.gallery-modal .ask-warn'), null,
       'a pending read is not a missing document')
-    assert.equal(el.querySelector('.doc-reader .doc-reader-body'), null,
+    assert.equal(el.querySelector('.gallery-modal .gallery-modal .mailer-read'), null,
       'and no body is claimed either')
   })
 
@@ -817,13 +817,13 @@ uiTest('§31 Escape closes the reader and LEAVES THE DOCKET OPEN', async (mount)
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
     await flush()
-    assert.ok(el.querySelector('.doc-reader'), 'the reader is open')
+    assert.ok(el.querySelector('.gallery-modal'), 'the reader is open')
 
     await inAct(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     })
     await flush()
-    assert.equal(el.querySelector('.doc-reader'), null, 'the reader closed')
+    assert.equal(el.querySelector('.gallery-modal'), null, 'the reader closed')
     assert.equal(closed, 0,
       'and the panel the user was reading from is still there')
 
@@ -859,12 +859,12 @@ uiTest('§31b clicking the READER\'S backdrop closes the reader and leaves the '
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
     await flush()
-    const back = el.querySelector('.doc-reader')?.parentElement
+    const back = el.querySelector('.gallery-modal')?.parentElement
     assert.ok(back?.classList.contains('overlay'), 'the reader has a backdrop')
 
     await inAct(() => (back as HTMLElement).click())
     await flush()
-    assert.equal(el.querySelector('.doc-reader'), null, 'the reader closed')
+    assert.equal(el.querySelector('.gallery-modal'), null, 'the reader closed')
     assert.equal(closed, 0, 'and the docket did not close with it')
 
     // CONTROL — the docket's own backdrop still closes the docket, so the
@@ -923,13 +923,13 @@ uiTest('§34 a reference INSIDE the opened document works, and the reader gets '
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
     await flush()
-    const inner = el.querySelector('.doc-reader-body [data-ref-token]')
+    const inner = el.querySelector('.gallery-modal .mailer-read [data-ref-token]')
     assert.ok(inner, 'the reference in the document body was decided')
     assert.equal(inner!.tagName, 'BUTTON', 'and it is a control')
 
     await inAct(() => (inner as HTMLElement).click())
     await flush()
-    assert.equal(el.querySelector('.doc-reader'), null,
+    assert.equal(el.querySelector('.gallery-modal'), null,
       'the reader closed rather than covering what it opened')
     assert.equal(
       el.querySelector('.docket-pane-sub .docket-slug-text')?.textContent,
@@ -958,10 +958,10 @@ uiTest('§34b CONTROL — a document referencing a DOCUMENT swaps the reader '
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
     await flush()
     await inAct(() => (el.querySelector(
-      '.doc-reader-body [data-ref-token]') as HTMLElement).click())
+      '.gallery-modal .mailer-read [data-ref-token]') as HTMLElement).click())
     await flush()
-    assert.ok(el.querySelector('.doc-reader'), 'the reader is still open')
-    assert.match(el.querySelector('.doc-reader-body')?.textContent ?? '',
+    assert.ok(el.querySelector('.gallery-modal'), 'the reader is still open')
+    assert.match(el.querySelector('.gallery-modal .mailer-read')?.textContent ?? '',
       /appendix body/, 'showing the document that was referenced')
   })
 

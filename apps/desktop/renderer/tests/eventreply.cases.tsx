@@ -31,7 +31,7 @@ export function replyCases(profile:'operator'|'public') {
         requests.push({url,body:JSON.parse(String(init?.body))})
         return fail?response({detail:'target no longer exists'},422):response({id:'accepted-id',ref:'@mail:mine/node/alpha/accepted-id',deferred:true,...(profile==='public'?{ev_public:event}:{ev:event})})
       }
-      if(url.endsWith('/documents'))return response({documents:[item]})
+      if(url.split('?')[0].endsWith('/documents'))return response({documents:[item]})
       if(url.endsWith('/documents/d1'))return response({...item,body:'Document body'})
       if(url.endsWith('/inbox'))return response({pending:[],delivered:[mail],sent:[]})
       return response({})

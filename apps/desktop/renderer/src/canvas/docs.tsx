@@ -133,7 +133,7 @@ export function MockupOpen({ slug, docId }: { slug: string; docId: string }) {
  *  body is gone for good, and a request for one would only buy back the 404
  *  the caller already knows about. A hook cannot be called conditionally,
  *  so the condition lives here. */
-export function useDoc(slug: string, docId: string): {
+export function useDoc(slug: string, docId: string, preloaded?: LoadedDoc): {
   doc: LoadedDoc | null
   err: string | null
 } {
@@ -144,11 +144,12 @@ export function useDoc(slug: string, docId: string): {
     setDoc(null)
     setErr(null)
     if (!docId) return
+    if (preloaded) { setDoc(preloaded); return }
     getDocument(slug, docId)
       .then((d) => { if (live) setDoc(d) })
       .catch((e: Error) => { if (live) setErr(e.message) })
     return () => { live = false }
-  }, [slug, docId])
+  }, [slug, docId, preloaded])
   return { doc, err }
 }
 
@@ -214,6 +215,6 @@ export function DocReader({ slug, docId, toast, close, refs,
     <div className={err ? 'ask-warn' : 'dim pad'}>{err ? `Could not load presentation: ${err}` : 'Loading presentation?'}</div>
   </PinFrame>
   return <AgentGalleryModal key={`${slug}/${doc.node}`} slug={slug} nid={doc.node}
-    toast={toast} close={close} refs={refs} initialDocument={docId}
+    toast={toast} close={close} refs={refs} initialDocument={docId} initialLoaded={doc}
     selectedRow={{...doc, id:docId, evicted:false, node_state:doc.node_state ?? 'deleted', tier:doc.tier ?? null}} pinKind={pinKind} />
 }

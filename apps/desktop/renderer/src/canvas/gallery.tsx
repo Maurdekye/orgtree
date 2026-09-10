@@ -29,6 +29,7 @@ import { sendLinkedReply } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { ToastFn, TreeNode } from '../types'
 import { CloseIcon, DocIcon } from '../icons'
+import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
@@ -90,7 +91,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const [pageOffset, setPageOffset] = useState(0)
   useEffect(() => setPageOffset(0), [slug])
   const data = usePolled(() => getDocuments(slug, pageOffset), [slug, pageOffset])
-  const all = useMemo(() => data?.documents.filter(r => !r.evicted), [data])
+  const all = useMemo(() => data?.documents?.filter(r => !r.evicted), [data])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
   // checkbox to show retired agents, which appear in the same list, sorted
@@ -261,7 +262,8 @@ function GalleryEntry({ slug, row, children, ...props }: {
  *  A reply box below the body allows messaging the owning agent directly
  *  (only if not retired). */
 function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
-  refs }: {
+  refs, preloaded }: {
+  preloaded?: LoadedDoc
   slug: string
   row: DocRow
   toast: ToastFn
@@ -273,7 +275,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
 }) {
   // an evicted row has no body to fetch — say so instead of spending a
   // request to render the 404 the endpoint would answer with
-  const { doc, err } = useDoc(slug, row.evicted ? '' : row.id)
+  const { doc, err } = useDoc(slug, row.evicted ? '' : row.id, preloaded)
   const replyable = !row.evicted && isHired(row) && Boolean(row.node && !row.node.startsWith('@'))
   return (
     <>
@@ -352,6 +354,7 @@ export interface AgentGalleryViewProps {
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onChanged?: () => void
   initialDocument?: string
+  initialLoaded?: LoadedDoc
   selectedRow?: DocRow
   pinKind?: string
 }
@@ -360,7 +363,7 @@ export interface AgentGalleryViewProps {
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged, initialDocument, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
   return (
     <PinFrame kind={pinKind} title={`presented documents for ${nid}`}
       restore={{ agent: nid, generation: node?.generation, ...(initialDocument ? {document:initialDocument} : {}) }}
@@ -368,7 +371,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs}
-        onChanged={onChanged} initialDocument={initialDocument} selectedRow={selectedRow} />
+        onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow} />
     </PinFrame>
   )
 }
@@ -379,7 +382,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  refs, onChanged, initialDocument, selectedRow }: AgentGalleryViewProps) {
+  refs, onChanged, initialDocument, initialLoaded, selectedRow }: AgentGalleryViewProps) {
   const [pageOffset, setPageOffset] = useState(0)
   useEffect(() => setPageOffset(0), [slug, nid])
   const data = usePolled(() => getDocuments(slug, pageOffset, nid), [slug, pageOffset, nid])
@@ -488,6 +491,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           <div className="mailer-read">
             {cur ? (
               <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
+                preloaded={cur.id === initialDocument && cur.at === initialLoaded?.at ? initialLoaded : undefined}
                 onDismissed={() => {
                   setDismissed((d) => [...d, cur.id])
                   setSelId(null)
