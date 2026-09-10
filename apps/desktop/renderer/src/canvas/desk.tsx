@@ -1638,23 +1638,22 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const rawPendMail = chat?.pending_mail ?? []
   const answerInTranscript = useMemo(() => {
     if (!answerMail || !chat) return false
-    for (const row of [...chat.messages, ...(chat.live ?? [])]) {
-      const segs = (row as { segments?: unknown }).segments
-      if (!Array.isArray(segs)) continue
-      for (const seg of segs as { kind?: string; rows?: { id?: string | null }[] }[]) {
-        if (seg?.kind === 'mail' && (seg.rows ?? []).some(r => r?.id === answerMail)) return true
+    const rows = [...chat.messages.filter(row => row.role === 'user'),
+      ...live_feed.filter(row => row.kind === 'steered')]
+    for (const row of rows) {
+      const segs = row.segments
+      if (!isSegments(segs, BASE ? 'public' : 'operator')) continue
+      for (const seg of segs) {
+        if (seg.kind === 'mail' && seg.rows.some(r => r.id === answerMail)) return true
       }
     }
     return false
-  }, [answerMail, chat])
-  // "was ever listed as pending, and no longer is" — the answer scrolled into
-  // (or past) the transcript window; latched per mail id so the check cannot
-  // fire in the gap BEFORE the first payload lists the freshly-posted mail
-  const answerSeenPending = useRef<string | null>(null)
-  if (answerMail && rawPendMail.some(m => m.id === answerMail)) answerSeenPending.current = answerMail
-  const answerHandedOff = !answerMail ? true
-    : answerInTranscript || (answerSeenPending.current === answerMail
-      && convo.loaded && !rawPendMail.some(m => m.id === answerMail))
+  }, [answerMail, chat, live_feed])
+  // Queue removal is not evidence of display. Remember actual rendering so
+  // an answer later leaving the loaded window does not reopen its panel.
+  const answerSeenTranscript = useRef<string | null>(null)
+  if (answerMail && answerInTranscript) answerSeenTranscript.current = answerMail
+  const answerHandedOff = !answerMail || answerSeenTranscript.current === answerMail
   // never a separate pending bubble for a message the panel represents: the
   // resolved answer by its stamped id, and — race-proof, straight from the
   // payload — any answer-decision event that references THIS card, which

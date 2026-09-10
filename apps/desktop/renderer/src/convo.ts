@@ -781,19 +781,8 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
   e.staleThink = true
   e.staleAt = Date.now()
   if (ev.kind === 'text') { e.staleDraft = true; e.textSeen += 1 }
-  if (ev.kind === 'steered') {
-    // one steered delivery retires one ghost — see dropPending. Matched on a
-    // bounded needle for the same reason as serverCopies: the server caps the
-    // event text (api `m[:2000]`), so a full-length needle from a longer steer
-    // can never occur in it.
-    if (ev.segments !== undefined) {
-      const ids = segmentMailIds(ev.segments, BASE ? 'public' : 'operator')
-      patch(k, { pending: e.s.pending.filter(g => !g.mailId || !ids.has(g.mailId)) })
-    } else {
-      patch(k, { pending: dropOne(e.s.pending,
-        (g) => !g.mailId && ev.text.includes(g.text.slice(0, COPIES_NEEDLE))) })
-    }
-  }
+  // A delivery notification schedules a fetch; it does not render mail.
+  // Keep its preview until refresh installs the replacement in one patch.
   nudge(slug, ev.node)
 }
 

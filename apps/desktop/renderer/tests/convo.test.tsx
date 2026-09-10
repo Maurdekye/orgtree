@@ -632,8 +632,8 @@ convoTest('§3.3 a failed send retires ONE ghost, not every ghost with that text
       'the send that succeeded still has its preview')
   })
 
-convoTest('§3.4 a steered frame retires one ghost, not every matching ghost',
-  async ({ SL, ND, desk }) => {
+convoTest('§3.4 a steered frame keeps previews until its fetched replacement arrives',
+  async ({ SL, ND, s, desk }) => {
     const d = await desk()
     await advance(3000)
     await inAct(() => {
@@ -643,8 +643,10 @@ convoTest('§3.4 a steered frame retires one ghost, not every matching ghost',
     await inAct(() => {
       ingestStream(SL, { node: ND, kind: 'steered', text: '[user] stop', t: Date.now() })
     })
-    assert.equal(d.now().pending.length, 1,
-      'only the steered message graduated')
+    assert.equal(d.now().pending.length, 2, 'notification alone renders no replacement')
+    s.userMsg('stop')
+    await inAct(async () => { await refreshConvo(SL, ND, { force: true }); await flush() })
+    assert.equal(d.now().pending.length, 1, 'the fetched replacement retires exactly one preview')
   })
 
 convoTest('§3.5 a >2 kB body graduates against the server-truncated copy',
@@ -1247,7 +1249,10 @@ convoTest('typed mail IDs retire only the matching repeated send through poll an
   await inAct(()=>ingestStream(SL,{node:ND,kind:'steered',text:'continue',t:Date.now(),segments:[{kind:'mail',rows:[typedRow('a')]}]}))
   assert.deepEqual(d.now().pending.map(g=>g.mailId),['b'],'a replay cannot retire b')
   await inAct(()=>ingestStream(SL,{node:ND,kind:'steered',text:'unrelated transport text',t:Date.now(),segments:[{kind:'mail',rows:[typedRow('b')]}]}))
-  assert.equal(d.now().pending.length,0,'matching durable ID retires without body match')
+  assert.equal(d.now().pending.length,1,'the notification cannot hide a preview before fetch')
+  const next=s.userMsg('unrelated transport text'); next.segments=[{kind:'mail',rows:[typedRow('b')]}]
+  await inAct(async()=>{await refreshConvo(SL,ND,{force:true});await flush()})
+  assert.equal(d.now().pending.length,0,'visible matching durable ID retires without body match')
 })
 convoTest('typed rows never graduate unbound ghosts by body and late response binds to current payload', async ({SL,ND,s,desk}) => {
   const d=await desk(); await flush(); let id=0

@@ -146,7 +146,7 @@ domTest('§3 ask.status alone never unpins: server acceptance is not visibility'
       `no interval with the answer absent everywhere (${JSON.stringify(c)})`)
   })
 
-domTest('§4 a buried delivery (window scrolled past) still releases the panel',
+domTest('§4 queue disappearance keeps the panel until its answer is rendered',
   async ({ ND, s, mount }) => {
     s.pending_mail.push(answerRow(ND))
     await refreshConvo(SL, ND)
@@ -160,7 +160,17 @@ domTest('§4 a buried delivery (window scrolled past) still releases the panel',
       await refreshConvo(SL, ND, { force: true })
       await flush()
     })
-    assert.equal(counts(el).panel, 0, 'released once the queue has moved on')
+    assert.deepEqual(counts(el), {panel:1,bubble:0,transcript:0}, 'queue disappearance is not visible delivery')
+    await inAct(async () => {
+      s.messages.push(settledMsg(ND) as never)
+      await refreshConvo(SL,ND,{force:true}); await flush()
+    })
+    assert.deepEqual(counts(el), {panel:0,bubble:0,transcript:1}, 'replacement appears in the same render that releases the panel')
+    await inAct(async () => {
+      s.messages.length=0
+      await refreshConvo(SL,ND,{force:true}); await flush()
+    })
+    assert.equal(counts(el).panel,0,'a rendered answer later leaving the window does not resurrect the panel')
   })
 
 domTest('§5 while the OPEN panel exists, an early answer mail never doubles as a bubble',
