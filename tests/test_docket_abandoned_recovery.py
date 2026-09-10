@@ -71,8 +71,11 @@ class AbandonedDocketRecoveryTests(unittest.TestCase):
         org, root, old = self._org()
         self._item(org, old)
         store.save_org(org)
+        def compose(slug, nid, text, **kwargs):
+            return supervisor._ping_drive(store.load_org(slug), nid, text,
+                                          kwargs.get("ping_reason"))
         with mock.patch.object(supervisor, "mail_spark"), mock.patch.object(
-                supervisor, "send_message") as wake:
+                supervisor, "send_message", side_effect=compose) as wake:
             supervisor._abandoned_docket_recovery_pass(now=100000)
             supervisor._abandoned_docket_recovery_pass(now=100000)
         saved = store.load_org("test-org")
@@ -82,6 +85,26 @@ class AbandonedDocketRecoveryTests(unittest.TestCase):
         self.assertIn("aaa", str(saved.d.get("mail")))
         self.assertIn("docket.assigned", str(saved.d.get("mail")))
         wake.assert_called_once()
+
+
+    def test_failed_reassignment_stage_does_not_skip_reminders(self):
+        from engine.backend.orgtree import supervisor
+        with mock.patch.object(supervisor, "_abandoned_docket_recovery_pass",
+                               side_effect=RuntimeError("injected wake failure")), \
+                mock.patch.object(supervisor, "_idle_docket_reminder_pass") as reminder, \
+                mock.patch.object(supervisor, "_working_lifecycle_keeper_pass") as checkup:
+            supervisor._auto_wake_keeper_pass(now=100000)
+        reminder.assert_called_once_with(now=100000)
+        checkup.assert_called_once_with(now=100000)
+
+    def test_failed_reminder_stage_does_not_skip_working_checkups(self):
+        from engine.backend.orgtree import supervisor
+        with mock.patch.object(supervisor, "_abandoned_docket_recovery_pass"), \
+                mock.patch.object(supervisor, "_idle_docket_reminder_pass",
+                                  side_effect=RuntimeError("injected reminder failure")), \
+                mock.patch.object(supervisor, "_working_lifecycle_keeper_pass") as checkup:
+            supervisor._auto_wake_keeper_pass(now=100000)
+        checkup.assert_called_once_with(now=100000)
 
 
 if __name__ == "__main__":

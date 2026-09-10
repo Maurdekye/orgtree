@@ -432,7 +432,7 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         reason=F("L[user_mail|agent_mail|notice|participation|docket_reply|ask_answer|batch|"
                  "credit_decision|audience|rehire_waited|reconcile_waited|freeze_lifted|"
                  "remote_released|unfrozen_by_switch|external_inbox|watchdog|watchdog_quiet|"
-                 "storage|failure|checkup|reminder]?", M, False)),
+                 "storage|failure|checkup|reminder|docket_abandoned_reassignment]?", M, False)),
     "context.drive_restart_interrupted": leaf("context_change", "BuildRef",
                                               text=F("str", M, False)),
     "context.drive_restart_wake": leaf("context_change", "BuildRef", text=F("str", M, False),

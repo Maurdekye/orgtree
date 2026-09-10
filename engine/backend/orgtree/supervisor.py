@@ -10607,9 +10607,13 @@ def _auto_wake_keeper_pass(now: float | None = None) -> None:
     mail and the shared gates then refuse the other. The reminder goes first
     because it names the actual work; the generic checkup still fires for a
     seat the reminder passes over."""
-    _abandoned_docket_recovery_pass(now=now)
-    _idle_docket_reminder_pass(now=now)
-    _working_lifecycle_keeper_pass(now=now)
+    for stage in (_abandoned_docket_recovery_pass, _idle_docket_reminder_pass,
+                  _working_lifecycle_keeper_pass):
+        try:
+            stage(now=now)
+        except Exception as exc:  # one failing stage must not starve other wakes
+            print(f"[orgtree] automatic wake stage failed: "
+                  f"{type(exc).__name__}: {exc}")
 
 
 def working_cache_keeper_pass_now() -> None:
