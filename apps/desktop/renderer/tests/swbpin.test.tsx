@@ -286,38 +286,26 @@ uiTest('§E every line pinned: the empty state names the right absence',
     }
   })
 
-uiTest('§F the tab NAME navigates; the panel toggle beside it does not',
+uiTest('§F the tab name selects its panel; only the separate jump navigates',
   async ({ mount }) => {
-    // user rule 2026-09-05: an agent's name is clickable everywhere except
-    // inside that agent's own focused desk. The switchboard tab used to put
-    // the name INSIDE the minimize button, so clicking the name minimized a
-    // chat; the only route to the agent was a ⌖ arrow that does not contain
-    // the name, which is not the name being a link.
     const { el } = await switchboard(mount)
     const xf = () => (el.querySelector('.space') as HTMLElement).style.transform
-
     const id = tabFor(el, 'cto').querySelector('.eye-tab-id')
-    assert.ok(id, 'the tab renders the name as its own element')
-    const link = id!.querySelector('button.cc-name.cc-name-jump')
-    assert.ok(link, 'and that name is a navigation control, not plain text')
-    assert.equal(link!.textContent, 'cto')
-    assert.ok(id!.querySelector('.tier'),
-      'the model chip sits with the name, as it does on every other surface')
-
-    // the PANEL TOGGLE must not navigate — same two actions as before, just
-    // no longer sharing one hit target
+    assert.ok(id?.querySelector('.tier'), 'the label retains its model chip')
+    assert.equal(id.querySelector('a, button'), null, 'tab label has no nested navigation control')
+    const name = id.querySelector('.cc-name') as HTMLElement
+    assert.equal(name.textContent, 'cto')
     const before = xf()
-    await inAct(() => { (tabMain(el, 'cto')).click() })
+    await inAct(() => { name.click() })
     await flush()
-    assert.equal(xf(), before, 'the panel toggle moved the camera')
-    assert.equal(panelsFor(el, 'cto'), 0, 'and it did minimize the panel')
-
-    // the NAME does navigate. ⚠ POSITIVE CONTROL FOR THE ASSERTION ABOVE: if
-    // this one does not move the camera either, then "the toggle did not
-    // navigate" is a statement about a broken rig, not about the toggle.
-    await inAct(() => { (link as HTMLElement).click() })
+    assert.equal(xf(), before, 'clicking the tab name must not move the camera')
+    assert.equal(panelsFor(el, 'cto'), 0, 'name click minimizes its open panel')
+    await inAct(() => { name.click() })
+    await flush()
+    assert.equal(panelsFor(el, 'cto'), 1, 'name click reopens its minimized panel')
+    const jump = tabFor(el, 'cto').querySelector('.eye-tab-jump') as HTMLButtonElement
+    assert.ok(jump, 'explicit jump remains beside the tab')
+    await inAct(() => { jump.click() })
     await settle(1500)
-    assert.notEqual(xf(), before,
-      'clicking the agent NAME did not move the camera — the name is not a '
-      + 'route to the agent, which is the whole rule')
+    assert.notEqual(xf(), before, 'the separate jump button must move the camera')
   })

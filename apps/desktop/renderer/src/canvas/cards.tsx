@@ -376,24 +376,16 @@ export function EyeDesk({ map, op, slug, toast, pip,
           {agents.map((a) => (
             <span key={a.id} className={'eye-tab'
               + (isPinned(a.id) ? ' pinned' : minned.has(a.id) ? '' : ' on')}>
-              {/* the NAME navigates; the PANEL CONTROL beside it opens /
-                  minimizes (or raises the pinned window). Two controls, not
-                  one hit target — the name used to sit inside the toggle. */}
-              <span className="eye-tab-id">
-                {/* the id alone: `AgentName` calls back with (id, event), and
-                    every `onJump` here is declared one-argument (mail.tsx's
-                    defaultIdentity records what the whole-callback handoff
-                    cost). This tab's own `onJump` is wrapped at its source in
-                    OrgCanvas, so nothing is corrupted today — the wrapper is
-                    what keeps that true if the source ever passes centerOn. */}
-                <AgentName id={a.id} tier={a.tier}
-                  onFocus={onJump ? (id: string) => onJump(id) : undefined} />
-              </span>
+              {/* The tab name selects its panel. Agent navigation belongs
+                  only to the separate jump button (user 2026-09-10). */}
               <button className="eye-tab-main" type="button"
                 title={isPinned(a.id)
                   ? 'this chat is open in a pinned window — click to raise it'
                   : minned.has(a.id) ? 'open this chat' : 'minimize this chat'}
                 onClick={() => isPinned(a.id) ? onShowPin?.(a.id) : toggle(a.id)}>
+                <span className="eye-tab-id">
+                  <AgentName id={a.id} tier={a.tier} />
+                </span>
                 {isPinned(a.id) && <PinIcon fontSize="inherit" />}
                 {a.busy && <DestinationBusy tier={a.tier} />}
                 {/* the unread count wears the TAB AGENT's provider — the same
@@ -406,6 +398,11 @@ export function EyeDesk({ map, op, slug, toast, pip,
                 {!isPinned(a.id) &&
                   <FullscreenIcon className="eye-tab-panel-glyph" fontSize="inherit" />}
               </button>
+              {onJump && <button className="eye-tab-jump" type="button"
+                title={`jump to ${a.id}`} aria-label={`jump to ${a.id}`}
+                onClick={() => onJump(a.id)}>
+                <FocusIcon fontSize="inherit" />
+              </button>}
               {/* ✕ only on audience-granted lines; closing RESCINDS the grant
                   (user spec) — top-level lines have no ✕, they are intrinsic */}
               {a.parent !== USER && a.audiences_held?.includes(USER) &&

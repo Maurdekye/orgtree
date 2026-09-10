@@ -3980,8 +3980,7 @@ svg.MuiSvgIcon-root {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--accent-soft);
 }
-/* two controls per tab: the name navigates, `.eye-tab-main` opens/minimizes
-   (or raises the pinned window). They used to share one hit target. */
+/* Tab names open/minimize their panels; the separate jump button navigates. */
 .eye-tab-id {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 4px 4px 9px; font-size: 13px;
@@ -3998,8 +3997,7 @@ svg.MuiSvgIcon-root {
 .eye-tab-main {
   display: inline-flex; align-items: center; gap: 6px;
   background: none; border: none; color: var(--dim);
-  font-size: 13px; padding: 4px 9px 4px 4px;
-  border-left: 1px solid var(--line-soft);
+  font-size: 13px; padding: 0 9px 0 0;
 }
 .eye-tab-panel-glyph { font-size: 12px; opacity: .75; }
 .eye-tab.on .eye-tab-main { color: var(--ink-strong); }
@@ -4492,7 +4490,10 @@ svg.MuiSvgIcon-root {
   border: 1px solid var(--line-soft); border-radius: 6px; padding: 8px 10px;
   font-size: 12px;
 }
-.eye-tab-jump { color: var(--dim); }
+.eye-tab-jump {
+  color: var(--dim); background: none; border: none;
+  border-left: 1px solid var(--line-soft); padding: 4px 7px;
+}
 .eye-tab-jump:hover { color: var(--accent); background: var(--accent-soft); }
 .lineage-panel { min-width: 480px; }
 .lin-blurb { font-size: 11.5px; line-height: 1.55; }

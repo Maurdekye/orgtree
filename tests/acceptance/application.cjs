@@ -262,6 +262,16 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await waitFor(`document.querySelector('button[title="App settings"]')`), true, 'Organization drawer exposes App settings')
       await evaluate(`document.querySelector('button[title="App settings"]').click();true`)
       assert.equal(await waitFor(`document.querySelector('button[aria-label="Open in new window"]')`), true)
+      if (!visualFixture) await check('managed-account-creation-through-settings', async () => {
+        assert.equal(await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim().toLowerCase() === 'create managed')`), true)
+        const before = await evaluate(`fetch('/api/accounts').then(r => r.json()).then(r => r.accounts.length)`)
+        await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase() === 'create managed').click(); true`)
+        assert.equal(await waitFor(`document.querySelectorAll('.account-row').length === ${before + 1}`), true,
+          'Click must visibly add the managed account row')
+        const accounts = await evaluate(`fetch('/api/accounts').then(r => r.json()).then(r => r.accounts)`)
+        assert.equal(accounts.length, before + 1, 'Created profile must persist in the actual backend')
+        assert.ok(accounts.some(a => a.credential.kind === 'managed'), 'Created account is a managed profile')
+      })
       for (const tab of ['Display', 'Import', 'Runtime']) {
         assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('${tab}'));if(!b)return false;b.click();return true})()`), true)
         await capture(main, 'settings-' + tab.toLowerCase())
