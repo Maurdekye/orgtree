@@ -7,28 +7,30 @@ import path from 'node:path'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-header-wrap-'))
 // The fixture mirrors App.tsx's native header structure (native-header-main
 // slot, then update-notice and WindowControls as direct orgbar children)
-// with enough content to overflow every tested width, plus a browser-style
-// header as the probe's wrap-positive control.
+// with the real flexible spacer, flattened detail group and badge buttons.
+// Narrow widths must wrap; wide widths must leave the actions right aligned.
 await build({ stdin: { contents: `
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { WindowControls } from './apps/desktop/renderer/src/window-controls'
 import './apps/desktop/renderer/src/styles.css'
-const chips = (n) => Array.from({ length: n }, (_, i) =>
-  React.createElement('span', { className: 'chip', key: i }, 'status chip number ' + i))
-createRoot(document.getElementById('root')).render(React.createElement(React.Fragment, null,
-  React.createElement('header', { id: 'native', className: 'orgbar native-header' },
-    React.createElement('div', { className: 'native-header-main' },
-      React.createElement('button', { className: 'iconbtn' }, 'menu'),
-      React.createElement('h2', null, 'an-organization-with-a-deliberately-long-name-for-width-pressure'),
-      chips(12)),
-    React.createElement('div', { className: 'update-notice' }, 'Update ready: restart to apply 2.0.0-alpha.7'),
-    React.createElement(WindowControls, null)),
-  React.createElement('header', { id: 'browser', className: 'orgbar' },
-    React.createElement('h2', null, 'an-organization-with-a-deliberately-long-name-for-width-pressure'),
-    chips(12),
-    React.createElement('div', { className: 'update-notice' }, 'Update ready: restart to apply 2.0.0-alpha.7'),
-    React.createElement(WindowControls, null))))
+const e = React.createElement
+const chips = Array.from({ length: 4 }, (_, i) =>
+  e('span', { className: 'chip', key: i }, 'status chip ' + i))
+createRoot(document.getElementById('root')).render(e('main', { className: 'solo' },
+  e('header', { id: 'native', className: 'orgbar native-header' },
+    e('div', { className: 'native-header-main' },
+      e('button', { className: 'iconbtn' }, 'menu'),
+      e('h2', null, 'Orgtree'),
+      e('div', { className: 'bar-detail' }, chips),
+      e('span', { id: 'spacer', style: { flex: 1 } }),
+      e('button', { className: 'iconbtn ask-bell' }, 'Inbox', e('b', { className: 'eye-count' }, '12')),
+      e('button', { className: 'iconbtn doc-bell' }, 'Presented', e('b', { className: 'eye-count' }, '19')),
+      e('button', null, 'Connections'),
+      e('button', null, 'Settings'),
+      e('a', { className: 'gh-link', href: '#', id: 'last-action' }, 'GitHub')),
+    e('div', { className: 'update-notice' }, "You're up to date"),
+    e(WindowControls, null))))
 `, loader: 'tsx', resolveDir: process.cwd() },
   outfile: path.join(root, 'fixture.js'), bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic' })
 await build({ entryPoints: ['tests/header-wrap-native.probe.ts'], outfile: path.join(root, 'probe.cjs'), bundle: true, platform: 'node', format: 'cjs', external: ['electron'] })

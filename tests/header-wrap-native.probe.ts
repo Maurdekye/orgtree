@@ -4,12 +4,8 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
-/** Real rendered GEOMETRY check for the native header's window controls
- * (user report, installed alpha.6: the frame-replacement buttons wrapped to
- * a second row). Production styles.css + the real WindowControls component
- * in a real frameless window, measured by bounding rects across widths —
- * with a browser-style header beside it as the POSITIVE CONTROL: that one
- * wraps by design, proving the detector can actually report a wrap. */
+/** Measure wrapping, right alignment, full badge hit areas and fixed native
+ * controls in production CSS, before and after the update notice disappears. */
 const root = process.env.ORGTREE_HEADER_TEST_ROOT!
 app.disableHardwareAcceleration()
 app.setPath('userData', path.join(root, 'profile'))
@@ -37,41 +33,40 @@ app.whenReady().then(async () => {
   }
   await waitFor(`document.querySelectorAll('#native .window-control').length === 4`)
   const measure = `(() => {
-    const rowCheck = (id) => {
-      const bar = document.getElementById(id)
-      const h2 = bar.querySelector('h2')
-      const wc = bar.querySelector('.window-controls')
-      const hb = h2.getBoundingClientRect(), wb = wc.getBoundingClientRect()
-      const cy = (wb.top + wb.bottom) / 2
-      return { sameRow: cy >= hb.top && cy <= hb.bottom,
-               visible: wb.width > 1 && wb.right <= innerWidth + 0.5 && wb.left >= 0,
-               buttons: wc.querySelectorAll('.window-control').length,
-               wcTop: wb.top, wcRight: wb.right,
-               h2Top: hb.top, h2Bottom: hb.bottom, inner: innerWidth }
-    }
-    return { native: rowCheck('native'), browser: rowCheck('browser') }
+    const bar = document.getElementById('native')
+    const flow = bar.querySelector('.native-header-main')
+    const box = el => {const r = el.getBoundingClientRect(); return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height}}
+    const wc = box(bar.querySelector('.window-controls'))
+    const badgeVisible = [...bar.querySelectorAll('.eye-count')].every(b => {
+      const r = b.getBoundingClientRect()
+      return r.top >= 0 && [r.top + 1, r.bottom - 1].every(y =>
+        b.contains(document.elementFromPoint(r.left + r.width / 2, y)))
+    })
+    return {wc, flow:box(flow), first:box(bar.querySelector('h2')),
+      last:box(document.getElementById('last-action')), spacer:box(document.getElementById('spacer')),
+      badgeVisible, overflow:['auto','scroll'].includes(getComputedStyle(flow).overflowX),
+      right:document.documentElement.clientWidth - parseFloat(getComputedStyle(document.querySelector('main')).paddingRight),
+      barTop:bar.getBoundingClientRect().top}
   })()`
-  // widths straddle the OLD media band (600–780) where the fix used to
-  // stop: the wrap reproduced at >780 before this change
-  for (const width of [560, 640, 700, 760, 900, 1000, 1400]) {
+  for (const width of [560, 640, 760, 900, 1400, 2048]) {
     window.setSize(width, 700)
     await waitFor(`Math.abs(window.innerWidth - ${width}) < 2`)
     await new Promise(r => setTimeout(r, 80))
-    const m = await window.webContents.executeJavaScript(measure)
-    assert.equal(m.native.buttons, 4, `native controls all present at ${width}`)
-    assert.equal(m.native.sameRow, true,
-      `native window controls stay on the first row at ${width}: ${JSON.stringify(m.native)}`)
-    assert.equal(m.native.visible, true,
-      `native window controls visible and unclipped at ${width}: ${JSON.stringify(m.native)}`)
-    // positive control: the browser-style header (wrap by design) DOES
-    // wrap under the same content pressure — the detector can fail
-    if (width <= 900) assert.equal(m.browser.sameRow, false,
-      `positive control: browser header wraps at ${width}: ${JSON.stringify(m.browser)}`)
+    for (const notice of [true, false]) {
+      await window.webContents.executeJavaScript(`document.querySelector('.update-notice').style.display = '${notice ? '' : 'none'}'`)
+      const m = await window.webContents.executeJavaScript(measure)
+      assert.ok(Math.abs(m.wc.right - m.right) <= 1, `controls right anchored: ${JSON.stringify(m)}`)
+      assert.ok(Math.abs(m.wc.top - m.barTop) <= 1, `controls stay at top through wrapping: ${JSON.stringify(m)}`)
+      assert.equal(m.overflow, false, `content must wrap, not scroll at ${width}: ${JSON.stringify(m)}`)
+      assert.equal(m.badgeVisible, true, `entire badge hit area visible at ${width}: ${JSON.stringify(m)}`)
+      if (width <= 760) assert.ok(m.last.top > m.first.bottom, `narrow header actually wraps at ${width}`)
+      if (width >= 1400) {
+        assert.ok(m.spacer.width > 100, `wide header restores flexible separation: ${JSON.stringify(m)}`)
+        assert.ok(Math.abs(m.last.right - m.flow.right) <= 1, 'ordinary actions finish at the right edge')
+      }
+    }
   }
-  console.log('HEADER_WRAP_NATIVE_PASS ' + JSON.stringify({
-    widths: [560, 640, 700, 760, 900, 1000, 1400],
-    control: 'browser-style header wrap detected at <=900',
-  }))
+  console.log('HEADER_WRAP_NATIVE_PASS wrap/alignment/badges/controls with and without notice at six widths')
   window.destroy(); server.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); app.exit(1) })
 setTimeout(() => { console.error('Header wrap native probe timed out'); app.exit(1) }, 60000).unref()

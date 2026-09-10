@@ -60,16 +60,10 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(styles, /\.window-controls \{[^}]*-webkit-app-region: no-drag/)
   assert.match(styles, /\.window-controls \{[^}]*flex: 0 0 auto[^}]*flex-wrap: nowrap/)
   assert.match(styles, /\.window-control \{[^}]*flex: 0 0 46px/)
-  // the single-row native-header rules apply at EVERY width — the old
-  // 600–780px media band left wider windows wrapping the frame controls
-  // (installed-alpha.6 user report); its return would reintroduce that
-  assert.doesNotMatch(styles, /@media [(]min-width: 600px[)] and [(]max-width: 780px[)]/)
-  assert.match(styles, /\.orgbar\.native-header \{[^}]*flex-wrap: nowrap/)
-  assert.match(styles, /\.orgbar\.native-header > \.window-controls \{[^}]*flex: 0 0 auto/)
-  assert.ok(styles.includes('.orgbar.native-header > .update-notice'))
-  assert.match(styles, /\.orgbar\.native-header > \.update-notice \{[^}]*max-width: 180px/)
-  assert.ok(styles.includes('overflow-x: auto'))
-  assert.ok(styles.includes('html.mobile .orgbar.native-header > .native-header-main > .bar-detail'))
+  // Only the native controls occupy a fixed column; ordinary content wraps.
+  assert.match(styles, /\.orgbar\.native-header \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto auto/)
+  assert.match(styles, /\.orgbar\.native-header > \.native-header-main \{[^}]*flex-wrap: wrap[^}]*overflow: visible/)
+  assert.match(styles, /\.orgbar\.native-header > \.window-controls \{[^}]*grid-column: 3[^}]*grid-row: 1/)
   assert.match(styles, /\.orgbar button, \.orgbar a, \.orgbar input, \.orgbar select, \.orgbar \.chip/)
   assert.match(styles, /\.canvas-stage > \.viewport \{[^}]*-webkit-app-region: no-drag/)
   assert.match(nativeProbe, /native BrowserWindow state operations only/)

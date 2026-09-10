@@ -187,7 +187,17 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(measured.controls.length, 1, 'Exactly one native control group on home')
       const controls = measured.controls[0]
       assert.ok(controls.top >= 0 && controls.bottom <= 64, `Controls belong at the window top: ${JSON.stringify(measured)}`)
-      assert.ok(Math.abs(measured.width - controls.right) <= 16, `Controls belong at the window right: ${JSON.stringify(measured)}`)
+        assert.ok(Math.abs(measured.width - controls.right) <= 16, `Controls belong at the window right: ${JSON.stringify(measured)}`)
+        const withoutNotice = await evaluate(`(() => {
+          const notice = document.querySelector('.home-header .update-notice');
+          const display = notice?.style.display;
+          if (notice) notice.style.display = 'none';
+          const r = document.querySelector('.home-header .window-controls').getBoundingClientRect();
+          if (notice) notice.style.display = display;
+          return { right: r.right, top: r.top, width: innerWidth };
+        })()`)
+        assert.ok(Math.abs(withoutNotice.width - withoutNotice.right) <= 16,
+          `Home controls stay right after the temporary update notice disappears: ${JSON.stringify(withoutNotice)}`)
       if (restoredOrg) {
         await evaluate(`[...document.querySelectorAll('.org')].find(e => e.textContent.includes(${JSON.stringify(restoredOrg)})).click(); true`)
         assert.equal(await waitFor(`document.querySelector('header.orgbar h2')?.textContent === ${JSON.stringify(restoredOrg)}`), true)

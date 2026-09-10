@@ -54,6 +54,8 @@ app.whenReady().then(async () => {
     window.setSize(width, 700)
     await waitFor(`Math.abs(window.innerWidth - ${width}) < 2`)
     await new Promise(r => setTimeout(r, 80))
+    for (const notice of [true, false]) {
+    await window.webContents.executeJavaScript(`document.querySelector('#home .update-notice').style.display = '${notice ? '' : 'none'}'`)
     const m = await window.webContents.executeJavaScript(measure)
     assert.equal(m.buttons, 4, `home header controls present at ${width}`)
     // corner-anchored: flush with the window's right edge and top
@@ -76,6 +78,7 @@ app.whenReady().then(async () => {
     assert.ok(m.bad.right < m.inner - 80,
       `old-shape controls are far from the corner at ${width}: ${JSON.stringify(m.bad)}`)
   }
+    }
   console.log('HOME_HEADER_NATIVE_PASS ' + JSON.stringify({ widths: [700, 1000, 1400],
     control: 'old in-card shape detected as card-attached' }))
   window.destroy(); server.close(); app.exit(0)

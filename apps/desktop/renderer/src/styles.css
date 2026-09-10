@@ -6183,59 +6183,43 @@ html.mobile .popout-button { display: none; }
 .onboard-swatch { width: .8rem; height: .8rem; border-radius: 50%; display: inline-block; }
 .onboard-actions { display: flex; justify-content: space-between; align-items: center;
   margin-top: 1rem; gap: .75rem; }
-/* Native headers keep normal actions in a bounded, horizontally scrollable
-   flow slot beside the updater and fixed controls, at EVERY width: the
-   native frame replacement (refresh/min/max/close) must never wrap to a
-   second row. These rules were previously scoped to a 600–780px media
-   band, so any wider window with enough header content wrapped the
-   controls anyway (user report, installed alpha.6). Browser headers
-   retain their ordinary wrapping. */
+/* Ordinary header content wraps and retains its flexible right-hand spacer.
+   Separate grid columns keep the native controls at the top-right, independent
+   of content height or the temporary update notice. Visible overflow lets the
+   notification badges extend above their buttons without clipping. */
 .native-header-main { display: contents; }
 .orgbar.native-header {
   position: relative;
-  flex-wrap: nowrap;
-  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  overflow: visible;
 }
 .orgbar.native-header > .native-header-main {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
   gap: 8px;
+  overflow: visible;
 }
-.orgbar.native-header > .native-header-main > * {
-  min-width: max-content;
-  flex: 0 0 auto;
-}
-.orgbar.native-header > .native-header-main > .bar-detail {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 8px;
-}
-.orgbar.native-header > .native-header-main > span[style] {
-  flex: 0 0 8px !important;
-}
-html.mobile .orgbar.native-header > .native-header-main > .bar-detail {
-  display: none;
-}
-/* shrink-to-content up to the tight-width slot: no dead space when the
-   notice is short or absent, truncation instead of a wrap when it is not */
 .orgbar.native-header > .update-notice {
+  grid-column: 2;
+  grid-row: 1;
   position: static;
-  flex: 0 1 auto;
   min-width: 0;
-  max-width: 180px;
+  max-width: min(180px, 20vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .orgbar.native-header > .window-controls {
+  grid-column: 3;
+  grid-row: 1;
   position: static;
-  flex: 0 0 auto;
+  justify-self: end;
 }
 /* the HOME page (org list): the native frame replacement anchors to the
    WINDOW's top edge and right corner, never to the centered welcome card
@@ -6246,4 +6230,4 @@ html.mobile .orgbar.native-header > .native-header-main > .bar-detail {
   position: fixed; top: 0; left: 0; right: 0; z-index: 6;
   margin: 0; padding: 6px 0 6px 14px;
 }
-.orgbar.native-header.home-header > .update-notice { margin-left: auto; }
+
