@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { TitleBadge } from '../src/App'
+import { THEMES } from '../src/themes'
 import type { HostPayload } from '../src/types'
 
 declare const __SRC_DIR__: string   // injected by run.mjs (see agentstray.test.tsx)
@@ -54,6 +55,17 @@ test('a plain browser keeps the engine hash and never invents a version', async 
   const unknown = await badge(t, <TitleBadge appVersion={null}
     build={{ ...BUILD, commit: 'unknown' } as HostPayload['build']} />)
   assert.equal(unknown, null, 'an unknown commit is not a badge either')
+})
+
+test('the default themes wear the user\'s exact display names; ids and Custom stay', () => {
+  // user 2026-09-10 13:29 — label-only rename; the keys ARE the stored ids
+  // and both pickers (settings + onboarding) render this one table
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(THEMES).map(([id, t]) => [id, t.label])),
+    { orgtree: 'Orgtree Grey', claude: 'Claude Terracotta', codex: 'Codex Teal',
+      antigravity: 'Antigravity Blue', openrouter: 'OpenRouter Violet' })
+  assert.match(src('themes.tsx'), /<option value="custom">Custom<\/option>/,
+    'the custom theme choice survives the rename')
 })
 
 test('every visible app title reads exactly Orgtree — no case drift, no spark glyph', () => {
