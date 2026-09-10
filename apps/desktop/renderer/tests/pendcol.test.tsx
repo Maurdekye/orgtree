@@ -281,30 +281,29 @@ domTest('§7 PARITY: the same message reads the same queued and delivered',
   })
 
 // ==================================================================== §8
-domTest('§8 the delivery tag rides the metadata strip — top right, never below the content',
+domTest('§8 the delivery tag is its own line BELOW the card — never inside it',
   async ({ SL, ND, s, mount }) => {
-    // 2026-08-28: "keep the 'delivering mid-task' text in the same spot" —
-    // the top right, and NOT under the picture. 2026-09-10 moved that spot
-    // INTO the card's own metadata strip so the card keeps its full settled
-    // width; the strip is the card's first row, so the tag still reads at
-    // the top and still never sinks below the content.
+    // The seat moved twice on user direction and this pins the CURRENT one
+    // (2026-09-10, root ed542f0): delivery status occupies its own line
+    // below the full-width card. It is NOT part of the card — the card must
+    // stay byte-identical to its settled twin — and not a side column,
+    // which is the width bug the parity work removed.
     queue(s, 'steered', ['cat.png'], { delivering: true })
     await refreshConvo(SL, ND)
     const el = await mount(deskEl(node(ND), SL))
     await flush()
-    const card = pendCard(el)
-    const tag = card.querySelector('.pend-tag')
+    const bubble = el.querySelector('.pending.pendrow')
+    assert.ok(bubble, 'the pending row rendered')
+    const tag = bubble!.querySelector('.pend-tag')
     assert.ok(tag, 'the tag renders')
     assert.match(tag!.textContent ?? '', /delivering mid-task/)
-    const head = tag!.closest('header.turn-mail-head')
-    assert.ok(head && head.parentElement === card,
-      'it rides the card\'s own metadata strip')
-    assert.ok(head!.lastElementChild === tag,
-      'at the end of the strip — the right-aligned seat')
-    for (const below of card.querySelectorAll('.event-fallback, .event-body, .attach-row')) {
-      assert.ok(tag!.compareDocumentPosition(below) & 4,
-        'the tag stays above the content, never below the image')
-    }
+    assert.ok(tag!.parentElement === bubble,
+      'its own line in the row — not inside the card')
+    assert.equal(tag!.closest('.turn-mail'), null,
+      'specifically NOT in the card, whose DOM must match its settled twin')
+    const card = pendCard(el)
+    assert.ok(card.compareDocumentPosition(tag!) & 4,
+      'and it reads BELOW the message, where the user placed it')
   })
 
 domTest('§8b the retract ✕ takes that same seat on an undelivered mail',
@@ -324,11 +323,11 @@ domTest('§8b the retract ✕ takes that same seat on an undelivered mail',
   })
 
 // ==================================================================== §9
-domTest('§9 the pending row holds exactly the card — no second block beside it',
+domTest('§9 the pending row is the card plus at most the status line below it',
   async ({ SL, ND, s, mount }) => {
-    // the invariant the 2026-09-10 restructure rests on: `.pendrow` is a
-    // plain block whose ONE child is the full-width card. A sibling would be
-    // laid out beside or below the message and reopen the width/column bug.
+    // the row is a plain BLOCK: the full-width card first, then — only while
+    // delivering — the status line beneath (root ed542f0, user 2026-09-10).
+    // Anything else beside or between them would reopen the width/column bug.
     queue(s, 'words', ['cat.png', 'notes.pdf'], { delivering: true })
     await refreshConvo(SL, ND)
     const el = await mount(deskEl(node(ND), SL))
@@ -336,6 +335,20 @@ domTest('§9 the pending row holds exactly the card — no second block beside i
     const bubble = el.querySelector('.pending.pendrow')
     assert.ok(bubble, 'the pending row rendered')
     const kids = [...bubble!.children]
-    assert.equal(kids.length, 1, 'the card, nothing else')
-    assert.ok(kids[0]!.classList.contains('turn-mail'), 'and it IS the shared card')
+    assert.equal(kids.length, 2, 'the card and its status line, nothing else')
+    assert.ok(kids[0]!.classList.contains('turn-mail'), 'the shared card first')
+    assert.ok(kids[1]!.classList.contains('pend-tag'), 'the status line second')
+    // …and an UNDELIVERED row (retractable) is the card alone: the ✕ rides
+    // the card's metadata strip, so no second block exists at all
+    const s2 = new FakeServer(); installFetch(s2)
+    s2.pending_mail.push({ ...row('not sent yet', []), id: 'm-undelivered' } as PendingMail)
+    const ND2 = ND + 'b'
+    await refreshConvo(SL, ND2)
+    const el2 = await mount(deskEl(node(ND2), SL))
+    await flush()
+    const b2 = el2.querySelector('.pending.pendrow')
+    assert.ok(b2, 'the undelivered row rendered')
+    assert.equal([...b2!.children].length, 1, 'card only')
+    assert.ok(b2!.querySelector('.turn-mail-head .pend-x'),
+      'the retract ✕ stays in the metadata strip')
   })

@@ -159,19 +159,25 @@ def main() -> int:
                 if abs(geo["settled"] - geo[form]) > 1:
                     failures.append(f"§3: the {form} card is {geo['settled'] - geo[form]:.1f}px narrower "
                                     f"than its settled twin ({geo[form]:.1f} vs {geo['settled']:.1f})")
-            # …and the receipt really is IN the strip, at its right end, not a column
+            # …and the receipt is its OWN LINE BELOW the card (root ed542f0,
+            # user 2026-09-10), never inside the card — whose DOM must stay
+            # byte-identical to its settled twin — and never a side column
             tag = page.evaluate("""() => {
-              const tag = document.querySelector('#pending .turn-mail[data-mail-id="m0"] .turn-mail-head .pend-tag');
+              const row = [...document.querySelectorAll('#pending .pendrow')]
+                .find(r => r.querySelector('.turn-mail[data-mail-id="m0"]'));
+              const tag = row && row.querySelector(':scope > .pend-tag');
               if (!tag) return null;
               const t = tag.getBoundingClientRect();
-              const card = tag.closest('.turn-mail').getBoundingClientRect();
-              return { inStrip: true, right: card.right - t.right, top: t.top - card.top };
+              const card = row.querySelector('.turn-mail').getBoundingClientRect();
+              return { inCard: !!tag.closest('.turn-mail'),
+                       below: t.top - card.bottom };
             }""")
             if not tag:
-                failures.append("§3: the delivery receipt is no longer in the card's metadata strip")
-            elif tag["right"] > 24 or tag["top"] > 24:
-                failures.append(f"§3: the receipt is not at the card's top right "
-                                f"(inset right {tag['right']:.1f}px, top {tag['top']:.1f}px)")
+                failures.append("§3: the delivery receipt's own line below the card is missing")
+            elif tag["inCard"]:
+                failures.append("§3: the receipt sits inside the card, whose DOM must match settled")
+            elif tag["below"] < -1:
+                failures.append(f"§3: the receipt is not below the card (offset {tag['below']:.1f}px)")
 
             # §4 stacking: a two-mail turn and two pending rows keep one rhythm
             gaps = page.evaluate("""() => {
