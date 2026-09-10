@@ -6,6 +6,7 @@ import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
+import { configureTaskbar } from './taskbar'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
 import { detectHarnesses } from './harnesses'
@@ -51,6 +52,11 @@ else {
     ? path.join(process.resourcesPath, 'runtime-icons')
     : path.join(app.getAppPath(), 'apps/desktop/assets')
   const iconPath = path.join(assetsPath, 'orgtree-eye.ico')
+  // Explorer's taskbar group reads shell properties separately from WM_SETICON.
+  // Use a real unpacked file and explicit relaunch identity for every window.
+  app.on('browser-window-created', (_event, window) => {
+    if (process.platform === 'win32' && app.isPackaged) configureTaskbar(window, process.execPath, iconPath)
+  })
   const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
     grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
     claude: 'orgtree-eye-tray-claude.ico', codex: 'orgtree-eye-tray-codex.ico',
