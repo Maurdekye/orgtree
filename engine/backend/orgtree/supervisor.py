@@ -5096,6 +5096,11 @@ def _record_account_reset(account: str, tier: str, blob: str,
                                 provenance='observed' if measured else 'inferred')
 
 
+def _reset_readout_account(billed_key: bool, ran_as: str) -> str:
+    """Use the identity that served, never a node binding changed mid-turn."""
+    return "" if billed_key or subscription_lane(billed_key, ran_as) else ran_as
+
+
 def _refresh_freeze_reset(slug: str, nid: str, blob: str,
                           stamped_ts: float | None,
                           stamped_win: float | None,
@@ -5157,6 +5162,7 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
     if not freeze_moved and not window_moved:
         return False
     wrote = False
+    corrected_freeze = False
     with store.DOC_LOCK:
         try:
             o = store.load_org(slug)
@@ -5164,24 +5170,24 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
             return False
         if nid not in o.nodes:
             return False
-        if account and o.node(nid).get('account') != account:
-            return False  # a completed account reassignment owns the new lane
+        same_account = not account or o.node(nid).get('account') == account
         fz = o.node(nid).get("frozen")
-        if (freeze_moved and fz and fz.get("limit")
+        if (freeze_moved and same_account and fz and fz.get("limit")
                 and fz.get("until_ts") == stamped_ts
                 and (stamped_kind is None
                      or fz.get("schedule_kind") == stamped_kind)):
-            if account:
-                provenance = 'observed' if schedule_kind == 'observed-deadline' else 'inferred'
-                if not registry.correct_mark(account, tier, stamped_ts, ts, provenance=provenance):
-                    return False
-                fz['provenance'] = provenance
-            fz["until_ts"] = ts
-            fz["until"] = (("capacity recheck " if schedule_kind == "probe"
-                            else "") + _reset_label(ts))
-            fz["reset_src"] = src
-            fz["schedule_kind"] = schedule_kind
-            wrote = True
+            provenance = 'observed' if schedule_kind == 'observed-deadline' else 'inferred'
+            mark_owned = not account or registry.correct_mark(
+                account, tier, stamped_ts, ts, provenance=provenance)
+            if mark_owned:
+                if account:
+                    fz['provenance'] = provenance
+                fz["until_ts"] = ts
+                fz["until"] = (("capacity recheck " if schedule_kind == "probe"
+                                else "") + _reset_label(ts))
+                fz["reset_src"] = src
+                fz["schedule_kind"] = schedule_kind
+                wrote = corrected_freeze = True
         # ⚠ the window is owned SEPARATELY from the freeze. Resuming the node
         # is the likeliest thing to happen in the second this pass takes, and
         # gating the re-price on the freeze record left an over-long window
@@ -5196,7 +5202,7 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
         store.save_org(o)
     # the canonical instant, not `_reset_label`'s token: this is a server log
     # correlated across machines, and nothing localises it
-    if freeze_moved and ts:
+    if corrected_freeze and ts:
         print(f"[orgtree] {slug}/{nid}: freeze reset corrected to "
               f"{localtime.to_iso(ts)} ({src}, {schedule_kind})")
     return True
@@ -17456,7 +17462,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 err_blob, subscription=_sub_lane,
                                 trusted=_trusted_blob,
                                 tier=str(o2.node(nid).get("model") or ""),
-                                account=str(o2.node(nid).get("account") or ""))
+                                account=_reset_readout_account(_billed_key, str(st.get("ran_as") or "")))
                             _rts = _billing_ts
                             _rsrc = _billing_src
                             fz["schedule_kind"] = _usage_schedule_kind(
@@ -17866,7 +17872,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                              _stamped_ts, _stamped_win,
                                              _sub_lane, _trusted_blob,
                                              _tier, _stamped_kind,
-                                             account=str(o2.node(nid).get("account") or ""))
+                                             account=_reset_readout_account(_billed_key, str(st.get("ran_as") or "")))
                     notify(slug, nid, "frozen")
                     # ⚠ …and `notify` is an SSE EVENT, not a message. It paints
                     # a badge on a canvas nobody is necessarily looking at,

@@ -272,5 +272,64 @@ class ManagedResetSelectionTests(unittest.TestCase):
         self.assertEqual(self.store.load_org('mrs-rebound').node('root')['frozen']['until_ts'], now+300)
         self.assertEqual(self.registry.active_mark(row['id'], 'fable')['until'], now+300)
 
+    def test_key_billed_turn_cannot_borrow_bound_subscription_readout(self):
+        now = time.time()
+        row = self._row()
+        self._account_board(row['id'], _board(now, ('session', None, 100, 10800)), now)
+        for billed_key in (False, True):
+            account = self.supervisor._reset_readout_account(billed_key, row['id'])
+            answer = self.supervisor._limit_reset_ts(USAGE_WALL_NO_TIME,
+                subscription=False, account=account, tier='fable')
+            if billed_key:
+                self.assertEqual(answer, (None, ''))
+            else:
+                self.assertAlmostEqual(answer[0], now+10800, delta=2)
+        self.assertEqual(self.supervisor._reset_readout_account(False, 'primary'), '')
+
+    def test_fallback_window_corrects_even_when_freeze_ownership_changes(self):
+        for race in ('none', 'reassigned', 'mark_changed'):
+            with self.subTest(race=race):
+                now = time.time()
+                row, other = self._row(), self._row()
+                slug = 'mrs-window-' + race.replace('_', '-')
+                org = self._org(slug, other['id'] if race == 'reassigned' else row['id'])
+                stamped, actual = now+6*86400, now+7200
+                org.node('root')['frozen'] = {'limit': True, 'until_ts': stamped,
+                    'schedule_kind': 'probe'}
+                org.d.update(api_fallback=True, api_fallback_until=stamped)
+                self.store.save_org(org)
+                mark = stamped+100 if race == 'mark_changed' else stamped
+                self.registry.record_mark(row['id'], 'fable', mark, provenance='inferred')
+                with patch.object(self.supervisor, '_limit_reset_ts', return_value=(actual, 'text')):
+                    self.assertTrue(self.supervisor._refresh_freeze_reset(slug, 'root', 'limit',
+                        stamped, stamped, account=row['id'], tier='fable', stamped_kind='probe'))
+                result = self.store.load_org(slug)
+                self.assertEqual(result.d['api_fallback_until'], actual)
+                self.assertEqual(result.node('root')['frozen']['until_ts'],
+                    actual if race == 'none' else stamped)
+                self.assertEqual(self.registry.active_mark(row['id'], 'fable')['until'],
+                    actual if race == 'none' else mark)
+
+    def test_pooled_correction_updates_only_its_inferred_fable_companion(self):
+        for sibling in ('companion', 'observed', 'independent', 'absent'):
+            with self.subTest(sibling=sibling):
+                now = time.time()
+                row = self._row()
+                self.registry.record_mark(row['id'], 'opus', now+300, provenance='inferred')
+                if sibling in ('observed', 'independent'):
+                    self.registry.record_mark(row['id'], 'fable', now+600,
+                        provenance='observed' if sibling == 'observed' else 'inferred')
+                elif sibling == 'absent':
+                    doc = self.registry.load(strict=True)
+                    self.registry.get_account(row['id'], doc)['marks'].pop('fable')
+                    self.registry.save(doc)
+                self.assertTrue(self.registry.correct_mark(row['id'], 'opus', now+300,
+                    now+10800, provenance='observed'))
+                pooled = self.registry.active_mark(row['id'], 'opus')
+                fable = self.registry.active_mark(row['id'], 'fable')
+                self.assertEqual(pooled['until'], now+10800)
+                self.assertEqual(fable['until'], now+(600 if sibling in ('observed','independent') else 10800))
+                self.assertEqual(fable['provenance'], 'observed' if sibling == 'observed' else 'inferred')
+
 if __name__ == "__main__":
     unittest.main()

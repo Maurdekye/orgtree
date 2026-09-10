@@ -503,8 +503,18 @@ def correct_mark(account_id: str, tier: str, expected_until: float | None,
         mark = row['marks'].get(key)
         if mark is None or mark['until'] != expected_until:
             return False
+        now = time.time()
         row['marks'][key] = {**mark, 'until': float(until), 'provenance': provenance,
-                             'observed_at': time.time()}
+                             'observed_at': now}
+        if key == 'pooled':
+            sibling = row['marks'].get(FABLE)
+            # Carry forward only this pool's inferred companion. An independent
+            # or observed Fable deadline must survive a pooled correction.
+            if (sibling is None or float(sibling.get('until', 0)) <= now
+                    or (sibling.get('provenance') == 'inferred'
+                        and sibling.get('until') == expected_until)):
+                row['marks'][FABLE] = {**mark, 'until': float(until),
+                                      'provenance': 'inferred', 'observed_at': now}
         save(doc)
         return True
 
