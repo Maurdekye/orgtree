@@ -784,7 +784,7 @@ def _assign_ranks(conn, source, rows, known, *, force=False) -> bool:
         step = (right - left) / (count + 1) if right is not None else 1024
         prev = left
         for j in range(i, end):
-            rank = left + step * (j - i + 1)
+            rank = float(left + step * (j - i + 1))
             if not (prev < rank and (right is None or rank < right)):
                 ok = False
             rows[j]["seq"] = rank
