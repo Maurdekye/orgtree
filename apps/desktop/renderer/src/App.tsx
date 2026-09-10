@@ -334,6 +334,7 @@ export default function App() {
   // The card's document shortcut opens the same list/reader layout scoped to
   // that agent, independently of whether its desk is currently pinned.
   const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
+  usePersistedModalOpen('agent-gallery', slug, Boolean(agentGalleryId), agentGalleryId ? {agent:agentGalleryId, generation: tree ? flatNodes(tree).get(agentGalleryId)?.generation : undefined} : undefined)
   // the native work docket (docket-final-spec.md) — its own list+pane modal,
   // same pattern as the gallery above.
   const [showDocket, setShowDocket] = useState(false)
@@ -440,14 +441,17 @@ export default function App() {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
     restoredOrg.current = slug
     const pinned = readModalOpen(slug)
-    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind))
+    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     setShowSettings(pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowConnections(pinnedKind('connections') || restoreWindowKind('connections', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
     setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
     setShowHistory(pinnedKind('retained-history') || restoreWindowKind('retained-history', slug))
-    setAgentGalleryId(restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
+    const pinnedGallery = pinnedKind('agent-gallery') ? pinned.find(r => r.kind === 'agent-gallery' && r.org === slug)?.restore : undefined
+    const galleryNode = pinnedGallery?.agent ? flatNodes(tree).get(pinnedGallery.agent) : undefined
+    setAgentGalleryId(galleryNode && galleryNode.generation === pinnedGallery?.generation ? galleryNode.id
+      : restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
@@ -1048,7 +1052,7 @@ export default function App() {
                     and are display:none at compact */}
                 {!tree.public &&
                   <button className="mob-only bar-row"
-                    onClick={() => { setBarMore(false); setShowSettings(v => isModalPinned('org-settings') ? !v : true) }}>
+                    onClick={() => { setBarMore(false); setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true) }}>
                     <SettingsIcon fontSize="inherit" /> settings</button>}
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
                   onKilled={() => setBarMore(false)} className="mob-only" />
@@ -1075,7 +1079,7 @@ export default function App() {
                   return (
                     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
                       title={pip?.title ?? 'your inbox'}
-                      onClick={() => { setInboxJump(null); setShowInbox(v => isModalPinned('inbox') ? !v : true) }}>
+                      onClick={() => { setInboxJump(null); setShowInbox(v => isModalPinned('inbox', slug) ? !v : true) }}>
                       <MailIcon fontSize="inherit" />
                       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
                         {pip.count}</b>}
@@ -1102,7 +1106,7 @@ export default function App() {
                       title={docs > 0
                         ? `presented documents — ${docs} from currently-hired agents`
                         : 'presented documents'}
-                      onClick={() => setShowGallery(v => isModalPinned('gallery') ? !v : true)}>
+                      onClick={() => setShowGallery(v => isModalPinned('gallery', slug) ? !v : true)}>
                       <DocIcon fontSize="inherit" />
                       {docs > 0 && <b className="eye-count">{docs}</b>}
                     </button>
@@ -1116,7 +1120,7 @@ export default function App() {
                     (zero hidden). */}
                 <DocketToolbarButton
                   summary={tree.work_items_summary}
-                  onClick={() => setShowDocket(v => isModalPinned('docket') ? !v : true)} />
+                  onClick={() => setShowDocket(v => isModalPinned('docket', slug) ? !v : true)} />
                 <button className="iconbtn barmore mob-only" title="more"
                   onClick={() => setBarMore((v) => !v)}>⋯</button>
                 {/* host subscription usage (the Claude Code /usage bars) —
@@ -1130,7 +1134,7 @@ export default function App() {
                     <DataUsageIcon fontSize="inherit" /></button>}
                 <button onClick={() => setShowConnections(true)}>Connections</button>
                 {!tree.public &&
-                  <button onClick={() => setShowSettings(v => isModalPinned('org-settings') ? !v : true)}><SettingsIcon fontSize="inherit" /> settings</button>}
+                  <button onClick={() => setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true)}><SettingsIcon fontSize="inherit" /> settings</button>}
                 <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
@@ -1155,12 +1159,12 @@ export default function App() {
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
                 onOpenAgentGallery={(id) => setAgentGalleryId((current) => {
-                  return current === id && isModalPinned('agent-gallery') ? null : id
+                  return current === id && isModalPinned('agent-gallery', slug) ? null : id
                 })}
                 onAccounts={BASE ? undefined : () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
                 onInbox={(jump: unknown) => {
                   setInboxJump(typeof jump === 'string' ? jumpTo(jump) : null)
-                  setShowInbox(v => typeof jump === 'string' ? true : isModalPinned('inbox') ? !v : true)
+                  setShowInbox(v => typeof jump === 'string' ? true : isModalPinned('inbox', slug) ? !v : true)
                 }}
                 onWorkItem={(item: string) => {
                   setDocketJump(jumpTo(item))
@@ -1184,7 +1188,7 @@ export default function App() {
                     closeIfCentred('inbox', () => {
                       setShowInbox(false)
                       setInboxJump(null)
-                    })
+                    }, slug)
                     setFocusAgent(id)
                   }}
                   onOpenItem={(item) => {
@@ -1195,19 +1199,19 @@ export default function App() {
                     // beside them rather than over them, so it stays.
                     closeIfCentred('inbox', () => {
                       setShowInbox(false); setInboxJump(null)
-                    })
+                    }, slug)
                     setDocketJump(jumpTo(item)); setShowDocket(true)
                   }}
                   onOpenDoc={(id) => {
                     closeIfCentred('inbox', () => {
                       setShowInbox(false); setInboxJump(null)
-                    })
+                    }, slug)
                     setDocJump(id)
                   }}
                   onOpenMail={(r) => {
                     closeIfCentred('inbox', () => {
                       setShowInbox(false); setInboxJump(null)
-                    })
+                    }, slug)
                     setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
                   }}
                   close={() => {
@@ -1236,8 +1240,9 @@ export default function App() {
       {showHistory && slug && <HistoryBrowser key={slug} slug={slug} close={() => setShowHistory(false)} />}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
+          onOpenDocument={id => {closeIfCentred('gallery', () => setShowGallery(false), slug); setDocJump(id)}}
           onFocusAgent={(id) => {
-            closeIfCentred('gallery', () => setShowGallery(false))
+            closeIfCentred('gallery', () => setShowGallery(false), slug)
             setFocusAgent(id)
           }}
           refs={galleryRefs}
@@ -1249,7 +1254,7 @@ export default function App() {
           toast={toast}
           refs={galleryRefs}
           onFocusAgent={(id) => {
-            closeIfCentred('agent-gallery', () => setAgentGalleryId(null))
+            closeIfCentred('agent-gallery', () => setAgentGalleryId(null), slug)
             setFocusAgent(id)
           }}
           close={() => setAgentGalleryId(null)} />
@@ -1259,7 +1264,7 @@ export default function App() {
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}
           onJumpHandled={() => setDocketJump(null)}
           onFocusAgent={(id) => {
-            closeIfCentred('docket', () => setShowDocket(false))
+            closeIfCentred('docket', () => setShowDocket(false), slug)
             setFocusAgent(id)
           }}
           onOpenMail={(r) => {
@@ -1270,7 +1275,7 @@ export default function App() {
             closeIfCentred('docket', () => {
               setShowDocket(false)
               setDocketJump(null)
-            })
+            }, slug)
             setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
           }}
           close={() => { setDocketJump(null); setShowDocket(false) }} />

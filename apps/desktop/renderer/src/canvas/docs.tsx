@@ -1,3 +1,4 @@
+import { AgentGalleryModal } from './gallery'
 import { DocumentDownload, downloadDocument } from './download'
 // canvas/docs.tsx — FR-03: presented documents (user request 2026-08-05).
 // An agent presents a plan/report with orgtree_present; a small card pops
@@ -23,7 +24,7 @@ import { refToken } from './reflinks'
 
 export interface DocMeta { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }
 
-export interface LoadedDoc { title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
+export interface LoadedDoc { node_state?: 'live' | 'archived' | 'unrecoverable' | 'deleted'; tier?: string | null; title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
 
 /** Stored HTML format has the same compact identity on every presentation surface. */
 export function MockupBadge({ compact = false }: { compact?: boolean }) {
@@ -87,9 +88,9 @@ export function presentationMenu(el: Element | null, slug: string,
 }
 
 /** The same activation in the canvas chips and titled desk cards. HTML
- *  opens synchronously through a native link, never after an async fetch. */
+ *  and HTML both open the owning agent collection; the preview is inside it. */
 export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast }: {
-  slug: string; doc: DocMeta; onOpen: (id: string) => void
+  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'>; onOpen: (id: string) => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
@@ -101,23 +102,8 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   const menu = useContextMenu()
   const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, () =>
     presentationMenu(e.currentTarget, slug, doc, {
-      open: doc.format === 'html' ? undefined : () => onOpen(doc.id), toast,
+      open: () => onOpen(doc.id), toast,
     }))
-  if (doc.format === 'html') {
-    const content = <><MockupBadge compact={compact} />{children}</>
-    const htmlClass = className + ' doc-mockup'
-    if (BASE) return <span className={htmlClass + ' mockup-unavailable'}
-      aria-disabled="true" title="Mockup previews are available in the operator view"
-      onContextMenu={onContextMenu}>
-      {content}{menu.node}
-    </span>
-    return <a className={htmlClass} href={mockupUrl(slug, doc.id)}
-      target="_blank" rel="noopener noreferrer"
-      title={`open HTML mockup ${doc.title} in a new tab`}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={onContextMenu}>{content}{menu.node}</a>
-  }
   return <button className={className} title={`read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); onOpen(doc.id) }}
@@ -223,47 +209,11 @@ export function DocReader({ slug, docId, toast, close, refs,
   pinKind?: string
 }) {
   const { doc, err } = useDoc(slug, docId)
-  return (
-    // an eligible image opens from `onPanelClick`, which the frame runs
-    // BEFORE the stopPropagation every panel has (that one keeps a click
-    // inside the reader from reaching `.overlay`'s backdrop-close).
-    <PinFrame kind={pinKind} restore={{ document: docId }} title={doc?.title ?? 'document'}
-      panel="settings doc-reader" close={close}
-      onPanelClick={openLightboxIfEligibleImage}>
-        <div className="doc-reader-head">
-          <DocIcon fontSize="inherit" />
-          {/* ⚠ THE TITLE IS NAMED BY A CLASS, not found by tag. Every other
-              pinnable surface opens with an <h3> the pinned window hides so it
-              does not say its own name twice; this reader's title is a <b>
-              inside a header row, which no tag-based rule can reach (measured
-              in a browser by codex-delivery, 2026-09-06: pinned, the document
-              title appeared in both the window bar and the panel). */}
-          <b className="doc-reader-title">{doc?.title ?? '…'}</b>
-          {doc && <span className="dim doc-reader-meta">
-            {/* the separator belongs to the TITLE it follows, so it goes with
-                it when the title stands down — otherwise a pinned reader opens
-                its header on a dangling "·". The node and the time are not a
-                title and stay in both modes. */}
-            <span className="doc-reader-sep">· </span>
-            {doc.node} · {fmtFull(doc.at)}</span>}
-          <span className="spacer" />
-          {doc && <DocumentDownload slug={slug} id={docId} title={doc.title} format={doc.format} />}
-          {doc && (
-            <button className="dim" title="remove the card (the document is gone)"
-              onClick={() => dismissDoc(slug, docId, doc.title, toast, close)}>
-              dismiss</button>
-          )}
-          <button className="chip-x" title="close the reader" onClick={close}>
-            <CloseIcon fontSize="inherit" />
-          </button>
-        </div>
-        {err && <div className="ask-warn">could not load the document: {err}</div>}
-        {/* relative image srcs resolve against the PRESENTING node's files —
-            `![](outbox/chart.png)` embeds a figure the agent saved */}
-        {doc?.format === 'html' && <MockupOpen slug={slug} docId={docId} />}
-        {doc && doc.format !== 'html' && <RefMdBody className="doc-reader-body md"
-          html={md(doc.body, fileBase(slug, doc.node))}
-          world={refs?.world} onOpen={refs?.onOpen} />}
-    </PinFrame>
-  )
+  if (!doc) return <PinFrame kind={pinKind} pinnable={false} title="presented documents"
+    panel="settings wide gallery-modal" close={close}>
+    <div className={err ? 'ask-warn' : 'dim pad'}>{err ? `Could not load presentation: ${err}` : 'Loading presentation?'}</div>
+  </PinFrame>
+  return <AgentGalleryModal key={`${slug}/${doc.node}`} slug={slug} nid={doc.node}
+    toast={toast} close={close} refs={refs} initialDocument={docId}
+    selectedRow={{...doc, id:docId, evicted:false, node_state:doc.node_state ?? 'deleted', tier:doc.tier ?? null}} pinKind={pinKind} />
 }

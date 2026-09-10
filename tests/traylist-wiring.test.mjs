@@ -15,7 +15,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 test('primary tray click opens the org list popup; double-click still opens the app', () => {
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /tray\.on\('click', \(_event, iconBounds\) => \{ void showTrayList\(iconBounds\) \}\)/)
-  assert.match(main, /tray\.on\('double-click', \(\) => \{ trayPopupSeq\+\+; closeTrayPopup\(\); show\(\) \}\)/)
+  assert.match(main, /if \(!BrowserWindow\.getAllWindows\(\)\.some\(w => !w\.isDestroyed\(\) && w\.isVisible\(\)\)\) show\(\)/)
+  assert.doesNotMatch(main, /label: 'Open Orgtree'|label: label\(\), enabled: false/)
   // the rows come from the engine's own validated fetch, per click — the
   // 5 s stats poll must not gain a full org-list parse
   assert.match(main, /const rows = await engine\.orgActivity\(\)/)

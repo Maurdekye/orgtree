@@ -34,6 +34,7 @@ import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
+import { resolveRef } from './reflinks'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
@@ -73,8 +74,9 @@ const PANE_STATE_WHY: Record<DocRow['node_state'], string | null> =
 const isHired = (r: DocRow) => r.node_state === 'live'
 
 export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
-  refs }: {
+  refs, onOpenDocument }: {
   slug: string
+  onOpenDocument?: (id: string) => void
   toast: ToastFn
   close: () => void
   onFocusAgent?: (agentId: string) => void
@@ -113,12 +115,16 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const menu = useContextMenu()
   const rowMenu = (e: ReactMouseEvent<HTMLElement>, r: DocRow) =>
     presentationMenu(e.currentTarget, slug, r, {
-      open: () => setSelId(r.id === selId ? null : r.id),
+      open: () => openDocument(r.id),
       openLabel: r.id === selId ? 'Close' : 'Open',
       toast,
       dismiss: () => dismissDoc(slug, r.id, r.title, toast,
         () => setSelId((id) => id === r.id ? null : id)),
     })
+  const openDocument = (id: string) => {
+    if (onOpenDocument) onOpenDocument(id)
+    else setSelId(id)
+  }
   const cur = rows?.find((r) => r.id === selId)
   // ⚠ A DOCUMENT REFERENCING A DOCUMENT STAYS HERE. This panel IS the
   // document reader; sending the reader off to the shell's copy would close
@@ -136,12 +142,12 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
       if (r.ref.kind === 'doc' && (all ?? []).some((d) => d.id === r.ref.id)) {
         setShowRetired((on) => on || !(all ?? []).some(
           (d) => d.id === r.ref.id && isHired(d)))
-        setSelId(r.ref.id)
+        openDocument(r.ref.id)
         return
       }
       refs.onOpen?.(r)
     },
-  }) || undefined, [refs, all])
+  }) || undefined, [refs, all, onOpenDocument])
   return (
     // same fix as DocReader (docs.tsx) — an eligible image is opened from
     // `onPanelClick`, which the frame runs BEFORE the stopPropagation every
@@ -203,7 +209,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                             : `read “${r.title}”`,
                           STATE_WHY[r.node_state],
                         ].filter(Boolean).join(' · ')}
-                        onClick={() => setSelId(r.id === selId ? null : r.id)}
+                        onClick={() => openDocument(r.id)}
                         onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                         <div className="l1">
                           <span className="mfrom">{r.title || '(untitled)'}</span>
@@ -242,10 +248,7 @@ function GalleryEntry({ slug, row, children, ...props }: {
   className: string; title: string; onClick: () => void
   onContextMenu?: (e: ReactMouseEvent<HTMLElement>) => void
 }) {
-  return row.format === 'html' && !row.evicted && !BASE
-    ? <a {...props} href={mockupUrl(slug, row.id)} target="_blank"
-        rel="noopener noreferrer">{children}</a>
-    : <div {...props}>{children}</div>
+  return <div {...props}>{children}</div>
 }
 
 /** the right-hand viewer: the same fetch and the same dismiss the overlay
@@ -349,21 +352,24 @@ export interface AgentGalleryViewProps {
   onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[]) => Promise<unknown> | void
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onChanged?: () => void
+  initialDocument?: string
+  selectedRow?: DocRow
+  pinKind?: string
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
   return (
-    <PinFrame kind="agent-gallery" title={`presented documents for ${nid}`}
-      restore={{ agent: nid, generation: node?.generation }}
+    <PinFrame kind={pinKind} title={`presented documents for ${nid}`}
+      restore={{ agent: nid, generation: node?.generation, ...(initialDocument ? {document:initialDocument} : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs}
-        onChanged={onChanged} />
+        onChanged={onChanged} initialDocument={initialDocument} selectedRow={selectedRow} />
     </PinFrame>
   )
 }
@@ -374,7 +380,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  refs, onChanged }: AgentGalleryViewProps) {
+  refs, onChanged, initialDocument, selectedRow }: AgentGalleryViewProps) {
   const [pageOffset, setPageOffset] = useState(0)
   useEffect(() => setPageOffset(0), [slug, nid])
   const data = usePolled(() => getDocuments(slug, pageOffset, nid), [slug, pageOffset, nid])
@@ -399,10 +405,13 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     // falling back then resurrects dismissed, evicted, or stale node rows.
     // Node payloads are only a bootstrap fallback while the list is absent.
     const source = data ? (polled ?? []) : fallbackRows
-    return source.filter((r) => !dismissed.includes(r.id))
-  }, [data, nid, fallbackRows, dismissed])
+    const includeSelected = selectedRow?.node === nid && !source.some(r => r.id === selectedRow.id)
+      ? [selectedRow, ...source] : source
+    return includeSelected.filter((r) => !dismissed.includes(r.id))
+  }, [data, nid, fallbackRows, dismissed, selectedRow])
 
-  const [selId, setSelId] = useState<string | null>(null)
+  const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
+  useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
   const cur = rows.find((r) => r.id === selId)
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)

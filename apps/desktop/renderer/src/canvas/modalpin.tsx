@@ -80,6 +80,7 @@ export const modalPinsAvailable = (): boolean => !isMobile
 // a wake that changes nothing is a render React bails out of.
 type PinMap = Record<string, ModalPin>
 const EMPTY: PinMap = {}
+export const modalPinKey = (kind: string, org: string | null = null) => org ? JSON.stringify([org, kind]) : kind
 let cache: PinMap | null = null
 const subs = new Set<() => void>()
 const notify = () => { for (const fn of [...subs]) fn() }
@@ -107,7 +108,19 @@ export const readModalPins = (): PinMap => {
             next[kind] = { rect: { ...(o.rect as PinRect) }, z: o.z }
           }
         }
+        // Adopt the former shared rectangle only for organizations that already
+        // owned this open surface (or the last org for a closed pin). New orgs
+        // never inherit another org's geometry.
+        const opens = readModalOpen()
+        const lastOrg = localStorage.getItem('orgtree-desktop-last-org')
+        for (const [kind, pin] of Object.entries(next)) if (!kind.startsWith('[')) {
+          const owners = opens.filter(o => o.kind === kind && o.org).map(o => o.org!)
+          if (!owners.length && lastOrg) owners.push(lastOrg)
+          for (const org of owners) next[modalPinKey(kind, org)] ??= pin
+          if (owners.length) delete next[kind]
+        }
         out = next
+        if (JSON.stringify(next) !== raw) localStorage.setItem(MODAL_PINS_KEY, JSON.stringify(next))
       }
     }
   } catch { /* private mode, or garbage — same answer */ }
@@ -203,7 +216,7 @@ export const usePersistedModalOpen = (kind: string, org: string | null, open: bo
       seen.current = key
       return
     }
-    if (!isModalPinned(kind)) {
+    if (!isModalPinned(kind, org)) {
       return
     }
     if (openSuppressed.has(key)) {
@@ -231,13 +244,13 @@ const subscribe = (fn: () => void): (() => void) => {
 }
 
 /** the pin for `kind`, or null when this surface is a centred modal */
-export const useModalPin = (kind: string): ModalPin | null => {
+export const useModalPin = (kind: string, org: string | null = null): ModalPin | null => {
   const pins = useSyncExternalStore(subscribe, readModalPins)
-  return modalPinsAvailable() ? pins[kind] ?? null : null
+  return modalPinsAvailable() ? pins[modalPinKey(kind, org)] ?? null : null
 }
 
-export const isModalPinned = (kind: string): boolean =>
-  modalPinsAvailable() && Boolean(readModalPins()[kind])
+export const isModalPinned = (kind: string, org: string | null = null): boolean =>
+  modalPinsAvailable() && Boolean(readModalPins()[modalPinKey(kind, org)])
 
 /** run `close` ONLY while this surface is a centred modal.
  *
@@ -248,16 +261,18 @@ export const isModalPinned = (kind: string): boolean =>
  *  looks like a click that did nothing. A pinned window covers nothing: it is
  *  a small box the user placed, and dismissing it there would throw that
  *  placement away with no undo. Same navigation, one condition. */
-export const closeIfCentred = (kind: string, close: () => void): void => {
-  if (!isModalPinned(kind) && !detachedKind(kind)) close()
+export const closeIfCentred = (kind: string, close: () => void, org: string | null = null): void => {
+  if (!isModalPinned(kind, org) && !detachedKind(kind)) close()
 }
 
-export const pinModal = (kind: string, rect: PinRect): void => {
+export const pinModal = (kind: string, rect: PinRect, org: string | null = null): void => {
+  kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (pins[kind]) return
   write(renorm({ ...pins, [kind]: { rect: clampRect(rect, winSize()), z: Object.keys(pins).length } }, kind))
 }
-export const unpinModal = (kind: string): void => {
+export const unpinModal = (kind: string, org: string | null = null): void => {
+  kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (!pins[kind]) return
   const next = { ...pins }
@@ -265,7 +280,8 @@ export const unpinModal = (kind: string): void => {
   write(renorm(next))
 }
 /** bring `kind` to the front of the band */
-export const raiseModal = (kind: string): void => {
+export const raiseModal = (kind: string, org: string | null = null): void => {
+  kind = modalPinKey(kind, org)
   const pins = readModalPins()
   const me = pins[kind]
   if (!me) return
@@ -274,7 +290,8 @@ export const raiseModal = (kind: string): void => {
   write(renorm(pins, kind))
 }
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
-export const commitModalRect = (kind: string, rect: PinRect): void => {
+export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {
+  kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (!pins[kind]) return
   write({ ...pins, [kind]: { ...pins[kind]!, rect: clampRect(rect, winSize()) } })
@@ -387,7 +404,7 @@ export interface PinFrameProps {
  */
 export function PinFrame(props: PinFrameProps) {
   const org = useCurrentOrg()
-  const pin = useModalPin(props.kind)
+  const pin = useModalPin(props.kind, org)
   const scope = ['usage', 'defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} />
   return <MovableSurface key={scope} anchor={pin ? document.body : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
@@ -395,7 +412,7 @@ export function PinFrame(props: PinFrameProps) {
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope }: PinFrameProps & { orgScope: string | null }) {
-  const pin = useModalPin(kind)
+  const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
   const ownerWindow = ownerDocument.defaultView ?? window
@@ -456,7 +473,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     e.preventDefault()           // no text-selection drag from the chrome
     gesture.current = { ...g, pointerId: e.pointerId, moved: false, capture: e.currentTarget }
     e.currentTarget.setPointerCapture(e.pointerId)
-    raiseModal(kind); raisePinSurface(layout.key)
+    raiseModal(kind, orgScope); raisePinSurface(layout.key)
   }
   const gestureRect = (g: Gesture, e: ReactPointerEvent<HTMLElement>): PinRect => {
     // window px: a drag is 1:1 with the pointer, with no zoom to divide out —
@@ -504,17 +521,17 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     if (moved) {
       const final = clampRect(gestureRect(g, e), bounds)
       const snap = g.kind === 'move' ? candidate(final, e.shiftKey) : null
-      commitModalRect(kind, snap?.rect ?? final)
+      commitModalRect(kind, snap?.rect ?? final, orgScope)
     }
   }
 
   const toggle = () => {
     if (pinned) {
-      unpinModal(kind)
+      unpinModal(kind, orgScope)
       forgetModalOpen(kind, orgScope)
     } else {
       const measured = measureRect(panelRef.current)
-      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds))
+      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds), orgScope)
       rememberModalOpen(kind, orgScope, restore)
     }
   }
@@ -560,7 +577,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
-        onPointerDown={pinned ? () => {raiseModal(kind); raisePinSurface(layout.key)} : undefined}>
+        onPointerDown={pinned ? () => {raiseModal(kind, orgScope); raisePinSurface(layout.key)} : undefined}>
         <div className={'modalpin-bar' + (pinned ? ' on' : '')}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'

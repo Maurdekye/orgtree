@@ -1,3 +1,4 @@
+import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview } from './replypreview'
@@ -2818,7 +2819,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   const lineageDir = useMemo<AgentDirectory>(() => ({
     resolve: (id: string) => mapRef.current?.get(id),
     onFocus: canFocus
-      ? (id: string) => { closeIfCentred('lineage', closeRef.current); focusRef.current?.(id) }
+      ? (id: string) => { closeIfCentred('lineage', closeRef.current, slug); focusRef.current?.(id) }
       : undefined,
   }), [canFocus, lineageFacts])
   // retiring a knowledge bearer asks too (user bug 2026-08-09) — every other
@@ -3068,11 +3069,16 @@ interface ToolChipProps {
   nid: string
   onMailLink?: MailLinkFn
   onWorkLink?: WorkLinkFn
+  onOpenDoc?: (id: string) => void
 }
 
-function ToolChip({ t, slug, nid, onMailLink, onWorkLink }: ToolChipProps) {
+function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipProps) {
   const [open, setOpen] = useState(false)
   const expandable = Boolean(t.result || t.diff || t.images)
+  if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
+    doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
+    <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
+  </PresentationCard>
   // orgtree_send_file → a DOWNLOAD CARD in place of the chip (user spec
   // 2026-07-31: files flow back — the card sits where the agent sent it).
   // An IMAGE file renders as the picture itself (user spec 2026-08-25:
@@ -3198,7 +3204,8 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {(m.tools ?? []).map((t, i) => (typeof t === 'string'
         ? <div key={i} className="tools"><DotIcon fontSize="inherit" className="tooldot" /> {t}</div>
         : <ToolChip key={t.id ?? i} t={t} slug={slug} nid={nid}
-            onMailLink={onMailLink} onWorkLink={onWorkLink} />))}
+            onMailLink={onMailLink} onWorkLink={onWorkLink}
+            onOpenDoc={refs ? id => refs.onOpen(resolveRef({kind:'doc', org:slug, id}, refs.world)) : undefined} />))}
       {/* render-inline-html-custom-responses: this row renders BOTH roles —
           the agent's own settled reply AND the user's own settled message
           (the non-segment path above). Only `assistant` is a genuine agent

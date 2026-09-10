@@ -28360,6 +28360,19 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                             if isinstance(block.get("content"), list) else 0
                         if imgs:
                             entry["images"] = imgs
+                        # Successful presentation calls become document cards in chat.
+                        if (entry.get("name", "").removeprefix("mcp__orgtree__")
+                                == "orgtree_present" and not block.get("is_error")):
+                            try:
+                                presented = json.loads(body)
+                                if isinstance(presented, dict) and isinstance(presented.get("presented"), str):
+                                    entry["presentation"] = {
+                                        "id": presented["presented"],
+                                        "title": str(presented.get("title") or entry.get("arg") or "Presentation"),
+                                        **({"format": "html"} if presented.get("format") == "html" else {}),
+                                    }
+                            except (ValueError, AttributeError):
+                                pass
                         # orgtree_send_file (user spec 2026-07-31): the chip
                         # becomes a DOWNLOAD CARD — the result JSON carries
                         # the outbox path the /file endpoint serves.

@@ -886,6 +886,7 @@ export interface ToolChip {
   error?: string
   images?: number
   file?: MailAttachment & { note?: string }   // orgtree_send_file download card
+  presentation?: { id: string; title: string; format?: 'markdown' | 'html' }
   mail?: { id: string; to: string }
   /** a successful `orgtree_work` MUTATION names the item it acted on, so the
    *  chip can offer to open it. Absent on a failed call and on the read

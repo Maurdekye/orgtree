@@ -597,13 +597,13 @@ uiTest('AgentGalleryView: dismissing a document removes it from the list', async
   assert.ok(changed, 'onChanged was called')
 })
 
-uiTest('AgentGalleryView: HTML mockup renders as native link with MockupBadge', async (mount) => {
+uiTest('AgentGalleryView: HTML mockup selects the agent collection with MockupBadge', async (mount) => {
   mockDocs([row({ id: 'd-html', node: 'agent-1', title: 'HTML mockup', format: 'html' })])
   const { el } = await mount(agentGallery('agent-1'))
   await flush()
-  const link = el.querySelector('a.doc-mockup') as HTMLAnchorElement
-  assert.ok(link, 'rendered as link')
-  assert.match(link.getAttribute('href') ?? '', /mockup/)
+  const link = el.querySelector('.mailrow.doc-mockup') as HTMLAnchorElement
+  assert.ok(link, 'rendered as collection entry')
+  assert.equal(link.getAttribute('href'), null)
   assert.ok(link.querySelector('.mockup-format'), 'renders MockupBadge')
 })
 

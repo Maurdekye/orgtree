@@ -19,7 +19,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
   const mine = useMemo(() => agentItems(work, nid, showArchived), [work, nid, showArchived])
   const facts = useMemo(() => buildNodeFacts(tree.roots), [tree.roots])
   const routes: RefRoutes = { world: refs.world, onOpen: r => {
-    closeIfCentred('agent-docket', close)
+    closeIfCentred('agent-docket', close, slug)
     refs.onOpen(r)
   } }
   return <PinFrame kind="agent-docket" restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation }} title={`${nid} · Docket`} panel="settings wide" close={close}>

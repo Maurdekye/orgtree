@@ -149,7 +149,6 @@ else {
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Open Orgtree', click: show }, { label: label(), enabled: false }, { type: 'separator' },
       { label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -261,7 +260,11 @@ else {
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })
-    tray.on('double-click', () => { trayPopupSeq++; closeTrayPopup(); show() })
+    tray.on('double-click', () => {
+      trayPopupSeq++; closeTrayPopup()
+      // A hidden main window is retained in the tray; visible popouts count too.
+      if (!BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible())) show()
+    })
     rebuildTray()
     handle('desktop:status', () => engine.status)
     handle('desktop:window-state', () => windowState())

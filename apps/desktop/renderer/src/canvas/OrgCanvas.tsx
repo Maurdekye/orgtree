@@ -153,17 +153,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
   const toggleConfig = useCallback((id: string) => {
-    setConfigId((v) => isModalPinned('node-config') && v === id ? null : id)
+    setConfigId((v) => isModalPinned('node-config', slug) && v === id ? null : id)
   }, [])
   const toggleUserConfig = useCallback(() => {
-    setUserCfg((v) => isModalPinned('user-config') ? !v : true)
+    setUserCfg((v) => isModalPinned('user-config', slug) ? !v : true)
   }, [])
   const toggleNodeSurface = useCallback((kind: string, id: string,
     set: (v: string | null | ((current: string | null) => string | null)) => void) => {
-    set((current) => isModalPinned(kind) && current === id ? null : id)
+    set((current) => isModalPinned(kind, slug) && current === id ? null : id)
   }, [])
   const toggleDog = useCallback((id: string) => {
-    setDogView((current) => isModalPinned('watchdog') && current === id ? null : id)
+    setDogView((current) => isModalPinned('watchdog', slug) && current === id ? null : id)
   }, [])
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
@@ -209,7 +209,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       // panel may be portalled away from trayWrapRef, so the ordinary tray
       // containment check must not dismiss it from a main-window gesture.
       const detached = restoredWindows(slug).some(r => r.kind === 'agent-list')
-      if (isModalPinned('agent-list') || detached) return
+      if (isModalPinned('agent-list', slug) || detached) return
       const root = trayWrapRef.current
       if (!root) return
       const path = typeof event.composedPath === 'function'
@@ -223,7 +223,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (isModalPinned('agent-list') || restoredWindows(slug).some(r => r.kind === 'agent-list')) return
+        if (isModalPinned('agent-list', slug) || restoredWindows(slug).some(r => r.kind === 'agent-list')) return
         setTrayOpen(false)
       }
     }
@@ -339,7 +339,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     restoredModalOrg.current = slug
     const rows = restoredWindows(slug)
     const pinned = readModalOpen(slug)
-    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind))
+    const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     const agent = (kind: string) => restoredAgent(rows.find(r => r.kind === kind), map)
     const pinnedAgent = (kind: string) => {
       const row = pinned.find(r => r.kind === kind && r.restore?.agent)
@@ -2694,7 +2694,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             }}
             title="the org inbox — outside mail addressed to this organization"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => setOiOpen((v) => isModalPinned('org-inbox') ? !v : true)}>
+            onClick={() => setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)}>
             <div className="oi-head">
               {/* the label is its own element so it can ELLIPSIS instead of
                   wrapping. As a bare text node it was an anonymous flex item

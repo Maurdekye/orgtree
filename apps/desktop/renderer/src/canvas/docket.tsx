@@ -576,7 +576,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // jump below hands `navClose` down instead of `close`: centred, the panel
   // covers what it just opened and must go; pinned, it is a window the user
   // placed beside it. The header close button and Escape keep the real one.
-  const navClose = useCallback(() => closeIfCentred('docket', close), [close])
+  const navClose = useCallback(() => closeIfCentred('docket', close, slug), [close, slug])
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
   const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)

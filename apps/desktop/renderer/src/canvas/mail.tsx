@@ -1146,10 +1146,10 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
           refs={refs && {
             world: refs.world,
             onOpen: refs.onOpen && ((r: ResolvedRef) => {
-              closeIfCentred('node-inbox', close); refs.onOpen!(r) }),
+              closeIfCentred('node-inbox', close, slug); refs.onOpen!(r) }),
           }}
           onFocusAgent={onFocusAgent
-            ? (id) => { closeIfCentred('node-inbox', close); onFocusAgent(id) }
+            ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) }
             : undefined} />
         <div className="row">
           <button className="primary" onClick={close}>close</button>
@@ -1396,7 +1396,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                               <AgentName id={m!._by!} prefix="@"
                                 tier={map.get(m!._by!)?.tier}
                                 onFocus={onFocusAgent
-                                  ? (id) => { closeIfCentred('org-inbox', close); onFocusAgent(id) }
+                                  ? (id) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
                                   : undefined} />
                             ) : (
                               // not an agent of this org — the sigil and the

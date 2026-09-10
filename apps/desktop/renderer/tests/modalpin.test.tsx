@@ -42,9 +42,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import {
-  closeIfCentred, forgetModalPins, isModalPinned, MODAL_FALLBACK_RECT,
-  MODAL_PINS_KEY, MODAL_Z_BASE, MODAL_Z_TOP, modalZIndex, PinFrame, pinModal,
-  raiseModal, readModalPins, unpinModal, commitModalRect, measureRect,
+  closeIfCentred as rawCloseIfCentred, forgetModalPins, isModalPinned as rawIsModalPinned, MODAL_FALLBACK_RECT,
+  MODAL_PINS_KEY, MODAL_Z_BASE, MODAL_Z_TOP, modalZIndex, PinFrame, pinModal as rawPinModal,
+  raiseModal as rawRaiseModal, readModalPins as rawReadModalPins, unpinModal as rawUnpinModal, commitModalRect as rawCommitModalRect, measureRect,
   MODAL_OPEN_KEY, readModalOpen, rememberModalOpen, forgetModalOpen, forgetModalOpenCache, usePersistedModalOpen,
 } from '../src/canvas/modalpin'
 import { PIN_MIN_H, PIN_MIN_W } from '../src/canvas/pins'
@@ -58,6 +58,7 @@ import type { ReactNode } from 'react'
 // Pin controls now belong only to org surfaces. Give this gesture suite a
 // measured org canvas, and follow the SAME adopted container outside its host.
 async function mountView<T>(node: ReactNode, select: (el: HTMLElement) => T) {
+  testOrg = 'probe'
   const canvases = ['probe', 'a', 'b'].map(org => {
     const el = document.createElement('div'); el.dataset.pinOrg = org
     el.style.border = '0px solid transparent'
@@ -78,8 +79,21 @@ async function mountView<T>(node: ReactNode, select: (el: HTMLElement) => T) {
   return v
 }
 
+
+let testOrg: string | null = null
+const readModalPins = () => Object.fromEntries(Object.entries(rawReadModalPins()).flatMap(([key,value]) => {
+  if (!testOrg) return [[key,value]]
+  try {const [org,kind]=JSON.parse(key); return org===testOrg ? [[kind,value]] : []} catch {return []}
+}))
+const pinModal = (kind:string,rect:any,org=testOrg) => rawPinModal(kind,rect,org)
+const unpinModal = (kind:string) => rawUnpinModal(kind,testOrg)
+const raiseModal = (kind:string) => rawRaiseModal(kind,testOrg)
+const commitModalRect = (kind:string,rect:any) => rawCommitModalRect(kind,rect,testOrg)
+const isModalPinned = (kind:string,org=testOrg) => rawIsModalPinned(kind,org)
+const closeIfCentred = (kind:string,close:()=>void) => rawCloseIfCentred(kind,close,testOrg)
+
 const noop = () => {}
-const reset = () => { localStorage.clear(); forgetModalPins(); forgetModalOpenCache() }
+const reset = () => { testOrg=null; localStorage.clear(); forgetModalPins(); forgetModalOpenCache() }
 
 // ------------------------------------------------------------------ events
 function stubPointerCapture(): () => void {
@@ -160,7 +174,7 @@ function RestartHarness() {
 }
 function OrgSwitchHarness({ initial = 'a' }: { initial?: string }) {
   const [org, setOrg] = useState(initial)
-  const [open, setOpen] = useState(() => readModalOpen(initial).some(r => r.kind === 'node-config' && isModalPinned('node-config')))
+  const [open, setOpen] = useState(() => readModalOpen(initial).some(r => r.kind === 'node-config' && isModalPinned('node-config', initial)))
   usePersistedModalOpen('node-config', org, open, open ? { agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 } : undefined)
   return <CurrentOrg.Provider value={org}>
     <button className="switch-org" onClick={() => setOrg(org === 'a' ? 'b' : 'a')}>switch</button>
@@ -591,12 +605,14 @@ test('§7 two readers open at once are two windows, not one', async () => {
   // the docket passes its own. Mounting PinFrame directly with two literal
   // kinds would only prove the STORE can hold two keys, which was never in
   // doubt — the defect was one component handing both windows one identity.
+  globalThis.fetch = (async url => ({ok:true,status:200,headers:new Headers(),json:async()=>String(url).includes('/documents?') ? {documents:[]} : {id:'d1',node:'alice',title:'Proposal',body:'body',at:'2026-09-10T00:00:00Z'}})) as typeof fetch
   const reader = (pinKind?: string) => (
     <DocReader slug="probe" docId="d1" toast={noop} pinKind={pinKind}
       close={() => { closes.n += 1 }} />
   )
   const a = await mountView(reader(), shot)
   const b = await mountView(reader('doc-docket'), shot)
+  await inAct(async()=>{await flush()})
   await inAct(() => { click(a.el.querySelector('.modalpin-btn')!) })
   await inAct(() => { click(b.el.querySelector('.modalpin-btn')!) })
   await flush()

@@ -7971,7 +7971,7 @@ class Org:
                 self._log("present", nid, {"id": replaces, "replaced": True,
                                            **({"format": "html"}
                                               if html_file else {})}, [])
-                return {"presented": replaces,
+                return {"presented": replaces, "title": t,
                         **({"format": "html"} if html_file else {}),
                         "status": ("updated in place — reopen the card or refresh "
                                    "an open mockup tab to see this revision"
@@ -7986,7 +7986,7 @@ class Org:
         self._log("present", nid, {"id": did, "title": t[:60],
                                    **({"format": "html"} if html_file else {})},
                   [])
-        return {"presented": did,
+        return {"presented": did, "title": t,
                 **({"format": "html"} if html_file else {}),
                 "status": ("the mockup is on the user's screen as a card "
                            "beside your desk; clicking it opens the page in "

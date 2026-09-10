@@ -4652,9 +4652,12 @@ def document_get(slug: str, did: str) -> dict[str, Any]:
     except LedgerError as e:
         raise HTTPException(404, str(e))
     doc = _document_or_404(org, did)
+    presenter = org.nodes.get(doc["node"])
     out: dict[str, Any] = {
         "id": doc["id"], "node": doc["node"], "title": doc["title"],
         "body": doc["body"], "at": doc["at"],
+        "node_state": presenter.get("state", "live") if presenter else "deleted",
+        "tier": presenter.get("tier") if presenter else None,
         "format": doc.get("format") or "markdown",
         "ref": refs.doc(slug, str(doc["id"]))}
     if doc.get("format") == "html":

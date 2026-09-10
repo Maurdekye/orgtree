@@ -6247,3 +6247,6 @@ html.mobile .popout-button { display: none; }
 .overlay.overlay-pinned .modalpin-win { min-width: 0; min-height: 0; }
 
 .overlay.overlay-pinned > .pin-snap-preview { pointer-events: none; }
+
+.presentation-chat-card {display:flex; align-items:center; gap:10px; padding:14px 18px; margin:8px 0; max-width:100%; text-align:left; white-space:normal; border:1px solid var(--border); border-radius:8px;}
+.presentation-chat-card svg {flex:none; font-size:24px;}
