@@ -3030,21 +3030,9 @@ export const pendTag = (m: PendingMail): string =>
         ? 'delivering…'
         : 'delivering mid-task…'
 
-/** One pending (undelivered) mail row: the SAME MailMessage card a settled
- *  transcript row draws — full width, identical cascade — with the
- *  pending-only chrome (the delivery receipt or the retract ✕) riding the
- *  card's own metadata strip, right-aligned at the top where the user asked
- *  the receipt to stay. It used to sit in a flex column BESIDE the card,
- *  which left every pending card ~200px narrower than its settled twin —
- *  the "still visually unlike the transcript" report (2026-09-10); the
- *  parity probe (pendparity_probe.py) now measures the two paths equal.
- *  Exported so that probe renders exactly what the desk mounts.
- *
- *  Journal-riding mail (drained for a mid-task delivery) shows as queued but
- *  is past the point of retraction. The tag is the message's delivery
- *  RECEIPT (D-229): it names where the message is, and a message no turn
- *  owns is said out loud instead of wearing the same "delivering…" as one
- *  that is genuinely on its way. */
+/** Pending mail uses the same full-width card as the settled transcript.
+ * Delivery status occupies its own line below the card (user 2026-09-10);
+ * only the retract control remains in the card metadata. */
 export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
   onLocateReply, onContext, onRetract }: {
   m: PendingMail; slug: string; nid: string
@@ -3070,13 +3058,12 @@ export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
       <MailMessage row={presented} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
-        meta={m.delivering
-          ? <span className={'dim pend-tag' + (m.stage === 'stranded' ? ' warn' : '')}>
-              {pendTag(m)}</span>
-          : m.id && onRetract
-            ? <button className="chip-x pend-x" title="retract (undelivered)" onClick={onRetract}>
-                <CloseIcon fontSize="inherit" /></button>
-            : undefined} />
+        meta={!m.delivering && m.id && onRetract
+          ? <button className="chip-x pend-x" title="retract (undelivered)" onClick={onRetract}>
+              <CloseIcon fontSize="inherit" /></button>
+          : undefined} />
+      {m.delivering && <div className={'dim pend-tag' + (m.stage === 'stranded' ? ' warn' : '')}>
+        {pendTag(m)}</div>}
     </div>
   )
 }

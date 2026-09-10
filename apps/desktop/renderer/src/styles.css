@@ -4442,17 +4442,10 @@ svg.MuiSvgIcon-root {
 @media (prefers-reduced-motion: reduce) {
   .msg.thinking.sealed { animation: none; opacity: .75 }
 }
-/* №11/№17: durable pending bubble + retract ✕.
-   The old side-gutter flex is GONE (user 2026-09-10: pending must be
-   visually identical to settled, wrappers included — the gutter left every
-   pending card ~200px narrower than its delivered twin, measured by
-   pendparity_probe.py). The row is now a plain block around the SAME
-   full-width MailMessage card a settled row draws; the delivery tag /
-   retract ✕ ride the card's own metadata strip, pushed to its right end —
-   still the top-right spot the user asked the receipt to keep, and still
-   never below the content (the 2026-08-28 column ruling: text, then
-   `.attach-row`, is the card's own order on both surfaces now). */
-.pendrow { min-width: 0; }
+/* Pending cards retain the settled card width; delivery status gets a
+   separate line below instead of taking a side gutter. */
+.pendrow { display: block; min-width: 0; }
+.pendrow > .pend-tag { display: block; margin: 4px 0 0; white-space: normal; overflow-wrap: anywhere; }
 .sendmode { font-size: 10.5px; padding: 0 4px 2px; }
 /* №7: last turn's auto-denies */
 .denials {
