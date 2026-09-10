@@ -8,7 +8,27 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updater-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { UpdateController, checkForUpdatesViaEvents } = createRequire(import.meta.url)(outfile)
+const { UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate } = createRequire(import.meta.url)(outfile)
+
+test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
+  const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
+  const calls = []
+  const updater = {
+    installerPath: 'C:\\Downloads\\Orgtree Setup.exe',
+    spawnLog: (exe, args) => { calls.push({ exe, args }); return Promise.resolve() },
+    dispatchError: error => { throw error },
+    quitAndInstall(isSilent, isForceRunAfter) {
+      NsisUpdater.prototype.doInstall.call(this, { isSilent, isForceRunAfter, isAdminRightsRequired: false })
+    },
+  }
+  for (const directory of ['C:\\Program Files\\Orgtree', 'D:\\My Apps\\Orgtree']) {
+    installDownloadedUpdate(updater, directory)
+    assert.deepEqual(calls.at(-1), { exe: updater.installerPath,
+      args: ['--updated', '/S', '--force-run', `/D=${directory}`] })
+  }
+  updater.quitAndInstall(false, true)
+  assert.ok(!calls.at(-1).args.includes('/S'), 'the previous interactive call is a negative control')
+})
 
 function rig(overrides = {}) {
   const reports = []

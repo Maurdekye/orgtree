@@ -6,6 +6,7 @@ import type { DesktopBridge, DesktopEvent, LoginProvider } from '../../../packag
 const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-origin='))?.slice('--orgtree-ui-origin='.length)
 if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && isAppPath(location.pathname)) {
   const bridge: DesktopBridge = {
+    getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),
     getWindowState: () => ipcRenderer.invoke('desktop:window-state'),
     getWindowControlsState: () => ipcRenderer.invoke('desktop:window-controls-state'),

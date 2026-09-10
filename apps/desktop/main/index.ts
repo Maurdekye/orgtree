@@ -10,7 +10,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { checkForUpdatesViaEvents, UpdateController } from './updater'
+import { checkForUpdatesViaEvents, installDownloadedUpdate, UpdateController } from './updater'
 import type { DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -180,7 +180,7 @@ else {
     if (poll) clearInterval(poll)
     await saveWindowLayout(); await engine.stop(); quitComplete = true
     setTimeout(() => app.exit(1), 15000).unref()
-    autoUpdater.quitAndInstall(false, true)
+    installDownloadedUpdate(autoUpdater, path.dirname(process.execPath))
   }
   const maintenance = new MaintenanceController({
     ack: (id, outcome) => engine.acknowledgeMaintenance(id, outcome),
@@ -267,6 +267,7 @@ else {
     })
     rebuildTray()
     handle('desktop:status', () => engine.status)
+    handle('desktop:app-version', () => app.getVersion())
     handle('desktop:window-state', () => windowState())
     handle('desktop:window-controls-state', () => windowControlsState())
     handle('desktop:window-minimize', () => { main?.minimize() })

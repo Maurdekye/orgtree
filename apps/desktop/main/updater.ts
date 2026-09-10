@@ -1,6 +1,16 @@
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
 
+/** NSIS already supports --updated /S --force-run. Keep the running install's
+ * directory; the bundled installer reads its previous scope from the registry. */
+export function installDownloadedUpdate(updater: {
+  installDirectory?: string
+  quitAndInstall(silent: boolean, runAfter: boolean): void
+}, directory: string): void {
+  updater.installDirectory = directory
+  updater.quitAndInstall(true, true)
+}
+
 interface UpdateCallbacks {
   /** Wraps the real updater's checkForUpdates(); autoDownload happens on its own once resolved. */
   run: () => Promise<{ hasUpdate: boolean; version?: string }>

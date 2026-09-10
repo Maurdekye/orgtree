@@ -17,7 +17,8 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(preload, /getUpdateStatus: \(\) => ipcRenderer\.invoke\('desktop:update-status'\)/)
   assert.match(preload, /checkForUpdates: \(\) => ipcRenderer\.invoke\('desktop:check-for-updates'\)/)
 
-  assert.match(main, /import \{ checkForUpdatesViaEvents, UpdateController \} from '\.\/updater'/)
+  assert.match(main, /import \{ checkForUpdatesViaEvents, installDownloadedUpdate, UpdateController \} from '\.\/updater'/)
+  assert.match(main, /installDownloadedUpdate\(autoUpdater, path\.dirname\(process\.execPath\)\)/)
   assert.match(main, /new UpdateController\(/)
   // the availability answer must come from electron-updater's own events, not a
   // hand-rolled version-string comparison (an older/disallowed release could
