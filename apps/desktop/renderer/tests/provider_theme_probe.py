@@ -18,6 +18,7 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={'width': 1150, 'height': 750})
     page.goto((out / 'probe.html').as_uri())
     page.wait_for_selector('#standalone .desk-body')
+    page.locator('#standalone textarea').focus()
     reports = []
     for theme in ['orgtree', 'codex']:
         page.evaluate('(t) => window.setProbeTheme(t)', theme)
@@ -29,7 +30,9 @@ with sync_playwright() as p:
             stripe: getComputedStyle(el).borderTopColor,
           }));
           const desk = document.querySelector('#standalone .desk-body');
-          return { root, cards, desk: getComputedStyle(desk).getPropertyValue('--accent').trim() };
+          const composer = document.querySelector('#standalone .cc-composer');
+          return { root, cards, desk: getComputedStyle(desk).getPropertyValue('--accent').trim(),
+            composerBorder: getComputedStyle(composer).borderTopColor };
         }'''))
     failures = []
     for report in reports:
@@ -46,6 +49,7 @@ with sync_playwright() as p:
         assert len(failures) == 10, f'baseline must reproduce all missing Claude scopes: {failures}'
     else:
         assert not failures, failures
+        assert all(r['composerBorder'] == 'rgb(217, 119, 87)' for r in reports), 'the focused composer must visibly use orange'
     page.evaluate("window.setProbeTheme('orgtree')")
     page.screenshot(path=str(out / 'provider-theme.png'))
     browser.close()
