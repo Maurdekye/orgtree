@@ -34,7 +34,8 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(app, /native-header/)
   assert.match(app, /native-header-main/)
   assert.match(app, /<h1>[\s\S]*showControls && <WindowControls \/>[\s\S]*<\/h1>/)
-  assert.match(app, /<Onboarding windowControls=\{<><UpdateNotice \/><WindowControls \/><\/>\}>/)
+  assert.doesNotMatch(app, /<Onboarding windowControls=/)
+  assert.match(app, /<div className="welcome">[\s\S]*?home-header[\s\S]*?<WindowControls \/>[\s\S]*?showOnboarding[\s\S]*?<Onboarding>/)
   assert.match(app, /fallback-orgbar/)
   // the update indicator (list-controls' placement rule: a sibling immediately
   // before WindowControls, in every native header state) — each bounded to its
