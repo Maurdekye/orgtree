@@ -2264,6 +2264,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                       })
                   }}
                   onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined}
+                  rowSender={(id: string) => <span>{id}</span>}
                   sender={(id: string) => <SenderChip id={id} nodes={nodes}
                     onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined} />} />
               // the user's OWN sends: attachments live in the RECIPIENT's
@@ -2283,6 +2284,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                     ? fileUrl(slug, m.to, p) : ''}
                   mdBase={(m) => typeof m.to === 'string' && m.to
                     ? fileBase(slug, m.to) : ''}
+                  rowSender={(id: string) => <span>{id}</span>}
                   sender={(id: string) => <SenderChip id={id} nodes={nodes}
                     onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined} />} />}
         </div>
