@@ -1284,10 +1284,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
   const convo = useConvo(slug, node.id)
-  const providerClass = node.tier && CODEX_TIERS.includes(node.tier)
-    ? ' prov-openai' : node.tier && ANTIGRAVITY_TIERS.includes(node.tier)
-      ? ' prov-google' : node.tier && isOpenRouterTier(node.tier)
-        ? ' prov-openrouter' : ''
+  const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
   const processClass = node.state === 'live'
     ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
   const { chat, live_feed, draft, thinking, thinkSecs, pending } = {

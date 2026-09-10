@@ -1013,9 +1013,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
   // for the hire to become a persisted TreeNode before applying provider
   // chrome: otherwise the dashed "uninitialized" Codex card briefly wears
   // Claude terracotta and flips to teal only after creation.
-  const providerClass = CODEX_TIERS.includes(draft.tier) ? ' prov-openai'
-    : ANTIGRAVITY_TIERS.includes(draft.tier) ? ' prov-google'
-      : isOpenRouterTier(draft.tier) ? ' prov-openrouter' : ''
+  const providerClass = ' prov-' + providerOf(draft.tier)
   return (
     <div className={'sq draft' + providerClass} style={{
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
@@ -1289,9 +1287,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // blue accent — desk border/shadow and busy ring — where claude
   // wears terracotta. Dormant until codex hire lands; keyed on the tier
   // family so it needs no new payload field.
-  if (node.tier && CODEX_TIERS.includes(node.tier)) cls.push('prov-openai')
-  if (node.tier && ANTIGRAVITY_TIERS.includes(node.tier)) cls.push('prov-google')
-  if (node.tier && isOpenRouterTier(node.tier)) cls.push('prov-openrouter')
+  if (node.tier) cls.push('prov-' + providerOf(node.tier))
   if (live) cls.push(node.proc_warm ? 'proc-warm' : 'proc-cold')
   if (node.busy) cls.push('busy')
   // api_fallback (user feature 2026-08-19): a turn RUNNING on the org's own

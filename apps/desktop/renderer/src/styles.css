@@ -606,6 +606,15 @@ button.badge.audience-fold.alert {
    controls honest automatically. Model-tier identity remains a separate
    channel: Luna/Terra/Sol keep their distinct badge and top-edge hues while
    the provider chrome changes. Semantic red/green states are untouched. */
+/* Claude needs the same explicit scope: the application may be neutral or
+   use another provider's theme. Cards, expanded desks and independently
+   hosted desk bodies must all keep Claude's orange chrome. */
+.sq.prov-claude, .desk-body.prov-claude {
+  --provider-accent: var(--prov-claude);
+  --accent: var(--prov-claude);
+  --accent-soft: color-mix(in srgb, var(--prov-claude) 16%, transparent);
+  --accent-hover: color-mix(in srgb, var(--prov-claude) 82%, white);
+}
 .sq.prov-openai, .desk-body.prov-openai {
   --provider-accent: var(--prov-openai);
   --accent: var(--prov-openai);
