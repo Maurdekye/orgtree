@@ -82,6 +82,16 @@ for (const lod of ['norm', 'mini'] as const) {
         const name = root.querySelector<HTMLElement>('.sq-title .name')
         const meta = root.querySelector<HTMLElement>('.sq-meta')
         const actions = root.querySelector<HTMLElement>('.sq-actions')
+        if (lod === 'mini') {
+          // far zoom (user 2026-09-10): the shortcut row is UNMOUNTED — a
+          // hover exposes no interactive buttons, so a click can only reach
+          // the card's own focus pipeline. Title and status rows remain.
+          assert.ok(name && meta, 'title and status rows stay mounted at mini')
+          assert.equal(actions, null, 'mini cards mount no shortcut action row')
+          assert.equal(root.querySelectorAll('.sq-actions button').length, 0,
+            'no shortcut button hit targets at far zoom')
+          continue
+        }
         assert.ok(name && meta && actions, 'all three card rows are mounted')
         assert.ok(meta.querySelector('.sq-workstate .cc-spin'), 'spinning arrow is in Row 2 when busy')
         assert.ok(meta.querySelector('.sq-workstate .sq-idle.working'), 'working state text is in Row 2')
@@ -107,12 +117,13 @@ for (const lod of ['norm', 'mini'] as const) {
         assert.notEqual(p.x, c.x, 'button center is a distinct hit target, not card center')
         expand.click()
       }
-      assert.deepEqual(opened.sort(), ['agy-agent', 'claude-agent', 'codex-agent'])
-      assert.match(view.el.querySelector('.sq-actions')!.className, /sq-actions/)
       if (lod === 'mini') {
+        assert.deepEqual(opened, [], 'no expand routed at mini — nothing to click')
         assert.equal(view.el.querySelectorAll('.sq-badges').length, 0,
           'mini cards do not leave a hidden badge row')
       } else {
+        assert.deepEqual(opened.sort(), ['agy-agent', 'claude-agent', 'codex-agent'])
+        assert.match(view.el.querySelector('.sq-actions')!.className, /sq-actions/)
         assert.equal(view.el.querySelectorAll('.sq-badges').length, 3,
           'normal cards retain status/badge content below the action row')
       }
@@ -121,17 +132,22 @@ for (const lod of ['norm', 'mini'] as const) {
 }
 
 test('pinned cards do not offer a duplicate expand action', async () => {
-  const view = await mountView(card(node('already-pinned', 'terra', false), 'mini', noop, true),
+  // norm, not mini: mini mounts no actions at all, so the null expand would
+  // pass vacuously — the sibling-button guard keeps this check load-bearing
+  const view = await mountView(card(node('already-pinned', 'terra', false), 'norm', noop, true),
     (el) => el)
-  try { assert.equal(view.el.querySelector('.expandbtn'), null) }
-  finally { await view.unmount() }
+  try {
+    assert.equal(view.el.querySelector('.expandbtn'), null)
+    assert.ok(view.el.querySelectorAll('.sq-actions button').length > 0,
+      'other actions remain, so the missing expand is suppression, not absence')
+  } finally { await view.unmount() }
 })
 
 test('all-action fixture mounts the gear in the constrained action row', async () => {
   const n = node('many-actions', 'haiku', false)
   ;(n as unknown as { documents: unknown[] }).documents = [{ id: 'presented-doc' }]
   const opened: string[] = []
-  const view = await mountView(card(n, 'mini', noop, false, noop,
+  const view = await mountView(card(n, 'norm', noop, false, noop,
     (id) => opened.push(id)), (el) => el)
   try {
     const actions = view.el.querySelector<HTMLElement>('.sq-actions')!

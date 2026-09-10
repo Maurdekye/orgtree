@@ -12,6 +12,10 @@ const seats = { haiku: 1, terra: 2, sol: 5, luna: .2, flash: 1 }
 const hire = { enabled: true, installed: true, reason: null }
 const opened: string[] = []
 const configured: string[] = []
+// the click→focus pipeline's first hop: a pointerdown that reaches the CARD
+// (not a shortcut button's stopPropagation) calls onDragStart — recording it
+// lets the probe prove a far-zoom click is routed to focusing, not swallowed
+const dragStarts: string[] = []
 
 // an idle node has a COMPLETED TURN, so its age actually renders — without one
 // LastTurnAge draws nothing and the placement check would measure an empty seat
@@ -41,7 +45,9 @@ function card(n: CanvasNode, lod: 'norm' | 'mini', pinned = false,
     kioskRemaining={null} cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
     onConfig={() => { configured.push(n.id) }} onInbox={noop} onDocket={noop}
     onLineage={noop} onOpenDoc={noop} onRecenter={noop}
-    onJump={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop}
+    onOpenAgentGallery={noop}
+    onJump={noop} onMailLink={noop}
+    onDragStart={(_e, id) => { dragStarts.push(id) }} onDragMove={noop} onDragEnd={noop}
     onDragCancel={noop} onPin={() => { opened.push(n.id) }} pinned={pinned} />
 }
 
@@ -58,7 +64,10 @@ const nodes = [
 createRoot(document.getElementById('root')!).render(<>
   <section id="normal" style={{ position: 'relative', height: 150 }}>{nodes.map((n, i) => <div key={n.id}>{card(n, 'norm', false, { x: i * 150, y: 0 })}</div>)}</section>
   <section id="mini" style={{ position: 'relative', height: 150 }}>{nodes.map((n, i) => <div key={n.id}>{card(n, 'mini', false, { x: i * 150, y: 0 })}</div>)}</section>
-  <section id="pinned" style={{ position: 'relative', height: 150 }}>{card(node('already-pinned', 'terra', false), 'mini', true, { x: 600, y: 0 })}</section>
+  {/* norm, not mini: mini cards no longer mount ANY action row, so a mini
+      pinned card would make the no-duplicate-expand check pass vacuously */}
+  <section id="pinned" style={{ position: 'relative', height: 150 }}>{card(node('already-pinned', 'terra', false), 'norm', true, { x: 600, y: 0 })}</section>
 </>)
 ;(window as unknown as { opened: string[]; configured: string[] }).opened = opened
 ;(window as unknown as { configured: string[] }).configured = configured
+;(window as unknown as { dragStarts: string[] }).dragStarts = dragStarts

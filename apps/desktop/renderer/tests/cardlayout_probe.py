@@ -4,6 +4,13 @@ The fixture bundles the real NodeSquare and uses the real styles.css. It checks
 normal and mini LODs, actual action centers inside their cards, expand routing,
 duplicate suppression for pinned cards, left-aligned Row 3, and distinct
 computed top accents for working Claude/Codex/Antigravity cards.
+
+Far-zoom shortcut interception (user report 2026-09-10): mini cards mount NO
+action row at all — verified by ACTUAL POINTER HIT TARGETS: elementFromPoint
+across the card body finds no button, and a real click at the exact position
+where the norm card's gear sits reaches the card's drag/focus pipeline
+(dragStarts) instead of any shortcut callback. The norm card is the positive
+control proving the same detector does find interactive buttons there.
 """
 from __future__ import annotations
 
@@ -35,15 +42,17 @@ def age_failures(lod: str, row: dict) -> list[str]:
     exactly the "present, plausible and inert" result a DOM test would call a
     pass. Every check here is geometric for that reason.
 
-    A BUSY card is the built-in negative: it must have neither, so a green run
-    is not one where the selectors simply match nothing everywhere."""
+    A BUSY card shows the ELAPSED TURN TIME beside the working word (the
+    jsdom suite pins that contract), so presence is required on both sides —
+    the can-this-fail property lives in the geometry checks below and in the
+    stray-badge check, which a wrongly-matching selector still trips."""
     who, bad = f"{lod}/{row['id']}", []
     if row["strayAge"]:
         bad.append(f"{who}: the separate age badge is still on the card")
     busy = ".busy" in row["classes"] or " busy" in f" {row['classes']}"
     if busy:
-        if row["time"]:
-            bad.append(f"{who}: a busy card shows an idle age")
+        if not row["time"]:
+            bad.append(f"{who}: a busy card lacks the elapsed turn time")
         return bad
     word, time, seat = row["word"], row["time"], row["seat"]
     if not word:
@@ -115,7 +124,7 @@ def main() -> int:
                   actionOrder: actionEl && [...actionEl.children].map((el) =>
                     [...el.classList].find((name) => name.endsWith('btn')) ?? el.tagName),
                   rows: rows.map((e) => e.className), actionJustify:
-                    getComputedStyle(card.querySelector('.sq-actions')).justifyContent };
+                    actionEl ? getComputedStyle(actionEl).justifyContent : null };
               });
               const references = {};
               for (const tier of ['haiku', 'terra', 'sol', 'luna', 'flash']) {
@@ -163,6 +172,52 @@ def main() -> int:
                 buttonWidth: gear.width, scrollWidth: actions.scrollWidth, clientWidth: actions.clientWidth,
                 outside: gear.right >= cr.right - .5 && actions.scrollWidth > actions.clientWidth};
             }""")
+            # Far-zoom interception: hover a MINI card and sweep ACTUAL hit
+            # targets across its body — no point may resolve to a button.
+            # The norm card is the positive control: the same detector at the
+            # gear's own center MUST find a button, so a sweep that "finds
+            # nothing" because the selector or geometry broke cannot pass.
+            page.locator("#mini .sq").nth(0).hover()
+            values["miniHits"] = page.evaluate("""() => {
+              const sweep = (card) => {
+                const r = card.getBoundingClientRect();
+                const points = [];
+                for (const fx of [.15, .5, .85])
+                  for (const fy of [.2, .5, .8])
+                    points.push([r.left + r.width * fx, r.top + r.height * fy]);
+                return points.map(([x, y]) => {
+                  const el = document.elementFromPoint(x, y);
+                  return { x, y, button: Boolean(el && el.closest('button')),
+                           inCard: Boolean(el && el.closest('.sq')) };
+                });
+              };
+              return { mini: sweep(document.querySelector('#mini .sq')),
+                       miniActionsMounted: Boolean(document.querySelector('#mini .sq-actions')) };
+            }""")
+            page.locator("#normal .sq").nth(0).hover()
+            values["normHitControl"] = page.evaluate("""() => {
+              const gear = document.querySelector('#normal .sq .gearbtn');
+              const r = gear.getBoundingClientRect();
+              const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return { gearHit: Boolean(el && el.closest('button.gearbtn')),
+                       rel: (() => {
+                         const c = gear.closest('.sq').getBoundingClientRect();
+                         return { dx: r.left + r.width / 2 - c.left, dy: r.top + r.height / 2 - c.top };
+                       })() };
+            }""")
+            # A REAL CLICK where the shortcuts used to sit: same card-relative
+            # offset as the norm gear, on the mini card. It must reach the
+            # card's drag/focus pipeline and fire no shortcut callback.
+            values["preClick"] = page.evaluate(
+                "() => ({ starts: [...window.dragStarts], configured: [...window.configured],"
+                " opened: [...window.opened] })")
+            rel = values["normHitControl"]["rel"]
+            mini_box = page.locator("#mini .sq").nth(0).bounding_box()
+            page.mouse.click(mini_box["x"] + min(rel["dx"], mini_box["width"] - 2),
+                             mini_box["y"] + min(rel["dy"], mini_box["height"] - 2))
+            values["postClick"] = page.evaluate(
+                "() => ({ starts: [...window.dragStarts], configured: [...window.configured],"
+                " opened: [...window.opened] })")
             page.reload()
             page.wait_for_selector("#normal .sq")
             page.evaluate("() => document.documentElement.style.setProperty('--invzf', '1')")
@@ -183,10 +238,9 @@ def main() -> int:
               [...document.querySelectorAll('.sq-actions')]
                 .every((el) => getComputedStyle(el).display === 'none')""")
             mobile.close()
+            # expand routes from norm only — mini mounts no expand at all
             page.locator("#normal .sq").nth(1).hover()
             page.locator("#normal .expandbtn").nth(1).click()
-            page.locator("#mini .sq").nth(4).hover()
-            page.locator("#mini .expandbtn").nth(4).click()
             opened = page.evaluate("() => window.opened")
             browser.close()
     failures = []
@@ -195,6 +249,16 @@ def main() -> int:
         if len(rows) != 7:
             failures.append(f"{lod}: expected 7 cards, got {len(rows)}")
         for row in rows:
+            if lod == "mini":
+                # far zoom: NO shortcut hit targets at all (user 2026-09-10)
+                if row["button"]:
+                    failures.append(f"mini/{row['id']}: expand hitbox still mounted")
+                if row["actions"] or "sq-actions" in " ".join(row["rows"]):
+                    failures.append(f"mini/{row['id']}: action row still mounted")
+                if "sq-head" not in row["rows"]:
+                    failures.append(f"mini/{row['id']}: head row missing")
+                failures += age_failures(lod, row)
+                continue
             if not row["button"]:
                 failures.append(f"{lod}/{row['id']}: missing expand hitbox")
                 continue
@@ -213,6 +277,29 @@ def main() -> int:
                              or part["y"] + part["h"] > row["card"]["y"] + row["card"]["h"]):
                     failures.append(f"{lod}/{row['id']}: row clips outside fixed card")
             failures += age_failures(lod, row)
+    # far-zoom pointer truth: the sweep found no button anywhere on the mini
+    # card body, the same detector DOES find the norm gear (positive control),
+    # and a real click at the old gear position reached the drag/focus
+    # pipeline without firing any shortcut callback
+    hits = values.get("miniHits") or {}
+    if hits.get("miniActionsMounted"):
+        failures.append("mini card still mounts .sq-actions")
+    sweep = hits.get("mini") or []
+    if not sweep:
+        failures.append("mini hit sweep produced no samples")
+    if any(p["button"] for p in sweep):
+        failures.append(f"mini card body resolves to a button: {sweep!r}")
+    if not any(p["inCard"] for p in sweep):
+        failures.append("mini hit sweep never landed on the card — sweep is vacuous")
+    if not (values.get("normHitControl") or {}).get("gearHit"):
+        failures.append("positive control failed: norm gear center did not hit the gear button")
+    pre, post = values.get("preClick") or {}, values.get("postClick") or {}
+    if len(post.get("starts", [])) <= len(pre.get("starts", [])):
+        failures.append(f"mini body click never reached the card drag/focus pipeline: {pre!r} -> {post!r}")
+    elif post["starts"][-1] != "claude-agent":
+        failures.append(f"mini click routed to the wrong card: {post['starts']!r}")
+    if post.get("configured") != pre.get("configured") or post.get("opened") != pre.get("opened"):
+        failures.append(f"mini click fired a shortcut callback: {pre!r} -> {post!r}")
     by_id = {row["id"]: row for row in values["normal"]}
     for node_id, tier in (("claude-agent", "haiku"), ("codex-terra-agent", "terra"),
                           ("codex-sol-agent", "sol"), ("luna-agent", "luna"),
@@ -223,8 +310,9 @@ def main() -> int:
         failures.append("AGY busy top differs from idle Flash tier positive control")
     if by_id["luna-agent"]["top"] != by_id["idle-luna-agent"]["top"]:
         failures.append("Luna busy top differs from idle Luna tier positive control")
-    if opened != ["codex-terra-agent", "agy-agent"]:
-        failures.append(f"expand routed to {opened!r}, expected codex-terra then agy")
+    if opened != ["codex-terra-agent"]:
+        failures.append(f"expand routed to {opened!r}, expected codex-terra only "
+                        f"(mini mounts no expand)")
     if not values["pinned"]:
         failures.append("pinned card still exposes duplicate expand action")
     if not values["pinnedActions"] or values["pinnedActions"][0] != "mailbtn":

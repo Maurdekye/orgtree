@@ -1451,7 +1451,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.last_error && <span className="errdot" title={node.last_error ?? undefined} />}
         </div>
       </div>}
-      {!focused && <div className="sq-actions">
+      {/* far-zoom mini cards are locators: the hover shortcuts scale UP
+          with inverse zoom and would swallow the click that focuses the
+          agent (their pointerdown stopPropagation starves the drag-end
+          click→centerOn path), so at mini they are UNMOUNTED — no hit
+          target at all — not merely faded (user report 2026-09-10) */}
+      {!focused && lod !== 'mini' && <div className="sq-actions">
         {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for ${node.id}`}
           title={`Docket for ${node.id}`}
           onPointerDown={e => e.stopPropagation()}
