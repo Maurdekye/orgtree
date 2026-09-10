@@ -454,7 +454,9 @@ export const getOpenRouterUsagePeek = (): Promise<UsagePeek> =>
 // The primary row is the machine's own login; `keys` are pasted
 // `claude setup-token` fallbacks. NO token material in any response — a key
 // crosses the wire once, inward, and everything after speaks in row ids.
-export const getAccounts = (): Promise<AccountsPayload> => req('/api/accounts')
+// the LEGACY readout moved to its own path (2026-09-10): GET /api/accounts
+// belongs to the account REGISTRY list the accounts section actually renders
+export const getAccounts = (): Promise<AccountsPayload> => req('/api/accounts/readout')
 // ⚠ STORE FIRST. The CLI shows a minted token exactly once, so the server
 // writes it before anything can reject it — do not add client-side format
 // validation that could swallow the only copy the user will ever have.

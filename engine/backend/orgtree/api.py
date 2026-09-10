@@ -3292,11 +3292,16 @@ class AccountKeyOrder(BaseModel):
     keys: list[str]
 
 
-@app.get("/api/accounts")
+@app.get("/api/accounts/readout")
 def accounts_readout() -> dict[str, Any]:
-    """The panel: the primary login (whoever Claude Code is signed in as on
-    this machine -- not switchable from here), the key rows in priority
-    order, and which account each model tier currently routes to."""
+    """The LEGACY panel readout: the primary login (whoever Claude Code is
+    signed in as on this machine -- not switchable from here), the key rows
+    in priority order, and which account each model tier currently routes
+    to. Moved off GET /api/accounts (user defect 2026-09-10): registered
+    first, it SHADOWED the account registry's list there, so the registry
+    section read the legacy shape, tolerated it as an absent backend, and
+    rendered "No accounts yet" while created rows silently accumulated —
+    Create managed appeared to do nothing."""
     return accounts.readout()
 
 

@@ -132,6 +132,36 @@ class BoardsTests(unittest.TestCase):
     # credentials, codex non-ambient home). The claude-token and ambient
     # network reads are packaged-acceptance evidence, not unit territory.
 
+    # Route-table truth (user defect 2026-09-10, "Create managed does
+    # nothing"): handler-level calls CANNOT catch a path registered twice —
+    # the legacy readout shadowed the registry list on GET /api/accounts, so
+    # creation succeeded while the section never saw a row. These go through
+    # the REAL router, exactly like the renderer.
+
+    def test_create_managed_is_visible_through_the_real_router(self):
+        from fastapi.testclient import TestClient
+        client = TestClient(self.api.app, raise_server_exceptions=False)
+        made = client.post("/api/accounts",
+                           json={"provider": "claude", "kind": "managed"})
+        self.assertEqual(made.status_code, 200, made.text)
+        row = made.json()
+        self.assertTrue(row["credential"]["path"])         # profile minted
+        listed = client.get("/api/accounts")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        payload = listed.json()
+        # the REGISTRY shape — the legacy readout has no "accounts" array,
+        # which is precisely what the shadowed route used to answer here
+        self.assertIn("accounts", payload)
+        self.assertIn(row["id"], [r["id"] for r in payload["accounts"]])
+        # the org-filtered form the placement picker uses rides the same path
+        filtered = client.get("/api/accounts?org=any-org")
+        self.assertIn("accounts", filtered.json())
+        # and the legacy readout remains served, at its own path
+        legacy = client.get("/api/accounts/readout")
+        self.assertEqual(legacy.status_code, 200)
+        self.assertIn("assignments", legacy.json())
+        self.assertNotIn("accounts", legacy.json())
+
     def test_usage_routing_non_network_paths(self):
         import asyncio
         ag = self.registry.create_account(
