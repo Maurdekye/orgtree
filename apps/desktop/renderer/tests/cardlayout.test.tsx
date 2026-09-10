@@ -11,12 +11,16 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mountView } from './harness'
+import { inAct, mountView } from './harness'
+import { AGENT_SHORTCUTS_KEY, agentShortcutsOn, setAgentShortcutsOn } from '../src/canvas/shared'
 import { NodeSquare } from '../src/canvas/cards'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
 declare const __SRC_DIR__: string
+
+test.beforeEach(() => { setAgentShortcutsOn(true) })
+test.afterEach(() => { localStorage.removeItem(AGENT_SHORTCUTS_KEY) })
 
 const noop = () => {}
 const op = () => Promise.resolve({} as OpResult)
@@ -254,4 +258,21 @@ test('bound account shades reach mounted cards without changing work-state color
       assert.equal(find(id).style.getPropertyValue('--accent'), '')
     }
   } finally { await mounted.unmount() }
+})
+
+
+test('agent shortcuts default off and toggle every mounted card without remounting', async () => {
+  localStorage.removeItem(AGENT_SHORTCUTS_KEY)
+  assert.equal(agentShortcutsOn(), false)
+  const view = await mountView(<>{card(node('one', 'haiku', false), 'norm', noop)}{card(node('two', 'haiku', false), 'norm', noop)}</>, el => el)
+  try {
+    assert.equal(view.el.querySelectorAll('.sq').length, 2)
+    assert.equal(view.el.querySelectorAll('.sq-actions').length, 0)
+    await inAct(() => setAgentShortcutsOn(true))
+    assert.equal(view.el.querySelectorAll('.sq-actions').length, 2)
+    assert.equal(localStorage.getItem(AGENT_SHORTCUTS_KEY), '1')
+    await inAct(() => setAgentShortcutsOn(false))
+    assert.equal(view.el.querySelectorAll('.sq-actions button').length, 0)
+    assert.equal(view.el.querySelectorAll('.sq-title').length, 2)
+  } finally { await view.unmount() }
 })

@@ -1112,6 +1112,26 @@ const subscribeHideRetired = (fn: () => void): (() => void) => {
 export const useHideRetired = (): boolean =>
   useSyncExternalStore(subscribeHideRetired, hideRetiredOn)
 
+// App-wide agent action buttons: off unless explicitly enabled.
+export const AGENT_SHORTCUTS_KEY = 'orgtree-agent-shortcuts'
+export const agentShortcutsOn = (): boolean => {
+  try { return localStorage.getItem(AGENT_SHORTCUTS_KEY) === '1' } catch { return false }
+}
+const agentShortcutsSubs = new Set<() => void>()
+export const setAgentShortcutsOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(AGENT_SHORTCUTS_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...agentShortcutsSubs]) fn()    // copy: a listener may detach
+}
+const subscribeAgentShortcuts = (fn: () => void): (() => void) => {
+  agentShortcutsSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { agentShortcutsSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useAgentShortcuts = (): boolean =>
+  useSyncExternalStore(subscribeAgentShortcuts, agentShortcutsOn)
+
 /* ------------------------------------------- the startup view (D-228)
    What the canvas shows the moment an org OPENS, and whether it glides there.
    Two settings, because they answer two different questions:

@@ -17,7 +17,7 @@ import {
 } from '../icons'
 import {
   ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
-  USER_H, USER_W,
+  USER_H, USER_W, useAgentShortcuts,
 } from './shared'
 import type {
   AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
@@ -1210,6 +1210,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
+  const showShortcuts = useAgentShortcuts()
   const focused = deskOpen || !!pinnedFocus
   // pile fronts zoom on a plain CENTER click (user spec) — track the
   // pointer-down point so a drag's trailing click doesn't re-zoom
@@ -1458,7 +1459,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           agent (their pointerdown stopPropagation starves the drag-end
           click→centerOn path), so at mini they are UNMOUNTED — no hit
           target at all — not merely faded (user report 2026-09-10) */}
-      {!focused && lod !== 'mini' && <div className="sq-actions">
+      {showShortcuts && !focused && lod !== 'mini' && <div className="sq-actions">
         {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for ${node.id}`}
           title={`Docket for ${node.id}`}
           onPointerDown={e => e.stopPropagation()}

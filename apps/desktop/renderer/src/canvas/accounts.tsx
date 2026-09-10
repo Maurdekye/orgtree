@@ -23,7 +23,7 @@ import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import {
-  setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
+  setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
   TIER_LETTER,
   useCrowdPiles, useDeskDpi, useHideRetired, useStartView, useStartZoom,
 } from './shared'
@@ -188,6 +188,13 @@ function CrowdStackToggle() {
       hint={'a team with more than 8 active agents draws as a single '
         + 'stack instead of 8+ separate cards'} />
   )
+}
+
+function AgentShortcutsToggle() {
+  const on = useAgentShortcuts()
+  return <SetToggle label="show agent card shortcuts" checked={on}
+    onChange={setAgentShortcutsOn}
+    hint="show action buttons beneath agent names on canvas cards" />
 }
 
 function HideRetiredToggle() {
@@ -483,7 +490,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><ModalOverlapSettings /></SetGroup>
+      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><AgentShortcutsToggle /><HideRetiredToggle /><ModalOverlapSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
