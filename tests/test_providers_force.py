@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 
 _root = tempfile.TemporaryDirectory(prefix='v2-providers-force-')
@@ -39,6 +40,20 @@ class ProvidersPayloadForceTests(unittest.TestCase):
     def tearDown(self):
         providers.codex_status = self._orig_codex_status
         providers.antigravity_status = self._orig_antigravity_status
+
+    def test_slow_provider_probes_overlap(self):
+        both_started = threading.Barrier(2, timeout=2)
+        def codex(force=False):
+            both_started.wait()
+            return {'installed': True, 'connected': False}
+        def google(force=False):
+            both_started.wait()
+            return {'installed': True, 'connected': False}
+        providers.codex_status = codex
+        providers.antigravity_status = google
+        payload = providers.providers_payload({'installed': True, 'connected': True})
+        self.assertEqual([p['id'] for p in payload['providers']][:3],
+                         ['claude', 'openai', 'google'])
 
     def test_force_true_reaches_codex_status(self):
         providers.providers_payload({'installed': True, 'connected': True}, force=True)

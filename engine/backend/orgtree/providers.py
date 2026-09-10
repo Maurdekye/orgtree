@@ -33,6 +33,7 @@ argv would not, so the resolver learns the safe habit now.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import datetime as _dt
 import glob
 import json
@@ -1239,21 +1240,26 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
     asked about. Naming "openai"/"google" here forces only that one; `None`
     keeps forcing both for callers requesting the whole document. An unknown
     name forces neither cache; the HTTP endpoint rejects it with 422."""
-    codex = codex_status(force=force and (force_provider is None or force_provider == "openai"))
-    # asked once, before the document is built: the reserve rule reads the
-    # usage board (a process spawn when its 30s cache is cold), and asking it
-    # again inside a dict literal would double that work for one answer.
-    reserve = (reserve_availability(codex) if codex.get("connected")
-               else {"enabled": False, "reason": None, "evidence": "offline"})
-    # the pool as an OBJECT (item 12) — reuses the board the line above
-    # warmed; the two legacy fields below are aliases of this
-    reserve_obj = reserve_status(codex)
-    inventory = (codex_model_inventory(status=codex)
-                 if codex.get("connected") else _inventory_failure("offline"))
-    codex_models = (set(inventory.get("models") or [])
-                    if inventory.get("available") else set())
-    antigravity = antigravity_status(
-        force=force and (force_provider is None or force_provider == "google"))
+    # Independent CLI probes must overlap: a slow Antigravity login check
+    # should not start only after Codex's version, usage and model inventory.
+    with ThreadPoolExecutor(max_workers=1) as probes:
+        google = probes.submit(
+            antigravity_status,
+            force=force and (force_provider is None or force_provider == "google"))
+        codex = codex_status(force=force and (force_provider is None or force_provider == "openai"))
+        # asked once, before the document is built: the reserve rule reads the
+        # usage board (a process spawn when its 30s cache is cold), and asking it
+        # again inside a dict literal would double that work for one answer.
+        reserve = (reserve_availability(codex) if codex.get("connected")
+                   else {"enabled": False, "reason": None, "evidence": "offline"})
+        # the pool as an OBJECT (item 12) — reuses the board the line above
+        # warmed; the two legacy fields below are aliases of this
+        reserve_obj = reserve_status(codex)
+        inventory = (codex_model_inventory(status=codex)
+                     if codex.get("connected") else _inventory_failure("offline"))
+        codex_models = (set(inventory.get("models") or [])
+                        if inventory.get("available") else set())
+        antigravity = google.result()
     orr = openrouter.status()
     choices = appsettings.provider_choices()
     claude_on = choices["claude"]

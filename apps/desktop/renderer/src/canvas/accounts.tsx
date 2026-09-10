@@ -10,7 +10,7 @@ import type {
   TierStanding, ToastFn, UsageLimit,
 } from '../types'
 import {
-  getProviders, getRuntimeSettings,
+  getProviders, peekProviders, getRuntimeSettings,
   setIdleDocketRemindersEnabled, setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
 } from '../api'
@@ -393,15 +393,21 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
   const [tab, setTab] = useState<AppSettingsTab>('providers')
   const registry = useAccountRegistry()
   const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
-  const [providers, setProviders] = useState<ProviderInfo[] | null>(null)
+  const [providers, setProviders] = useState<ProviderInfo[] | null>(() => peekProviders()?.providers ?? null)
   const [runtime, setRuntime] = useState<RuntimeSettingsPayload | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const loadProviders = () => getProviders().then(p => {
-    setProviders(p.providers)
-    setOpenRouterTiers(p.providers.find(p => p.id === 'openrouter')?.tiers)
-  }).catch((e: Error) => setError(e.message))
+  const [discovering, setDiscovering] = useState(true)
+  const loadProviders = () => {
+    setDiscovering(true)
+    return getProviders().then(p => {
+      setProviders(p.providers)
+      setOpenRouterTiers(p.providers.find(p => p.id === 'openrouter')?.tiers)
+      setError('')
+    }).catch((e: Error) => setError(e.message))
+      .finally(() => setDiscovering(false))
+  }
   useEffect(() => {
     void loadProviders()
     getRuntimeSettings().then(setRuntime).catch((e: Error) => setError(e.message))
@@ -432,6 +438,9 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
       {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
+      {providers && <p className="dim" role="status">{discovering
+        ? 'Refreshing provider status... Showing the last result.'
+        : <button onClick={() => { void loadProviders() }}>Refresh provider status</button>}</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
       {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className='set-group acct-provider-group'>

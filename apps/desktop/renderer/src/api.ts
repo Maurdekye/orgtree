@@ -51,6 +51,7 @@ function noteInstance(r: Response): void {
   if (id === instance) return
   // The window lifecycle coordinator offers an explicit choice when a
   // detached form could be lost. A deferred choice stays latched.
+  clearProviderDiscovery()
   backendRestart(id)
 }
 
@@ -364,14 +365,39 @@ export const audienceAction = (
 export const getHost = (): Promise<HostPayload> => req('/api/host')
 // the provider axis (FR-15 preview): per-vendor tier families + this
 // machine's CLI install/connect state — App settings and all hire surfaces
-export const getProviders = (): Promise<ProvidersPayload> => req('/api/providers')
+let providerSnapshot: ProvidersPayload | null = null
+let providerRequest: Promise<ProvidersPayload> | null = null
+let providerGeneration = 0
+/** Last successful observation for instant display while discovery refreshes. */
+export const peekProviders = (): ProvidersPayload | null => providerSnapshot
+export function clearProviderDiscovery(): void {
+  providerGeneration++
+  providerSnapshot = null
+  providerRequest = null
+}
+export function getProviders(): Promise<ProvidersPayload> {
+  if (providerRequest) return providerRequest
+  const generation = providerGeneration
+  const request = req<ProvidersPayload>('/api/providers').then(payload => {
+    if (generation === providerGeneration) providerSnapshot = payload
+    return providerSnapshot ?? payload
+  }).finally(() => {
+    if (providerRequest === request) providerRequest = null
+  })
+  providerRequest = request
+  return request
+}
 export const setProviderEnabled = (
   provider: string, enabled: boolean,
 ): Promise<ProvidersPayload> =>
-  req(`/api/providers/${encodeURIComponent(provider)}/enabled`, {
+  req<ProvidersPayload>(`/api/providers/${encodeURIComponent(provider)}/enabled`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
+  }).then(payload => {
+    clearProviderDiscovery()
+    providerSnapshot = payload
+    return payload
   })
 // Sign in to a provider from the app (D-231) rides the NATIVE bridge, not
 // this HTTP client — see accounts.tsx's ProviderSignIn and
