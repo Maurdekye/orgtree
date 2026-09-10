@@ -23,7 +23,7 @@ import type { DraftAttachment } from './draftstore'
 import { BASE, getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentMailIds } from './events/wire'
-import type { ChatPayload } from './types'
+import type { ChatMessage, ChatPayload } from './types'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useSyncExternalStore } from 'react'
 
@@ -174,6 +174,7 @@ const BLANK: Convo = {
 }
 
 interface Entry {
+  committedRows: Map<string, ChatMessage>
   pageInFlight?: boolean
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
@@ -322,7 +323,7 @@ export function dropConvo(slug: string, nid: string): void {
 function entry(k: string): Entry {
   let e = M.get(k)
   if (!e) {
-    e = { ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
+    e = { committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
           textSeen: 0, epochBoot: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
           poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
@@ -430,6 +431,22 @@ function serverMailIds(c: ChatPayload | null): Set<string> {
   return ids
 }
 
+/** A steer frame can carry the complete, already-saved transcript row.
+ * Install it through the same message list as polling, then retain it across
+ * stale fetches until the fetched range contains its durable identity. */
+function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload {
+  if (!e.committedRows.size) return c
+  const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id))
+  const messages = [...c.messages]
+  for (const [id, row] of e.committedRows) {
+    if (ids.has(id)) { if (fetched) e.committedRows.delete(id); continue }
+    const index = messages.findIndex(existing => !!existing.ts && !!row.ts && existing.ts > row.ts)
+    messages.splice(index < 0 ? messages.length : index, 0, row)
+  }
+  const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, BASE ? 'public' : 'operator')]))
+  return { ...c, messages, pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
+}
+
 // -------------------------------------------------------------------- fetch
 /** Refresh a node's transcript. Concurrent calls collapse into the in-flight
  *  one — several views, several triggers, ONE request. */
@@ -465,11 +482,14 @@ export function refreshConvo(slug: string, nid: string,
     // latest-STARTED request wins, not latest-landed — see Entry.installed
     if (startedAt < e.installed) return
     e.installed = startedAt
+    const changedConversation = !!c.conversation_id && !!e.s.chat?.conversation_id
+      && c.conversation_id !== e.s.chat.conversation_id
+    if (changedConversation) e.committedRows.clear()
     // A burst can exceed one viewport between polls. Fill only that new
     // interval before joining it to already loaded history; never silently
     // join two disjoint ranges and make the intervening messages disappear.
-    if (e.s.paged && e.s.chat?.messages.length && c.messages.length) {
-      const previousLast = e.s.chat.messages.at(-1)!.seq
+    if (!changedConversation && e.s.paged && e.s.chat?.messages.length && c.messages.length) {
+      const previousLast = e.s.chat.messages.filter(row => typeof row.seq === 'number').at(-1)?.seq
       let cursor = c.before
       while (cursor && typeof previousLast === 'number'
              && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
@@ -481,13 +501,32 @@ export function refreshConvo(slug: string, nid: string,
         cursor = page.before
       }
     }
+    // A newly delivered mail can fall behind a burst larger than the
+    // viewport. Page just that interval until its actual visible row is found;
+    // never dismiss an unseen send merely because its sequence is old.
+    let proofCursor = c.before
+    const needsProof = () => {
+      const ids = serverMailIds(c)
+      const oldest = c.messages[0]?.seq
+      return e.s.pending.some(g => !!g.mailId && !ids.has(g.mailId)
+        && typeof oldest === 'number' && g.seq0 !== UNKNOWN_SEQ && oldest > g.seq0)
+    }
+    while (!changedConversation && proofCursor && needsProof()) {
+      const page = await getChat(slug, nid, e.s.win, proofCursor)
+      if (!ownsRequest()) return
+      if (!page.messages.length || page.before === proofCursor) break
+      const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+      proofCursor = page.before
+    }
     e.inflight = false
-    if (e.s.paged && e.s.chat && c.messages.length) {
+    if (!changedConversation && e.s.paged && e.s.chat && c.messages.length) {
       const first = c.messages[0]!.seq
       const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
       c = { ...c, messages: [...older, ...c.messages],
         before: e.s.chat.before, has_older: e.s.chat.has_older }
     }
+    c = mergeCommitted(e, c, true)
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
     // CONTAINMENT, not equality, since the turn text is a mail envelope by
     // then. Two things count as visible, and both must, because the message
@@ -635,7 +674,7 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    patchEntry(e, { chat: c, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
+    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
   }).catch(() => {
     if (!ownsRequest()) return
     e.inflight = false
@@ -655,19 +694,25 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   const before = e.s.chat?.before
   if (before && !viewport) {
     const version = e.ownerVersion
+    const conversation = e.s.chat?.conversation_id
     e.pageInFlight = true
     patchEntry(e, { loadingOlder: true })
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) return
       e.pageInFlight = false
-      if (!e.subs.size) { patchEntry(e, { loadingOlder: false }, version); return }
+      if (!e.subs.size || conversation !== e.s.chat.conversation_id) { patchEntry(e, { loadingOlder: false }, version); return }
       const current = e.s.chat
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       const added = page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq))
       patchEntry(e, { paged: true, loadingOlder: false,
         chat: { ...current, messages: [...added, ...current.messages],
           before: page.before, has_older: page.has_older } }, version)
-    }).catch(() => { e.pageInFlight = false; patchEntry(e, { loadingOlder: false }, version) })
+    }).catch(() => {
+      e.pageInFlight = false
+      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) return
+      patchEntry(e, { loadingOlder: false, paged: false }, version)
+      void refreshConvo(slug, nid, { force: true })
+    })
     return true
   }
   patch(k, { loadingOlder: true, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
@@ -776,6 +821,23 @@ export function markBusy(slug: string, nid: string): void {
 export function ingestStream(slug: string, ev: StreamEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  const received = ev.committed_row
+  if (ev.kind === 'steered' && received?.role === 'user' && received.steered
+      && typeof received.row_id === 'string' && typeof received.text === 'string'
+      && typeof received.ts === 'string') {
+    const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
+      last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
+    if (!current.messages.some(row => (row.row_id ?? row.event_id) === received.row_id)) {
+      e.committedRows.set(received.row_id, received)
+    }
+    const chat = mergeCommitted(e, current)
+    const mailIds = serverMailIds(chat)
+    const pending = e.s.pending.filter(g => g.mailId ? !mailIds.has(g.mailId)
+      : serverCopies(chat, g.text) <= g.seen)
+    patch(k, { chat, pending })
+    nudge(slug, ev.node)
+    return
+  }
   if (ev.kind === 'thinking_start') {
     // the block OPENED — the only marker that survives sealing, and the only
     // one that is early (a sealed think's deltas can all arrive at the end,

@@ -1289,3 +1289,55 @@ convoTest('typed rows never graduate unbound ghosts by body and late response bi
   await inAct(()=>bindPendingMail(SL,ND,id,typedRow('other')))
   assert.equal(d.now().pending.length,0,'late response sees its existing durable row')
 })
+
+convoTest('committed steer occupies its transcript position before response deltas and survives stale fetch', async ({SL,ND,s,desk}) => {
+  const d=await desk(); await flush(); let ghost=0
+  await inAct(()=>{ghost=addPending(SL,ND,'continue');bindPendingMail(SL,ND,ghost,typedRow('accepted'))})
+  s.pending_mail.push(typedRow('accepted'))
+  const accepted={role:'user', text:'continue', ts:'2026-09-10T12:00:00Z', steered:true,
+    row_id:'steer:one', event_id:'reply:one', segments:[{kind:'mail', rows:[typedRow('accepted')]}]}
+  await inAct(()=>ingestStream(SL,{node:ND,kind:'steered',text:'continue',t:Date.now(),committed_row:accepted}))
+  assert.equal(d.now().pending.length,0)
+  assert.equal(d.now().chat!.pending_mail.length,0)
+  assert.equal(d.now().chat!.messages.filter(r=>r.row_id==='steer:one').length,1)
+  await inAct(()=>ingestStream(SL,{node:ND,kind:'delta',text:'answer after acceptance',t:Date.now()}))
+  assert.equal(d.now().draft,'answer after acceptance')
+  await poll(SL,ND)
+  assert.equal(d.now().chat!.messages.filter(r=>r.row_id==='steer:one').length,1,'a stale payload cannot remove the committed row')
+  s.pending_mail=[];s.messages.push({...accepted,seq:10})
+  await poll(SL,ND)
+  await inAct(()=>ingestStream(SL,{node:ND,kind:'steered',text:'continue',t:Date.now(),committed_row:accepted}))
+  assert.equal(d.now().chat!.messages.filter(r=>r.row_id==='steer:one').length,1,'durable replacement and replay never duplicate')
+  assert.equal(d.now().chat!.messages.at(-1)!.seq,10)
+})
+
+convoTest('a mail buried by a burst is displayed before its optimistic preview retires', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  for(let i=0;i<30;i++)s.assistantMsg(`prior ${i}`)
+  const d=await desk();await advance(100);let ghost=0
+  await inAct(()=>{ghost=addPending(SL,ND,'continue');bindPendingMail(SL,ND,ghost,typedRow('buried'))})
+  const echo=s.userMsg('continue');echo.segments=[{kind:'mail',rows:[typedRow('buried')]}]
+  for(let i=0;i<25;i++)s.assistantMsg(`burst ${i}`)
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.equal(d.now().pending.length,0)
+  assert.ok(d.now().chat!.messages.some(row=>row.seq===echo.seq),'the same rendered payload must show its replacement')
+  assert.ok(s.requests.some(row=>row.before),'must actually traverse older pages')
+})
+convoTest('a new conversation discards the old history cursor and old page rows', async ({SL,ND,s,desk}) => {
+  s.cursorPages=true
+  let scope='session-a'
+  const original=s.chat.bind(s)
+  s.chat=(last)=>({...original(last),conversation_id:scope})
+  for(let i=0;i<30;i++)s.assistantMsg(`old ${i}`)
+  const d=await desk();await advance(100)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().paged,true)
+  scope='session-b';s.messages=[]
+  for(let i=0;i<20;i++)s.assistantMsg(`new ${i}`)
+  await inAct(()=>refreshConvo(SL,ND,{force:true}));await flush()
+  assert.equal(d.now().paged,false)
+  assert.equal(d.now().chat!.messages.length,8)
+  assert.ok(d.now().chat!.messages.every(row=>row.text.startsWith('new ')))
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().chat!.messages.length,16,'the new cursor remains usable without remount')
+})

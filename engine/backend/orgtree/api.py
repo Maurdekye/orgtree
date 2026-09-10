@@ -1021,6 +1021,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # moment it was specified to be present, on every restart. Pinned by
     # test_warmpool's startup-order check.
     warmpool.start_warm_pool()
+    from . import transcript_ingest
+    transcript_ingest.start()
     supervisor.start_auto_resume_loop()
     # user ruling 2026-08-18: keep the subscription's usage readout warm, so a
     # usage freeze can stamp its reset time from cache instead of blocking the
@@ -1140,6 +1142,17 @@ class Hub:
             base = {k: v for k, v in payload.items() if k != "segments_raw"}
             admin_payload = {**base, "segments": events.wire_segments(raw_segments, public=False)}
             public_payload = {**base, "segments": events.wire_segments(raw_segments, public=True)}
+        raw_row = payload.get("committed_row_raw")
+        if isinstance(raw_row, dict):
+            def row_payload(base, public):
+                result = {k: v for k, v in base.items() if k != "committed_row_raw"}
+                row = dict(raw_row)
+                if isinstance(row.get("segments"), list):
+                    row["segments"] = events.wire_segments(row["segments"], public=public)
+                result["committed_row"] = row
+                return result
+            admin_payload = row_payload(admin_payload, False)
+            public_payload = row_payload(public_payload, True)
         for ws in self.rooms.get(slug, set()):
             try:
                 await ws.send_json(public_payload if ws in self.public else admin_payload)
@@ -9726,6 +9739,8 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    from . import reply_events
+    conversation = str(reply_events.incarnation(org, nid)) + ":" + str(org.node(nid).get("session_id") or "")
     if before:
         from .chat_window import read_page
         try:
@@ -9735,8 +9750,10 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
         for row in page.get('messages') or []:
             if row.get('segments') is not None:
                 row['segments'] = events.wire_segments(row['segments'], public=_public_slug(request) is not None)
+        page["conversation_id"] = conversation
         return page
     out = supervisor.read_chat(org, nid, last=max(1, min(last, 1_000_000)))
+    out["conversation_id"] = conversation
     # queued = the mail box PLUS the delivery journal's in-flight batches —
     # a message steered mid-task drains the box instantly, and during a long
     # tool call it showed NOWHERE (user bug 2026-07-31)

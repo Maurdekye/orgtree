@@ -41,6 +41,22 @@ class WindowTests(unittest.TestCase):
         return {'type':role,'uuid':f'id-{i}','timestamp':f'2026-09-10T12:{i//60%60:02d}:{i%60:02d}Z',
                 'message':{'id':f'm-{i}','role':role,'content':text or f'message {i}'}}
     def read(self,n=8): return chat_window.read_window(self.org,'agent',n)
+    def test_committed_steer_frame_contains_the_same_saved_complete_row(self):
+        frames=[]
+        text='accepted words '+('x'*4000)
+        with patch.object(sup,'stream',side_effect=lambda slug,nid,row:frames.append(row)):
+            sup.commit_steer(self.org.d['slug'],'agent',[text],at='2026-09-10T12:10:00Z')
+        self.org=store.load_org(self.org.d['slug'])
+        wire=frames[0]['committed_row_raw']
+        self.assertEqual(wire['text'],text)
+        durable=self.read()['messages'][-1]
+        self.assertEqual(wire['row_id'],durable['row_id'])
+        self.assertEqual(wire['event_id'],durable['event_id'])
+        self.assertEqual(wire['ts'],durable['ts'])
+        with patch.object(store,'save_org',side_effect=OSError('simulated write failure')), patch.object(sup,'stream') as send:
+            sup.commit_steer(self.org.d['slug'],'agent',['not durable'])
+        self.assertNotIn('committed_row_raw',send.call_args.args[2])
+
     def test_large_file_reads_tail_then_queries_sqlite_without_reparsing(self):
         self.write([self.rec(i, f'message {i} '+('x'*6000)) for i in range(7000)])
         first=self.read()

@@ -763,6 +763,7 @@ export interface CanvasScope {
 /** the app-level event feeds OrgCanvas rides (produced by App's WS handler) */
 export interface PulseEvent { node: string; event: string; t: number }
 export interface StreamEvent {
+  committed_row?: import('../types').ChatMessage
   reply_quote?: string
   event_id?: string
   segments?: unknown

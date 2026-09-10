@@ -2639,28 +2639,47 @@ def _refresh_projection(org: Org, nid: str, tpath: str,
     return cast("dict[str, Any]", out), entry, cacheable
 
 
+def _steered_chat_row(e: Mapping[str, Any]) -> dict[str, Any]:
+    if e.get("fold"):
+        return {
+            "role": "system", "text": "— " + (e.get("text") or
+            "mid-turn mail missed the steer window — delivered at "
+            "the next turn") + " —", "tools": [], "ts": e.get("at"),
+            "steer_fold": True}
+    else:
+        return {
+            "role": "user", "text": e.get("text") or "", "tools": [],
+            "ts": e.get("at"), "steered": True,
+            **({"event_id": e["visible_id"]} if e.get("visible_id") else {}),
+            "level": e.get("level") or "unknown",
+            "retried": bool(e.get("retried")),
+            "confirmed_duplicate": bool(e.get("confirmed_duplicate")),
+            "receipt": steer_receipt_text(e),
+            **({"truncated": True} if e.get("truncated") else {}),
+            # the typed composition persisted with the steered row (journal
+            # form; node_chat projects it per caller like every other row)
+            **({"segments": e["segments"]}
+               if isinstance(e.get("segments"), list) else {})}
+
+
+def _emit_committed_steer(org: Org, nid: str, saved: Mapping[str, Any]) -> None:
+    """Send the saved row before releasing response events at the steer barrier."""
+    from . import reply_events
+    row = _steered_chat_row(saved)
+    row["event_id"] = _stable_event_id(org, nid, row)
+    row["row_id"] = row["event_id"]
+    try:
+        row = reply_events.annotate(org, nid, {"messages": [row]})["messages"][0]
+    except Exception as error:
+        # The delivery has already committed. Reply-snapshot availability
+        # cannot turn it into a failed/retried provider delivery.
+        print(f"[orgtree] {org.d['slug']}/{nid}: steer reply snapshot deferred: {type(error).__name__}")
+    stream(org.d["slug"], nid, {"kind": "steered", "text": row["text"][:2000],
+                               "committed_row_raw": row})
+
+
 def _synthetic_chat_rows(org: Org, nid: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for e in (org.d.get("steered_log") or {}).get(nid, []):
-        if e.get("fold"):
-            rows.append({
-                "role": "system", "text": "— " + (e.get("text") or
-                "mid-turn mail missed the steer window — delivered at "
-                "the next turn") + " —", "tools": [], "ts": e.get("at"),
-                "steer_fold": True})
-        else:
-            rows.append({
-                "role": "user", "text": e.get("text") or "", "tools": [],
-                "ts": e.get("at"), "steered": True,
-                "level": e.get("level") or "unknown",
-                "retried": bool(e.get("retried")),
-                "confirmed_duplicate": bool(e.get("confirmed_duplicate")),
-                "receipt": steer_receipt_text(e),
-                **({"truncated": True} if e.get("truncated") else {}),
-                # the typed composition persisted with the steered row (journal
-                # form; node_chat projects it per caller like every other row)
-                **({"segments": e["segments"]}
-                   if isinstance(e.get("segments"), list) else {})})
+    rows = [_steered_chat_row(e) for e in (org.d.get("steered_log") or {}).get(nid, [])]
     for e in (org.d.get("turn_error_log") or {}).get(nid, []):
         rows.append({"role": "system", "text": "⚠ " + (e.get("text") or ""),
                      "tools": [], "ts": e.get("at"), "turn_error": True})
@@ -14833,11 +14852,14 @@ def _run_one_turn(slug: str, nid: str,
     close is a synchronous write on this thread — it runs after the turn's
     `finally` has released the queue, and does add its milliseconds before
     the caller receives `follow`."""
+    from . import transcript_ingest
+    transcript_ingest.capture_safely(slug, nid, beginning=True)
     _trec = turnlog.start(store.DATA_ROOT, slug, nid)
     try:
         return _run_one_turn_recorded(slug, nid, text, probe_token=probe_token,
                                       trec=_trec)
     finally:
+        transcript_ingest.capture_safely(slug, nid)
         if _trec is not None:
             try:
                 _trec.close()
@@ -24563,6 +24585,8 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
     # list per carrier, journal form (full events); [] where a carrier had none
     per_carrier: list[list[dict[str, Any]]] = [[] for _ in views]
 
+    committed: list[tuple[Org, dict[str, Any]]] = []
+
     def _record() -> None:
         with store.DOC_LOCK:
             try:
@@ -24586,11 +24610,14 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                     if not t:
                         continue
                     s = str(t)
-                    log.append({"at": stamp, "text": s[:100000], "level": level,
+                    saved = {"at": stamp, "text": s[:100000], "level": level,
+                             "visible_id": "steer:" + uuid.uuid4().hex,
                                 **({"truncated": True}
                                    if len(s) > 100000 else {}),
                                 **({"segments": per_carrier[i]}
-                                   if per_carrier[i] else {})})
+                                   if per_carrier[i] else {})}
+                    log.append(saved)
+                    committed.append((org, saved))
 
             drop = set(toks)
             if dl and drop:
@@ -24604,7 +24631,11 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
         try:
             _record()
         except Exception:                                   # noqa: BLE001
-            pass
+            committed.clear()
+    if committed:
+        for org, saved in committed:
+            _emit_committed_steer(org, nid, saved)
+        return out
     for i, raw in enumerate(out):
         body = str(raw)
         stream(slug, nid, {"kind": "steered", "text": body[:2000],
@@ -24840,11 +24871,15 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
                     b["attempts"] = int(b.get("attempts") or 0) + 1
                     b.setdefault("delivery_ids", []).append(did)
                     mail_ids.extend(str(m.get("id")) for m in b.get("mail") or [] if m.get("id"))
+            by_tok = {str(b.get("tok") or ""): b for b in (org.d.get("delivering") or {}).get(nid) or []}
+            view_segments = [[segment for tok in carrier.get("toks") or []
+                              for segment in (by_tok.get(str(tok), {}).get("segments") or [])]
+                             for carrier in chosen]
             _steer_attempts(org, nid)[did] = {
                 "at": now_iso(), "tool_use_id": tool_use_id, "toks": list(toks),
                 "mail_ids": mail_ids, "transcript_path": transcript_path,
                 "tp_offset": size, **({"unconfirmable": True} if unconfirmable else {}),
-                "views": [str(v)[:100000] for v in views], "texts_n": len(out),
+                "views": [str(v)[:100000] for v in views], "view_segments": view_segments, "texts_n": len(out),
                 "retried": any(int(c["claim"].get("attempts") or 0) > 1 for c in chosen)}
             _supersede_steer_attempts(org, nid, did, toks)
             _trim_steer_attempts(org, nid)
@@ -25004,11 +25039,14 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
            "acked_ids": acked_ids, "recorded_ids": recorded_ids, "attempts": attempts,
            "retried": bool(att.get("retried")) or attempts > 1 or bool(prior_recorded),
            "confirmed_duplicate": len(recorded_ids) >= 2}
-    for v in att.get("views") or []:
+    for index, v in enumerate(att.get("views") or []):
         s = str(v)
         if not s:
             continue
-        log.append({**row, "text": s[:100000], **({"truncated": True} if len(s) > 100000 else {})})
+        per_view = att.get("view_segments") or []
+        log.append({**row, "text": s[:100000], "visible_id": f"steer:{did}:{index}",
+                    **({"segments": per_view[index]} if index < len(per_view) and per_view[index] else {}),
+                    **({"truncated": True} if len(s) > 100000 else {})})
 
     att["recorded_at"] = stamp
     net_ids = [str(m["net_id"]) for b in batches for m in (b.get("mail") or []) if m.get("net_id")]
@@ -25117,12 +25155,9 @@ def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
                     net.note_read(slug, info["net_ids"])
                 except Exception:                                # noqa: BLE001
                     pass
-            for v in info["att"].get("views") or []:
-                body = str(v)
-                if body:
-                    stream(slug, nid, {"kind": "steered", "text": body[:2000],
-                                       "recorded": True,
-                                       **({"truncated": True} if len(body) > 2000 else {})})
+            for saved in (org.d.get("steered_log") or {}).get(nid) or []:
+                if saved.get("delivery_id") == did and saved.get("visible_id"):
+                    _emit_committed_steer(org, nid, saved)
             out["recorded"] = out.get("recorded", 0) + 1
     except Exception:                                        # noqa: BLE001
         pass
