@@ -1672,15 +1672,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   }, [tree.slug])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // A late inbox/roster payload can move the whole tree after its opening
-  // fit. Keep a requested whole-org view fitted as layout or viewport changes;
+  // fit. Restored modal pins register after the opening camera effect too.
+  // Keep a requested whole-org view fitted as layout, pins or viewport change;
   // manual pan/zoom and a focused desk relinquish that camera intent.
   useEffect(() => {
     const signature = `${viewportSize.w}:${viewportSize.h}|` + [...target]
-      .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
+      .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|') + '|pins:' + pinRectsRef.current
+      .map(p => `${p.x}:${p.y}:${p.w}:${p.h}`).join('|')
     const previous = fitGeometry.current
     fitGeometry.current = { slug: tree.slug, signature }
     if (previous?.slug === tree.slug && previous.signature !== signature && fitFollowing.current) fitAll()
-  }, [target, tree.slug, viewportSize.w, viewportSize.h, fitAll])
+  }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll])
 
   // …and the camera is REMEMBERED (D-228), whatever the startup mode: the
   // position is saved in every mode so that switching to 'remember' later

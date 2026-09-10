@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { updatePinSurface, removePinSurface, pinSurfaceKey } from '../src/canvas/pinspace'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
 
@@ -62,4 +63,29 @@ test('fit whole org includes the latest inbox headroom and every child after the
     await advance(1000)
     assert.equal(v.el.querySelector<HTMLElement>('.space')!.style.transform, chosen, 'a user-selected zoom is never replaced by a later automatic fit')
   } finally { await v.unmount(); window.HTMLElement.prototype.getBoundingClientRect = original; resetConvos(); realClock() }
+})
+
+
+test('opening fit follows restored pin geometry but preserves a manually chosen camera', async () => {
+  localStorage.clear(); resetConvos(); useFakeClock(); installFetch(new FakeServer())
+  const original = window.HTMLElement.prototype.getBoundingClientRect
+  window.HTMLElement.prototype.getBoundingClientRect = function () { return this.classList.contains('viewport') ? rect : original.call(this) }
+  const key = pinSurfaceKey('fit-fixture', 'docket', true)
+  const v = await mountView(<OrgCanvas tree={fixture(true)} slug="fit-fixture" op={async () => ({})} toast={() => {}} mailEvt={null} />, el => el)
+  try {
+    await advance(2500)
+    const initial = v.el.querySelector<HTMLElement>('.space')!.style.transform
+    await inAct(() => updatePinSurface(key, 'fit-fixture', {x: 750, y: 0, w: 598, h: 775}, true))
+    await advance(1000)
+    assert.notEqual(v.el.querySelector<HTMLElement>('.space')!.style.transform, initial, 'late restored pin changes the opening fit')
+    const cards = positions(v.el)
+    assert.equal(cards.length, 5)
+    for (const card of cards) assert.ok(card.left >= 0 && card.right <= 750 && card.top >= 0 && card.bottom <= rect.height, JSON.stringify(card))
+    await inAct(() => v.el.querySelector<HTMLButtonElement>('button[title="zoom in"]')!.click())
+    await advance(600)
+    const chosen = v.el.querySelector<HTMLElement>('.space')!.style.transform
+    await inAct(() => removePinSurface(key))
+    await advance(1000)
+    assert.equal(v.el.querySelector<HTMLElement>('.space')!.style.transform, chosen, 'manual camera is not refitted when a pin closes')
+  } finally { await v.unmount(); removePinSurface(key); window.HTMLElement.prototype.getBoundingClientRect = original; resetConvos(); realClock() }
 })

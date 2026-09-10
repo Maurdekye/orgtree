@@ -1101,9 +1101,6 @@ export default function App() {
                 {!tree.public &&
                   <button className="iconbtn" title="Settings" aria-label="Settings"
                     onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)}><SettingsIcon fontSize="inherit" /></button>}
-                <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
-                  target="_blank" rel="noreferrer" title="orgtree on GitHub">
-                  <GitHubIcon fontSize="inherit" /></a>
                 </div>
                 {/* Native WindowControls owns refresh in the desktop shell; keep
                     the renderer-only action available when running in a browser. */}
