@@ -9727,7 +9727,6 @@ class Org:
     # holds it — the badge must open onto a visible row (Astra 2026-09-05).
     WORK_ACTIVE_MAX: Final = 200
     WORK_EVIDENCE_MAX: Final = 50
-    WORK_ATTACHMENTS_MAX: Final = 20         # files attached TO the item
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
     # the attention reason, which now has to hold requested-against-delivered,
@@ -11749,16 +11748,14 @@ class Org:
         2026-09-10: images and files on tickets) — distinct from a reply
         attachment, which is mail to the assignee. The bytes are stored by
         the API layer outside the document; this records the durable fact.
-        Same standing as evidence: anyone who can read the item may add."""
+        Same standing as evidence: anyone who can read the item may add.
+        No per-item COUNT cap (coordinator ruling 2026-09-10 17:15: the user
+        asked for attachments, not an extra restriction) — the per-file size
+        cap at the upload route is the only bound."""
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
         atts = it.setdefault("attachments", [])
-        if len(atts) >= self.WORK_ATTACHMENTS_MAX:
-            raise LedgerError(
-                f"this item already holds {len(atts)} attachments (cap "
-                f"{self.WORK_ATTACHMENTS_MAX}); nothing is replaced — remove "
-                f"one first")
         n = int(it.get("attachment_seq") or 0) + 1
         it["attachment_seq"] = n
         rec = {"id": f"a{n}", "at": now(), "by": self._work_actor(actor),

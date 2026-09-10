@@ -115,19 +115,19 @@ class WorkAttachmentTests(unittest.TestCase):
                           headers=HEADERS)
         self.assertEqual(r.status_code, 404)
 
-    def test_cap_refuses_the_21st_after_20_succeed(self):
-        slug = 'workattach-cap'
+    def test_no_arbitrary_item_count_cap(self):
+        # coordinator ruling 2026-09-10 17:15: the user asked for attachments,
+        # not an extra per-ticket restriction — many small files all land and
+        # all stay listed (the per-FILE size cap at the route is the only
+        # bound, asserted separately below via the empty-upload refusal)
+        slug = 'workattach-nocap'
         wid = self._org_with_item(slug)
         client = TestClient(app)
-        for i in range(ledger.Org.WORK_ATTACHMENTS_MAX):
+        for i in range(25):
             r = self._attach(client, slug, wid, f'f{i}.txt', b'x')
-            self.assertEqual(r.status_code, 200,
-                             f'upload {i} must succeed before the cap: {r.text}')
-        over = self._attach(client, slug, wid, 'over.txt', b'x')
-        self.assertEqual(over.status_code, 422, over.text)
-        self.assertIn('cap', over.json()['detail'])
-        # the refused upload's bytes must not linger unlisted on disk
-        self.assertFalse((data / 'work-attachments' / slug / wid / 'over.txt').exists())
+            self.assertEqual(r.status_code, 200, f'upload {i}: {r.text}')
+        got = client.get(f'/api/orgs/{slug}/work-items/{wid}', headers=HEADERS)
+        self.assertEqual(len(got.json()['item']['attachments']), 25)
 
     def test_item_delete_sweeps_its_attachment_dir(self):
         slug = 'workattach-sweep'
