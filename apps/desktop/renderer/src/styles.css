@@ -5756,12 +5756,9 @@ label.set-row { cursor: pointer; }
    pinned to the window and dragged around, like pinned agent windows."
    The DOM is unchanged by pinning — same `.overlay`, same `.settings` panel,
    same children — so everything below is a re-dressing of two boxes that were
-   already there. Window px, not viewport px: `.overlay` is `fixed; inset: 0`,
-   so an absolutely positioned panel inside it is already in window
-   coordinates. z-index comes from modalZIndex() inline, band 21–29: ABOVE the
-   centred overlays (20) so a pinned panel stays usable while another surface
-   opens over it, below the disk browser (55), the picker (60), the lightbox
-   (95) and toasts (100). */
+   already there. Pinned panels use the measured canvas padding box and the
+   shared desk stacking band (10..16). Canvas controls are above pins at 17;
+   centred overlays, pickers and toasts keep their existing higher layers. */
 .overlay.overlay-pinned {
   /* not a modal any more: no dimming, and every click falls through to what
      is behind it. The panel takes its own pointer events back below. */
@@ -6245,3 +6242,8 @@ html.mobile .popout-button { display: none; }
   margin: 0; padding: 6px 0 6px 14px;
 }
 
+/* Navigation stays reachable over every desk or org modal pin (10..16). */
+.zoomhud, .tray-wrap { z-index: 17; }
+.overlay.overlay-pinned .modalpin-win { min-width: 0; min-height: 0; }
+
+.overlay.overlay-pinned > .pin-snap-preview { pointer-events: none; }

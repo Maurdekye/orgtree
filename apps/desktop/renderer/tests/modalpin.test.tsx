@@ -37,7 +37,7 @@
 //
 // Run:  cd frontend && node tests/run.mjs modalpin
 
-import { flush, inAct, mountView } from './harness'
+import { flush, inAct, mountView as rawMountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
@@ -53,6 +53,30 @@ import { WatchdogPanel } from '../src/canvas/modals'
 import type { Watchdog } from '../src/types'
 import { restoredAgent } from '../src/windowlayout'
 import { CurrentOrg } from '../src/popout'
+import type { ReactNode } from 'react'
+
+// Pin controls now belong only to org surfaces. Give this gesture suite a
+// measured org canvas, and follow the SAME adopted container outside its host.
+async function mountView<T>(node: ReactNode, select: (el: HTMLElement) => T) {
+  const canvases = ['probe', 'a', 'b'].map(org => {
+    const el = document.createElement('div'); el.dataset.pinOrg = org
+    el.style.border = '0px solid transparent'
+    el.getBoundingClientRect = () => ({x:0,y:0,left:0,top:0,width:window.innerWidth,height:window.innerHeight,right:window.innerWidth,bottom:window.innerHeight,toJSON(){}})
+    document.body.appendChild(el); return el
+  })
+  const existing = new Set(document.querySelectorAll('.movable-surface'))
+  const v = await rawMountView(<CurrentOrg.Provider value="probe">{node}</CurrentOrg.Provider>, select)
+  const surfaces = [...document.querySelectorAll<HTMLElement>('.movable-surface')].filter(el => !existing.has(el))
+  const one = v.el.querySelector.bind(v.el), all = v.el.querySelectorAll.bind(v.el)
+  v.el.querySelector = ((q: string) => {
+    for (const el of all<HTMLElement>('.movable-surface')) if (!surfaces.includes(el)) surfaces.push(el)
+    return one(q) ?? surfaces.map(el => el.querySelector(q)).find(Boolean) ?? null
+  }) as typeof v.el.querySelector
+  v.el.querySelectorAll = ((q: string) => [...new Set([...all(q), ...surfaces.flatMap(el => [...el.querySelectorAll(q)])])]) as unknown as typeof v.el.querySelectorAll
+  const unmount = v.unmount
+  v.unmount = async () => {await unmount(); canvases.forEach(el => el.remove())}
+  return v
+}
 
 const noop = () => {}
 const reset = () => { localStorage.clear(); forgetModalPins(); forgetModalOpenCache() }
@@ -126,10 +150,10 @@ const shot = (host: HTMLElement): Shot => {
   }
 }
 function RestartHarness() {
-  const [open, setOpen] = useState(() => readModalOpen(null).some(r => r.kind === 'usage' && isModalPinned('usage')))
-  usePersistedModalOpen('usage', null, open)
+  const [open, setOpen] = useState(() => readModalOpen('probe').some(r => r.kind === 'org-inbox' && isModalPinned('org-inbox')))
+  usePersistedModalOpen('org-inbox', 'probe', open)
   return open
-    ? <PinFrame kind="usage" title="usage limits" panel="settings usage-modal" close={() => setOpen(false)}>
+    ? <PinFrame kind="org-inbox" title="usage limits" panel="settings usage-modal" close={() => setOpen(false)}>
         <button className="child-close" onClick={() => setOpen(false)}>close</button>
       </PinFrame>
     : <button className="open-modal" onClick={() => setOpen(true)}>open</button>
@@ -146,14 +170,14 @@ function OrgSwitchHarness({ initial = 'a' }: { initial?: string }) {
         </PinFrame>
       : <button className="open-modal" onClick={() => setOpen(true)}>open</button>}
   </CurrentOrg.Provider>
-}const frame = (kind = 'usage') => (
+}const frame = (kind = 'org-inbox') => (
   <PinFrame kind={kind} title="usage limits" panel="settings usage-modal"
     close={() => { closes.n += 1 }}>
     <h3>usage limits</h3>
     <Counter />
   </PinFrame>
 )
-const mount = async (kind = 'usage') => {
+const mount = async (kind = 'org-inbox') => {
   closes.n = 0
   return mountView(frame(kind), shot)
 }
@@ -166,53 +190,53 @@ const toggle = async (host: HTMLElement) => {
 test('§1 the store: pin, raise, unpin, the z band, and what garbage reads as', () => {
   reset()
   assert.deepEqual(readModalPins(), {}, 'a fresh browser holds no pinned modals')
-  assert.equal(isModalPinned('usage'), false)
+  assert.equal(isModalPinned('org-inbox'), false)
 
-  pinModal('usage', { x: 10, y: 20, w: 700, h: 400 })
+  pinModal('org-inbox', { x: 10, y: 20, w: 700, h: 400 })
   pinModal('docket', { x: 30, y: 40, w: 500, h: 300 })
-  assert.equal(isModalPinned('usage'), true)
+  assert.equal(isModalPinned('org-inbox'), true)
   assert.equal(isModalPinned('docket'), true)
   // ordinals are 0..n-1 in pin order, newest on top
   assert.deepEqual(
     Object.fromEntries(Object.entries(readModalPins()).map(([k, v]) => [k, v.z])),
-    { usage: 0, docket: 1 })
+    { 'org-inbox': 0, docket: 1 })
 
-  raiseModal('usage')
+  raiseModal('org-inbox')
   assert.deepEqual(
     Object.fromEntries(Object.entries(readModalPins()).map(([k, v]) => [k, v.z])),
-    { usage: 1, docket: 0 }, 'raising renormalises: the raised one is last')
+    { 'org-inbox': 1, docket: 0 }, 'raising renormalises: the raised one is last')
 
   // the band is HARD-clamped — 50 pinned windows must never reach the modal
   // layer (20) from below or climb past the disk browser (55) above
   assert.equal(modalZIndex(0), MODAL_Z_BASE)
   assert.equal(modalZIndex(-5), MODAL_Z_BASE, 'a negative ordinal cannot sink under the band')
   assert.equal(modalZIndex(999), MODAL_Z_TOP)
-  assert.ok(MODAL_Z_BASE > 20 && MODAL_Z_TOP < 55,
-    'the band sits above centred overlays and below the disk browser')
+  assert.ok(MODAL_Z_BASE >= 10 && MODAL_Z_TOP < 17,
+    'the band sits below canvas controls and centred overlays')
 
   // pinning something already pinned is a no-op, not a duplicate or a move
-  pinModal('usage', { x: 999, y: 999, w: 400, h: 400 })
-  assert.equal(readModalPins().usage!.rect.x, 10)
+  pinModal('org-inbox', { x: 999, y: 999, w: 400, h: 400 })
+  assert.equal(readModalPins()['org-inbox']!.rect.x, 10)
 
   // it PERSISTS: drop the cache and it comes back from localStorage
   forgetModalPins()
-  assert.equal(isModalPinned('usage'), true, 'a pinned modal survives a reload')
-  assert.equal(readModalPins().usage!.rect.w, 700)
+  assert.equal(isModalPinned('org-inbox'), true, 'a pinned modal survives a reload')
+  assert.equal(readModalPins()['org-inbox']!.rect.w, 700)
 
-  unpinModal('usage')
+  unpinModal('org-inbox')
   unpinModal('docket')
   assert.deepEqual(readModalPins(), {})
   assert.equal(localStorage.getItem(MODAL_PINS_KEY), null,
     'the last unpin removes the key rather than leaving {}')
 
   // a hand-edited or foreign value reads as NO pins — never as a throw
-  localStorage.setItem(MODAL_PINS_KEY, '{"usage":{"rect":{"x":"left"},"z":0},"ok":')
+  localStorage.setItem(MODAL_PINS_KEY, '{"org-inbox":{"rect":{"x":"left"},"z":0},"ok":')
   forgetModalPins()
   assert.deepEqual(readModalPins(), {})
   localStorage.setItem(MODAL_PINS_KEY,
-    '{"usage":{"rect":{"x":1,"y":2,"w":3,"h":4},"z":0},"bad":{"rect":null,"z":1}}')
+    '{"org-inbox":{"rect":{"x":1,"y":2,"w":3,"h":4},"z":0},"bad":{"rect":null,"z":1}}')
   forgetModalPins()
-  assert.deepEqual(Object.keys(readModalPins()), ['usage'],
+  assert.deepEqual(Object.keys(readModalPins()), ['org-inbox'],
     'a bad entry is dropped; the good ones beside it are kept')
   reset()
 })
@@ -220,36 +244,36 @@ test('§1 the store: pin, raise, unpin, the z band, and what garbage reads as', 
 test('§1d pinned modal open state survives storage reload and is scoped by org', () => {
   reset()
   rememberModalOpen('node-config', 'acme', { agent: 'worker', generation: 2 })
-  rememberModalOpen('usage', null)
+  rememberModalOpen('org-inbox', null)
   assert.deepEqual(readModalOpen('acme'), [
     { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
-    { kind: 'usage', org: null },
+    { kind: 'org-inbox', org: null },
   ])
-  assert.deepEqual(readModalOpen('other'), [{ kind: 'usage', org: null }])
+  assert.deepEqual(readModalOpen('other'), [{ kind: 'org-inbox', org: null }])
   forgetModalOpenCache()
   assert.equal(localStorage.getItem(MODAL_OPEN_KEY)?.includes('node-config'), true)
   assert.deepEqual(readModalOpen('acme'), [
     { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
-    { kind: 'usage', org: null },
+    { kind: 'org-inbox', org: null },
   ])
   forgetModalOpen('node-config', 'acme')
-  assert.deepEqual(readModalOpen('acme'), [{ kind: 'usage', org: null }])
+  assert.deepEqual(readModalOpen('acme'), [{ kind: 'org-inbox', org: null }])
   reset()
 })
 test('§1b the clamp and the size floor are the agent window\'s, not a second set', () => {
   reset()
   // window is 1024×768 in jsdom; a window dragged off the right edge comes back
-  pinModal('usage', { x: 900, y: 700, w: 600, h: 400 })
-  const r = readModalPins().usage!.rect
+  pinModal('org-inbox', { x: 900, y: 700, w: 600, h: 400 })
+  const r = readModalPins()['org-inbox']!.rect
   assert.equal(r.x + r.w <= 1024, true, `x=${r.x} w=${r.w} must fit the window`)
   assert.equal(r.y + r.h <= 768, true, `y=${r.y} h=${r.h} must fit the window`)
-  commitModalRect('usage', { x: 10, y: 10, w: 10, h: 10 })
-  assert.deepEqual(readModalPins().usage!.rect,
+  commitModalRect('org-inbox', { x: 10, y: 10, w: 10, h: 10 })
+  assert.deepEqual(readModalPins()['org-inbox']!.rect,
     { x: 10, y: 10, w: PIN_MIN_W, h: PIN_MIN_H },
     'a window smaller than the shared floor is grown, not accepted')
   // commit for something that is not pinned writes nothing
   commitModalRect('nothing', { x: 1, y: 1, w: 400, h: 400 })
-  assert.deepEqual(Object.keys(readModalPins()), ['usage'])
+  assert.deepEqual(Object.keys(readModalPins()), ['org-inbox'])
   reset()
 })
 
@@ -304,7 +328,7 @@ test('§2b a pinned modal reopens after remount, while close and unpin stay clos
   await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
   await flush()
   assert.equal(v.last().pinned, true)
-  assert.ok(readModalOpen(null).some(r => r.kind === 'usage'))
+  assert.ok(readModalOpen('probe').some(r => r.kind === 'org-inbox'))
 
   await v.unmount()
   forgetModalPins(); forgetModalOpenCache()
@@ -332,7 +356,7 @@ test('§2b a pinned modal reopens after remount, while close and unpin stay clos
   assert.equal(localStorage.getItem(MODAL_OPEN_KEY), null, 'closing the pinned bar clears its open marker')
   await inAct(() => { click(v.el.querySelector('.open-modal')!) })
   await flush()
-  assert.ok(readModalOpen(null).some(r => r.kind === 'usage'), 'normal reopen restores the marker')
+  assert.ok(readModalOpen('probe').some(r => r.kind === 'org-inbox'), 'normal reopen restores the marker')
   await v.unmount()
   forgetModalPins(); forgetModalOpenCache()
   v = await mountView(<RestartHarness />, shot)
@@ -439,7 +463,7 @@ test('§4 Escape and the backdrop close a centred modal, never a pinned window',
   await inAct(() => { click(v.el.querySelector('.modalpin-x')!) })
   assert.equal(v.last().closes, 3)
   // ...and closing does NOT unpin: the window remembers where it was put
-  assert.equal(isModalPinned('usage'), true)
+  assert.equal(isModalPinned('org-inbox'), true)
   await v.unmount()
   reset()
 })
@@ -461,26 +485,26 @@ test('§5 dragging the title bar moves the window, and commits ONCE', async () =
   const v = await mount()
   await toggle(v.el)
   const bar = v.el.querySelector('.modalpin-bar')!
-  const start = readModalPins().usage!.rect
+  const start = readModalPins()['org-inbox']!.rect
 
   await inAct(() => { bar.dispatchEvent(pointer('pointerdown', 300, 300)) })
   await inAct(() => { bar.dispatchEvent(pointer('pointermove', 380, 350)) })
-  assert.equal(readModalPins().usage!.rect.x, start.x,
+  assert.equal(readModalPins()['org-inbox']!.rect.x, start.x,
     'nothing is written to storage mid-gesture — one commit per gesture')
   assert.equal(v.last().rect!.left, `${start.x + 80}px`,
     'but the window follows the pointer live, 1:1, with no zoom to divide out')
   await inAct(() => { bar.dispatchEvent(pointer('pointerup', 380, 350)) })
   await flush()
-  assert.deepEqual(readModalPins().usage!.rect,
+  assert.deepEqual(readModalPins()['org-inbox']!.rect,
     { ...start, x: start.x + 80, y: start.y + 50 }, 'and commits at pointer-up')
 
   // a CLICK on the bar (no movement past the 3px threshold) is not a move
-  const held = readModalPins().usage!.rect
+  const held = readModalPins()['org-inbox']!.rect
   await inAct(() => { bar.dispatchEvent(pointer('pointerdown', 100, 100)) })
   await inAct(() => { bar.dispatchEvent(pointer('pointermove', 101, 101)) })
   await inAct(() => { bar.dispatchEvent(pointer('pointerup', 101, 101)) })
   await flush()
-  assert.deepEqual(readModalPins().usage!.rect, held,
+  assert.deepEqual(readModalPins()['org-inbox']!.rect, held,
     'a click on the title bar raises; it never repositions the window')
 
   // Escape CANCELS a drag instead of closing anything
@@ -488,7 +512,7 @@ test('§5 dragging the title bar moves the window, and commits ONCE', async () =
   await inAct(() => { bar.dispatchEvent(pointer('pointermove', 260, 240)) })
   await inAct(() => { key('Escape') })
   await flush()
-  assert.deepEqual(readModalPins().usage!.rect, held, 'the cancelled drag wrote nothing')
+  assert.deepEqual(readModalPins()['org-inbox']!.rect, held, 'the cancelled drag wrote nothing')
   assert.equal(v.last().rect!.left, `${held.x}px`, 'and the window snapped back')
   assert.equal(v.last().closes, 0, 'the Escape that cancelled a drag closed nothing')
   restore()
@@ -501,14 +525,14 @@ test('§5b resizing from the west edge pins the east one', async () => {
   const restore = stubPointerCapture()
   const v = await mount()
   await toggle(v.el)
-  const r0 = readModalPins().usage!.rect
+  const r0 = readModalPins()['org-inbox']!.rect
   const w = v.el.querySelector('.modalpin-rs.w')!
   // drag the west edge far past the minimum width: the east edge must not move
   await inAct(() => { w.dispatchEvent(pointer('pointerdown', 100, 400)) })
   await inAct(() => { w.dispatchEvent(pointer('pointermove', 900, 400)) })
   await inAct(() => { w.dispatchEvent(pointer('pointerup', 900, 400)) })
   await flush()
-  const r1 = readModalPins().usage!.rect
+  const r1 = readModalPins()['org-inbox']!.rect
   assert.equal(r1.w, PIN_MIN_W, 'the floor holds')
   assert.equal(r1.x + r1.w, r0.x + r0.w,
     'and the window did not walk east across the screen while shrinking')
@@ -520,18 +544,18 @@ test('§5b resizing from the west edge pins the east one', async () => {
 // ==================================================== §6 living beside others
 test('§6 two pinned surfaces coexist, and raising one puts it on top', async () => {
   reset()
-  const a = await mountView(frame('usage'), shot)
+  const a = await mountView(frame('org-inbox'), shot)
   const b = await mountView(frame('docket'), shot)
   await inAct(() => { click(a.el.querySelector('.modalpin-btn')!) })
   await inAct(() => { click(b.el.querySelector('.modalpin-btn')!) })
   await flush()
   assert.equal(a.last().pinned && b.last().pinned, true)
   assert.equal(a.last().z, String(MODAL_Z_BASE))
-  assert.equal(b.last().z, String(MODAL_Z_BASE + 1), 'the newer window is on top')
+  assert.equal(b.last().z, String(MODAL_Z_BASE + 3), 'the newer window is on top')
   // a pointerdown anywhere in the older window raises it
   await inAct(() => { a.last().panel!.dispatchEvent(pointer('pointerdown', 90, 90)) })
   await flush()
-  assert.equal(a.last().z, String(MODAL_Z_BASE + 1))
+  assert.equal(a.last().z, String(MODAL_Z_BASE + 3))
   assert.equal(b.last().z, String(MODAL_Z_BASE), 'and the other one drops back')
   await a.unmount(); await b.unmount()
   reset()
@@ -595,10 +619,10 @@ test('§7 two readers open at once are two windows, not one', async () => {
     'the docket reader did not move when the canvas reader did')
 
   // independent stacking: raising one puts it above the other, both ways
-  assert.equal(b.last().z, String(MODAL_Z_BASE + 1), 'the newer one starts on top')
+  assert.equal(b.last().z, String(MODAL_Z_BASE + 3), 'the newer one starts on top')
   await inAct(() => { a.last().panel!.dispatchEvent(pointer('pointerdown', 90, 90)) })
   await flush()
-  assert.equal(a.last().z, String(MODAL_Z_BASE + 1), 'and the older one can be raised')
+  assert.equal(a.last().z, String(MODAL_Z_BASE + 3), 'and the older one can be raised')
   assert.equal(b.last().z, String(MODAL_Z_BASE))
 
   // independent persistence: closing one leaves the other's window on record

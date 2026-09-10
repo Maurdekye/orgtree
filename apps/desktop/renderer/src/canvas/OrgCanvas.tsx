@@ -1,3 +1,4 @@
+import { usePinSurfaces } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
@@ -583,6 +584,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   // sheet is the phone's window, and startNodeDrag bails on isMobile for
   // reasons (no hover, no cheap escape under a finger) that apply here too.
   const pins = usePins(slug)
+  const modalSurfaces = usePinSurfaces()
   const pinnedIds = useMemo(() => new Set(isMobile ? [] : pins.map((p) => p.id)), [pins])
 
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -1210,7 +1212,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   // camera back to the focused agent mid-drag. Reading the latest pins through
   // a ref keeps the identities stable while still using current geometry.
   const pinRectsRef = useRef<PinRect[]>([])
-  pinRectsRef.current = isMobile ? [] : pins.map((p) => p.rect)
+  pinRectsRef.current = isMobile ? [] : [...pins.map((p) => p.rect), ...modalSurfaces.filter(p => p.org === slug && p.modal).map(p => p.rect)]
   // same reason as the rects above: `centerOn` is built with a stable identity
   // and must not be rebuilt every time a pin moves
   const pinnedIdsRef = useRef<Set<string>>(new Set())
@@ -2334,7 +2336,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
       // while the org's own API key is the lane being billed. Whole-canvas,
       // because the fact is org-wide — the per-agent red below says which
       // turns are actually spending it.
-      + (fallbackActive(tree) ? ' onfallback' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} ref={viewportRef}
+      + (fallbackActive(tree) ? ' onfallback' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one

@@ -1,4 +1,5 @@
-import { SetRow, SetToggle } from './settingskit'
+import { useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, useDeskOverlap } from './pinspace'
+import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
@@ -18,30 +19,9 @@ import { detachedKind } from '../windowlife'
 // would remount them and lose all of that — it would look identical in a
 // screenshot and be wrong.
 //
-// TWO SPACES, AGAIN (see pins.tsx's header for the agent-window pair). Agent
-// windows live in VIEWPORT px, as children of `.viewport`, because they detach
-// from a canvas that pans and zooms under them. A pinned modal lives in WINDOW
-// px: `.overlay` is `position: fixed; inset: 0`, so an absolutely positioned
-// child of it is already in window coordinates and nothing has to convert.
-// That is also literally what the user asked for — "pinned to the window".
-//
-// STACKING. Centred modals are z-index 20. A pinned modal must stay usable
-// while another surface opens over it (Astra 2026-09-06), so pinned windows
-// take a band ABOVE them, 21–29, hard-clamped exactly like the agent band. The
-// disk browser (55), the folder picker (60), the lightbox (95) and toasts
-// (100) stay on top of everything, unchanged.
-//
-// What persists (localStorage `orgtree-modal-pins`): a map of kind → {rect,z}.
-// A kind IS the pin — present means pinned, absent means centred — so the
-// pinned state survives closing and reopening the surface, the way an agent's
-// pinned window survives a reload. Geometry is NOT per-org: `usage` and
-// `settings` are the same window whatever org is loaded, and the per-org
-// surfaces (docket, gallery, inboxes) are one-at-a-time by construction.
-//
-// NOT DONE HERE, deliberately: edge/peer snapping (pinSnap.tsx is written
-// against a set of sibling agent rects and a viewport, and a modal window has
-// no peers to align to), and the minimise ghost (a modal has no card to fly
-// home to — unpinning re-centres it in place instead).
+// Org modal pins share viewport coordinates, snapping and stacking with desks.
+// The overlay remains mounted and uses a measured canvas-sized fixed box, so
+// the stable surface container is adopted without remounting the panel or losing drafts.
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -58,8 +38,7 @@ import { useEsc } from './shared'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 
-/** one pinned modal window. Same shape as an agent pin minus the snap, which
- *  needs peers this window does not have. */
+/** One org modal pin; geometry persists independently from transient shared stacking. */
 export interface ModalPin {
   /** window px */
   rect: PinRect
@@ -67,9 +46,9 @@ export interface ModalPin {
   z: number
 }
 
-/** the band, above the centred overlays (20) and below the disk browser (55) */
-export const MODAL_Z_BASE = 21
-export const MODAL_Z_TOP = 29
+/** Shared desk band, below canvas controls (17) and centred overlays (20). */
+export const MODAL_Z_BASE = 10
+export const MODAL_Z_TOP = 16
 export const modalZIndex = (z: number): number =>
   Math.min(MODAL_Z_TOP, MODAL_Z_BASE + Math.max(0, z))
 
@@ -82,54 +61,8 @@ export const MODAL_PINS_KEY = 'orgtree-modal-pins'
 export const MODAL_OPEN_KEY = 'orgtree-modal-open'
 export interface ModalOpenState { kind: string; org: string | null; restore?: WindowRestore }
 
-export const MODAL_OVERLAP_KEY = 'orgtree-modal-overlap-fade'
-export interface ModalOverlapSetting { enabled: boolean; opacity: number }
-const DEFAULT_OVERLAP: ModalOverlapSetting = { enabled: true, opacity: 0.7 }
-let overlapCache: ModalOverlapSetting | null = null
-const overlapSubs = new Set<() => void>()
-const readOverlap = (): ModalOverlapSetting => {
-  if (overlapCache) return overlapCache
-  try {
-    const parsed = JSON.parse(localStorage.getItem(MODAL_OVERLAP_KEY) || 'null') as Partial<ModalOverlapSetting> | null
-    if (parsed && typeof parsed.enabled === 'boolean' && typeof parsed.opacity === 'number' && Number.isFinite(parsed.opacity)) {
-      overlapCache = { enabled: parsed.enabled, opacity: Math.min(0.9, Math.max(0.2, parsed.opacity)) }
-      return overlapCache
-    }
-  } catch { /* private mode or malformed preference */ }
-  overlapCache = DEFAULT_OVERLAP
-  return overlapCache
-}
-const writeOverlap = (next: ModalOverlapSetting): void => {
-  overlapCache = next
-  try { localStorage.setItem(MODAL_OVERLAP_KEY, JSON.stringify(next)) } catch { /* private mode */ }
-  for (const fn of [...overlapSubs]) fn()
-}
-const subscribeOverlap = (fn: () => void): (() => void) => {
-  overlapSubs.add(fn)
-  const onStorage = (e: StorageEvent) => { if (e.key === null || e.key === MODAL_OVERLAP_KEY) { overlapCache = null; fn() } }
-  window.addEventListener('storage', onStorage)
-  return () => { overlapSubs.delete(fn); window.removeEventListener('storage', onStorage) }
-}
-export const useModalOverlap = (): ModalOverlapSetting =>
-  useSyncExternalStore(subscribeOverlap, readOverlap, () => DEFAULT_OVERLAP)
-export const setModalOverlap = (setting: ModalOverlapSetting): void =>
-  writeOverlap({ enabled: setting.enabled, opacity: Number.isFinite(setting.opacity) ? Math.min(0.9, Math.max(0.2, setting.opacity)) : DEFAULT_OVERLAP.opacity })
-
-/** Browser-local controls for the overlap treatment of pinned modal windows. */
-export function ModalOverlapSettings() {
-  const setting = useModalOverlap()
-  return <>
-    <SetToggle label="fade pinned modals over the focused desk" checked={setting.enabled}
-      onChange={enabled => setModalOverlap({ ...setting, enabled })} />
-    <SetRow label="overlap opacity">
-      <input aria-label="Overlap opacity" type="range" min="0.2" max="0.9" step="0.05" value={setting.opacity}
-        disabled={!setting.enabled}
-        onChange={e => setModalOverlap({ ...setting, opacity: Number(e.target.value) })} />
-      <span className="set-value">{Math.round(setting.opacity * 100)}%</span>
-    </SetRow>
-  </>
-}
-
+export { MODAL_OVERLAP_KEY, useModalOverlap, setModalOverlap, ModalOverlapSettings } from './pinoverlap'
+import { useModalOverlap } from './pinoverlap'
 /** where a window goes when the panel behind it could not be measured — jsdom
  *  reports every box as 0×0, and so does a panel pinned before first paint.
  *  Clamped like any other rect, so a small window still gets a legal box. */
@@ -454,8 +387,10 @@ export interface PinFrameProps {
  */
 export function PinFrame(props: PinFrameProps) {
   const org = useCurrentOrg()
+  const pin = useModalPin(props.kind)
   const scope = ['usage', 'defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
-  return <MovableSurface key={scope} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
+  if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} />
+  return <MovableSurface key={scope} anchor={pin ? document.body : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,
@@ -465,11 +400,12 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const ownerDocument = useSurfaceDocument()
   const ownerWindow = ownerDocument.defaultView ?? window
   const detached = !!surface?.detached
-  const pinned = pin !== null && !detached
+  const pinned = pinnable && orgScope !== null && pin !== null && !detached
   const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
-  const [overlapsDesk, setOverlapsDesk] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
+  const bounds = useCanvasBox(ownerDocument, orgScope)
+  const overlapsDesk = useDeskOverlap(panelRef, pinned && overlapSetting.enabled)
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always
   // called — hooks are not conditional — and is handed a no-op when pinned.
   const esc = onEsc ?? close
@@ -478,6 +414,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   // the in-flight gesture's rect lives in component state (one render per
   // pointer move); the store is written ONCE, at pointer-up
   const [live, setLive] = useState<PinRect | null>(null)
+  const [freePlacement, setFreePlacement] = useState(false)
   const gesture = useRef<Gesture | null>(null)
   // a window resize can strand a pinned window with no gesture to follow it,
   // so clamping happens at render time against the CURRENT window — and this
@@ -497,31 +434,21 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setFreePlacement(e.type === 'keydown')
       if (e.key === 'Escape' && gesture.current) {
         // a cancelled drag must not also close the surface behind it
         e.preventDefault(); e.stopPropagation(); cancel()
       }
     }
     ownerWindow.addEventListener('keydown', onKey, true)
-    return () => ownerWindow.removeEventListener('keydown', onKey, true)
+    ownerWindow.addEventListener('keyup', onKey, true)
+    return () => { ownerWindow.removeEventListener('keydown', onKey, true); ownerWindow.removeEventListener('keyup', onKey, true) }
   }, [ownerWindow])
 
-  const rect = pin && !detached ? clampRect(live ?? pin.rect, winSize()) : null
-
-  useEffect(() => {
-    if (!pinned || detached || !overlapSetting.enabled) { setOverlapsDesk(false); return }
-    const check = () => {
-      const desk = ownerDocument.querySelector<HTMLElement>('.sq.desk')
-      const modal = panelRef.current
-      if (!desk || !modal) { setOverlapsDesk(false); return }
-      const a = desk.getBoundingClientRect(), b = modal.getBoundingClientRect()
-      setOverlapsDesk(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)
-    }
-    check()
-    const timer = ownerWindow.setInterval(check, 120)
-    ownerWindow.addEventListener('resize', check)
-    return () => { ownerWindow.clearInterval(timer); ownerWindow.removeEventListener('resize', check) }
-  }, [detached, ownerDocument, ownerWindow, pinned, overlapSetting.enabled])
+  const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds) : null
+  const layout = usePinSurface(orgScope, kind, rect, true)
+  const candidate = (r: PinRect, disabled: boolean) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds),
+    readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds)
 
   const begin = (e: ReactPointerEvent<HTMLElement>, g: GestureShape) => {
     if (e.button !== 0 || gesture.current || !rect) return
@@ -529,7 +456,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     e.preventDefault()           // no text-selection drag from the chrome
     gesture.current = { ...g, pointerId: e.pointerId, moved: false, capture: e.currentTarget }
     e.currentTarget.setPointerCapture(e.pointerId)
-    raiseModal(kind)
+    raiseModal(kind); raisePinSurface(layout.key)
   }
   const gestureRect = (g: Gesture, e: ReactPointerEvent<HTMLElement>): PinRect => {
     // window px: a drag is 1:1 with the pointer, with no zoom to divide out —
@@ -562,6 +489,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     if (!g || e.pointerId !== g.pointerId) return
     g.moved ||= Math.hypot(e.clientX - g.sx, e.clientY - g.sy) >= 3
     if (!g.moved) return
+    setFreePlacement(e.shiftKey)
     setLive(gestureRect(g, e))
   }
   const end = (e: ReactPointerEvent<HTMLElement>) => {
@@ -573,7 +501,11 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     setLive(null)
     // a title-bar click that did not move raises and nothing else — it never
     // repositions and never dismisses
-    if (moved) commitModalRect(kind, gestureRect(g, e))
+    if (moved) {
+      const final = clampRect(gestureRect(g, e), bounds)
+      const snap = g.kind === 'move' ? candidate(final, e.shiftKey) : null
+      commitModalRect(kind, snap?.rect ?? final)
+    }
   }
 
   const toggle = () => {
@@ -581,7 +513,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
       unpinModal(kind)
       forgetModalOpen(kind, orgScope)
     } else {
-      pinModal(kind, measureRect(panelRef.current))
+      const measured = measureRect(panelRef.current)
+      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds))
       rememberModalOpen(kind, orgScope, restore)
     }
   }
@@ -593,7 +526,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const menu = useContextMenu()
   const barMenu = (): MenuEntry[] => {
     const entries: MenuEntry[] = []
-    if (surface && !isMobile) {
+    if (pinnable && orgScope && surface && !isMobile) {
       entries.push(surface.detached
         ? { label: 'Return to main window', onSelect: () => surface.redock() }
         : { label: 'Open in new window', onSelect: () => surface.open() })
@@ -611,10 +544,12 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const style: CSSProperties | undefined = rect
     ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h }
     : undefined
+  const preview = live && rect && gesture.current?.kind === 'move' ? candidate(rect, freePlacement) : null
   return (
     <div className={(inPlace ? 'surface-inline' : 'overlay') + (overlayClass ? ' ' + overlayClass : '')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
-      style={pin && !detached ? { zIndex: modalZIndex(pin.z) } : undefined}
+      style={pinned && bounds ? { zIndex: layout.z, inset:'auto', left:bounds.x, top:bounds.y,
+        width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}
       onClick={inPlace || pinned || detached || !backdropClose ? undefined
         : (e) => { e.stopPropagation(); closeSurface() }}
       onPointerDown={(e) => e.stopPropagation()}>
@@ -625,7 +560,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
-        onPointerDown={pinned ? () => raiseModal(kind) : undefined}>
+        onPointerDown={pinned ? () => {raiseModal(kind); raisePinSurface(layout.key)} : undefined}>
         <div className={'modalpin-bar' + (pinned ? ' on' : '')}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'
@@ -650,7 +585,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
               {title}</span>
           </>}
           <span className="spacer" />
-          <PopoutButton />
+          {pinnable && orgScope && <PopoutButton />}
           {pinnable && <button type="button" className="modalpin-btn" disabled={detached}
             title={pinned
               ? 'unpin — put this back in the middle of the screen'
@@ -675,6 +610,9 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
       </div>
       {/* Outside the scrolling panel: all handles stay at the visible frame
           even when the content scrolls. The content keeps its mounted place. */}
+      {preview && <div className="pin-snap-preview" role="status" style={{left:preview.rect.x, top:preview.rect.y, width:preview.rect.w, height:preview.rect.h}}>
+        <span>{preview.snap.target === null ? preview.label : 'Snap beside pinned window'} · Shift for free placement</span>
+      </div>}
       {pinned && <div className="modalpin-resize-frame" style={style}>
         {EDGES.map((edge) => (
           <div key={edge} className={'modalpin-rs ' + edge}

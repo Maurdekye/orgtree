@@ -41,8 +41,34 @@ import {
 } from '../src/canvas/pins'
 import type { PinRect } from '../src/canvas/pins'
 import type { TreePayload } from '../src/types'
+import { setModalOverlap } from '../src/canvas/pinoverlap'
 
 const noop = () => {}
+
+uiTest('pinned desks share the optional overlap fading treatment', async ({mount}) => {
+  const rig = await mountCanvas(mount,['worker'])
+  await inAct(()=>addPin('mine','worker',{x:10,y:10,w:400,h:400}))
+  const panel=pinWin(rig.el,'worker')!
+  assert.ok(panel)
+  const desk=document.createElement('div'); desk.className='sq desk'; desk.innerHTML='<div class="desk-over"></div>'
+  document.body.appendChild(desk)
+  let visible=true
+  const rect=(left:number)=>({x:left,y:0,left,top:0,right:left+400,bottom:400,width:400,height:400,toJSON(){}})
+  panel.getBoundingClientRect=()=>rect(10)
+  desk.getBoundingClientRect=()=>rect(visible?0:1000)
+  try {
+    await inAct(()=>setModalOverlap({enabled:false,opacity:0.7}))
+    await settle(150)
+    assert.equal(panel.style.opacity,'')
+    await inAct(()=>setModalOverlap({enabled:true,opacity:0.7}))
+    await settle(150)
+    assert.equal(panel.style.opacity,'0.7','enabled overlap fades the actual pinned desk')
+    visible=false; await settle(150)
+    assert.equal(panel.style.opacity,'','moving apart restores opacity')
+    visible=true; desk.innerHTML=''; await settle(150)
+    assert.equal(panel.style.opacity,'','an unexpanded placeholder cannot trigger fading')
+  } finally {desk.remove(); await inAct(()=>setModalOverlap({enabled:false,opacity:0.7}))}
+})
 
 // ------------------------------------------------------------------ fixture
 const asTree = (v: unknown) => v as TreePayload

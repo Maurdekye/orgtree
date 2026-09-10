@@ -1414,6 +1414,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                          [slug], 15000, `${workBump}`)
   const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
     [work, node.id, showArchivedDocket])
+  const docketCount = useMemo(() => agentItems(work, node.id, true)?.filter(item =>
+    !['done', 'dropped', 'superseded'].includes(item.status) && !item.superseded_by).length ?? 0,
+    [work, node.id])
+  const tabCount = (tab: string) => tab === 'inbox' ? chat?.mail_pending ?? 0
+    : tab === 'docket' ? docketCount
+      : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
   // the identity facts the docket rows read (which model an owner ran under,
   // whether that seat is still live) — the same shape the Work panel builds,
   // from the canvas map this desk already holds rather than a second fetch
@@ -2002,13 +2008,13 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             {!live && <button onClick={() => op({ op: 'rehire', node: node.id })}>rehire</button>}
           </span>
           <span className="cc-tabs">
-            {(['chat', 'history', 'files', 'inbox', 'docket', 'presented'] as const).map((v) => (
-              <button key={v} className={view === v ? 'on' : ''}
+            {(['chat', 'inbox', 'docket', 'presented', 'history', 'files'] as const).map((v) => (
+              <button key={v} data-tab={v} className={view === v ? 'on' : ''}
                 onClick={() => setView(v)}>
-                {v}{v === 'inbox' && (chat?.mail_pending ?? 0) > 0
+                {v}{tabCount(v) > 0
                   ? <>{' '}<span className={'tab-count prov-'
                       + providerOf(node.tier ?? '')}>
-                      {chat!.mail_pending}</span></>
+                      {tabCount(v)}</span></>
                   : ''}
               </button>
             ))}
@@ -2039,17 +2045,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         {node.last_status && !bannerDuplicatesStatus &&
           <span className={'statuschip ' + node.last_status.status}
             title={node.last_status.summary}>{isUsageFrozen(node) ? 'Reported ' : ''}{stateLabel(node.last_status.status)}</span>}
-        {/* the collapsed count of what this agent is answerable for; click →
-            the tab that lists it. It counts EXACTLY the rows the tab shows
-            (both read `agentItems`), because a chip that disagrees with the
-            list it opens is worse than no chip at all. */}
-        <button className="progress-chip"
-          title={myWork === null ? 'loading the docket…'
-            : `${myWork.length} docket item(s) assigned to ${node.id}, or `
-              + `naming it as reviewer`}
-          onClick={() => setView('docket')}>
-          docket {myWork === null ? '…' : myWork.length}
-        </button>
         {node.frozen &&
           <span className="badge frozen" title={node.frozen.error ?? undefined}>
             <FrozenIcon fontSize="inherit" />{' '}

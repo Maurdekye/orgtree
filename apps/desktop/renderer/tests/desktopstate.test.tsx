@@ -10,6 +10,7 @@ import { captureWindow, closeSavedWindow, popupFeatures, restoredAgent, savedDes
 import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { TreePayload } from '../src/types'
 import { forgetModalPins, ModalOverlapSettings, MODAL_OVERLAP_KEY, PinFrame, pinModal, setModalOverlap } from '../src/canvas/modalpin'
+import { CurrentOrg } from '../src/popout'
 
 function native(value?: Partial<NativeDesktop>) {
   Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
@@ -168,7 +169,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
 test('pinned modal fades only over the focused desk; toggle, amount and non-overlap change real style', async () => {
   localStorage.clear(); forgetModalPins(); setModalOverlap({ enabled: true, opacity: 0.7 })
   pinModal('fade-fixture', { x: 50, y: 50, w: 500, h: 400 })
-  const desk = document.createElement('div'); desk.className = 'sq desk'; document.body.appendChild(desk)
+  const desk = document.createElement('div'); desk.className = 'sq desk'; desk.innerHTML = '<div class="desk-over"></div>'; document.body.appendChild(desk)
   const original = window.HTMLElement.prototype.getBoundingClientRect
   let overlap = true
   window.HTMLElement.prototype.getBoundingClientRect = function () {
@@ -176,7 +177,7 @@ test('pinned modal fades only over the focused desk; toggle, amount and non-over
     if (this.classList.contains('fade-fixture')) return { left: overlap ? 50 : 500, top: 50, right: overlap ? 550 : 1000, bottom: 450, width: 500, height: 400, x: 50, y: 50, toJSON() {} }
     return original.call(this)
   }
-  const v = await mountView(<><ModalOverlapSettings /><PinFrame kind="fade-fixture" title="Fixture" panel="settings fade-fixture" close={() => {}}>Readable content</PinFrame></>, el => el)
+  const v = await mountView(<CurrentOrg.Provider value="org"><ModalOverlapSettings /><PinFrame kind="fade-fixture" title="Fixture" panel="settings fade-fixture" close={() => {}}>Readable content</PinFrame></CurrentOrg.Provider>, el => el)
   try {
     await inAct(async () => { await flush(5) })
     const panel = document.querySelector<HTMLElement>('.fade-fixture')!

@@ -563,15 +563,15 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
-  const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.textContent)
-  assert.deepEqual(tabs, ['chat', 'history', 'files', 'inbox', 'docket', 'presented'])
+  const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab'))
+  assert.deepEqual(tabs, ['chat', 'inbox', 'docket', 'presented', 'history', 'files'])
   assert.equal(Boolean(view.el.querySelector('.docket-agent')), false,
     'the panel must not be open on the chat tab')
   // the header chip: it counts the assignment, and it is a way in
-  const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')
-  assert.ok(chip, 'no docket chip in the metadata row')
+  const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
+  assert.ok(chip, 'docket tab with its count is present')
   assert.equal(chip!.textContent, 'docket 2')
-  assert.match(chip!.getAttribute('title') ?? '', /assigned to agent/)
+  assert.equal(view.el.querySelector('.cc-head-meta .progress-chip'), null, 'redundant header chip is absent')
   const { act } = await import('react')
   await act(async () => { chip!.click() })
   const panel = view.el.querySelector('.docket-agent')
@@ -598,7 +598,7 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
   const chatTab = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')].find((b) => b.textContent === 'chat')!
   await act(async () => { chatTab.click() })
   assert.equal(Boolean(view.el.querySelector('.docket-agent')), false)
-  const docketTab = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')].find((b) => b.textContent === 'docket')!
+  const docketTab = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')].find((b) => b.getAttribute('data-tab') === 'docket')!
   await act(async () => { docketTab.click() })
   assert.ok(view.el.querySelector('.docket-agent'))
 })
@@ -626,8 +626,8 @@ test('§4b DeskChat: the tab is what the agent is ANSWERABLE for — reviews inc
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
-  const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')
-  assert.ok(chip, 'no docket chip in the metadata row')
+  const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
+  assert.ok(chip, 'docket tab with its count is present')
   assert.equal(chip!.textContent, 'docket 2', 'a review it was named to is its work too')
   const { act } = await import('react')
   await act(async () => { chip!.click() })
@@ -645,7 +645,7 @@ test('§4b DeskChat: the tab is what the agent is ANSWERABLE for — reviews inc
   await flush()
   assert.match(view.el.querySelector('.docket-agent')?.textContent ?? '',
     /no docket items are assigned to agent/)
-  assert.equal(view.el.querySelector('.cc-head-meta .progress-chip')?.textContent, 'docket 0')
+  assert.equal(view.el.querySelector('.cc-tabs [data-tab=docket]')?.textContent, 'docket')
 })
 
 // ------------------------------------------------ §5 references in the card
@@ -774,7 +774,7 @@ test('§5c the REAL desk hands its docket card a reference world', async (t) => 
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const { act } = await import('react')
-  const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')
+  const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
   assert.ok(chip, 'positive control: the docket chip is there to click')
   await act(async () => { chip!.click() })
   assert.ok(view.el.querySelector('.docket-agent'), 'the docket tab opened')
@@ -838,7 +838,7 @@ test('§5d the docket tab reaches the DESK\'S OWN doc, mail and agent handlers',
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const { act } = await import('react')
-  const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')
+  const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
   assert.ok(chip, 'positive control: the docket chip is there to click')
   await act(async () => { chip!.click() })
   const rows = [...view.el.querySelectorAll<HTMLElement>('.docket-agent .mailrow.docket-row')]
@@ -904,7 +904,7 @@ test('§5d CONTROL: a desk with no doc or mail route renders those same '
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const { act } = await import('react')
-  const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')
+  const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
   await act(async () => { chip!.click() })
   const rows = [...view.el.querySelectorAll<HTMLElement>('.docket-agent .mailrow.docket-row')]
   const refs = rows.find((r) => r.querySelector('.l1 .mfrom')?.textContent === 'desk-refs')!
@@ -939,7 +939,7 @@ test('agent docket hides archived rows/count by default and reveals then hides s
     t.after(async () => { await view.unmount(); resetConvos(); realClock() })
     await flush()
     const { act } = await import('react')
-    const chip = view.el.querySelector<HTMLButtonElement>('.cc-head-meta .progress-chip')!
+    const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')!
     assert.equal(chip.textContent?.trim(), 'docket 1')
     await act(async () => { chip.click() })
     assert.equal(view.el.querySelectorAll('.docket-agent .docket-row').length, 1)
@@ -949,7 +949,7 @@ test('agent docket hides archived rows/count by default and reveals then hides s
       view.el.querySelector<HTMLInputElement>('.docket-agent .docket-showarchived input')!.click()
     })
     assert.equal(view.el.querySelectorAll('.docket-agent .docket-row').length, 2)
-    assert.match(view.el.querySelector('.cc-head-meta .progress-chip')?.textContent ?? '', /docket 2/)
+    assert.match(view.el.querySelector('.cc-tabs [data-tab=docket]')?.textContent ?? '', /docket 1/, 'terminal archived work does not inflate the tab count')
     const archived = [...view.el.querySelectorAll<HTMLElement>('.docket-agent .docket-row')]
       .find((r) => r.getAttribute('data-slug') === 'agent-archived')
       ?? [...view.el.querySelectorAll<HTMLElement>('.docket-agent .docket-row')][1]
@@ -985,12 +985,13 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   await flush()
   const { act } = await import('react')
   const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.textContent)
-  assert.ok(tabs.includes('presented'), 'desk is missing Presented tab')
+  assert.ok(tabs.some(t => t?.startsWith('presented')), 'desk is missing Presented tab')
   assert.equal(view.el.querySelector('.presented-control'), null,
     'the numbered Presented header control must not duplicate the tab')
   const control = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
-    .find((b) => b.textContent === 'presented')
-  assert.ok(control, 'desk lacks the retained unnumbered Presented tab')
+    .find((b) => b.getAttribute('data-tab') === 'presented')
+  assert.ok(control, 'desk lacks the Presented tab')
+  assert.equal(control!.querySelector('.tab-count')?.textContent, '2', 'the tab shows the total presentations')
   await act(async () => { control!.click() })
   assert.ok(view.el.querySelector('.desk-presented'))
   assert.match(view.el.querySelector('.desk-presented')?.textContent ?? '', /Agent report/)
@@ -1015,7 +1016,7 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   await flush()
   await act(async () => {
     const presented = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
-      .find((b) => b.textContent === 'presented')!
+      .find((b) => b.getAttribute('data-tab') === 'presented')!
     presented.click()
   })
   assert.match(view.el.querySelector('.desk-presented')?.textContent ?? '', /No presented documents/)

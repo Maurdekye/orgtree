@@ -49,6 +49,8 @@ import { AgentName } from './identity'
 import { providerOf, TIER_LETTER } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
 import type { ToastFn } from '../types'
+import { usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap } from './pinspace'
+import { useModalOverlap } from './pinoverlap'
 import { findPinSnap, validPinSnap } from './pinSnap'
 import type { PinSnap } from './pinSnap'
 
@@ -212,6 +214,7 @@ export const removePin = (slug: string, id: string): void => {
 }
 /** bring `id` to the front of the band */
 export const raisePin = (slug: string, id: string): void => {
+  raisePinSurface(pinSurfaceKey(slug, id))
   const pins = readPins(slug)
   if (!pins.length || !pins.some((p) => p.id === id)) return
   const top = pins.reduce((m, p) => (p.z > m.z ? p : m), pins[0]!)
@@ -365,8 +368,10 @@ export function PinLayer(props: PinLayerProps) {
   useEffect(() => {
     const bump = () => setVpTick((n) => n + 1)
     window.addEventListener('resize', bump)
-    return () => window.removeEventListener('resize', bump)
-  }, [])
+    const observer = new ResizeObserver(bump)
+    if (viewportRef.current) observer.observe(viewportRef.current)
+    return () => { window.removeEventListener('resize', bump); observer.disconnect() }
+  }, [viewportRef])
 
   const unpin = useCallback((id: string, from: PinRect) => {
     const plan = planUnpin(targetOf(id), vpSize(viewportRef))
@@ -449,6 +454,10 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   // stored one — clamped against the CURRENT viewport so a shrink can never
   // strand a window (render-time clamp; see PinLayer's resize tick)
   const rect = clampRect(live ?? pin.rect, vp)
+  const layout = usePinSurface(slug, pin.id, rect, false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const overlapSetting = useModalOverlap()
+  const overlapsDesk = useDeskOverlap(panelRef, overlapSetting.enabled)
 
   // THE TITLE-BAR NAME'S GESTURE CONTRACT. The name is a button on a
   // pointer-capturing drag handle, so the two activation paths are separate
@@ -486,7 +495,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     gesture.current = { ...g, pointerId: e.pointerId, moved: false, capture: e.currentTarget }
     setFreePlacement(e.shiftKey)
     e.currentTarget.setPointerCapture(e.pointerId)
-    raisePin(slug, pin.id)
+    raisePin(slug, pin.id); raisePinSurface(layout.key)
   }
   const gestureRect = (g: Gesture, e: ReactPointerEvent<HTMLElement>) => {
     // viewport px: a window drag is 1:1 with the pointer — there is NO `/z`
@@ -511,7 +520,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   const candidate = (r: PinRect, disabled: boolean) => {
     const size = vpSize(viewportRef)
     return disabled ? null : findPinSnap(pin.id, r,
-      readPins(slug).filter((p) => map.has(p.id)).map((p) => ({ id: p.id, rect: clampRect(p.rect, size) })), size)
+      readPinSurfaces().filter(p => p.org === slug).map(p => ({id:pinSnapId(p), rect:clampRect(p.rect,size)})), size)
   }
   const move = (e: ReactPointerEvent<HTMLElement>) => {
     const g = gesture.current
@@ -553,7 +562,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   const state = node.state === 'live' ? '' : node.state
   const style: CSSProperties = {
     left: rect.x, top: rect.y, width: rect.w, height: rect.h,
-    zIndex: zIndexOf(pin.z),
+    zIndex: layout.z,
   }
   return (
     <>
@@ -568,12 +577,12 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     </div>}
     <div className={'pinwin prov-' + providerOf(node.tier ?? '')
         + (state ? ' pin-' + state : '') + (flash ? ' flash' : '') + (live ? ' moving' : '')}
-      style={style} data-id={pin.id} data-z={pin.z}
+      ref={panelRef} style={{...style, opacity:overlapSetting.enabled && overlapsDesk ? overlapSetting.opacity : undefined}} data-id={pin.id} data-z={pin.z}
       /* the WHOLE window is a screen-space surface: a press anywhere inside
          it is never a canvas pan (this is the stopPropagation half of the
          two-list rule in styles.css — `.pinwin` is also in the user-select
          re-enable list there; KEEP THEM IN STEP) */
-      onPointerDown={(e) => { e.stopPropagation(); raisePin(slug, pin.id) }}>
+      onPointerDown={(e) => { e.stopPropagation(); raisePin(slug, pin.id); raisePinSurface(layout.key) }}>
       <div className="pinwin-title"
         title="Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels."
         onPointerDown={(e) => {

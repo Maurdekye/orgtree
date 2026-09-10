@@ -45,6 +45,7 @@ import { PresentationCard, presentationMenu } from '../src/canvas/docs'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { DocketModal } from '../src/canvas/docket'
 import { PinFrame, MODAL_PINS_KEY } from '../src/canvas/modalpin'
+import { CurrentOrg } from '../src/popout'
 import { PinLayer, addPin, forgetPins, readPins } from '../src/canvas/pins'
 import type { CanvasNode, MailRow } from '../src/canvas/shared'
 import type { TreePayload, WorkItem } from '../src/types'
@@ -650,9 +651,9 @@ uiTest('§B5 pinned modal bar: Pin/Unpin says its effect, Close closes the surfa
   window.localStorage.removeItem(MODAL_PINS_KEY)
   let closed = 0
   const v = await mountView(
-    <PinFrame kind="ctx-test" title="A panel" panel="settings" close={() => { closed++ }}>
+    <CurrentOrg.Provider value="mine"><PinFrame kind="ctx-test" title="A panel" panel="settings" close={() => { closed++ }}>
       <p>body</p>
-    </PinFrame>, (h) => h)
+    </PinFrame></CurrentOrg.Provider>, (h) => h)
   t.after(() => v.unmount())
   const bar = () => document.querySelector('.modalpin-bar') as HTMLElement
   assert.ok(bar(), 'positive control: the bar rendered')

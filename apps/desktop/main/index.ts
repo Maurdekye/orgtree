@@ -12,10 +12,10 @@ import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
 import { checkForUpdatesViaEvents, UpdateController } from './updater'
 import type { DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
-import { isVisualTheme } from '../../../packages/contracts/visual-theme'
+import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
-import type { VisualTheme } from '../../../packages/contracts/visual-theme'
+import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 
 app.setName('Orgtree v2')
 app.setAppUserModelId('com.maurdekye.orgtree')
@@ -48,7 +48,7 @@ else {
     ? path.join(process.resourcesPath, 'runtime-icons')
     : path.join(app.getAppPath(), 'apps/desktop/assets')
   const iconPath = path.join(assetsPath, 'orgtree-eye.ico')
-  const trayIconNames: Record<VisualTheme | 'grey', string> = {
+  const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
     grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
     claude: 'orgtree-eye-tray-claude.ico', codex: 'orgtree-eye-tray-codex.ico',
     antigravity: 'orgtree-eye-tray-antigravity.ico', openrouter: 'orgtree-eye-tray-openrouter.ico',
@@ -61,8 +61,15 @@ else {
       (current.visualTheme !== 'orgtree' || current.visualThemeExplicit === true)
       ? current.visualTheme : undefined
     const theme = effectiveTheme ?? explicit ?? 'claude'
-    const name = engine.status.state === 'ready' ? trayIconNames[theme] : trayIconNames.grey
+    const name = engine.status.state === 'ready' ? trayIconNames[isCustomTheme(theme) ? 'orgtree' : theme] : trayIconNames.grey
     const image = nativeImage.createFromPath(path.join(assetsPath, name))
+    if (engine.status.state === 'ready' && isCustomTheme(theme) && !image.isEmpty()) {
+      const bitmap = image.toBitmap(), size = image.getSize()
+      const color = theme.slice(7), rgb = [1,3,5].map(i => parseInt(color.slice(i,i+2),16))
+      // Electron bitmap bytes are BGRA. Keep the eye silhouette's alpha.
+      for (let i=0;i<bitmap.length;i+=4) { bitmap[i]=rgb[2]!; bitmap[i+1]=rgb[1]!; bitmap[i+2]=rgb[0]! }
+      return nativeImage.createFromBitmap(bitmap,size)
+    }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
   const notifications = new NotificationGate()

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { desktop } from './desktop'
 import { getProviders } from './api'
 import { SetGroup, SetRow } from './canvas/settingskit'
-import { isVisualTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
-import type { VisualTheme } from '../../../../packages/contracts/visual-theme'
+import { isVisualTheme, isCustomTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
+import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
 type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?: unknown } }> }
 
@@ -13,7 +13,7 @@ export const THEMES = {
   codex: { label: 'Codex', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
   antigravity: { label: 'Antigravity', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
   openrouter: { label: 'OpenRouter', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
-} satisfies Record<VisualTheme, { label: string; accent: string; hover: string; soft: string }>
+} satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'
 const DEFAULT_THEME: VisualTheme = 'claude'
@@ -29,9 +29,16 @@ export function defaultThemeForProviders(payload: ProviderPayload | null | undef
   return DEFAULT_THEME
 }
 
+export function customTheme(color: string) {
+  const rgb = [1,3,5].map(i => parseInt(color.slice(i,i+2),16))
+  const hover = '#' + rgb.map(v => Math.round(v + (255-v)*0.25).toString(16).padStart(2,'0')).join('')
+  const luminance = rgb.reduce((sum,v,i) => sum + v * [0.299,0.587,0.114][i]!,0)
+  return {accent:color, hover, soft:`rgba(${rgb.join(',')},.16)`, ink:luminance > 140 ? '#17191d' : '#ffffff'}
+}
+
 export function applyTheme(value: unknown) {
   const selected = isVisualTheme(value) ? value : DEFAULT_THEME
-  const theme = THEMES[selected]
+  const theme = isCustomTheme(selected) ? customTheme(selected.slice(7)) : THEMES[selected]
   document.documentElement.dataset.visualTheme = selected
   window.dispatchEvent(new window.CustomEvent('orgtree:visual-theme-changed', { detail: selected }))
   // The existing native-popout observer copies this root style, including
@@ -40,7 +47,7 @@ export function applyTheme(value: unknown) {
   style.setProperty('--accent', theme.accent)
   style.setProperty('--accent-hover', theme.hover)
   style.setProperty('--accent-soft', theme.soft)
-  style.setProperty('--accent-ink', '#17191d')
+  style.setProperty('--accent-ink', isCustomTheme(selected) ? customTheme(selected.slice(7)).ink : '#17191d')
 }
 
 function notifyNative(bridge: ReturnType<typeof desktop>, theme: VisualTheme): void {
@@ -116,6 +123,7 @@ export function startThemeSync(): () => void {
 
 export function ThemeSetting() {
   const [theme, setTheme] = useState<VisualTheme>(DEFAULT_THEME)
+  const [customColor, setCustomColor] = useState('#b6bdc8')
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -156,6 +164,7 @@ export function ThemeSetting() {
     }).catch((e: Error) => { if (alive) setError(e.message) })
     return () => { alive = false; unsubscribe() }
   }, [])
+  useEffect(() => { if (isCustomTheme(theme)) setCustomColor(theme.slice(7)) }, [theme])
   const change = async (value: string) => {
     if (!isVisualTheme(value)) return
     const previous = currentRef.current
@@ -186,10 +195,16 @@ export function ThemeSetting() {
   }
   return <SetGroup title="Appearance" note="saved on this computer">
     <SetRow label="visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">
-      <select aria-label="Visual theme" value={theme} disabled={!ready || busy} onChange={e => void change(e.target.value)}>
+      <select aria-label="Visual theme" value={isCustomTheme(theme) ? 'custom' : theme} disabled={!ready || busy} onChange={e => void change(e.target.value === 'custom' ? `custom:${customColor}` : e.target.value)}>
         {VISUAL_THEMES.map(id => <option key={id} value={id}>{THEMES[id].label}</option>)}
+        <option value="custom">Custom</option>
       </select>
     </SetRow>
+    {isCustomTheme(theme) && <SetRow label="custom color">
+      <input type="color" aria-label="Custom theme color" value={customColor}
+        disabled={!ready || busy} onChange={e => {setCustomColor(e.target.value); void change(`custom:${e.target.value}`)}} />
+      <span>{customColor}</span>
+    </SetRow>}
     {error && <p role="alert">Could not save theme: {error}</p>}
   </SetGroup>
 }
