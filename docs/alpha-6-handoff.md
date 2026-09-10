@@ -16,6 +16,12 @@ The September 9 corrective wave is merged, including the symmetric account imple
 - Graph annotation reuses the caller's loaded generation instead of repeatedly reloading the organization. Copied 396-node data measured warm server graph handling improving from 1263-1305 ms to 145-177 ms. See performance-2026-09-09.md for the measurements and their limits.
 - Optional profiling has bounded, authenticated retrieval with numeric-only records and process identity. It remains off by default.
 
+## September 10 continuation
+
+- Account migration retries preserve minted IDs and saved bindings. Completion is recorded only after organization bindings and the migration report persist.
+- The existing default Claude login keeps its original home-level metadata file; redirected profiles continue to use their own metadata. Import and sign-in use the same distinction.
+- A read-only SQLite-copy rehearsal covered three current organizations and 540 agent bindings. All 23 missing profiles were Antigravity (21 archived agents and two live agents), consistent with the documented unsupported spawn lane. Repeating completed migration did not create accounts or change IDs. No live placement was changed.
+
 ## Delivery and remaining acceptance boundaries
 
 The alpha.6 installer is prepared from the combined clean source. Source commits and package metadata identify the exact contents. It has not been installed, published, or used to restart the live system in this batch.
