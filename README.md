@@ -71,6 +71,8 @@ Agents have persistent identities and history. Retirement preserves that context
 
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
 
+**Automatic updates** are on by default. Turn them off in the tray menu or **App settings > Desktop** to stop background checks and idle installation. Manual update controls remain available. A download already in progress may finish; an installation already started completes.
+
 The tray also provides organization navigation and controls for startup and **Exit on close**. With Exit on close disabled, closing the main window keeps Orgtree available in the background; open it again from the tray.
 
 ## Coming from V1?

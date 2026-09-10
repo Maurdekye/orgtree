@@ -16,9 +16,9 @@ const policy = await load('policy'), { Preferences } = await load('preferences')
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, routineNotifications: false, onboarded: false })
+  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, routineNotifications: false, onboarded: false })
+  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
   assert.equal(new Preferences(file).get().onboarded, true)
@@ -92,11 +92,25 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {visualTheme,visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,routineNotifications:false,onboarded:false})
+    assert.deepEqual(new Preferences(file).get(), {visualTheme,visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
   }
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {
     assert.throws(() => prefs.set({startAtLogin:true, visualTheme}))
     assert.equal(fs.readFileSync(file, 'utf8'), bytes)
   }
+})
+
+
+test('automatic updates default on for old preferences and explicit off survives reload', () => {
+  const file = path.join(temp, 'automatic-prefs.json')
+  fs.writeFileSync(file, JSON.stringify({ startAtLogin: false }))
+  const prefs = new Preferences(file)
+  assert.equal(prefs.get().automaticUpdates, true)
+  assert.equal(prefs.get().startAtLogin, false)
+  prefs.set({ automaticUpdates: false })
+  assert.equal(new Preferences(file).get().automaticUpdates, false)
+  assert.throws(() => prefs.set({ automaticUpdates: 'false' }), /Invalid preference/)
+  prefs.set({ automaticUpdates: true })
+  assert.equal(new Preferences(file).get().automaticUpdates, true)
 })

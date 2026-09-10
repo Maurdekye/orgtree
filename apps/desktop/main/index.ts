@@ -155,6 +155,8 @@ else {
   }
   const refreshTrayUpdates = () => {
     if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting)
+    const automatic = trayMenu?.getMenuItemById('update-automatic')
+    if (automatic) automatic.checked = preferences.get().automaticUpdates
   }
   const rebuildTray = () => {
     const image = runtimeIcon()
@@ -171,6 +173,8 @@ else {
           void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
             detail: error instanceof Error ? error.message : String(error) })
         }) } },
+      { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
+        click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
@@ -194,7 +198,10 @@ else {
   const quitAfterLastView = () => {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
-  const applyDownloadedUpdate = async () => {
+  const applyDownloadedUpdate = async (automatic = false) => {
+    // Once shutdown begins, finish installing. Before that boundary, disabling
+    // automatic updates also holds any package that has already downloaded.
+    if (automatic && !preferences.get().automaticUpdates) return
     if (updateApplying || quitting) return
     updateApplying = true
     refreshTrayUpdates()
@@ -230,7 +237,7 @@ else {
       // Electron's relaunch helper is outside the Python Job, as is the updater.
       app.relaunch(); app.quit()
     },
-    apply: applyDownloadedUpdate,
+    apply: () => applyDownloadedUpdate(),
     check: async () => {
       if (!app.isPackaged) return 'unavailable'
       try {
@@ -261,6 +268,7 @@ else {
   // schedule and surfaced directly to the header/Settings - not gated on
   // any engine-issued request.
   const updater = new UpdateController({
+    automaticEnabled: () => preferences.get().automaticUpdates,
     // electron-updater's own update-available/update-not-available events are the
     // authoritative "is this actually newer" answer (channel/prerelease/downgrade
     // rules included) - comparing version strings here would get an older or
@@ -459,10 +467,10 @@ else {
           await maintenance.tick(stats, powerMonitor.getSystemIdleTime(), downloaded)
           return
         }
-        if (downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
+        if (preferences.get().automaticUpdates && downloaded && stats?.idle && powerMonitor.getSystemIdleTime() >= 60 && !updateApplying && maintenance.automaticUpdatesAllowed()) {
           // An unverifiable attached-engine stop throws with state untouched;
           // the next idle sample simply tries again.
-          await applyDownloadedUpdate().catch(() => {})
+          await applyDownloadedUpdate(true).catch(() => {})
         }
       }
       let refreshing = false

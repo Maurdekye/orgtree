@@ -8,7 +8,7 @@ const LABEL: Record<UpdateStatus['state'], (status: UpdateStatus) => string | nu
   idle: () => null,
   checking: () => 'Checking for updates…',
   downloading: status => status.percent === undefined ? 'Downloading update…' : `Downloading update… ${status.percent}%`,
-  'pending-idle': () => 'Update ready — installs automatically when idle',
+  'pending-idle': () => 'Update ready to install',
   'up-to-date': () => 'You’re up to date',
   unavailable: () => 'Update check unavailable',
   failed: () => 'Update download failed',

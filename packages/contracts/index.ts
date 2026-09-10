@@ -18,6 +18,7 @@ export interface DesktopPreferences {
   visualThemeExplicit?: boolean
   exitOnClose: boolean
   startAtLogin: boolean
+  automaticUpdates: boolean
   routineNotifications: boolean
   onboarded: boolean
 }

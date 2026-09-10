@@ -412,3 +412,27 @@ test('tray handles failed, unavailable, current and invalid progress states hone
   assert.match(main, /report: status => \{ broadcast\(.*refreshTrayUpdates\(\)/)
   assert.match(main, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); return \}/)
 })
+
+
+test('disabling automatic updates suppresses due checks but leaves manual checks and reenabling intact', async () => {
+  let enabled = false, calls = 0
+  const { controller, advance } = rig({ automaticEnabled: () => enabled,
+    run: async () => { calls++; return { hasUpdate: false } }, options: { periodicMs: 1000 } })
+  await controller.tick()
+  advance(10000)
+  await controller.tick()
+  assert.equal(calls, 0)
+  assert.equal(controller.current().state, 'idle')
+  await controller.check()
+  assert.equal(calls, 1, 'manual check remains available while automatic updates are off')
+  advance(10000)
+  await controller.tick()
+  assert.equal(calls, 1)
+  enabled = true
+  await controller.tick()
+  assert.equal(calls, 2, 'reenabling resumes due background checks')
+  enabled = false
+  advance(10000)
+  await controller.tick()
+  assert.equal(calls, 2)
+})

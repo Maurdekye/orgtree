@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, routineNotifications: false, onboarded: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -23,8 +23,8 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val
     } else {
-      if (!['exitOnClose', 'startAtLogin', 'routineNotifications', 'onboarded'].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
-      result[key as 'exitOnClose' | 'startAtLogin' | 'routineNotifications' | 'onboarded'] = val
+      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded'].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
+      result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded'] = val
     }
   }
   return result

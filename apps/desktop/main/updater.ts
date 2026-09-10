@@ -45,6 +45,8 @@ interface UpdateCallbacks {
   run: () => Promise<{ hasUpdate: boolean; version?: string }>
   report: (status: UpdateStatus) => void
   now?: () => number
+  /** Manual checks remain available when background updates are disabled. */
+  automaticEnabled?: () => boolean
 }
 
 interface UpdateOptions {
@@ -77,6 +79,7 @@ export class UpdateController {
   /** Drive from a periodic poll (e.g. every 5s, matching the existing engine poll cadence);
    *  only actually checks the network when due, and never while a real update is already known. */
   async tick(): Promise<void> {
+    if (this.callbacks.automaticEnabled?.() === false) return
     if (this.inFlight) return
     if (this.status.state === 'downloading' || this.status.state === 'pending-idle') return
     const now = this.now()

@@ -47,6 +47,9 @@ export function DesktopSettings() {
     <SetToggle label="notify about routine activity" checked={prefs?.routineNotifications ?? false}
       disabled={!prefs || busy} onChange={routineNotifications => put({ routineNotifications })}
       hint="Questions, urgent mail and work needing attention notify by default." />
+    <SetToggle label="automatic updates" checked={prefs?.automaticUpdates ?? true}
+      disabled={!prefs || busy} onChange={automaticUpdates => put({ automaticUpdates })}
+      hint="Check, download and install updates when idle. Turn off to update manually; a download already started may finish." />
     <SetRow label="updates"
       hint={updateStatus ? describeUpdateStatus(updateStatus) ?? 'No update check has run yet.' : undefined}>
       <button type="button" onClick={checkForUpdates} disabled={checking || !bridge.checkForUpdates}>

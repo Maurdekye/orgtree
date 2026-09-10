@@ -27,12 +27,17 @@ test('native settings save through bridge and adopt tray changes; failure leaves
   try {
     await inAct(async () => { await flush(5) })
     const switches = [...v.el.querySelectorAll<HTMLInputElement>('input')]
-    assert.deepEqual(switches.map(x => x.checked), [true, false, false])
+    assert.deepEqual(switches.map(x => x.checked), [true, false, false, true])
     await inAct(async () => { switches[1]!.click(); await flush(5) })
     assert.deepEqual(writes, [{ exitOnClose: true }])
     assert.equal(switches[1]!.checked, true)
     await inAct(async () => { event({ type: 'preferences', data: { ...prefs, startAtLogin: false } }) })
     assert.equal(switches[0]!.checked, false)
+    await inAct(async () => { switches[3]!.click(); await flush(5) })
+    assert.deepEqual(writes.at(-1), { automaticUpdates: false })
+    assert.equal(switches[3]!.checked, false)
+    await inAct(async () => { event({ type: 'preferences', data: { ...prefs, automaticUpdates: true } }) })
+    assert.equal(switches[3]!.checked, true, 'tray changes reach the app settings switch')
     fail = true
     await inAct(async () => { switches[2]!.click(); await flush(5) })
     assert.equal(switches[2]!.checked, false)
