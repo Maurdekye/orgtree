@@ -11,13 +11,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import { req } from './api'
 import { UsageBars } from './canvas/accounts'
-import type { AccountUsage } from './types'
+import type { AccountStanding, RegisteredAccountUsage } from './types'
 
-type PerAccountUsage = AccountUsage & {
-  standing?: { auth: string; state: string
-               marks: Record<string, { until: number; provenance: string }> }
-  unsupported?: boolean
-  error?: string
+type PerAccountUsage = RegisteredAccountUsage
+
+/** an account's per-pool "limited until" lines — shared by this panel and
+ *  the header usage modal's registered-account sections, so the two render
+ *  a mark (and its observed/inferred provenance) identically */
+export function StandingMarks({ standing }: { standing?: AccountStanding }) {
+  if (!standing) return null
+  return <>
+    {Object.entries(standing.marks).map(([pool, m]) =>
+      <p key={pool} className="dim">
+        {pool} limited until {new Date(m.until * 1000).toLocaleString()}
+        {m.provenance === 'inferred' ? ' (inferred)' : ''}
+      </p>)}
+  </>
 }
 
 export function AccountUsagePanel({ accountId }: { accountId: string }) {
@@ -42,11 +51,7 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
       : <p className="dim">{u.unsupported
           ? `${u.provider}: no usage surface`
           : (u.error ?? 'usage unavailable')}</p>}
-    {u.standing && Object.entries(u.standing.marks).map(([pool, m]) =>
-      <p key={pool} className="dim">
-        {pool} limited until {new Date(m.until * 1000).toLocaleString()}
-        {m.provenance === 'inferred' ? ' (inferred)' : ''}
-      </p>)}
+    <StandingMarks standing={u.standing} />
     <button onClick={reload}>refresh usage</button>
   </div>
 }

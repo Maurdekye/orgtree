@@ -16,6 +16,7 @@ import {
   audienceAction, BASE, clearInbox, createOrg, deleteOrg,
   fileBase, fileUrl, getAudiences, getDefaults, getEvents, getHost, getInbox,
   getMailById, getOrgMd,
+  getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
   getProviders, getTree,
@@ -40,10 +41,11 @@ import { activeDocCount, ALL_TIERS, attentionPip, availableAutopsyModels, deskDp
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
+import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame, readModalOpen, usePersistedModalOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, modalToggleAction, PinFrame, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './canvas/modalpin'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
@@ -57,6 +59,7 @@ import type {
   MailEntry, OpRequest, OrgEvent, OrgListEntry, OrgMdPayload, ToastFn,
   ProvidersPayload,
   AntigravityEstimate as AgyEstimate,
+  AccountRegistryRow,
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
@@ -374,6 +377,15 @@ export default function App() {
   // org it was pinned in; at home (slug null) it is unpinnable and the
   // marker never writes
   usePersistedModalOpen('usage', slug, showUsage)
+  // BOTH usage buttons (header and drawer) go through one decision (user
+  // ruling 2026-09-10 16:36): a click that means "bring up my usage window"
+  // must never silently close a pinned window that was merely sitting behind
+  // another surface — see modalToggleAction for the three-way rule.
+  const toggleUsage = useCallback(() => {
+    const action = modalToggleAction('usage', showUsage, slug)
+    if (action === 'raise') raisePinnedModal('usage', slug)
+    else setShowUsage(action === 'open')
+  }, [showUsage, slug])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', null, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -806,7 +818,7 @@ export default function App() {
         {!BASE &&
           <button className={'h1-usage' + (usageAlert ? ' u-' + usageAlert.sev : '')}
             title={usageAlert?.title ?? usageTitle(provPresence)}
-            onClick={() => setShowUsage(v => isModalPinned('usage', slug) ? !v : true)}>
+            onClick={toggleUsage}>
             <DataUsageIcon fontSize="inherit" /></button>}
         {/* the accounts panel (machine-local routing, 2026-08-25). Beside
             the usage bars deliberately — they answer the same question
@@ -1079,7 +1091,7 @@ export default function App() {
                 {!tree.public &&
                   <button className={'iconbtn' + (usageAlert ? ' u-' + usageAlert.sev : '')}
                     title={usageAlert?.title ?? usageTitle(provPresence)}
-                    onClick={() => setShowUsage(v => isModalPinned('usage', slug) ? !v : true)}>
+                    onClick={toggleUsage}>
                     <DataUsageIcon fontSize="inherit" /></button>}
                 {/* gear-only (user 2026-09-10 header cleanup): Settings is
                     the door to Connections, History and Autonomy now, so it
@@ -1546,6 +1558,41 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
   </div>
 }
 
+/** provider display names for registry rows, whose `provider` field is the
+ *  backend's lowercase id — same wording the host lanes above use */
+const REGISTRY_PROVIDER_NAME: Record<string, string> = {
+  claude: 'Claude', openai: 'Codex', google: 'Antigravity',
+}
+
+/** one REGISTERED account's own section of the usage modal (user report
+ *  2026-09-10: alpha.10's modal showed only the host lanes, so a secondary
+ *  signed-in account's usage was visible in App settings but absent here).
+ *  Same conventions as the provider lanes: an auto-polled readout through
+ *  useUsageReadout, the shared UsageBars markup, a gated manual refresh —
+ *  plus the row's own label and identity so accounts never blur together.
+ *  Each section is one account's independent read; nothing is summed
+ *  across accounts. */
+function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
+  const state = useUsageReadout(
+    (force) => getRegisteredAccountUsage(row.id, force))
+  const u = state.value
+  const provider = REGISTRY_PROVIDER_NAME[row.provider] ?? row.provider
+  const name = row.label || row.id
+  return <div className="usage-acct" data-account={row.id}>
+    <div className="usage-acct-head">
+      <span><span className="acct-label">{provider}</span>
+        <span className="dim"> · {name}</span>
+        {row.identity?.email && <span className="dim"> · {row.identity.email}</span>}
+      </span>
+      <UsageRefresh provider={name} state={state} />
+    </div>
+    {u
+      ? <><UsageBars u={{ ...u, provider }} />
+        <StandingMarks standing={u.standing} /></>
+      : <div className="dim">usage unavailable until refresh succeeds</div>}
+  </div>
+}
+
 export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn }) {
   // ⚠ EVERY registered account, primary first then fallbacks in priority
   // order (user ruling 2026-08-25) — one section of bars per account. The
@@ -1571,6 +1618,26 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // remaining "you could have Codex" advertisement, and on a Codex-less
   // machine the whole block is now absent instead.
   const shown = presenceOfPayload(usePolled(getProviders, [], 60000))
+  // every REGISTERED account beyond the host lanes (user report 2026-09-10:
+  // the modal omitted a signed-in secondary account entirely). The registry
+  // list is the source; `ambient` rows are exactly the accounts the provider
+  // lanes above already show, so filtering them out renders each account
+  // once. A list that cannot be read SAYS so below rather than silently
+  // omitting accounts — silence here was the original defect.
+  const [registry, setRegistry] = useState<AccountRegistryRow[] | null>(null)
+  const [registryError, setRegistryError] = useState('')
+  useEffect(() => {
+    let live = true
+    const load = () => getAccountRegistry().then((r) => {
+      if (!live) return
+      if (Array.isArray(r?.accounts)) { setRegistry(r.accounts); setRegistryError('') }
+      else setRegistryError('the backend answered without an account list (older backend?)')
+    }).catch((e: Error) => { if (live) setRegistryError(e.message) })
+    load()
+    const timer = window.setInterval(load, 60000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [])
+  const registered = (registry ?? []).filter((r) => !r.ambient)
   return (
     <PinFrame kind="usage" title="usage limits" panel="settings usage-modal"
       close={close}>
@@ -1638,6 +1705,9 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               ? <UsageBars u={orr.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
+          {registered.map((r) => <RegisteredAccountSection key={r.id} row={r} />)}
+          {registryError && !registry && <div className="dim">
+            registered accounts unavailable: {registryError}</div>}
           </div>}
     </PinFrame>
   )

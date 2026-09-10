@@ -18,6 +18,7 @@ import type {
   SendMessageResult,
   SettingsRequest, SettingsResult, SweepPreview, SweepResult, TreePayload,
   AccountsPayload, AccountUsage, UsageAllPayload,
+  AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
   WorkItemsPayload, WorkItemPayload, WorkItemReplyResult, DismissAttentionResult,
 } from './types'
@@ -475,6 +476,17 @@ export const setAccountKeyOrder = (keys: string[]): Promise<AccountsPayload> =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ keys }),
   })
+// the symmetric account REGISTRY list (multi-account D5) — every registered
+// account with standing, placements and the `ambient` host-board flag
+export const getAccountRegistry = (): Promise<AccountRegistryPayload> =>
+  req('/api/accounts')
+// a registry account's OWN usage (its lane, never the ambient one). The
+// endpoint has no force-read variant; the flag exists so useUsageReadout's
+// manual-refresh path can hand it to any fetcher uniformly.
+export const getRegisteredAccountUsage = (
+  id: string, _force = false,
+): Promise<RegisteredAccountUsage> =>
+  req(`/api/accounts/${encodeURIComponent(id)}/usage`)
 // one account's usage bars — "primary" or a key row id
 export const getAccountUsage = (account: string): Promise<AccountUsage> =>
   req(`/api/accounts/usage/${encodeURIComponent(account)}`)

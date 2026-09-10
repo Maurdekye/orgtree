@@ -1544,6 +1544,49 @@ export interface AccountsPayload {
   removed?: boolean
 }
 
+/** one account's marks-derived standing (registry rows and the per-account
+ *  usage endpoint both carry it): per-pool "limited until", each mark naming
+ *  whether it was observed or inferred — never summed across accounts. */
+export interface AccountStanding {
+  auth: string
+  state: string
+  marks: Record<string, { until: number; provenance: string; window?: string }>
+}
+
+/** GET /api/accounts — one row of the symmetric account REGISTRY (multi-
+ *  account D5; distinct from the legacy key readout at /api/accounts/readout).
+ *  `ambient` says this row's usage is already the host board a provider lane
+ *  of the usage modal shows (the primary Claude login, the ambient Codex
+ *  home) — the modal renders every row where it is false, so each registered
+ *  account's standing appears exactly once. */
+export interface AccountRegistryRow {
+  id: string
+  provider: string
+  harness: string
+  label: string
+  credential: { kind: string; path?: string; token_ref?: string
+                default_config?: boolean }
+  identity: Record<string, string>
+  auth: string
+  tint_ordinal: number
+  origin_org?: string
+  registered_from?: string
+  ambient?: boolean
+  standing: AccountStanding
+  bound: { org: string; node: string; state: string }[]
+}
+
+export interface AccountRegistryPayload {
+  accounts: AccountRegistryRow[]
+  primary: string
+}
+
+/** GET /api/accounts/{id}/usage — a REGISTRY account's own usage: the same
+ *  bars/tiers shape as AccountUsage, plus the row's marks-derived standing. */
+export type RegisteredAccountUsage = AccountUsage & {
+  standing?: AccountStanding
+}
+
 /** GET /api/accounts/usage[/{account}] — one account's usage standing, the
  *  same normalized bars as UsagePayload plus which row it describes.
  *  `plan` rides only the primary entry (it is read from the host credentials

@@ -1,4 +1,4 @@
-import { useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, useDeskOverlap } from './pinspace'
+import { useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
@@ -288,6 +288,37 @@ export const raiseModal = (kind: string, org: string | null = null): void => {
   const top = Object.values(pins).reduce((m, p) => (p.z > m.z ? p : m), me)
   if (top.z === me.z) return
   write(renorm(pins, kind))
+}
+/** whether a pinned, currently-MOUNTED surface sits behind any other surface
+ *  of the shared band (other pinned modals or desks in the same org). False
+ *  for a surface that is unpinned, not mounted, or already on top. */
+export const pinnedModalBehind = (kind: string, org: string | null = null): boolean => {
+  if (!isModalPinned(kind, org)) return false
+  const key = pinSurfaceKey(org ?? '', kind, true)
+  const peers = readPinSurfaces().filter((p) => p.org === (org ?? ''))
+  const me = peers.find((p) => p.key === key)
+  if (!me) return false
+  return peers.some((p) => p.order > me.order)
+}
+/** raise a pinned surface in BOTH stores: the persistent modal-pin band and
+ *  the transient shared plane the live z actually comes from */
+export const raisePinnedModal = (kind: string, org: string | null = null): void => {
+  raiseModal(kind, org)
+  raisePinSurface(pinSurfaceKey(org ?? '', kind, true))
+}
+/** What a header TOGGLE button's click should do to its surface (user ruling
+ *  2026-09-10 16:36: clicking a button to toggle ON a pinned modal must bring
+ *  it to the FRONT). The already-open-behind case is the trap: a plain toggle
+ *  CLOSES the hidden window — the user, who clicked to bring it up, sees
+ *  nothing happen and has to click twice. So: raise when open-but-behind,
+ *  close only when open on top, open otherwise. An unpinned surface keeps the
+ *  buttons' historical answer — open (its centred overlay covers the button,
+ *  so a re-press is only ever a restore edge case, never a dismissal). */
+export const modalToggleAction = (kind: string, open: boolean,
+  org: string | null = null): 'open' | 'close' | 'raise' => {
+  if (!isModalPinned(kind, org)) return 'open'
+  if (!open) return 'open'
+  return pinnedModalBehind(kind, org) ? 'raise' : 'close'
 }
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
 export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {

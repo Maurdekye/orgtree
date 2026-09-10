@@ -3800,20 +3800,49 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
     return out
 
 
+def _ambient_covered(row: dict[str, Any], primary: str,
+                     ambient_paths: dict[str, str | None]) -> bool:
+    """Whether this row's usage is ALREADY the host board a provider lane of
+    the usage modal serves — decided the same way `accounts_usage` routes,
+    so the two surfaces cannot disagree: the claude row the `primary` alias
+    names answers with `limits.fetch()` (the Claude Code lane), and an
+    imported/managed row whose profile directory IS the ambient home answers
+    with that provider's ambient board. Everything else has its own lane."""
+    if row["provider"] == "claude":
+        return row["id"] == primary
+    cred = row.get("credential") or {}
+    if cred.get("kind") not in ("imported", "managed"):
+        return False
+    home = ambient_paths.get(row["provider"])
+    path = cred.get("path")
+    if not home or not path:
+        return False
+    return (os.path.normcase(os.path.normpath(path))
+            == os.path.normcase(os.path.normpath(home)))
+
+
 @app.get("/api/accounts")
 async def accounts_list(org: str | None = None) -> dict[str, Any]:
     """The account registry with live standing (multi-account D3/D5): every
     row, each with marks-derived standing (per-pool, provenance-carrying,
     provider-native windows — never summed) and its placements. `org`
-    filters to the accounts AVAILABLE to that org (origin-org scoping)."""
+    filters to the accounts AVAILABLE to that org (origin-org scoping).
+    Each row carries `ambient`: whether its usage is served by the host
+    board the usage modal's provider lanes already show (see
+    `_ambient_covered`) — the modal lists every OTHER row so no account's
+    standing appears twice and none is silently absent."""
+    from .registry_migration import observe_ambient
     rows = registry.list_accounts(org)
     bindings = _account_bindings()
+    primary = registry.resolve_alias("primary")
+    ambient_paths = observe_ambient()
     return {"accounts": [
         {**{k: v for k, v in r.items() if k != "marks"},
          "standing": registry.standing_of(r),
+         "ambient": _ambient_covered(r, primary, ambient_paths),
          "bound": bindings.get(r["id"], [])}
         for r in rows],
-        "primary": registry.resolve_alias("primary")}
+        "primary": primary}
 
 
 class AccountCreate(Body):
