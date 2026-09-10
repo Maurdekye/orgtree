@@ -168,7 +168,9 @@ app.on('browser-window-created', (_event, main) => {
     await check('home-window-controls-at-window-corner', async () => {
       // Restart may restore the active organization. Use the real navigation
       // controls to reach the populated home list before measuring it.
+      let restoredOrg = null
       if (phase === 'restart' && !await evaluate(`Boolean(document.querySelector('.welcome'))`)) {
+        restoredOrg = await evaluate(`document.querySelector('header.orgbar h2')?.textContent`)
         assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true)
         await evaluate(`document.querySelector('header.orgbar button.iconbtn').click(); true`)
         assert.equal(await waitFor(`[...document.querySelectorAll('button.home')].some(e => e.textContent.includes('all organizations'))`), true)
@@ -186,6 +188,10 @@ app.on('browser-window-created', (_event, main) => {
       const controls = measured.controls[0]
       assert.ok(controls.top >= 0 && controls.bottom <= 64, `Controls belong at the window top: ${JSON.stringify(measured)}`)
       assert.ok(Math.abs(measured.width - controls.right) <= 16, `Controls belong at the window right: ${JSON.stringify(measured)}`)
+      if (restoredOrg) {
+        await evaluate(`[...document.querySelectorAll('.org')].find(e => e.textContent.includes(${JSON.stringify(restoredOrg)})).click(); true`)
+        assert.equal(await waitFor(`document.querySelector('header.orgbar h2')?.textContent === ${JSON.stringify(restoredOrg)}`), true)
+      }
     })
     await check('authenticated-api-positive-and-negative-control', async () => {
       assert.equal(await evaluate(`fetch('/api/orgs').then(r=>r.status)`), 200)
