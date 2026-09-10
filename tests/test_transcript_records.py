@@ -238,16 +238,99 @@ class RecordsTests(unittest.TestCase):
             records.tail(self.source, 8)
         self.assertEqual([r['seq'] for r in again], [r['seq'] for r in rows])
 
-    # ----------------------- rename safety: journals keyed past the slug
-    def test_org_rename_does_not_orphan_owned_journals(self):
-        records.append_owned('old-name', self.source, self.path, [{"text": "kept"}])
-        renamed = records.journal_source('new-name', self.source)
-        self.assertEqual(renamed, records.journal_source('old-name', self.source),
+    # ------------- journal identity: immutable scope, not slug and not sid
+    def test_org_rename_does_not_orphan_incarnation_scoped_journals(self):
+        scope = 'orgA-uuid:node-uuid'
+        records.append_owned('old-name', self.source, self.path,
+                             [{"text": "kept"}], incarnation=scope)
+        renamed = records.journal_source('new-name', self.source, scope)
+        self.assertEqual(renamed,
+                         records.journal_source('old-name', self.source, scope),
                          'both slugs resolve to the journal FIRST committed')
-        records.append_owned('new-name', self.source, self.path, [{"text": "after"}])
+        records.append_owned('new-name', self.source, self.path,
+                             [{"text": "after"}], incarnation=scope)
         rows, _ = records.tail(renamed, 8)
         self.assertEqual([json.loads(r[2])['text'] for r in rows],
                          ['kept', 'after'], 'one journal, not two')
+
+    def test_identical_sid_in_separate_orgs_never_unifies(self):
+        # the coordinator's collision case: the SAME session id under two
+        # different orgs (imported profile copies do this) with distinct
+        # incarnations — records must never bleed between them
+        a = records.journal_source('org-a', self.source, 'incarnation-a')
+        b = records.journal_source('org-b', self.source, 'incarnation-b')
+        self.assertNotEqual(a, b, 'control: distinct scopes, distinct journals')
+        records.append_owned('org-a', self.source, self.path,
+                             [{"text": "belongs to a"}], incarnation='incarnation-a')
+        records.append_owned('org-b', self.source, self.path,
+                             [{"text": "belongs to b"}], incarnation='incarnation-b')
+        rows_a = [json.loads(r[2])['text'] for r in records.tail(
+            records.journal_source('org-a', self.source, 'incarnation-a'), 8)[0]]
+        rows_b = [json.loads(r[2])['text'] for r in records.tail(
+            records.journal_source('org-b', self.source, 'incarnation-b'), 8)[0]]
+        self.assertEqual(rows_a, ['belongs to a'])
+        self.assertEqual(rows_b, ['belongs to b'])
+
+    def test_scoped_caller_adopts_data_a_legacy_writer_already_committed(self):
+        # the mixed-version window: the writer committed without a scope
+        # (slug-keyed name); a scoped reader/writer must find that data,
+        # keep appending to it, and carry it across a later rename
+        records.append_owned('org-a', self.source, self.path, [{"text": "old"}])
+        adopted = records.journal_source('org-a', self.source, 'inc-1')
+        self.assertEqual(adopted, records.journal_source('org-a', self.source),
+                         'the scoped caller adopts the legacy source in place')
+        records.append_owned('org-a', self.source, self.path,
+                             [{"text": "new"}], incarnation='inc-1')
+        after_rename = records.journal_source('renamed', self.source, 'inc-1')
+        self.assertEqual(after_rename, adopted,
+                         'the scoped commit registered the alias, so the '
+                         'rename keeps pointing at the adopted journal')
+        rows = [json.loads(r[2])['text'] for r in records.tail(after_rename, 8)[0]]
+        self.assertEqual(rows, ['old', 'new'])
+
+    def test_unscoped_callers_keep_the_exact_legacy_behaviour(self):
+        # without an incarnation there is NO aliasing at all — sid-only
+        # aliasing would unify colliding sids, the defect this replaces
+        self.assertEqual(records.journal_source('org-a', self.source),
+                         'journal:' + json.dumps(['org-a', self.source]))
+        self.assertNotEqual(records.journal_source('org-a', self.source),
+                            records.journal_source('org-b', self.source))
+
+    def test_views_are_scoped_and_legacy_rows_migrate_once(self):
+        sidecar = Path(fixture.name) / (self._testMethodName + '.views.jsonl')
+        view = {"sha256": "d9", "at": "2026-09-10T12:00:00Z", "visible": "kept view"}
+        sidecar.write_text(json.dumps(view) + "\n", encoding="utf8")
+        legacy = records.views_source('org-a', self.source)
+        records.ingest_prompt_views(legacy, str(sidecar))
+        self.assertEqual(len(records.prompt_views_for(legacy, "d9")), 1,
+                         'control: the legacy key holds the row')
+        scoped = records.views_source('org-a', self.source, 'inc-v')
+        self.assertEqual([v['visible'] for v in records.prompt_views_for(scoped, "d9")],
+                         ['kept view'], 'committed rows migrated to the scoped key')
+        self.assertEqual(records.prompt_views_for(legacy, "d9"), [],
+                         'and left the mutable-slug key empty')
+        self.assertEqual(records.views_source('org-a', self.source, 'inc-v'), scoped)
+        # collision: the same sid under another org's scope sees nothing
+        other = records.views_source('org-b', self.source, 'inc-other')
+        self.assertEqual(records.prompt_views_for(other, "d9"), [])
+
+    def test_double_failure_surfaces_a_storage_error_not_a_silent_gap(self):
+        # honest F1 semantics: with SQLite down AND the spool unwritable,
+        # append_owned must RAISE — never return as if the records landed
+        with patch.object(records, 'database',
+                          side_effect=sqlite3.OperationalError('down')):
+            with patch.object(records, '_spool',
+                              side_effect=OSError('spool disk gone')):
+                with self.assertRaises(OSError):
+                    records.append_owned('org', self.source, self.path,
+                                         [{"text": "must not vanish quietly"}])
+        # and with only SQLite down, the spool path still succeeds silently
+        with patch.object(records, 'database',
+                          side_effect=sqlite3.OperationalError('down')):
+            records.append_owned('org', self.source, self.path,
+                                 [{"text": "spooled"}])
+        rows, _ = records.tail(records.journal_source('org', self.source), 8)
+        self.assertEqual([json.loads(r[2])['text'] for r in rows], ['spooled'])
 
     # --------------------------- durable prompt-view capture and matching
     def test_prompt_views_index_idempotently_and_prefer_corrections(self):

@@ -352,28 +352,49 @@ def append(source: str, records: list[dict]):
                           for i, rec in enumerate(records)))
 
 
-def journal_source(slug, sid):
+def _journal_identity(sid, incarnation) -> str | None:
+    return (json.dumps([str(incarnation), str(sid)])
+            if incarnation else None)
+
+
+def journal_source(slug, sid, incarnation=None):
     """The durable identity of an app-owned journal.
 
-    The org slug is MUTABLE (rename), so it is embedded only in the name
-    the journal was FIRST committed under; later callers — a renamed org
-    included — resolve to that name through the transcript_journal_ids
-    alias `_commit_owned` registers, and a rename orphans nothing. The
-    alias is keyed by session id; a session id duplicated across orgs
-    would unify their journals here, so sid uniqueness remains a system
-    invariant (flagged to the coordinator, not enforceable at this layer).
-    With the database unavailable the pure name is the honest fallback —
-    the spool replay resolves again once it recovers."""
-    name = "journal:" + json.dumps([slug, sid])
+    SESSION IDS ARE NOT SYSTEM-UNIQUE (identical sids exist across orgs,
+    accounts and imported profile copies), and the org slug is MUTABLE
+    (rename) — so neither alone may key a journal. The immutable scope is
+    `reply_events.incarnation(org, nid)` (org UUID + node UUID, minted
+    once, rename/compaction-stable — the same identity the claude
+    source_key already uses; the explicit reply-clear endpoint rotates it,
+    which starts a fresh source exactly as it does for claude sources).
+
+    Resolution, deterministic given database state:
+      1. the alias registered at the journal's FIRST scoped commit;
+      2. else ADOPTION: data already committed under the CURRENT slug's
+         legacy name is used as-is — keyed by the caller's own slug, so
+         two orgs sharing a sid each adopt only their own data;
+      3. else the incarnation-scoped name.
+    A caller WITHOUT an incarnation gets the legacy slug-keyed name and no
+    aliasing at all — sid-only aliasing would unify colliding sids across
+    orgs, which is exactly the defect this replaces. With the database
+    unavailable the scoped name is the honest fallback; the spool replay
+    re-resolves once it recovers."""
+    legacy = "journal:" + json.dumps([slug, sid])
+    identity = _journal_identity(sid, incarnation)
+    if identity is None:
+        return legacy
+    name = "journal:" + identity
     try:
         with database() as conn:
             row = conn.execute("SELECT source FROM transcript_journal_ids WHERE sid=?",
-                               (str(sid),)).fetchone()
-        if row:
-            return row[0]
+                               (identity,)).fetchone()
+            if row:
+                return row[0]
+            adopt = conn.execute("SELECT 1 FROM transcript_sources WHERE source=?",
+                                 (legacy,)).fetchone()
+        return legacy if adopt else name
     except sqlite3.Error:
-        pass
-    return name
+        return name
 
 
 def remember_view(source, position, view):
@@ -389,12 +410,41 @@ def retained_view(source, position):
     return json.loads(found[0]) if found else None
 
 
-def views_source(slug, sid) -> str:
+def views_source(slug, sid, incarnation=None) -> str:
     """The durable prompt-view index's per-conversation key. ONE string for
     all three doors — supervisor._write_prompt_view (append_prompt_view),
     startup/backfill capture (ingest_prompt_views) and display
-    (chat_window._views) — so they can never miss each other."""
-    return "views:" + json.dumps([str(slug), str(sid)])
+    (chat_window._views) — so they can never miss each other.
+
+    With an `incarnation` the key is collision-safe across orgs sharing a
+    session id and stable across renames; rows already committed under the
+    CURRENT slug's legacy key migrate to it once, in place (idempotent —
+    the unique row key absorbs any overlap), so committed data survives
+    the change of key. Without one, the legacy slug-keyed name is
+    returned unchanged."""
+    legacy = "views:" + json.dumps([str(slug), str(sid)])
+    if not incarnation:
+        return legacy
+    name = "views:" + json.dumps([str(incarnation), str(sid)])
+    try:
+        with database() as conn:
+            has_new = conn.execute("SELECT 1 FROM transcript_view_sources WHERE source=?",
+                                   (name,)).fetchone()
+            has_legacy = None if has_new else conn.execute(
+                "SELECT 1 FROM transcript_view_sources WHERE source=?",
+                (legacy,)).fetchone()
+        if has_legacy:
+            with database() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("UPDATE OR IGNORE transcript_view_rows SET source=? WHERE source=?",
+                             (name, legacy))
+                conn.execute("DELETE FROM transcript_view_rows WHERE source=?", (legacy,))
+                conn.execute("UPDATE OR IGNORE transcript_view_sources SET source=? WHERE source=?",
+                             (name, legacy))
+                conn.execute("DELETE FROM transcript_view_sources WHERE source=?", (legacy,))
+    except sqlite3.Error:
+        pass
+    return name
 
 
 def _insert_view_row(conn, source, row) -> None:
@@ -554,10 +604,18 @@ def _drain_spool() -> bool:
                        and entries[j].get("path") == entries[i].get("path")):
                     j += 1
                 batch = entries[i:j]
+                head = batch[0]
+                # re-resolve the destination now that the database answers:
+                # the name captured during the outage was a blind fallback
+                target = (journal_source(head["slug"], head["sid"],
+                                         head.get("scope"))
+                          if head.get("slug") and head.get("sid")
+                          else head["source"])
                 try:
-                    _commit_owned(batch[0]["source"], str(batch[0].get("path") or ""),
+                    _commit_owned(target, str(head.get("path") or ""),
                                   [(e["id"], e["rec"]) for e in batch],
-                                  sid=batch[0].get("sid"))
+                                  identity=_journal_identity(head.get("sid"),
+                                                             head.get("scope")))
                 except sqlite3.Error:
                     # SQLite is still unavailable: keep the whole spool —
                     # ids already committed are skipped on the next replay
@@ -572,7 +630,7 @@ def _drain_spool() -> bool:
         _spool_state.draining = False
 
 
-def _commit_owned(source, path, entries, sid=None) -> None:
+def _commit_owned(source, path, entries, identity=None) -> None:
     """One owned batch into the database: lazy legacy import first, then the
     records at continuing positions. `entries` are (record_id, rec) pairs;
     an id already marked in transcript_spooled is skipped (idempotent
@@ -582,11 +640,12 @@ def _commit_owned(source, path, entries, sid=None) -> None:
         ingest(source, path, 16, {"bytes_read": 0})
     with database() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        if sid:
-            # rename safety: the FIRST commit fixes the journal's name; every
-            # later journal_source(slug', sid) resolves here
+        if identity:
+            # rename safety: the first SCOPED commit fixes the journal's
+            # name (which may be an adopted legacy name); every later
+            # journal_source(any-slug, sid, incarnation) resolves here
             conn.execute("INSERT OR IGNORE INTO transcript_journal_ids VALUES (?,?)",
-                         (str(sid), source))
+                         (identity, source))
         meta = conn.execute("SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?", (source,)).fetchone()
         epoch, lower, position = meta or (0, 0, 0)
         wrote = False
@@ -606,32 +665,41 @@ def _commit_owned(source, path, entries, sid=None) -> None:
         conn.execute("INSERT OR IGNORE INTO transcript_owned VALUES (?)", (source,))
 
 
-def append_owned(slug, sid, path, recs):
+def append_owned(slug, sid, path, recs, incarnation=None):
     """Database commit precedes the compatibility JSONL mirror.
 
     Previously existing JSONL history is imported lazily. After this first
     commit the DB owns the new suffix even if the mirror cannot be written.
 
-    NEVER RAISES ON SQLITE TROUBLE AND NEVER LOSES A RECORD (review F1): a
-    locked or broken database routes the batch to a durable, fsynced
-    recovery spool instead — with stable per-record ids — and every later
-    write and read drains that spool first, so the records surface exactly
-    once, in order, as soon as SQLite recovers. The caller's JSONL mirror
-    write still happens after this returns, whichever path was taken."""
+    NEVER SILENTLY LOSES A RECORD (review F1): a locked or broken database
+    routes the batch to a durable, fsynced recovery spool — stable
+    per-record ids, replayed exactly once, in order, ahead of every later
+    write and read. HONEST DOUBLE-FAILURE SEMANTICS: if the spool itself
+    cannot be written either (disk gone), the OSError SURFACES to the
+    caller with nothing half-committed — a storage failure is reported,
+    never swallowed into a silent gap. The caller's JSONL mirror write
+    still happens after a successful return, whichever path was taken.
+
+    `incarnation` (reply_events.incarnation) is the collision-safe,
+    rename-stable scope for the journal's identity — pass it whenever the
+    node is at hand; without it the journal keys by the mutable slug and a
+    rename starts a fresh source (the pre-existing behaviour)."""
     # drain BEFORE resolving the name: a pending spool may hold this
     # journal's first commit (which registers the rename-stable alias), and
     # resolving first could split one journal across two source names
     drained = _drain_spool()
-    source = journal_source(slug, sid)
+    source = journal_source(slug, sid, incarnation)
     entries = [(uuid.uuid4().hex, rec) for rec in recs]
     if drained:
         try:
-            _commit_owned(source, str(path), entries, sid=sid)
+            _commit_owned(source, str(path), entries,
+                          identity=_journal_identity(sid, incarnation))
             return
         except sqlite3.Error:
             pass
     _spool([{"source": source, "path": str(path), "id": record_id,
-             "rec": rec, "sid": str(sid)}
+             "rec": rec, "slug": str(slug), "sid": str(sid),
+             **({"scope": str(incarnation)} if incarnation else {})}
             for record_id, rec in entries])
 
 
