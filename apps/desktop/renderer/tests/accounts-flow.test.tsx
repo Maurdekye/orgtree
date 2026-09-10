@@ -48,8 +48,35 @@ test('inferred limits stay identified and bound accounts cannot be removed', asy
   assert.deepEqual(calls.filter(c => c.method === 'DELETE').map(c => c.url), ['/api/accounts/two'])
 })
 
-test('creating a managed account uses the selected provider and no imported path', async t => {
-  const { el, calls } = await setup(t, [])
+test('creating a managed account shows the new row with its sign-in action', async t => {
+  // STATEFUL mock (user defect 2026-09-10, "Create managed does nothing"):
+  // the POST mints a row the next reload really serves, so the assertion is
+  // the VISIBLE outcome — a rendered row exposing sign-in — not merely that
+  // a request fired while the section kept showing "No accounts yet".
+  const rows: ReturnType<typeof account>[] = []
+  const oldFetch = globalThis.fetch
+  const calls: { url: string; method: string; body: string }[] = []
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const method = init?.method || 'GET'
+    calls.push({ url: String(url), method, body: String(init?.body || '') })
+    if (method === 'POST') {
+      const made = { ...account('fresh-managed', 'unobserved'),
+        credential: { kind: 'managed', path: 'C:/fixture/fresh-managed' } }
+      rows.push(made)
+      return new Response(JSON.stringify(made), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({ accounts: rows }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  // ProviderSignIn renders nothing without the desktop bridge (correct in a
+  // browser); the installed app has one, so the test supplies the minimal
+  // presence the sign-in button's render path needs
+  const desk = window as unknown as { orgtreeDesktop?: unknown }
+  desk.orgtreeDesktop = { getProviderLoginStatus: async () => ({ phase: 'idle' }) }
+  const view = await mountView(<AccountRegistrySection toast={() => {}} />, el => el)
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch; delete desk.orgtreeDesktop })
+  await inAct(async () => { await flush() })
+  const el = view.el
+  assert.equal(el.querySelectorAll('.account-row').length, 0)
   const button = [...el.querySelectorAll('button')].find(b => /create managed/i.test(b.textContent || ''))!
   assert.ok(button)
   await inAct(async () => { button.click(); await flush() })
@@ -57,6 +84,11 @@ test('creating a managed account uses the selected provider and no imported path
   assert.ok(create)
   assert.equal(create.url, '/api/accounts')
   assert.deepEqual(JSON.parse(create.body), { provider: 'claude', kind: 'managed' })
+  const row = el.querySelector<HTMLElement>('.account-row')
+  assert.ok(row, 'the created account is VISIBLE after the reload')
+  assert.match(row!.textContent || '', /fresh-managed/)
+  assert.ok([...row!.querySelectorAll('button')].some(b => /sign in/i.test(b.textContent || '')),
+    'the new profile exposes its sign-in action')
 })
 
 
