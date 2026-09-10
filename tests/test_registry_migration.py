@@ -308,6 +308,45 @@ class MigrationTests(unittest.TestCase):
         finally:
             os.environ.pop(self.migration.CUTOVER_ENV, None)
 
+    def test_startup_hook_reraises_so_readiness_is_never_advertised(self):
+        # the ORIGINAL essential rule: with the cutover flag set, a partial
+        # migration must FAIL STARTUP, not log and carry on. Asserted on
+        # the actual hook: the next startup side effect (the Antigravity
+        # boot-mark thread) is NOT reached when migration raises — with a
+        # positive control proving the marker CAN be reached.
+        import asyncio
+        from unittest.mock import patch
+        from engine.backend.orgtree import api
+
+        class ReachedStartup(Exception):
+            pass
+
+        reached = []
+
+        def marker(*a, **k):
+            reached.append(True)
+            raise ReachedStartup()
+
+        for exc in (self.migration.MigrationIncomplete(
+                        "partial (injected)", {"completed": False}),
+                    RuntimeError("unexpected (injected)")):
+            reached.clear()
+            with patch.object(api, "_deployment_preflight", lambda: None), \
+                 patch.object(api.threading, "Thread", marker), \
+                 patch.object(self.migration, "run_startup_migration",
+                              side_effect=exc):
+                with self.assertRaises(type(exc)):
+                    asyncio.run(api._wire_notify())
+            self.assertEqual(reached, [])      # startup never proceeded
+        # positive control: a clean migration reaches the boot-mark site
+        with patch.object(api, "_deployment_preflight", lambda: None), \
+             patch.object(api.threading, "Thread", marker), \
+             patch.object(self.migration, "run_startup_migration",
+                          return_value=None):
+            with self.assertRaises(ReachedStartup):
+                asyncio.run(api._wire_notify())
+        self.assertEqual(reached, [True])
+
     def test_unloadable_org_holds_completion_until_readable(self):
         # a damaged/unavailable org must not permanently miss placement:
         # completion is HELD while any org cannot load, and the retry

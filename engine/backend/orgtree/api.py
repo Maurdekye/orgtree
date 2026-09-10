@@ -955,7 +955,9 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
         # truthful partial state: some orgs may already carry bindings.
         # Completion was NOT marked, so the next startup with the flag
         # resumes — reusing minted rows and saved bindings — rather than
-        # skipping a half-migrated fleet as done.
+        # skipping a half-migrated fleet as done. Re-raised: with the
+        # CUTOVER flag set, a partial migration must FAIL STARTUP — the
+        # backend never advertises readiness over mixed placement.
         print(f"[orgtree] accounts cutover migration INCOMPLETE: {e} — "
               f"completion not marked; fix the cause and restart with the "
               f"flag set to finish the remainder (see {registry_migration.REPORT_NAME})")
