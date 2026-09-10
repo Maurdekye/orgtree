@@ -28,7 +28,8 @@ app.on('browser-window-created',(_e,main)=>{if(started)return;started=true;main.
     assert.equal((await fetch(origin+'/api/desktop/status')).status,401)
     assert.equal(await evaluate(`fetch('/api/desktop/status').then(r=>r.json()).then(s=>typeof s.idle)`),'boolean')
     await wait('document.querySelector(".org")');await click('document.querySelector(".org")')
-    await wait(`document.querySelector('button[title="Browse retained history"]')`);await click(`document.querySelector('button[title="Browse retained history"]')`)
+    await wait(`document.querySelector('header button[aria-label="Settings"]')`);await click(`document.querySelector('header button[aria-label="Settings"]')`)
+    await wait(`document.querySelector('#org-settings-tab-history')`);await click(`document.querySelector('#org-settings-tab-history')`)
     async function pages(prefix,total){
       const found=[]
       for(let page=0;page<3;page++){

@@ -1,12 +1,16 @@
-"""Participant ticket-state authority (user ruling 2026-09-10 13:47).
+"""Participant ticket-state authority (user rulings 2026-09-10 13:47+14:51).
 
 ANY ticket participant may update its state in any manner — completion,
 reopen and drop included — without superior review, and the owner may
-complete its own item. What did NOT change is exercised alongside as the
-refusal half: an unrelated agent stays locked out entirely, a reviewer-only
-actor still cannot status-update (reviewing is not owning), and the item's
-IDENTITY (title/objective) stays owner-level. Behavioral, against the real
-ledger: every leg calls the same methods the orgtree_work tool calls.
+complete its own item. The NAMED REVIEWER holds the same state control
+(user 14:51: "include reviewer and assignee as part of the participants
+able to mutate state") — but a reviewer's update leaves the assignment
+where it is instead of claiming, and an assignment that lands the item on
+its own reviewer empties the review seat (self-review stays prohibited).
+The refusal half is exercised alongside: an unrelated agent stays locked
+out entirely, and the item's IDENTITY (title/objective) stays owner-level.
+Behavioral, against the real ledger: every leg calls the same methods the
+orgtree_work tool calls.
 """
 import os
 import sys
@@ -117,15 +121,76 @@ class ParticipantStateTests(unittest.TestCase):
         self.assertEqual(item(org, wid)["status"], "open",
                          "nothing the outsider tried touched the item")
 
-    def test_reviewer_only_actor_still_cannot_status_update(self):
+    def _at_review(self):
         org, wid = fixture()
         org.work_update("owner-a", wid, ["ready"], [], status="review",
                         reviewer="rev-r")
+        return org, wid
+
+    def test_reviewer_mutates_state_without_claiming(self):
+        # user 2026-09-10 14:51: the reviewer counts among the participants
+        # able to mutate state — and doing so leaves the assignment alone
+        org, wid = self._at_review()
+        org.work_update("rev-r", wid, ["found gaps"], ["owner to fix"],
+                        status="in_progress")
+        it = item(org, wid)
+        self.assertEqual(it["status"], "in_progress")
+        self.assertEqual((it["owner"] or {}).get("node"), "owner-a",
+                         "a reviewer's status update does not claim the item")
+        self.assertEqual((it.get("reviewer") or {}).get("node"), "rev-r",
+                         "…and it stays the reviewer")
+
+    def test_reviewer_completes_through_update(self):
+        org, wid = self._at_review()
+        org.work_update("rev-r", wid, ["verified"], [], status="done")
+        it = item(org, wid)
+        self.assertEqual(it["status"], "done")
+        self.assertEqual(it["accepted"]["via"], "update")
+        self.assertEqual((it["accepted"]["by"] or {}).get("node"), "rev-r")
+        self.assertEqual((it["owner"] or {}).get("node"), "owner-a")
+        # the decision lane still works too, on a fresh fixture
+        org2, wid2 = self._at_review()
+        org2.work_review_decide("rev-r", wid2, "approve")
+        self.assertEqual(item(org2, wid2)["status"], "done")
+
+    def test_reviewer_explicit_self_assign_takes_item_and_empties_seat(self):
+        org, wid = self._at_review()
+        org.work_update("rev-r", wid, [], ["taking this over"],
+                        status="in_progress", owner="rev-r")
+        it = item(org, wid)
+        self.assertEqual((it["owner"] or {}).get("node"), "rev-r")
+        self.assertIsNone(it.get("reviewer"),
+                          "the review seat empties: the owner cannot review "
+                          "its own work")
+
+    def test_reviewer_keep_in_place_target_and_refused_third_party(self):
+        org, wid = self._at_review()
+        # spelling out the owner the item already has = the implicit behavior
+        org.work_update("rev-r", wid, ["checked"], [], owner="owner-a")
+        self.assertEqual((item(org, wid)["owner"] or {}).get("node"), "owner-a")
+        # a third party is a real reassignment and stays owner-level
         with self.assertRaises(LedgerError):
-            org.work_update("rev-r", wid, ["looks good"], [], status="done")
-        # its own lane still works: the approval completes the item
-        org.work_review_decide("rev-r", wid, "approve")
-        self.assertEqual(item(org, wid)["status"], "done")
+            org.work_update("rev-r", wid, ["x"], [], owner="peer-b")
+        # …and so does naming a replacement reviewer
+        with self.assertRaises(LedgerError):
+            org.work_update("rev-r", wid, ["x"], [], status="review",
+                            reviewer="peer-b")
+
+    def test_reviewer_identity_stays_owner_level(self):
+        org, wid = self._at_review()
+        with self.assertRaises(LedgerError):
+            org.work_update("rev-r", wid, ["x"], [], title="renamed by reviewer")
+        with self.assertRaises(LedgerError):
+            org.work_update("rev-r", wid, ["x"], [],
+                            objective="rescoped by reviewer")
+
+    def test_owner_assigning_to_reviewer_empties_seat(self):
+        org, wid = self._at_review()
+        org.work_update("owner-a", wid, [], ["handing to rev"],
+                        owner="rev-r")
+        it = item(org, wid)
+        self.assertEqual((it["owner"] or {}).get("node"), "rev-r")
+        self.assertIsNone(it.get("reviewer"))
 
     def test_identity_stays_owner_level_for_participants(self):
         org, wid = fixture()

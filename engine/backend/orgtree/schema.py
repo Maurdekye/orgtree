@@ -651,7 +651,9 @@ class WorkItem(TypedDict):
     # THE NAMED REVIEWER (user ruling 2026-09-05 21:23), set on the update that
     # puts the item at `review` and readable as the agent answerable for the
     # CHECK. It is not ownership: the owner keeps the work, and a reviewer gets
-    # read, evidence and one decision. ⚠ NotRequired AND nullable, in that
+    # read, evidence, one decision and (user 2026-09-10 14:51) participant-
+    # grade state control whose updates do not claim the item.
+    # ⚠ NotRequired AND nullable, in that
     # order: items that were already at `review` when this shipped are NOT
     # back-filled, so absent and null both mean "nobody was named" and neither
     # may be invented into a name nobody chose.

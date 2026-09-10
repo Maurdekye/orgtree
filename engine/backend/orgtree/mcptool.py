@@ -396,7 +396,7 @@ TOOLS: list[dict[str, Any]] = [
                 "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description — the PROBLEM faced first, then the proposed solution"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},
                 "owner": {"type": "string", "description": "create/assign: owner node (you or a subordinate) · update: the explicit assignment — name the CURRENT owner to keep an item where it is when you update somebody else's"},
-                "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner, and it is read+evidence+the review decision — not ownership"},
+                "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
                 "decision": {"type": "string", "enum": ["approve", "changes"],
                              "description": "review: approve completes the item; changes returns it to its owner as in_progress (put what you want changed in `note`)"},
                 "participants": {"type": "array", "items": {"type": "string"},

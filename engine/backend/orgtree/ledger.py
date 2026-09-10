@@ -10176,9 +10176,10 @@ class Org:
         status including done, drop and reopen, plus evidence and attached
         questions); only the item's identity (title/objective) and third-party
         reassignment stay owner-level — or being the item's NAMED REVIEWER,
-        which is narrower: read, evidence and the review decision, and no
-        status update at all (a status update claims the item, and reviewing
-        is not owning)."""
+        which since the user's 2026-09-10 14:51 ruling ("include reviewer and
+        assignee as part of the participants able to mutate state") holds the
+        same full state control; what stays reviewer-specific is that its
+        status updates do not claim the item (see work_update)."""
         return self._work_can_manage(actor, it) \
             or actor in (it.get("participants") or []) \
             or actor == self._work_actor_node(it.get("reviewer"))
@@ -11190,17 +11191,19 @@ class Org:
         # review, and the status field is rewritten further down — read from
         # the item there and "entering" would be true of nothing.
         prev_status = str(it.get("status") or "")
-        if actor != USER and not pre_manage \
-                and actor not in (it.get("participants") or []):
-            # a REVIEWER-ONLY actor: it can read this item because it was named
-            # to review it, and that is the whole of its standing. A status
-            # update would claim the item (below), which is exactly the
-            # ownership a review is not (user ruling 2026-09-05 21:26).
-            raise LedgerError(
-                f"you are {wid}'s REVIEWER, not a collaborator on it — a "
-                f"status update would claim the item, and reviewing is not "
-                f"owning. Record your verdict with action 'review' "
-                f"(decision approve|changes), or add `evidence`")
+        # a REVIEWER-ONLY actor — it reads this item because it was named to
+        # review it. Since the user's 2026-09-10 14:51 ruling ("include
+        # reviewer and assignee as part of the participants able to mutate
+        # state") it holds the same FULL STATE control a participant does, so
+        # the former refusal here (2026-09-05 21:26) is retired. What stays
+        # distinct is the CLAIM: a reviewer writing a status is acting as the
+        # check, not taking the work, so its update leaves the assignment
+        # where it is (the uniform claim would make it the owner, which the
+        # self-review prohibition forbids while it stays reviewer). An
+        # explicit owner=<itself> is still the deliberate takeover — it
+        # claims, and the assignment core then empties the review seat.
+        reviewer_only = (actor != USER and not pre_manage
+                         and actor not in (it.get("participants") or []))
         done = self._work_norm_list(done_so_far, "done_so_far")
         nxt = self._work_norm_list(working_on_next, "working_on_next")
         if not done and not nxt:
@@ -11380,16 +11383,24 @@ class Org:
         # notification quotes the status this very update recorded rather than
         # the one it replaced.
         tgt = str(owner or "").strip()
-        if tgt and tgt != actor and not pre_manage:
+        if tgt and tgt != actor and not pre_manage \
+                and not (reviewer_only
+                         and tgt == self._work_actor_node(it.get("owner"))):
             # handing the item to a THIRD PARTY is the ordinary owner-level
             # reassignment and needs owner-level authority. Claiming it for
             # yourself is not: that is the update-claims-assignment rule, and
             # it is the same act whether you spell it out or leave it implicit.
+            # (A reviewer naming the owner the item ALREADY HAS is neither —
+            # it spells out the keep-in-place its update means implicitly.)
             raise LedgerError("only the owner, the creator, their superiors or "
                               "the user may assign an item to someone else — "
                               "your update already claims it for you")
         if not tgt and actor != USER:
-            tgt = actor
+            # the update-claims-assignment rule — except the reviewer acting
+            # as reviewer (ruling above): its implicit target is the owner the
+            # item already has, so nothing changes hands and nobody is mailed
+            tgt = ((self._work_actor_node(it.get("owner")) or "")
+                   if reviewer_only else actor)
         # ---- the REVIEWER, named by the update that enters review
         rev_notify = self._work_name_reviewer(actor, it, reviewer, status,
                                               prev_status, pre_manage, tgt)
@@ -11453,6 +11464,15 @@ class Org:
         it["owner"] = cast(WorkActor, self._work_actor(own))
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
+        if self._work_actor_node(it.get("reviewer")) == own:
+            # the item just landed on its own reviewer (a reviewer's explicit
+            # takeover, or an owner-level assignment to the reviewer): the
+            # review seat EMPTIES rather than leaving a prohibited self-review
+            # standing (user ruling 2026-09-05 21:26) — recorded, so the item
+            # at `review` visibly owes a fresh reviewer name.
+            self._work_hist(it, actor, "reviewer",
+                            {"from": own, "to": None, "why": "became owner"})
+            it["reviewer"] = None
         self._work_hist(it, actor, "assign",
                         {"from": frm, "to": it["owner"], "why": why})
         self._log("work_assign", actor,
@@ -11521,18 +11541,12 @@ class Org:
                 "before")
         # NAMING A REVIEWER IS AN OWNER-LEVEL ACT.
         #
-        # ⚠ AND THIS BRANCH IS UNREACHABLE TODAY — said here rather than left
-        # for a reader to assume it is load-bearing. Every actor that gets this
-        # far either already manages the item or has just CLAIMED it by
-        # updating (the claim is uniform), so `owner_after` is the actor
-        # whenever `pre_manage` is false; a reviewer-only actor is refused at
-        # the top of work_update and never arrives. It is kept because it
-        # states the rule the claim currently happens to satisfy: loosen the
-        # claim, add an update path that does not take ownership, and this is
-        # the line that keeps a bystander from choosing who checks the work.
-        # There is deliberately NO mutant for it in _mutate_staffing.py — a
-        # mutation nothing can kill would report a hole in the suite that is
-        # really a hole in the reachable state space.
+        # REACHABLE since the user's 2026-09-10 14:51 ruling: a reviewer-only
+        # actor's update no longer claims the item (its target stays the
+        # current owner), so it arrives here with `pre_manage` false and
+        # `owner_after` someone else — and this is the line that keeps it,
+        # able as it now is to mutate state, from choosing its own successor
+        # in the one seat whose job is checking the work.
         if not pre_manage and owner_after != actor:
             raise LedgerError("naming a reviewer is an owner-level act (owner, "
                               "creator, their superiors, the user)")
