@@ -274,14 +274,20 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await waitFor(`document.querySelector('.acct-panel')`), true)
       assert.equal(await evaluate(`Boolean(document.querySelector('.acct-panel button[aria-label="Open in new window"], .acct-panel button[aria-label="pin this to the window"]'))`), false, 'Global app settings cannot pin or pop out')
       if (!visualFixture) await check('managed-account-creation-through-settings', async () => {
-        assert.equal(await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim().toLowerCase() === 'create managed')`), true)
+        await capture(main, 'settings-providers')
+        assert.equal(await waitFor(`document.querySelector('.acct-provider-head.prov-claude button')`), true)
+        await evaluate(`document.querySelector('.acct-provider-head.prov-claude button').click(); true`)
+        assert.equal(await waitFor(`document.querySelector('.add-account-dialog')`), true)
+        await capture(main, 'add-account')
         const before = await evaluate(`fetch('/api/accounts').then(r => r.json()).then(r => r.accounts.length)`)
-        await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase() === 'create managed').click(); true`)
+        await evaluate(`[...document.querySelectorAll('.add-account-dialog button')].find(b => b.textContent.trim() === 'Create managed account').click(); true`)
         assert.equal(await waitFor(`document.querySelectorAll('.account-row').length === ${before + 1}`), true,
           'Click must visibly add the managed account row')
         const accounts = await evaluate(`fetch('/api/accounts').then(r => r.json()).then(r => r.accounts)`)
         assert.equal(accounts.length, before + 1, 'Created profile must persist in the actual backend')
-        assert.ok(accounts.some(a => a.credential.kind === 'managed'), 'Created account is a managed profile')
+        assert.ok(accounts.some(a => a.provider === 'claude' && a.credential.kind === 'managed'), 'Created account is a managed Claude profile')
+        assert.equal(await waitFor(`!document.querySelector('.add-account-dialog')`), true, 'Successful creation closes the dialog')
+        assert.equal(await evaluate(`document.querySelector('.acct-provider-head.prov-claude').parentElement.querySelectorAll('.account-row').length`), before + 1, 'Created row is inside the Claude provider lane')
       })
       for (const tab of ['Display', 'Import', 'Runtime']) {
         assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('${tab}'));if(!b)return false;b.click();return true})()`), true)
