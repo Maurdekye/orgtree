@@ -22,7 +22,7 @@
 // `questions` array (wire contract v3) is only used to know WHICH asks to
 // look up and for the "who is asking" header — never to answer directly.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -1067,10 +1067,19 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
    *  the same question on the same desk, and the two would drift. */
   refs: RefRoutes
 }) {
+  const controlsId = useId()
+  const [showBacklog, setShowBacklog] = useState(false)
+  const [sortMode, setSortMode] = useState<DocketSortMode>(readSortMode)
+  const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)
   const [selId, setSelId] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
   const rows = mine ?? []
+  const sections = buildSections(groupMode,
+    sortItems(rows.filter(it => !it.archived && it.status !== 'backlogged'), sortMode),
+    showBacklog ? sortItems(rows.filter(it => !it.archived && it.status === 'backlogged'), sortMode) : [],
+    showArchived ? sortItems(rows.filter(it => it.archived), sortMode) : [],
+    it => it.owner?.node ?? UNASSIGNED)
   const byName = useMemo(
     () => new Map(rows.map((it) => [it.slug, it])), [rows])
   const refIndex = useMemo(
@@ -1139,14 +1148,34 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   }
   return (
     <div className="msgs docket-modal docket-agent">
+      <div className="docket-filterbar">
       <label className="checkline docket-showarchived">
         <input type="checkbox" checked={showArchived}
           onChange={(e) => onShowArchived(e.target.checked)} />
         Show archived
       </label>
+      <label className="checkline docket-showbacklog">
+        <input type="checkbox" checked={showBacklog} onChange={e => setShowBacklog(e.target.checked)} />
+        Show backlogged
+      </label>
+      </div>
+      <div className="docket-sortbar">
+        <label className="dim" htmlFor={controlsId + '-group'}>Arrange</label>
+        <select id={controlsId + '-group'} className="docket-group-select" value={groupMode}
+          onChange={e => { const mode=e.target.value as DocketGroupMode; setGroupMode(mode); writeGroupMode(mode) }}>
+          {GROUP_MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+        </select>
+        <label className="dim" htmlFor={controlsId + '-sort'}>Sort</label>
+        <select id={controlsId + '-sort'} className="docket-sort-select" value={sortMode}
+          onChange={e => { const mode=e.target.value as DocketSortMode; setSortMode(mode); writeSortMode(mode) }}>
+          {SORT_MODES.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+        </select>
+        <span className="dim docket-sort-why">{SORT_MODES.find(mode => mode.value === sortMode)?.why}
+          {groupMode !== 'none' && ', inside each group'}</span>
+      </div>
       {mine === null
         ? <div className="dim pad">loading…</div>
-        : rows.length === 0
+        : sections.length === 0
           ? <div className="dim pad">
               no docket items are assigned to {nid} — assignment is ownership,
               so this is everything it is responsible for
@@ -1154,9 +1183,13 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
           : (
             <div className="mailer">
               <div className="mailer-list">
-                {nestRows(rows, collapsed).map((row) => (
+                {sections.map(section => <div key={section.key}
+                  className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
+                  {section.heading && <div className="docket-group-head">{section.heading}
+                    <span className="dim docket-group-n">{section.items.length}</span></div>}
+                {nestRows(section.items, collapsed).map((row) => (
                   <DocketRow key={row.item.slug} item={row.item}
-                    org={slug} toast={toast}
+                    org={slug} toast={toast} ageMode={sortMode}
                     selected={row.item.slug === selId}
                     depth={row.depth} kids={row.kids}
                     folded={collapsed.has(row.item.slug)}
@@ -1166,6 +1199,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                     onDismiss={onDismiss} facts={facts}
                     onFocusAgent={onFocusAgent} />
                 ))}
+                </div>)}
               </div>
               <div className="mailer-read">
                 {cur

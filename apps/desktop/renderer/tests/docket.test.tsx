@@ -1986,7 +1986,8 @@ uiTest('§38f the age beside each row reads the clock the list is sorted by', as
   }
 })
 
-uiTest('§38g the agent docket (served in updated order, no selector) keeps the updated age', async (mount) => {
+uiTest('§38g the agent docket (default updated order) keeps the updated age', async (mount) => {
+  forgetGroupChoice(); forgetSortChoice()
   const H = 3600_000
   const stamp = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
   const mine = [mkItem({ slug: 'alpha-item', title: 'alpha-item',
@@ -2347,3 +2348,34 @@ uiTest('§41 `deploy_ready` reads as Deploy Ready — active, not Blocked, not D
     // it groups on its own — not folded into Blocked or Other closed
     assert.deepEqual(titles(el), ['Stuck on something', 'Ready to ship', 'Live already'])
   })
+
+uiTest('agent docket exposes backlog, all three clocks and status groups without losing selection', async mount => {
+  forgetGroupChoice(); forgetSortChoice()
+  const stamp=(n:number)=>`2026-09-0${n}T00:00:00Z`
+  const mine=[
+    mkItem({slug:'updated-first', title:'updated-first', status:'open', at:stamp(1), docket_at:stamp(3), status_at:stamp(2)}),
+    mkItem({slug:'created-first', title:'created-first', status:'in_progress', at:stamp(3), docket_at:stamp(2), status_at:stamp(1)}),
+    mkItem({slug:'status-first', title:'status-first', status:'open', at:stamp(2), docket_at:stamp(1), status_at:stamp(3)}),
+    mkItem({slug:'future-work', title:'future-work', status:'backlogged', at:stamp(5)}),
+  ]
+  const {el}=await mount(<AgentDocketView slug="org" nid="agent1" mine={mine} facts={new Map()}
+    toast={()=>{}} refs={{world:{nodes:new Map(),items:new Map()} as any,onOpen:()=>{}} as any}/> )
+  await flush()
+  assert.deepEqual(titles(el),['updated-first','created-first','status-first'])
+  await inAct(()=> (el.querySelector('.mailrow.docket-row') as HTMLElement).click())
+  const chosen=el.querySelector('.mailer-read')!.textContent
+  const choose=async (selector:string,value:string)=>{
+    const select=el.querySelector(selector) as HTMLSelectElement
+    await inAct(()=>{select.value=value;select.dispatchEvent(new window.Event('change',{bubbles:true}))})
+    await flush()
+  }
+  await choose('.docket-sort-select','created')
+  assert.deepEqual(titles(el),['created-first','status-first','updated-first'])
+  await choose('.docket-sort-select','status')
+  assert.deepEqual(titles(el),['status-first','updated-first','created-first'])
+  await inAct(()=> (el.querySelector('.docket-showbacklog input') as HTMLInputElement).click())
+  assert.equal(titles(el).at(-1),'future-work')
+  await choose('.docket-group-select','status')
+  assert.equal(el.querySelectorAll('.docket-group-head').length,3,'two active statuses and a backlog group')
+  assert.equal(el.querySelector('.mailer-read')!.textContent,chosen,'view controls preserve the selected detail')
+})
