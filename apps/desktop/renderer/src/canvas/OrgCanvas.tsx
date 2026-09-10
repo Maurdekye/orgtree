@@ -41,7 +41,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, PinFrame, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -190,17 +190,33 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const [configId, setConfigId] = useState<string | null>(null)
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
+  // Every opener is an ACTIVATION first (user ruling 2026-09-10 16:36, all
+  // pinned modals): a pinned window sitting behind another surface is raised
+  // and (re)targeted, never silently closed — the plain toggle applies only
+  // when the window is already on top or not pinned at all.
   const toggleConfig = useCallback((id: string) => {
+    if (pinnedModalBehind('node-config', slug)) {
+      raisePinnedModal('node-config', slug); setConfigId(id); return
+    }
     setConfigId((v) => isModalPinned('node-config', slug) && v === id ? null : id)
   }, [])
   const toggleUserConfig = useCallback(() => {
+    if (pinnedModalBehind('user-config', slug)) {
+      raisePinnedModal('user-config', slug); setUserCfg(true); return
+    }
     setUserCfg((v) => isModalPinned('user-config', slug) ? !v : true)
   }, [])
   const toggleNodeSurface = useCallback((kind: string, id: string,
     set: (v: string | null | ((current: string | null) => string | null)) => void) => {
+    if (pinnedModalBehind(kind, slug)) {
+      raisePinnedModal(kind, slug); set(id); return
+    }
     set((current) => isModalPinned(kind, slug) && current === id ? null : id)
   }, [])
   const toggleDog = useCallback((id: string) => {
+    if (pinnedModalBehind('watchdog', slug)) {
+      raisePinnedModal('watchdog', slug); setDogView(id); return
+    }
     setDogView((current) => isModalPinned('watchdog', slug) && current === id ? null : id)
   }, [])
   const [lineageId, setLineageId] = useState<string | null>(null)
@@ -2789,7 +2805,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
             }}
             title="the org inbox — outside mail addressed to this organization"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)}>
+            onClick={() => {
+              if (pinnedModalBehind('org-inbox', slug)) { raisePinnedModal('org-inbox', slug); return }
+              setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)
+            }}>
             <div className="oi-head">
               {/* the label is its own element so it can ELLIPSIS instead of
                   wrapping. As a bare text node it was an anonymous flex item

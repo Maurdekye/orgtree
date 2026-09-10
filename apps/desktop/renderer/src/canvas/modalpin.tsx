@@ -320,6 +320,14 @@ export const modalToggleAction = (kind: string, open: boolean,
   if (!open) return 'open'
   return pinnedModalBehind(kind, org) ? 'raise' : 'close'
 }
+/** the one-call form every toggle button uses: applies modalToggleAction to
+ *  the button's own open state — raise leaves `open` untouched */
+export const toggleOrRaiseModal = (kind: string, open: boolean,
+  set: (v: boolean) => void, org: string | null = null): void => {
+  const action = modalToggleAction(kind, open, org)
+  if (action === 'raise') raisePinnedModal(kind, org)
+  else set(action === 'open')
+}
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
 export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {
   kind = modalPinKey(kind, org)

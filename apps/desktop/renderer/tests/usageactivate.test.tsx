@@ -15,7 +15,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   forgetModalOpenCache, forgetModalPins, isModalPinned, MODAL_Z_TOP,
-  modalToggleAction, PinFrame, raisePinnedModal,
+  modalToggleAction, PinFrame, raisePinnedModal, toggleOrRaiseModal,
 } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import type { ReactNode } from 'react'
@@ -90,6 +90,41 @@ test('open-behind activation raises the pinned window instead of closing it', as
   assert.equal(modalToggleAction('gallery', true, ORG), 'open')
 
   await docket.unmount(); await usage.unmount()
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+})
+
+test('toggleOrRaiseModal is kind-agnostic: every toggle button gets the same rule', async () => {
+  // representative pair from the OTHER buttons the ruling covers (docket,
+  // presented-gallery, inboxes…) — the helper must behave identically for
+  // any kind, not only usage
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const docket = await mountFrame('docket')
+  const gallery = await mountFrame('gallery')
+  await inAct(async () => {
+    (docket.q('button[aria-label="pin this to the window"]') as HTMLElement).click()
+    await flush()
+  })
+  await inAct(async () => {
+    (gallery.q('button[aria-label="pin this to the window"]') as HTMLElement).click()
+    await flush()
+  })
+  assert.ok(docket.z() < gallery.z(), 'control: docket starts behind gallery')
+
+  const sets: boolean[] = []
+  // open-behind: the click raises and NEVER touches the open state
+  await inAct(async () => {
+    toggleOrRaiseModal('docket', true, (v) => sets.push(v), ORG)
+    await flush()
+  })
+  assert.deepEqual(sets, [], 'raise leaves the open state untouched')
+  assert.ok(docket.z() > gallery.z(), 'the docket window came to the front')
+  // on top: the click means close, exactly as before
+  toggleOrRaiseModal('docket', true, (v) => sets.push(v), ORG)
+  assert.deepEqual(sets, [false], 'on top, the toggle still closes')
+  // closed: the click opens
+  toggleOrRaiseModal('docket', false, (v) => sets.push(v), ORG)
+  assert.deepEqual(sets, [false, true], 'closed, the toggle opens')
+  await gallery.unmount(); await docket.unmount()
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
 })
 

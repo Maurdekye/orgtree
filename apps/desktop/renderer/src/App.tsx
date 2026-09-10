@@ -45,7 +45,7 @@ import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, modalToggleAction, PinFrame, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen } from './canvas/modalpin'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
@@ -377,15 +377,16 @@ export default function App() {
   // org it was pinned in; at home (slug null) it is unpinnable and the
   // marker never writes
   usePersistedModalOpen('usage', slug, showUsage)
-  // BOTH usage buttons (header and drawer) go through one decision (user
-  // ruling 2026-09-10 16:36): a click that means "bring up my usage window"
-  // must never silently close a pinned window that was merely sitting behind
-  // another surface — see modalToggleAction for the three-way rule.
-  const toggleUsage = useCallback(() => {
-    const action = modalToggleAction('usage', showUsage, slug)
-    if (action === 'raise') raisePinnedModal('usage', slug)
-    else setShowUsage(action === 'open')
-  }, [showUsage, slug])
+  // EVERY pinned surface's toggle button goes through one decision (user
+  // ruling 2026-09-10 16:36, all pinned modals): a click that means "bring
+  // up my window" must never silently close a pinned window that was merely
+  // sitting behind another surface — see modalToggleAction for the
+  // three-way rule (open / raise / close).
+  const toggleSurface = useCallback((kind: string, open: boolean,
+    set: (v: boolean) => void) =>
+    toggleOrRaiseModal(kind, open, set, slug), [slug])
+  const toggleUsage = useCallback(() =>
+    toggleSurface('usage', showUsage, setShowUsage), [toggleSurface, showUsage])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', null, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -413,6 +414,7 @@ export default function App() {
   const galleryRefs = useShellRefs(slug ?? '', tree ?? null, {
     onOpenItem: (item) => {
       setShowGallery(false); setDocketJump(jumpTo(item)); setShowDocket(true)
+      raisePinnedModal('docket', slug)
     },
     onFocusAgent: (id) => { setShowGallery(false); setFocusAgent(id) },
     onOpenDoc: (id) => { setShowGallery(false); setDocJump(id) },
@@ -491,8 +493,8 @@ export default function App() {
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
-    if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true) }
-    else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))) }
+    if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
+    else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
@@ -1014,7 +1016,7 @@ export default function App() {
                     and are display:none at compact */}
                 {!tree.public &&
                   <button className="mob-only bar-row"
-                    onClick={() => { setBarMore(false); setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true) }}>
+                    onClick={() => { setBarMore(false); toggleSurface('org-settings', showSettings, setShowSettings) }}>
                     <SettingsIcon fontSize="inherit" /> settings</button>}
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
                   onKilled={() => setBarMore(false)} className="mob-only" />
@@ -1041,7 +1043,7 @@ export default function App() {
                   return (
                     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
                       title={pip?.title ?? 'your inbox'}
-                      onClick={() => { setInboxJump(null); setShowInbox(v => isModalPinned('inbox', slug) ? !v : true) }}>
+                      onClick={() => { setInboxJump(null); toggleSurface('inbox', showInbox, setShowInbox) }}>
                       <MailIcon fontSize="inherit" />
                       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
                         {pip.count}</b>}
@@ -1068,7 +1070,7 @@ export default function App() {
                       title={docs > 0
                         ? `presented documents — ${docs} from currently-hired agents`
                         : 'presented documents'}
-                      onClick={() => setShowGallery(v => isModalPinned('gallery', slug) ? !v : true)}>
+                      onClick={() => toggleSurface('gallery', showGallery, setShowGallery)}>
                       <DocIcon fontSize="inherit" />
                       {docs > 0 && <b className="eye-count">{docs}</b>}
                     </button>
@@ -1081,7 +1083,7 @@ export default function App() {
                     (zero hidden). */}
                 <DocketToolbarButton
                   summary={tree.work_items_summary}
-                  onClick={() => setShowDocket(v => isModalPinned('docket', slug) ? !v : true)} />
+                  onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
                 <button className="iconbtn barmore mob-only" title="more"
                   onClick={() => setBarMore((v) => !v)}>⋯</button>
                 {/* host subscription usage (the Claude Code /usage bars) —
@@ -1098,7 +1100,7 @@ export default function App() {
                     keeps just the icon */}
                 {!tree.public &&
                   <button className="iconbtn" title="Settings" aria-label="Settings"
-                    onClick={() => setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true)}><SettingsIcon fontSize="inherit" /></button>}
+                    onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)}><SettingsIcon fontSize="inherit" /></button>}
                 <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
@@ -1122,17 +1124,33 @@ export default function App() {
                 onOpenMailHandled={() => setMailJump(null)}
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
-                onOpenAgentGallery={(id) => setAgentGalleryId((current) => {
-                  return current === id && isModalPinned('agent-gallery', slug) ? null : id
-                })}
+                onOpenAgentGallery={(id) => {
+                  // the same shortcut again is an activation click: raise a
+                  // pinned window sitting behind, toggle off only from on top
+                  if (agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
+                    if (pinnedModalBehind('agent-gallery', slug)) raisePinnedModal('agent-gallery', slug)
+                    else setAgentGalleryId(null)
+                    return
+                  }
+                  setAgentGalleryId(id)
+                  raisePinnedModal('agent-gallery', slug)
+                }}
                 onAccounts={BASE ? undefined : () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
                 onInbox={(jump: unknown) => {
-                  setInboxJump(typeof jump === 'string' ? jumpTo(jump) : null)
-                  setShowInbox(v => typeof jump === 'string' ? true : isModalPinned('inbox', slug) ? !v : true)
+                  if (typeof jump === 'string') {
+                    // a targeted jump opens AND surfaces a pinned window —
+                    // landing behind another surface reads as a dead click
+                    setInboxJump(jumpTo(jump)); setShowInbox(true)
+                    raisePinnedModal('inbox', slug)
+                  } else {
+                    setInboxJump(null)
+                    toggleSurface('inbox', showInbox, setShowInbox)
+                  }
                 }}
                 onWorkItem={(item: string) => {
                   setDocketJump(jumpTo(item))
                   setShowDocket(true)
+                  raisePinnedModal('docket', slug)
                 }} />
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               </div>
@@ -1164,6 +1182,7 @@ export default function App() {
                       setShowInbox(false); setInboxJump(null)
                     }, slug)
                     setDocketJump(jumpTo(item)); setShowDocket(true)
+                    raisePinnedModal('docket', slug)
                   }}
                   onOpenDoc={(id) => {
                     closeIfCentred('inbox', () => {
