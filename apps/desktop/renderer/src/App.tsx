@@ -973,11 +973,10 @@ export default function App() {
                     </span>
                   )
                 })()}
-                {(() => {   // F-06: hub connectivity chip (enabled, NON-hidden
-                  // hubs — a local hub that never answered shows no UI at all,
-                  // user ruling 2026-08-05)
+                {(() => {   // Only external connections get header tokens.
+                  // The embedded hub has the stable id "local" (net.LOCAL_HUB_ID).
                   const hubs = (tree.net?.hubs ?? [])
-                    .filter((h) => h.enabled && !h.hidden)
+                    .filter((h) => h.id !== 'local' && h.enabled && !h.hidden)
                   if (!hubs.length) return null
                   const up = hubs.filter((h) => h.connected).length
                   const queued = hubs.reduce((a, h) => a + h.queued, 0)

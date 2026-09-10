@@ -98,6 +98,28 @@ async function open(el: HTMLElement, label: string) {
   return t!
 }
 
+test('History loads inside Settings and the Autonomy toggle saves auto-resume', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  stubFetch(seen)
+  const { view } = await mountOrg({ auto_resume: false })
+  try {
+    assert.equal(seen.some(r => r.path === '/api/orgs/acme/history'), false)
+    await open(view.el, 'History')
+    await inAct(async () => { await flush(10) })
+    assert.ok(seen.some(r => r.method === 'GET' && r.path === '/api/orgs/acme/history'))
+    assert.equal(view.el.querySelectorAll('.overlay').length, 1)
+    await open(view.el, 'Autonomy')
+    const label = [...view.el.querySelectorAll('label')].find(el =>
+      el.textContent?.includes('auto-resume frozen agents when the usage limit resets'))
+    const input = label?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    assert.ok(input, 'the setting is accessible in Autonomy')
+    assert.equal(input.checked, false)
+    await inAct(async () => { input.click(); await flush(10) })
+    assert.ok(seen.some(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings'
+      && (r.body as Record<string, unknown>).auto_resume === true))
+  } finally { await view.unmount(); delete g.fetch }
+})
+
 test('①  ONE modal: a single overlay, no advanced disclosure, and every '
   + 'former advanced section reachable as a sibling tab', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
