@@ -81,8 +81,9 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
       .catch((e: Error) => toast([`remove: ${e.message}`]))
   }
   const refreshIdentity = (id: string) => {
+    const label = rows.find(row => row.id === id)?.label || id
     req<{ auth: string }>(`/api/accounts/${id}/identity`)
-      .then((r) => { toast([`${id}: ${r.auth}`]); reload() })
+      .then((r) => { toast([`${label}: ${r.auth}`]); reload() })
       .catch((e: Error) => toast([`identity: ${e.message}`]))
   }
 

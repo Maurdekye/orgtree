@@ -16,6 +16,27 @@ const account = (id: string, auth = 'authenticated') => ({
   bound: [] as object[],
 })
 
+test('refresh identifies the visible account label while querying its stable id', async t => {
+  const oldFetch = globalThis.fetch
+  const calls: string[] = []
+  const notices: string[][] = []
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url))
+    return new Response(JSON.stringify(String(url).endsWith('/identity')
+      ? { auth: 'unauthenticated' }
+      : { accounts: [{ ...account('claude-4'), label: 'claude-0' }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  const view = await mountView(<AccountRegistrySection toast={lines => { notices.push(lines) }} />, el => el)
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
+  await inAct(async () => { await flush() })
+  const refresh = [...view.el.querySelectorAll('button')].find(b => b.textContent === 'refresh')!
+  assert.ok(refresh)
+  await inAct(async () => { refresh.click(); await flush() })
+  assert.ok(calls.includes('/api/accounts/claude-4/identity'))
+  assert.deepEqual(notices, [['claude-0: unauthenticated']])
+})
+
 test('creating a managed account shows the new row with its sign-in action', async t => {
   // STATEFUL mock (user defect 2026-09-10, "Create managed does nothing"):
   // the POST mints a row the next reload really serves, so the assertion is
