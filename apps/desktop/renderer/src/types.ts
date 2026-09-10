@@ -1042,6 +1042,9 @@ export interface LiveRowPayload {
 export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
+  /** Bounded source projection: seq is an identity, not a row count. */
+  windowed?: boolean
+  has_older?: boolean
   transient?: ChatTransient[]
   busy: boolean
   /** The current busy turn has produced at least one observable event.

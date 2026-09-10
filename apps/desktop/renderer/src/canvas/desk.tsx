@@ -1,3 +1,4 @@
+import { transcriptViewport } from '../transcriptViewport'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
@@ -1476,6 +1477,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const growAnchor = useRef<number | null>(null)
   useLayoutEffect(() => {
     const el = scroller.current
+    fillViewportRef.current()
     if (stickRef.current) { pin(); calcPin(); return }
     if (el && growAnchor.current != null) {
       el.scrollTop = el.scrollHeight - growAnchor.current
@@ -1484,7 +1486,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     calcPin()   // FR-20: content growth moves the target without a scroll event
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
-  const hasOlder = (chat?.messages[0]?.seq ?? 0) > 0
+  const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
   const toBottom = () => { setStuck(true); pin() }
   // Only explicit canonical actors establish authorship; legacy text stays readable.
   const userTurns = useMemo(() => {
@@ -1590,17 +1592,26 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       if (stickRef.current) pin()
       else setStuck(nearBottom())
       calcPinRef.current()
+      fillViewportRef.current()
     })
     ro.observe(el)
     roRef.current = ro
   }, [])
   const pinTarget = pinSeq == null ? null
     : userTurns.find((u) => u.seq === pinSeq) ?? null
-  const loadOlder = () => {
+  const loadOlder = (count?: number) => {
     const el = scroller.current
     if (!el) return
     growAnchor.current = el.scrollHeight - el.scrollTop
-    if (!storeLoadOlder(slug, node.id)) growAnchor.current = null
+    if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page)) growAnchor.current = null
+  }
+
+  const fillViewportRef = useRef<() => void>(() => {})
+  fillViewportRef.current = () => {
+    const el = scroller.current
+    if (!el || !hasOlder || loadingOlder) return
+    const { more } = transcriptViewport(el)
+    if (more) loadOlder(more)
   }
 
   // Ingestion of stream/pulse events, the transcript fetch, the live/durable
@@ -2265,7 +2276,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             setStuck(nearBottom())
             calcPin()
             // within a screen of the top: page in the previous window
-            if (e.currentTarget.scrollTop < 240 && hasOlder) loadOlder()
+            if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
           }}>
           {/* paging is automatic (the onScroll above pages in within a screen
               of the top) — this is a status line, not a control. It still
@@ -2277,7 +2288,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               {loadingOlder ? 'loading earlier messages…'
                 : convo.win >= MAX_WINDOW
                   ? `${chat?.messages[0]?.seq ?? 0} earlier messages — beyond the window`
-                  : `${chat?.messages[0]?.seq ?? 0} earlier messages`}
+                  : chat?.windowed ? 'earlier messages' : `${chat?.messages[0]?.seq ?? 0} earlier messages`}
             </div>)}
           {!hasOlder && convo.win > CHAT_WINDOW && chat?.messages.length
             ? <div className="dim pad loadolder-end">— start of the conversation —</div> : null}
@@ -2310,7 +2321,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div key={m.event_id ?? m.seq ?? i}
+              <div data-transcript-row key={m.event_id ?? m.seq ?? i}
                 data-reply-event={m.event_id} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
                 // FR-20: scroll-to anchors — every user turn is a potential
                 // chip target now that scrolling past one retargets to the
