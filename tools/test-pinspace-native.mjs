@@ -6,16 +6,17 @@ import os from 'node:os'
 import path from 'node:path'
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'orgtree-pinspace-'))
 await build({stdin:{contents:`
-import React,{useState} from 'react';import{createRoot}from'react-dom/client';
+import React,{useState,useLayoutEffect,useRef} from 'react';import{createRoot}from'react-dom/client';
 import{PinFrame,pinModal}from'./apps/desktop/renderer/src/canvas/modalpin';
+import{createPortal}from'react-dom';
 import{CurrentOrg}from'./apps/desktop/renderer/src/popout';
-import{usePinSurface,raisePinSurface}from'./apps/desktop/renderer/src/canvas/pinspace';
+import{pinLayerFor,adoptPinLayer,usePinSurface,raisePinSurface}from'./apps/desktop/renderer/src/canvas/pinspace';
 import'./apps/desktop/renderer/src/styles.css';
 localStorage.clear();
-pinModal('docket',{x:0,y:0,w:500,h:400});pinModal('gallery',{x:0,y:0,w:500,h:400});
-function Peer(){const p=usePinSurface('fixture','worker',{x:0,y:0,w:500,h:400},false);return <div className='pinwin' id='peer' style={{left:0,top:0,width:500,height:400,zIndex:p.z}} onPointerDown={()=>raisePinSurface(p.key)}>Desk peer</div>}
-function Fixture(){const[open,setOpen]=useState(true);window.togglePin=()=>setOpen(v=>!v);return <CurrentOrg.Provider value='fixture'>
-<div className='viewport' data-pin-org='fixture' style={{position:'absolute',left:30,top:90,right:30,bottom:30}}><Peer/><div className='zoomhud' id='hud' style={{position:'absolute',left:12,top:12,right:'auto',bottom:'auto'}}><button id='hud-button'>Zoom</button></div></div>
+pinModal('docket',{x:0,y:0,w:500,h:400},'fixture');pinModal('gallery',{x:0,y:0,w:500,h:400},'fixture');
+function Peer({i=0}){const p=usePinSurface('fixture','worker'+i,{x:0,y:0,w:500,h:400},false);return <div className='pinwin' id={'peer-'+i} style={{left:0,top:0,width:500,height:400,zIndex:p.z}} onPointerDown={()=>raisePinSurface(p.key)}>Desk peer</div>}
+function Fixture(){const[open,setOpen]=useState(true);const[count,setCount]=useState(1);window.setCount=setCount;const vp=useRef(null);useLayoutEffect(()=>adoptPinLayer('fixture',vp.current),[]);window.togglePin=()=>setOpen(v=>!v);return <CurrentOrg.Provider value='fixture'>
+<div ref={vp} className='viewport' data-pin-org='fixture' style={{position:'absolute',left:30,top:90,right:30,bottom:30}}>{createPortal(Array.from({length:count},(_,i)=><Peer key={i} i={i}/>),pinLayerFor('fixture'))}<div className='zoomhud' id='hud' style={{position:'absolute',left:12,top:12,right:'auto',bottom:'auto'}}><button id='hud-button'>Zoom</button></div></div>
 <PinFrame kind='docket' title='Work' panel='settings fixture-docket' close={()=>{}}><textarea defaultValue='Unsent draft'/></PinFrame>
 {open&&<PinFrame kind='gallery' title='Presented' panel='settings fixture-gallery' close={()=>setOpen(false)}>Presented documents</PinFrame>}
 </CurrentOrg.Provider>};createRoot(document.getElementById('root')).render(<Fixture/>);

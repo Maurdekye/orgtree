@@ -690,7 +690,7 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
     </div>, (h) => h)
   t.after(() => { v.unmount(); forgetPins('mine') })
   await flush(); await advance(200, 16); await flush()
-  const title = v.el.querySelector('.pinwin-title') as HTMLElement
+  const title = document.querySelector('.pin-layer .pinwin-title') as HTMLElement
   assert.ok(title, 'positive control: the pinned window rendered')
   await rightClick(title)
   assert.deepEqual(labels(), ['Show on canvas', 'Unpin'])

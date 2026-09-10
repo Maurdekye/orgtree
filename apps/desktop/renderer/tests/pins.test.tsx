@@ -495,7 +495,8 @@ uiTest('§B1 pin: the desk becomes a screen-space window over the card it left',
   assert.ok(w, 'a .pinwin rendered for cto')
   // THE coordinate-space fact: the window is a sibling of the world, not in it
   assert.ok(!w!.closest('.space'), 'the pinned window is NOT inside the .space transform')
-  assert.equal(w!.parentElement, viewport, 'the pinned window is a direct child of .viewport')
+  assert.ok(w!.parentElement?.classList.contains('pin-layer'), 'the pinned window belongs to the shared pin layer')
+  assert.ok(w!.closest('.viewport') === viewport, 'the pin layer stays inside the viewport')
   // placed exactly over the desk it detached from (viewport px), floored to
   // the minimum usable size
   const r = winRect(w!)

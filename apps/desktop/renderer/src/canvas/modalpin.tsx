@@ -1,4 +1,4 @@
-import { useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap } from './pinspace'
+import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
@@ -450,7 +450,7 @@ export function PinFrame(props: PinFrameProps) {
   // and only at home (no org) does the null scope below disable pin/popout.
   const scope = ['defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} />
-  return <MovableSurface key={scope} anchor={pin ? document.body : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
+  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,

@@ -176,7 +176,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     const container = document.createElement('div'); container.className = 'movable-surface'
     const content = document.createElement('div'); content.className = 'movable-content'
     const overlays = document.createElement('div'); overlays.className = 'movable-overlays'
-    container.append(content, overlays)
+    container.append(content)
     return { container, content, overlays }
   })
   const [owner, setOwner] = useState<Document>(() => parent?.document ?? initiatingDocument())
@@ -218,6 +218,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const place = (target: HTMLElement) => {
     if (fallback.current && fallback.current !== target) discardFallback()
     target.appendChild(parts.container)
+    // Dialogs follow the document, outside any pin stacking context.
+    target.ownerDocument.body.appendChild(parts.overlays)
   }
   const redock = () => {
     const restore = pendingRestore.current ?? preservePosition(parts.container)
@@ -325,6 +327,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // rolled back below, by adopting the SAME container into its anchor.
       discardFallback()
       mount.appendChild(parts.container)
+      d.body.appendChild(parts.overlays)
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
@@ -370,7 +373,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     epoch.current++
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }
     try { child.current?.close() } catch { /* disposed */ }
-    child.current = null; parts.container.remove(); fallback.current?.remove()
+    child.current = null; parts.container.remove(); parts.overlays.remove(); fallback.current?.remove()
   }, [parts])
   useEffect(() => {
     // App-owned dialogs can be displayed in a child's document without

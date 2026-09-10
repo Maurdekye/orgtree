@@ -6272,3 +6272,8 @@ html.mobile .popout-button { display: none; }
 .account-add-option h4{margin:0 0 8px}
 .account-add-option label{display:grid;gap:6px}
 .account-add-option input{width:100%;min-width:0}
+
+/* One context below the HUD; integer child ranks order any number of pins.
+   No transform/contain (fixed modals retain viewport coordinates), and no
+   pointer-events inheritance or covering area to intercept canvas clicks. */
+.pin-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 16; isolation: isolate; }

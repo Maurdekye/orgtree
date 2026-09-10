@@ -49,7 +49,8 @@ import { AgentName } from './identity'
 import { providerOf, TIER_LETTER } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
 import type { ToastFn } from '../types'
-import { usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap } from './pinspace'
+import { createPortal } from 'react-dom'
+import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap } from './pinspace'
 import { useModalOverlap } from './pinoverlap'
 import { findPinSnap, validPinSnap } from './pinSnap'
 import type { PinSnap } from './pinSnap'
@@ -359,6 +360,8 @@ interface Ghost { key: number; id: string; from: PinRect; to: PinRect | null }
 export function PinLayer(props: PinLayerProps) {
   const { slug, map, viewportRef, targetOf, toast } = props
   const pins = usePins(slug)
+  const layer = pinLayerFor(slug)
+  const surfaces = usePinSurfaces().filter(p => p.org === slug)
   const [ghosts, setGhosts] = useState<Ghost[]>([])
   const ghostKey = useRef(0)
   // a viewport resize can strand a window with no gesture to follow it, so
@@ -387,7 +390,7 @@ export function PinLayer(props: PinLayerProps) {
   }, [slug, targetOf, viewportRef, toast])
 
   const vp = vpSize(viewportRef)
-  return (
+  return createPortal(
     <>
       {pins.map((pin) => {
         const node = map.get(pin.id)
@@ -398,8 +401,8 @@ export function PinLayer(props: PinLayerProps) {
         return <PinWindow key={pin.id} pin={pin} node={node} vp={vp}
           onUnpin={unpin} {...props} />
       })}
-      {ghosts.map((g) => <MinimiseGhost key={g.key} ghost={g} />)}
-    </>
+      {ghosts.map((g) => <MinimiseGhost key={g.key} ghost={g} z={surfaces.length + 1} />)}
+    </>, layer
   )
 }
 
@@ -409,7 +412,7 @@ export function PinLayer(props: PinLayerProps) {
  *  desk per agent" holds through the animation too. An off-screen target is
  *  flown toward and clipped by the viewport's overflow:hidden on purpose: a
  *  box that stopped at the edge would imply the agent is there, and it isn't. */
-function MinimiseGhost({ ghost }: { ghost: Ghost }) {
+function MinimiseGhost({ ghost, z }: { ghost: Ghost; z: number }) {
   const [flown, setFlown] = useState(false)
   useEffect(() => {
     const id = requestAnimationFrame(() => setFlown(true))
@@ -419,7 +422,7 @@ function MinimiseGhost({ ghost }: { ghost: Ghost }) {
   const style: CSSProperties = {
     left: r.x, top: r.y, width: r.w, height: r.h,
     opacity: flown ? 0 : 0.9,
-    transitionDuration: `${PIN_GHOST_MS}ms`,
+    transitionDuration: `${PIN_GHOST_MS}ms`, zIndex: z,
   }
   return <div className={'pinwin-ghost' + (ghost.to ? '' : ' fade')} style={style}
     data-id={ghost.id} data-to={ghost.to ? 'card' : 'none'} />
@@ -572,7 +575,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
          (Claude orange) while dragging a teal Codex window. Pin chrome takes
          the provider's colour; so does its shadow. */
       className={'pin-snap-preview prov-' + providerOf(node.tier ?? '')}
-      style={{ left: preview.rect.x, top: preview.rect.y, width: preview.rect.w, height: preview.rect.h }}>
+      style={{ left: preview.rect.x, top: preview.rect.y, width: preview.rect.w, height: preview.rect.h, zIndex: layout.peers.length + 1 }}>
       <span>{preview.label} · Shift for free placement</span>
     </div>}
     <div className={'pinwin prov-' + providerOf(node.tier ?? '')

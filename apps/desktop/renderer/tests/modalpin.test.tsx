@@ -417,7 +417,7 @@ test('§2 centred is exactly what it was; pinned is a window', async () => {
     left: `${MODAL_FALLBACK_RECT.x}px`, top: `${MODAL_FALLBACK_RECT.y}px`,
     width: `${MODAL_FALLBACK_RECT.w}px`, height: `${MODAL_FALLBACK_RECT.h}px`,
   }, 'a fresh pin lands where the panel was measured (here: the fallback)')
-  assert.equal(s.z, String(MODAL_Z_BASE))
+  assert.equal(s.z, '0')
   assert.equal(s.handles, 8, 'eight resize edges, like an agent window')
   await v.unmount()
   reset()
@@ -564,13 +564,13 @@ test('§6 two pinned surfaces coexist, and raising one puts it on top', async ()
   await inAct(() => { click(b.el.querySelector('.modalpin-btn')!) })
   await flush()
   assert.equal(a.last().pinned && b.last().pinned, true)
-  assert.equal(a.last().z, String(MODAL_Z_BASE))
-  assert.equal(b.last().z, String(MODAL_Z_BASE + 3), 'the newer window is on top')
+  assert.equal(a.last().z, '0')
+  assert.equal(b.last().z, '1', 'the newer window is on top')
   // a pointerdown anywhere in the older window raises it
   await inAct(() => { a.last().panel!.dispatchEvent(pointer('pointerdown', 90, 90)) })
   await flush()
-  assert.equal(a.last().z, String(MODAL_Z_BASE + 3))
-  assert.equal(b.last().z, String(MODAL_Z_BASE), 'and the other one drops back')
+  assert.equal(a.last().z, '1')
+  assert.equal(b.last().z, '0', 'and the other one drops back')
   await a.unmount(); await b.unmount()
   reset()
 })
@@ -635,11 +635,11 @@ test('§7 two readers open at once are two windows, not one', async () => {
     'the docket reader did not move when the canvas reader did')
 
   // independent stacking: raising one puts it above the other, both ways
-  assert.equal(b.last().z, String(MODAL_Z_BASE + 3), 'the newer one starts on top')
+  assert.equal(b.last().z, '1', 'the newer one starts on top')
   await inAct(() => { a.last().panel!.dispatchEvent(pointer('pointerdown', 90, 90)) })
   await flush()
-  assert.equal(a.last().z, String(MODAL_Z_BASE + 3), 'and the older one can be raised')
-  assert.equal(b.last().z, String(MODAL_Z_BASE))
+  assert.equal(a.last().z, '1', 'and the older one can be raised')
+  assert.equal(b.last().z, '0')
 
   // independent persistence: closing one leaves the other's window on record
   unpinModal('doc')

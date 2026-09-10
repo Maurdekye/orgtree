@@ -1,4 +1,4 @@
-import { usePinSurfaces } from './pinspace'
+import { adoptPinLayer, usePinSurfaces } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
@@ -9,7 +9,7 @@ import { DeskHosts, DeskListControls } from './deskhosts'
 // HUD and agent tray, and the modal wiring. Extracted verbatim from
 // Canvas.tsx in the phase-3 split.
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { AudienceGrant, NodeStatus, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
@@ -663,6 +663,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const pinnedIds = useMemo(() => new Set(isMobile ? [] : pins.map((p) => p.id)), [pins])
 
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const host = viewportRef.current
+    if (host) return adoptPinLayer(slug, host)
+  }, [slug])
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
   useEffect(() => {
     const el = viewportRef.current

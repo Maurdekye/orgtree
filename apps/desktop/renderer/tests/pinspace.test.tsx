@@ -26,7 +26,8 @@ test('org pin uses canvas coordinates, snaps to a desk peer, and joins its stack
     const overlay=panel.parentElement!
     assert.equal(overlay.style.left,'30px'); assert.equal(overlay.style.top,'80px')
     assert.equal(overlay.style.width,'1000px'); assert.equal(overlay.style.height,'700px')
-    assert.ok(Number(overlay.style.zIndex)>=10 && Number(overlay.style.zIndex)<17)
+    assert.ok(Number.isInteger(Number(overlay.style.zIndex)))
+    assert.ok(overlay.closest('.pin-layer'), 'integer ranks stay inside the shared stacking context')
     assert.equal(readPinSurfaces().filter(p=>p.org==='org').length,2)
     const input=panel.querySelector('input')!
     const bar=panel.querySelector('.modalpin-bar')!

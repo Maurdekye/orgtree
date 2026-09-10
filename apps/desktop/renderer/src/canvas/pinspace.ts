@@ -40,8 +40,9 @@ export function usePinSurface(org: string | null, kind: string, rect: PinRect | 
   useEffect(() => () => removePinSurface(key), [key])
   const peers = all.filter(p => p.org === org).sort((a,b) => a.order - b.order)
   const rank = peers.findIndex(p => p.key === key)
-  // Fractional ranks allow all windows to raise within the existing 10..16 band.
-  return {key, z: 10 + Math.max(0, rank) * 6 / Math.max(1, peers.length), peers}
+  // Children have integer ranks inside one stacking context below the HUD.
+  // A just-pinned surface starts in front before its registration effect runs.
+  return {key, z: rank < 0 ? peers.length : rank, peers}
 }
 
 export interface CanvasBox { x: number; y: number; w: number; h: number }
@@ -99,4 +100,30 @@ export function useDeskOverlap(ref: RefObject<HTMLElement | null>, enabled: bool
     return () => clearInterval(timer)
   }, [ref, enabled])
   return overlap
+}
+
+
+// The canvas adopts this stable portal target; modal pins can name it before
+// the canvas ref is mounted. Keep it connected during org changes so movable
+// surfaces never fall into the disconnected-anchor recovery overlay.
+const layers = new Map<string, HTMLDivElement>()
+export function pinLayerFor(org: string): HTMLDivElement {
+  let layer = layers.get(org)
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'pin-layer'
+    layer.dataset.pinLayer = org
+    document.body.appendChild(layer)
+    layers.set(org, layer)
+  }
+  return layer
+}
+export function adoptPinLayer(org: string, host: HTMLElement): () => void {
+  const layer = pinLayerFor(org)
+  if (layer.parentElement !== host) host.appendChild(layer)
+  return () => {
+    // A later canvas may already have claimed it. An old cleanup must not
+    // steal its successor's windows.
+    if (layer.parentElement === host) document.body.appendChild(layer)
+  }
 }
