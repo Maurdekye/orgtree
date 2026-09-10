@@ -1074,7 +1074,7 @@ def _r_unread(ev: _R) -> str:
     return (f'Your mid-turn message to "{nid}" has NOT been read yet — it has been '
             f'waiting {ev["waited"]} in its steer store. Mid-turn mail is injected when '
             f'the recipient\'s current tool call returns'
-            + (f", and {nid} has been inside one call for {b}" if b else "")
+            + (f", and {nid} has not reported a steering poll for {b}" if b else "")
             + f'. Nothing is lost — it is delivered at that boundary, or at {nid}\'s '
               f'next turn if the turn ends first. If it cannot wait that long, '
               f'orgtree_interrupt (⏸) on {nid} creates a boundary immediately without '

@@ -78,6 +78,12 @@ def seeded():
             assert node['inflight']['text']=='retained ambiguous intent'
         assert store.load_org('unrelated-native').node('worker')['state']=='live'
         assert store.load_org('ordinary-missing').node('worker')['state']=='unrecoverable'
+    original_claim = supervisor.claim_steer
+    def probe_claim(slug, nid, *args):
+        if (slug, nid) == ('auth-fixture', 'caller'):
+            return 'delivery-probe', ['STEERING ROUTE POSITIVE CONTROL']
+        return original_claim(slug, nid, *args)
+    supervisor.claim_steer = probe_claim
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
     import os
@@ -98,7 +104,7 @@ class EngineHTTPTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="v2-http-")
         root = Path(cls.tmp.name)
-        data = root / 'data'; data.mkdir()
+        data = root / 'data'; data.mkdir(); cls.data = data
         home = root / 'home'; home.mkdir()
         ui = root / 'ui'; ui.mkdir(); (ui / 'assets').mkdir()
         (ui / 'index.html').write_text('<!doctype html><title>UI positive control</title>', encoding='utf-8')
@@ -180,6 +186,32 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body['activeAgents'], 0)
         self.assertTrue(body['idle'])
+
+    def test_scoped_steering_route_and_sanitized_hook(self):
+        route = '/api/orgs/auth-fixture/nodes/caller/steer'
+        payload = {'tool_use_id':'probe-tool','transcript_path':''}
+        status, body = self.request(route, payload, token=self.token)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['messages'], ['STEERING ROUTE POSITIVE CONTROL'])
+        self.assertEqual(self.request(route, payload)[0], 401)
+        self.assertEqual(self.request(route.replace('/caller/', '/old/'), payload, token=self.token)[0], 403)
+        self.assertEqual(self.request(route.replace('/caller/', '/old/'), payload, token=self.stale)[0], 403)
+        self.assertEqual(self.request(route.replace('/auth-fixture/', '/foreign/'), payload, token=self.token)[0], 403)
+        self.assertEqual(self.request(route + '/ack', {'delivery_id':'probe','tool_use_id':'probe-tool'}, token=self.token)[0], 200)
+        self.assertEqual(self.request(route.replace('/caller/', '/old/') + '/ack', {'delivery_id':'probe'}, token=self.token)[0], 403)
+        env = {k:v for k,v in os.environ.items() if not k.startswith('ORGTREE_')}
+        env.update(HOME=str(self.data.parent/'home'), USERPROFILE=str(self.data.parent/'home'))
+        command = [sys.executable, str(ROOT/'engine/backend/orgtree/steer.py'),
+                   'auth-fixture', 'caller', '--data-root', str(self.data), '--agent-token', self.token]
+        run = subprocess.run(command, input=json.dumps(payload), text=True, capture_output=True,
+                             env=env, cwd=self.data.parent, timeout=8)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        context = json.loads(run.stdout)['hookSpecificOutput']['additionalContext']
+        self.assertIn('STEERING ROUTE POSITIVE CONTROL', context)
+        self.assertIn('[ORGTREE-DELIVERY:delivery-probe]', context)
+        bad = subprocess.run(command[:-1]+[self.token+'x'], input=json.dumps(payload), text=True,
+                             capture_output=True, env=env, cwd=self.data.parent, timeout=8)
+        self.assertEqual(bad.stdout, '', 'forged hook identity cannot read mail')
 
     def test_desktop_status_total_counts_hired_agents_only(self):
         # n/m active/hired (user spec 2026-09-10): the tray tooltip's total is

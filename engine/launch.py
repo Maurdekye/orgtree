@@ -165,7 +165,12 @@ class TokenGate:
             return
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
         supplied = headers.get(b"x-orgtree-desktop-token", b"").decode("utf-8")
-        if supplied != self.token and scope.get("type") == "http" and scope.get("path") == "/api/agent" and scope.get("method") == "POST":
+        route = str(scope.get("path", ""))
+        parts = route.strip("/").split("/")
+        steer_route = (len(parts) in (6, 7) and parts[:2] == ["api", "orgs"]
+                       and parts[3] == "nodes" and parts[5] == "steer"
+                       and (len(parts) == 6 or parts[6] == "ack"))
+        if supplied != self.token and scope.get("type") == "http" and (route == "/api/agent" or steer_route) and scope.get("method") == "POST":
             from orgtree import agentauth
             identity = agentauth.verify(headers.get(b"x-orgtree-agent-token", b"").decode("utf-8"))
             if identity is not None:

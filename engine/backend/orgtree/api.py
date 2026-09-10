@@ -4281,8 +4281,24 @@ class SteerAck(Body):
     tool_use_id: str = ""
 
 
+def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
+    identity = getattr(request.state, "agent_identity", None) if request else None
+    if identity is None:
+        return  # Desktop-authenticated request, or the standalone V1 gateway.
+    valid = False
+    if identity[:2] == (slug, nid):
+        try:
+            with store.DOC_LOCK:
+                node = store.load_org(slug).node(nid)
+                valid = node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
+        except (KeyError, ValueError, OSError):
+            pass
+    if not valid:
+        raise HTTPException(403, "Steering credential does not name this live agent generation")
+
+
 @app.post("/api/orgs/{slug}/nodes/{nid}/steer")
-def node_steer(slug: str, nid: str, body: SteerClaim | None = None) -> dict[str, Any]:
+def node_steer(slug: str, nid: str, body: SteerClaim | None = None, request: Request = None) -> dict[str, Any]:  # type: ignore[assignment]
     """Called by the PostToolUse steering hook inside a node's turn: pops ALL
     the node's pending mid-task mail — user and agent alike — for immediate
     delivery (sender attribution rides inside each message).
@@ -4290,6 +4306,7 @@ def node_steer(slug: str, nid: str, body: SteerClaim | None = None) -> dict[str,
     Plain `def` (№22): this loads and saves the org document under DOC_LOCK,
     which is not work to do ON the event loop — least of all here, where the
     loop is what carries the very `steered` frame this call produces."""
+    _validate_steer_actor(request, slug, nid)
     # storage-bypass audit: every tool call gives the storage limit a chance
     # to land MID-TURN (throttled + backgrounded inside)
     supervisor.maybe_storage_check(slug)
@@ -4330,9 +4347,10 @@ def node_steer(slug: str, nid: str, body: SteerClaim | None = None) -> dict[str,
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/steer/ack")
-def node_steer_ack(slug: str, nid: str, body: SteerAck) -> dict[str, Any]:
+def node_steer_ack(slug: str, nid: str, body: SteerAck, request: Request = None) -> dict[str, Any]:  # type: ignore[assignment]
     """The hook's RECEIPT for a claimed delivery, after it has printed the
     context. Owner-checked, idempotent, commits nothing (D1)."""
+    _validate_steer_actor(request, slug, nid)
     return supervisor.ack_steer(slug, nid, body.delivery_id, body.tool_use_id)
 
 

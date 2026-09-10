@@ -8181,7 +8181,11 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
         settings = _steer_settings(
             '"{}" "{}" "{}" "{}"'.format(
                 sys.executable.replace("\\", "/"),
-                steer_py.replace("\\", "/"), slug, nid))
+                steer_py.replace("\\", "/"), slug, nid)
+            + ' --data-root "{}"'.format(store.DATA_ROOT.replace("\\", "/"))
+            + (' --agent-token "{}"'.format(scoped_token)
+               if (scoped_token := agentauth.child_env(slug, nid,
+                   generation=int(n.get("generation", 0))).get("ORGTREE_AGENT_TOKEN")) else ""))
     else:
         settings = {"disableAllHooks": True}
     if sandboxed:
@@ -25165,13 +25169,11 @@ def note_steer_poll(slug: str, nid: str) -> None:
 
 
 def steer_wait(slug: str, nid: str) -> float | None:
-    """Seconds this node has gone WITHOUT an injection point, or None.
+    """Seconds since the last observed steering poll, or None when idle.
 
-    None means the question does not apply: the node is not responding, so
-    nothing is waiting on a tool boundary. A number is the age of the last
-    boundary — which, for a node that is mid-turn, is the length of the tool
-    call currently in flight (seeded at turn start, so a first tool call that
-    never returns still reads as a growing wait)."""
+    The timer is seeded at turn start. A missing poll can mean a long call,
+    a failed hook, or a transport fault; it does not prove a tool is running.
+    """
     st = state(slug, nid)
     with _state_lock:
         if not st.get("responding"):
@@ -25223,7 +25225,7 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     turn and injected at its next PostToolUse boundary — soonest possible
     without interrupting (D-044/D-045), which is right, but it is a WAIT and
     the sender is the one who has to decide whether it can afford it. When
-    the recipient has been inside a single tool call past `STEER_LATE_AFTER`
+    no steering poll has arrived for `STEER_LATE_AFTER`
     the note also names ⏸ `orgtree_interrupt`, because that is the one thing
     that DOES land immediately and the sender will otherwise not think of it.
     """
@@ -25253,9 +25255,9 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
         # send whose recipient is between two short calls.
         head = f"handed to {nid}'s RUNNING turn — NOT read yet"
         if isinstance(wait, (int, float)) and wait >= STEER_LATE_AFTER:
-            return (f"{head}, and ⚠ {nid} has been inside ONE tool call for "
-                    f"{_dur(wait)} — a long build, test run or probe has no "
-                    f"injection point until it ends, so if this cannot wait, "
+            return (f"{head}, and ⚠ {nid} has not reported a steering poll for "
+                    f"{_dur(wait)} — a long call or a failed delivery hook can prevent an "
+                    f"observed poll; if this cannot wait, "
                     f"orgtree_interrupt (⏸) on {nid} lands immediately and the "
                     f"mail is delivered at the boundary that creates.")
         if isinstance(wait, (int, float)):

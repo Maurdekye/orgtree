@@ -22,6 +22,13 @@ import urllib.request
 from typing import cast
 
 
+def option(name: str) -> str:
+    try:
+        return sys.argv[sys.argv.index(name) + 1]
+    except (ValueError, IndexError):
+        return ""
+
+
 def identity() -> tuple[str | None, str | None, str | None, str | None]:
     """(org, node, base_url, secret) — org+node from argv when the backend
     passed them (it does since review C10), the cwd split as fallback. A third
@@ -40,7 +47,7 @@ def identity() -> tuple[str | None, str | None, str | None, str | None]:
     secret there; frozen mode deliberately does not."""
     cwd = os.path.realpath(os.getcwd())
     data_root = os.path.realpath(
-        os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree")))
+        option("--data-root") or os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree")))
     scratch = os.path.join(data_root, "scratch")
     if len(sys.argv) >= 3 and sys.argv[1] and sys.argv[2]:
         org, node = sys.argv[1], sys.argv[2]
@@ -51,7 +58,7 @@ def identity() -> tuple[str | None, str | None, str | None, str | None]:
         if len(parts) < 2:
             return None, None, None, None
         org, node = parts[0], parts[1]
-    argv_secret = sys.argv[3] if len(sys.argv) >= 4 else ""
+    argv_secret = sys.argv[3] if len(sys.argv) >= 4 and not sys.argv[3].startswith("--") else ""
     try:
         # ⚠ the file is written by ANOTHER process (sandbox.py, into a mounted
         # sandbox home) and can be truncated mid-write, a list, or carry a null
@@ -113,6 +120,8 @@ def main() -> None:
             data=json.dumps({"tool_use_id": tool_use_id,
                              "transcript_path": transcript_path}).encode(),
             headers={"Content-Type": "application/json"})
+        if option("--agent-token"):
+            req.add_header("X-Orgtree-Agent-Token", option("--agent-token"))
         if secret:
             req.add_header("X-Orgtree-Bridge", secret)
         # ⚠ 2 s, not 5. This runs inside a PostToolUse hook with an 8 s budget,
@@ -160,6 +169,8 @@ def main() -> None:
             data=json.dumps({"delivery_id": str(delivery_id),
                              "tool_use_id": tool_use_id}).encode(),
             headers={"Content-Type": "application/json"})
+        if option("--agent-token"):
+            ack.add_header("X-Orgtree-Agent-Token", option("--agent-token"))
         if secret:
             ack.add_header("X-Orgtree-Bridge", secret)
         with urllib.request.urlopen(ack, timeout=2):
