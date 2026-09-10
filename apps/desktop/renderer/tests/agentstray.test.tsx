@@ -37,7 +37,7 @@ const txt = (el: HTMLElement) => el.textContent ?? ''
 
 function uiTest(name: string,
   body: (k: { mount: (el: React.ReactElement)
-    => Promise<{ el: HTMLElement }> }) => Promise<void>): void {
+    => Promise<{ el: HTMLElement; unmount: () => Promise<void> }> }) => Promise<void>): void {
   test(name, async (t: TestContext) => {
     useFakeClock()
     const open: { unmount: () => Promise<void> }[] = []
@@ -49,7 +49,7 @@ function uiTest(name: string,
       mount: async (el) => {
         const v = await mountView(el, (host) => host)
         open.push(v)
-        return { el: v.el }
+        return v
       },
     })
   })
@@ -237,10 +237,11 @@ function treeWithStatus(ids: string[] = ['ceo']): TreePayload {
 
 async function openTray(mount: (el: React.ReactElement) => Promise<{ el: HTMLElement }>,
                         onWorkItem?: (s: string) => void, ids?: string[]) {
+  const { CurrentOrg } = await import('../src/popout')
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const { el } = await mount(
-    <OrgCanvas tree={treeWithStatus(ids)} op={() => Promise.resolve({} as never)}
-      slug="mine" toast={noop} mailEvt={null} onWorkItem={onWorkItem} />)
+    <CurrentOrg.Provider value="mine"><OrgCanvas tree={treeWithStatus(ids)} op={() => Promise.resolve({} as never)}
+      slug="mine" toast={noop} mailEvt={null} onWorkItem={onWorkItem} /></CurrentOrg.Provider>)
   await flush()
   const toggle = el.querySelector('.tray-toggle') as HTMLElement
   await inAct(() => { toggle.click() })
@@ -356,8 +357,10 @@ uiTest('§10 the whole agents list reuses the shared pin and popout surface cont
   assert.ok(pin, 'the whole list exposes the existing pin control')
   await inAct(() => { pin!.click() })
   await flush(3)
-  assert.equal(pin!.getAttribute('aria-pressed'), 'true', 'pinning updates the shared surface state')
-  assert.ok(panel!.classList.contains('modalpin-win'), 'the list remains the same mounted surface when pinned')
+  const pinnedPanel = document.body.querySelector('.tray-panel')!
+  const pinnedButton = pinnedPanel.querySelector('[aria-label="unpin this window"]')!
+  assert.equal(pinnedButton.getAttribute('aria-pressed'), 'true', 'pinning updates the shared surface state')
+  assert.ok(pinnedPanel.classList.contains('modalpin-win'), 'the list remains the same mounted surface when pinned')
   localStorage.removeItem(MODAL_PINS_KEY)
 })
 uiTest('§11 pinned agent lists ignore main dismissal, restore, close and scope by org', async ({ mount }) => {
@@ -367,19 +370,19 @@ uiTest('§11 pinned agent lists ignore main dismissal, restore, close and scope 
     slug="mine" toast={noop} mailEvt={null} /></CurrentOrg.Provider>
   localStorage.clear()
   forgetModalPins(); forgetModalOpenCache()
-  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 })
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 }, 'mine')
   rememberModalOpen('agent-list', 'mine')
   const first = await mount(canvas(['ceo', 'cto']))
   await flush(5)
-  assert.ok(first.el.querySelector('.tray-panel'), 'a pinned agent list restores into its owning org')
+  assert.ok(document.body.querySelector('.tray-panel'), 'a pinned agent list restores into its owning org')
   await inAct(() => {
     document.body.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })
   await flush()
-  assert.ok(first.el.querySelector('.tray-panel'),
+  assert.ok(document.body.querySelector('.tray-panel'),
     'main-window outside click and Escape must not dismiss a pinned list')
-  const unpin = first.el.querySelector<HTMLButtonElement>('[aria-label="unpin this window"]')
+  const unpin = document.body.querySelector<HTMLButtonElement>('[aria-label="unpin this window"]')
   assert.ok(unpin, 'the pinned list exposes the shared unpin control')
   await inAct(() => { unpin!.click() })
   await flush(3)
@@ -390,22 +393,24 @@ uiTest('§11 pinned agent lists ignore main dismissal, restore, close and scope 
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })
   await flush()
-  assert.equal(first.el.querySelector('.tray-panel'), null,
+  assert.equal(document.body.querySelector('.tray-panel'), null,
     'after unpin, ordinary centred Escape dismissal still closes the list')
 
   // A fresh mount models the renderer restart path: the pinned/open records
   // are the only inputs needed to reopen the list, not an in-memory flag.
-  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 })
+  await first.unmount()
+  pinModal('agent-list', { x: 30, y: 30, w: 420, h: 300 }, 'mine')
   rememberModalOpen('agent-list', 'mine')
   const restored = await mount(canvas(['ceo', 'cto']))
   await flush(5)
-  assert.ok(restored.el.querySelector('.tray-panel'),
+  assert.ok(document.body.querySelector('.tray-panel'),
     'a renderer restart restores the list from the pinned/open records')
+  await restored.unmount()
   localStorage.removeItem(MODAL_OPEN_KEY); forgetModalOpenCache()
   rememberModalOpen('agent-list', 'other')
   const foreign = await mount(canvas(['ceo']))
   await flush(5)
-  assert.equal(foreign.el.querySelector('.tray-panel'), null,
+  assert.equal(document.body.querySelector('.tray-panel'), null,
     'an open marker for another org must not reopen this org list')
 })
 

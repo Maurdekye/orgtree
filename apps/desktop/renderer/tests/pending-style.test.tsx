@@ -76,8 +76,13 @@ test('typed and legacy pending and delivered mail all use the Message card', asy
   const canonical = (el: Element) => {
     const clone = el.cloneNode(true) as Element
     for (const c of clone.querySelectorAll('.pend-tag, .pend-x, .ghost-acts')) c.remove()
+    // Transport provenance attributes differ; the card DOM and paint do not.
+    for (const c of clone.querySelectorAll('[data-actor-kind]')) c.removeAttribute('data-actor-kind')
+    for (const c of clone.querySelectorAll('strong[title^="Recorded mail kind:"]')) c.removeAttribute('title')
     return clone.innerHTML.replace(/:r[0-9a-z]+:/g, ':react-id:').replace(/data-mail-id="m[tc]"/g, '')
   }
+  assert.equal(done!.getAttribute('data-event-variant'), null, 'legacy is never labelled typed')
+  assert.equal(control!.getAttribute('data-event-variant'), 'ordinary.message', 'typed positive control')
   assert.equal(canonical(pend!), canonical(done!))
   assert.equal(canonical(pend!), canonical(control!))
 })

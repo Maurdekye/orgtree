@@ -168,7 +168,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
 
 test('pinned modal fades only over the focused desk; toggle, amount and non-overlap change real style', async () => {
   localStorage.clear(); forgetModalPins(); setModalOverlap({ enabled: true, opacity: 0.7 })
-  pinModal('fade-fixture', { x: 50, y: 50, w: 500, h: 400 })
+  pinModal('fade-fixture', { x: 50, y: 50, w: 500, h: 400 }, 'org')
   const desk = document.createElement('div'); desk.className = 'sq desk'; desk.innerHTML = '<div class="desk-over"></div>'; document.body.appendChild(desk)
   const original = window.HTMLElement.prototype.getBoundingClientRect
   let overlap = true

@@ -87,7 +87,7 @@ export function presentationMenu(el: Element | null, slug: string,
   return entries
 }
 
-/** The same activation in the canvas chips and titled desk cards. HTML
+/** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
 export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast }: {
   slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'>; onOpen: (id: string) => void
@@ -107,7 +107,7 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   return <button className={className} title={`read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); onOpen(doc.id) }}
-    onContextMenu={onContextMenu}>{children}{menu.node}</button>
+    onContextMenu={onContextMenu}>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}{menu.node}</button>
 }
 
 /** Reference and gallery readers never put HTML into the app's own DOM. */

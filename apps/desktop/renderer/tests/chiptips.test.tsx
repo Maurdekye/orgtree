@@ -92,7 +92,7 @@ function uiTest(name: string,
  *  hire. If that table moves, this test moves with it or fails loudly; it can
  *  no longer quietly agree with a stale copy of itself. */
 declare const __SRC_DIR__: string
-const LEDGER = path.join(__SRC_DIR__, '..', '..', 'backend', 'orgtree', 'ledger.py')
+const LEDGER = path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'backend', 'orgtree', 'ledger.py')
 
 function backendSeats(): Record<string, number> {
   const src = readFileSync(LEDGER, 'utf8')

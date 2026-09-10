@@ -15,20 +15,20 @@ test('desktop settings retain providers and runtime while excluding registry and
       { id: 'claude', label: 'Claude Code', status: { installed: true, connected: true }, tiers: [], hire_enabled: true },
       { id: 'openai', label: 'Codex', status: { installed: false }, tiers: [], hire_enabled: false },
       { id: 'google', label: 'Antigravity', status: { installed: false }, tiers: [], hire_enabled: false },
-    ] } : { warming_enabled: init?.method !== 'PUT', working_checkups_enabled: true }
+    ] } : String(url).includes('/accounts') ? { accounts: [], aliases: {} } : { warming_enabled: init?.method !== 'PUT', working_checkups_enabled: true }
     return { ok: true, headers: new Headers(), json: async () => body } as Response
   }
   const view = await mountView(<AccountsPanel close={() => {}} toast={() => {}} />, el => el)
   try {
     await inAct(async () => { await flush(10) })
     assert.match(view.el.textContent!, /Claude Code/)
-    assert.match(view.el.textContent!, /Connected/)
+    assert.match(view.el.textContent!, /connected/i)
     assert.ok(view.el.querySelector('a[href="https://developers.openai.com/codex/cli/"]'))
     assert.doesNotMatch(view.el.textContent!, /fallback account|setup-token|Git repositories/)
     const labels = [...view.el.querySelectorAll('button,input,select')].map(e =>
       e.getAttribute('aria-label') || e.textContent || '').join(' ')
-    assert.doesNotMatch(labels, /add.*account|delete.*account|move.*account|fallback|priority/i)
-    assert.equal(calls.some(c => c.includes('/accounts')), false)
+    assert.doesNotMatch(labels, /fallback|priority/i)
+    assert.equal(calls.some(c => c.includes('/accounts')), true, 'registered accounts belong to provider settings')
     const runtime = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Runtime')!
     await inAct(async () => { runtime.click() })
     const toggle = view.el.querySelector<HTMLInputElement>('#app-settings-panel-runtime input')!

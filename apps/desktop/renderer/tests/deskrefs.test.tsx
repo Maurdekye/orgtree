@@ -127,7 +127,7 @@ async function desk(t: TestContext, opts: {
   for (const o of opts.others ?? []) map.set(o.id, o)
   if (opts.say) s.assistantMsg(opts.say)
   if (opts.live) s.liveRow('text', opts.live)
-  if (opts.mail) s.userMsg(envelope(opts.mail.from, opts.mail.body))
+  if (opts.mail) s.userMsg(opts.mail.body).segments = [{kind:'mail',rows:[{from:opts.mail.from,kind:'message',body:opts.mail.body,at:new Date().toISOString(),ev:{v:1,variant:'ordinary.message',actor:{kind:'agent',id:opts.mail.from},object:null,engine_authored:false,body:opts.mail.body}}]}] as never
   if (opts.cmdOut) {
     s.messages.push({ role: 'system', text: '', cmd_out: opts.cmdOut,
       seq: 900, ts: new Date(Date.now()).toISOString() } as never)
@@ -224,7 +224,7 @@ async (t: TestContext) => {
   assert.ok(q(el, '.turn-mail-head').length > 0,
     'positive control: the envelope really rendered as a mail CARD')
   const c = chip(el, '@item:org/sort-selector')
-  assert.ok(c.closest('.turn-mail-body'),
+  assert.ok(c.closest('.event-body'),
     'the chip is in the CARD BODY, not in some tail the parser left behind')
   await inAct(async () => { c.click() })
   assert.deepEqual(calls.item, [[{ slug: 'sort-selector' }]])

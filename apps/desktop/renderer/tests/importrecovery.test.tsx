@@ -8,7 +8,7 @@ const row = (node: string, phase: string): RecoveryNode => ({ node, attempt: `at
   identity: { generation: 3, session_id: `session-${node}` }, intent: { text: `Original work for ${node}`, view: 'original pending mail' } })
 const settle = () => inAct(async () => { await flush(18) })
 const button = (el: ParentNode, text: string) => {
-  const found = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text)
+  const found = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => (b.getAttribute('aria-label') || b.textContent) === text)
   assert.ok(found, text); return found
 }
 async function click(el: ParentNode, text: string) { await inAct(async () => { button(el, text).click(); await flush(18) }) }

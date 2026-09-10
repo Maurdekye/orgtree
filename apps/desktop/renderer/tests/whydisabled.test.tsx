@@ -152,39 +152,40 @@ const selectButton = (el: HTMLElement) =>
   [...el.querySelectorAll('button')]
     .find((b) => b.textContent === 'select this folder') as HTMLButtonElement
 
-async function openPicker(payload: FsPayload) {
+async function openPicker(payload: FsPayload, t: import('node:test').TestContext) {
   const gate = fsReply(payload)
   const view = await mountView(<FolderPickerHost />, (el) => el)
   await inAct(async () => { void pickFolder() })
+  t.after(() => view.unmount())
   return { view, gate }
 }
 
 test('§6 while the listing is still in flight it says so, not "open a drive"',
-  async () => {
-    const { view } = await openPicker(fs('', null))
+  async (t) => {
+    const { view } = await openPicker(fs('', null), t)
     // the reply is held: this is the pre-first-listing frame
-    const btn = selectButton(view.el)
+    const btn = selectButton(document.body)
     assert.ok(btn, 'the picker did not open')
     assert.equal(btn.disabled, true)
     assert.equal(btn.getAttribute('title'), 'still reading the folder list')
   })
 
-test('§6b at the drive list it names the actual obstacle', async () => {
+test('§6b at the drive list it names the actual obstacle', async (t) => {
   const { view, gate } = await openPicker(
-    fs('', null, [{ name: 'C:', path: 'C:\\' }]))
+    fs('', null, [{ name: 'C:', path: 'C:\\' }]), t)
   await inAct(async () => { gate.release(); await Promise.resolve() })
-  const btn = selectButton(view.el)
+  const btn = selectButton(document.body)
   assert.equal(btn.disabled, true, 'the drive list offered itself as a folder')
   assert.equal(btn.getAttribute('title'),
     'this is the drive list, not a folder — open a drive to choose a folder '
     + 'inside it')
 })
 
-test('§6c inside a real folder the button is live and silent', async () => {
+test('§6c inside a real folder the button is live and silent', async (t) => {
   // THE CONTROL for §6/§6b, and the one that fails a hard-coded title.
-  const { view, gate } = await openPicker(fs('C:\\work', 'C:\\'))
+  const { view, gate } = await openPicker(fs('C:\\work', 'C:\\'), t)
   await inAct(async () => { gate.release(); await Promise.resolve() })
-  const btn = selectButton(view.el)
+  const btn = selectButton(document.body)
   assert.equal(btn.disabled, false, 'a real folder could not be selected')
   assert.equal(btn.getAttribute('title'), null,
     'the live select button carries a tooltip about a state it is not in')

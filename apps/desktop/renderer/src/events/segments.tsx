@@ -5,6 +5,7 @@ import { decodeEventRow, isAuthoredUser, record } from './decode'
 import type { EventProfile } from './decode'
 import { EventCard, eventSurface } from './card'
 import { eventSummary } from './project'
+import { ReceivedMailBody } from '../canvas/mailpreview'
 import { RefMdBody } from '../canvas/refmd'
 import { ReplyPreview } from '../canvas/replypreview'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
@@ -105,28 +106,31 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
   } }) {
-  // Old ordinary mail and optimistic sends have no event envelope. Give
-  // their PRESENTATION the same shape as typed ordinary mail. Do not alter
-  // transport data or reinterpret malformed/unknown typed events.
-  if (decodeEventRow(row, profile).kind === 'legacy'
-      && ['message', 'question', 'request', 'decision', 'status', 'notice'].includes(row.kind || 'message')) {
-    const sender = row.from
-    const kind = sender === '@user' || sender === 'user' ? 'user'
-      : sender === '@system' || sender === 'system' ? 'system'
-        : sender.startsWith('@') ? 'external' : 'agent'
-    const event = { v: 1, variant: `ordinary.${row.kind || 'message'}`,
-      actor: { kind, id: sender }, object: null, body: row.body,
-      ...(profile === 'public' ? { projection: 'public' } : { engine_authored: false }) }
-    row = { ...row, ...(profile === 'public' ? { ev_public: event } : { ev: event }) }
-  }
+  // Unenveloped mail shares the visual card without inventing a typed event
+  // or an actor kind. Sender names remain the recorded envelope metadata.
+  const decoded = decodeEventRow(row, profile)
+  const ordinaryLegacy = decoded.kind === 'legacy'
+    && ['message', 'question', 'request', 'decision', 'status', 'notice'].includes(row.kind || 'message')
+  const surface = ordinaryLegacy
+    ? { className: 'event-surface event-card event-ordinary', 'data-event-variant': undefined }
+    : eventSurface(row, profile)
   const base = fileBase(slug, nid)
   const card = (value: unknown, preview: boolean, part?: "header" | "body") =>
-    <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
+    ordinaryLegacy ? (part === 'header' ? <>
+      <span className="event-family" aria-label="Message" title="Message">{'·'}</span>
+      <strong title={`Recorded mail kind: ${row.kind || 'message'}`}>Message</strong>
+      <span className="event-actor">{row.from === '@user' || row.from === 'user' ? 'User'
+        : row.from === '@system' || row.from === 'system' ? 'System'
+          : actor ? actor(row.from) : row.from}</span>
+    </> : <ReceivedMailBody><div className="event-body"><div className="event-field" data-event-field="body">
+      <RefMdBody className="event-prose md" html={md(row.body, base)} world={world} onOpen={onOpen} />
+    </div></div></ReceivedMailBody>)
+    : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
       world={world} onOpen={onOpen} actor={actor} imgBase={base} />
   return <section
-        {...eventSurface(row, profile)} className={'turn-mail ' + eventSurface(row, profile).className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id ?? undefined}>
+        {...surface} className={'turn-mail ' + surface.className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
-          {decodeEventRow(row, profile).kind !== 'known' && <>
+          {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
                 row (most agent-to-agent mail — plain body, no schema'd `ev`)
                 used to fall to `<b>{row.from}</b><span>{row.kind}</span>`,

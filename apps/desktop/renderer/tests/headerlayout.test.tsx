@@ -85,7 +85,7 @@ test('desk header has bounded controls and a separate wrapping metadata row', as
   ], 'right action group changed order')
   assert.equal(right.querySelectorAll('.cc-actions button').length, 1)
   // chat · history · files · inbox · progress (FR-2, 2026-09-04)
-  assert.equal(top.querySelectorAll('.cc-tabs button').length, 5)
+  assert.equal(top.querySelectorAll('.cc-tabs button').length, 6)
   for (const sel of [
     '.mcp-tool-count', '.cache-forecast', '.badge',
   ]) assert.ok(meta.querySelector(sel), `metadata row omitted ${sel}`)
@@ -260,7 +260,7 @@ test('layout CSS wraps naturally and pins finite controls above metadata', () =>
   assert.match(css, /\.cc-head-right\s*\{[^}]*flex-wrap:\s*nowrap[^}]*gap:\s*6px/s)
   assert.match(css, /\.cc-head-top > \.spacer\s*\{[^}]*flex:\s*1 1 12px/s)
   assert.match(css, /@container \(min-width:\s*600px\)\s*\{\s*\.cc-head-top\s*\{[^}]*flex-wrap:\s*nowrap/s)
-  assert.match(css, /@container \(max-width:\s*599px\)[\s\S]*\.cc-head-right\s*\{[^}]*overflow-x:\s*auto/s)
+  assert.match(css, /@container \(max-width:\s*599px\)[\s\S]*\.cc-head-right\s*\{[^}]*flex-wrap:\s*wrap; overflow:\s*visible/s)
   assert.match(css, /\.turn-status-banner\s*\{[^}]*min-width:\s*72px/s)
   assert.match(css, /\.turn-status-banner\s*\{[^}]*padding:\s*0;/s)
   assert.match(css, /\.turn-status-banner\s*\{[^}]*border:\s*0;/s)

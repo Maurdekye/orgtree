@@ -184,6 +184,7 @@ domTest('§6.5 an empty transcript says so, once', async ({ SL, ND, mount }) => 
 
 domTest('§6.6 a thousand rows render only one window',
   async ({ SL, ND, s, mount }) => {
+    s.cursorPages = true
     for (let i = 0; i < 3000; i++) s.assistantMsg(`row ${i}`)
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL))
@@ -292,7 +293,8 @@ domTest('§6.10 a panel showing folder A never renders A’s rows under B',
 
 domTest('§7.1 the chat pages in older messages on scroll, with no button',
   async ({ SL, ND, s, mount }) => {
-    for (let i = 0; i < 3000; i++) s.assistantMsg(`row ${i}`)
+    s.cursorPages = true
+    for (let i = 0; i < 80; i++) s.assistantMsg(`row ${i}`)
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL))
     await flush()
@@ -310,7 +312,8 @@ domTest('§7.1 the chat pages in older messages on scroll, with no button',
 
 domTest('§7.2 one chat gesture pages one window, and the cap is explained',
   async ({ SL, ND, s, mount }) => {
-    for (let i = 0; i < 3000; i++) s.assistantMsg(`row ${i}`)
+    s.cursorPages = true
+    for (let i = 0; i < 80; i++) s.assistantMsg(`row ${i}`)
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL))
     await flush()
@@ -321,10 +324,12 @@ domTest('§7.2 one chat gesture pages one window, and the cap is explained',
     const after = rows(el, '.msgs > div').length
     assert.ok(after <= 260,
       `one gesture paged ${after} rows in — more than one window`)
-    // …and keep scrolling to the API's cap
+    // Cursor paging has no 1,000-row wall. Walk through all small pages.
     for (let i = 0; i < 20; i++) { await scroll(msgs); await advance(400) }
-    assert.ok(txt(el).includes('beyond the window'),
-      'at the cap the status line explains why scrolling up stopped working')
+    assert.ok(txt(el).includes('row 0'), 'oldest row can be reached by scrolling')
+    assert.ok(txt(el).includes('row 79'), 'loading history retains the current tail')
+    assert.ok(!txt(el).includes('beyond the window'), 'no obsolete fixed-window warning')
+
   })
 
 domTest('§7.3 the mail list pages on scroll, only grows, and stops', async () => {
@@ -435,9 +440,7 @@ domTest('§9.6 a resize can ARM the ↑ chip, not only retire it',
     const msgs = el.querySelector('.msgs')!
     // hold the chip down while a user turn arrives AFTER mount
     msgs.getBoundingClientRect = rectAt(-100)
-    s.userMsg(`FROM ${USER} (user)
-
-please check the deploy`)
+    s.userMsg('please check the deploy').segments = [{kind:'mail',rows:[{from:'@user',kind:'message',body:'please check the deploy',at:new Date().toISOString(),ev:{v:1,variant:'ordinary.message',actor:{kind:'user',id:'@user'},object:null,engine_authored:false,body:'please check the deploy'}}]}] as never
     await inAct(async () => { await refreshConvo(SL, ND, { force: true }) })
     await flush()
     assert.ok(!el.querySelector('.pinuser'), 'no chip yet')
@@ -485,9 +488,7 @@ domTest('§9.8 the ↑ chip fades only when its label is really cut',
     // and a fade over text that ended on its own claims content that is not
     // there. So it must arm and retire on the panel's width alone — which,
     // on a memoized panel, only the ResizeObserver can report.
-    s.userMsg(`FROM ${USER} (user)
-
-please check the deploy, and the staging one too`)
+    s.userMsg('please check the deploy, and the staging one too').segments = [{kind:'mail',rows:[{from:'@user',kind:'message',body:'please check the deploy, and the staging one too',at:new Date().toISOString(),ev:{v:1,variant:'ordinary.message',actor:{kind:'user',id:'@user'},object:null,engine_authored:false,body:'please check the deploy, and the staging one too'}}]}] as never
     s.assistantMsg('all green')
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL, { compact: true }))
@@ -583,9 +584,7 @@ domTest('§9.4 a resize recomputes the ↑-jump target, not just the pin',
     // notice. Without `calcPinRef.current()` in the observer this passes
     // nothing: the chip keeps pointing at a message that is already on screen
     // until the reader happens to scroll.
-    s.userMsg(`FROM ${USER} (user)
-
-please check the deploy`)
+    s.userMsg('please check the deploy').segments = [{kind:'mail',rows:[{from:'@user',kind:'message',body:'please check the deploy',at:new Date().toISOString(),ev:{v:1,variant:'ordinary.message',actor:{kind:'user',id:'@user'},object:null,engine_authored:false,body:'please check the deploy'}}]}] as never
     s.assistantMsg('all green')
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL, { compact: true }))

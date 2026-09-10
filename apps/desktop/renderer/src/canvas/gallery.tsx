@@ -241,8 +241,8 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   )
 }
 
-/** The gallery's HTML card is itself a native new-tab link; selection
- *  still reveals its metadata and dismiss control when the user returns. */
+/** Every format selects its preview inside this collection. HTML execution
+ *  is offered separately by the preview's explicit new-tab action. */
 function GalleryEntry({ slug, row, children, ...props }: {
   slug: string; row: DocRow; children: ReactNode
   className: string; title: string; onClick: () => void

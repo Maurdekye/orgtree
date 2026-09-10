@@ -10,7 +10,7 @@ const htmlDoc = { id: 'mock1', title: 'Interactive prototype', at: '2026-09-06T1
 const markdownDoc = { id: 'read1', title: 'Written plan', at: htmlDoc.at }
 const maliciousBody = '<script>window.IN_APP_EXECUTION = true</script><button id="untrusted-control">unsafe</button>'
 
-test('canvas and desk mockup cards are native new-tab links; markdown still opens its reader', async (t) => {
+test('canvas and desk cards open their collection and identify each document format', async (t) => {
   const opened: string[] = []
   let parentClicks = 0
   const view = await mountView(<div onClick={() => { parentClicks++ }}>
@@ -20,17 +20,14 @@ test('canvas and desk mockup cards are native new-tab links; markdown still open
     </PresentationCard>
   </div>, (host) => host)
   t.after(() => view.unmount())
-  const links = [...view.el.querySelectorAll('a')]
-  assert.equal(links.length, 2)
-  for (const link of links) {
-    assert.equal(link.getAttribute('href'), '/api/orgs/org/documents/mock1/mockup')
-    assert.equal(link.target, '_blank')
-    assert.match(link.rel, /noopener/)
-    assert.match(link.rel, /noreferrer/)
-    assert.match(link.title, /new tab/)
-  }
-  await inAct(() => { (view.el.querySelector('button.doc-chip') as HTMLButtonElement).click() })
-  assert.deepEqual(opened, ['read1'])
+  const cards = [...view.el.querySelectorAll<HTMLButtonElement>('button.doc-chip, button.doc-badge')]
+  assert.equal(cards.length, 3)
+  assert.ok(cards[0]!.querySelector('.mockup-format.compact'), 'HTML canvas chip is visible')
+  assert.ok(cards[1]!.querySelector('svg'), 'markdown icon is still visible')
+  assert.ok(cards[2]!.querySelector('.mockup-format'), 'desk card identifies HTML too')
+  assert.equal(view.el.querySelector('a'), null, 'cards open the owning collection')
+  for (const card of cards) await inAct(() => card.click())
+  assert.deepEqual(opened, ['mock1', 'read1', 'mock1'])
   assert.equal(parentClicks, 0)
   assert.equal(mockupUrl('name with space', 'id#fragment'), '/api/orgs/name%20with%20space/documents/id%23fragment/mockup')
 })
@@ -50,7 +47,7 @@ test('document reference reader offers the mockup link without parsing its HTML 
   assert.equal(view.el.querySelector('iframe'), null)
 })
 
-test('gallery mockup cards open a new tab and retain a dismissible metadata pane', async (t) => {
+test('gallery mockup cards select their preview in the same collection', async (t) => {
   useFakeClock()
   const calls: string[] = []
   let dismissed = false
@@ -59,17 +56,16 @@ test('gallery mockup cards open a new tab and retain a dismissible metadata pane
     if (init?.method === 'DELETE') dismissed = true
     const doc = { ...htmlDoc, node: 'agent', node_state: 'live', evicted: false }
     return { ok: true, status: 200, headers: new Headers(), json: async () =>
-      String(url).endsWith('/documents') ? { documents: dismissed ? [] : [doc, { ...doc, id: 'evicted1', evicted: true }] }
+      String(url).split('?')[0].endsWith('/documents') ? { documents: dismissed ? [] : [doc, { ...doc, id: 'evicted1', evicted: true }] }
         : { ...doc, body: maliciousBody },
     } as Response
   }) as typeof fetch
   const view = await mountView(<DocGalleryModal slug="org" toast={() => {}} close={() => {}} />, (host) => host)
   t.after(async () => { try { await view.unmount() } finally { realClock() } })
   await flush()
-  const card = view.el.querySelector('a.doc-gallery-row') as HTMLAnchorElement
+  const card = view.el.querySelector('.doc-gallery-row') as HTMLButtonElement
   assert.ok(card)
-  assert.equal(card.target, '_blank')
-  assert.equal(card.getAttribute('href'), '/api/orgs/org/documents/mock1/mockup')
+  assert.ok(card.querySelector('.mockup-format'), 'HTML format visible in collection')
   assert.equal(view.el.querySelector('.doc-gallery-row.evicted'), null,
     'evicted HTML entries stay out of the menu')
   assert.equal(view.el.querySelectorAll('.doc-gallery-row').length, 1,

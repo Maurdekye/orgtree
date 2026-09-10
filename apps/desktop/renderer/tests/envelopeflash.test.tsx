@@ -146,7 +146,8 @@ frameTest('§1 pending → held → projected: the message is on screen exactly 
   // 3. the row lands, projected — the same payload retires the bubble
   const at = m.at
   s.echo()
-  s.messages[s.messages.length - 1]!.text = visibleOf(at, body)
+  s.messages[s.messages.length - 1]!.text = body
+  s.messages[s.messages.length - 1]!.segments = [{ kind: 'mail', rows: [{...m, kind:'message', ev:{v:1,variant:'ordinary.message',actor:{kind:'user',id:'@user'},object:null,engine_authored:false,body}}] }] as never
   s.chat = ((orig) => (last: number | null) =>
     ({ ...orig(last), prompts_withheld: 0 }))(s.chat.bind(s))
   await refreshConvo(SL, ND, { force: true })
@@ -164,9 +165,9 @@ frameTest('§1 pending → held → projected: the message is on screen exactly 
   })
   // …and the settled state is a NORMAL user turn message: the mail card,
   // not a pending bubble
-  assert.ok(el.querySelector('.turn-mail.from-user'),
+  assert.ok(el.querySelector('.typed-input .turn-mail'),
     'the durable row renders as the user mail card')
-  assert.equal(el.querySelectorAll('.msg.user.pending').length, 0,
+  assert.equal(el.querySelectorAll('.pendrow').length, 0,
     'the pending bubble is gone once the row exists')
 })
 
@@ -194,7 +195,7 @@ frameTest('§2 the pending tag says where the message IS — and a stranded one 
   await flush()
 
   const tagOf = (body: string): HTMLElement => {
-    const bubble = Array.from(el.querySelectorAll<HTMLElement>('.msg.user.pending'))
+    const bubble = Array.from(el.querySelectorAll<HTMLElement>('.pendrow'))
       .find((b) => (b.textContent || '').includes(body))
     assert.ok(bubble, `a bubble for ${JSON.stringify(body)} is on screen`)
     const tag = bubble!.querySelector<HTMLElement>('.pend-tag')

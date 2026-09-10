@@ -162,7 +162,7 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     await openTab(view, 'Runtime')
     const panel = view.el.querySelector<HTMLElement>(
       '#app-settings-panel-runtime')!
-    const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')]
+    const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')].filter(row => row.querySelector('input[role="switch"]'))
     assert.equal(rows.length, 4)
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!

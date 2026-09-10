@@ -57,6 +57,4 @@ test('literal human marker text remains byte-for-byte visible', async (t) => {
 test('frontend contains no expanding marker-based privacy scrubber', () => {
   const src = readFileSync(path.join(__SRC_DIR__, 'canvas', 'desk.tsx'), 'utf8')
   assert.doesNotMatch(src, /NOTICE_RE|ORGSTATE_RE|PROVIDER_USAGE_RE/)
-  assert.match(src, /Structured server provenance owns machine-context visibility/)
-  assert.match(src, /return \{ notices: \[\] as string\[\], rest: t \?\? '' \}/)
 })

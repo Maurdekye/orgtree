@@ -1366,17 +1366,19 @@ uiTest('§11.10 an unreadable block in the MIDDLE refuses the whole envelope',
 // type both unmarked. §13 is the first section to exercise this shape.
 // ═══════════════════════════════════════════════════════════════════ §13
 
-uiTest('§13.1 an untyped (legacy) mail row wears a type badge for its kind',
+uiTest('§13.1 legacy mail keeps the shared Message heading without invented event provenance',
   async ({ mount }) => {
     const { el } = await mount(
       <AgentDirectoryProvider value={dirAll}>
         <Msg m={legacyMessage('list-controls', 'status')} slug="org" nid="me" />
       </AgentDirectoryProvider>)
     const h = head(el)
-    const badge = q(h, '.event-row-kind')
-    assert.equal(badge.length, 1, 'the kind gets the same badge class the '
-      + 'mailbox list row already uses for a typed event (mail.tsx)')
-    assert.equal(txt(badge[0]!), 'status', 'labelled with the envelope kind, verbatim')
+    const badge = q(h, 'strong[title^="Recorded mail kind:"]')
+    assert.equal(badge.length, 1, 'one shared heading retains the recorded mail kind in its tooltip')
+    assert.equal(txt(badge[0]!), 'Message', 'same visible heading as typed ordinary mail')
+    assert.equal(badge[0]!.getAttribute('title'), 'Recorded mail kind: status')
+    absent(el, '[data-event-variant]', 'no typed event is fabricated for legacy mail')
+    absent(el, '[data-actor-kind]', 'no typed actor kind is guessed from the sender')
   })
 
 uiTest('§13.2 …and a DIFFERENT kind proves the badge reads the row, not a '
@@ -1385,9 +1387,10 @@ uiTest('§13.2 …and a DIFFERENT kind proves the badge reads the row, not a '
       <AgentDirectoryProvider value={dirAll}>
         <Msg m={legacyMessage('list-controls', 'question')} slug="org" nid="me" />
       </AgentDirectoryProvider>)
-    const badge = q(head(el), '.event-row-kind')
+    const badge = q(head(el), 'strong[title^="Recorded mail kind:"]')
     assert.equal(badge.length, 1)
-    assert.equal(txt(badge[0]!), 'question')
+    assert.equal(txt(badge[0]!), 'Message')
+    assert.equal(badge[0]!.getAttribute('title'), 'Recorded mail kind: question')
   })
 
 uiTest('§13.3 …and its sender wears the SAME model chip and route a typed '
@@ -1413,7 +1416,7 @@ uiTest('§13.4 CONTROL: with no directory above it, the legacy row degrades '
     absent(h, '.tier', 'no chip without a directory — same rule as §2.2')
     absent(h, 'button.cc-name-jump', 'and no jump')
     // the badge is unaffected by the directory: it does not depend on identity
-    assert.equal(q(h, '.event-row-kind').length, 1, 'the type badge still renders')
+    assert.equal(q(h, 'strong[title^="Recorded mail kind:"]').length, 1, 'the recorded kind remains available')
   })
 
 uiTest('§13.5 …and the relationship line survives beside the new badge — '

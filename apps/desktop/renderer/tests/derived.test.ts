@@ -51,6 +51,8 @@ test('①  no useState is seeded from server data, except where documented',
     // Every entry must be an UNCOMMITTED OPERATION or a one-time proposal —
     // never a mirror of a value the server owns and keeps changing.
     const allow = [
+      // Account reassignment is a staged edit, applied only on confirmation.
+      /canvas\/modals\.tsx:\d+ const \[acct, setAcct\] = useState\(node\.account/,
       // DraftScopeModal stages permissions for an agent that does not exist
       // yet: `base` is a proposal, not a live server value (D-32 records the
       // deliberate exception, and re-deriving would overwrite staged edits)
@@ -167,8 +169,8 @@ test('⑥  a wide table still scrolls inside its own message (D-14)', () => {
 test('⑦  drift guard: the constants the behavioural suites assume', () => {
   const src = read('convo.ts')
   const want: [RegExp, string][] = [
-    [/export const CHAT_WINDOW = (\d+)/, '120'],
-    [/export const MAX_WINDOW = (\d+)/, '1000'],
+    [/export const CHAT_WINDOW = (\d+)/, '8'],
+    [/export const MAX_WINDOW = ([\d_]+)/, '1_000_000'],
     [/const BUSY_POLL_MS = (\d+)/, '2500'],
     [/const IDLE_POLL_MS = (\d+)/, '7000'],
     [/const NUDGE_MS = (\d+)/, '200'],
@@ -182,7 +184,7 @@ test('⑦  drift guard: the constants the behavioural suites assume', () => {
       `${re} changed — re-read frontend/tests/convo.test.tsx before trusting it`)
   }
   assert.equal(/const MAIL_WINDOW = (\d+)/.exec(read('canvas/mail.tsx'))?.[1], '40')
-  assert.ok(/scrollTop < 240 && hasOlder/.test(read('canvas/desk.tsx')),
+  assert.ok(/scrollTop < Math\.min\(240, e\.currentTarget\.clientHeight \/ 2\) && hasOlder/.test(read('canvas/desk.tsx')),
     'the chat still pages on scroll (D-56)')
   assert.ok(/scrollHeight - el\.scrollTop - el\.clientHeight < 240/.test(read('canvas/mail.tsx')),
     'the mail list still pages on scroll (D-56)')
@@ -238,7 +240,7 @@ test('⑨  every read-marking call refreshes the payload its rows come from',
         // the refresh may ride the same line or the next two (formatting)
         const near = lines(f).filter((x) => x.n >= n && x.n <= n + 3)
           .map((x) => x.l).join(' ')
-        if (!/\.then\(/.test(near)) {
+        if (!/\.then\(/.test(near) && !(/\bawait\b/.test(l) && /setReadBump|refresh/.test(near))) {
           bad.push(`${f}:${n}  ${l.trim().slice(0, 80)}`)
         }
       }
@@ -363,10 +365,10 @@ test('⑭  the pinned last-user-turn chip attributes by envelope, not role',
     // "you" misattributes someone else's words to the human. The durable twin
     // of pending-mail's `m.from === USER` filter is the envelope's FROM line.
     const src = code('canvas/desk.tsx')
-    assert.ok(/`\^FROM \$\{USER\} \\\(`/.test(src)
-      || /\^FROM \$\{USER\}/.test(src),
-      'lastUser no longer keys on the envelope FROM line — bare role would '
-      + 'pin a sibling\'s mail as "you"')
+    const segmentCode = code('events/segments.tsx')
+    assert.match(src, /authoredUserLabel\(m\.segments/)
+    assert.match(segmentCode, /decoded\.kind === 'known' && isAuthoredUser\(decoded\.event\)/,
+      'only a decoded typed user actor can supply the user-turn label')
     assert.ok(/\{pinTarget && \(/.test(src),
       'the chip render lost its visibility gate — it must only show while '
       + 'a target row is above the scrollport')

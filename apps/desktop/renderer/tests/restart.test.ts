@@ -42,6 +42,10 @@ function watchReload(): { count: () => number } {
     },
     configurable: true, writable: true,
   })
+  const realWindow = window
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new Proxy(realWindow, {
+    get(target, key) { return key === 'location' ? globalThis.location : Reflect.get(target, key, target) },
+  }) })
   return { count: () => n }
 }
 
@@ -95,7 +99,7 @@ test('the detector reads a header the server actually sends', () => {
   assert.ok(/r\.headers\.get\('X-Orgtree-Instance'\)/.test(src),
     'api.ts no longer reads X-Orgtree-Instance')
   const api = readFileSync(
-    path.join(__SRC_DIR__, '..', '..', 'backend', 'orgtree', 'api.py'), 'utf8')
+    path.join(__SRC_DIR__, '..', '..', '..', '..', 'engine', 'backend', 'orgtree', 'api.py'), 'utf8')
   assert.ok(/b"x-orgtree-instance"/.test(api),
     'the backend no longer sends x-orgtree-instance — drift guard')
   assert.ok(/INSTANCE = secrets\.token_hex/.test(api),

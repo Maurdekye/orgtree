@@ -68,12 +68,12 @@ function modal(roster: NetPeer[]) {
 
 /** open the modal and click through to the compose picker */
 async function compose(roster: NetPeer[]) {
-  const v = await mountView(modal(roster), (host) => host)
+  const v = await mountView(modal(roster), () => document.body)
   const btn = q(v.el, 'button').find(
     (b) => (b.textContent ?? '').includes('compose mail'))
   assert.ok(btn, 'no compose button on the org inbox modal')
   await inAct(() => { (btn as HTMLButtonElement).click() })
-  return v
+  return {...v, el: document.body}
 }
 
 function uiTest(name: string, body: () => Promise<void>): void {
