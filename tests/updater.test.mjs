@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updater-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate } = createRequire(import.meta.url)(outfile)
+const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -366,4 +366,49 @@ test('composed: an error event arriving before the check promise settles still e
   await pending
   assert.deepEqual(controller.current(), { state: 'unavailable' })
   assert.deepEqual(reports.filter(r => r.state === 'unavailable'), [{ state: 'unavailable' }], 'exactly one unavailable report, not two')
+})
+
+
+test('tray update controls show progress and allow installation without a renderer', async () => {
+  const items = Object.fromEntries(['update-status', 'update-check', 'update-install']
+    .map(id => [id, { label: '', enabled: true, visible: true }]))
+  const menu = { getMenuItemById: id => items[id] }
+  const statusItem = items['update-status']
+  let ready = false
+  const { controller } = rig({
+    run: async () => ({ hasUpdate: true, version: '2.0.3' }),
+    report: status => refreshTrayUpdateMenu(menu, status, ready, false),
+  })
+  const checking = controller.check()
+  assert.equal(statusItem.label, 'Checking for updates...')
+  assert.equal(items['update-check'].enabled, false)
+  assert.equal(items['update-install'].visible, false)
+  await checking
+  controller.progress(37)
+  assert.match(statusItem.label, /2.0.3.*37%/)
+  controller.progress(84)
+  assert.match(statusItem.label, /84%/)
+  assert.equal(items['update-status'], statusItem, 'updates the existing native menu item')
+  ready = true
+  controller.downloaded()
+  assert.match(statusItem.label, /2.0.3 ready to install/)
+  assert.equal(items['update-install'].visible, true)
+  assert.equal(items['update-install'].enabled, true)
+  refreshTrayUpdateMenu(menu, controller.current(), true, true)
+  assert.equal(statusItem.label, 'Installing update...')
+  assert.equal(items['update-install'].enabled, false)
+})
+
+test('tray handles failed, unavailable, current and invalid progress states honestly', () => {
+  assert.match(trayUpdateState({ state: 'failed' }, false, false).label, /failed/)
+  assert.equal(trayUpdateState({ state: 'failed' }, false, false).checkEnabled, true)
+  assert.match(trayUpdateState({ state: 'unavailable' }, false, false).label, /unavailable/)
+  assert.match(trayUpdateState({ state: 'up-to-date' }, false, false).label, /up to date/)
+  assert.doesNotMatch(trayUpdateState({ state: 'downloading', percent: NaN }, false, false).label, /NaN/)
+  assert.match(trayUpdateState({ state: 'downloading', percent: 140 }, false, false).label, /100%/)
+  const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.match(main, /id: 'update-install'[\s\S]*?requestUpdateInstall\(\)/)
+  assert.match(main, /id: 'update-check'[\s\S]*?updater.check\(\)/)
+  assert.match(main, /report: status => \{ broadcast\(.*refreshTrayUpdates\(\)/)
+  assert.match(main, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); return \}/)
 })

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron'
+import { app, BrowserWindow, ipcMain, session, Menu } from 'electron'
 import http from 'node:http'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
+import { refreshTrayUpdateMenu } from '../apps/desktop/main/updater'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
@@ -11,6 +12,22 @@ const seen: { url: string; token?: string }[] = [], foreign: (string | undefined
 const token = crypto.randomBytes(32).toString('hex')
 let server: http.Server, outsider: http.Server
 app.whenReady().then(async () => {
+  const updateMenu = Menu.buildFromTemplate([
+    { id: 'update-status', label: 'initial', enabled: false },
+    { id: 'update-install', label: 'Update now', visible: false },
+    { id: 'update-check', label: 'Check for updates' },
+  ])
+  const statusItem = updateMenu.getMenuItemById('update-status')!
+  refreshTrayUpdateMenu(updateMenu, { state: 'downloading', version: '2.0.3', percent: 37 }, false, false)
+  assert.match(statusItem.label, /37%/)
+  assert.equal(updateMenu.getMenuItemById('update-install')!.visible, false)
+  refreshTrayUpdateMenu(updateMenu, { state: 'pending-idle', version: '2.0.3' }, true, false)
+  assert.equal(updateMenu.getMenuItemById('update-status'), statusItem)
+  assert.match(statusItem.label, /ready to install/)
+  assert.equal(updateMenu.getMenuItemById('update-install')!.visible, true)
+  assert.equal(updateMenu.getMenuItemById('update-install')!.enabled, true)
+  assert.equal(updateMenu.getMenuItemById('update-check')!.enabled, false)
+
   outsider = http.createServer((req, res) => { foreign.push(req.headers['x-orgtree-desktop-token'] as string | undefined); res.setHeader('Access-Control-Allow-Origin', '*'); res.end('outside') })
   await new Promise<void>(resolve => outsider.listen(0, '127.0.0.1', resolve))
   const foreignOrigin = `http://127.0.0.1:${(outsider.address() as import('node:net').AddressInfo).port}`

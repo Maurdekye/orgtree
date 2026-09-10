@@ -12,7 +12,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { checkForUpdatesViaEvents, installDownloadedUpdate, UpdateController } from './updater'
+import { checkForUpdatesViaEvents, installDownloadedUpdate, refreshTrayUpdateMenu, UpdateController } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -28,6 +28,8 @@ const single = app.requestSingleInstanceLock()
 if (!single) app.quit()
 else {
   let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
+  let trayMenu: Menu | undefined
+  let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
@@ -151,26 +153,36 @@ else {
     effectiveTheme = value
     rebuildTray()
   }
+  const refreshTrayUpdates = () => {
+    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting)
+  }
   const rebuildTray = () => {
     const image = runtimeIcon()
     tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
+    if (trayMenuOpen) { refreshTrayUpdates(); return }
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
-    tray.setContextMenu(Menu.buildFromTemplate([
-      ...(downloaded ? [{ label: 'Update now', enabled: !updateApplying && !quitting,
+    trayMenu = Menu.buildFromTemplate([
+      { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+      { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
         click: () => { void requestUpdateInstall().catch(error => {
           void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
             detail: error instanceof Error ? error.message : String(error) })
-        }) } }] : []),
-      { label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
+        }) } },
+      { id: 'update-check', label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
+      { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       { label: 'Routine mail and completion notifications', type: 'checkbox', checked: prefs.routineNotifications, click: item => setPreferences({ routineNotifications: item.checked }) },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
       { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
-    ]))
+    ])
+    trayMenu.on('menu-will-show', () => { trayMenuOpen = true })
+    trayMenu.on('menu-will-close', () => { trayMenuOpen = false })
+    refreshTrayUpdates()
+    tray.setContextMenu(trayMenu)
   }
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
   const saveWindowLayout = async () => {
@@ -185,6 +197,7 @@ else {
   const applyDownloadedUpdate = async () => {
     if (updateApplying || quitting) return
     updateApplying = true
+    refreshTrayUpdates()
     try {
     // A boot-host engine is stopped gracefully through its authenticated
     // shutdown route before its files are replaced; the installer restarts
@@ -201,6 +214,7 @@ else {
     installDownloadedUpdate(autoUpdater, path.dirname(process.execPath))
     } catch (error) {
       if (!quitting) updateApplying = false
+      refreshTrayUpdates()
       throw error
     }
   }
@@ -252,7 +266,7 @@ else {
     // rules included) - comparing version strings here would get an older or
     // disallowed release wrong by treating any difference as an update.
     run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
-    report: status => { broadcast({ type: 'update', data: status }); rebuildTray() },
+    report: status => { broadcast({ type: 'update', data: status }); refreshTrayUpdates() },
   })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.

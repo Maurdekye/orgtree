@@ -1,6 +1,35 @@
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
 
+/** Update controls stay in one native menu, so progress also changes while open. */
+export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean) {
+  const version = status.version ? ` ${status.version}` : ''
+  const labels: Record<UpdateState, string> = {
+    idle: 'Updates have not been checked', checking: 'Checking for updates...',
+    downloading: `Downloading update${version}${Number.isFinite(status.percent) ? ` - ${Math.max(0, Math.min(100, Math.round(status.percent!)))}%` : '...'}`,
+    'pending-idle': `Update${version} ready to install`,
+    'up-to-date': 'Orgtree is up to date', unavailable: 'Updates are unavailable',
+    failed: 'Update failed - check again',
+  }
+  return {
+    label: applying ? 'Installing update...' : downloaded ? labels['pending-idle'] : labels[status.state],
+    installVisible: downloaded, installEnabled: downloaded && !applying,
+    checkEnabled: !applying && !downloaded && status.state !== 'checking' && status.state !== 'downloading',
+  }
+}
+
+export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
+  label: string; enabled: boolean; visible: boolean
+} | null }, status: UpdateStatus, downloaded: boolean, applying: boolean): void {
+  const view = trayUpdateState(status, downloaded, applying)
+  const label = menu.getMenuItemById('update-status')
+  const install = menu.getMenuItemById('update-install')
+  const check = menu.getMenuItemById('update-check')
+  if (label) label.label = view.label
+  if (install) { install.visible = view.installVisible; install.enabled = view.installEnabled }
+  if (check) check.enabled = view.checkEnabled
+}
+
 /** NSIS already supports --updated /S --force-run. Keep the running install's
  * directory; the bundled installer reads its previous scope from the registry. */
 export function installDownloadedUpdate(updater: {
