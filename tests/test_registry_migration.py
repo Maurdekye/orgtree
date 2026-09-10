@@ -262,15 +262,21 @@ class MigrationTests(unittest.TestCase):
             os.environ.pop(self.migration.CUTOVER_ENV, None)
 
     def test_report_write_failure_holds_completion(self):
-        from unittest.mock import patch
         from engine.backend.orgtree import store
         self._stored_org("rw-org")
+        # inject the failure at the FILESYSTEM, not by patching the writer:
+        # a directory squatting on the report path makes open(..., "w")
+        # raise, so a writer that swallowed its own OSError would pass a
+        # mutated run — this way the test kills that mutation
+        rp = os.path.join(store.DATA_ROOT, self.migration.REPORT_NAME)
+        if os.path.isfile(rp):
+            os.unlink(rp)               # a prior test's real report
+        os.makedirs(rp, exist_ok=True)
         os.environ[self.migration.CUTOVER_ENV] = "1"
         try:
-            with patch.object(self.migration, "_write_report",
-                              return_value="disk full (injected)"):
-                with self.assertRaises(self.migration.MigrationIncomplete):
-                    self.migration.run_startup_migration()
+            with self.assertRaises(self.migration.MigrationIncomplete):
+                self.migration.run_startup_migration()
+            os.rmdir(rp)
             # report state is part of completion: marker held, though the
             # org saves themselves landed
             self.assertFalse(self.registry.load().get("migrated_at"))
