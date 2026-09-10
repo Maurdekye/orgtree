@@ -263,7 +263,7 @@ app.on('browser-window-created', (_event, main) => {
         assertVisible(after)
       })
     }
-    await check('actual-settings-modal-popout-redock-main-close', async () => {
+    await check('global-settings-and-org-modal-popout-redock-main-close', async () => {
       if(!visualFixture) await capture(main, 'organization')
       if (!await evaluate(`Boolean(document.querySelector('button[title="App settings"]'))`)) {
         assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true, 'Active organization menu must be available')
@@ -271,7 +271,8 @@ app.on('browser-window-created', (_event, main) => {
       }
       assert.equal(await waitFor(`document.querySelector('button[title="App settings"]')`), true, 'Organization drawer exposes App settings')
       await evaluate(`document.querySelector('button[title="App settings"]').click();true`)
-      assert.equal(await waitFor(`document.querySelector('button[aria-label="Open in new window"]')`), true)
+      assert.equal(await waitFor(`document.querySelector('.acct-panel')`), true)
+      assert.equal(await evaluate(`Boolean(document.querySelector('.acct-panel button[aria-label="Open in new window"], .acct-panel button[aria-label="Pin"]'))`), false, 'Global app settings cannot pin or pop out')
       if (!visualFixture) await check('managed-account-creation-through-settings', async () => {
         assert.equal(await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim().toLowerCase() === 'create managed')`), true)
         const before = await evaluate(`fetch('/api/accounts').then(r => r.json()).then(r => r.accounts.length)`)
@@ -285,6 +286,17 @@ app.on('browser-window-created', (_event, main) => {
       for (const tab of ['Display', 'Import', 'Runtime']) {
         assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('[role="tab"]')].find(b=>b.textContent.startsWith('${tab}'));if(!b)return false;b.click();return true})()`), true)
         await capture(main, 'settings-' + tab.toLowerCase())
+        if (tab === 'Display') await check('custom-theme-picker-persists-chosen-color', async () => {
+          assert.equal(await waitFor(`document.querySelector('select[aria-label="Visual theme"]:not(:disabled)')`), true)
+          const previous = (await evaluate('window.orgtreeDesktop.getPreferences()')).visualTheme
+          await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Visual theme"]');s.value='custom';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
+          assert.equal(await waitFor(`document.querySelector('input[aria-label="Custom theme color"]:not(:disabled)')`), true)
+          await evaluate(`(()=>{const input=document.querySelector('input[aria-label="Custom theme color"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'#8435cf');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
+          assert.equal(await waitFor(`getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()==='#8435cf'`), true)
+          assert.equal((await evaluate('window.orgtreeDesktop.getPreferences()')).visualTheme,'custom:#8435cf')
+          await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Visual theme"]');s.value=${JSON.stringify(previous)};s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
+          assert.equal(await waitFor(`!document.querySelector('input[aria-label="Custom theme color"]')`), true)
+        })
         if (tab === 'Display' && visualFixture) await check('native-theme-selector-keeps-provider-status', async () => {
           assert.equal(await waitFor(`document.querySelector('select[aria-label="Visual theme"]:not(:disabled)')`), true)
           const labels = await evaluate(`Array.from(document.querySelectorAll('.sq .name,.sq .status')).map(e=>e.textContent)`)
@@ -298,21 +310,25 @@ app.on('browser-window-created', (_event, main) => {
         })
         if (tab === 'Import' && phase === 'initial' && process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') await check('actual-settings-import-copy', () => require('./import_flow.cjs').copy({root,evaluate,waitFor,capture,main,assert}))
       }
+      await evaluate(`[...document.querySelectorAll('.acct-panel button')].find(b=>b.textContent==='close').click(); true`)
+      assert.equal(await waitFor(`!document.querySelector('.acct-panel')`), true)
+      await evaluate(`[...document.querySelectorAll('header.orgbar button')].find(b=>b.textContent==='Connections').click(); true`)
+      assert.equal(await waitFor(`document.querySelector('.modalpin-win button[aria-label="Open in new window"]')`), true, 'Org panel retains popout action')
       const before = new Set(BrowserWindow.getAllWindows().map(w => w.id))
-      const mainStyle = await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.acct-panel'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})()`)
+      const mainStyle = await evaluate(`(()=>{const s=getComputedStyle(document.querySelector('.modalpin-win'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})()`)
       await evaluate(`(()=>{const b=document.querySelector('button[aria-label="Open in new window"]');window.__acceptanceSurface=b.closest('.movable-surface');b.click();return true})()`)
       const child = BrowserWindow.getAllWindows().find(w => !before.has(w.id))
       assert.ok(child, 'Actual modal action must create a native child')
       assert.equal(await waitFor(`window.__acceptanceSurface.ownerDocument !== document`), true)
       assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
       fs.writeFileSync(path.join(root, phase + '-popout-state.json'), JSON.stringify({visible:child.isVisible(), bounds:child.getBounds(), loading:child.webContents.isLoading(), url:child.webContents.getURL()}))
-      const styleState = await child.webContents.executeJavaScript(`({panel:(()=>{const s=getComputedStyle(document.querySelector('.acct-panel'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})(),bodyStyle:{background:getComputedStyle(document.body).backgroundColor,font:getComputedStyle(document.body).fontFamily},links:[...document.querySelectorAll('link')].map(e=>({href:e.href,rel:e.rel,sheet:Boolean(e.sheet)})),sheets:document.styleSheets.length})`)
+      const styleState = await child.webContents.executeJavaScript(`({panel:(()=>{const s=getComputedStyle(document.querySelector('.modalpin-win'));return {background:s.backgroundColor,color:s.color,font:s.fontFamily}})(),bodyStyle:{background:getComputedStyle(document.body).backgroundColor,font:getComputedStyle(document.body).fontFamily},links:[...document.querySelectorAll('link')].map(e=>({href:e.href,rel:e.rel,sheet:Boolean(e.sheet)})),sheets:document.styleSheets.length})`)
       fs.writeFileSync(path.join(root, phase + '-popout-styles.json'), JSON.stringify(styleState, null, 2))
       await check('native-popout-retains-stylesheets', async () => {
         assert.notEqual(mainStyle.font, '"Times New Roman"', 'Main panel positive control must have app styling')
-        assert.deepEqual(styleState.panel, mainStyle, 'Adopted Settings must retain its rendered styles')
+        assert.deepEqual(styleState.panel, mainStyle, 'Adopted Connections must retain its rendered styles')
       })
-      await check('capture-native-settings-popout', () => capture(child, 'settings-popout'))
+      await check('capture-native-org-popout', () => capture(child, 'connections-popout'))
       main.close()
       assert.equal(main.isVisible(), false)
       assert.equal(child.isDestroyed(), false)
@@ -320,6 +336,7 @@ app.on('browser-window-created', (_event, main) => {
       await evaluate('window.orgtreeDesktop.showMainWindow()')
       child.close()
       assert.equal(await waitFor(`window.__acceptanceSurface.ownerDocument === document && document.contains(window.__acceptanceSurface)`), true)
+      await evaluate(`[...document.querySelectorAll('.modalpin-win button')].find(b=>b.textContent==='close').click(); true`)
     })
     if (visualFixture) await check('populated-graph-desk-document-connections-rendering', async () => {
       await evaluate(`[...document.querySelectorAll('.acct-panel button')].find(b=>b.textContent==='close')?.click();true`)
