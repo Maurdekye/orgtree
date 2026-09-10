@@ -165,6 +165,28 @@ app.on('browser-window-created', (_event, main) => {
       assert.equal(await evaluate('typeof require'), 'undefined')
       if (packaged) assert.deepEqual(loginCalls[0], { openAtLogin: true, args: ['--background'] }, 'Packaged first run requests quiet login by default')
     })
+    await check('home-window-controls-at-window-corner', async () => {
+      // Restart may restore the active organization. Use the real navigation
+      // controls to reach the populated home list before measuring it.
+      if (phase === 'restart' && !await evaluate(`Boolean(document.querySelector('.welcome'))`)) {
+        assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true)
+        await evaluate(`document.querySelector('header.orgbar button.iconbtn').click(); true`)
+        assert.equal(await waitFor(`[...document.querySelectorAll('button.home')].some(e => e.textContent.includes('all organizations'))`), true)
+        await evaluate(`[...document.querySelectorAll('button.home')].find(e => e.textContent.includes('all organizations')).click(); true`)
+      }
+      assert.equal(await waitFor(`document.querySelector('.welcome') && document.querySelector('.window-controls')`), true,
+        'Positive control: the actual home page and native controls must be mounted')
+      const measured = await evaluate(`(() => {
+        const controls = [...document.querySelectorAll('.window-controls')].filter(e => e.getBoundingClientRect().width > 0);
+        return { width: innerWidth, controls: controls.map(e => {
+          const r = e.getBoundingClientRect(); return { top: r.top, right: r.right, bottom: r.bottom };
+        }) };
+      })()`)
+      assert.equal(measured.controls.length, 1, 'Exactly one native control group on home')
+      const controls = measured.controls[0]
+      assert.ok(controls.top >= 0 && controls.bottom <= 64, `Controls belong at the window top: ${JSON.stringify(measured)}`)
+      assert.ok(Math.abs(measured.width - controls.right) <= 16, `Controls belong at the window right: ${JSON.stringify(measured)}`)
+    })
     await check('authenticated-api-positive-and-negative-control', async () => {
       assert.equal(await evaluate(`fetch('/api/orgs').then(r=>r.status)`), 200)
       const stats = await evaluate(`fetch('/api/desktop/status').then(r=>r.json())`)
