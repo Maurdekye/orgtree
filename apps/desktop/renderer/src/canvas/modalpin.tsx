@@ -405,7 +405,11 @@ export interface PinFrameProps {
 export function PinFrame(props: PinFrameProps) {
   const org = useCurrentOrg()
   const pin = useModalPin(props.kind, org)
-  const scope = ['usage', 'defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
+  // `usage` is deliberately NOT in the always-global list (user correction
+  // 2026-09-10 14:19): it is the same modal everywhere, but with an org open
+  // it pins/pops out like any org surface — saved independently per org —
+  // and only at home (no org) does the null scope below disable pin/popout.
+  const scope = ['defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} />
   return <MovableSurface key={scope} anchor={pin ? document.body : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
 }

@@ -372,7 +372,10 @@ export default function App() {
   // requests, and the panel's latch compares the request — see `jumpTo`
   // in shared.ts.
   const [docketJump, setDocketJump] = useState<JumpReq | null>(null)
-  usePersistedModalOpen('usage', null, showUsage)
+  // usage pins per org (user 2026-09-10 14:19) — its open marker follows the
+  // org it was pinned in; at home (slug null) it is unpinnable and the
+  // marker never writes
+  usePersistedModalOpen('usage', slug, showUsage)
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', null, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -469,6 +472,7 @@ export default function App() {
     restoredOrg.current = slug
     const pinned = readModalOpen(slug)
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
+    setShowUsage(pinnedKind('usage') || restoreWindowKind('usage', slug))
     setShowSettings(pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowConnections(pinnedKind('connections') || restoreWindowKind('connections', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
@@ -813,7 +817,7 @@ export default function App() {
         {!BASE &&
           <button className={'h1-usage' + (usageAlert ? ' u-' + usageAlert.sev : '')}
             title={usageAlert?.title ?? usageTitle(provPresence)}
-            onClick={() => setShowUsage(v => isModalPinned('usage') ? !v : true)}>
+            onClick={() => setShowUsage(v => isModalPinned('usage', slug) ? !v : true)}>
             <DataUsageIcon fontSize="inherit" /></button>}
         {/* the accounts panel (machine-local routing, 2026-08-25). Beside
             the usage bars deliberately — they answer the same question
@@ -1171,7 +1175,7 @@ export default function App() {
                 {!tree.public &&
                   <button className={'iconbtn' + (usageAlert ? ' u-' + usageAlert.sev : '')}
                     title={usageAlert?.title ?? usageTitle(provPresence)}
-                    onClick={() => setShowUsage(v => isModalPinned('usage') ? !v : true)}>
+                    onClick={() => setShowUsage(v => isModalPinned('usage', slug) ? !v : true)}>
                     <DataUsageIcon fontSize="inherit" /></button>}
                 <button onClick={() => setShowConnections(true)}>Connections</button>
                 {!tree.public &&
