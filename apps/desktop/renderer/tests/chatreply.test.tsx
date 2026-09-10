@@ -300,8 +300,8 @@ test('opening mid-stream preserves the polled prefix and newer websocket source 
 // replysize_probe.py covers the real computed geometry separately, in a
 // real browser), so this checks CSS ownership against the shipped
 // stylesheet, the way that file's own last test does.
-test('ReplyPreview only wears the composer-sized class when it has a '
-  + 'remove control — every other caller stays read-only-shaped', async () => {
+test('ReplyPreview only wears the composer class when it has a '
+  + 'remove control — every other caller stays read-only', async () => {
   const noop = () => {}
   const reply: ReplyContext = { org: 'org', agent: 'writer', generation: 1, eventId: 'e', quote: 'q' }
   const composing = await mountView(<ReplyPreview reply={reply} available onLocate={noop} onRemove={noop} />, el => el)
@@ -314,68 +314,12 @@ test('ReplyPreview only wears the composer-sized class when it has a '
     assert.ok(settled.el.querySelector('.reply-preview'))
     assert.equal(settled.el.querySelector('.reply-preview-composing'), null,
       'no remove control means this is a settled/read-only annotation — it must '
-      + 'NOT pick up the composer sizing')
+      + 'NOT expose composer-only actions')
   } finally { await settled.unmount() }
 })
 
-test('the composer reply annotation is full width and capped near the '
-  + "composer's own default height — its settled/read-only sibling rule "
-  + 'is untouched', () => {
-  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  // the BASE rule (every non-composer usage) must be EXACTLY what it always
-  // was — this is the anti-leak half: proves the scoped class, not a
-  // blanket change, is what did the resizing.
-  const base = css.match(/\.reply-preview\s*\{[^}]*\}/)?.[0]
-  assert.ok(base, 'positive control: the base rule exists in the shipped stylesheet at all')
-  assert.match(base!, /margin:\s*6px 8px/,
-    `a settled reply annotation must keep its original inset shape: ${base}`)
-  const baseQuote = css.match(/\.reply-preview blockquote\s*\{[^}]*\}/)?.[0]
-  assert.ok(baseQuote, 'positive control: the base blockquote rule exists')
-  assert.match(baseQuote!, /max-height:\s*100px/,
-    `a settled reply annotation must keep its original quote cap: ${baseQuote}`)
-  // the COMPOSING rule is where the resize actually lives.
-  const composingRule = css.match(/\.reply-preview-composing\s*\{[^}]*\}/)?.[0]
-  assert.ok(composingRule, 'positive control: the composing modifier rule exists')
-  assert.doesNotMatch(composingRule!, /margin:\s*[\d.]+\S*\s+[1-9]/,
-    `no horizontal margin narrowing it below the composer's own edges: ${composingRule}`)
-  const composingQuote = css.match(/\.reply-preview-composing blockquote\s*\{[^}]*\}/)?.[0]
-  assert.ok(composingQuote, 'positive control: the composing blockquote rule exists')
-  assert.doesNotMatch(composingQuote!, /max-height:\s*(100|[1-9]\d{2,})px/,
-    `quote height must not still be pinned to the old ~100px+ cap: ${composingQuote}`)
-  assert.match(composingQuote!, /max-height:\s*2(\.\d+)?em/,
-    `quote height should be proportioned to ~2 lines, matching the composer's `
-    + `own rows={2} default, not left unbounded: ${composingQuote}`)
-  // overflow:auto is inherited from the base blockquote rule (never
-  // overridden by the composing modifier), so a longer quote still
-  // scrolls into view rather than being clipped — the fix caps the
-  // DEFAULT height, it does not truncate reply context.
-  assert.doesNotMatch(composingQuote!, /overflow:/,
-    'the composing modifier must not override the base rule\'s scroll '
-    + `behaviour: ${composingQuote}`)
-  assert.match(baseQuote!, /overflow:\s*auto/,
-    'the base rule (inherited by the composer instance too) keeps a long '
-    + `quote scrollable rather than clipped: ${baseQuote}`)
-})
+// Shared composer/pending/settled geometry is exercised by replysize_probe.py.
 
-// ═══════════════════════════════════════════════════════════════════
-// show-reply-context-on-sent-user-messages. The backend already threads a
-// sent reply's `reply_to` this far — ledger.post_mail records it on the
-// mail entry, and once that entry is drained into a turn `_segments_for`
-// carries it, UNCHANGED, into `segments[].rows[].reply_to` on the SETTLED
-// message (confirmed by calling those two functions directly against a
-// real Org — see the docket's own investigation notes). Nothing rendered
-// it: `SegmentList`'s mail case drew the row's actor/kind/relationship but
-// never looked at `row.reply_to`. This fixture reproduces the settled
-// shape exactly (a `kind:'mail'` segment row with `reply_to`), through
-// the REAL DeskChat + FakeServer, not a hand-built provider — the same
-// standard mailsender.test.tsx's §1 holds itself to.
-// ═══════════════════════════════════════════════════════════════════
-
-// ⚠ ANTI-VACUITY: `existingEventId` is the id an EARLIER message in this
-// same fixture actually carries; `targetEventId` (default: the same id) is
-// what the reply CLAIMS to point at. §-CONTROL below passes a different
-// value for the second so the "original event is gone" case is a REAL
-// absence, not the trivial one a single shared id would always avoid.
 function settledReplyDesk(existingEventId: string, targetEventId = existingEventId) {
   const server = new FakeServer()
   server.messages = [
@@ -409,7 +353,7 @@ test('a settled user message carries its own reply reference and excerpt, '
     assert.equal(previews.length, 1, 'exactly one reply annotation — the settled '
       + 'row\'s own, not a composing one (nothing is being composed here)')
     assert.equal(previews[0]!.classList.contains('reply-preview-composing'), false,
-      'the settled annotation must NOT wear the composer-sized class — the user '
+      'the settled annotation must NOT wear the composer class — the user '
       + 'clarification on the sibling docket item is explicit that these are distinct')
     assert.match(previews[0]!.textContent!, /Reply to writer/,
       `the reference names who is being replied to: ${previews[0]!.textContent}`)

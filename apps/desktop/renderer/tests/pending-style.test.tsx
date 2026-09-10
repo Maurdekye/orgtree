@@ -48,11 +48,7 @@ test('pending user, agent and notice cards retain their transcript styling and a
   assert.ok(view.el.querySelector('.pendghost .ghost-acts button'))
 })
 
-test('a typed-ev pending row still draws the transcript\'s plain card (user capture 2026-09-10)', async t => {
-  // The user's before/after images: the SAME message wore the dark typed
-  // event dress while pending (its box row carries `ev`) and the plain mail
-  // card once settled (the transcript row carries none). The pending row
-  // must present the branch it SETTLES INTO.
+test('typed and legacy pending and delivered mail all use the Message card', async t => {
   const server = new FakeServer(); installFetch(server)
   const body = 'this is not the same.'
   const row = { id:'mt', from:'@user', kind:'message', body, at:'2026-09-10T13:19:58Z' }
@@ -60,8 +56,7 @@ test('a typed-ev pending row still draws the transcript\'s plain card (user capt
     object:null, engine_authored:false, body }
   server.pending_mail.push({ ...row, ev } as never)
   server.messages.push({ role:'user', text:'', seq:1, segments:[{kind:'mail', rows:[row]}] } as never)
-  // the POTENCY CONTROL: the same ev on a settled row must produce the typed
-  // dress — if it stopped changing anything, the parity below proves nothing
+  // Typed delivery is the reference appearance from the user's screenshots.
   server.messages.push({ role:'user', text:'', seq:2,
     segments:[{kind:'mail', rows:[{ ...row, id:'mc', ev }]}] } as never)
   const node = {id:'worker',state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,
@@ -76,8 +71,7 @@ test('a typed-ev pending row still draws the transcript\'s plain card (user capt
   assert.ok(pend && done && control, 'all three cards rendered')
   assert.ok(control!.classList.contains('event-card'),
     'CONTROL: a typed ev really does dress a card — otherwise this test is vacuous')
-  assert.ok(!pend!.classList.contains('event-card'),
-    'the pending copy does NOT wear the typed dress its transcript row will not have')
+  assert.ok(pend!.classList.contains('event-card'), 'pending keeps the Message card')
   assert.equal(pend!.className, done!.className)
   const canonical = (el: Element) => {
     const clone = el.cloneNode(true) as Element
@@ -85,4 +79,5 @@ test('a typed-ev pending row still draws the transcript\'s plain card (user capt
     return clone.innerHTML.replace(/:r[0-9a-z]+:/g, ':react-id:').replace(/data-mail-id="m[tc]"/g, '')
   }
   assert.equal(canonical(pend!), canonical(done!))
+  assert.equal(canonical(pend!), canonical(control!))
 })

@@ -3042,20 +3042,10 @@ export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
   onContext?: (e: React.MouseEvent) => void
   onRetract?: () => void
 }) {
-  // ⚠ PRESENT THE ROW AS THE TRANSCRIPT WILL. The user's own before/after
-  // captures (2026-09-10, image-34/35) showed the same message wearing two
-  // different cards one second apart: the pending copy carried a typed `ev`
-  // and drew the event dress (dark event-surface, left accent, family
-  // header) while the settled transcript row carries none and draws the
-  // plain mail card (time · sender · kind chip). Visual identity means the
-  // pending copy renders the SAME branch as the row it settles into, so the
-  // typed-event keys are set aside for display — everything else about the
-  // row (body, attachments, reply, receipt) is untouched.
-  const { ev: _ev, ev_public: _evp, ev_raw: _evr, ev_error: _eve, ...presented } = m
   return (
     <div data-reply-event={m.event_id} data-reply-quote={m.body}
       onContextMenu={onContext} className="pending pendrow">
-      <MailMessage row={presented} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
+      <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
         meta={!m.delivering && m.id && onRetract

@@ -235,7 +235,7 @@ domTest('§6 the DELIVERED card has the column shape — it is the target',
     await flush()
     const card = deliveredCard(el)
     const head = card.querySelector(':scope > header.turn-mail-head')
-    const body = card.querySelector(':scope > .event-fallback, :scope > .event-body')
+    const body = card.querySelector(':scope > .event-fallback, :scope > .event-body, :scope > .turn-mail-preview')
     const rowEl = card.querySelector(':scope > .attach-row')
     assert.ok(head && body && rowEl, 'header, body and attachment row all render')
     assert.ok(head!.compareDocumentPosition(body!) & 4, 'metadata first, body below it')
@@ -269,7 +269,7 @@ domTest('§7 PARITY: the same message reads the same queued and delivered',
     await flush()
     const shape = (card: Element) => [...strip(card).children]
       .map((c) => c.matches('header.turn-mail-head') ? 'head'
-        : c.matches('.event-fallback, .event-body') ? 'body'
+        : c.matches('.event-fallback, .event-body, .turn-mail-preview') ? 'body'
           : c.classList.contains('attach-row') ? `attach×${c.children.length}`
             : `?${c.className}`)
     const pend = shape(pendCard(el))

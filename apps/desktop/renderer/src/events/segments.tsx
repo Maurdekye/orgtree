@@ -105,6 +105,20 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
   } }) {
+  // Old ordinary mail and optimistic sends have no event envelope. Give
+  // their PRESENTATION the same shape as typed ordinary mail. Do not alter
+  // transport data or reinterpret malformed/unknown typed events.
+  if (decodeEventRow(row, profile).kind === 'legacy'
+      && ['message', 'question', 'request', 'decision', 'status', 'notice'].includes(row.kind || 'message')) {
+    const sender = row.from
+    const kind = sender === '@user' || sender === 'user' ? 'user'
+      : sender === '@system' || sender === 'system' ? 'system'
+        : sender.startsWith('@') ? 'external' : 'agent'
+    const event = { v: 1, variant: `ordinary.${row.kind || 'message'}`,
+      actor: { kind, id: sender }, object: null, body: row.body,
+      ...(profile === 'public' ? { projection: 'public' } : { engine_authored: false }) }
+    row = { ...row, ...(profile === 'public' ? { ev_public: event } : { ev: event }) }
+  }
   const base = fileBase(slug, nid)
   const card = (value: unknown, preview: boolean, part?: "header" | "body") =>
     <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
@@ -134,7 +148,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
             reference (this row is itself a reply to something), distinct
             from — and rendered independently of — the live composing
             annotation (`.reply-preview`, no `-composing` modifier here, so
-            it keeps its ordinary read-only shape). The backend already
+            it uses the same annotation shape without a remove control). The backend already
             threads `reply_to` this far (ledger.post_mail -> journal_row ->
             _segments_for's mail rows), it was simply never rendered. */}
         {(() => { const rc = replyContext(row.reply_to)

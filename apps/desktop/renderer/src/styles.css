@@ -6013,7 +6013,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-head .event-actor::after { content: none; }
 .typed-input { align-self: stretch; min-width: 0; }
 .typed-input .msgtext { margin: 0; }
-.turn-mail.event-surface { padding: 0; }
+.turn-mail.event-surface { padding: 0; margin: 0; }
 .turn-mail.event-surface > .attach-row { padding: 0 10px 8px; }
 .mailer-read.event-surface { margin: 0; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0; }
 .mailer-read > .event-head { padding-left: 0; padding-right: 0; }
@@ -6163,40 +6163,10 @@ html.mobile .popout-button { display: none; }
 .reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; }
 .reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
-/* resize-reply-annotations-above-the-message-box (user clarification: the
-   composer's OWN reply annotation only — not a settled message's quoted-
-   reply card, which keeps the rules above completely UNTOUCHED, computed
-   layout included — root review 2026-09-09 rejected an earlier version of
-   this that reset display/width/border-right on the BASE `.reply-preview`
-   rule: correct in isolation, but it changes what a sent/pending card
-   actually computes to on screen despite the commit claiming those were
-   untouched. Every reset below lives ONLY on the composing modifier now).
-   `.reply-preview-composing` is added by replypreview.tsx only when
-   `onRemove` is passed, which happens only at the composer call site
-   (desk.tsx).
-   ⚠ `<aside>` is ALSO the bare tag the app's left sidebar uses (`aside {
-   width: 264px; display: flex; ...}` above), and ReplyPreview renders an
-   `<aside>` of its own for its own unrelated reason (semantic markup, not
-   sidebar intent) — every property that rule sets and `.reply-preview`
-   does not (width, display, flex-direction, gap, border-right) leaks
-   through uncontested (a bare-tag rule loses on specificity only for
-   properties BOTH rules declare; width/display are never contested here,
-   so the sidebar's values win by default). That silently pins the
-   COMPOSING instance at a fixed 264px flex column too — caught by
-   replysize_probe.py's real Edge render, not by a CSS-value test, which
-   only reads a rule's own text and has no way to see a property it never
-   mentions — so the reset is repeated here rather than shared with the
-   base rule, which deliberately keeps the sidebar collision as it always
-   was for every non-composing instance. Full composer width (0 horizontal
-   margin, matching .cc-composer and its siblings .attach-row/.sendmode,
-   which all stretch edge-to-edge instead of inset) and a quote capped
-   near the composer's own default height — its textarea defaults to
-   `rows={2}`, so 2 lines (2.8em, scaling with this block's own
-   font-size) is the matching proportion. Still scrollable past that:
-   longer quoted context stays readable, it just is not the default shape
-   any more. */
-.reply-preview-composing { margin: 6px 0; display: block; width: auto; border-right: 0; }
-.reply-preview-composing blockquote { max-height: 2.8em; }
+/* Reply context shares the composer annotation shape in every location.
+   Its actions still depend on whether the user is composing or reading. */
+.reply-preview { margin: 6px 0; display: block; width: auto; border-right: 0; }
+.reply-preview blockquote { max-height: 2.8em; }
 .reply-event { display: contents; }
 
 .connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }

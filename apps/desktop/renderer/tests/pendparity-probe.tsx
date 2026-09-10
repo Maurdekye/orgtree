@@ -22,9 +22,7 @@ const rows: PendingMail[] = [
   { id: 'm3', from: '@user', kind: 'message', at: AT, body: 'The typed-copy case.' },
 ]
 
-/** the user's actual 2026-09-10 case (image-34/35): the PENDING copy carries
- *  a typed `ev` while the settled transcript row does not — the pending side
- *  must still draw the transcript's plain card, not the event dress */
+/** Both transport directions keep the same Message card appearance. */
 const typedPending = (r: PendingMail): PendingMail => r.id === 'm3'
   ? { ...r, ev: { v: 1, variant: 'ordinary.message',
       actor: { kind: 'user', id: '@user' }, object: null,
@@ -32,7 +30,9 @@ const typedPending = (r: PendingMail): PendingMail => r.id === 'm3'
 
 const settledMsg = (mailRows: PendingMail[], key: string) =>
   <Msg key={key} m={{ role: 'user', text: '', seq: 1,
-    segments: [{ kind: 'mail', rows: mailRows }] } as unknown as ChatMessage}
+    segments: [{ kind: 'mail', rows: mailRows.map(r => r.id === 'm0'
+      ? { ...r, ev: { v: 1, variant: 'ordinary.message', actor: {kind:'user',id:'@user'},
+          object:null, engine_authored:false, body:r.body } } : r) }] } as unknown as ChatMessage}
     slug="probe" nid="agent" />
 
 createRoot(document.querySelector('#root')!).render(<div style={{ width: 720 }}>

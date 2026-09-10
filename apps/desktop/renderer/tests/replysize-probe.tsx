@@ -7,9 +7,7 @@
 // while actively composing a reply (has a remove control, matching the
 // desk.tsx call site that sets `onRemove`); `#settled` is every other
 // caller (a settled message's own quoted-reply card, a pending row, draft
-// recovery) — read-only, no remove control, and the docket's user
-// clarification (2026-09-09 11:07) is explicit that ONLY the composing one
-// should resize.
+// recovery) share the composing annotation geometry, with no remove control.
 import { createRoot } from 'react-dom/client'
 import { ReplyPreview } from '../src/canvas/replypreview'
 import type { ReplyContext } from '../src/eventReply'

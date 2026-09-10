@@ -17,10 +17,8 @@ Three claims per width:
      own default height — not the old ~150px box.
   3. a LONG quote still scrolls (does not grow the box past the cap) —
      the fix caps the default shape, it does not truncate reply context.
-And the negative control: the SETTLED (non-composing) annotation elsewhere
-in the app keeps its ORIGINAL narrow, inset shape — proving the resize is
-scoped to the composer instance, per the user's explicit clarification that
-sent/settled quoted replies are not in scope.
+Pending and settled annotations now share the composer shape (September 10
+clarification). An injected old-width rule proves the geometry detector fails.
 """
 from __future__ import annotations
 
@@ -52,7 +50,7 @@ def main() -> int:
     for marker in ("reply-preview-composing", 'className="reply-preview-head"'):
         if marker not in src:
             raise SystemExit(f"fixture guard: replypreview.tsx no longer emits {marker}")
-    for marker in (".reply-preview-composing", ".cc-composer textarea"):
+    for marker in (".reply-preview {", ".cc-composer textarea"):
         if marker not in css:
             raise SystemExit(f"fixture guard: styles.css no longer contains {marker}")
 
@@ -84,10 +82,15 @@ def main() -> int:
                     longQuote: {scrollHeight: longQuote.scrollHeight, clientHeight: longQuote.clientHeight},
                     settled: box(settled),
                     settledIsComposing,
+                    settledRemove: Boolean(settled.querySelector('[aria-label="Remove reply"]')),
                     removeControlPresent: Boolean(shortPreview.querySelector('[aria-label="Remove reply"]')),
                     locateControlPresent: Boolean(shortPreview.querySelector('.reply-preview-head button')),
                   }
                 }""")
+                page.add_style_tag(content="#settled .reply-preview { width: 200px !important; }")
+                wrong_width = page.locator('#settled .reply-preview').bounding_box()['width']
+                if abs(wrong_width - results[label]['shortPreview']['w']) <= 3:
+                    raise AssertionError('Old narrow-shape control failed to produce a mismatch')
                 page.close()
             browser.close()
 
@@ -128,18 +131,12 @@ def main() -> int:
         if r["longQuote"]["scrollHeight"] <= r["longQuote"]["clientHeight"]:
             failures.append(f"{label}: the long quote has nothing to scroll — "
                              "positive control for the overflow check failed")
-        # NEGATIVE CONTROL: the settled/read-only annotation elsewhere in the
-        # app must NOT be resized — proves the fix is scoped, not a blanket
-        # change to every ReplyPreview usage (user's explicit clarification).
-        if r["settledIsComposing"]:
-            failures.append(f"{label}: the settled/read-only annotation picked up the "
-                             "composer-sizing class — the scoping leaked")
-        settled_w = r["settled"]["w"]
-        if abs(settled_w - composer_w) < 3:
-            failures.append(f"{label}: the settled annotation is full composer width "
-                             f"({settled_w:.1f} vs {composer_w:.1f}) — it should have kept "
-                             "its original inset shape (this is the negative control's own "
-                             "positive control: it must still be NARROWER for the check above to mean anything)")
+        if r["settledIsComposing"] or r["settledRemove"]:
+            failures.append(f"{label}: read-only annotation exposes composer actions")
+        if abs(r["settled"]["w"] - preview_w) > 3:
+            failures.append(f"{label}: settled annotation width differs from composing")
+        if abs(r["settled"]["h"] - preview_h) > 3:
+            failures.append(f"{label}: settled annotation height differs from composing")
         # controls preserved
         if not r["removeControlPresent"]:
             failures.append(f"{label}: the composing annotation lost its remove control")
@@ -152,7 +149,7 @@ def main() -> int:
             print(f"  - {f}")
         return 1
     print("replysize probe: composer-width match, default-height proportion, long-quote "
-          "scroll, and settled-annotation scoping all hold at both widths.")
+          "scroll, and settled-annotation parity all hold at both widths.")
     for label, r in results.items():
         print(f"  {label}: composer {r['composer']['w']:.0f}x{r['composer']['h']:.0f}, "
               f"reply-preview {r['shortPreview']['w']:.0f}x{r['shortPreview']['h']:.0f}, "
