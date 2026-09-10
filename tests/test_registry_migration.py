@@ -90,6 +90,11 @@ class MigrationTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
             self.assertIs(run(default_dir).get("default_config"), True)
+            # and the ROW keeps it — registry validation (the other half
+            # of the split) must not strip the field from imported rows
+            [row] = [r for r in self.registry.list_accounts()
+                     if r["provider"] == "claude"]
+            self.assertIs(row["credential"].get("default_config"), True)
             # unset selector but a NON-default path: redirected, no flag
             self.assertNotIn("default_config", run(self.claude_dir))
         # explicit selector at the SAME path: still redirected, no flag
