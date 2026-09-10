@@ -1,6 +1,6 @@
 {
   "name": "orgtree",
-  "version": "2.0.0-alpha.10",
+  "version": "2.0.0",
   "private": true,
   "description": "Orgtree desktop application",
   "license": "MIT",
@@ -50,6 +50,6 @@
     "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }, { "from": "dist/build-info.json", "to": "build-info.json" }, { "from": "apps/desktop/assets", "to": "runtime-icons", "filter": ["orgtree-eye*.ico"] }],
     "win": { "target": "nsis" },
     "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false, "createStartMenuShortcut": true, "shortcutName": "Orgtree", "menuCategory": "Orgtree", "include": "build/installer.nsh" },
-    "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "prerelease" }]
+    "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "release" }]
   }
 }
