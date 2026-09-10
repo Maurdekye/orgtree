@@ -10171,35 +10171,27 @@ class Org:
             and self.is_ancestor(actor, cast(str, anchor))
 
     def _work_can_read(self, actor: str, it: WorkItem) -> bool:
-        """Manage right, explicit participant membership — the narrow
-        collaboration path (Astra 2026-09-05): a participant may read, post
-        status updates and evidence, and attach questions; nothing else — or
-        being the item's NAMED REVIEWER, which is narrower still: read,
-        evidence and the review decision, and no status update at all (a status
-        update claims the item, and reviewing is not owning)."""
+        """Manage right, explicit participant membership — since the user's
+        2026-09-10 13:47 ruling a participant holds FULL STATE control (any
+        status including done, drop and reopen, plus evidence and attached
+        questions); only the item's identity (title/objective) and third-party
+        reassignment stay owner-level — or being the item's NAMED REVIEWER,
+        which is narrower: read, evidence and the review decision, and no
+        status update at all (a status update claims the item, and reviewing
+        is not owning)."""
         return self._work_can_manage(actor, it) \
             or actor in (it.get("participants") or []) \
             or actor == self._work_actor_node(it.get("reviewer"))
 
     def _work_can_accept(self, actor: str, it: WorkItem) -> bool:
-        """The user, a strict ancestor of the owner, or the item's NAMED
-        REVIEWER — never the owner.
-
-        The reviewer joined this set on the user's ruling (2026-09-05 21:26):
-        a named reviewer's approval completes the item, with no separate
-        superior acceptance behind it. The owner is still excluded, and since
-        reviewer≠owner is enforced both when the reviewer is named and again
-        when it decides, the exclusion cannot be walked around by naming
-        yourself."""
-        if actor == USER:
-            return True
-        if actor == self._work_actor_node(it.get("reviewer")) \
-                and actor != self._work_actor_node(it.get("owner")):
-            return True
-        anchor = self._work_actor_node(it.get("owner")) \
-            or self._work_actor_node(it.get("created_by"))
-        return bool(anchor) and actor != anchor and anchor in self.nodes \
-            and self.is_ancestor(actor, cast(str, anchor))
+        """Everyone with read standing on the item (user ruling 2026-09-10
+        13:47: ANY ticket participant may change its state in any manner,
+        including completion, without superior review) — the owner, the
+        creator, their superiors, the user, listed participants, and the
+        named reviewer (whose approval already completed items per the
+        2026-09-05 21:26 ruling). The historical never-the-owner exclusion is
+        retired by the same ruling: superior review is a route, not a gate."""
+        return actor == USER or self._work_can_read(actor, it)
 
     def _work_get_for(self, actor: str, wid: str) -> tuple[WorkItem, bool]:
         """The item, or ONE refusal for both "no such item" and "not yours"
@@ -11231,12 +11223,7 @@ class Org:
                 f"in history); to report on finished work without resuming "
                 f"it, add `evidence` instead")
         if status is not None:
-            if status not in self.WORK_AGENT_STATUSES:
-                if status == "done":
-                    raise LedgerError(
-                        "assert `review` — which means REVIEW BY AGENTS; "
-                        "acceptance belongs to your superior or the user "
-                        "(orgtree_work accept)")
+            if status not in self.WORK_AGENT_STATUSES and status != "done":
                 if status in self.WORK_LEGACY_STATUSES:
                     raise LedgerError(
                         f"`{status}` is no longer a task state (user 2026-09-07): "
@@ -11245,16 +11232,12 @@ class Org:
                         f"or what will unblock it, and how you will hear of it")
                 raise LedgerError(
                     f"status must be one of {'|'.join(self.WORK_AGENT_STATUSES)}")
-        # a participant's grant is NARROW: status updates and evidence. Closing
-        # the item, resuming it or rewriting what it is are owner-level acts.
+        # a participant's STATE grant is FULL (user ruling 2026-09-10 13:47:
+        # any ticket participant may change its state in any manner, including
+        # completion, reopen and drop, without superior review). What stays
+        # owner-level is the item's IDENTITY — retitling and re-scoping are
+        # not state — and handing it to a third party (below).
         if not pre_manage:
-            if status == "dropped":
-                raise LedgerError("dropping an item is an owner-level act (owner, "
-                                  "creator, their superiors, the user) - a "
-                                  "participant reports, it does not close")
-            if reopen:
-                raise LedgerError("reopening an item is an owner-level act - ask "
-                                  "the owner or a superior")
             if title is not None or objective is not None:
                 raise LedgerError("only the owner, the creator, their superiors "
                                   "or the user may retitle or re-scope an item")
@@ -11324,6 +11307,15 @@ class Org:
         self._work_state_info(it, was, {"blocked_reason": blocked_reason,
                                         "waiting_reason": waiting_reason,
                                         "dropped_reason": dropped_reason})
+        if it.get("status") == "done" and was != "done":
+            # completion by the collaborators themselves (user 2026-09-10
+            # 13:47): `done` set through `update` is a first-class completion
+            # — the same acceptance record `accept` writes, so nothing
+            # downstream can tell the two routes apart, and the one-hour
+            # archive clock runs from this update like any other completion.
+            self._work_clear_state_info(it)
+            it["accepted"] = {"at": now(), "by": self._work_actor(actor),
+                              "note": None, "via": "update"}
         if it.get("status") == "dropped" and was != "dropped":
             # the OUTCOME outlives the field. A later reopen clears
             # `dropped_reason` (a reason must not survive its state), so
@@ -11829,10 +11821,11 @@ class Org:
 
     def work_accept(self, actor: str, wid: str,
                     note: str | None = None) -> dict[str, Any]:
-        """→ done. The user, a strict ancestor of the owner, or the item's
-        NAMED REVIEWER; never the owner. Starts the one-hour archive clock (a
-        docket event) but leaves `last_updater` alone — replies still reach the
-        agent who did the work.
+        """→ done. Anyone with standing on the item — owner and participants
+        included since the user's 2026-09-10 13:47 ruling (any participant may
+        change every state, completion included, without superior review).
+        Starts the one-hour archive clock (a docket event) but leaves
+        `last_updater` alone — replies still reach the agent who did the work.
 
         ANY open status is acceptable, not just `review`. `review` means review
         BY AGENTS (user ruling 2026-09-05); an item that was only ever waiting
@@ -11844,9 +11837,9 @@ class Org:
         it, _ = self._work_get_for(actor, wid)
         if not self._work_can_accept(actor, it):
             raise LedgerError(
-                "acceptance belongs to the user, a superior of the owner or "
-                "the item's named reviewer — an owner asserts `review` (the "
-                "AGENT check) and waits")
+                "acceptance belongs to the item's own people — its owner, "
+                "creator, their superiors, a listed participant, its named "
+                "reviewer, or the user")
         return self._work_accept_core(actor, it, note, "accept")
 
     def _work_accept_core(self, actor: str, it: WorkItem, note: str | None,

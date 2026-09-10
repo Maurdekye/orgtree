@@ -302,8 +302,12 @@ TOOLS: list[dict[str, Any]] = [
             "deploy_ready|dropped, blocked_reason, dropped_reason, "
             "attention:true + attention_reason for a concrete reason the user "
             "must see, reopen:true to resume an archived item), `assign` "
-            "(owner), `participants` (add/remove collaborators: they may "
-            "read, update, add evidence and attach questions), `evidence` "
+            "(owner), `participants` (add/remove collaborators: since the "
+            "user's 2026-09-10 ruling a participant holds FULL STATE "
+            "control — any status including done, dropped and reopen, no "
+            "superior review needed — plus evidence and attached questions; "
+            "only retitling/re-scoping and handing the item to a third party "
+            "stay owner-level), `evidence` "
             "(kind note|link|file|commit|log, ref, note — cap 50, refused "
             "not truncated), `claim` (a delivery stage implemented|committed|"
             "pushed|deployed|in_build with a sha for the git-checkable ones), "
@@ -311,9 +315,11 @@ TOOLS: list[dict[str, Any]] = [
             "repository's git — object exists / ancestor of the local "
             "origin/main tracking ref / ancestor of the booted commit; three-"
             "valued, never a functional check), `check` (mark acceptance "
-            "condition `index` met with evidence_ref), `accept` (→ done; "
-            "the user or a superior of the owner, never the owner — assert "
-            "`review` and wait), `archive` (a closed item, early), "
+            "condition `index` met with evidence_ref), `accept` (→ done, by "
+            "anyone with standing on the item — owner and participants "
+            "included since the user's 2026-09-10 ruling; setting status "
+            "done in `update` is the same completion), "
+            "`archive` (a closed item, early), "
             "`review` MEANS REVIEW BY AGENTS and is never how you ask the "
             "user for anything: their own review is the ATTENTION mechanism "
             "(attention:true, or a question via orgtree_ask work_item), and an "
@@ -406,7 +412,7 @@ TOOLS: list[dict[str, Any]] = [
                 "working_on_next": {"type": "array", "items": {"type": "string"},
                                     "description": "update (required) / create: what you are doing now and the next steps"},
                 "status": {"type": "string",
-                           "description": "create/update: backlogged|open|in_progress|blocked|review|deploy_ready|dropped (done only via accept). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `deploy_ready` = implementation is COMPLETE and awaiting deployment/publication — not blocked (nothing outside the item is stuck) and not done (not live yet): it counts as active and IS nudged, because getting it deployed is still actionable work owed by the owner. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
+                           "description": "create/update: backlogged|open|in_progress|blocked|review|deploy_ready|dropped — and on update also done (user 2026-09-10: any collaborator may complete directly; it writes the same acceptance record accept does). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `deploy_ready` = implementation is COMPLETE and awaiting deployment/publication — not blocked (nothing outside the item is stuck) and not done (not live yet): it counts as active and IS nudged, because getting it deployed is still actionable work owed by the owner. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
                 "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded"},
                 "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded"},
                 "attention": {"type": "boolean",

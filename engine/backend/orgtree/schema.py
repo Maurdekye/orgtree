@@ -631,7 +631,7 @@ class WorkItem(TypedDict):
     waiting_reason: NotRequired[str | None]   # the external event, and how the agent hears of it
     dropped_reason: NotRequired[str | None]   # why the work ended: cancelled, or failed unrecoverably
     owner: WorkActor | None         # identity + generation at assignment
-    participants: list[str]         # collaborator node ids: read + status update + evidence + attach a question
+    participants: list[str]         # collaborator node ids: full state control incl. done/drop/reopen (user 2026-09-10) + evidence + attach a question
     created_by: WorkActor | str
     at: str
     updated_at: str                 # ANY mutation (never the row's age — see docket_at)
@@ -670,7 +670,7 @@ class WorkItem(TypedDict):
     parent: NotRequired[str | None]
     evidence: list[dict[str, Any]]  # {at, by, kind: note|link|file|commit|log, ref, note?} — cap by refusal, never truncated
     delivery: dict[str, WorkStage | None] | None   # keys = workitems.STAGES
-    accepted: dict[str, Any] | None  # {at, by, note} — set only by work_accept (user or an ancestor of the owner)
+    accepted: dict[str, Any] | None  # {at, by, note, via} — completion record: work_accept, a reviewer approval, or a done set through work_update (any collaborator, user 2026-09-10)
     history: list[dict[str, Any]]   # {at, by, field, from, to}; oldest fold into ONE {kind: "folded", ...} row past the cap
     superseded_by: str | None
 
