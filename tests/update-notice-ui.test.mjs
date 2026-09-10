@@ -34,9 +34,9 @@ function stage() {
   return { rootNode, listeners, teardown }
 }
 
-async function mount(initial, transientMs) {
+async function mount(initial, transientMs, bridge = {}) {
   const { rootNode, listeners, teardown } = stage()
-  window.orgtreeDesktop = { getUpdateStatus: async () => initial, onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener) } }
+  window.orgtreeDesktop = { ...bridge, getUpdateStatus: async () => initial, onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener) } }
   await act(async () => rootNode.render(React.createElement(UpdateNotice, transientMs === undefined ? undefined : { transientMs })))
   return { listeners, teardown, push: async status => act(async () => { for (const listener of listeners) listener({ type: 'update', data: status }) }) }
 }
@@ -96,4 +96,25 @@ test('checking has no label text change mid-flight and clears cleanly on unmount
   assert.equal(document.querySelector('.update-notice').textContent, 'Checking for updates…')
   await teardown()
   assert.equal(listeners.size, 0, 'the event subscription must be released on unmount')
+})
+
+
+test('ready update offers one explicit restart action, while downloading does not', async () => {
+  let calls = 0
+  let rejectInstall
+  const bridge = { installUpdate: () => { calls++; return new Promise((_, reject) => { rejectInstall = reject }) } }
+  const { push, teardown } = await mount({ state: 'downloading', percent: 50 }, 20, bridge)
+  assert.equal(document.querySelector('button'), null)
+  await push({ state: 'pending-idle', version: '2.0.0-alpha.9' })
+  const button = document.querySelector('button')
+  assert.equal(button.textContent, 'Update now')
+  await act(async () => button.click())
+  assert.equal(calls, 1)
+  assert.equal(button.disabled, true)
+  await act(async () => button.click())
+  assert.equal(calls, 1, 'repeated clicks cannot initiate another installation')
+  await act(async () => rejectInstall(new Error('Engine could not stop')))
+  assert.equal(document.querySelector('[role="alert"]').textContent, 'Engine could not stop')
+  assert.equal(button.disabled, false, 'failure permits a retry')
+  await teardown()
 })

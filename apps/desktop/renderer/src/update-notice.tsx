@@ -20,14 +20,15 @@ const LABEL: Record<UpdateStatus['state'], (status: UpdateStatus) => string | nu
  *  onto this one - see the 'maintenance' channel split) renders nothing instead of throwing. */
 export function describeUpdateStatus(status: UpdateStatus): string | null { return LABEL[status.state]?.(status) ?? null }
 
-/** Purely informational — automatic install still only happens at idle, with
- * no user-triggered override (docket add-automatic-update-discovery-and-in-
- * app-instal). Self-contained: renders null when there is nothing to show
+/** Automatic installation waits for idle; a ready download also offers an
+ * explicit install-and-restart action. Renders null when there is nothing to show
  * and hides its own transient states, so the caller only needs to place it
  * outside `.window-controls`, no dedicated wrapper class required. */
 export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = {}) {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [visible, setVisible] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     const bridge = desktop()
@@ -47,5 +48,16 @@ export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = 
   if (!status || !visible) return null
   const label = describeUpdateStatus(status)
   if (!label) return null
-  return <div className="update-notice" role="status" aria-live="polite">{label}</div>
+  return <div className="update-notice" role="status" aria-live="polite">
+    {status.state === 'pending-idle' && desktop()?.installUpdate
+      ? <button disabled={applying} title="Install the downloaded update and restart Orgtree"
+          onClick={() => {
+            setApplying(true); setError(null)
+            void desktop()!.installUpdate().catch((reason: unknown) => {
+              setApplying(false); setError(reason instanceof Error ? reason.message : String(reason))
+            })
+          }}>{applying ? 'Restarting…' : 'Update now'}</button>
+      : label}
+    {error && <span role="alert">{error}</span>}
+  </div>
 }

@@ -149,6 +149,11 @@ else {
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
     tray.setContextMenu(Menu.buildFromTemplate([
+      ...(downloaded ? [{ label: 'Update now', enabled: !updateApplying && !quitting,
+        click: () => { void requestUpdateInstall().catch(error => {
+          void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
+            detail: error instanceof Error ? error.message : String(error) })
+        }) } }] : []),
       { label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -168,6 +173,8 @@ else {
   }
   const applyDownloadedUpdate = async () => {
     if (updateApplying || quitting) return
+    updateApplying = true
+    try {
     // A boot-host engine is stopped gracefully through its authenticated
     // shutdown route before its files are replaced; the installer restarts
     // the task afterwards. A stop that cannot be VERIFIED throws here, with
@@ -175,12 +182,20 @@ else {
     // failure report, and the idle auto-path simply retries later — because
     // installing over a live engine is never acceptable.
     if (!engine.managed) await engine.stopAttachedForUpdate()
-    if (updateApplying || quitting) return
-    updateApplying = true; quitting = true
+    if (quitting) return
+    quitting = true
     if (poll) clearInterval(poll)
     await saveWindowLayout(); await engine.stop(); quitComplete = true
     setTimeout(() => app.exit(1), 15000).unref()
     installDownloadedUpdate(autoUpdater, path.dirname(process.execPath))
+    } catch (error) {
+      if (!quitting) updateApplying = false
+      throw error
+    }
+  }
+  const requestUpdateInstall = async () => {
+    if (!downloaded || !app.isPackaged) throw new Error('No downloaded update is ready to install.')
+    await applyDownloadedUpdate()
   }
   const maintenance = new MaintenanceController({
     ack: (id, outcome) => engine.acknowledgeMaintenance(id, outcome),
@@ -226,7 +241,7 @@ else {
     // rules included) - comparing version strings here would get an older or
     // disallowed release wrong by treating any difference as an update.
     run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
-    report: status => broadcast({ type: 'update', data: status }),
+    report: status => { broadcast({ type: 'update', data: status }); rebuildTray() },
   })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.
@@ -268,6 +283,7 @@ else {
     rebuildTray()
     handle('desktop:status', () => engine.status)
     handle('desktop:app-version', () => app.getVersion())
+    handle('desktop:install-update', () => requestUpdateInstall())
     handle('desktop:window-state', () => windowState())
     handle('desktop:window-controls-state', () => windowControlsState())
     handle('desktop:window-minimize', () => { main?.minimize() })

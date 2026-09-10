@@ -57,6 +57,7 @@ export interface ProviderLoginStatus {
 }
 export interface DesktopBridge {
   getAppVersion(): Promise<string>
+  installUpdate(): Promise<void>
   getStatus(): Promise<EngineStatus>
   getWindowState(): Promise<DesktopWindowState>
   getWindowControlsState(): Promise<DesktopControlsState>

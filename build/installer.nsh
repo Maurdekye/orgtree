@@ -38,6 +38,14 @@ Var pid
     ${endif}
   !endif
 !macroend
+!macro customInit
+  # Existing clients already pass --updated, even when they omit /S.
+  # Make the update entry point silent so upgrading FROM those clients also
+  # skips the wizard. Ordinary manual installs retain their setup pages.
+  ${if} ${isUpdated}
+    SetSilent silent
+  ${endif}
+!macroend
 !macro customHeader
   !ifndef BUILD_UNINSTALLER
     Var BootOperatorSid
