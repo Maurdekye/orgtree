@@ -9,13 +9,25 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 
 BLOCK = 65536
+#: how much of the file tail before the committed upper boundary is hashed as
+#: the resume anchor — enough to cover any plausible in-place tail rewrite
+#: while costing one bounded read per ingest that has new work
+ANCHOR_BYTES = 4096
 _schema_lock = threading.Lock()
 _initialized = set()
+#: serializes every recovery-spool operation (append, replay, truncate) so a
+#: concurrent writer cannot slip a record in between replay and truncation
+_spool_lock = threading.Lock()
+#: reentrancy guard: replay itself calls ingest(), which drains the spool —
+#: without this a drain would deadlock on its own non-reentrant lock
+_spool_state = threading.local()
 
 
 @contextlib.contextmanager
@@ -50,6 +62,23 @@ def database():
           CREATE TABLE IF NOT EXISTS transcript_native_rows (
             source TEXT NOT NULL, identity TEXT NOT NULL, digest TEXT NOT NULL,
             PRIMARY KEY(source,identity,digest)) WITHOUT ROWID;
+          CREATE TABLE IF NOT EXISTS transcript_spooled (
+            source TEXT NOT NULL, record_id TEXT NOT NULL,
+            PRIMARY KEY(source,record_id)) WITHOUT ROWID;
+          CREATE TABLE IF NOT EXISTS transcript_anchors (
+            source TEXT PRIMARY KEY, upper INTEGER NOT NULL, digest TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS transcript_order_meta (
+            source TEXT PRIMARY KEY, epoch INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS transcript_journal_ids (
+            sid TEXT PRIMARY KEY, source TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS transcript_view_rows (
+            source TEXT NOT NULL, digest TEXT NOT NULL, at TEXT NOT NULL,
+            key TEXT NOT NULL, body TEXT NOT NULL);
+          CREATE UNIQUE INDEX IF NOT EXISTS transcript_view_rows_key
+            ON transcript_view_rows(source,digest,at,key);
+          CREATE TABLE IF NOT EXISTS transcript_view_sources (
+            source TEXT PRIMARY KEY, path TEXT NOT NULL,
+            upper INTEGER NOT NULL, anchor TEXT NOT NULL);
                 """)
                 _initialized.add(str(path))
         with conn:
@@ -154,23 +183,82 @@ def native_rows(source, rows, *, remember=False):
         return result
 
 
+def _anchor_digest(stream, upto: int, stats: dict | None = None) -> str:
+    """sha256 of the last min(ANCHOR_BYTES, upto) bytes ending at `upto` —
+    the durable identity of the committed boundary's neighbourhood. Resuming
+    at `upto` is legal only while this matches: a file rewritten in place
+    under the same first line no longer matches, so it is treated as a
+    replacement rather than parsed from a mid-record offset (review F7)."""
+    if not upto:
+        return ""
+    span = min(ANCHOR_BYTES, upto)
+    stream.seek(upto - span)
+    data = stream.read(span)
+    if stats is not None:
+        stats["bytes_read"] += len(data)
+    return hashlib.sha256(data).hexdigest()
+
+
+def _available(conn, source: str, before) -> int:
+    if before is None:
+        return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=?", (source,)).fetchone()[0]
+    epoch, position = divmod(before, 1 << 40)
+    return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=? AND (epoch,position)<=(?,?)",
+                        (source, epoch, position)).fetchone()[0]
+
+
+def _ingest_needed(source: str, path: str, count: int, stats: dict, before) -> bool:
+    """Read-only answer to "would ingest write anything?" — the common
+    steady-state poll (file unchanged, window satisfied) must not take the
+    database's single writer lock (review F6). Detection here mirrors the
+    write path exactly — size, first-line signature, boundary anchor,
+    backfill demand — and any doubt answers True: the write path re-checks
+    everything under BEGIN IMMEDIATE and stays authoritative."""
+    with database() as conn:
+        meta = conn.execute("SELECT path,epoch,signature,lower_byte,upper_byte FROM transcript_sources WHERE source=?",
+                            (source,)).fetchone()
+        owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
+        if owned and meta:
+            return bool(meta[3] and _available(conn, source, before) < count
+                        and Path(path).is_file())
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return False          # no file: the write path would return too
+        if not meta:
+            return True
+        if size != meta[4] or meta[3] and _available(conn, source, before) < count:
+            return True
+        anchor = conn.execute("SELECT upper,digest FROM transcript_anchors WHERE source=?",
+                              (source,)).fetchone()
+        try:
+            with open(path, "rb") as stream:
+                if meta[2] and _signature(stream, stats) != meta[2]:
+                    return True
+                if anchor and anchor[0] == meta[4] \
+                        and _anchor_digest(stream, anchor[0], stats) != anchor[1]:
+                    return True
+        except OSError:
+            return False
+        return False
+
+
 def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
     """Persist new suffixes and enough older records for this requested window.
 
     Invalid/torn final lines stay outside the committed cursor, so completion
     on the next append is retried. No persisted data is removed on rotation.
     """
+    _drain_spool()
+    if not _ingest_needed(source, path, count, stats, before):
+        return
     with database() as conn:
         conn.execute("BEGIN IMMEDIATE")
         meta = conn.execute("SELECT path,epoch,signature,lower_byte,upper_byte FROM transcript_sources WHERE source=?",
                             (source,)).fetchone()
         owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
         def available():
-            if before is None:
-                return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=?", (source,)).fetchone()[0]
-            epoch, position = divmod(before, 1 << 40)
-            return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=? AND (epoch,position)<=(?,?)",
-                                (source, epoch, position)).fetchone()[0]
+            return _available(conn, source, before)
         if owned and meta:
             # The DB writer owns all new records. The old file is consulted
             # only for older ranges predating the changeover.
@@ -189,8 +277,19 @@ def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
             stream.seek(0, 2)
             size = stream.tell()
             signature = _signature(stream, stats)
+            # the committed boundary's anchor must still match before the
+            # old upper is trusted as a resume offset: a same-first-line,
+            # not-smaller in-place rewrite otherwise resumes mid-record and
+            # commits a torn seam as durable garbage (review F7)
+            anchor = conn.execute("SELECT upper,digest FROM transcript_anchors WHERE source=?",
+                                  (source,)).fetchone()
+            anchor_broken = bool(
+                meta and anchor and anchor[0] == meta[4] and anchor[0] <= size
+                and _anchor_digest(stream, anchor[0], stats) != anchor[1])
             epoch = meta[1] if meta else 0
-            replacement = meta and (size < meta[4] or (meta[2] and signature != meta[2]))
+            replacement = meta and (size < meta[4]
+                                    or (meta[2] and signature != meta[2])
+                                    or anchor_broken)
             if replacement:
                 epoch += 1
             lower, upper = (size, size) if not meta or replacement else (meta[3], meta[4])
@@ -219,9 +318,15 @@ def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
                 _insert(conn, source, epoch, rows)
             conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
                          (source, path, epoch, signature, lower, upper))
+            # written beside the cursor it protects, in the same transaction
+            conn.execute("INSERT OR REPLACE INTO transcript_anchors VALUES (?,?,?)",
+                         (source, upper, _anchor_digest(stream, upper, stats)))
 
 
 def tail(source: str, count: int, *, before=None):
+    # recovered records must be visible to every read (review F1) — a spool
+    # left by a database outage is replayed before the rows are served
+    _drain_spool()
     with database() as conn:
         condition = "source=?"
         args = [source]
@@ -248,7 +353,27 @@ def append(source: str, records: list[dict]):
 
 
 def journal_source(slug, sid):
-    return "journal:" + json.dumps([slug, sid])
+    """The durable identity of an app-owned journal.
+
+    The org slug is MUTABLE (rename), so it is embedded only in the name
+    the journal was FIRST committed under; later callers — a renamed org
+    included — resolve to that name through the transcript_journal_ids
+    alias `_commit_owned` registers, and a rename orphans nothing. The
+    alias is keyed by session id; a session id duplicated across orgs
+    would unify their journals here, so sid uniqueness remains a system
+    invariant (flagged to the coordinator, not enforceable at this layer).
+    With the database unavailable the pure name is the honest fallback —
+    the spool replay resolves again once it recovers."""
+    name = "journal:" + json.dumps([slug, sid])
+    try:
+        with database() as conn:
+            row = conn.execute("SELECT source FROM transcript_journal_ids WHERE sid=?",
+                               (str(sid),)).fetchone()
+        if row:
+            return row[0]
+    except sqlite3.Error:
+        pass
+    return name
 
 
 def remember_view(source, position, view):
@@ -264,59 +389,343 @@ def retained_view(source, position):
     return json.loads(found[0]) if found else None
 
 
+def views_source(slug, sid) -> str:
+    """The durable prompt-view index's per-conversation key. ONE string for
+    all three doors — supervisor._write_prompt_view (append_prompt_view),
+    startup/backfill capture (ingest_prompt_views) and display
+    (chat_window._views) — so they can never miss each other."""
+    return "views:" + json.dumps([str(slug), str(sid)])
+
+
+def _insert_view_row(conn, source, row) -> None:
+    if not isinstance(row, dict) or not isinstance(row.get("visible"), str):
+        return
+    digest = str(row.get("sha256") or "")
+    if not digest:
+        return
+    body = json.dumps(row, ensure_ascii=False, sort_keys=True)
+    key = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    conn.execute("INSERT OR IGNORE INTO transcript_view_rows VALUES (?,?,?,?,?)",
+                 (source, digest, str(row.get("at") or ""), key,
+                  json.dumps(row, ensure_ascii=False)))
+
+
+def append_prompt_view(source: str, row: dict) -> None:
+    """Durably index ONE just-written prompt-view row (wire this beside
+    supervisor._write_prompt_view). Idempotent: the same row indexes once,
+    keyed by (digest, at, body hash) — sidecar loss no longer loses the
+    human projection of an unseen prompt."""
+    with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        _insert_view_row(conn, source, row)
+
+
+def ingest_prompt_views(source: str, path: str, stats: dict | None = None) -> None:
+    """Bounded, idempotent sidecar capture: new complete lines past the
+    committed upper byte only; a rewritten or shrunk sidecar (boundary
+    anchor mismatch) is re-read whole, with the unique key deduplicating
+    and later insertions winning per occurrence, so corrections land while
+    rows pruned from the file stay durably indexed. An unchanged sidecar
+    takes no write lock (review F6)."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return
+    with database() as conn:
+        meta = conn.execute("SELECT upper,anchor FROM transcript_view_sources WHERE source=?",
+                            (source,)).fetchone()
+    if meta and size == meta[0]:
+        try:
+            with open(path, "rb") as stream:
+                if _anchor_digest(stream, meta[0], stats) == meta[1]:
+                    return
+        except OSError:
+            return
+    with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        meta = conn.execute("SELECT upper,anchor FROM transcript_view_sources WHERE source=?",
+                            (source,)).fetchone()
+        upper = meta[0] if meta else 0
+        try:
+            stream = open(path, "rb")
+        except OSError:
+            return
+        with stream:
+            rewritten = bool(meta and upper
+                             and (size < upper
+                                  or _anchor_digest(stream, upper, stats) != meta[1]))
+            if rewritten:
+                upper = 0
+            if size > upper:
+                stream.seek(upper)
+                while True:
+                    line = stream.readline()
+                    if stats is not None:
+                        stats["bytes_read"] += len(line)
+                    if not line or not line.endswith(b"\n"):
+                        break
+                    upper = stream.tell()
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    _insert_view_row(conn, source, row)
+            anchor = _anchor_digest(stream, upper, stats)
+        conn.execute("INSERT OR REPLACE INTO transcript_view_sources VALUES (?,?,?,?)",
+                     (source, str(path), upper, anchor))
+
+
+def prompt_views_for(source: str, digest: str) -> list[dict]:
+    """Every indexed view for one prompt digest, oldest first; where a
+    correction re-imported the same occurrence, the LATEST insertion wins."""
+    with database() as conn:
+        rows = conn.execute(
+            "SELECT body FROM transcript_view_rows WHERE source=? AND digest=? AND rowid IN ("
+            " SELECT MAX(rowid) FROM transcript_view_rows WHERE source=? AND digest=? GROUP BY at)"
+            " ORDER BY at",
+            (source, digest, source, digest)).fetchall()
+    return [json.loads(r[0]) for r in rows]
+
+
+def _spool_path() -> Path:
+    from . import store
+    return Path(store.DATA_ROOT) / "transcript-records.spool.jsonl"
+
+
+def _spool(entries) -> None:
+    """Durably queue records SQLite would not accept: one JSON line per
+    record — `{"source", "path", "id", "rec"}` — appended and fsynced before
+    returning, so a record acknowledged to the caller survives a crash. `id`
+    is minted once, at append_owned time, and travels with the record: replay
+    commits each id at most once however many times it runs."""
+    data = b"".join(
+        json.dumps(entry, ensure_ascii=False).encode("utf-8") + b"\n"
+        for entry in entries)
+    with _spool_lock:
+        path = _spool_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+
+def _drain_spool() -> bool:
+    """Replay every spooled record into SQLite, exactly once each, in spool
+    order; True when the spool is empty afterwards (or was already). Runs
+    before every write and every read so recovered records take their place
+    AHEAD of anything newer — a caller that cannot drain must keep spooling
+    rather than commit records out of order. A parse-torn final line is a
+    crash artifact from mid-spool-write: its record was never acknowledged
+    (fsync happens before append_owned returns), so it is dropped rather
+    than replayed as garbage."""
+    if getattr(_spool_state, "draining", False):
+        return True
+    try:
+        path = _spool_path()
+        if not path.is_file() or path.stat().st_size == 0:
+            return True
+    except OSError:
+        return False
+    _spool_state.draining = True
+    try:
+        with _spool_lock:
+            try:
+                raw = path.read_bytes()
+            except OSError:
+                return False
+            entries = []
+            for line in raw.split(b"\n"):
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("id"):
+                    entries.append(entry)
+            # group consecutive same-source runs so replay preserves the
+            # exact global order records were spooled in
+            i = 0
+            while i < len(entries):
+                j = i + 1
+                while (j < len(entries)
+                       and entries[j]["source"] == entries[i]["source"]
+                       and entries[j].get("path") == entries[i].get("path")):
+                    j += 1
+                batch = entries[i:j]
+                try:
+                    _commit_owned(batch[0]["source"], str(batch[0].get("path") or ""),
+                                  [(e["id"], e["rec"]) for e in batch],
+                                  sid=batch[0].get("sid"))
+                except sqlite3.Error:
+                    # SQLite is still unavailable: keep the whole spool —
+                    # ids already committed are skipped on the next replay
+                    return False
+                i = j
+            try:
+                path.unlink()
+            except OSError:
+                return False    # committed ids protect the next replay
+            return True
+    finally:
+        _spool_state.draining = False
+
+
+def _commit_owned(source, path, entries, sid=None) -> None:
+    """One owned batch into the database: lazy legacy import first, then the
+    records at continuing positions. `entries` are (record_id, rec) pairs;
+    an id already marked in transcript_spooled is skipped (idempotent
+    replay), and marking happens in the same transaction as the insert so a
+    crash between them cannot double-commit."""
+    if path:
+        ingest(source, path, 16, {"bytes_read": 0})
+    with database() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if sid:
+            # rename safety: the FIRST commit fixes the journal's name; every
+            # later journal_source(slug', sid) resolves here
+            conn.execute("INSERT OR IGNORE INTO transcript_journal_ids VALUES (?,?)",
+                         (str(sid), source))
+        meta = conn.execute("SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?", (source,)).fetchone()
+        epoch, lower, position = meta or (0, 0, 0)
+        wrote = False
+        for record_id, rec in entries:
+            if conn.execute("SELECT 1 FROM transcript_spooled WHERE source=? AND record_id=?",
+                            (source, record_id)).fetchone():
+                continue
+            body = json.dumps(rec, ensure_ascii=False)
+            conn.execute("INSERT INTO transcript_records VALUES (?,?,?,?)", (source, epoch, position, body))
+            _index_results(conn, source, epoch, position, body)
+            conn.execute("INSERT INTO transcript_spooled VALUES (?,?)", (source, record_id))
+            position += len((body + "\n").encode("utf-8"))
+            wrote = True
+        if wrote or meta is None:
+            conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
+                         (source, path, epoch, "", lower, position))
+        conn.execute("INSERT OR IGNORE INTO transcript_owned VALUES (?)", (source,))
+
+
 def append_owned(slug, sid, path, recs):
     """Database commit precedes the compatibility JSONL mirror.
 
     Previously existing JSONL history is imported lazily. After this first
     commit the DB owns the new suffix even if the mirror cannot be written.
-    """
+
+    NEVER RAISES ON SQLITE TROUBLE AND NEVER LOSES A RECORD (review F1): a
+    locked or broken database routes the batch to a durable, fsynced
+    recovery spool instead — with stable per-record ids — and every later
+    write and read drains that spool first, so the records surface exactly
+    once, in order, as soon as SQLite recovers. The caller's JSONL mirror
+    write still happens after this returns, whichever path was taken."""
+    # drain BEFORE resolving the name: a pending spool may hold this
+    # journal's first commit (which registers the rename-stable alias), and
+    # resolving first could split one journal across two source names
+    drained = _drain_spool()
     source = journal_source(slug, sid)
-    ingest(source, str(path), 16, {"bytes_read": 0})
-    with database() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        meta = conn.execute("SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?", (source,)).fetchone()
-        epoch, lower, position = meta or (0, 0, 0)
-        for rec in recs:
-            body = json.dumps(rec, ensure_ascii=False)
-            conn.execute("INSERT INTO transcript_records VALUES (?,?,?,?)", (source, epoch, position, body))
-            _index_results(conn, source, epoch, position, body)
-            position += len((body + "\n").encode("utf-8"))
-        conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
-                     (source, str(path), epoch, "", lower, position))
-        conn.execute("INSERT OR IGNORE INTO transcript_owned VALUES (?)", (source,))
+    entries = [(uuid.uuid4().hex, rec) for rec in recs]
+    if drained:
+        try:
+            _commit_owned(source, str(path), entries, sid=sid)
+            return
+        except sqlite3.Error:
+            pass
+    _spool([{"source": source, "path": str(path), "id": record_id,
+             "rec": rec, "sid": str(sid)}
+            for record_id, rec in entries])
 
 
-def order(source: str, rows: list[dict]):
-    """Stable numeric handles, including lazy prepends and late inserted mail."""
+def _known_ranks(conn, source, rows) -> dict:
+    known = {}
+    for row in rows:
+        found = conn.execute("SELECT rank FROM transcript_order WHERE source=? AND event=?",
+                             (source, row["event_id"])).fetchone()
+        if found:
+            known[row["event_id"]] = found[0]
+    return known
+
+
+def _order_epoch(conn, source) -> int:
+    row = conn.execute("SELECT epoch FROM transcript_order_meta WHERE source=?",
+                       (source,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _assign_ranks(conn, source, rows, known, *, force=False) -> bool:
+    """One assignment pass. New ranks are written only when every one is
+    STRICTLY between its neighbours — a float midpoint that lands on a
+    neighbour (precision exhausted, review F9) writes nothing and returns
+    False so the caller can renumber first. `force` writes regardless: the
+    can't-happen fallback after a renumber, kept so ordering degrades to the
+    old collision behaviour rather than an exception."""
+    i, pending, ok = 0, [], True
+    while i < len(rows):
+        identity = rows[i]["event_id"]
+        if identity in known:
+            rows[i]["seq"] = known[identity]
+            i += 1
+            continue
+        end = i + 1
+        while end < len(rows) and rows[end]["event_id"] not in known:
+            end += 1
+        left = rows[i - 1]["seq"] if i else None
+        right = known[rows[end]["event_id"]] if end < len(rows) else None
+        count = end - i
+        if left is None:
+            left = (right if right is not None else 0) - 1024 * (count + 1)
+        step = (right - left) / (count + 1) if right is not None else 1024
+        prev = left
+        for j in range(i, end):
+            rank = left + step * (j - i + 1)
+            if not (prev < rank and (right is None or rank < right)):
+                ok = False
+            rows[j]["seq"] = rank
+            pending.append((source, rows[j]["event_id"], rank))
+            prev = rank
+        i = end
+    if pending and (ok or force):
+        conn.executemany("INSERT INTO transcript_order VALUES (?,?,?)", pending)
+    return ok
+
+
+def _rebalance(conn, source) -> None:
+    """Renumber every rank for `source` to a uniform 1024 spacing, keeping
+    the exact relative order, and bump the source's order epoch — served in
+    the payload as `order_epoch` so a client can tell its held seq values
+    no longer compare against fresh ones."""
+    ranked = conn.execute("SELECT event FROM transcript_order WHERE source=? ORDER BY rank, event",
+                          (source,)).fetchall()
+    conn.execute("DELETE FROM transcript_order WHERE source=?", (source,))
+    conn.executemany("INSERT INTO transcript_order VALUES (?,?,?)",
+                     ((source, event, float((n + 1) * 1024))
+                      for n, (event,) in enumerate(ranked)))
+    conn.execute("INSERT INTO transcript_order_meta VALUES (?,1) "
+                 "ON CONFLICT(source) DO UPDATE SET epoch=epoch+1", (source,))
+
+
+def order(source: str, rows: list[dict]) -> int:
+    """Stable numeric handles, including lazy prepends and late inserted
+    mail; returns the source's ORDER EPOCH. All-known rows take no write
+    lock (review F6). When repeated insertion between the same neighbours
+    exhausts float precision, the source is renumbered once — same relative
+    order, fresh gaps — and the epoch increments instead of two rows ever
+    sharing a rank (review F9)."""
     if not rows:
-        return
+        with database() as conn:
+            return _order_epoch(conn, source)
+    with database() as conn:
+        # deferred read transaction: ranks and epoch from one snapshot
+        conn.execute("BEGIN")
+        known = _known_ranks(conn, source, rows)
+        if len(known) == len({row["event_id"] for row in rows}):
+            for row in rows:
+                row["seq"] = known[row["event_id"]]
+            return _order_epoch(conn, source)
     with database() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        known = {}
-        for row in rows:
-            found = conn.execute("SELECT rank FROM transcript_order WHERE source=? AND event=?",
-                                 (source, row["event_id"])).fetchone()
-            if found:
-                known[row["event_id"]] = found[0]
-        i = 0
-        while i < len(rows):
-            identity = rows[i]["event_id"]
-            if identity in known:
-                rows[i]["seq"] = known[identity]
-                i += 1
-                continue
-            end = i + 1
-            while end < len(rows) and rows[end]["event_id"] not in known:
-                end += 1
-            left = rows[i - 1]["seq"] if i else None
-            right = known[rows[end]["event_id"]] if end < len(rows) else None
-            count = end - i
-            if left is None:
-                left = (right if right is not None else 0) - 1024 * (count + 1)
-            step = (right - left) / (count + 1) if right is not None else 1024
-            for j in range(i, end):
-                rank = left + step * (j - i + 1)
-                rows[j]["seq"] = rank
-                conn.execute("INSERT INTO transcript_order VALUES (?,?,?)",
-                             (source, rows[j]["event_id"], rank))
-            i = end
+        known = _known_ranks(conn, source, rows)
+        if not _assign_ranks(conn, source, rows, known):
+            _rebalance(conn, source)
+            known = _known_ranks(conn, source, rows)
+            _assign_ranks(conn, source, rows, known, force=True)
+        return _order_epoch(conn, source)
