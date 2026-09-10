@@ -9858,20 +9858,16 @@ def _auto_wake_gates_clear(org: Org, nid: str) -> bool:
 
 
 def _working_checkup_eligible(org: Org, nid: str) -> bool:
-    """Durable half of checkup admission; ordinary turn gates still recheck.
+    """A working status alone does not justify waking an idle agent.
 
-    BLOCKED-ONLY WORK EARNS NO CHECKUP (user 2026-09-07: "make blocked avoid
-    periodic status nudges"). The checkup keys on the agent's own reported
-    `working`; but an agent whose every owed docket item is blocked has
-    nothing the nudge could prompt, and waking it every twenty minutes to
-    re-read what it is stuck on is exactly the pointless work the policy
-    names. `Org.work_blocked_only` decides it: no docket at all keeps the
-    checkup (the report is about work the docket may not hold), and any
-    actionable item beside the blocked ones keeps it too."""
+    Use the same assigned actionable docket as the idle reminder. This also
+    preserves the user's exclusions for blocked work and user-held decisions.
+    Runtime activity is checked by the sweep and again at turn admission.
+    """
     n = org.nodes.get(nid)
     if not n or not _reported_working(n):
         return False
-    if org.work_blocked_only(nid):
+    if not org.work_idle_reminder_items(nid):
         return False
     return _auto_wake_gates_clear(org, nid)
 
@@ -9896,7 +9892,7 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
             n["working_activity_at"] = _iso_ts(now)
             store.save_org(org)
             return None
-        if now - anchor < WORKING_CHECKUP_AFTER_S:
+        if now - anchor <= WORKING_CHECKUP_AFTER_S:
             return None
         mid = uuid_hex8()
         stamp = _iso_ts(now)
