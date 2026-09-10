@@ -205,6 +205,32 @@ def main() -> int:
                          return { dx: r.left + r.width / 2 - c.left, dy: r.top + r.height / 2 - c.top };
                        })() };
             }""")
+            # hover-created EDGE HIRE CHIPS (user 2026-09-10: they intercept
+            # too): a real pointer at the norm card's bottom edge reveals the
+            # bottom hire strip and its chips are hit-targetable just below
+            # the border (positive control); the same hover on the mini card
+            # reveals NOTHING because the chips are unmounted there.
+            norm_box = page.locator("#normal .sq").nth(0).bounding_box()
+            page.mouse.move(norm_box["x"] + norm_box["width"] / 2,
+                            norm_box["y"] + norm_box["height"] - 3)
+            values["normEdgeHire"] = page.evaluate("""() => {
+              const card = document.querySelector('#normal .sq');
+              const r = card.getBoundingClientRect();
+              const el = document.elementFromPoint(r.left + r.width / 2, r.bottom + 8);
+              return { hsofCount: card.querySelectorAll('.hsof').length,
+                       chipHit: Boolean(el && el.closest('.hsof')) };
+            }""")
+            mini_box0 = page.locator("#mini .sq").nth(0).bounding_box()
+            page.mouse.move(mini_box0["x"] + mini_box0["width"] / 2,
+                            mini_box0["y"] + mini_box0["height"] - 3)
+            values["miniEdgeHire"] = page.evaluate("""() => {
+              const card = document.querySelector('#mini .sq');
+              const r = card.getBoundingClientRect();
+              const el = document.elementFromPoint(r.left + r.width / 2, r.bottom + 8);
+              return { mounted: card.querySelectorAll('.hsof, .hsof-bridge').length,
+                       chipHit: Boolean(el && el.closest('.hsof')),
+                       buttonHit: Boolean(el && el.closest('button')) };
+            }""")
             # A REAL CLICK where the shortcuts used to sit: same card-relative
             # offset as the norm gear, on the mini card. It must reach the
             # card's drag/focus pipeline and fire no shortcut callback.
@@ -293,6 +319,16 @@ def main() -> int:
         failures.append("mini hit sweep never landed on the card — sweep is vacuous")
     if not (values.get("normHitControl") or {}).get("gearHit"):
         failures.append("positive control failed: norm gear center did not hit the gear button")
+    edge = values.get("normEdgeHire") or {}
+    if not edge.get("hsofCount"):
+        failures.append("positive control failed: norm card mounts no hire chips")
+    if not edge.get("chipHit"):
+        failures.append(f"positive control failed: hovered norm bottom edge missed the hire strip: {edge!r}")
+    medge = values.get("miniEdgeHire") or {}
+    if medge.get("mounted"):
+        failures.append(f"mini card still mounts hire chips/bridges: {medge!r}")
+    if medge.get("chipHit") or medge.get("buttonHit"):
+        failures.append(f"mini bottom edge still hit-targets a hire control: {medge!r}")
     pre, post = values.get("preClick") or {}, values.get("postClick") or {}
     if len(post.get("starts", [])) <= len(pre.get("starts", [])):
         failures.append(f"mini body click never reached the card drag/focus pipeline: {pre!r} -> {post!r}")

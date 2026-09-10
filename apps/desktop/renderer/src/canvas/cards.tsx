@@ -1281,6 +1281,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     setEdge((cur) => cur === next ? cur : next)
   }
   const live = node.state === 'live'
+  // far-zoom mini cards are locators (user 2026-09-10): the hover-created
+  // hire chips are counter-scaled UNCLAMPED (screen-constant on an ever
+  // smaller card), so like the shortcut row they would swallow the click
+  // that focuses the agent — unmounted at mini, kept at norm and on the desk
+  const hireChips = focused || lod !== 'mini'
   const cls = ['sq', node.state, focused ? 'desk' : lod, 'tier-' + node.tier,
                'edge-' + edge]
   // provider theming (user spec 2026-08-28): codex agents wear an
@@ -1599,7 +1604,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {/* user ruling: chips are NEVER disabled by the node's own free credits —
           a user hire §4.6-cascades, granting the chain whatever it lacks.
           (Kiosk mode will pass the cap remainder here instead.) */}
-      {live && !node.isBearerOf && !node.bearer_state &&
+      {hireChips && live && !node.isBearerOf && !node.bearer_state &&
         <SpawnChips onSpawn={onSpawn} free={kioskRemaining ?? Infinity} seats={seats}
           maxTier={maxTier} codexHire={codexHire} antigravityHire={antigravityHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
@@ -1616,7 +1621,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {/* F-03: side chips hire a COWORKER — same superior, landing on that
           side. Not on pile/crowd fronts: the card's edges there are the
           stack's layers, and "the side of the agent" is not a free position. */}
-      {live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnSide && (
+      {hireChips && live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnSide && (
         <>
           {/* transparent hover bridges (user report 2026-08-28). The columns
               now sit beyond the credit bar and the doc chips so they cannot
@@ -1648,7 +1653,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           draft takes this card's slot immediately (anchor hangs beneath it,
           dashed both ways), and the confirmed hire splices in server-side
           atomically. Same pile/bearer exclusions as the side chips. */}
-      {live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnTop && (
+      {hireChips && live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnTop && (
         <SpawnChips side="top" onSpawn={(t) => onSpawnTop(t)}
           free={kioskRemaining ?? Infinity} seats={seats} maxTier={maxTier}
           codexHire={codexHire} antigravityHire={antigravityHire}

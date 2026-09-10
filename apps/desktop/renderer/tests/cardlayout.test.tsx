@@ -90,9 +90,13 @@ for (const lod of ['norm', 'mini'] as const) {
           assert.equal(actions, null, 'mini cards mount no shortcut action row')
           assert.equal(root.querySelectorAll('.sq-actions button').length, 0,
             'no shortcut button hit targets at far zoom')
+          assert.equal(root.querySelectorAll('.hsof, .hsof-bridge').length, 0,
+            'hover-created edge hire chips are unmounted at far zoom too')
           continue
         }
         assert.ok(name && meta && actions, 'all three card rows are mounted')
+        assert.ok(root.querySelectorAll('.hsof').length > 0,
+          'norm cards keep hire chips — the mini-absence check stays non-vacuous')
         assert.ok(meta.querySelector('.sq-workstate .cc-spin'), 'spinning arrow is in Row 2 when busy')
         assert.ok(meta.querySelector('.sq-workstate .sq-idle.working'), 'working state text is in Row 2')
         assert.ok(meta.querySelector('.sq-workstate .sq-idle-time'), 'elapsed turn time is in Row 2')
