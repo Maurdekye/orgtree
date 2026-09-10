@@ -221,8 +221,8 @@ interface Entry {
   nudge: ReturnType<typeof setTimeout> | null
   poll: ReturnType<typeof setTimeout> | null
   inflight: boolean
-  /** monotonically identifies the request currently allowed to mutate this
-   *  Entry; rename/drop invalidate the prior request before its promise lands. */
+  /** Monotonic request identity. Only the newest issued request clears the
+   *  in-flight latch; response freshness is measured at installation. */
   requestSerial: number
   /** when the in-flight fetch STARTED. `inflight` alone cannot be trusted as
    *  a gate: it is cleared by the fetch settling, so a request that never
@@ -232,11 +232,9 @@ interface Entry {
    *  has had the chance to cover it (otherwise the timer races the fetch and
    *  the row vanishes into a gap) */
   fetchedAt: number
-  /** `startedAt` of the request whose payload is currently installed. A forced
-   *  fetch can overlap the heartbeat's, and whichever RESPONSE landed last used
-   *  to win — a slow stale payload regressing `busy`/`live`/the transcript until
-   *  the next tick. Now the payload from the latest-STARTED request wins, and a
-   *  late straggler from an earlier one is discarded. */
+  /** Serial of the request whose complete payload is installed. Issuing a
+   * newer request does not invalidate an earlier answer. Once the newer
+   * answer installs, older answers cannot regress it (even in the same ms). */
   installed: number
   /** an event wanted a refetch while nobody was subscribed. The fetch is
    *  deferred to the next subscribe instead of run blind — a busy 20-agent org
@@ -457,18 +455,16 @@ export function refreshConvo(slug: string, nid: string,
   const startedAt = now
   const ownsRequest = (): boolean =>
     M.get(e.ownerKey) === e && e.ownerVersion === ownerVersion
-      && e.requestSerial === requestSerial
+  // Issuing another fetch cannot invalidate a usable response: a busy stream
+  // can issue faster than the backend answers, starving the view forever.
+  const stillFreshest = (): boolean => ownsRequest() && requestSerial >= e.installed
   return getChat(slug, nid, e.s.win).then(async (c) => {
     if (!ownsRequest()) return
-    e.fetchedAt = Date.now()
-    // latest-STARTED request wins, not latest-landed — see Entry.installed
-    if (startedAt < e.installed) return
-    e.installed = startedAt
+    if (!stillFreshest()) return
     const changedConversation = (!!c.conversation_id && !!e.s.chat?.conversation_id
       && c.conversation_id !== e.s.chat.conversation_id)
       || (c.order_epoch !== undefined && e.s.chat?.order_epoch !== undefined
         && c.order_epoch !== e.s.chat.order_epoch)
-    if (changedConversation) e.committedRows.clear()
     // A burst can exceed one viewport between polls. Fill only that new
     // interval before joining it to already loaded history; never silently
     // join two disjoint ranges and make the intervening messages disappear.
@@ -478,7 +474,7 @@ export function refreshConvo(slug: string, nid: string,
       while (cursor && typeof previousLast === 'number'
              && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
         const page = await getChat(slug, nid, e.s.win, cursor)
-        if (!ownsRequest()) return
+        if (!stillFreshest()) return
         if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
         if (!page.messages.length || page.before === cursor) break
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
@@ -499,14 +495,19 @@ export function refreshConvo(slug: string, nid: string,
     }
     while (!changedConversation && proofCursor && needsProof()) {
       const page = await getChat(slug, nid, e.s.win, proofCursor)
-      if (!ownsRequest()) return
+      if (!stillFreshest()) return
       if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
       if (!page.messages.length || page.before === proofCursor) break
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
       proofCursor = page.before
     }
-    e.inflight = false
+    // Publish the freshness watermark only after all paging awaits. A newer
+    // response still collecting its pages has not installed anything yet.
+    if (!stillFreshest()) return
+    e.installed = requestSerial
+    e.fetchedAt = Date.now()
+    if (changedConversation) e.committedRows.clear()
     if (!changedConversation && e.s.paged && e.s.chat && c.messages.length) {
       const first = c.messages[0]!.seq
       const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
@@ -663,9 +664,10 @@ export function refreshConvo(slug: string, nid: string,
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
     patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
   }).catch(() => {
-    if (!ownsRequest()) return
-    e.inflight = false
-    patchEntry(e, { loadingOlder: false }, ownerVersion)
+    if (!stillFreshest()) return
+    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight) }, ownerVersion)
+  }).finally(() => {
+    if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
   })
 }
 
