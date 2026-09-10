@@ -2763,6 +2763,58 @@ def _load_sqlite_org(slug: str, preload: Iterable[str] = ()) -> Org:
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
 
+def read_document_gallery(slug: str) -> list[dict[str, Any]]:
+    """Project metadata in SQLite; never transfer document bodies or all events.
+
+    Node labels, existing cards and legacy eviction stubs share one snapshot.
+    Row positions preserve the original equal-timestamp tie ordering.
+    """
+    if STORE_BACKEND != "sqlite":
+        return load_org(slug).document_gallery()
+    slug = _safe_slug(slug)
+    _ensure_migrated(slug)
+    db = _db_path(slug)
+    if not os.path.exists(db):
+        raise LedgerError(f"no such org: {slug!r}")
+    try:
+        with _POOL.acquire(slug) as conn:
+            conn.execute("BEGIN")
+            try:
+                if _meta_get(conn, "schema_version") is None:
+                    raise LedgerError(f"{db!r} is not an intact orgtree database (no schema_version row)")
+                nodes = {nid: {"state": state, "model": model} for nid, state, model in
+                         conn.execute("SELECT id,json_extract(val,'$.state'),json_extract(val,'$.model') FROM nodes")}
+                # A pre-row-storage document can still hold these sections as
+                # blobs; project those in SQL too instead of loading their bodies.
+                blob_keys = {row[0] for row in conn.execute("SELECT key FROM doc WHERE key IN ('documents','events','nodes')")}
+                if 'nodes' in blob_keys:
+                    nodes = {nid: {"state": state, "model": model} for nid, state, model in
+                             conn.execute("SELECT key,json_extract(value,'$.state'),json_extract(value,'$.model') "
+                                          "FROM json_each((SELECT val FROM doc WHERE key='nodes'))")}
+                fields = ('id', 'node', 'title', 'at', 'format', 'bytes')
+                value = 'value' if 'documents' in blob_keys else 'val'
+                expression = "json_object(" + ','.join("'" + key + "',json_extract(" + value + ",'$." + key + "')" for key in fields) + ")"
+                source = ("json_each((SELECT val FROM doc WHERE key='documents')) ORDER BY key"
+                          if 'documents' in blob_keys else "log_l WHERE sect='documents' ORDER BY seq")
+                documents = [json.loads(row[0]) for row in conn.execute("SELECT " + expression + " FROM " + source)]
+                if 'events' in blob_keys:
+                    query = "SELECT key,value FROM json_each((SELECT val FROM doc WHERE key='events')) WHERE json_extract(value,'$.op')='present_evicted' ORDER BY key"
+                else:
+                    query = ("SELECT position,val FROM (SELECT row_number() OVER (ORDER BY seq)-1 AS position,val FROM log_l WHERE sect='events') "
+                             "WHERE json_extract(val,'$.op')='present_evicted' ORDER BY position")
+                evictions = [(int(index), json.loads(raw)) for index, raw in conn.execute(query)]
+                conn.execute("COMMIT")
+            except BaseException:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+        return Org.gallery_metadata(documents, evictions, nodes)
+    except sqlite3.OperationalError as e:
+        if not os.path.exists(db):
+            raise LedgerError(f"no such org: {slug!r}") from None
+        raise LedgerError(f"cannot open org {slug!r}: {e}") from e
+
+
 def read_user_inbox(slug: str) -> dict[str, Any]:
     """Read the pending box and two 50-row tails in one SQLite snapshot.
 

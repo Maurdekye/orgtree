@@ -71,11 +71,45 @@ class InboxProjectionTests(unittest.TestCase):
             conn.execute("INSERT OR REPLACE INTO doc(key,val) VALUES (?,?)",("user_mail_log",json.dumps(list(org.d["user_mail_log"]))))
         self.assertEqual(store.read_user_inbox(self.slug),expected)
 
+    def test_gallery_reads_metadata_and_keeps_legacy_eviction_order(self):
+        org = store.load_org(self.slug)
+        org.hire('@user', None, 'haiku', 0, 'presenter')
+        org.d['documents'] = [{'id':f'doc-{i}', 'node':'presenter', 'title':str(i),
+                               'body':'unrelated body '*10000, 'format':'html' if i==9 else 'markdown',
+                               'bytes':42, 'at':'2026-09-10T19:00:00.000Z'} for i in range(10)]
+        org.d['events'] = [{'op':'message','at':'2026-09-10T19:00:00.000Z','detail':{'body':'unused'*100}} for _ in range(1000)]
+        org.d['events'][900] = {'op':'present_evicted','actor':'deleted-presenter','at':'2026-09-10T19:00:00.000Z',
+                                'detail':{'id':'evicted','title':'old'}}
+        store.save_org(org)
+        expected = store.load_org(self.slug).document_gallery()
+        real = json.loads
+        with patch.object(store.json,'loads',wraps=real) as decode:
+            actual = store.read_document_gallery(self.slug)
+        self.assertEqual(actual,expected)
+        self.assertEqual(actual[0]['id'],'evicted','original event ordinal wins equal timestamp tie')
+        self.assertEqual(actual[0]['node_state'],'deleted')
+        self.assertEqual(actual[1]['bytes'],42)
+        self.assertEqual(actual[1]['tier'],'haiku')
+        self.assertEqual(decode.call_count,11,'only ten metadata rows and one eviction are decoded')
+        self.assertFalse(any('body' in row for row in actual))
+        with patch.object(store.json,'loads',wraps=real) as control:
+            store.load_org(self.slug).document_gallery()
+        self.assertGreater(control.call_count,1000)
+        with patch.object(store,'STORE_BACKEND','json'),patch.object(store,'load_org',return_value=org):
+            self.assertEqual(store.read_document_gallery(self.slug),expected)
+        with closing(sqlite3.connect(store._db_path(self.slug))) as conn, conn:
+            for section in ('documents','events','nodes'):
+                conn.execute('INSERT OR REPLACE INTO doc(key,val) VALUES (?,?)',(section,json.dumps(org.d[section])))
+        self.assertEqual(store.read_document_gallery(self.slug),expected,'legacy blob sections preserve the same metadata')
+
     def test_missing_or_damaged_database_never_appears_empty(self):
         with self.assertRaises(store.LedgerError): store.read_user_inbox("missing-inbox-fixture")
+        with self.assertRaises(store.LedgerError): store.read_document_gallery("missing-gallery-fixture")
         with closing(sqlite3.connect(store._db_path(self.slug))) as conn, conn:
             conn.execute("DELETE FROM meta WHERE key='schema_version'")
         with self.assertRaisesRegex(store.LedgerError,"not an intact"):
             store.read_user_inbox(self.slug)
+        with self.assertRaisesRegex(store.LedgerError,"not an intact"):
+            store.read_document_gallery(self.slug)
 
 if __name__ == "__main__": unittest.main()

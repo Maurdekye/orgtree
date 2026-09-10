@@ -4694,10 +4694,9 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "")
     the reader still fetches the body by id. Kiosk visitors are the user
     of their org — readable."""
     try:
-        org = store.load_org(slug)
+        gallery = store.read_document_gallery(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    gallery = org.document_gallery()
     if node:
         gallery = [row for row in gallery if row["node"] == node]
     for d in gallery:

@@ -8031,12 +8031,20 @@ class Org:
         Retention is unlimited; API readers page metadata and the tree only
         carries the newest ten cards per node. Legacy eviction stubs remain
         visible because their already-removed bodies cannot be recovered."""
-        docs = list(self.d.get("documents") or [])
+        return self.gallery_metadata(self.d.get("documents") or [],
+                                     enumerate(self.d.get("events") or []), self.nodes)
+
+    @staticmethod
+    def gallery_metadata(documents: Iterable[Mapping[str, Any]],
+                         indexed_events: Iterable[tuple[int, Mapping[str, Any]]],
+                         nodes: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """One presentation projection for full documents and bounded SQL reads."""
+        docs = list(documents)
         seen: set[str] = set()
         rows: list[dict[str, Any]] = []
 
         def _state(nid: str) -> str:
-            n = self.nodes.get(nid)
+            n = nodes.get(nid)
             if n is None:
                 return "deleted"
             st = n.get("state")
@@ -8054,7 +8062,7 @@ class Org:
             renames it to on the way out (see the node build below), and the
             frontend reads `tier` everywhere. Same rename here, so one chip
             component serves both payloads."""
-            n = self.nodes.get(nid)
+            n = nodes.get(nid)
             return str(n["model"]) if n and n.get("model") else None
 
         for i, x in enumerate(docs):
@@ -8072,7 +8080,7 @@ class Org:
             if x.get("format") == "html":
                 row["bytes"] = int(x.get("bytes") or 0)
             rows.append(row)
-        for i, e in enumerate(self.d.get("events") or []):
+        for i, e in indexed_events:
             if e.get("op") != "present_evicted":
                 continue
             detail = e.get("detail") or {}
