@@ -44,6 +44,23 @@ Var pid
   # skips the wizard. Ordinary manual installs retain their setup pages.
   ${if} ${isUpdated}
     SetSilent silent
+    # If both scopes exist, select the scope belonging to the running app's
+    # explicit /D directory rather than the assisted installer's user default.
+    !ifndef INSTALL_MODE_PER_ALL_USERS
+      !insertmacro GetDParameter $R2
+      ${if} $R2 != ""
+        GetFullPathName $R2 $R2
+        GetFullPathName $R3 $perMachineInstallationFolder
+        GetFullPathName $R4 $perUserInstallationFolder
+        ${if} $perMachineInstallationFolder != ""
+        ${andif} $R2 == $R3
+          !insertmacro setInstallModePerAllUsers
+        ${elseif} $perUserInstallationFolder != ""
+        ${andif} $R2 == $R4
+          !insertmacro setInstallModePerUser
+        ${endif}
+      ${endif}
+    !endif
   ${endif}
 !macroend
 !macro customHeader
