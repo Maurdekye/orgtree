@@ -29,8 +29,15 @@ evidence order, and what it deliberately does not:
 
 Pure engine: org documents come in as dicts and are mutated in place; the
 caller (startup wiring, a later stage) persists the ones this returns as
-changed. The registry writes are real. Idempotent via `migrated_at` on the
-registry document — a second run is a no-op that says so.
+changed. The registry writes are real, and RESUMABLE: every mint goes
+through credential-evidence reuse (`_reuse_or_create`), so a rerun after a
+partial failure returns the rows a prior attempt minted instead of
+duplicating them, and nodes already bound are never re-bound. COMPLETION IS
+THE CALLER'S: the engine reads `migrated_at` (an already-complete migration
+answers inert) but never writes it — the startup adapter marks it only
+after every changed org has saved AND the report has landed, so a partial
+save failure holds the marker and the next startup finishes the remainder
+rather than skipping it as done.
 """
 from __future__ import annotations
 
@@ -50,13 +57,47 @@ CUTOVER_ENV = "ORGTREE_ACCOUNTS_CUTOVER"
 REPORT_NAME = "accounts-migration-report.json"
 
 
-def run_startup_migration() -> dict[str, Any] | None:
-    """The startup adapter: gated on CUTOVER_ENV=1, idempotent via the
-    registry's migrated_at, loads every org doc, runs the pure engine,
-    persists exactly the orgs the engine changed, and writes the report.
-    Returns the report, or None when the gate is closed."""
-    import json as _json
+class MigrationIncomplete(RuntimeError):
+    """The startup migration did NOT finish: some changed org failed to save
+    or the report failed to land. `migrated_at` was deliberately NOT set, so
+    the next startup with the flag resumes — reusing already-minted rows and
+    already-written bindings — instead of skipping a half-done fleet as
+    complete. Carries the truthful report on `.report`."""
 
+    def __init__(self, message: str, report: dict[str, Any]):
+        super().__init__(message)
+        self.report = report
+
+
+def mark_migrated(now: float | None = None) -> None:
+    """Set the completion marker. The CALLER's act, never the engine's:
+    call it only once every changed org and the report have persisted."""
+    d = registry.load(strict=True)
+    d["migrated_at"] = time.time() if now is None else now
+    registry.save(d)
+
+
+def _write_report(report: dict[str, Any], data_root: str) -> str | None:
+    """Land the report beside the registry; the error string on failure
+    (report state is part of completion, so the caller must see it fail)."""
+    import json as _json
+    try:
+        with open(os.path.join(data_root, REPORT_NAME), "w",
+                  encoding="utf-8") as f:
+            _json.dump(report, f, indent=1)
+        return None
+    except OSError as e:
+        return str(e)
+
+
+def run_startup_migration() -> dict[str, Any] | None:
+    """The startup adapter: gated on CUTOVER_ENV=1, loads every org doc,
+    runs the pure engine, persists exactly the orgs the engine changed,
+    writes the report, and marks completion ONLY when all of that
+    succeeded. A partial failure raises MigrationIncomplete with the
+    truthful report — minted rows and saved bindings stay, the marker does
+    not, and the next startup with the flag finishes the remainder.
+    Returns the report, or None when the gate is closed."""
     from . import store
     if os.environ.get(CUTOVER_ENV) != "1":
         return None
@@ -82,19 +123,44 @@ def run_startup_migration() -> dict[str, Any] | None:
                 continue
         docs = [o.d for o in orgs]
         report = run_migration(docs)
+        if report.get("reason") == "already migrated":
+            # complete on a prior startup: change nothing, and keep that
+            # run's report on disk rather than overwriting it with this stub
+            print("[orgtree] accounts cutover migration already complete "
+                  f"(migrated_at={report.get('migrated_at')})")
+            return report
         changed = set(report.get("changed_orgs") or [])
+        saved: list[str] = []
+        save_failures: dict[str, str] = {}
         for o in orgs:
-            if str(o.d.get("slug") or "") in changed:
+            slug = str(o.d.get("slug") or "")
+            if slug not in changed:
+                continue
+            try:
                 store.save_org(o)
+            except Exception as e:                           # noqa: BLE001
+                # keep going: every org that CAN persist does, so the rerun
+                # has less to redo — but completion is now off the table
+                save_failures[slug] = f"{type(e).__name__}: {e}"
+            else:
+                saved.append(slug)
     report["skipped_unloadable"] = sorted(set(slugs)
                                           - {str(o.d.get("slug") or "")
                                              for o in orgs})
-    try:
-        with open(os.path.join(store.DATA_ROOT, REPORT_NAME), "w",
-                  encoding="utf-8") as f:
-            _json.dump(report, f, indent=1)
-    except OSError:
-        pass
+    report["saved_orgs"] = saved
+    report["save_failures"] = save_failures
+    report["completed"] = not save_failures
+    write_err = _write_report(report, store.DATA_ROOT)
+    if save_failures or write_err:
+        report["completed"] = False
+        if write_err:
+            report["report_write_error"] = write_err
+        raise MigrationIncomplete(
+            f"saved {len(saved)}/{len(changed)} changed orgs"
+            + (f", save failures: {save_failures}" if save_failures else "")
+            + (f", report write failed: {write_err}" if write_err else ""),
+            report)
+    mark_migrated()
     print(f"[orgtree] accounts cutover migration ran: "
           f"{report.get('bound_nodes', 0)} nodes bound, "
           f"held={report.get('org_key_held')}, "
@@ -128,12 +194,46 @@ def _node_provider(node: dict[str, Any]) -> str:
     return providers.provider_of(str(node.get("model") or ""))
 
 
+def _same_path(a: Any, b: Any) -> bool:
+    a, b = str(a or ""), str(b or "")
+    if not a or not b:
+        return False
+    return (os.path.normcase(os.path.abspath(a))
+            == os.path.normcase(os.path.abspath(b)))
+
+
+def _reuse_or_create(provider: str, label: str, credential: dict[str, Any],
+                     *, origin_org: str | None = None,
+                     registered_from: str = "") -> dict[str, Any]:
+    """Resumability's core: a rerun (after a partial startup failure, or
+    with rows the operator already registered for the same credential) must
+    return the EXISTING row, never mint a duplicate — the credential
+    evidence (imported path / token ref) IS the row's identity here, so
+    already-written `account` bindings keep pointing at a live id."""
+    kind = str(credential.get("kind") or "")
+    for row in registry.load(strict=True)["accounts"]:
+        c = row.get("credential") or {}
+        if row.get("provider") != provider or c.get("kind") != kind:
+            continue
+        if kind == "token":
+            if str(c.get("token_ref") or "") == str(
+                    credential.get("token_ref") or ""):
+                return row
+        elif _same_path(c.get("path"), credential.get("path")):
+            return row
+    return registry.create_account(provider, label, credential,
+                                   origin_org=origin_org,
+                                   registered_from=registered_from)
+
+
 def run_migration(org_docs: list[dict[str, Any]],
-                  ambient: dict[str, str | None] | None = None,
-                  now: float | None = None) -> dict[str, Any]:
+                  ambient: dict[str, str | None] | None = None
+                  ) -> dict[str, Any]:
     """Returns the migration report; mutates org docs in place and returns
-    the changed slugs inside it (`changed_orgs`) for the caller to persist."""
-    now = time.time() if now is None else now
+    the changed slugs inside it (`changed_orgs`) for the caller to persist.
+    Never writes `migrated_at` — that is the caller's completion marker,
+    set only after those persists succeed (mark_migrated). Rerunnable:
+    rows come back by credential evidence, bound nodes are left alone."""
     ambient = observe_ambient() if ambient is None else ambient
     doc = registry.load(strict=True)
     if doc.get("migrated_at"):
@@ -152,7 +252,7 @@ def run_migration(org_docs: list[dict[str, Any]],
     for provider, path in ambient.items():
         if not path:
             continue
-        row = registry.create_account(
+        row = _reuse_or_create(
             provider, f"{provider} (machine login)",
             {"kind": "imported", "path": path},
             registered_from="migration:ambient")
@@ -165,7 +265,7 @@ def run_migration(org_docs: list[dict[str, Any]],
 
     # 2. legacy key rows → token-kind rows (compatibility, Q1)
     for k in accounts.load().get("keys", []):
-        row = registry.create_account(
+        row = _reuse_or_create(
             "claude", f"key {k['id'][:8]}",
             {"kind": "token", "token_ref": str(k["id"])},
             registered_from="migration:legacy-key")
@@ -183,7 +283,7 @@ def run_migration(org_docs: list[dict[str, Any]],
                 # conditional spare: the HELD case — documented, not guessed
                 report["org_key_held"].append(slug)
             else:
-                row = registry.create_account(
+                row = _reuse_or_create(
                     "claude", f"org key ({slug})",
                     {"kind": "token", "token_ref": f"org-api-key:{slug}"},
                     origin_org=slug,
@@ -216,8 +316,4 @@ def run_migration(org_docs: list[dict[str, Any]],
         # nothing observed, nothing migrated: say so rather than pass quietly
         report["inert"] = True
         report["reason"] = "no ambient logins, keys, org keys or nodes found"
-
-    d3 = registry.load(strict=True)
-    d3["migrated_at"] = now
-    registry.save(d3)
     return report

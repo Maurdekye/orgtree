@@ -117,16 +117,21 @@ class MigrationTests(unittest.TestCase):
             if managed is not None:
                 os.environ["ORGTREE_DESKTOP_MANAGED"] = managed
 
-    def test_inert_declares_itself_and_second_run_is_noop(self):
+    def test_inert_declares_itself_and_completion_blocks_reruns(self):
         report = self.migration.run_migration([], {"claude": None,
                                                    "openai": None,
                                                    "google": None})
         self.assertTrue(report["inert"])
         self.assertIn("reason", report)  # a statement, not an empty pass
+        # the ENGINE never marks completion (that is the caller's, after
+        # persists succeed) — so nothing is marked yet
+        self.assertFalse(self.registry.load().get("migrated_at"))
+        # once the caller marks it, a rerun is a declared no-op that mints
+        # nothing despite an ambient login existing
+        self.migration.mark_migrated()
         again = self.migration.run_migration([], self._ambient())
         self.assertTrue(again["inert"])
         self.assertEqual(again["reason"], "already migrated")
-        # and the second run minted nothing despite an ambient login existing
         self.assertEqual(self.registry.list_accounts(), [])
 
     def test_existing_binding_never_overwritten(self):
@@ -134,6 +139,25 @@ class MigrationTests(unittest.TestCase):
                                         "account": "claude-77"}})
         self.migration.run_migration([org], self._ambient())
         self.assertEqual(org["nodes"]["n"]["account"], "claude-77")
+
+    def test_engine_rerun_reuses_rows_by_evidence(self):
+        # a rerun (the resume after a partial startup failure) must return
+        # the rows the first attempt minted — path evidence for imported
+        # ambient rows, token_ref evidence for org-key rows — so bindings
+        # written by the first attempt keep pointing at live ids
+        first = self._org("keyed", {"n": {"model": "opus"}}, api_key="k")
+        r1 = self.migration.run_migration([first], self._ambient(openai=True))
+        minted = {row["id"] for row in self.registry.list_accounts()}
+        # same fleet again, bindings not yet persisted: a fresh unbound doc
+        second = self._org("keyed", {"n": {"model": "opus"}}, api_key="k")
+        r2 = self.migration.run_migration([second], self._ambient(openai=True))
+        self.assertEqual(r2["ambient_rows"], r1["ambient_rows"])
+        self.assertEqual(r2["org_key_rows"], r1["org_key_rows"])
+        self.assertEqual(second["nodes"]["n"]["account"],
+                         first["nodes"]["n"]["account"])
+        # and NO duplicate was minted for any credential
+        self.assertEqual({row["id"] for row in self.registry.list_accounts()},
+                         minted)
 
 
     def test_startup_adapter_gated_and_persists_only_changed(self):
@@ -168,6 +192,95 @@ class MigrationTests(unittest.TestCase):
         finally:
             os.environ.pop(self.migration.CUTOVER_ENV, None)
         self.assertTrue(again["inert"])
+
+
+    # Injected-failure resumability (coordinator directive 2026-09-10): a
+    # partial org-save failure must HOLD completion truthfully and the next
+    # startup must finish the remainder — same account ids, no duplicates,
+    # no lost bindings — never skip a half-migrated fleet as already done.
+
+    def _stored_org(self, slug):
+        from engine.backend.orgtree import ledger, store
+        org = ledger.Org.create(slug)
+        org.nodes["n"] = {"state": "live", "parent": None, "generation": 1,
+                          "model": "opus"}
+        store.save_org(org)
+
+    def test_partial_save_failure_holds_completion_and_rerun_finishes(self):
+        import json
+        from unittest.mock import patch
+        from engine.backend.orgtree import store
+        self._stored_org("m-one")
+        self._stored_org("m-two")
+        real_save = store.save_org
+
+        def failing_save(org):
+            if str(org.d.get("slug") or "") == "m-two":
+                raise OSError("disk full (injected)")
+            return real_save(org)
+
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            with patch.object(store, "save_org", failing_save):
+                with self.assertRaises(
+                        self.migration.MigrationIncomplete) as ctx:
+                    self.migration.run_startup_migration()
+            # truthful partial state: completion HELD, the failure named,
+            # the org that could save did save
+            self.assertFalse(self.registry.load().get("migrated_at"))
+            rep = ctx.exception.report
+            self.assertFalse(rep["completed"])
+            self.assertEqual(rep["saved_orgs"], ["m-one"])
+            self.assertIn("disk full (injected)", rep["save_failures"]["m-two"])
+            one = store.load_org("m-one").node("n").get("account")
+            self.assertTrue(one)                       # persisted binding
+            self.assertFalse(
+                store.load_org("m-two").node("n").get("account"))
+            # the on-disk report also says INCOMPLETE, not success
+            with open(os.path.join(store.DATA_ROOT,
+                                   self.migration.REPORT_NAME),
+                      encoding="utf-8") as f:
+                self.assertFalse(json.load(f)["completed"])
+            minted = {row["id"] for row in self.registry.list_accounts()}
+            # rerun without the injected failure: finishes the REMAINDER
+            report2 = self.migration.run_startup_migration()
+            self.assertTrue(report2["completed"])
+            self.assertEqual(report2["save_failures"], {})
+            self.assertEqual(report2["saved_orgs"], ["m-two"])
+            # no duplicate accounts, no lost or diverging bindings
+            self.assertEqual(
+                {row["id"] for row in self.registry.list_accounts()}, minted)
+            self.assertEqual(store.load_org("m-one").node("n").get("account"),
+                             one)
+            self.assertEqual(store.load_org("m-two").node("n").get("account"),
+                             one)
+            self.assertTrue(self.registry.load().get("migrated_at"))
+            # and only NOW is a further startup the declared no-op
+            self.assertEqual(self.migration.run_startup_migration()["reason"],
+                             "already migrated")
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
+
+    def test_report_write_failure_holds_completion(self):
+        from unittest.mock import patch
+        from engine.backend.orgtree import store
+        self._stored_org("rw-org")
+        os.environ[self.migration.CUTOVER_ENV] = "1"
+        try:
+            with patch.object(self.migration, "_write_report",
+                              return_value="disk full (injected)"):
+                with self.assertRaises(self.migration.MigrationIncomplete):
+                    self.migration.run_startup_migration()
+            # report state is part of completion: marker held, though the
+            # org saves themselves landed
+            self.assertFalse(self.registry.load().get("migrated_at"))
+            self.assertTrue(store.load_org("rw-org").node("n").get("account"))
+            # rerun with a working report writer: completes and marks
+            report = self.migration.run_startup_migration()
+            self.assertTrue(report["completed"])
+            self.assertTrue(self.registry.load().get("migrated_at"))
+        finally:
+            os.environ.pop(self.migration.CUTOVER_ENV, None)
 
 
 if __name__ == "__main__":
