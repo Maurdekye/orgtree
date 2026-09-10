@@ -43,6 +43,13 @@ def database():
           CREATE TABLE IF NOT EXISTS transcript_views (
             source TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL,
             PRIMARY KEY(source,position)) WITHOUT ROWID;
+          CREATE TABLE IF NOT EXISTS transcript_tool_results (
+            source TEXT NOT NULL, tool TEXT NOT NULL, epoch INTEGER NOT NULL,
+            position INTEGER NOT NULL, body TEXT NOT NULL,
+            PRIMARY KEY(source,tool)) WITHOUT ROWID;
+          CREATE TABLE IF NOT EXISTS transcript_native_rows (
+            source TEXT NOT NULL, identity TEXT NOT NULL, digest TEXT NOT NULL,
+            PRIMARY KEY(source,identity,digest)) WITHOUT ROWID;
                 """)
                 _initialized.add(str(path))
         with conn:
@@ -86,12 +93,68 @@ def _tail(stream, end, count, stats):
 
 
 def _insert(conn, source, epoch, rows):
+    rows = list(rows)
     conn.executemany("INSERT OR IGNORE INTO transcript_records VALUES (?,?,?,?)",
                      ((source, epoch, offset, line.decode("utf-8", errors="replace"))
                       for offset, line in rows))
+    for offset, line in rows:
+        _index_results(conn, source, epoch, offset, line.decode('utf-8', errors='replace'))
 
 
-def ingest(source: str, path: str, count: int, stats: dict):
+def _index_results(conn, source, epoch, offset, body):
+    try:
+        rec = json.loads(body)
+    except json.JSONDecodeError:
+        return
+    content = rec.get('message', {}).get('content') if isinstance(rec, dict) and isinstance(rec.get('message'), dict) else None
+    if not isinstance(content, list):
+        return
+    for block in content:
+        if isinstance(block, dict) and block.get('type') == 'tool_result' and block.get('tool_use_id'):
+            # Preserve only the result block here, not unrelated user text
+            # from that same provider record outside the requested page.
+            result = dict(rec, message={**rec['message'], 'content': [block]})
+            conn.execute('''INSERT INTO transcript_tool_results VALUES (?,?,?,?,?)
+                            ON CONFLICT(source,tool) DO UPDATE SET epoch=excluded.epoch,
+                            position=excluded.position,body=excluded.body
+                            WHERE (excluded.epoch,excluded.position)>=(epoch,position)''',
+                         (source, str(block['tool_use_id']), epoch, offset, json.dumps(result, ensure_ascii=False)))
+
+
+def results_for(source, tool_ids):
+    with database() as conn:
+        found = []
+        for identity in tool_ids:
+            row = conn.execute('SELECT epoch,position,body FROM transcript_tool_results WHERE source=? AND tool=?',
+                               (source, identity)).fetchone()
+            if row:
+                found.append(row)
+        return found
+
+
+def _native_key(row):
+    identity = row.get('native_event_id')
+    if not identity:
+        return None
+    body = json.dumps({key: row.get(key) for key in
+                      ('role','text','tools','thinking','thinking_sealed','ts')}, sort_keys=True, default=str)
+    return str(identity), hashlib.sha256(body.encode()).hexdigest()
+
+
+def native_rows(source, rows, *, remember=False):
+    with database() as conn:
+        result = []
+        for row in rows:
+            key = _native_key(row)
+            if key and remember:
+                conn.execute('INSERT OR IGNORE INTO transcript_native_rows VALUES (?,?,?)', (source, *key))
+            if remember or key is None or not conn.execute('SELECT 1 FROM transcript_native_rows WHERE source=? AND identity=? AND digest=?',
+                                                          (source, *key)).fetchone():
+                result.append(row)
+        return result
+
+
+def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
     """Persist new suffixes and enough older records for this requested window.
 
     Invalid/torn final lines stay outside the committed cursor, so completion
@@ -102,10 +165,16 @@ def ingest(source: str, path: str, count: int, stats: dict):
         meta = conn.execute("SELECT path,epoch,signature,lower_byte,upper_byte FROM transcript_sources WHERE source=?",
                             (source,)).fetchone()
         owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
+        def available():
+            if before is None:
+                return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=?", (source,)).fetchone()[0]
+            epoch, position = divmod(before, 1 << 40)
+            return conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=? AND (epoch,position)<=(?,?)",
+                                (source, epoch, position)).fetchone()[0]
         if owned and meta:
             # The DB writer owns all new records. The old file is consulted
             # only for older ranges predating the changeover.
-            have = conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=?", (source,)).fetchone()[0]
+            have = available()
             if meta[3] and have < count and Path(path).is_file():
                 with open(path, 'rb') as stream:
                     rows, lower = _tail(stream, meta[3], count - have, stats)
@@ -144,8 +213,7 @@ def ingest(source: str, path: str, count: int, stats: dict):
                         break
                     _insert(conn, source, epoch, [(offset, line.rstrip(b"\r\n"))])
                     upper = stream.tell()
-            have = conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=? AND epoch=?",
-                                (source, epoch)).fetchone()[0]
+            have = available()
             if lower and have < count:
                 rows, lower = _tail(stream, lower, count - have, stats)
                 _insert(conn, source, epoch, rows)
@@ -153,12 +221,18 @@ def ingest(source: str, path: str, count: int, stats: dict):
                          (source, path, epoch, signature, lower, upper))
 
 
-def tail(source: str, count: int):
+def tail(source: str, count: int, *, before=None):
     with database() as conn:
-        rows = conn.execute("SELECT epoch,position,body FROM transcript_records WHERE source=? ORDER BY epoch DESC,position DESC LIMIT ?",
-                            (source, count)).fetchall()
+        condition = "source=?"
+        args = [source]
+        if before is not None:
+            epoch, position = divmod(before, 1 << 40)
+            condition += " AND (epoch,position)<=(?,?)"
+            args.extend([epoch, position])
+        rows = conn.execute("SELECT epoch,position,body FROM transcript_records WHERE " + condition + " ORDER BY epoch DESC,position DESC LIMIT ?",
+                            (*args, count)).fetchall()
         meta = conn.execute("SELECT lower_byte FROM transcript_sources WHERE source=?", (source,)).fetchone()
-        total = conn.execute("SELECT COUNT(*) FROM transcript_records WHERE source=?", (source,)).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM transcript_records WHERE " + condition, args).fetchone()[0]
     return list(reversed(rows)), bool(meta and meta[0]) or total > len(rows)
 
 
@@ -205,6 +279,7 @@ def append_owned(slug, sid, path, recs):
         for rec in recs:
             body = json.dumps(rec, ensure_ascii=False)
             conn.execute("INSERT INTO transcript_records VALUES (?,?,?,?)", (source, epoch, position, body))
+            _index_results(conn, source, epoch, position, body)
             position += len((body + "\n").encode("utf-8"))
         conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
                      (source, str(path), epoch, "", lower, position))

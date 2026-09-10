@@ -910,6 +910,7 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  row_id?: string
   reply_quote?: string
   thinking_reply_quote?: string
   event_id?: string
@@ -1044,6 +1045,7 @@ export interface ChatTransient { reply_quote?: string; event_id: string; role: s
 export interface ChatPayload {
   /** Bounded source projection: seq is an identity, not a row count. */
   windowed?: boolean
+  before?: string | null
   has_older?: boolean
   transient?: ChatTransient[]
   busy: boolean

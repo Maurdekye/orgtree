@@ -1603,7 +1603,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const el = scroller.current
     if (!el) return
     growAnchor.current = el.scrollHeight - el.scrollTop
-    if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page)) growAnchor.current = null
+    if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)) growAnchor.current = null
   }
 
   const fillViewportRef = useRef<() => void>(() => {})

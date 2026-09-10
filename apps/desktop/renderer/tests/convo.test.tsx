@@ -47,6 +47,30 @@ interface Desk {
   unmount(): Promise<void>
 }
 
+convoTest('cursor scrollback retains old rows while refresh only requests the viewport window', async ({s, desk, SL, ND}) => {
+  s.cursorPages = true
+  for (let i=0;i<60;i++) s.assistantMsg(`row ${i}`)
+  const d = await desk()
+  await advance(100)
+  const newest = d.now().chat!.messages.map(row=>row.seq)
+  await inAct(()=>{assert.equal(loadOlder(SL,ND,8),true)})
+  await advance(100)
+  assert.equal(d.now().chat!.messages.length,16)
+  assert.ok(s.requests.some(request=>request.before),'scrollback must send its cursor')
+  s.assistantMsg('new arrival')
+  await inAct(()=>refreshConvo(SL,ND,{force:true}))
+  await advance(100)
+  assert.equal(d.now().chat!.messages.length,17)
+  assert.deepEqual(d.now().chat!.messages.slice(-9,-1).map(row=>row.seq),newest)
+  assert.ok(s.requests.every(request=>request.last===8),'refresh never refetches all visited history')
+  for (let i=0;i<20;i++) s.assistantMsg(`burst ${i}`)
+  await inAct(()=>refreshConvo(SL,ND,{force:true}))
+  await advance(100)
+  assert.equal(d.now().chat!.messages.length,37,'a burst larger than one page must not leave a hole between ranges')
+  const seqs = d.now().chat!.messages.map(row=>row.seq!)
+  for (let i=1;i<seqs.length;i++) assert.equal(seqs[i],seqs[i-1]!+1)
+})
+
 /** the store is a module-level Map keyed by slug․nid; a suite that reuses one
  *  key inherits the previous test's Entry — poller, in-flight flag, subscriber
  *  set. Real pages get a fresh module; tests have to ask. */

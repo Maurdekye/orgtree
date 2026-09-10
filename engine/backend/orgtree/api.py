@@ -9552,17 +9552,27 @@ def sweep_legacy(slug: str, request: Request) -> dict[str, Any]:
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/chat")
 async def _node_chat_route(slug: str, nid: str, request: Request,
-                           last: int = 300) -> dict[str, Any]:
-    return await _run_chat_read(node_chat, slug, nid, request, last)
+                           last: int = 300, before: str | None = None) -> dict[str, Any]:
+    return await _run_chat_read(node_chat, slug, nid, request, last, before)
 
 
 def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
-              last: int = 300) -> dict[str, Any]:
+              last: int = 300, before: str | None = None) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    if before:
+        from .chat_window import read_page
+        try:
+            page = read_page(org, nid, last, before)
+        except (ValueError, TypeError, KeyError) as error:
+            raise HTTPException(422, 'Invalid transcript cursor') from error
+        for row in page.get('messages') or []:
+            if row.get('segments') is not None:
+                row['segments'] = events.wire_segments(row['segments'], public=_public_slug(request) is not None)
+        return page
     out = supervisor.read_chat(org, nid, last=max(1, min(last, 1_000_000)))
     # queued = the mail box PLUS the delivery journal's in-flight batches —
     # a message steered mid-task drains the box instantly, and during a long
