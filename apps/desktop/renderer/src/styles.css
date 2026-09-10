@@ -6250,3 +6250,6 @@ html.mobile .popout-button { display: none; }
 
 .presentation-chat-card {display:flex; align-items:center; gap:10px; padding:14px 18px; margin:8px 0; max-width:100%; text-align:left; white-space:normal; border:1px solid var(--border); border-radius:8px;}
 .presentation-chat-card svg {flex:none; font-size:24px;}
+
+/* Collection modals reserve at least two thirds for the selected document. */
+.settings.gallery-modal .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }

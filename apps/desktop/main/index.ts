@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
+import { WindowPlacement } from './window-placement'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
 import { detectHarnesses } from './harnesses'
@@ -30,6 +31,8 @@ else {
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
+  let placement: WindowPlacement | undefined, restoreMaximized = false
+  const savePlacement = () => { if (main && placement && !restoreMaximized) { try { placement.capture(main) } catch (error) { console.warn("Window position could not be saved", error) } } }
   let restoreWindows = !process.argv.includes('--background')
   const windowState = () => ({
     visible: !!main && !main.isDestroyed() && main.isVisible(),
@@ -73,7 +76,7 @@ else {
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
   const notifications = new NotificationGate()
-  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); main.restore(); main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
+  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
   // n/m active/hired (user spec 2026-09-10) — the same two counts every org
@@ -164,6 +167,7 @@ else {
   }
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
   const saveWindowLayout = async () => {
+    savePlacement()
     if (main && !main.isDestroyed()) {
       try { await main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') } catch { /* Crashed renderer cannot save layout. */ }
     }
@@ -383,10 +387,17 @@ else {
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
-      main = new BrowserWindow({ width: 1400, height: 900, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
+      placement = new WindowPlacement(path.join(app.getPath('userData'), 'window-state.json'))
+      const savedPlacement = placement.restore(screen.getAllDisplays().map(display => display.workArea))
+      restoreMaximized = savedPlacement?.maximized ?? false
+      main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
         webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
           sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
       main.setIcon(runtimeIcon())
+      main.on('moved', savePlacement)
+      main.on('resized', savePlacement)
+      main.on('maximize', savePlacement)
+      main.on('unmaximize', savePlacement)
       main.on('maximize', publishWindowState)
       main.on('unmaximize', publishWindowState)
       main.on('minimize', publishWindowState)
@@ -399,6 +410,7 @@ else {
         child.on('closed', quitAfterLastView)
       })
       main.on('close', event => {
+        savePlacement()
         const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
         const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
         if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
