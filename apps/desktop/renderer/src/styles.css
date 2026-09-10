@@ -17,7 +17,7 @@
   --line-soft: #2b2b2b;
   --accent: #d97757;        /* Claude default accent; explicit themes override it */
   --prov-claude: #d97757;   /* explicit destination theme inside other desks */
-  --aud-user: #d97757;      /* direct line to the user — relationship color,
+  --aud-user: var(--accent);      /* direct line to the user — relationship color,
                                independent of the agent provider theme */
   --accent-soft: rgba(217, 119, 87, .16);
   --accent-hover: #e99b81;
@@ -3607,7 +3607,7 @@ html.mobile .conn-chip { max-width: 46vw; }
 .badge.free { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 /* A direct user audience is the same relationship in the desk and on the
    canvas. Codex desks rebind --accent to blue for provider chrome, but this
-   badge stays orange to match its orange user-audience line. */
+   badge inherits the root theme color, matching the user-audience line. */
 .badge.aud-user {
   color: var(--aud-user);
   border-color: color-mix(in srgb, var(--aud-user) 30%, transparent);
