@@ -96,9 +96,11 @@ aside {
   width: 264px; flex: none; padding: 14px; border-right: 1px solid var(--line-soft);
   background: var(--side); display: flex; flex-direction: column; gap: 12px;
 }
+/* 'Orgtree', written as written (user 2026-09-10): no uppercase transform —
+   the sidebar title must read exactly like the home header's */
 aside h1, .welcome-card h1 {
-  font-size: 13px; font-weight: 600; margin: 2px 4px 6px; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--dim);
+  font-size: 13px; font-weight: 600; margin: 2px 4px 6px; letter-spacing: .04em;
+  color: var(--dim);
   display: flex; align-items: center; gap: 5px;
 }
 aside h1 svg, .welcome-card h1 svg { color: var(--accent); }
@@ -1376,17 +1378,30 @@ button.cc-name:hover {
 }
 /* Pending status is carried by its receipt; message styling stays unchanged. */
 /* the optimistic ghost now carries its own actions (user bug 2026-09-03 —
-   it was the one bubble with no way to dismiss it). Same flex shape as the
-   durable .pendrow so the ✕ lands where the eye already looks for it. */
-.pendghost { display: flex; align-items: flex-start; gap: 6px; }
-.ghost-acts { display: flex; align-items: center; gap: 2px; margin-left: auto; }
-/* a FAILED ghost stops being dim: it is not waiting any more, it is news */
-.pending.failed { opacity: 1; border-color: var(--warn, #e5c07b); }
+   it was the one bubble with no way to dismiss it). Like the durable
+   .pendrow the wrapper is a plain block around the full-width card (user
+   2026-09-10: identical to settled, wrappers included — the old flex gutter
+   narrowed the card, and the wrapper's `.msg` class leaked `pre-wrap`
+   typography the delivered copy does not have); the ✕ rides the card's
+   metadata strip via .ghost-acts. */
+.pendghost { min-width: 0; }
+.ghost-acts { display: inline-flex; align-items: center; gap: 2px; }
+/* a FAILED ghost stops being dim: it is not waiting any more, it is news.
+   `overflow-wrap: normal` undoes the `.event-surface` wrapper dress's
+   `anywhere` before it can INHERIT into the card — the card must compute
+   exactly what its settled twin does (pendparity_probe.py); a typed card's
+   own `.event-surface` rule still applies to the card element itself. */
+.pending.failed { opacity: 1; border-color: var(--warn, #e5c07b); overflow-wrap: normal; }
 .ghost-why {
-  flex-basis: 100%; order: 3; margin-top: 4px;
+  margin-top: 4px;
   font-size: 11px; color: var(--warn, #e5c07b);
 }
 .turn-mail-batch { display: flex; flex-direction: column; gap: 7px; align-self: stretch; }
+/* several mails delivered by ONE turn stack with the same 7px rhythm the
+   chat column (.msgs) and the pending rows use — measured 0px before
+   (cards touching border-on-border), so a burst of messages changed shape
+   the moment it delivered (pendparity_probe.py §4) */
+.event-mail { display: flex; flex-direction: column; gap: 7px; }
 /* A turn-start envelope can contain several different authors.  These are
    separate cards so passive peer context never borrows the user's bubble. */
 .turn-mail {
@@ -4414,17 +4429,16 @@ svg.MuiSvgIcon-root {
   .msg.thinking.sealed { animation: none; opacity: .75 }
 }
 /* №11/№17: durable pending bubble + retract ✕.
-   The flex here is NOT the message layout — it is the gutter that holds the
-   delivery tag / retract ✕ at the top right. The message itself is the ONE
-   child beside it, and it stacks (text, then `.attach-row`) exactly as the
-   delivered bubble does, because this bubble is a preview of that one and
-   used to contradict it: text and thumbnail sat side by side here and one
-   above the other once delivered, so a message visibly rearranged itself on
-   send (user, 2026-08-28 — "the columnar display is best for this, yes").
-   ⚠ Keep it at one content child. Adding a second sibling would put it
-   BESIDE the message again and bring the old bug back in a new place. */
-.pendrow { display: flex; align-items: flex-start; gap: 6px; }
-.pendbody { flex: 1; min-width: 0; }
+   The old side-gutter flex is GONE (user 2026-09-10: pending must be
+   visually identical to settled, wrappers included — the gutter left every
+   pending card ~200px narrower than its delivered twin, measured by
+   pendparity_probe.py). The row is now a plain block around the SAME
+   full-width MailMessage card a settled row draws; the delivery tag /
+   retract ✕ ride the card's own metadata strip, pushed to its right end —
+   still the top-right spot the user asked the receipt to keep, and still
+   never below the content (the 2026-08-28 column ruling: text, then
+   `.attach-row`, is the card's own order on both surfaces now). */
+.pendrow { min-width: 0; }
 .sendmode { font-size: 10.5px; padding: 0 4px 2px; }
 /* №7: last turn's auto-denies */
 .denials {
@@ -4521,7 +4535,13 @@ svg.MuiSvgIcon-root {
 .lin-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .lin-id .dim { font-size: 11px; }
 .lin-row select { max-width: 11em; }
-.pend-tag { font-size: 10px; font-style: italic; margin-left: 6px; white-space: nowrap; }
+/* the receipt lives at the tail of the card's metadata strip; auto margin
+   pushes it (or the retract ✕ / ghost actions in the same seat) to the
+   strip's right edge — the top-right spot it has always kept */
+.pend-tag { font-size: 10px; font-style: italic; margin-left: auto; white-space: nowrap; }
+.turn-mail-head .pend-x,
+.turn-mail-head .ghost-acts { margin-left: auto; }
+.turn-mail-head .pend-x { padding: 0 2px; line-height: 1; }
 /* D-229: a drained message that no turn owns. It is the one receipt that is
    not "on its way", so it does not dress like one: warn colour, upright, and
    not dimmed with the rest of the tag family. */

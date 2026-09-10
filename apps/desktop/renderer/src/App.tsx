@@ -2,6 +2,7 @@ import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
+import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
 import { UpdateNotice } from './update-notice'
 import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
@@ -31,7 +32,7 @@ import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
   DataUsageIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
   LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
-  SparkIcon, StopIcon, StorageIcon, WarnIcon,
+  StopIcon, StorageIcon, WarnIcon,
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
@@ -266,6 +267,32 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
   </>
 }
 
+/** The badge beside the sidebar's 'Orgtree' title (user 2026-09-10): the
+ * RUNNING APP VERSION from the desktop shell — e.g. "2.0.0-alpha.8" — in the
+ * seat the backend build hash used to hold; that hash stays in the tooltip.
+ * A plain browser has no app version and gets no invented one: it keeps the
+ * backend build hash as its visible badge, and shows nothing when even that
+ * is unknown. */
+export function TitleBadge({ appVersion, build }: {
+  appVersion: string | null
+  build: HostPayload['build'] | null
+}) {
+  const engine = build && build.commit !== 'unknown'
+    ? `${build.branch ? `${build.branch}@${build.commit}` : build.commit}` : null
+  if (appVersion) {
+    return <span className="build-badge"
+      title={`running app version ${appVersion}` + (engine
+        ? ` — engine ${engine} started ${fmtFull(build!.started_at)}` : '')}>
+      {appVersion}</span>
+  }
+  if (!engine) return null
+  return <span className="build-badge"
+    title={`running commit ${build!.commit}`
+      + (build!.branch ? ` (branch ${build!.branch})` : '')
+      + ` — started ${fmtFull(build!.started_at)}`}>
+    {engine}</span>
+}
+
 // live-feed state threaded into OrgCanvas (boundary shapes — Canvas declares
 // its own; reconcile if they drift)
 // text is required on the OUT side: the backend sends it on every stream()
@@ -460,6 +487,22 @@ export default function App() {
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
+  // The running APP version, shown beside the sidebar title (user 2026-09-10,
+  // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
+  // packaging is what has a version, not the backend's git state — via the
+  // getAppVersion the native side exposes; older shells (and the plain
+  // browser) simply don't have it and show no invented version. Typed as an
+  // optional probe rather than through DesktopBridge because the contracts
+  // file is the native side's to declare.
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+  useEffect(() => {
+    const bridge = desktop() as (NativeDesktop & { getAppVersion?: () => Promise<unknown> }) | undefined
+    let alive = true
+    bridge?.getAppVersion?.().then((v: unknown) => {
+      if (alive && typeof v === 'string' && v) setAppVersion(v)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [])
   const wsRef = useRef<WebSocket | null>(null)
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 15000)
@@ -621,7 +664,7 @@ export default function App() {
     // could find or clear.
     const n = tree?.user_inbox_count ?? 0
     document.title = (n > 0 ? `(${n}) ` : '')
-      + (tree?.name ? `${tree.name} — orgtree` : 'orgtree')
+      + (tree?.name ? `${tree.name} — Orgtree` : 'Orgtree')
   }, [tree])
 
   // a conversation belongs to ONE org — dropping the store on an org switch
@@ -759,15 +802,13 @@ export default function App() {
 
   const orgPanel = (showControls = true) => (
     <>
-      <h1><SparkIcon fontSize="inherit" /> orgtree
-        {build && build.commit !== 'unknown' &&
-          <span className="build-badge"
-            title={`running commit ${build.commit}`
-              + (build.branch ? ` (branch ${build.branch})` : '')
-              + ` — started ${fmtFull(build.started_at)}`}>
-            {build.branch ? `${build.branch}@${build.commit}` : build.commit}</span>}
+      {/* 'Orgtree', written the one way every visible title writes it (user
+          2026-09-10 — the sidebar used to shout an uppercase 'ORGTREE' with
+          a spark glyph while the home header said 'orgtree'). */}
+      <h1>Orgtree
+        <TitleBadge appVersion={appVersion} build={build} />
         <a className="gh-link h1-gh" href="https://github.com/Maurdekye/orgtree"
-          target="_blank" rel="noreferrer" title="orgtree on GitHub">
+          target="_blank" rel="noreferrer" title="Orgtree on GitHub">
           <GitHubIcon fontSize="inherit" /></a>
         {!BASE &&
           <button className={'h1-usage' + (usageAlert ? ' u-' + usageAlert.sev : '')}
@@ -812,7 +853,7 @@ export default function App() {
         <div className="welcome">
           {/* One window header for both first-run setup and the org list. */}
           {desktop() && <header className="orgbar native-header home-header">
-            <h2>orgtree</h2>
+            <h2>Orgtree</h2>
             <UpdateNotice />
             <WindowControls />
           </header>}
@@ -842,7 +883,7 @@ export default function App() {
               blip after load would otherwise push the canvas down. */}
           {!tree && <>
             {desktop() && <header className="orgbar fallback-orgbar native-header">
-              <h2>orgtree</h2>
+              <h2>Orgtree</h2>
               <UpdateNotice />
               <WindowControls />
             </header>}

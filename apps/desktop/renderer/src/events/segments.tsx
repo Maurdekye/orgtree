@@ -92,9 +92,15 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
   })}</div>
 }
 
-/** Pending and delivered mail share the same card, metadata and attachments. */
+/** Pending and delivered mail share the same card, metadata and attachments.
+ *  `meta` is the PENDING-ONLY chrome (delivery receipt, retract ✕, ghost
+ *  actions), rendered at the tail of the metadata strip: visual parity with
+ *  the settled card is the whole point of this component (user 2026-09-10 —
+ *  identical except unavailable metadata), so the one thing a pending row
+ *  adds joins the strip where metadata already lives instead of reserving a
+ *  side column that made every pending card narrower than its settled twin. */
 export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply }: Omit<SegmentProps, 'segments'> & { row: {
+  replyAvailable, onLocateReply, meta }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; row: {
     id?: string | null; from: string; kind?: string; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
@@ -122,6 +128,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
           </>}
           {row.relationship && <span>{row.relationship}</span>}
           {row.kind === 'notice' && <span className="turn-mail-passive">no reply expected</span>}
+          {meta}
         </header>
         {/* show-reply-context-on-sent-user-messages: the row's OWN reply
             reference (this row is itself a reply to something), distinct

@@ -45,6 +45,7 @@ import {
   loadOlder as storeLoadOlder, markBusy, markGhostCommand,
   MAX_WINDOW, refreshConvo, useConvo,
 } from '../convo'
+import type { PendingGhost } from '../convo'
 import type {
   ActivityInfo, CanvasNode, LiveRow, MailLinkFn, OpFn, WorkLinkFn,
 } from './shared'
@@ -58,7 +59,7 @@ import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
 import type { AgentDirectory } from './identity'
 import { mailRefTarget, useRefRoutes } from './reflinks'
-import type { RefRoutes } from './reflinks'
+import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
@@ -1625,31 +1626,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
   const pendLater = pendMail.filter((m) => !(m.delivering && m.via === 'turn'))
   // ONE renderer, two places (it is the same bubble; only its position says
-  // something different). Kept as a function rather than a component so it
-  // keeps closing over this desk's slug/node/refresh exactly as it did inline.
+  // something different) — the shared PendingMailRow, so the browser parity
+  // probe measures exactly what this desk mounts.
   const pendBubble = (m: PendingMail) => (
-    <div key={m.id ?? m.at} data-reply-event={m.event_id} data-reply-quote={m.body}
-      onContextMenu={e => openReply(e, m)} className="pending pendrow">
-      <div className="pendbody">
-        <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={node.id}
-          world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />}
-          replyAvailable={replyAvailable} onLocateReply={locateReply} />
-      </div>
-      {/* journal-riding mail (drained for a mid-task delivery) shows as queued
-          but is past the point of retraction. The tag is the message's
-          delivery RECEIPT (D-229): it names where the message is, and a
-          message no turn owns is said out loud instead of wearing the same
-          "delivering…" as one that is genuinely on its way. */}
-      {m.delivering
-        ? <span className={'dim pend-tag' + (m.stage === 'stranded' ? ' warn' : '')}>
-            {pendTag(m)}</span>
-        : m.id && (
-          <button className="chip-x" title="retract (undelivered)"
-            onClick={() => retractMail(slug, node.id, m.id!)
-              .then(() => refresh(true))
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>
-            <CloseIcon fontSize="inherit" /></button>)}
-    </div>
+    <PendingMailRow key={m.id ?? m.at} m={m} slug={slug} nid={node.id}
+      world={deskRefs.world} onOpen={deskRefs.onOpen}
+      replyAvailable={replyAvailable} onLocateReply={locateReply}
+      onContext={e => openReply(e, m)}
+      onRetract={() => retractMail(slug, node.id, m.id!)
+        .then(() => refresh(true))
+        .catch((e: Error) => toast([`error: ${e.message}`]))} />
   )
   useEffect(() => {
     if (!convo.loaded) void refreshConvo(slug, node.id)
@@ -2422,33 +2408,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               and only when the composer is empty — the user's typing is not
               ours to overwrite. */}
           {pending.map((p) => (
-            <div key={'q' + p.id} data-reply-event="" onContextMenu={e => openReply(e, {})}
-              className={'msg pending pendghost' + (p.failed
-                ? ' failed event-surface event-runtime_recovery' : '')}>
-              {p.reply && <ReplyPreview reply={p.reply} available={replyAvailable(p.reply)} onLocate={() => locateReply(p.reply!)} />}
-              <div className="pendbody"><MailMessage
-                row={{from: USER, kind: 'message', body: p.text, at: new Date(p.at).toISOString(), attachments: p.attachments}}
-                profile={BASE ? 'public' : 'operator'} slug={slug} nid={node.id}
-                world={deskRefs.world} onOpen={deskRefs.onOpen} actor={id => <MailFrom from={id} />} /></div>
-              {p.failed && (
-                <div className="ghost-why" role="status">
-                  <WarnIcon fontSize="inherit" /> {p.error
-                    ? `Send was not confirmed: ${p.error}. Delivery is unknown; check before retrying.`
-                    : <>not delivered — the turn ended without running it. If that was a slash command,
-                      nothing here or in the CLI answers to that name.</>}
-                </div>)}
-              <div className="ghost-acts">
-                {p.failed && !text.trim() && (
-                  <button className="chip-x" title="put this text back in the composer"
-                    onClick={() => { setText(p.text); setReply(p.reply ?? null); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }}>
-                    ↩</button>)}
-                <button className="chip-x"
-                  title={p.failed ? 'dismiss' : 'dismiss (removes it from your '
-                    + 'screen — nothing was filed on the server to retract)'}
-                  onClick={() => dismissPending(slug, node.id, p.id)}>
-                  <CloseIcon fontSize="inherit" /></button>
-              </div>
-            </div>
+            <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
+              world={deskRefs.world} onOpen={deskRefs.onOpen}
+              replyAvailable={replyAvailable} onLocateReply={locateReply}
+              onContext={e => openReply(e, {})}
+              onRestore={p.failed && !text.trim()
+                ? () => { setText(p.text); setReply(p.reply ?? null); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
+                : undefined}
+              onDismiss={() => dismissPending(slug, node.id, p.id)} />
           ))}
           {/* the turn's own failure is the LAST thing that happened, so it
               reads at the end of the stream. It used to render above the whole
@@ -3012,6 +2979,114 @@ export const pendTag = (m: PendingMail): string =>
       : m.stage === 'turn' || (!m.stage && m.via === 'turn')
         ? 'delivering…'
         : 'delivering mid-task…'
+
+/** One pending (undelivered) mail row: the SAME MailMessage card a settled
+ *  transcript row draws — full width, identical cascade — with the
+ *  pending-only chrome (the delivery receipt or the retract ✕) riding the
+ *  card's own metadata strip, right-aligned at the top where the user asked
+ *  the receipt to stay. It used to sit in a flex column BESIDE the card,
+ *  which left every pending card ~200px narrower than its settled twin —
+ *  the "still visually unlike the transcript" report (2026-09-10); the
+ *  parity probe (pendparity_probe.py) now measures the two paths equal.
+ *  Exported so that probe renders exactly what the desk mounts.
+ *
+ *  Journal-riding mail (drained for a mid-task delivery) shows as queued but
+ *  is past the point of retraction. The tag is the message's delivery
+ *  RECEIPT (D-229): it names where the message is, and a message no turn
+ *  owns is said out loud instead of wearing the same "delivering…" as one
+ *  that is genuinely on its way. */
+export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
+  onLocateReply, onContext, onRetract }: {
+  m: PendingMail; slug: string; nid: string
+  world?: RefWorld; onOpen?: (r: ResolvedRef) => void
+  replyAvailable?: (r: ReplyContext) => boolean
+  onLocateReply?: (r: ReplyContext) => void
+  onContext?: (e: React.MouseEvent) => void
+  onRetract?: () => void
+}) {
+  // ⚠ PRESENT THE ROW AS THE TRANSCRIPT WILL. The user's own before/after
+  // captures (2026-09-10, image-34/35) showed the same message wearing two
+  // different cards one second apart: the pending copy carried a typed `ev`
+  // and drew the event dress (dark event-surface, left accent, family
+  // header) while the settled transcript row carries none and draws the
+  // plain mail card (time · sender · kind chip). Visual identity means the
+  // pending copy renders the SAME branch as the row it settles into, so the
+  // typed-event keys are set aside for display — everything else about the
+  // row (body, attachments, reply, receipt) is untouched.
+  const { ev: _ev, ev_public: _evp, ev_raw: _evr, ev_error: _eve, ...presented } = m
+  return (
+    <div data-reply-event={m.event_id} data-reply-quote={m.body}
+      onContextMenu={onContext} className="pending pendrow">
+      <MailMessage row={presented} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
+        world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
+        replyAvailable={replyAvailable} onLocateReply={onLocateReply}
+        meta={m.delivering
+          ? <span className={'dim pend-tag' + (m.stage === 'stranded' ? ' warn' : '')}>
+              {pendTag(m)}</span>
+          : m.id && onRetract
+            ? <button className="chip-x pend-x" title="retract (undelivered)" onClick={onRetract}>
+                <CloseIcon fontSize="inherit" /></button>
+            : undefined} />
+    </div>
+  )
+}
+
+/** №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command and it got
+ *  stuck as a permanently undelivered message that i cant cancel"). The
+ *  durable pending bubbles have carried a retract ✕ since №17; these — the
+ *  optimistic ones — carried nothing, so the one bubble the user could not
+ *  get rid of was the one with no server record behind it.
+ *  ⚠ The ✕ is DISMISS, not retract: there is nothing on the server to take
+ *  back (a ghost has no id because nothing was filed), so it says so rather
+ *  than implying a retraction it cannot perform. A failed one also offers ↩
+ *  (onRestore, supplied only when the composer is empty — the user's typing
+ *  is not ours to overwrite). Exported for the browser parity probe. */
+export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
+  onLocateReply, onContext, onRestore, onDismiss }: {
+  p: PendingGhost; slug: string; nid: string
+  world?: RefWorld; onOpen?: (r: ResolvedRef) => void
+  replyAvailable?: (r: ReplyContext) => boolean
+  onLocateReply?: (r: ReplyContext) => void
+  onContext?: (e: React.MouseEvent) => void
+  onRestore?: () => void
+  onDismiss?: () => void
+}) {
+  // ⚠ no `.msg` on this wrapper: `.msg`'s `white-space: pre-wrap` and
+  // `overflow-wrap: anywhere` leaked into the whole card, so a ghost's
+  // markdown kept its source line breaks while the delivered copy reflowed —
+  // measured by pendparity_probe.py. The card carries its own typography.
+  // The reply excerpt travels INSIDE the card via the same reply_to wire a
+  // settled row uses, not as a second block above it.
+  return (
+    <div data-reply-event="" onContextMenu={onContext}
+      className={'pending pendghost' + (p.failed
+        ? ' failed event-surface event-runtime_recovery' : '')}>
+      <MailMessage
+        row={{from: USER, kind: 'message', body: p.text, at: new Date(p.at).toISOString(),
+          attachments: p.attachments, ...(p.reply ? { reply_to: replyWire(p.reply) } : {})}}
+        profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
+        world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
+        replyAvailable={replyAvailable} onLocateReply={onLocateReply}
+        meta={<span className="ghost-acts">
+          {onRestore && (
+            <button className="chip-x" title="put this text back in the composer"
+              onClick={onRestore}>↩</button>)}
+          <button className="chip-x"
+            title={p.failed ? 'dismiss' : 'dismiss (removes it from your '
+              + 'screen — nothing was filed on the server to retract)'}
+            onClick={onDismiss}>
+            <CloseIcon fontSize="inherit" /></button>
+        </span>} />
+      {p.failed && (
+        <div className="ghost-why" role="status">
+          <WarnIcon fontSize="inherit" /> {p.error
+            ? `Send was not confirmed: ${p.error}. Delivery is unknown; check before retrying.`
+            : <>not delivered — the turn ended without running it. If that was a slash command,
+              nothing here or in the CLI answers to that name.</>}
+        </div>)}
+    </div>
+  )
+}
 
 /** A mail sender's identity: its model chip and the route to its desk, or the
  *  plain name when this surface cannot vouch for it. Facts by context — see

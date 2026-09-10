@@ -300,8 +300,8 @@ async (t: TestContext) => {
 test('§8 the reader\'s own undelivered message carries chips too',
 async (t: TestContext) => {
   const { el, calls } = await desk(t, { queued: 'look at @item:org/sort-selector' })
-  assert.ok(q(el, '.pendbody').length > 0,
-    'positive control: the pending bubble rendered')
+  assert.ok(q(el, '.pendrow .turn-mail').length > 0,
+    'positive control: the pending card rendered')
   await inAct(async () => { chip(el, '@item:org/sort-selector').click() })
   assert.deepEqual(calls.item, [[{ slug: 'sort-selector' }]])
 })
