@@ -30,8 +30,8 @@ import { useCallback, useSyncExternalStore } from 'react'
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
  *  top pages another window in. The cost that bites is DOM size — every row
  *  carries markdown and tool chips — so this is deliberately small. */
-export const CHAT_WINDOW = 120
-export const MAX_WINDOW = 1000        // the API's own cap
+export const CHAT_WINDOW = 8
+export const MAX_WINDOW = 1_000_000   // expanded only on viewport demand or history scrolling
 const BUSY_POLL_MS = 2500      // heartbeat while the payload says busy
 const IDLE_POLL_MS = 7000      // heartbeat otherwise — slower, never off
 const NUDGE_MS = 200           // burst coalescing for the post-event refetch
@@ -136,6 +136,7 @@ let GHOST_ID = 0
  *  turn over completely — 120 rows — and the CLI's echo of the message is the
  *  FIRST of those rows, so the transcript has long since taken over.) */
 function scrolledPast(c: ChatPayload, g: PendingGhost): boolean {
+  if (c.windowed) return false // bounded source rows cannot prove an unseen send was displayed
   const oldest = c.messages[0]?.seq
   // `seq0 + 1` is the earliest row the message could occupy, so this is the
   // strict form: the window must start after the message's own place, not
@@ -618,11 +619,11 @@ export function refreshConvo(slug: string, nid: string,
 // transcript. This file no longer decides what to retire; it renders what the
 // server retired.)
 
-export function loadOlder(slug: string, nid: string): boolean {
+export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW): boolean {
   const k = key(slug, nid)
   const e = entry(k)
   if (e.s.loadingOlder || e.s.win >= MAX_WINDOW) return false
-  patch(k, { loadingOlder: true, win: Math.min(MAX_WINDOW, e.s.win + CHAT_WINDOW) })
+  patch(k, { loadingOlder: true, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
   void refreshConvo(slug, nid, { force: true })
   return true
 }

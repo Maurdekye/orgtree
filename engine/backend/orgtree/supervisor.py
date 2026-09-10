@@ -2696,6 +2696,7 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
     out.pop("_prompt_unresolved", None)
     out.pop("_prompt_raw", None)
     out.pop("_source_id", None)
+    out.pop("_byte_offset", None)
     return out
 
 
@@ -28109,7 +28110,9 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                       _prompt_views: dict[str, list[dict[str, Any]]] | None = None,
                       _resume: dict[str, Any] | None = None,
                       _source_only: bool = False,
-                      _path: Path | None = None) -> dict[str, Any]:
+                      _path: Path | None = None,
+                      _record_offsets: Iterable[int] | None = None,
+                      _source_namespace: str = "") -> dict[str, Any]:
     """Parse the node's transcript into renderable messages + context occupancy.
 
     Parity waves A+C (2026-07-31): tool chips carry their identifying argument,
@@ -28176,7 +28179,15 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                       (_resume or {}).get("prev_think"))
     source_lines = (_lines if _lines is not None else
                     open(tpath, encoding="utf-8", errors="replace"))
+    offsets = iter(_record_offsets) if _record_offsets is not None else None
+    offset = 0
+    def append_row(row: dict[str, Any]) -> None:
+        if offsets is not None:
+            row["_source_id"] = f"record:{_source_namespace}:{offset}"
+            row["_byte_offset"] = offset
+        msgs.append(row)
     for line in source_lines:
+        offset = next(offsets) if offsets is not None else 0
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
@@ -28206,7 +28217,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             # the same way it already reconstructs the last TodoWrite call,
             # no separate store to keep in sync with this one.
             raw_steps = rec.get("plan")
-            msgs.append({
+            append_row({
                 "role": "assistant", "text": "", "ts": rec.get("timestamp"),
                 "codexPlan": {
                     "steps": raw_steps if isinstance(raw_steps, list) else [],
@@ -28224,13 +28235,13 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                 pre = meta.get("preTokens") if isinstance(meta, dict) else None
                 if not isinstance(pre, (int, float)) or isinstance(pre, bool):
                     pre = None
-                msgs.append({"role": "system",
+                append_row({"role": "system",
                              "text": "— context compacted —"
                                      + (f" · {pre / 1000:.1f}k tokens" if pre else ""),
                              "ts": rec.get("timestamp")})
                 after_boundary = True
             elif rec.get("subtype") == "api_error":
-                msgs.append({"role": "system",
+                append_row({"role": "system",
                              "text": "⚠ API error — "
                                      + str(rec.get("error") or rec.get("message")
                                            or "retrying")[:300],
@@ -28240,7 +28251,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                 # as a durable markdown block, not a live-only flash
                 body = _cmd_stdout(rec.get("content") or "")
                 if body:
-                    msgs.append({"role": "system", "text": "", "cmd_out": body,
+                    append_row({"role": "system", "text": "", "cmd_out": body,
                                  "ts": rec.get("timestamp")})
             continue
         if t not in ("user", "assistant"):
@@ -28306,14 +28317,14 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                 cmd = (cm.group(1).strip() if cm else "/command") \
                     + ((" " + ca.group(1).strip())
                        if ca and ca.group(1).strip() else "")
-                msgs.append({"role": "user", "text": cmd, "tools": [],
+                append_row({"role": "user", "text": cmd, "tools": [],
                              "ts": rec.get("timestamp")})
                 continue
             if content.startswith("<local-command-stdout>"):
                 # pre-2.1.x CLIs wrote command output as a user record
                 body = _cmd_stdout(content)
                 if body:
-                    msgs.append({"role": "system", "text": "", "cmd_out": body,
+                    append_row({"role": "system", "text": "", "cmd_out": body,
                                  "ts": rec.get("timestamp")})
                 continue
             if content.strip() == "No response requested.":
@@ -28325,7 +28336,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             if not body and isinstance(content, list):
                 body = "\n".join(b.get("text", "") for b in content
                                  if isinstance(b, dict))
-            msgs.append({"role": "system", "text": "⚠ " + body.strip()[:300],
+            append_row({"role": "system", "text": "⚠ " + body.strip()[:300],
                          "ts": rec.get("timestamp")})
             continue
         texts, tools, thinks = [], [], []
@@ -28565,7 +28576,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                 hit["thinking"] = body[:6000]
                 hit.pop("thinking_sealed", None)
             continue
-        msgs.append(mrow)
+        append_row(mrow)
         if think_only and mid:
             prev_think = (len(msgs) - 1, mid)
     # Legacy transcript records are not guaranteed to carry a provider id.

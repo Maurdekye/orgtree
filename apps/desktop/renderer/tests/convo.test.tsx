@@ -792,16 +792,16 @@ convoTest('§4.1 loadOlder grows one window at a time and stops at the API cap',
     const d = await desk()
     await advance(3000)
     assert.equal(d.now().chat?.messages.length, CHAT_WINDOW)
-    let win = CHAT_WINDOW
-    let guard = 0
-    while (await page(SL, ND)) {
-      win += CHAT_WINDOW
-      assert.equal(d.now().win, Math.min(MAX_WINDOW, win), 'one window per call')
-      await advance(1000)
-      assert.ok((guard += 1) < 50, 'loadOlder never terminated')
-    }
-    assert.equal(d.now().win, MAX_WINDOW, 'stopped exactly at the cap')
-    assert.equal(d.now().chat?.messages.length, MAX_WINDOW)
+    await page(SL, ND)
+    await advance(1000)
+    assert.equal(d.now().win, CHAT_WINDOW * 2, 'default page remains small')
+    await inAct(() => { loadOlder(SL, ND, 23) })
+    await advance(1000)
+    assert.equal(d.now().win, CHAT_WINDOW * 2 + 23, 'viewport specifies demand')
+    await inAct(() => { loadOlder(SL, ND, MAX_WINDOW) })
+    await advance(1000)
+    assert.equal(d.now().win, MAX_WINDOW, 'clamped at the API cap')
+    assert.equal(d.now().chat?.messages.length, 3000)
     assert.equal(await page(SL, ND), false, 'and refuses further paging')
   })
 

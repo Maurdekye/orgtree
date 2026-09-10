@@ -9726,7 +9726,8 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    out = supervisor.read_chat(org, nid, last=max(1, min(last, 1000)))
+    from .chat_window import read_window
+    out = read_window(org, nid, want=max(1, min(last, 1_000_000)))
     # queued = the mail box PLUS the delivery journal's in-flight batches —
     # a message steered mid-task drains the box instantly, and during a long
     # tool call it showed NOWHERE (user bug 2026-07-31)
