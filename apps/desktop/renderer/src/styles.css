@@ -6251,10 +6251,11 @@ html.mobile .popout-button { display: none; }
   grid-row: 1;
   position: static;
   min-width: 0;
-  max-width: min(180px, 20vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* wraps instead of ellipsizing (user image-39: "installs auto…") — the
+     grid column anchors the window controls regardless of notice height */
+  max-width: min(280px, 34vw);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .orgbar.native-header > .window-controls {
   grid-column: 3;

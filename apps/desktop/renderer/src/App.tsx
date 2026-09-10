@@ -5,7 +5,7 @@ import { desktop } from './desktop'
 import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
 import { UpdateNotice } from './update-notice'
-import { Connections as NetTab, ConnectionsPanel } from './canvas/connections'
+import { Connections as NetTab } from './canvas/connections'
 import { sendLinkedReply } from './events/reply'
 import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './popout'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
@@ -24,7 +24,7 @@ import {
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveSettings,
 } from './api'
-import { fmtClock, fmtFull, localizeFreezeUntil } from './timefmt'
+import { fmtClock, fmtFull } from './timefmt'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -36,12 +36,12 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, freezeKind, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
-import { HistoryBrowser } from './history'
+import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
 import { closeIfCentred, isModalPinned, PinFrame, readModalOpen, usePersistedModalOpen } from './canvas/modalpin'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
@@ -339,7 +339,6 @@ export default function App() {
   // (api.py annotate(), derived from the live tail), so it self-heals on the
   // same heartbeat as everything else and no event can be missed.
   const [showSettings, setShowSettings] = useState(false)
-  const [showConnections, setShowConnections] = useState(false)
   // the recovery browser: 'largest' = forced triage mode (the alert's path);
   // 'last' = whatever mode was used last (the header chip's path)
   const [showInbox, setShowInbox] = useState(false)
@@ -357,7 +356,6 @@ export default function App() {
   // idiom the user asked for), so nothing about the canvas's reader is
   // lifted up here — that panel owns its selection.
   const [showGallery, setShowGallery] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
   // The card's document shortcut opens the same list/reader layout scoped to
   // that agent, independently of whether its desk is currently pinned.
   const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
@@ -379,11 +377,9 @@ export default function App() {
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', null, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
-  usePersistedModalOpen('connections', slug, showConnections)
   usePersistedModalOpen('inbox', slug, showInbox)
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
-  usePersistedModalOpen('retained-history', slug, showHistory)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs
@@ -437,7 +433,6 @@ export default function App() {
   // mobile compact orgbar (D-125 ruling 2026-08-14, 'one row, banner→chip'):
   // the detail chips + resume banner collapse behind a ⋯ toggle
   const [barMore, setBarMore] = useState(false)
-  const [nowTick, setNowTick] = useState(Date.now()) // drives the resume-red clock
   // the running backend's build: a short commit + start time, so a person
   // can look at the page and confirm which deploy is actually serving —
   // fetched once, since it cannot change without a process restart (see
@@ -474,11 +469,9 @@ export default function App() {
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     setShowUsage(pinnedKind('usage') || restoreWindowKind('usage', slug))
     setShowSettings(pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
-    setShowConnections(pinnedKind('connections') || restoreWindowKind('connections', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
     setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
-    setShowHistory(pinnedKind('retained-history') || restoreWindowKind('retained-history', slug))
     const pinnedGallery = pinnedKind('agent-gallery') ? pinned.find(r => r.kind === 'agent-gallery' && r.org === slug)?.restore : undefined
     const galleryNode = pinnedGallery?.agent ? flatNodes(tree).get(pinnedGallery.agent) : undefined
     setAgentGalleryId(galleryNode && galleryNode.generation === pinnedGallery?.generation ? galleryNode.id
@@ -508,10 +501,6 @@ export default function App() {
     return () => { alive = false }
   }, [])
   const wsRef = useRef<WebSocket | null>(null)
-  useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 15000)
-    return () => clearInterval(t)
-  }, [])
 
   // №17: a toast may carry an UNDO — a 12-second reverse on the gesture just
   // made (mis-drag reorders, accidental promotes, one-click retires)
@@ -1005,93 +994,10 @@ export default function App() {
                     </span>
                   )
                 })()}
-                {(() => {   // usage-limit freeze: ▶ restarts every frozen agent
-                  if (tree.spend_frozen) return null
-                  // ⚠ resumableFrozen, NOT every node carrying a record: a
-                  // retired agent keeps its freeze and ▶ has never resumed it
-                  const frozen = resumableFrozen(tree)
-                  if (!frozen.length) return null
-                  const frz = frozen.find((n) => n.frozen.until)
-                  const until = localizeFreezeUntil(
-                    frz?.frozen.until, frz?.frozen.until_ts)
-                  // RED while the reported reset time is still ahead (resuming
-                  // would just re-hit the limit); normal once it has passed
-                  const untilTs = Math.max(0, ...frozen.map((n) => n.frozen.until_ts || 0))
-                  const notYet = untilTs > 0 && nowTick < untilTs * 1000
-                  return (
-                    <>
-                      <button className={'resume-all' + (notYet ? ' notyet' : '')}
-                        title={frozen.map((n) => n.id).join(', ')
-                          + (notYet ? ' — the limit has not reset yet' : '')}
-                        onClick={() => resumeFrozen(slug)
-                          .then((r) => { toast([`resumed ${r.resumed.length} agent(s)`]); refreshTree(slug) })
-                          .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                        <PlayIcon fontSize="inherit" /> resume {frozen.length}
-                      </button>
-                      {/* ⚠ this line is the ONLY place that knows both the
-                          freeze kind and whether anything will act on it, so
-                          it is the only place allowed to say. D-122 (user
-                          ruling 2026-08-14): a pure connection freeze always
-                          retries itself, so the promise is unconditional now
-                          — the toggle governs only limit freezes. A record
-                          carrying BOTH flags falls to the limit branch: its
-                          wake waits on the toggle like any limit's. */}
-                      {/* ⚠ THE LABEL MUST DESCRIBE THE SET THE COUNT COUNTS.
-                          `resumable` means "▶ will act on this", NOT "this is
-                          waiting on capacity", and D-156 pulls those apart: an
-                          AUTH freeze (rejected credential, not spent capacity)
-                          stays resumable on purpose — replacing the credential
-                          and pressing ▶ IS the fix. It is correctly counted;
-                          it was the WORDS that over-claimed, telling the
-                          operator to wait for capacity while a credential was
-                          what was broken.
-                          A cause is named only when the WHOLE set shares one.
-                          A mixed set says the count and the action and stops,
-                          because there is no honest single cause for it — an
-                          under-informative line beats a confident wrong one.
-                          (No spend branch here on purpose: this block already
-                          returned early on `tree.spend_frozen`, which
-                          `hard_freeze` always writes alongside the per-node
-                          flag. The node BADGES need that branch; this does
-                          not, and inventing one would be dead code pretending
-                          to be a safeguard.) */}
-                      <span className="resume-note">
-                        {frozen.every((n) => freezeKind(n.frozen) === 'connection')
-                          ? <>network interruption — {frozen.length} agent
-                            {frozen.length > 1 ? 's' : ''} frozen
-                            {until ? ` · ${until.replace(/^network interruption — /, '')}` : ''}
-                            {' · retrying automatically'}</>
-                          : frozen.every((n) => freezeKind(n.frozen) === 'auth')
-                          ? <>credential rejected — {frozen.length} agent
-                            {frozen.length > 1 ? 's' : ''} frozen
-                            {' · replace it, then ▶ to resume'}</>
-                          : frozen.every((n) => freezeKind(n.frozen) === 'balance')
-                          ? <>balance refused — {frozen.length} agent
-                            {frozen.length > 1 ? 's' : ''} frozen
-                            {' · check balance or in-flight requests, then ▶ to resume'}</>
-                          : frozen.some((n) => ['auth', 'balance'].includes(freezeKind(n.frozen) ?? ''))
-                          ? <>{frozen.length} agent{frozen.length > 1 ? 's' : ''} frozen
-                            {' · ▶ to resume'}</>
-                          : <>usage limit hit — {frozen.length} agent
-                            {frozen.length > 1 ? 's' : ''} frozen
-                            {/* ⚠ NO VERB — the backend re-derives this from
-                                the live roster and it already reads as a
-                                sentence. "resumable <time>" outlived its
-                                truth: with auto_resume off (the default)
-                                nothing resumes on its own. */}
-                            {until ? ` · ${until}` : ''}</>}
-                      </span>
-                      {!tree.public &&
-                        <button className={'auto-resume' + (tree.auto_resume ? ' on' : '')}
-                          title="auto-resume all frozen agents one minute after the reported reset time"
-                          onClick={() => saveSettings(slug, { auto_resume: !tree.auto_resume })
-                            .then(() => refreshTree(slug))
-                            .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                          <AutorenewIcon fontSize="inherit" /> auto{tree.auto_resume ? ' on' : ''}
-                        </button>}
-                    </>
-                  )
-                })()}
+                {/* the frozen-agents banner (resume-all ▶, the usage-limit warning
+                    and the auto toggle) left the header (user 2026-09-10): auto-
+                    resume lives in Settings → Autonomy now, and per-card freeze
+                    badges still say who is frozen. Scheduling is untouched. */}
                 {/* compact ⋯ panel extras — desktop hides these (.mob-only);
                     the real settings/kill controls sit right of the spacer
                     and are display:none at compact */}
@@ -1157,7 +1063,6 @@ export default function App() {
                     </button>
                   )
                 })()}
-                <button className="iconbtn" title="Browse retained history" onClick={() => setShowHistory(true)}>History</button>
                 {/* the work docket sits beside the gallery — same "standing
                     pile, read in a list+pane panel" family. Badge counts ride
                     the tree poll (docket-final-spec.md — no separate timer):
@@ -1177,9 +1082,12 @@ export default function App() {
                     title={usageAlert?.title ?? usageTitle(provPresence)}
                     onClick={() => setShowUsage(v => isModalPinned('usage', slug) ? !v : true)}>
                     <DataUsageIcon fontSize="inherit" /></button>}
-                <button onClick={() => setShowConnections(true)}>Connections</button>
+                {/* gear-only (user 2026-09-10 header cleanup): Settings is
+                    the door to Connections, History and Autonomy now, so it
+                    keeps just the icon */}
                 {!tree.public &&
-                  <button onClick={() => setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true)}><SettingsIcon fontSize="inherit" /> settings</button>}
+                  <button className="iconbtn" title="Settings" aria-label="Settings"
+                    onClick={() => setShowSettings(v => isModalPinned('org-settings', slug) ? !v : true)}><SettingsIcon fontSize="inherit" /></button>}
                 <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
                   target="_blank" rel="noreferrer" title="orgtree on GitHub">
                   <GitHubIcon fontSize="inherit" /></a>
@@ -1220,7 +1128,6 @@ export default function App() {
               {/* hard-full is a STATE, not an event: the alert persists (and
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}
-              {showConnections && <ConnectionsPanel tree={tree} toast={toast} close={() => setShowConnections(false)} />}
               {showSettings && (
                 <SettingsPanel tree={tree} toast={toast}
                   close={() => { setShowSettings(false); refreshTree(slug) }} />
@@ -1282,7 +1189,6 @@ export default function App() {
       {showUsage && (
         <UsageModal toast={toast} close={() => setShowUsage(false)} />
       )}
-      {showHistory && slug && <HistoryBrowser key={slug} slug={slug} close={() => setShowHistory(false)} />}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
           onOpenDocument={id => {closeIfCentred('gallery', () => setShowGallery(false), slug); setDocJump(id)}}
@@ -1881,6 +1787,32 @@ function AutonomyTab({ tree, toast, keyDraft, setKeyDraft }: {
               : 'headless off')} />
         headless — this org runs with no user present
       </label>
+      {/* usage-limit freezes moved here from the header (user 2026-09-10
+          header cleanup): the auto toggle keeps its exact old semantics —
+          resume every frozen agent one minute after the reported reset —
+          and the manual ▶ that left the chrome keeps a seat here so bulk
+          resume still exists. Per-card badges still say who is frozen. */}
+      <div className="field-label">Usage-limit freezes</div>
+      <label className="checkline"
+        title="auto-resume all frozen agents one minute after the reported reset time">
+        <input type="checkbox" checked={!!tree.auto_resume}
+          onChange={(e) => save({ auto_resume: e.target.checked },
+            e.target.checked ? 'auto-resume ON' : 'auto-resume off')} />
+        auto-resume frozen agents when the usage limit resets
+      </label>
+      {(() => {
+        const frozen = resumableFrozen(tree)
+        return frozen.length
+          ? <div className="row" style={{ alignItems: 'center' }}>
+              <button title={frozen.map((n) => n.id).join(', ')}
+                onClick={() => resumeFrozen(tree.slug)
+                  .then((r) => toast([`resumed ${r.resumed.length} agent(s)`]))
+                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
+                <PlayIcon fontSize="inherit" /> resume {frozen.length} frozen agent{frozen.length === 1 ? '' : 's'} now
+              </button>
+            </div>
+          : <div className="dim hub-hint">no agents are frozen right now</div>
+      })()}
       {tree.headless && <div className="dim hub-hint">the overseer renders
         grey with an empty eye while headless is on</div>}
       <div className="dim" style={{ fontSize: '11.5px' }}>
@@ -1893,7 +1825,7 @@ function AutonomyTab({ tree, toast, keyDraft, setKeyDraft }: {
 function flatNodes(tree: TreePayload): Map<string, TreeNode> {
   const map = new Map<string, TreeNode>()
   const walk = (n: TreeNode) => { map.set(n.id, n); n.children.forEach(walk) }
-  tree.roots.forEach(walk)
+  ;(tree.roots ?? []).forEach(walk)   // total: settings fixtures pass partial trees
   return map
 }
 
@@ -2434,7 +2366,7 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
  *  now siblings of it. `mailserver` and `autonomy` are conditional — see
  *  `orgTabs` in the panel. */
 type OrgSettingsTab =
-  'basic' | 'policies' | 'orgtype' | 'mailserver' | 'autonomy'
+  'basic' | 'policies' | 'orgtype' | 'mailserver' | 'autonomy' | 'history'
 
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
 // about THIS component's shape (one modal, one save, tabs not a nested
@@ -2483,6 +2415,8 @@ export function SettingsPanel({ tree, toast, close }: {
     ...(tree.net != null
       ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
     { id: 'autonomy', label: 'Autonomy' },
+    // low-priority history lives HERE, not in the chrome (user 2026-09-10)
+    { id: 'history', label: 'History' },
   ], [tree.net])
   // D-204: these are unsaved inputs. The tabs now stay mounted once visited,
   // so a tab switch can no longer destroy them — but close/reopen still
@@ -2775,6 +2709,14 @@ export function SettingsPanel({ tree, toast, close }: {
             active={tab === 'autonomy'}>
             {visited('autonomy') && <AutonomyTab tree={tree} toast={toast}
               keyDraft={apiKeyDraft} setKeyDraft={setApiKeyDraft} />}
+          </SettingsTabPanel>
+
+        {/* ── History — the retained-records browser, a tab since the header
+            cleanup (user 2026-09-10). Read-only; the save row below saves
+            the OTHER tabs' edits and touches nothing here. ── */}
+        <SettingsTabPanel id="history" idBase="org-settings"
+            active={tab === 'history'}>
+            {visited('history') && <HistoryView slug={tree.slug} />}
           </SettingsTabPanel>
 
         {/* ONE save button for the whole modal, on every tab — the panel's
