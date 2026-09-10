@@ -5152,6 +5152,7 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   border: 1px dashed var(--line); border-radius: 8px; padding: 1px 7px;
   flex: none; align-self: center; }
 /* the codex section wears its provider's blue (user spec 2026-08-29) */
+.acct-provider-head.prov-claude { border-bottom-color: color-mix(in srgb, var(--prov-claude) 45%, var(--line)); }
 .acct-provider-head.prov-openai { border-bottom-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
 .acct-provider-head.prov-openai .acct-preview-tag { color: var(--prov-openai);
   border-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
