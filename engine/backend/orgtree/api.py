@@ -9782,8 +9782,18 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     # one place both halves are in hand, so the handover is decided here and
     # lands in ONE payload — the pending bubble goes and the durable @user
     # bubble arrives together, never a frame with neither (D-54).
+    # The human projection can contain only the body; its typed segments
+    # carry the stable identity even when the transport header is absent.
+    _seen_mail_ids = {
+        row["id"] for message in out["messages"]
+        for segment in (message.get("segments") or [])
+        if segment.get("kind") == "mail"
+        for row in (segment.get("rows") or [])
+        if isinstance(row.get("id"), str) and row["id"]
+        and events.decode(row.get("ev"), row)["status"] == "ok"
+    }
     _seen_user = [(m.get("text") or "") for m in out["messages"]
-                  if m.get("role") == "user"]
+                  if m.get("role") == "user" and m.get("segments") is None]
 
     def _in_transcript(m: Mapping[str, Any]) -> bool:
         """Is THIS mail entry already on screen as a transcript bubble?
@@ -9820,7 +9830,8 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
         # snapshot or a notice header sits between them (review round 2 —
         # the adjacent needle missed both shapes and the bubble stayed up
         # beside the transcript row)
-        return any(supervisor.mail_marker_in(t, m) for t in _seen_user)
+        return (bool(m.get("id")) and m["id"] in _seen_mail_ids) or any(
+            supervisor.mail_marker_in(t, m) for t in _seen_user)
 
     # ⚠ The same evidence test applies to the MAILBOX rows, not only the
     # journal's. `_fold_back_undelivered` re-queues a batch whose delivery was

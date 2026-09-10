@@ -415,7 +415,9 @@ function serverMailIds(c: ChatPayload | null): Set<string> {
  * Install it through the same message list as polling, then retain it across
  * stale fetches until the fetched range contains its durable identity. */
 function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload {
-  if (!e.committedRows.size) return c
+  // Poll-only delivery needs the same queue/transcript reconciliation as a
+  // streamed commit. Otherwise a stale pending row briefly duplicates its
+  // already-visible transcript row when no steer frame was received.
   const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id))
   const messages = [...c.messages]
   for (const [id, row] of e.committedRows) {

@@ -1416,3 +1416,17 @@ convoTest('proof paging never merges records from a new order epoch into the old
   assert.equal(d.now().pending.length,0)
   assert.ok(d.now().chat!.messages.some(row=>row.seq===echo.seq))
 })
+
+convoTest('a fetched typed message replaces only its own queued copy without a steer frame', async ({SL,ND,s,desk}) => {
+  const d=await desk();await flush()
+  s.pending_mail=[typedRow('delivered'),typedRow('next-identical')]
+  await poll(SL,ND)
+  assert.equal(d.now().chat!.pending_mail.length,2,'control: both queued sends are visible before delivery')
+  const row=s.userMsg('continue');row.segments=[{kind:'mail',rows:[typedRow('delivered')]}]
+  await poll(SL,ND)
+  assert.equal(d.now().chat!.messages.filter(r=>r.seq===row.seq).length,1)
+  assert.deepEqual(d.now().chat!.pending_mail.map(r=>r.id),['next-identical'],
+    'a durable ID retires only that queue row, including when no stream frame was received')
+  await poll(SL,ND)
+  assert.deepEqual(d.now().chat!.pending_mail.map(r=>r.id),['next-identical'],'stale queued snapshots cannot resurrect a duplicate')
+})
