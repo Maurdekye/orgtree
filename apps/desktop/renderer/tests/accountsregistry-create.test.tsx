@@ -1,108 +1,125 @@
-// Create-managed flow of the account registry section, in its OWN file
-// (coordinator 2026-09-10) so root's reserve-display edits to shared
-// account test files never collide with it. Covers the user defect
-// "Create managed does nothing": the visible created row with its sign-in
-// action, and honest surfacing of a failed/alien account list.
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { AccountRegistrySection } from '../src/canvas/accountsregistry'
+import { AccountsPanel } from '../src/canvas/accounts'
 
-const account = (id: string, auth = 'authenticated') => ({
-  id, provider: 'claude', harness: 'claude-code', label: id,
-  credential: { kind: 'imported', path: 'C:/fixture/' + id },
+const account = (id: string, provider = 'claude', auth = 'authenticated') => ({
+  id, provider, label: id, credential: { kind: 'managed', path: 'C:/fixture/' + id },
   identity: { email: id + '@example.test' }, auth, tint_ordinal: 1,
-  standing: { auth, state: auth === 'authenticated' ? 'ready' : 'unknown', marks: {} },
-  bound: [] as object[],
+  standing: { auth, state: 'ready', marks: { fable: { until: 2000000000, provenance: 'observed' } } }, bound: [],
 })
-
-test('refresh identifies the visible account label while querying its stable id', async t => {
-  const oldFetch = globalThis.fetch
-  const calls: string[] = []
-  const notices: string[][] = []
-  globalThis.fetch = (async (url: string) => {
-    calls.push(String(url))
-    return new Response(JSON.stringify(String(url).endsWith('/identity')
-      ? { auth: 'unauthenticated' }
-      : { accounts: [{ ...account('claude-4'), label: 'claude-0' }] }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } })
-  }) as typeof fetch
-  const view = await mountView(<AccountRegistrySection toast={lines => { notices.push(lines) }} />, el => el)
-  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
-  await inAct(async () => { await flush() })
-  const refresh = [...view.el.querySelectorAll('button')].find(b => b.textContent === 'refresh')!
-  assert.ok(refresh)
-  await inAct(async () => { refresh.click(); await flush() })
-  assert.ok(calls.includes('/api/accounts/claude-4/identity'))
-  assert.deepEqual(notices, [['claude-0: unauthenticated']])
-})
-
-test('creating a managed account shows the new row with its sign-in action', async t => {
-  // STATEFUL mock (user defect 2026-09-10, "Create managed does nothing"):
-  // the POST mints a row the next reload really serves, so the assertion is
-  // the VISIBLE outcome — a rendered row exposing sign-in — not merely that
-  // a request fired while the section kept showing "No accounts yet".
-  const rows: ReturnType<typeof account>[] = []
+async function setup(t: TestContext, initial = [account('existing-claude'), account('existing-codex', 'openai')]) {
   const oldFetch = globalThis.fetch
   const calls: { url: string; method: string; body: string }[] = []
+  const notices: string[][] = []
+  const state = { rows: initial, alien: false, failPost: false, closed: false }
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const method = init?.method || 'GET'
     calls.push({ url: String(url), method, body: String(init?.body || '') })
-    if (method === 'POST') {
-      const made = { ...account('fresh-managed', 'unobserved'), label: 'claude-0',
-        credential: { kind: 'managed', path: 'C:/fixture/fresh-managed' } }
-      rows.push(made)
-      return new Response(JSON.stringify(made), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    }
-    return new Response(JSON.stringify({ accounts: rows }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    let body: unknown = {}
+    if (String(url).endsWith('/providers')) body = { providers: ['claude', 'openai', 'google'].map((id,i) => ({
+      id, label: ['Claude', 'Codex', 'Antigravity'][i], cli: id, status: { installed: true, connected: true }, tiers: [], hire_enabled: true,
+    })) }
+    else if (String(url).endsWith('/identity')) body = { auth: 'unauthenticated' }
+    else if (method === 'POST') {
+      if (state.failPost) return new Response(JSON.stringify({ detail: 'Folder does not exist' }), { status: 422 })
+      const input = JSON.parse(String(init?.body))
+      const row = account('new-' + input.provider, input.provider, 'unauthenticated')
+      state.rows.push(row); body = row
+    } else if (String(url) === '/api/accounts') body = state.alien ? {} : { accounts: state.rows }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch
-  // ProviderSignIn renders nothing without the desktop bridge (correct in a
-  // browser); the installed app has one, so the test supplies the minimal
-  // presence the sign-in button's render path needs
   const desk = window as unknown as { orgtreeDesktop?: unknown }
-  desk.orgtreeDesktop = { getProviderLoginStatus: async () => ({ phase: 'idle' }) }
-  const view = await mountView(<AccountRegistrySection toast={() => {}} />, el => el)
+  desk.orgtreeDesktop = { getProviderLoginStatus: async () => ({ phase: 'idle' }), getPreferences: async () => ({}), onEvent: () => () => {} }
+  const view = await mountView(<AccountsPanel toast={lines => { notices.push(lines) }} close={() => { state.closed = true }} />, el => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch; delete desk.orgtreeDesktop })
   await inAct(async () => { await flush() })
-  const el = view.el
-  assert.equal(el.querySelectorAll('.account-row').length, 0)
-  const button = [...el.querySelectorAll('button')].find(b => /create managed/i.test(b.textContent || ''))!
-  assert.ok(button)
-  await inAct(async () => { button.click(); await flush() })
-  const create = calls.find(c => c.method === 'POST')
-  assert.ok(create)
-  assert.equal(create.url, '/api/accounts')
-  assert.deepEqual(JSON.parse(create.body), { provider: 'claude', kind: 'managed' })
-  const row = el.querySelector<HTMLElement>('.account-row')
-  assert.ok(row, 'the created account is VISIBLE after the reload')
-  assert.equal(row!.querySelector('strong')?.textContent, 'claude-0')
-  assert.equal(row!.querySelector('strong')?.title, 'Account ID: fresh-managed')
-  assert.ok([...row!.querySelectorAll('button')].some(b => /sign in/i.test(b.textContent || '')),
-    'the new profile exposes its sign-in action')
+  return { view, state, calls, notices }
+}
+const button = (root: ParentNode, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent === label)!
+const lane = (provider: string) => document.querySelector('.prov-' + provider)!.closest('.acct-provider-group')!
+const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')!
+async function open(provider: string) {
+  await inAct(async () => { button(lane(provider), 'Add secondary account').click(); await flush() })
+  assert.ok(dialog())
+}
+async function input(value: string) {
+  const field = dialog().querySelector<HTMLInputElement>('input')!
+  await inAct(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+test('three provider headers own add controls and account rows, with one registry read and no usage', async t => {
+  const { calls } = await setup(t)
+  assert.equal(document.querySelectorAll('.acct-provider-head button:not(.set-toggle)').length >= 3, true)
+  for (const provider of ['claude', 'openai', 'google']) assert.ok(button(lane(provider), 'Add secondary account'))
+  assert.equal(lane('claude').querySelectorAll('.account-row').length, 1)
+  assert.match(lane('claude').textContent!, /existing-claude/)
+  assert.doesNotMatch(lane('claude').textContent!, /existing-codex/)
+  assert.match(lane('openai').textContent!, /existing-codex/)
+  assert.equal(calls.filter(c => c.url === '/api/accounts').length, 1)
+  assert.equal(calls.some(c => c.url.endsWith('/usage')), false)
+  assert.equal(document.querySelector('.provider-accounts details'), null)
 })
 
-test('a failed or alien account list says so instead of posing as empty', async t => {
-  // the legacy-readout shadowing served exactly this: HTTP 200 with no
-  // accounts array — the section must SAY it, never render "No accounts
-  // yet" over a list it could not actually read (coordinator 2026-09-10:
-  // the swallowed reload failure)
-  const oldFetch = globalThis.fetch
-  let alien = true
-  globalThis.fetch = (async () => alien
-    ? new Response(JSON.stringify({ version: 2, primary: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    : new Response(JSON.stringify({ accounts: [account('one')] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-  ) as typeof fetch
-  const view = await mountView(<AccountRegistrySection toast={() => {}} />, el => el)
-  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
-  await inAct(async () => { await flush() })
-  const el = view.el
-  assert.equal(/No accounts yet/.test(el.textContent || ''), false,
-    'the alien shape must not read as an empty registry')
-  assert.match(el.textContent || '', /Could not load the account list/)
-  // backend recovers: retry renders the real rows and clears the warning
-  alien = false
-  const retry = [...el.querySelectorAll('button')].find(b => /retry/i.test(b.textContent || ''))!
-  await inAct(async () => { retry.click(); await flush() })
-  assert.equal(el.querySelectorAll('.account-row').length, 1)
-  assert.equal(/Could not load the account list/.test(el.textContent || ''), false)
+test('creating a managed Codex account renders in Codex with sign-in and closes only its dialog', async t => {
+  const { state, calls } = await setup(t)
+  await open('openai')
+  await inAct(async () => { button(dialog(), 'Create managed account').click(); await flush() })
+  assert.deepEqual(JSON.parse(calls.find(c => c.method === 'POST')!.body), { provider: 'openai', kind: 'managed' })
+  assert.equal(dialog(), null)
+  assert.equal(state.closed, false)
+  const row = [...lane('openai').querySelectorAll('.account-row')].find(r => r.textContent?.includes('new-openai'))!
+  assert.ok(row)
+  assert.ok(button(row, 'Sign in'))
+  assert.doesNotMatch(lane('claude').textContent!, /new-openai/)
 })
+
+test('folder import retains input on failure and creates its row in the selected provider on retry', async t => {
+  const { state, calls } = await setup(t)
+  await open('claude')
+  assert.equal(button(dialog(), 'Import folder').disabled, true)
+  await input('  C:/existing-profile  ')
+  state.failPost = true
+  await inAct(async () => { button(dialog(), 'Import folder').click(); await flush() })
+  assert.match(dialog().textContent!, /Folder does not exist/)
+  assert.equal(dialog().querySelector('input')!.value, '  C:/existing-profile  ')
+  state.failPost = false
+  await inAct(async () => { button(dialog(), 'Import folder').click(); await flush() })
+  assert.deepEqual(JSON.parse(calls.filter(c => c.method === 'POST').at(-1)!.body), { provider: 'claude', kind: 'imported', path: 'C:/existing-profile' })
+  assert.equal(dialog(), null)
+  assert.match(lane('claude').textContent!, /new-claude/)
+})
+
+test('Escape closes the add dialog without closing settings; changing providers starts with an empty path', async t => {
+  const { state } = await setup(t)
+  await open('claude'); await input('C:/draft')
+  await inAct(() => { window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })) })
+  assert.equal(dialog(), null)
+  assert.equal(state.closed, false)
+  await open('google')
+  assert.equal(dialog().querySelector('input')!.value, '')
+  assert.match(dialog().textContent!, /Antigravity/)
+})
+
+test('refresh queries stable account id but reports its displayed label', async t => {
+  const { calls, notices } = await setup(t, [{ ...account('claude-4'), label: 'claude-0' }])
+  await inAct(async () => { button(lane('claude'), 'refresh').click(); await flush() })
+  assert.ok(calls.some(c => c.url === '/api/accounts/claude-4/identity'))
+  assert.deepEqual(notices, [['claude-0: unauthenticated']])
+})
+
+ test('an unreadable account registry stays visible as an error and retry restores the provider rows', async t => {
+  const { state } = await setup(t)
+  state.alien = true
+  await inAct(async () => { button(lane('claude'), 'refresh').click(); await flush() })
+  assert.match(document.body.textContent!, /Could not load the account list/)
+  assert.match(lane('claude').textContent!, /existing-claude/)
+  state.alien = false
+  await inAct(async () => { button(document.body, 'retry').click(); await flush() })
+  assert.doesNotMatch(document.body.textContent!, /Could not load the account list/)
+  assert.equal(lane('claude').querySelectorAll('.account-row').length, 1)
+ })

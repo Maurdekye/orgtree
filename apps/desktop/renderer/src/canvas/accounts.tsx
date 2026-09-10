@@ -1,5 +1,6 @@
 import { ImportSettings } from './importsettings'
-import { AccountRegistrySection } from './accountsregistry'
+import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './accountsregistry'
+import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
 import { CharterDocumentsSetting } from './chartersettings'
@@ -26,7 +27,7 @@ import {
   TIER_LETTER,
   useCrowdPiles, useDeskDpi, useHideRetired, useStartView, useStartZoom,
 } from './shared'
-import { fmtFull, fmtWhen } from '../timefmt'
+import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
@@ -383,6 +384,8 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
 
 export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => void }) {
   const [tab, setTab] = useState<AppSettingsTab>('providers')
+  const registry = useAccountRegistry()
+  const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null)
   const [runtime, setRuntime] = useState<RuntimeSettingsPayload | null>(null)
   const [error, setError] = useState('')
@@ -414,14 +417,13 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     google: 'https://antigravity.google/download',
   }
   const openrouter = providers?.find(p => p.id === 'openrouter')
-  return <PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
-    close={close} onEsc={() => pickerOpen ? setPickerOpen(false) : close()}>
+  return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
+    close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false) : close()}>
     <h3>App settings</h3>
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
-      {/* multi-account (D5): the symmetric registry, providers together */}
-      <AccountRegistrySection toast={toast} />
+      {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
@@ -429,6 +431,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
           <span>{p.label}<span className='dim'> · {p.cli}</span></span>
           <span className='set-head-right'>
+            <button onClick={() => setAddAccount(p.id as AccountProvider)}>Add secondary account</button>
             {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
             <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
@@ -455,7 +458,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
           </div>)}
         </div> : <p className='dim acct-provider-empty'>No model tiers reported</p>}
         {p.cli_version?.update_available === true && <p className='acct-provider-update'>CLI update available: {p.cli_version.latest ?? 'newer version'}</p>}
-        {p.id !== 'openai' && p.reserve && <p className='dim acct-provider-note'>Reserve capacity: {p.reserve.percent == null ? 'unknown' : p.reserve.percent + '% used'}{p.reserve.resets_at && ' · resets ' + fmtFull(p.reserve.resets_at)}{p.reserve.reason && ' · ' + p.reserve.reason}</p>}
+        <AccountRegistrySection provider={p.id as AccountProvider} registry={registry} toast={toast} />
       </div>)}
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
@@ -485,5 +488,5 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
     <button onClick={close}>close</button>
-  </PinFrame>
+  </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }

@@ -2,7 +2,12 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { AccountRegistrySection } from '../src/canvas/accountsregistry'
+import { AccountRegistrySection, useAccountRegistry } from '../src/canvas/accountsregistry'
+
+function Registry({ toast }: { toast: (lines: string[]) => void }) {
+  const registry = useAccountRegistry()
+  return <AccountRegistrySection provider="claude" registry={registry} toast={toast} />
+}
 
 const account = (id: string, auth = 'authenticated', marks = {}, bound: object[] = []) => ({
   id, provider: 'claude', harness: 'claude-code', label: id,
@@ -18,7 +23,7 @@ async function setup(t: TestContext, rows: ReturnType<typeof account>[]) {
     calls.push({ url: String(url), method: init?.method || 'GET', body: String(init?.body || '') })
     return new Response(JSON.stringify({ accounts: rows }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch
-  const view = await mountView(<AccountRegistrySection toast={() => {}} />, el => el)
+  const view = await mountView(<Registry toast={() => {}} />, el => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
   await inAct(async () => { await flush() })
   return { el: view.el, calls }
@@ -28,19 +33,19 @@ test('account rows distinguish unknown authentication from ready accounts', asyn
   const { el } = await setup(t, [account('one', 'unknown'), account('two')])
   const rows = el.querySelectorAll('.account-row')
   assert.equal(rows.length, 2)
-  const saysReady = (row: Element) => [...row.querySelectorAll('span')].some(span => span.textContent?.trim() === 'ready')
+  const saysReady = (row: Element) => [...row.querySelectorAll('span')].some(span => span.textContent?.trim() === 'Signed in')
   assert.equal(saysReady(rows[0]), false)
-  assert.match(rows[0].textContent || '', /unknown|sign in|unauthenticated/i)
+  assert.match(rows[0].textContent || '', /unknown|sign.in|unauthenticated/i)
   assert.equal(saysReady(rows[1]), true)
 })
 
-test('inferred limits stay identified and bound accounts cannot be removed', async t => {
+test('usage marks stay out of management rows and bound accounts cannot be removed', async t => {
   const { el, calls } = await setup(t, [
     account('one', 'authenticated', { fable: { until: 2000000000, provenance: 'inferred' } }, [{ org: 'mine', node: 'worker' }]),
     account('two'),
   ])
   const rows = el.querySelectorAll<HTMLElement>('.account-row')
-  assert.match(rows[0].textContent || '', /inferred/i)
+  assert.doesNotMatch(rows[0].textContent || '', /inferred|limited until/i)
   const remove = (row: HTMLElement) => [...row.querySelectorAll('button')].find(b => /remove/i.test(b.textContent || ''))!
   assert.equal(remove(rows[0]).disabled, true)
   assert.equal(remove(rows[1]).disabled, false)
@@ -52,11 +57,10 @@ test('inferred limits stay identified and bound accounts cannot be removed', asy
 // lives in accountsregistry-create.test.tsx — its OWN file, so root's
 // reserve-display edits to shared account tests never collide with it
 
-test('usage opens for the selected account without polling every collapsed row', async t => {
+test('account management never fetches or displays usage panels', async t => {
   const { el, calls } = await setup(t, [account('one'), account('two')])
+  assert.equal(el.querySelectorAll('.account-row').length, 2)
+  assert.equal(el.querySelector('details'), null)
+  assert.doesNotMatch(el.textContent || '', /Usage|capacity|limited until/)
   assert.equal(calls.some(c => c.url.endsWith('/usage')), false)
-  const detail = el.querySelectorAll('details')[1]!
-  await inAct(async () => { detail.open = true; detail.dispatchEvent(new Event('toggle')); await flush() })
-  assert.ok(calls.some(c => c.url === '/api/accounts/two/usage'))
-  assert.equal(calls.some(c => c.url === '/api/accounts/one/usage'), false)
 })

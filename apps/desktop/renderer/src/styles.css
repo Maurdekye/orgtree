@@ -6258,3 +6258,16 @@ html.mobile .popout-button { display: none; }
 
 /* Collection modals reserve at least two thirds for the selected document. */
 .settings.gallery-modal .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
+
+/* Provider-local secondary account management. */
+.provider-accounts:empty{display:none}
+.account-row{padding:12px 0;border-top:1px solid var(--line)}
+.account-identity,.account-management{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.account-management{margin-top:8px}
+.account-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.account-note{margin-top:8px}
+.add-account-dialog{width:min(480px,calc(100vw - 32px));height:auto;max-height:88vh}
+.account-add-option{padding:12px 0;border-bottom:1px solid var(--line)}
+.account-add-option h4{margin:0 0 8px}
+.account-add-option label{display:grid;gap:6px}
+.account-add-option input{width:100%;min-width:0}
