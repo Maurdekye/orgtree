@@ -65,18 +65,47 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(self.read()['messages'][-1]['text'],'message 40')
         self.write([self.rec(500,'replacement')])
         replaced=self.read()
-        self.assertEqual([m['text'] for m in replaced['messages']],['replacement'])
-        self.assertFalse(replaced['has_older'])
+        self.assertEqual(replaced['messages'][-1]['text'],'replacement')
+        self.assertIn('message 40', [m['text'] for m in replaced['messages']])
+        self.assertTrue(replaced['has_older'])
         self.assertNotEqual(before['messages'][-1]['event_id'],replaced['messages'][-1]['event_id'])
     def test_tool_result_updates_its_visible_call(self):
         rows=[self.rec(i) for i in range(30)]
         call=self.rec(30);call['message']['content']=[{'type':'tool_use','id':'t1','name':'Bash','input':{'command':'echo hello'}}]
         rows.append(call);self.write(rows)
-        self.read()
+        before = self.read()
         result=self.rec(31,role='user');result['message']['content']=[{'type':'tool_result','tool_use_id':'t1','content':'hello'}]
         self.write([result],'a')
         after=self.read()
         self.assertEqual(after['messages'][-1]['tools'][0]['result'],'hello')
+        self.assertEqual(after['messages'][-1]['row_id'], before['messages'][-1]['row_id'])
+        self.assertEqual(after['messages'][-1]['seq'], before['messages'][-1]['seq'])
+
+    def test_app_owned_history_is_read_after_compatibility_file_disappears(self):
+        from orgtree import transcript_records
+        node = self.org.node('agent')
+        node['model'] = 'luna'
+        slug, sid = self.org.d['slug'], node['session_id']
+        journal = Path(sup.journal_store()) / 'projects' / slug / (sid + '.jsonl')
+        sup._codex_journal(slug, sid, [self.rec(1, 'database-owned message')])
+        journal.unlink()
+        with patch.object(sup, 'transcript_path', return_value=None):
+            first = self.read()
+            self.assertEqual(first['messages'][-1]['text'], 'database-owned message')
+            transcript_records.append_owned(slug, sid, journal, [self.rec(2, 'next database row')])
+            second = self.read()
+            self.assertEqual(second['messages'][-1]['text'], 'next database row')
+
+    def test_imported_provider_rows_survive_file_deletion_and_projection_rebuild(self):
+        self.write([self.rec(i) for i in range(12)])
+        before = self.read()
+        self.path.unlink()
+        # Removing only the DERIVED index must not erase canonical history.
+        (Path(store.DATA_ROOT) / 'chat-window-index.sqlite3').unlink()
+        with patch.object(sup, 'transcript_path', return_value=None):
+            after = self.read()
+        self.assertEqual([m['event_id'] for m in before['messages']], [m['event_id'] for m in after['messages']])
+        self.assertEqual([m['seq'] for m in before['messages']], [m['seq'] for m in after['messages']])
     def test_duplicate_occurrences_have_distinct_stable_ids(self):
         row=self.rec(1,'same');row.pop('uuid');row['message'].pop('id')
         self.write([row]*35)
@@ -113,7 +142,7 @@ class WindowTests(unittest.TestCase):
             self.assertEqual([m['text'] for m in combined['messages']],[f'message {i}' for i in range(7)])
             self.assertEqual(len({m['seq'] for m in combined['messages']}),7)
             self.write([self.rec(0,'changed native record')])
-            self.assertEqual(len(self.read(20)['messages']),7)
+            self.assertEqual(len(self.read(20)['messages']),8)
 
     def test_empty_session_does_not_require_native_file(self):
         with patch.object(sup,'transcript_path',return_value=None):
@@ -127,7 +156,7 @@ class WindowTests(unittest.TestCase):
         self.write([self.rec(i) for i in range(100)])
         # No lifespan startup: the fixture may not start workers or providers.
         client=TestClient(application)
-        with patch.object(sup,'read_chat',side_effect=AssertionError('full reader called')):
+        with patch.object(sup,'_read_chat_legacy',side_effect=AssertionError('full reader called')):
             response=client.get(f"/api/orgs/{self.org.d['slug']}/nodes/agent/chat?last=8",
                                 headers={'X-Orgtree-Desktop-Token':'window-test-only'})
         self.assertEqual(response.status_code,200,response.text)

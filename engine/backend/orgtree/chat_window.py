@@ -65,18 +65,20 @@ def _stamp(value):
 
 def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int]):
     """Read only the sidecar suffix needed by the selected prompt occurrences."""
-    needed: dict[str, list[float | None]] = {}
+    from . import transcript_records
+    needed: dict[str, list[tuple[float | None, int]]] = {}
     stamps = [_stamp(rec.get('timestamp')) for _, _, rec in records]
     earliest = min((s for s in stamps if s is not None), default=None)
-    for _, _, rec in reversed(records):
+    for offset, _, rec in reversed(records):
         prompt = _prompt(rec)
         if prompt is not None:
             digest = hashlib.sha256(prompt.encode()).hexdigest()
-            needed.setdefault(digest, []).append(_stamp(rec.get('timestamp')))
+            needed.setdefault(digest, []).append((_stamp(rec.get('timestamp')), offset))
     found: dict[str, list[dict]] = {}
-    if not needed or not Path(path).is_file():
+    if not needed:
         return found
-    for _, line in reverse_lines(path, stats):
+    lines = reverse_lines(path, stats) if Path(path).is_file() else ()
+    for _, line in lines:
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
@@ -90,72 +92,83 @@ def _views(path: str, records: list[tuple[int, str, dict]], stats: dict[str, int
         events = needed.get(digest, [])
         # Sidecars are written BEFORE provider echoes. A later queued copy of
         # identical text must not replace an older occurrence already on disk.
-        match = next((i for i, event in enumerate(events)
+        match = next((i for i, (event, _) in enumerate(events)
                       if event is None or stamp is None or 0 <= event - stamp <= 300), None)
         if match is not None:
-            events.pop(match)
+            _, offset = events.pop(match)
+            transcript_records.remember_view(path, offset, row)
             found.setdefault(digest, []).append(row)
             if not any(needed.values()):
                 break
-    return {key: list(reversed(rows)) for key, rows in found.items()}
+    for digest, events in needed.items():
+        for _, offset in events:
+            retained = transcript_records.retained_view(path, offset)
+            if retained is not None:
+                found.setdefault(digest, []).append(retained)
+    return {key: sorted(rows, key=lambda row: str(row.get('at') or '')) for key, rows in found.items()}
 
 
 
 def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False):
     from . import supervisor as sup
-    records: list[tuple[int, str, dict]] = []
-    source = None
-    dynamic = None
-    exhausted = False
+    from . import transcript_records
+    key = source_key(org, nid, imported)
     target = max(8, want * 2)
-    iterator = reverse_lines(path, stats)
     while True:
-        while len(records) < target:
-            try:
-                offset, line = next(iterator)
-            except StopIteration:
-                exhausted = True
-                break
+        transcript_records.ingest(key, path, target, stats)
+        stored, more = transcript_records.tail(key, target)
+        chronological = []
+        for epoch, offset, line in stored:
             try:
                 rec = json.loads(line)
                 stats["records_parsed"] += 1
             except json.JSONDecodeError:
                 continue
             if isinstance(rec, dict):
-                records.append((offset, line, rec))
-        chronological = list(reversed(records))
+                chronological.append((epoch * (1 << 40) + offset, line, rec))
         views = {} if imported else _views(sup._prompt_view_path(
             org.d["slug"], org.node(nid)["session_id"]), chronological, stats)
         built = sup._read_chat_source(org, nid,
             _lines=(row[1] for row in chronological),
             _record_offsets=(row[0] for row in chronological),
-            _source_namespace=hashlib.sha256(str(path).encode()).hexdigest()[:16],
+            _source_namespace=hashlib.sha256(key.encode()).hexdigest()[:16],
             _prompt_views=views, _source_only=True, _path=Path(path))
         source, dynamic = built["source"], built["out"]
         sup._source_metadata(source)
-        # Extra projected rows protect the first visible row's predecessor
-        # (thinking duration/merge and tool-result context) at the cut.
-        if exhausted or len(source["messages"]) >= want + 2:
-            break
+        if not more or len(source["messages"]) >= want + 2:
+            return dynamic, source, more
+        # If the provider file disappeared, older unimported rows are no
+        # longer available. Preserve the committed range and report it.
+        if not Path(path).is_file() and len(stored) < target:
+            return dynamic, source, False
         target *= 2
-    iterator.close()
-    return dynamic, source, not exhausted
+
+
+def source_key(org, nid, imported=False):
+    from . import providers, transcript_records, reply_events
+    node = org.node(nid)
+    if not imported and providers.provider_of(str(node.get('model') or '')) != 'claude':
+        return transcript_records.journal_source(org.d['slug'], node.get('session_id'))
+    return json.dumps([reply_events.incarnation(org, nid),
+                       node.get('session_id'), bool(imported)])
 
 
 def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, imported=False):
-    """SQLite rows are a rebuildable UI index, separate from provider history.
+    """Cache the visible projection of canonical SQLite transcript records.
 
-    Each request reads an indexed suffix. A changed source invalidates its
-    projection; rebuilding only visits the demanded tail, never all history.
-    Older ranges enter the index when a viewer explicitly requests them.
+    Only this derived presentation can be rebuilt. Its durable input records
+    live in transcript-records.sqlite3 and survive provider-file removal.
     """
     from . import store, supervisor as sup
     node = org.node(nid)
-    key = json.dumps([org.d['slug'], nid, node.get('generation'), path, imported])
+    key = source_key(org, nid, imported)
     sidecar = sup._prompt_view_path(org.d['slug'], node['session_id'])
     def version():
+        from . import transcript_records
+        with transcript_records.database() as conn:
+            persisted = conn.execute('SELECT epoch,lower_byte,upper_byte FROM transcript_sources WHERE source=?', (key,)).fetchone()
         return json.dumps([sup._file_version(path), None if imported else sup._file_version(sidecar),
-                           sup.context_window(node, org.d.get('models'))])
+                           sup.context_window(node, org.d.get('models')), persisted])
     before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
     with sqlite3.connect(database, timeout=10) as conn:
@@ -176,13 +189,14 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                 count = conn.execute('SELECT COUNT(*) FROM rows WHERE source=?', (key,)).fetchone()[0]
                 return dynamic, source, bool(meta[1]) or count > len(rows)
         dynamic, source, more = _project_tail(org,nid,path,want,stats,imported=imported)
-        if version() == before:
+        after = version()
+        if json.loads(after)[:3] == json.loads(before)[:3]:
             conn.execute('DELETE FROM rows WHERE source=?',(key,))
             conn.executemany('INSERT INTO rows VALUES (?,?,?)',
                              ((key,i,json.dumps(row,ensure_ascii=False)) for i,row in enumerate(source['messages'])))
             cached = {'fill': source['fill'].__dict__, 'context_cap': source['context_cap']}
             conn.execute('INSERT OR REPLACE INTO sources VALUES (?,?,?,?)',
-                         (key,before,int(more),json.dumps(cached)))
+                         (key,after,int(more),json.dumps(cached)))
         return dynamic, source, more
 
 
@@ -191,7 +205,14 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
     from .desktop_import import imported_history_path
     want = max(1, min(int(want), 1_000_000))
     node = org.node(nid)
-    path = sup.transcript_path(node["session_id"], sup._transcript_root(org))
+    path = sup.transcript_path(node["session_id"], sup._transcript_root(org, nid))
+    if not path:
+        from . import transcript_records
+        with transcript_records.database() as conn:
+            retained = conn.execute('SELECT path FROM transcript_sources WHERE source=?',
+                                    (source_key(org, nid),)).fetchone()
+        if retained:
+            path = retained[0]
     history = imported_history_path(org, nid)
     stats = {"bytes_read": 0, "records_parsed": 0}
     imported_only = not path and bool(history)
@@ -234,10 +255,12 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
     out = sup._assemble_chat(org, nid, None, hold_back, dynamic, source)
     visible_count = len(out['messages'])
     out['messages'] = out['messages'][-want:]
-    for row in out["messages"]:
-        # Numeric row handles support the existing user-turn pin map. They
-        # are stable identities, explicitly NOT transcript ordinals.
-        row["seq"] = int(hashlib.sha256(row['event_id'].encode()).hexdigest()[:13], 16)
+    from . import transcript_records
+    transcript_records.order(source_key(org, nid), out['messages'])
+    for row in out['messages']:
+        # reply_events annotates event_id with an immutable quote revision;
+        # row_id continues to identify the mutable conversation occurrence.
+        row['row_id'] = row['event_id']
     out.update(has_older=more or visible_count > want, windowed=True,
                window_read=stats)
     st = sup.state(org.d["slug"], nid)

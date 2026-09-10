@@ -2939,7 +2939,15 @@ def _read_chat_current(org: Org, nid: str, last: int | None = None, *,
 
 def read_chat(org: Org, nid: str, last: int | None = None, *,
               hold_back: bool = True) -> dict[str, Any]:
-    """Keep copied import history visible alongside the new native session."""
+    """Read application history from its durable, lazily imported row store."""
+    from .chat_window import read_window
+    return read_window(org, nid, want=last if last and last > 0 else 1_000_000,
+                       hold_back=hold_back)
+
+
+def _read_chat_legacy(org: Org, nid: str, last: int | None = None, *,
+                      hold_back: bool = True) -> dict[str, Any]:
+    """Legacy file projection retained for migration comparison and recovery."""
     from .desktop_import import imported_history_path
     from . import reply_events
     history = imported_history_path(org, nid)
@@ -11159,8 +11167,10 @@ def _codex_journal(slug: str, sid: str, recs: list[dict[str, Any]]) -> None:
     try:
         d = os.path.join(journal_store(), "projects", slug)
         os.makedirs(d, exist_ok=True)
+        from . import transcript_records
+        transcript_records.append_owned(slug, sid, os.path.join(d, sid + ".jsonl"), recs)
         with open(os.path.join(d, sid + ".jsonl"), "a",
-                  encoding="utf-8") as f:
+                  encoding="utf-8", newline="\n") as f:
             for r in recs:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
     except OSError as e:
@@ -28181,13 +28191,20 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                     open(tpath, encoding="utf-8", errors="replace"))
     offsets = iter(_record_offsets) if _record_offsets is not None else None
     offset = 0
+    occurrence = 0
     def append_row(row: dict[str, Any]) -> None:
+        nonlocal occurrence
         if offsets is not None:
             row["_source_id"] = f"record:{_source_namespace}:{offset}"
+            # A tool result may update the row body later; identity belongs
+            # to the source occurrence, never the current projected content.
+            row["event_id"] = f"row:{_source_namespace}:{offset}:{occurrence}"
+            occurrence += 1
             row["_byte_offset"] = offset
         msgs.append(row)
     for line in source_lines:
         offset = next(offsets) if offsets is not None else 0
+        occurrence = 0
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
