@@ -92,6 +92,32 @@ test('creating a managed account shows the new row with its sign-in action', asy
 })
 
 
+test('a failed or alien account list says so instead of posing as empty', async t => {
+  // the legacy-readout shadowing served exactly this: HTTP 200 with no
+  // accounts array — the section must SAY it, never render "No accounts
+  // yet" over a list it could not actually read (coordinator 2026-09-10:
+  // the swallowed reload failure)
+  const oldFetch = globalThis.fetch
+  let alien = true
+  globalThis.fetch = (async () => alien
+    ? new Response(JSON.stringify({ version: 2, primary: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    : new Response(JSON.stringify({ accounts: [account('one')] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  ) as typeof fetch
+  const view = await mountView(<AccountRegistrySection toast={() => {}} />, el => el)
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
+  await inAct(async () => { await flush() })
+  const el = view.el
+  assert.equal(/No accounts yet/.test(el.textContent || ''), false,
+    'the alien shape must not read as an empty registry')
+  assert.match(el.textContent || '', /Could not load the account list/)
+  // backend recovers: retry renders the real rows and clears the warning
+  alien = false
+  const retry = [...el.querySelectorAll('button')].find(b => /retry/i.test(b.textContent || ''))!
+  await inAct(async () => { retry.click(); await flush() })
+  assert.equal(el.querySelectorAll('.account-row').length, 1)
+  assert.equal(/Could not load the account list/.test(el.textContent || ''), false)
+})
+
 test('usage opens for the selected account without polling every collapsed row', async t => {
   const { el, calls } = await setup(t, [account('one'), account('two')])
   assert.equal(calls.some(c => c.url.endsWith('/usage')), false)

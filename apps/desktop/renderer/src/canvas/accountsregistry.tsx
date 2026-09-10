@@ -43,16 +43,22 @@ function markLine(pool: string,
 export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
   const [rows, setRows] = useState<AccountRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState<Record<string, boolean>>({})
   const [addProvider, setAddProvider] = useState('claude')
   const [importPath, setImportPath] = useState('')
 
   const reload = useCallback(() => {
     req<{ accounts: AccountRow[] }>('/api/accounts')
-      // tolerate an absent/older backend (or an unmocked fixture): an empty
-      // registry renders its explanatory line, never an unmount
-      .then((r) => setRows(Array.isArray(r?.accounts) ? r.accounts : []))
-      .catch(() => setRows([]))
+      // a failed or alien-shaped list must SAY so, never masquerade as an
+      // empty registry — the silent setRows([]) here is what turned the
+      // route-shadowing defect into "Create managed does nothing" (user
+      // report 2026-09-10). The section stays mounted either way.
+      .then((r) => {
+        if (Array.isArray(r?.accounts)) { setRows(r.accounts); setLoadError(null) }
+        else { setRows([]); setLoadError('the backend answered without an account list (older backend?)') }
+      })
+      .catch((e: Error) => { setRows([]); setLoadError(e.message || 'request failed') })
   }, [])
   useEffect(() => { reload() }, [reload])
 
@@ -82,7 +88,10 @@ export function AccountRegistrySection({ toast }: { toast: ToastFn }) {
 
   return <SetGroup title="Accounts"
     note="symmetric across providers — every registered account is available to every organization (org-restricted legacy keys excepted)">
-    {rows.length === 0 && <p className="dim">
+    {loadError && <p className="ask-warn">
+      Could not load the account list: {loadError}{' '}
+      <button onClick={reload}>retry</button></p>}
+    {rows.length === 0 && !loadError && <p className="dim">
       No accounts yet. Import an existing profile directory or create a
       managed one below, sign in through the provider's own flow, then
       assign agents to it from their settings.</p>}
