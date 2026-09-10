@@ -63,7 +63,7 @@ test('the default themes wear the user\'s exact display names; ids and Custom st
   assert.deepEqual(
     Object.fromEntries(Object.entries(THEMES).map(([id, t]) => [id, t.label])),
     { orgtree: 'Orgtree Grey', claude: 'Claude Terracotta', codex: 'Codex Teal',
-      antigravity: 'Antigravity Blue', openrouter: 'OpenRouter Violet' })
+      antigravity: 'Antigravity Blue', openrouter: 'OpenRouter Lavender' })
   assert.match(src('themes.tsx'), /<option value="custom">Custom<\/option>/,
     'the custom theme choice survives the rename')
 })

@@ -14,7 +14,7 @@ export const THEMES = {
   claude: { label: 'Claude Terracotta', accent: '#d97757', hover: '#e99b81', soft: 'rgba(217,119,87,.16)' },
   codex: { label: 'Codex Teal', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
   antigravity: { label: 'Antigravity Blue', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
-  openrouter: { label: 'OpenRouter Violet', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
+  openrouter: { label: 'OpenRouter Lavender', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
 } satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
 const STORAGE_KEY = 'orgtree-visual-theme'
