@@ -782,7 +782,20 @@ export default function App() {
                   .catch((e: Error) => toast([`error: ${e.message}`]))} />
             </Onboarding>
           ) : (
-            <div className="welcome-card">{orgPanel()}</div>
+            <>
+              {/* the native frame replacement anchors to the WINDOW corner,
+                  not to the centered card (user report 2026-09-10): a fixed
+                  top bar carries the updater + controls and is the home
+                  page's drag region; position:fixed keeps it out of the
+                  centering grid so the card stays centered. In a browser
+                  there is no bar and the card keeps its own header row. */}
+              {desktop() && <header className="orgbar native-header home-header">
+                <h2>orgtree</h2>
+                <UpdateNotice />
+                <WindowControls />
+              </header>}
+              <div className="welcome-card">{orgPanel(!desktop())}</div>
+            </>
           )}
         </div>
       )}

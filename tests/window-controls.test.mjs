@@ -42,6 +42,12 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(app, /<header className="orgbar fallback-orgbar native-header">[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
   assert.match(app, /<h1>[\s\S]*?showControls && <UpdateNotice \/>[\s\S]*?showControls && <WindowControls \/>[\s\S]*?<\/h1>/)
   assert.match(app, /<header className=\{'orgbar' \+ \(desktop\(\) \? ' native-header' : ''\)\}>[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>/)
+  // HOME page (user report 2026-09-10): the controls anchor to the window
+  // corner via a fixed top-level header, and the centered card drops its
+  // in-card controls exactly when that header exists (desktop shell)
+  assert.match(app, /<header className="orgbar native-header home-header">[\s\S]*?<UpdateNotice \/>[\s\S]*?<WindowControls \/>[\s\S]*?<\/header>\}/)
+  assert.match(app, /<div className="welcome-card">\{orgPanel\(!desktop\(\)\)\}<\/div>/)
+  assert.match(styles, /\.orgbar\.native-header\.home-header \{[^}]*position: fixed/)
   assert.match(app, /orgPanel\(false\)/)
   assert.match(controls, /aria-label="Minimize window"/)
   assert.match(controls, /aria-label="Refresh app view"/)

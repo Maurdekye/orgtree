@@ -6236,3 +6236,13 @@ html.mobile .orgbar.native-header > .native-header-main > .bar-detail {
   position: static;
   flex: 0 0 auto;
 }
+/* the HOME page (org list): the native frame replacement anchors to the
+   WINDOW's top edge and right corner, never to the centered welcome card
+   (user report 2026-09-10). position:fixed keeps the bar out of the
+   welcome grid so the card stays centered; the bar is the page's drag
+   region (via .orgbar), and the updater+controls sit flush right. */
+.orgbar.native-header.home-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 6;
+  margin: 0; padding: 6px 0 6px 14px;
+}
+.orgbar.native-header.home-header > .update-notice { margin-left: auto; }
