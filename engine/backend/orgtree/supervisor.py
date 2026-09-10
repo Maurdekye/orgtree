@@ -10156,6 +10156,11 @@ def _idle_docket_reminder_pass(
         except LedgerError:
             continue
         for nid in sorted(org.nodes):
+            # Retired seats cannot qualify. Skip their per-seat reload; the
+            # reserve still rechecks live eligibility atomically under lock.
+            # A seat rehired after this snapshot is considered next poll.
+            if org.nodes[nid].get("state") != "live":
+                continue
             try:
                 if not _working_cache_idle(slug, nid):
                     continue
@@ -10603,6 +10608,11 @@ def _working_checkup_pass(
         except LedgerError:
             continue
         for nid in sorted(org.nodes):
+            # Retired seats cannot qualify. Skip their per-seat reload; the
+            # reserve still rechecks live eligibility atomically under lock.
+            # A seat rehired after this snapshot is considered next poll.
+            if org.nodes[nid].get("state") != "live":
+                continue
             try:
                 # Runtime state stays in RAM; durable eligibility is reloaded
                 # atomically by the reservation below. The second idle-only

@@ -60,4 +60,39 @@ class WorkReminderAdmissionTests(unittest.TestCase):
         supervisor._working_checkup_pass(wake=wake,now=5000,mode_enabled=True)
         wake.assert_called_once()
 
+    def test_archived_seats_do_not_reload_the_org_but_live_work_still_wakes(self):
+        import copy
+        self.ticket()
+        template=copy.deepcopy(self.org.d)
+        for sweep in (supervisor._working_checkup_pass, supervisor._idle_docket_reminder_pass):
+            self.org.d=copy.deepcopy(template)
+            for i in range(40):
+                nid=f'archived-{i}'
+                self.org.nodes[nid]={**copy.deepcopy(self.org.nodes['worker']), 'state':'archived'}
+                item=copy.deepcopy(self.org._work_active()[0])
+                item['slug']=f'old-ticket-{i}'
+                item['owner']={'node':nid,'generation':1}
+                self.org._work_active().append(item)
+            with mock.patch.object(store,'load_org',return_value=self.org) as reads, \
+                 mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live'):
+                wake=mock.Mock(return_value={'accepted':True})
+                sweep(wake=wake,now=5000,mode_enabled=True)
+                self.assertEqual(reads.call_count,2,'one snapshot plus one live reservation, regardless of archived count')
+                wake.assert_called_once()
+                self.assertEqual(wake.call_args.args[1],'worker')
+
+    def test_prefilter_does_not_replace_locked_eligibility_recheck(self):
+        import copy
+        self.ticket()
+        changed=copy.deepcopy(self.org)
+        changed.node('worker')['state']='archived'
+        for sweep in (supervisor._working_checkup_pass, supervisor._idle_docket_reminder_pass):
+            with mock.patch.object(store,'load_org',side_effect=[self.org,changed]) as reads, \
+                 mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live') as gate:
+                wake=mock.Mock(return_value={'accepted':True})
+                sweep(wake=wake,now=5000,mode_enabled=True)
+                self.assertEqual(reads.call_count,2)
+                gate.assert_called_once_with(changed,'worker')
+                wake.assert_not_called()
+
 if __name__ == '__main__': unittest.main()
