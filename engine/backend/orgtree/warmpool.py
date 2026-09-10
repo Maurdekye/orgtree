@@ -1132,7 +1132,7 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     # has durable evidence, and the post-echo crash path stays unchanged.
     sid = str(n.get("session_id") or "")
     if (n.get("hard_fail_run")
-            and sup.transcript_path(sid, sup._transcript_root(org)) is None):
+            and sup.transcript_path(sid, sup._transcript_root(org, nid)) is None):
         return False, "terminal-failure-before-transcript"
     if not ignore_exclusion and node_excluded(org.d["slug"], nid):
         return False, "excluded-by-flag"

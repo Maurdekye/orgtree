@@ -9743,7 +9743,7 @@ def node_tool_image(slug: str, nid: str, tool_use_id: str, idx: int = 0) -> Resp
     except LedgerError as e:
         raise HTTPException(404, str(e))
     tpath = supervisor.transcript_path(n["session_id"],
-                                       supervisor._transcript_root(org))
+                                       supervisor._transcript_root(org, nid))
     if not tpath:
         raise HTTPException(404, "no transcript")
     import base64

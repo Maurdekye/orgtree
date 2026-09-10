@@ -2871,7 +2871,7 @@ def _read_chat_uncached(org: Org, nid: str, last: int | None = None, *,
                         hold_back: bool = True) -> dict[str, Any]:
     """Canonical fresh build used by tests and oversize/active fallbacks."""
     n = org.node(nid)
-    tpath = transcript_path(n["session_id"], _transcript_root(org))
+    tpath = transcript_path(n["session_id"], _transcript_root(org, nid))
     if not tpath:
         return _read_chat_source(org, nid, last=last, hold_back=hold_back)
     raw_v = _file_version(tpath)
@@ -2888,7 +2888,7 @@ def _read_chat_current(org: Org, nid: str, last: int | None = None, *,
               hold_back: bool = True) -> dict[str, Any]:
     """Cached transcript projection with a bounded append-only fast path."""
     n = org.node(nid)
-    tpath = transcript_path(n["session_id"], _transcript_root(org))
+    tpath = transcript_path(n["session_id"], _transcript_root(org, nid))
     if not tpath:
         return _read_chat_source(org, nid, last=last, hold_back=hold_back)
     key = _chat_cache_key(org, nid, tpath)
@@ -3637,7 +3637,7 @@ def rename_node(slug: str, nid: str, new_name: str,
             # the CLI project dir rides the CWD — container path for sandboxed
             # orgs, host path natively. One directory holds every generation's
             # sessions (they share the scratch cwd).
-            troot = _transcript_root(org) or os.path.expanduser("~/.claude")
+            troot = _transcript_root(org, nid) or os.path.expanduser("~/.claude")
             if sbx.is_sandboxed(org):
                 old_cwd = sbx.cpath_scratch(slug, nid)
                 new_cwd = sbx.cpath_scratch(slug, new)
@@ -3724,7 +3724,7 @@ def export_predecessor_transcript(org: Org, nid: str,
     sid = old_sid or n.get("session_id")
     if not sid:
         return None
-    src = transcript_path(sid, _transcript_root(org))
+    src = transcript_path(sid, _transcript_root(org, nid))
     if not src:
         return None
     dst = os.path.join(scratch_dir(org.d["slug"], nid), "transcript.jsonl")
@@ -3804,11 +3804,26 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
         return None
 
 
-def _transcript_root(org: Org) -> str | None:
-    """Sandboxed kiosk orgs write transcripts inside the container's home,
-    which is bind-mounted from the host sandbox dir — readable natively."""
+def _transcript_root(org: Org, nid: str | None = None, *,
+                     session_id: str | None = None) -> str | None:
+    """Use the same Claude profile for transcript lookup as for spawning."""
     if sbx.is_sandboxed(org):
         return os.path.join(sbx.sandbox_home(org.d["slug"]), ".claude")
+    node = org.nodes.get(nid or "")
+    if node is None and session_id:
+        node = next((n for n in org.nodes.values()
+                     if n.get("session_id") == session_id), None)
+    if node and node.get("account"):
+        from . import registry
+        try:
+            account = registry.get_account(str(node["account"]))
+        except registry.UnknownAccount:
+            # A missing binding must never read an ambient account's session.
+            return os.path.join(str(store.DATA_ROOT), 'unavailable-profiles',
+                                hashlib.sha256(str(node['account']).encode()).hexdigest())
+        credential = account["credential"]
+        if account["provider"] == "claude" and credential["kind"] in {"managed", "imported"}:
+            return str(credential["path"])
     return None
 
 
@@ -8124,7 +8139,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
     n = org.node(nid)
     slug = org.d["slug"]
     sid = n["session_id"]
-    first = transcript_path(sid, _transcript_root(org)) is None
+    first = transcript_path(sid, _transcript_root(org, nid)) is None
     # tier default, or this node's chosen version — downgraded to an id THIS
     # CLI knows (claude_model_for; 5.1 → 5.0 below the 2.1.257 floor)
     model = claude_model_for(org, nid)
@@ -8688,7 +8703,7 @@ def _cache_history(org: Org, nid: str) -> tuple[dict[str, Any] | None, str | Non
     """Current append-only local history evidence and its private path."""
     n = org.node(nid)
     path = transcript_path(str(n.get("session_id") or ""),
-                           _transcript_root(org))
+                           _transcript_root(org, nid))
     measured = _cache_file_digest(path)
     if measured is None:
         # ⚠ `session_unrun` is NOT the only way a session can honestly have no
@@ -10135,7 +10150,7 @@ def _working_cache_due(org: Org, nid: str, now: float | None = None) -> bool:
         return False
     # A never-run session has no prefix to read. Starting it here would create
     # agent history rather than preserve existing history.
-    if not transcript_path(n["session_id"], _transcript_root(org)):
+    if not transcript_path(n["session_id"], _transcript_root(org, nid)):
         return False
     last = _working_cache_last_request(n)
     return bool(last and (time.time() if now is None else now) - last >= plan[0])
@@ -10301,7 +10316,7 @@ def _working_cache_read(slug: str, nid: str,
                     # when predictor metadata is temporarily unavailable.
                     cache_attempt = None
                 cwd = scratch_dir(slug, nid)
-                troot = _transcript_root(org)
+                troot = _transcript_root(org, nid)
             # The reservation check and Popen are one state-lock transaction.
             # A real turn either marks busy first (so no child starts), or
             # observes the published child and kills/waits it before resuming.
@@ -11021,7 +11036,7 @@ def spend_unrun_pardon(slug: str, nid: str, sid: str | None) -> bool:
         # the glob is OUTSIDE the doc lock — it walks the user's whole
         # `projects/` tree (40 ms measured at 3,000 dirs) and holding
         # DOC_LOCK across it would stall every other org's turn
-        if transcript_path(sid, _transcript_root(org)) is None:
+        if transcript_path(sid, _transcript_root(org, nid)) is None:
             return False
         with store.DOC_LOCK:
             o2 = store.load_org(slug)
@@ -20066,7 +20081,7 @@ def _count_cli_compactions(
     down permanently."""
     try:
         n = org.node(nid)
-        tpath = transcript_path(n["session_id"], _transcript_root(org))
+        tpath = transcript_path(n["session_id"], _transcript_root(org, nid))
         if not tpath:
             return None, None, []
         pre: int | None = None
@@ -20176,7 +20191,7 @@ def _fork_bearer_session(org: Org, sid: str, upto: int) -> str | None:
         return None
     tmp = None
     try:
-        src = transcript_path(sid, _transcript_root(org))
+        src = transcript_path(sid, _transcript_root(org, session_id=sid))
         if not src:
             return None
         # BINARY, so "verbatim" is true: a text round-trip through
@@ -20237,7 +20252,7 @@ def _discard_cut(org: Org, sid: str | None) -> None:
     if not sid:
         return
     try:
-        p = transcript_path(sid, _transcript_root(org))
+        p = transcript_path(sid, _transcript_root(org, session_id=sid))
         if p:
             os.unlink(p)
     except (OSError, LedgerError):
@@ -20378,7 +20393,7 @@ def _phantom_evidence(org: Org, pred_id: str) -> dict[str, Any]:
     if prev.get("session_id") == n.get("session_id"):
         return no(f"sibling {prev_id} names the same session file — a proof "
                   f"of duplication against itself proves nothing")
-    root = _transcript_root(org)
+    root = _transcript_root(org, pred_id)
     src = transcript_path(cast(str, n.get("session_id")), root)
     dup = transcript_path(cast(str, prev.get("session_id")), root)
     if not src or not dup:
@@ -20962,7 +20977,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
     # fork really compacted: a child that exits 0 having copied the history
     # without writing a boundary otherwise hands back the pre-compaction fill
     # as a measured one (redteam 2026-08-20 — see `occupancy_of`)
-    occ_new, occ_est = occupancy_of(transcript_path(new_sid, _transcript_root(org)),
+    occ_new, occ_est = occupancy_of(transcript_path(new_sid, _transcript_root(org, nid)),
                                     context_window(org.node(nid),
                                                    org.d.get("models"))
                                     if nid in org.nodes else None,
@@ -22148,7 +22163,7 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
     n = org.node(nid)
     sid = n["session_id"]
     model = claude_model_for(org, nid)   # the id THIS CLI knows (see above)
-    tdir = _transcript_root(org)
+    tdir = _transcript_root(org, nid)
     if not transcript_path(sid, tdir):
         return False
 
@@ -22504,7 +22519,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                     and not api_fallback_active(org):
                 try:
                     if transcript_path(n["session_id"],
-                                       _transcript_root(org)) is not None:
+                                       _transcript_root(org, nid)) is not None:
                         r0 = org.cheap_compact(SYSTEM, nid)
                         export_predecessor_transcript(
                             org, nid,
@@ -24839,7 +24854,7 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
     sid = str(n.get("session_id") or "")
     if not sid:
         return None
-    return transcript_path(sid, _transcript_root(org))
+    return transcript_path(sid, _transcript_root(org, nid))
 
 
 def ack_steer(slug: str, nid: str, delivery_id: str, tool_use_id: str) -> dict[str, Any]:
@@ -27073,6 +27088,18 @@ def _transcript_evidence(org: Org) -> dict[str, str] | None:
     seen = _legacy_transcript_evidence(org)
     if seen is None:
         return None
+    # Registry profiles are equally authoritative transcript stores. Without
+    # them startup incorrectly condemns successfully running managed agents.
+    try:
+        roots = {_transcript_root(org, nid) for nid in org.nodes}
+        for root in roots - {None, _transcript_root(org)}:
+            try:
+                seen.update(transcript_index(root, strict=True))
+            except FileNotFoundError:
+                if not _store_provably_absent(os.path.join(root, 'projects')):
+                    return None
+    except (OSError, ValueError, LedgerError):
+        return None
     try:
         from .desktop_native import native_session_path, native_conflicts
         native = {}
@@ -28069,7 +28096,7 @@ def session_occupancy(org: Org, nid: str,
     try:
         n = org.node(nid)
         return occupancy_of(transcript_path(n["session_id"],
-                                            _transcript_root(org)),
+                                            _transcript_root(org, nid)),
                             context_window(n, org.d.get("models")),
                             require_boundary)
     except Exception:                                            # noqa: BLE001
@@ -28120,7 +28147,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
            # panel prefers this identity comparison over a timestamp guess
            # and falls back to the timestamp only when this is absent.
            "codex_turn_id": st.get("codex_turn_id")}
-    tpath = _path or transcript_path(n["session_id"], _transcript_root(org))
+    tpath = _path or transcript_path(n["session_id"], _transcript_root(org, nid))
     if not tpath:
         return out
     # Structured source metadata, not marker parsing, decides which parts of
