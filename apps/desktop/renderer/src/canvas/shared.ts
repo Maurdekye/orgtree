@@ -857,6 +857,15 @@ export interface Pile {
 /** a live-feed row: a StreamEvent copy or a folded thought line */
 export interface LiveRow {
   event_id?: string
+  /** THE SHARED DURABLE IDENTITY (user ruling 2026-09-11) — the CLI/journal
+   *  record uuid this live row's own durable twin will carry, stamped by the
+   *  emitter and carried through the reply-snapshot projection
+   *  (reply_events._annotate). Present only when the emitter knew it; absent
+   *  on rows that kept the server's per-row `live:` counter, and the dedup
+   *  guard simply skips those. `event_id` cannot serve: the projection
+   *  rewrites it per row, hashing the quoted text, and the live copy is the
+   *  capped one. */
+  native_event_id?: string
   segments?: unknown
   delivery?: unknown
   kind: string

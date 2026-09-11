@@ -913,6 +913,15 @@ export interface ToolChip {
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
   row_id?: string
+  /** THE SHARED DURABLE IDENTITY (user ruling 2026-09-11). The CLI/journal
+   *  record uuid this row was projected from (supervisor read_chat:
+   *  `mrow['native_event_id'] = str(rec['uuid'])`) — the ONE id a live row
+   *  and its transcript twin both carry, since the live emitter stamps the
+   *  same uuid on its row. `event_id` cannot serve: a transcript row's is a
+   *  byte offset into the CLI transcript, which the live side cannot compute.
+   *  Absent on rows whose source record had no uuid (legacy journals, the
+   *  synthetic steered rows), and the dedup guard simply skips those. */
+  native_event_id?: string
   reply_quote?: string
   thinking_reply_quote?: string
   event_id?: string

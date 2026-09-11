@@ -108,6 +108,30 @@ def _annotate(org, nid, chat, connection):
                     rows.append(row)
                     continue
                 row['reply_quote'] = str(row.get('text') or row.get('body') or row.get('cmd_out') or '')[:4000]
+                # THE DURABLE ID SURVIVES THIS REWRITE (user ruling
+                # 2026-09-11: "live rows and transcript rows need a singular
+                # durable id that can cross-identify them").
+                #
+                # `event_id` does not leave here intact: every row's is
+                # replaced by a reply snapshot id hashed over the incarnation,
+                # the source AND the quoted text. A live row and its durable
+                # twin therefore cannot match on it even when the emitter gave
+                # them one source id — their quotes differ, because the live
+                # copy is the capped one.
+                #
+                # A transcript row already carries its source record's uuid as
+                # `native_event_id` (read_chat stamps it) and nothing here
+                # touches that. A live row had no such field, so the id its
+                # emitter supplied was erased at this line and the two sides
+                # arrived at the client mutually unidentifiable. Carrying it
+                # across gives both sides the SAME field holding the SAME
+                # value, which is the whole point.
+                #
+                # Only a genuinely durable source: the `live:<boot>:...` form
+                # is this server's own per-row counter, matches no record, and
+                # would just be noise on the wire.
+                if field == 'live' and not str(source).startswith('live:'):
+                    row['native_event_id'] = str(source)
                 row['event_id'] = save(source, 'row', row['reply_quote'])
                 if row.get('thinking') is not None:
                     row['thinking_reply_quote'] = str(row['thinking'] or '')[:4000]

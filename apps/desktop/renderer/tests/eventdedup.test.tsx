@@ -384,6 +384,78 @@ domTest('§7c across lists the EARLIER source still wins: a truncated live twin 
     assert.equal(says(el, '✂'), 0, 'no truncation marker — the whole text survived')
   })
 
+// ============================================== the shared durable identity
+//
+// ⚠ THE WIRE SHAPE MATTERS HERE, and getting it wrong makes these legs
+// vacuous. `event_id` does NOT reach the client intact: reply_events._annotate
+// replaces every row's with a reply-snapshot id hashed over the incarnation,
+// the source AND the quoted text — so a live row and its durable twin can
+// never match on it, even sharing one source, because the live copy is capped
+// and its quote differs. The id they DO share arrives as `native_event_id` on
+// both sides. These fixtures therefore carry a realistic `reply_…` event_id on
+// every row and put the shared uuid where the backend really puts it.
+
+domTest('§10 a live row is suppressed by the transcript row that shares its DURABLE id',
+  async ({ ND, s, sink, mount }) => {
+    // THE POINT OF THE WHOLE FIX (user ruling 2026-09-11: "live rows and
+    // transcript rows need a singular durable id that can cross-identify
+    // them"). The emitter stamps the record uuid on the live row, read_chat
+    // stamps it on the transcript row, and the projection carries it across.
+    const UU = '3f1c4a6e-9b2d-4e77-8a10-55c9e0d21b44'
+    row(s, 'the whole durable answer, every word of it', 'reply_aaa',
+      { native_event_id: UU } as never)
+    // the live twin as the backend really sends it: its OWN reply id, the
+    // SHARED uuid, and the capped text
+    s.live.push({ kind: 'text', text: 'the whole durable answ', truncated: true,
+      event_id: 'reply_bbb', native_event_id: UU, n: 7 } as never)
+    // …beside a live row of the same turn that has no durable twin yet, so it
+    // never got a native id at all
+    s.live.push({ kind: 'text', text: 'still streaming this one',
+      event_id: 'reply_ccc', n: 8 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.equal(sink.at(-1)!.live.length, 2,
+      'fixture: the server really sent both live rows (its own sweep missed)')
+    assert.deepEqual(rowIds(el), ['reply_aaa'], 'the durable row renders')
+    assert.deepEqual(liveIds(el), ['reply_ccc'],
+      'its live twin is gone by shared identity; the unpaired row stays')
+    assert.equal(says(el, 'the whole durable answer, every word of it'), 1)
+    assert.equal(says(el, 'still streaming this one'), 1)
+    assert.equal(says(el, '✂'), 0, 'no truncated copy left on screen')
+    // …and the ids they are keyed on are genuinely DIFFERENT, so nothing here
+    // could have been caught by the plain event_id rule
+    assert.notEqual('reply_aaa', 'reply_bbb')
+  })
+
+domTest('§11 a durable id never suppresses a DIFFERENT event, and absent ones pair nothing',
+  async ({ ND, s, sink, mount }) => {
+    // the anti-vacuity control for §10, in every direction that matters.
+    const UU = '3f1c4a6e-9b2d-4e77-8a10-55c9e0d21b44'
+    const OTHER = '7d2e5b81-1111-4222-9333-44445555a666'
+    row(s, 'first durable', 'reply_aaa', { native_event_id: UU } as never)
+    // a row whose source record had no uuid — legacy journals, and the
+    // synthetic steered rows read_chat invents
+    row(s, 'second durable, no native id', 'reply_ddd')
+    // a live row carrying a DIFFERENT durable id is a different event
+    s.live.push({ kind: 'text', text: 'a different live event',
+      event_id: 'reply_eee', native_event_id: OTHER, n: 9 } as never)
+    // …and one with no durable id at all: "unknown" pairs with nothing
+    s.live.push({ kind: 'text', text: 'an id-less live row',
+      event_id: 'reply_fff', n: 10 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.deepEqual(rowIds(el), ['reply_aaa', 'reply_ddd'], 'both durable rows render')
+    assert.deepEqual(liveIds(el), ['reply_eee', 'reply_fff'], 'both live rows render')
+    assert.equal(says(el, 'a different live event'), 1,
+      'a live row with its own uuid is its own event')
+    assert.equal(says(el, 'an id-less live row'), 1,
+      'and an id-less live row is never collapsed into one')
+    assert.equal(says(el, 'second durable, no native id'), 1,
+      'a durable row with no native id pairs nothing and still renders')
+  })
+
 // ================================================================ per view
 domTest('§8 the id set is per view: two desks on one node each show the row once',
   async ({ ND, s, sink, mount }) => {

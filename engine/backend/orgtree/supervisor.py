@@ -1362,6 +1362,66 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
     stream(slug, nid, payload)
 
 
+def _paired_text_rows(ts: str, mid: str, model: str, body: str, *,
+                      cap: int = 2000) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The journal record and the live row for ONE agent message, carrying ONE
+    durable id (user ruling 2026-09-11: "live rows and transcript rows need a
+    singular durable id that can cross-identify them").
+
+    Built together, in one place, for the same reason `_command_output_row`
+    exists: a lane that journals a row and emits its live twin SEPARATELY can
+    give them different ids, and then nothing downstream can tell they are the
+    same event — which is the whole defect. Here they cannot disagree,
+    because there is only one `rid`.
+
+    `read_chat` projects the record's `uuid` onto the row as
+    `native_event_id`, and `_sweep_live` retires a live row whose `event_id`
+    matches one. A real uuid4 rather than a namespaced string: the
+    native-import validator (`desktop_native.claude_records`) rejects any
+    record whose `uuid` is not uuid-shaped."""
+    rid = str(uuid.uuid4())
+    record = {"type": "assistant", "timestamp": ts, "uuid": rid,
+              "message": {"id": mid, "role": "assistant", "model": model,
+                          "content": [{"type": "text", "text": body}]}}
+    live: dict[str, Any] = {"kind": "text", "text": body[:cap],
+                            "event_id": rid}
+    if len(body) > cap:
+        live["truncated"] = True
+    return record, live
+
+
+def _frame_text_identity(ev: Mapping[str, Any]) -> dict[str, str]:
+    """The durable id a claude stream frame’s TEXT live row may carry — or
+    nothing, which is always safe.
+
+    The CLI stamps a `uuid` on every assistant stream frame (REQUIRED, not
+    optional, in claude-code 2.1.258’s own frame schema) and writes the
+    transcript record by spreading that same frame object, so frame.uuid IS
+    record.uuid — and `read_chat` already carries it through as
+    `native_event_id`. Unlike the journal lanes there is nothing to mint: this
+    lane only has to pass on what the CLI already decided.
+
+    ⚠ ONLY WHEN THE FRAME CARRIES EXACTLY ONE non-empty text block. Every
+    assistant record in a real transcript holds exactly one content block
+    (measured over a live session: 553 records, no exception), so this is the
+    ordinary case — but if a frame ever held two, both live rows would take
+    the same id and the renderer’s duplicate guard would hide the second,
+    which is a REAL message lost. Returning nothing there costs only the
+    pairing: the row keeps its own `live:` id and is swept the old way.
+
+    Tool rows are not this function’s business — they already pair on the
+    CLI’s tool_use_id, which has always worked."""
+    message = ev.get("message")
+    blocks = message.get("content") if isinstance(message, Mapping) else None
+    texts = [b for b in (blocks or [])
+             if isinstance(b, Mapping) and b.get("type") == "text"
+             and str(b.get("text") or "").strip()] if isinstance(blocks, list) else []
+    rid = ev.get("uuid")
+    if len(texts) != 1 or not isinstance(rid, str) or not rid:
+        return {}
+    return {"event_id": rid}
+
+
 def _command_output_row(text: str, *, cap: int, sticky: bool = False) -> dict[str, Any]:
     """The one place a slash-command's live output becomes a `live_row`
     payload — render-inline-html-custom-responses (redteam-opus review,
@@ -2859,6 +2919,7 @@ def _assemble_chat(org: Org, nid: str, last: int | None,
                       *(str(m.get("ts") or "") for m in synthetic)])
         live_evidence = {"tool_ids": evidence["tool_ids"],
                          "turn_texts": evidence["turn_texts"],
+                         "native_ids": evidence.get("native_ids") or set(),
                          "newest_ts": newest}
         live = _sweep_live(org.d["slug"], nid, [],
                            _evidence=live_evidence)
@@ -12747,15 +12808,15 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 return
             _flush_draft()
             jstate["agent_items"] += 1
-            _journal_records([{
-                "type": "assistant", "timestamp": ts,
-                "message": {"id": str(item.get("id") or
-                                           f"codex-{time.time_ns()}"),
-                            "role": "assistant", "model": codex_model,
-                            "content": [{"type": "text", "text": body}]}}])
-            _visible_live_row({"kind": "text", "text": body[:2000],
-                               **({"truncated": True}
-                                  if len(body) > 2000 else {})})
+            # ⭐ ONE ID ON BOTH SIDES — this lane writes its own journal,
+            # the very file read_chat later projects, so the record and its
+            # live twin are built together (`_paired_text_rows`) and cannot
+            # be given different ids.
+            _record, _live = _paired_text_rows(
+                ts, str(item.get("id") or f"codex-{time.time_ns()}"),
+                codex_model, body)
+            _journal_records([_record])
+            _visible_live_row(_live)
             return
         if typ == "plan" and completed:
             body = str(item.get("text") or "")
@@ -12763,15 +12824,12 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 return
             if not _first_time(str(item.get("id") or "")):
                 return
-            _journal_records([{
-                "type": "assistant", "timestamp": ts,
-                "message": {"id": str(item.get("id") or
-                                           f"codex-plan-{time.time_ns()}"),
-                            "role": "assistant", "model": codex_model,
-                            "content": [{"type": "text", "text": body}]}}])
-            _visible_live_row({"kind": "text", "text": body[:2000],
-                               **({"truncated": True}
-                                  if len(body) > 2000 else {})})
+            # the same paired identity as the agentMessage branch above
+            _record, _live = _paired_text_rows(
+                ts, str(item.get("id") or f"codex-plan-{time.time_ns()}"),
+                codex_model, body)
+            _journal_records([_record])
+            _visible_live_row(_live)
             return
         if typ == "reasoning" and completed:
             if not _first_time(str(item.get("id") or "")):
@@ -16268,6 +16326,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # nothing below this line describes the agent: no
                             # live rows, no thought folding, no draft handover
                             continue
+                        # the id this frame’s text row shares with its
+                        # transcript twin — see `_frame_text_identity`
+                        _durable = _frame_text_identity(ev)
                         for b in ev.get("message", {}).get("content") or []:
                             if not isinstance(b, dict):
                                 continue    # string-content synthetics
@@ -16277,6 +16338,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # cut — the transcript row supersedes it whole
                                 live_row(slug, nid, {"kind": "text",
                                                      "text": b["text"][:2000],
+                                                     **_durable,
                                                      **({"truncated": True}
                                                         if len(b["text"]) > 2000
                                                         else {})})
@@ -27715,7 +27777,10 @@ def _iso_back(ts: str, secs: float) -> str:
 def _live_evidence(msgs: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """The whole-history facts `_sweep_live` needs, incrementally reusable."""
     evidence: dict[str, Any] = {
-        "tool_ids": set(), "turn_texts": [], "newest_ts": ""}
+        "tool_ids": set(), "turn_texts": [], "newest_ts": "",
+        # the CLI/journal record uuid of every durable row — the identity a
+        # live row now shares with its transcript twin (see `_sweep_live`)
+        "native_ids": set()}
     return _extend_live_evidence(evidence, msgs)
 
 
@@ -27723,8 +27788,14 @@ def _extend_live_evidence(evidence: dict[str, Any],
                           msgs: Iterable[dict[str, Any]]) -> dict[str, Any]:
     tool_ids = cast("set[Any]", evidence["tool_ids"])
     texts = cast("list[str]", evidence["turn_texts"])
+    native = cast("set[str]", evidence.setdefault("native_ids", set()))
     newest = str(evidence.get("newest_ts") or "")
     for m in msgs:
+        # WHOLE HISTORY, like `tool_ids` and unlike `turn_texts`: a record
+        # uuid is globally unique, so a match IS the twin and there is no
+        # false retire to bound the window against.
+        if m.get("native_event_id"):
+            native.add(str(m["native_event_id"]))
         ts = str(m.get("ts") or "")
         if ts > newest:
             newest = ts
@@ -27827,6 +27898,7 @@ def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
     evidence = _evidence if _evidence is not None else _live_evidence(msgs)
     tool_ids = cast("set[Any]", evidence.get("tool_ids") or set())
     evidence_texts = cast("list[str]", evidence.get("turn_texts") or [])
+    native_ids = cast("set[str]", evidence.get("native_ids") or set())
 
     def head_of(r: dict[str, Any]) -> str:
         return (r.get("text") or "")[:300]
@@ -27850,6 +27922,27 @@ def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
     def covered(r: dict[str, Any], budget: dict[str, int]) -> bool:
         if r.get("sticky"):
             return False
+        # ⭐ THE DURABLE TWIN, BY IDENTITY (user ruling 2026-09-11: "live rows
+        # and transcript rows need a singular durable id that can
+        # cross-identify them, that's the whole point of this fix").
+        #
+        # Every other branch below INFERS the twin — a tool by the CLI's
+        # tool_use_id (which works), TEXT by its first 300 characters, a
+        # thought by what landed after it. The text inference is the one that
+        # strands: it is bounded to this turn on purpose (a phrase used
+        # yesterday must not retire today's row), so anything that moves the
+        # turn boundary or truncates the head can miss a twin sitting right
+        # there, and the row renders a second time beside it.
+        #
+        # Where the emitter knew the durable id it stamped it on the live row,
+        # so here the twin is not inferred at all: the same uuid on both sides
+        # IS the record. Whole-history and unconditional — a uuid cannot
+        # collide, so there is no window to get wrong and no kind to special
+        # case. A row whose emitter could not supply one falls through to the
+        # inference below, exactly as before.
+        rid = r.get("event_id")
+        if isinstance(rid, str) and rid and rid in native_ids:
+            return True
         kind = r.get("kind")
         if kind == "tool":
             return (bool(r.get("id") and r.get("id") in tool_ids)

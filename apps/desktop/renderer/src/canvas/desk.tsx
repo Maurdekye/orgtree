@@ -1727,8 +1727,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // events and both render. See events/dedup.ts.
   const dedup = eventDedup()
   const viewMessages = dedup.list(chat?.messages ?? [], (m) => m.event_id)
+  // THE SHARED DURABLE ID (user ruling 2026-09-11). A transcript row carries
+  // TWO identities: the projection's own `event_id` (a byte offset into the
+  // CLI transcript, which nothing outside that file can compute) and
+  // `native_event_id` — the record uuid the CLI stamped, which the live
+  // emitter now stamps on its row too. Claiming the second one here, after the
+  // transcript is drawn and before the live tail is, is what lets this guard
+  // suppress a live row that is the SAME EVENT as a row already on screen.
+  // The backend's own sweep should have retired it first; this is the backstop
+  // for when it does not, which is the case the user keeps hitting.
+  for (const m of viewMessages) dedup.keep(m.native_event_id)
   const viewPendNow = dedup.list(pendNow, (m) => m.event_id)
-  const viewLive = dedup.list(live_feed, (r) => r.event_id)
+  // a live row is identified by its DURABLE id where it has one — that is
+  // the id its transcript twin claimed above — and by its own otherwise
+  const viewLive = dedup.list(live_feed, (r) => r.native_event_id ?? r.event_id)
   const viewTransient = dedup.list(transient, (r) => r.event_id)
   // the standalone thinking/draft marks are the SAME events as their transient
   // rows, drawn when no transient row carries them. `keep` is reached only
