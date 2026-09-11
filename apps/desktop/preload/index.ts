@@ -24,6 +24,10 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
+    getPopoutState: (name: string) => ipcRenderer.invoke('desktop:popout-state', name),
+    minimizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-minimize', name),
+    toggleMaximizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-toggle-maximize', name),
+    closePopout: (name: string) => ipcRenderer.invoke('desktop:popout-close', name),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
     startProviderLogin: (provider: LoginProvider, opts?: { profileDir?: string; accountId?: string }) =>
       ipcRenderer.invoke('desktop:provider-login-start', provider, opts),

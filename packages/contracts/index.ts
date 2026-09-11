@@ -30,7 +30,14 @@ export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'docum
 export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state' | 'open-org'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org'; data: unknown }
+/** One popped-out desk or modal window, addressed by the frame name the
+ *  renderer opened it under. A popout is frameless like the main window, so its
+ *  own header draws the window controls and needs to know whether the window is
+ *  maximized - which the user can also change by double-clicking the drag
+ *  region, hence an event rather than a value read once. `present` is false
+ *  once the window is gone. */
+export interface PopoutWindowState { name: string; present: boolean; maximized: boolean }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 /** `recheck` is the outcome of a check that ran WHILE an update was already
  *  prepared and left it in place: the state stays 'pending-idle' because the
@@ -91,6 +98,15 @@ export interface DesktopBridge {
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
+  /** Window commands for ONE popped-out desk or modal, named by the frame name
+   *  the renderer opened it under. Separate from the window commands above,
+   *  which always act on the main window: a popout's own header must never
+   *  minimize or close the window it was popped out of. Optional because a
+   *  plain browser has no native frame to command. */
+  getPopoutState?(name: string): Promise<PopoutWindowState | null>
+  minimizePopout?(name: string): Promise<void>
+  toggleMaximizePopout?(name: string): Promise<void>
+  closePopout?(name: string): Promise<void>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this

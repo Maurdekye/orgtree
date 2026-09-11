@@ -56,7 +56,60 @@ export function configureEngineSession(session: Session, liveOrigin: Live, liveT
 /** Preserve one mounted portal; blank children never boot a second App. */
 type OpenExternal = (url: string) => void | Promise<void>
 
-export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url)): void {
+type TrackPopout = (name: string, window: BrowserWindow) => void
+
+/** The narrow slice of a native window the registry below needs, so its rules
+ *  can be driven by a test without an Electron window. */
+export interface PopoutWindowLike {
+  isDestroyed(): boolean
+  isMaximized(): boolean
+  on(event: 'maximize' | 'unmaximize' | 'minimize' | 'restore', listener: () => void): unknown
+  once(event: 'closed', listener: () => void): unknown
+}
+
+/** Which native window a popout's window command means.
+ *
+ *  THE INVARIANT, and the reason this exists: a popout is a frameless window
+ *  whose document is an about:blank portal adopted by the main window, so its
+ *  React handlers run in the MAIN window's realm and its commands arrive from
+ *  the main window's bridge - the only sender the native side accepts. The
+ *  command therefore has to name its window, and this turns that name back into
+ *  the window. An unknown name, a non-string, or a window that has since gone
+ *  resolves to nothing and the command does nothing: where the alternative is
+ *  acting on the wrong window, refusing is always right. */
+export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { name: string; present: boolean; maximized: boolean }) => void) {
+  const windows = new Map<string, W>()
+  const live = (name: unknown): W | undefined => {
+    const window = typeof name === 'string' ? windows.get(name) : undefined
+    return window && !window.isDestroyed() ? window : undefined
+  }
+  const state = (name: string) => {
+    const window = live(name)
+    return { name, present: !!window, maximized: !!window && window.isMaximized() }
+  }
+  return {
+    state,
+    window: live,
+    track: (name: string, window: W) => {
+      // An empty frame name is any window opened as '_blank' - not one of ours,
+      // and never addressable.
+      if (!name) return
+      windows.set(name, window)
+      const report = () => { if (!window.isDestroyed()) publish(state(name)) }
+      // A double-click on the drag region maximizes too, which no click handler
+      // of ours ever sees; hence events rather than a value read once.
+      window.on('maximize', report)
+      window.on('unmaximize', report)
+      window.on('minimize', report)
+      window.on('restore', report)
+      // Only if it is still THIS window: a later popout may have taken the name
+      // back, and dropping its entry would silently disable its controls.
+      window.once('closed', () => { if (windows.get(name) === window) windows.delete(name) })
+    },
+  }
+}
+
+export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
   register?.(window, !isMain)
   if (!isMain) {
     // Chromium can leave an adopted about:blank document "hidden" even while
@@ -97,10 +150,16 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
       return { action: 'deny' }
     }
     if (!isMain || !trustedUiUrl(window.webContents.getURL(), origin) || url !== 'about:blank') return { action: 'deny' }
-    return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true,
+    // Frameless like the main window: the surface's own header is the title
+    // bar. That header must therefore carry the drag region — see .popout-mount
+    // in styles.css, without which the window cannot be moved at all.
+    return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, frame: false,
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false } } }
   })
-  window.webContents.on('did-create-window', child => configureWindow(child, liveOrigin, false, register, openArtifact, openExternal))
+  window.webContents.on('did-create-window', (child, details) => {
+    trackPopout?.(details.frameName, child)
+    configureWindow(child, liveOrigin, false, register, openArtifact, openExternal, trackPopout)
+  })
 }
 
 export function artifactUrl(value: string, origin: string): boolean {

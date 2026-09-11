@@ -3,7 +3,10 @@ import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRes
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { ReactNode, SyntheticEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode, SyntheticEvent } from 'react'
+import { desktop } from './desktop'
+import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon } from './icons'
+import type { PopoutWindowState } from '../../../../packages/contracts'
 import { createPortal } from 'react-dom'
 import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
@@ -12,6 +15,9 @@ interface SurfaceContextValue {
   document: Document
   overlays: HTMLElement
   detached: boolean
+  /** The frame name this surface's window was opened under: the only handle on
+   *  that native window. See popoutRegistry in main/windows.ts. */
+  name: string
   open: () => void
   redock: () => void
   error: string
@@ -72,6 +78,53 @@ export function useOrgTransition(slug: string | null, commit: (slug: string | nu
     </div>
   </div>
   return { request, prompt: <>{prompt}<WindowMirrors>{prompt}</WindowMirrors></> }
+}
+
+/** Unique per surface INSTANCE, not per surface identity: window.open reuses an
+ *  existing window with the same name, and two surfaces must never collide onto
+ *  one window. */
+let popoutSeq = 0
+
+/** The window controls for a popped-out desk or modal, placed in that surface's
+ *  OWN header because the popout window is frameless and has no title bar to
+ *  put them in. Renders nothing anywhere else - in the canvas or pinned to the
+ *  main window there is no native window of its own to command. The name is
+ *  what says WHICH window; see popoutRegistry in main/windows.ts. */
+export function PopoutWindowControls() {
+  const s = useSurface()
+  const detached = !!s?.detached
+  const name = s?.name ?? ''
+  const [maximized, setMaximized] = useState(false)
+  useEffect(() => {
+    const bridge = desktop()
+    if (!detached || !bridge?.getPopoutState) return
+    let alive = true
+    void bridge.getPopoutState(name).then(state => { if (alive && state) setMaximized(state.maximized) }).catch(() => {})
+    const unsubscribe = bridge.onEvent(event => {
+      if (!alive || event.type !== 'popout-state') return
+      const state = event.data as PopoutWindowState
+      if (state?.name === name) setMaximized(state.maximized)
+    })
+    return () => { alive = false; unsubscribe() }
+  }, [detached, name])
+  const bridge = desktop()
+  if (!detached || !bridge?.minimizePopout || !bridge.toggleMaximizePopout || !bridge.closePopout) return null
+  const act = (run: (name: string) => Promise<void>) => (e: ReactMouseEvent) => {
+    e.stopPropagation()
+    void run.call(bridge, name).catch(() => {})
+  }
+  return <span className="window-controls popout-window-controls" role="group" aria-label="Window controls"
+    onPointerDown={stop}>
+    <button type="button" className="window-control" aria-label="Minimize window" title="Minimize window"
+      onClick={act(bridge.minimizePopout)}><MinimizeIcon fontSize="inherit" /></button>
+    <button type="button" className="window-control" aria-label={maximized ? 'Restore window' : 'Maximize window'}
+      title={maximized ? 'Restore window' : 'Maximize window'}
+      onClick={act(bridge.toggleMaximizePopout)}>
+      {maximized ? <RestoreIcon fontSize="inherit" /> : <MaximizeIcon fontSize="inherit" />}
+    </button>
+    <button type="button" className="window-control close" aria-label="Close window" title="Close window"
+      onClick={act(bridge.closePopout)}><CloseIcon fontSize="inherit" /></button>
+  </span>
 }
 
 export function PopoutButton() {
@@ -191,6 +244,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   latest.current = { anchor, parent, onDetached, flush, org, title, restore }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
+  const popoutName = useRef('')
+  if (!popoutName.current) popoutName.current = `orgtree-popout-${++popoutSeq}`
 
   // The emergency box is a LAST RESORT, held only while nothing else can
   // host the surface. The moment any real destination is found — here or in
@@ -245,7 +300,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     let w: Window | null = null
     try {
       // Opening MUST be inside the initiating click, before any await.
-      w = owner.defaultView!.open('', '_blank', popupFeatures(layoutKey))
+      // NAMED, not '_blank': the main process pairs this name to the native
+      // window in did-create-window, and it is the only thing that lets this
+      // surface's own header command its own window.
+      w = owner.defaultView!.open('', popoutName.current, popupFeatures(layoutKey))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
@@ -395,7 +453,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         <button onClick={redock}>Return here</button>
       </DetachedNotice>}
     </div>
-    {ready && createPortal(<SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, open, redock, error }}>
+    {ready && createPortal(<SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
       <div className="movable-events" onPointerDown={detached ? stop : undefined}
         onPointerMove={detached ? stop : undefined} onPointerUp={detached ? stop : undefined}
         onPointerCancel={detached ? stop : undefined} onClick={detached ? stop : undefined}
@@ -403,7 +461,9 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         onKeyDown={detached ? stop : undefined} onKeyUp={detached ? stop : undefined}
         onDragStart={detached ? stop : undefined} onDragOver={detached ? stop : undefined}
         onDrop={detached ? stop : undefined} onContextMenu={detached ? stop : undefined}>
-        {detached && <><div className="popout-dependency">Orgtree <button onClick={redock}>Return to main window</button></div><RestartNotice /></>}
+        {/* No shell bar of its own: the surface's header is the whole window
+            treatment, and it already carries the return-to-main button. */}
+        {detached && <RestartNotice />}
         {error && <div role="alert" className="popout-error">{error}</div>}
         {children}
       </div>

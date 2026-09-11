@@ -1,6 +1,6 @@
 import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap } from './pinspace'
 import { findPinSnap } from './pinSnap'
-import { MovableSurface, PopoutButton, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
+import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
@@ -670,6 +670,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
               <CloseIcon fontSize="inherit" />
             </button>
           )}
+          {/* Last, where a title bar puts them; renders only when popped out. */}
+          <PopoutWindowControls />
         </div>
         {children}
       </div>

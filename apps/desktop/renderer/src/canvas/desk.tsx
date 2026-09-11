@@ -7,7 +7,7 @@ import { useContextMenu } from './contextmenu'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
 import { DeskSlot } from './deskhosts'
-import { PopoutButton, useSurface, useSurfaceDocument } from '../popout'
+import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
 // styled as a miniature Claude Code session) with its transcript renderers
 // (Msg, ToolChip, ThoughtLine, SysLine), the composer's effort controls and
@@ -2134,6 +2134,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             <SettingsIcon fontSize="inherit" />
           </button>
         </span>
+        {/* Outside .cc-head-right on purpose: the header wraps at narrow
+            widths and the window controls must not wrap with it. */}
+        <PopoutWindowControls />
         </div>
         <div className="cc-head-meta">
         {mcpConfigured && <McpToolCountMark count={node.mcp_tool_count}

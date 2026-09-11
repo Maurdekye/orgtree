@@ -42,7 +42,7 @@ test('the popup is a capability-free window and selection is a cancelled navigat
 
 test('the renderer listens for open-org and makes it the active organization', () => {
   const contracts = read('packages/contracts/index.ts')
-  assert.match(contracts, /'main-window-shown' \| 'window-state' \| 'open-org'/)
+  assert.match(contracts, /'main-window-shown' \| 'window-state' \| 'popout-state' \| 'open-org'/)
   const app = read('apps/desktop/renderer/src/App.tsx')
   assert.match(app, /if \(\(event\.type as string\) !== 'open-org'\) return/)
   assert.match(app, /if \(typeof org === 'string' && org\) setSlug\(org\)/)

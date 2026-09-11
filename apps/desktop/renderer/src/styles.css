@@ -6141,6 +6141,42 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   width: 100%; max-width: none; height: 100%; max-height: none; box-sizing: border-box; }
 .popout-mount .desk-body { flex: 1; min-height: 0; width: 100%; height: 100%; }
 .popout-mount .modalpin-bar { display: flex; }
+
+/* A popped-out surface is a frameless window, so its own header is the title
+   bar: the drag region, with the window controls in it. Scoped to
+   .popout-mount, which exists only inside a popped-out document, so the same
+   headers in the canvas and pinned to the main window are untouched. */
+.popout-mount :where(.cc-head-top, .modalpin-bar) { -webkit-app-region: drag; }
+/* A drag region swallows the click on anything inside it that does not say
+   otherwise, so this list is load-bearing: every entry is measured in a real
+   window by tools/test-popout-header-regions.mjs. */
+.popout-mount :where(.cc-head-top, .modalpin-bar)
+  :where(button, a, input, select, textarea, summary, label,
+    [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="switch"], [role="menuitem"],
+    [tabindex], [contenteditable="true"]) { -webkit-app-region: no-drag; }
+/* Sized for a content header rather than the main window's chrome: the same
+   controls, at the scale of the buttons already beside them. */
+.popout-mount { --popout-control: 34px; --popout-controls: calc(var(--popout-control) * 3 + 4px); }
+.popout-window-controls { height: 22px; margin-left: 2px; }
+.popout-window-controls .window-control {
+  flex: 0 0 var(--popout-control, 34px); width: var(--popout-control, 34px); font-size: 13px;
+}
+/* The controls are the window's frame, not header content: one row, at the top
+   right, however the rest of the header wraps. The desk header is the one that
+   wraps - the modal bar is a single nowrap cluster - so it reserves the room
+   and takes them out of the wrapping flow. The reserved width is DERIVED from
+   the button width above rather than written beside it, so the two cannot
+   drift apart. */
+.popout-mount .cc-head-top { position: relative; padding-inline-end: var(--popout-controls); }
+.popout-mount .cc-head-top > .popout-window-controls {
+  position: absolute; top: 0; inset-inline-end: 0; margin: 0; flex-wrap: nowrap;
+}
+.popout-mount .modalpin-bar > .popout-window-controls { flex: 0 0 auto; flex-wrap: nowrap; }
+
+/* A popped-out desk sits flush against a frameless window's edges; a little
+   room keeps it off the glass. Desks only - a popped-out modal already has its
+   panel's own padding - and only when popped out. */
+.popout-mount:has(.cc-head) { padding: 8px; }
 .popout-recovery { position: fixed; inset: 40px; z-index: 31; overflow: auto;
   display: flex; background: var(--bg, #171717); }
 html.mobile .popout-button { display: none; }

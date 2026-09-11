@@ -250,10 +250,7 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
     <DeskOwnerControls entry={entry} stale={changedGeneration} dismiss={() => {
       entry.redock?.(); for (const [key, e] of desks.entries) if (e === entry) desks.entries.delete(key); desks.change()
     }} />
-    {changedGeneration && <div className="popout-error" role="status">
-      This agent's identity changed. This draft belongs to generation {props.node.generation}.
-      Copy your draft before returning; it will not be sent to the new generation.
-    </div>}
+    {changedGeneration && <StaleIdentityNotice generation={props.node.generation} />}
     <OwnedDeskChat {...props} node={changedGeneration ? props.node : current}
       map={map} staleIdentity={changedGeneration} />
   </MovableSurface>
@@ -275,18 +272,31 @@ function DeskOwnerControls({ entry, stale, dismiss }: { entry: Entry; stale: boo
   const p = entry.last.props
   return <DraftRecovery stale={stale} dismiss={dismiss} keyName={draftKey(p.slug, p.node.id, deskGeneration(p.node))} />
 }
+/** The notice names the action that is ACTUALLY available where it is read. A
+ *  popped-out desk has no draft-recovery controls (below), so telling its
+ *  reader to copy the draft there would point at nothing. */
+function StaleIdentityNotice({ generation }: { generation: number | undefined }) {
+  const detached = !!useSurface()?.detached
+  return <div className="popout-error" role="status">
+    This agent's identity changed. This draft belongs to generation {generation}.
+    {detached
+      ? ' Return this desk to the main window to copy it; it will not be sent to the new generation.'
+      : ' Copy your draft before returning; it will not be sent to the new generation.'}
+  </div>
+}
+/** Draft recovery for a desk whose agent's identity has moved on, in the main
+ *  window only (user 2026-09-11): a popped-out desk shows no draft-copy control
+ *  at all. Redocking brings it back. */
 function DraftRecovery({ keyName, stale, dismiss }: { keyName: string; stale: boolean; dismiss: () => void }) {
   const surface = useSurface()
   const [copied, setCopied] = useState(false)
-  // Host-level notice handles stale generations; this local recovery action
-  // is also useful when a retired desk no longer has a send affordance.
-  if (!surface || (!surface.detached && !stale)) return null
+  if (!surface || !stale || surface.detached) return null
   return <div className="popout-draft-recovery"><button className="popout-copy-draft" onClick={() => {
     let text = ''
     try { text = localStorage.getItem(keyName) || localStorage.getItem(keyName.replace('orgtree-draft-v2-', 'orgtree-draft-recovery-')) || '' } catch { /* unavailable */ }
     surface.document.defaultView?.navigator.clipboard?.writeText(text)
       .then(() => setCopied(true)).catch(() => setCopied(false))
   }}>{copied ? 'Draft copied' : 'Copy unsent draft'}</button>
-    {stale && <button onClick={dismiss}>Close old desk</button>}
+    <button onClick={dismiss}>Close old desk</button>
   </div>
 }

@@ -9,7 +9,7 @@ import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { appUserModelId, configureTaskbar } from './taskbar'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
-import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from './windows'
+import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry } from './windows'
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
@@ -211,6 +211,8 @@ else {
     tray.setContextMenu(trayMenu)
   }
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
+  // Window commands for popped-out desks and modals; see popoutRegistry.
+  const popouts = popoutRegistry<BrowserWindow>(state => broadcast({ type: 'popout-state', data: state }))
   const saveWindowLayout = async () => {
     savePlacement()
     if (main && !main.isDestroyed()) {
@@ -563,6 +565,16 @@ else {
       if (main.isMaximized()) main.unmaximize(); else main.maximize()
     })
     handle('desktop:window-close', () => { main?.close() })
+    // Deliberately NOT the desktop:window-* handlers above: those act on the
+    // main window, and a popout's controls must never reach it.
+    handle('desktop:popout-state', name => typeof name === 'string' ? popouts.state(name) : null)
+    handle('desktop:popout-minimize', name => { popouts.window(name)?.minimize() })
+    handle('desktop:popout-toggle-maximize', name => {
+      const window = popouts.window(name)
+      if (!window) return
+      if (window.isMaximized()) window.unmaximize(); else window.maximize()
+    })
+    handle('desktop:popout-close', name => { popouts.window(name)?.close() })
     handle('desktop:preferences', () => preferences.get())
     handle('desktop:set-preferences', value => setPreferences(value))
     handle('desktop:set-effective-theme', value => setEffectiveTheme(value))
@@ -668,7 +680,7 @@ else {
       main.on('restore', publishWindowState)
       main.on('show', publishWindowState)
       main.on('hide', publishWindowState)
-      configureWindow(main, () => engine.origin, true, register, openArtifact)
+      configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
       main.webContents.on('did-create-window', child => {
         child.setIcon(runtimeIcon())
         child.on('closed', quitAfterLastView)

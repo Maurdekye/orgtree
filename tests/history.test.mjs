@@ -19,7 +19,7 @@ await build({ entryPoints: ['apps/desktop/renderer/src/history.tsx'], outfile: o
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'api'
       ? 'export const req = (...args) => globalThis.historyRequest(...args)'
       : args.path === 'icons'
-        ? 'import React from "react"; const I = ({fontSize, ...props}) => React.createElement("span", props); export const AutorenewIcon=I, ArrowUpIcon=I, FolderIcon=I, HomeIcon=I, StorageIcon=I, AddIcon=I, ArrowDownIcon=I, ChevronLeftIcon=I, ChevronRightIcon=I, CloseIcon=I, PinIcon=I, SettingsIcon=I, DeleteIcon=I'
+        ? 'import React from "react"; const I = ({fontSize, ...props}) => React.createElement("span", props); export const AutorenewIcon=I, ArrowUpIcon=I, FolderIcon=I, HomeIcon=I, StorageIcon=I, AddIcon=I, ArrowDownIcon=I, ChevronLeftIcon=I, ChevronRightIcon=I, CloseIcon=I, PinIcon=I, SettingsIcon=I, DeleteIcon=I, MinimizeIcon=I, MaximizeIcon=I, RestoreIcon=I'
       : 'import React from "react"; export const PinFrame = ({children}) => React.createElement("section", null, children)',
       resolveDir: process.cwd() }))
   }}] })
