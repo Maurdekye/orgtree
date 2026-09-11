@@ -2379,3 +2379,95 @@ uiTest('agent docket exposes backlog, all three clocks and status groups without
   assert.equal(el.querySelectorAll('.docket-group-head').length,3,'two active statuses and a backlog group')
   assert.equal(el.querySelector('.mailer-read')!.textContent,chosen,'view controls preserve the selected detail')
 })
+
+
+// ===================== the docket head's two controls (user 2026-09-11) =====
+//
+// The screenshot showed "View options \u25be" as words with a separate \u00d7 right
+// beside it. The \u00d7 was this modal's own \u2014 no other centred surface here has
+// one \u2014 and it duplicated what the frame already provides. The words became
+// the sliders glyph.
+//
+// \u26a0 AN ICON BUTTON WITH NO ACCESSIBLE NAME IS A BUTTON CALLED NOTHING. The
+// text WAS the name here, so removing it without `aria-label` would announce
+// this control as empty and make the disclosure unreachable by name \u2014 which
+// is also how the Playwright probe finds it (`get_by_role('button',
+// name='View options')`). \u00a7B is what refuses that regression, and it asserts
+// the NAME rather than the attribute, so a future switch to aria-labelledby
+// or a visually-hidden span still passes.
+
+const viewOptionsBtn = (el: HTMLElement) =>
+  el.querySelector<HTMLButtonElement>('.docket-options-toggle')
+
+uiTest('\u00a7A the view-options foldout is an icon, not words', async (mount) => {
+  mockWorkItems([])
+  const { el } = await mount(docketModal())
+  await flush()
+  // POSITIVE CONTROL: the modal really rendered its head
+  assert.ok(el.querySelector('.docket-head h3'), 'the docket head did not render')
+
+  const btn = viewOptionsBtn(el)
+  assert.ok(btn, 'the view-options toggle has gone entirely')
+  assert.doesNotMatch(btn!.textContent ?? '', /View options/,
+    'the words are still on the button')
+  assert.ok(btn!.querySelector('svg'), 'no icon on the toggle')
+})
+
+uiTest('\u00a7B \u2026and it still says what it is', async (mount) => {
+  mockWorkItems([])
+  const { el } = await mount(docketModal())
+  await flush()
+  const btn = viewOptionsBtn(el)!
+  // the accessible NAME, not one particular attribute
+  const name = btn.getAttribute('aria-label')
+    || btn.getAttribute('aria-labelledby')
+    || btn.textContent
+  assert.match(name ?? '', /View options/,
+    'an icon button with no accessible name announces as nothing')
+  assert.equal(btn.title, 'View options', 'no hover tooltip either')
+})
+
+uiTest('\u00a7C the foldout still folds', async (mount) => {
+  mockWorkItems([])
+  const { el } = await mount(docketModal())
+  await flush()
+  const btn = viewOptionsBtn(el)!
+  const group = el.querySelector('#docket-view-options')!
+  assert.equal(btn.getAttribute('aria-expanded'), 'false')
+  assert.equal(group.getAttribute('data-open'), 'false')
+  await inAct(() => { btn.click() })
+  await flush()
+  assert.equal(btn.getAttribute('aria-expanded'), 'true', 'the toggle stopped toggling')
+  assert.equal(group.getAttribute('data-open'), 'true')
+  await inAct(() => { btn.click() })
+  await flush()
+  assert.equal(btn.getAttribute('aria-expanded'), 'false')
+})
+
+uiTest('\u00a7D the redundant local \u00d7 is gone, and the way out is not',
+  async (mount) => {
+    const closed: true[] = []
+    mockWorkItems([])
+    const { el } = await mount(docketModal({ close: () => { closed.push(true) } }))
+    await flush()
+
+    assert.equal(el.querySelector('.docket-header-close'), null,
+      'the docket still carries its own close button')
+    const head = el.querySelector('.docket-head')!
+    assert.equal([...head.querySelectorAll('button')]
+      .filter((b) => /close/i.test(b.title) || /close/i.test(b.getAttribute('aria-label') ?? ''))
+      .length, 0, 'a close control survived in the head under another name')
+
+    // \u26a0 AND THE POINT OF THE OTHER HALF: removing a close button is only
+    // safe if another way out remains. An unpinned surface closes on its
+    // backdrop (PinFrame `backdropClose`, on by default and not overridden
+    // here), which is what every other centred modal in this app relies on.
+    const overlay = el.querySelector('.overlay')!
+    await inAct(() => {
+      overlay.dispatchEvent(new window.MouseEvent('click',
+        { bubbles: true, cancelable: true }))
+    })
+    await flush()
+    assert.equal(closed.length, 1,
+      'no close button AND no backdrop close would strand the reader')
+  })

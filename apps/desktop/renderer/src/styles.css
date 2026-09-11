@@ -3024,9 +3024,10 @@ main.solo { width: 100%; }
    ordinary/archived entries; orange selection for attention"). */
 .docket-modal .gallery-head { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
 .docket-modal .gallery-head h3 { margin: 0; }
-.docket-modal .docket-head { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 12px; }
+/* two columns since the local × went (user 2026-09-11) — the title and
+   everything that follows it. */
+.docket-modal .docket-head { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 .docket-head > h3 { grid-column: 1; grid-row: 1; }
-.docket-header-close { grid-column: 3; grid-row: 1; }
 .docket-options-toggle { display: none; }
 .docket-options { display: contents; }
 .docket-filterbar { grid-column: 2; grid-row: 1; display: flex; justify-content: flex-end; gap: 12px; }

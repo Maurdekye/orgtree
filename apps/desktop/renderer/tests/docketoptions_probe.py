@@ -61,7 +61,9 @@ try:
   page.evaluate('optionsProbe.size(500)');toggle.wait_for();toggle.focus();page.keyboard.press('Escape')
   group.wait_for(state='hidden');assert panel.count()==1,'Escape closed docket instead of options'
   page.keyboard.press('Escape');assert panel.count()==1,'pinned Escape must not close its window'
-  page.locator('.docket-header-close').click();page.get_by_text('Closed docket',exact=True).wait_for()
+  # the modal's own close, not a second one of the docket's: the local x was
+  # removed 2026-09-11, and a pinned window closes from PinFrame's bar.
+  page.locator('.modalpin-x').click();page.get_by_text('Closed docket',exact=True).wait_for()
   # Normal unpinned modal follows a narrow main window too.
   page.evaluate('localStorage.removeItem("orgtree-modal-pins")')
   page.set_viewport_size(dict(width=600,height=800));page.reload();page.get_by_role('button',name='View options').wait_for()

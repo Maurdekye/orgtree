@@ -33,7 +33,7 @@ import {
   deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems,
   replyWorkItem, uploadWorkItemAttachment, workItemAttachmentUrl,
 } from '../api'
-import { CloseIcon, DocketIcon, DownloadIcon } from '../icons'
+import { CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
@@ -872,12 +872,23 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           }
         }}>
           <h3><DocketIcon fontSize="inherit" /> Work docket</h3>
+          {/* user 2026-09-11: the words became the sliders glyph, and the ×
+              that sat beside them is gone. That × was this modal's alone — no
+              other centred surface here carries one — and it duplicated what
+              the frame already provides: the backdrop closes an unpinned
+              docket, Escape closes it, and a pinned one gets PinFrame's own
+              × in the window bar.
+              ⚠ THE LABEL IS NOT DECORATION. With the words gone, `aria-label`
+              is the only accessible name this control has; without it the
+              button announces as nothing and the disclosure becomes
+              unreachable by name. The caret stays because it is what says
+              visually that something opens, which `aria-expanded` says only
+              to a screen reader. */}
           <button ref={optionsToggle} type="button" className="docket-options-toggle"
+            title="View options" aria-label="View options"
             aria-expanded={optionsOpen} aria-controls="docket-view-options"
-            onClick={() => setOptionsOpen(open => !open)}>View options {optionsOpen ? '\u25b4' : '\u25be'}</button>
-          <button className="chip-x docket-header-close" title="close" onClick={close}>
-            <CloseIcon fontSize="inherit" />
-          </button>
+            onClick={() => setOptionsOpen(open => !open)}>
+            <TuneIcon fontSize="inherit" />{optionsOpen ? '\u25b4' : '\u25be'}</button>
           <div id="docket-view-options" className="docket-options" data-open={optionsOpen}
             role="group" aria-label="Docket view options">
           <div className="docket-filterbar">
