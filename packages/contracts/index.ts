@@ -107,6 +107,12 @@ export interface DesktopBridge {
   minimizePopout?(name: string): Promise<void>
   toggleMaximizePopout?(name: string): Promise<void>
   closePopout?(name: string): Promise<void>
+  /** Bring that window back into view — restore it if it is minimized, then
+   *  raise and focus it. A renderer CANNOT do this for itself: calling
+   *  `focus()` on the child Window it opened leaves a minimized native
+   *  window minimized (measured 2026-09-11, which is why "Show desk" on a
+   *  popped-out desk's placeholder appeared to do nothing). */
+  focusPopout?(name: string): Promise<void>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this

@@ -1,6 +1,6 @@
 import { draftKey } from '../draftstore'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { ReactNode } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
@@ -18,7 +18,7 @@ export const deskIdentity = (slug: string, node: Pick<CanvasNode, 'id' | 'genera
 interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
-  show?: () => void; redock?: () => void; popout?: () => void; pendingPopout?: boolean
+  show?: () => void; redock?: (slot?: object) => void; popout?: () => void; pendingPopout?: boolean
 }
 class Desks {
   entries = new Map<string, Entry>()
@@ -147,6 +147,30 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
 }
 
 /**
+ * A press on a control inside a canvas card must not reach the viewport.
+ *
+ * The viewport takes pointer capture on EVERY left press that gets to it
+ * (OrgCanvas's onPointerDown), and once that capture is live Chromium fires
+ * the compatibility mouse events — `click` among them — at the CAPTURING
+ * element. A button that lets its pointerdown through is therefore pressed,
+ * highlights under the cursor, and never hears the click at all. The card's
+ * own `startNodeDrag` deliberately returns early for a button WITHOUT
+ * stopping propagation, so nothing upstream saves it.
+ *
+ * Every in-card control already does this for itself: PinnedPlaceholder
+ * (pins.tsx), the stack badge (cards.tsx), PopoutButton (popout.tsx), and
+ * `.desk-over`'s own wall (desk.tsx) — which is what protects a real desk's
+ * buttons, and which is NOT rendered while the desk is elsewhere. That is
+ * why this notice has to carry its own.
+ *
+ * User report 2026-09-11: neither "Show desk" nor "Return here" did
+ * anything. MEASURED in a real window, the click on both was delivered to
+ * `div.viewport`; tests/placeholder-actions.probe.ts records the target of
+ * every press so the difference is visible rather than inferred.
+ */
+const stopPress = (e: ReactPointerEvent) => e.stopPropagation()
+
+/**
  * A notice standing where a desk would be.
  *
  * On a CANVAS CARD the desk is counter-scaled into the card's 120px
@@ -247,8 +271,10 @@ function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }
   return <div className="desk-slot" ref={anchor} data-desk-slot={key}>
     {elsewhere && <InDesksPlace bare={props.bare}>
       <span>{props.node.id}'s desk is open elsewhere.</span>
-      <button onClick={() => e.show?.()}>Show desk</button>
-      {e.detached && <button onClick={() => e.redock?.()}>Return here</button>}
+      <button onPointerDown={stopPress} onClick={() => e.show?.()}>Show desk</button>
+      {/* `id` is THIS slot: the desk comes back where it was asked for, which
+          need not be the host it was popped out of. */}
+      {e.detached && <button onPointerDown={stopPress} onClick={() => e.redock?.(id)}>Return here</button>}
     </InDesksPlace>}
   </div>
 }
@@ -285,7 +311,15 @@ function DeskOwnerControls({ entry, stale, dismiss }: { entry: Entry; stale: boo
       if (surface?.detached) surface.open()
       else { entry.last.anchor.scrollIntoView({ block: 'nearest' }); entry.last.props.onJump?.(entry.last.props.node.id) }
     }
-    entry.redock = () => surface?.redock()
+    entry.redock = (slot) => {
+      // Return the desk to the host that ASKED for it. `entry.last` is what
+      // DeskHost hands MovableSurface as its anchor, so pointing it at the
+      // clicked slot first is what makes the redock land there; the anchor
+      // prop change re-places the surface on the commit that follows.
+      const target = slot ? entry.slots.get(slot) : undefined
+      if (target) entry.last = target
+      surface?.redock()
+    }
     entry.popout = () => surface?.open()
     if (entry.pendingPopout) {
       entry.pendingPopout = false

@@ -588,6 +588,15 @@ else {
       if (window.isMaximized()) window.unmaximize(); else window.maximize()
     })
     handle('desktop:popout-close', name => { popouts.window(name)?.close() })
+    // "Show desk"/"Show window" on a popped-out surface's placeholder. A
+    // minimized window has to be RESTORED first: show() alone leaves it in
+    // the taskbar, and the renderer's own child.focus() does nothing at all.
+    handle('desktop:popout-focus', name => {
+      const window = popouts.window(name)
+      if (!window) return
+      if (window.isMinimized()) window.restore()
+      window.show(); window.focus()
+    })
     handle('desktop:preferences', () => preferences.get())
     handle('desktop:set-preferences', value => setPreferences(value))
     handle('desktop:set-effective-theme', value => setEffectiveTheme(value))

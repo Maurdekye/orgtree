@@ -293,8 +293,22 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     try { if (w && !w.closed) w.close() } catch { /* user navigated */ }
   }
 
+  /** Bring an already-open popout back into view.
+   *
+   *  `child.focus()` is the browser's own answer and is kept for a plain
+   *  browser, but in the packaged app it is NOT enough: a renderer cannot
+   *  restore or raise the native window it opened, so a minimized popout
+   *  stayed minimized and the placeholder's "Show desk" looked dead (user
+   *  report 2026-09-11; measured in tests/placeholder-actions.probe.ts).
+   *  The frame name is the only handle on that window — see popoutRegistry
+   *  in main/windows.ts. */
+  const reveal = () => {
+    child.current?.focus()
+    try { void desktop()?.focusPopout?.(popoutName.current)?.catch(() => {}) } catch { /* no native host */ }
+  }
+
   const open = () => {
-    if (child.current && !child.current.closed) { child.current.focus(); return }
+    if (child.current && !child.current.closed) { reveal(); return }
     const transaction = ++epoch.current
     const restore = preservePosition(parts.container)
     let w: Window | null = null
@@ -449,7 +463,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     <div ref={placeholder} className="movable-anchor">
       {detached && !anchor && <DetachedNotice home={placeholder.current?.ownerDocument ?? initialOwner.current}>
         <span>{title} is in another window.</span>
-        <button onClick={() => child.current?.focus()}>Show window</button>
+        <button onClick={reveal}>Show window</button>
         <button onClick={redock}>Return here</button>
       </DetachedNotice>}
     </div>

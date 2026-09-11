@@ -263,3 +263,117 @@ test('a popped-out desk leaves a card-scaled notice on a card and a plain one in
       'and is not boxed into a card interior it does not have')
   } finally { await s.teardown() }
 })
+
+// The two actions on that notice, which the user reported as doing nothing at
+// all (2026-09-11, uploads/image-78.png).
+//
+// ⚠ WHAT THESE CANNOT SEE, AND IT IS THE SYMPTOM ITSELF. jsdom implements no
+// pointer capture and no click retargeting, so the actual failure — the
+// viewport captures the pointer on pointerdown and Chromium then fires the
+// `click` at the viewport instead of at the button — is invisible here.
+// `tools/test-placeholder-actions.mjs` reproduces it in a real window, with
+// the real OrgCanvas and real input events, and records where each click was
+// delivered. What jsdom CAN hold is the wiring that prevents it: that a press
+// on either action never reaches the canvas underneath, and that returning
+// the desk lands it in the host that asked.
+test('a press on either notice action is kept off the canvas underneath it', async () => {
+  const s = stage()
+  const seen = []
+  try {
+    const map = new Map([[NODE.id, NODE]])
+    // The recorder is a REACT handler, deliberately. React delegates at the
+    // ROOT CONTAINER, so a NATIVE listener on an ancestor hears the press
+    // whatever any component does about it — a native probe here would be
+    // green against a completely unprotected button.
+    await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
+      React.createElement('div', { id: 'canvas', onPointerDown: e => seen.push(e.target.tagName) },
+        React.createElement('div', { className: 'sq', id: 'card' },
+          React.createElement(DeskSlot, { ...deskProps, map }))),
+      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    const notice = s.main.querySelector('#card .popout-placeholder')
+    assert.ok(notice, 'the desk left a notice behind to press')
+    const press = el => act(async () => {
+      el.dispatchEvent(new s.main.defaultView.Event('pointerdown', { bubbles: true }))
+    })
+
+    // POSITIVE CONTROL: an unguarded press inside the same notice DOES reach
+    // the canvas. Without this the check below passes for a notice that is
+    // not rendered at all.
+    await press(notice.querySelector('span'))
+    assert.deepEqual(seen, ['SPAN'], 'the recorder can see a press that nobody stops')
+
+    seen.length = 0
+    const buttons = [...notice.querySelectorAll('button')]
+    assert.deepEqual(buttons.map(b => b.textContent), ['Show desk', 'Return here'],
+      'both actions are on offer')
+    for (const button of buttons) await press(button)
+    assert.deepEqual(seen, [],
+      'neither action lets its press through to the canvas, which would take the click with it')
+  } finally { await s.teardown() }
+})
+
+test('Return here brings the desk to the host that was asked, not to the one it left', async () => {
+  const s = stage()
+  try {
+    const map = new Map([[NODE.id, NODE]])
+    await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
+      React.createElement('div', { className: 'sq', id: 'card' },
+        React.createElement(DeskSlot, { ...deskProps, map })),
+      React.createElement('div', { className: 'sq', id: 'second' },
+        React.createElement(DeskSlot, { ...deskProps, map })),
+      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+    // One desk, two slots: the one already showing a notice is the one the
+    // desk is NOT in, so asking THAT one to take it back is the case where
+    // returning to `entry.last` would land in the wrong place. Reading it off
+    // the DOM rather than assuming an order keeps the test non-vacuous.
+    const waiting = s.main.querySelector('.popout-placeholder')?.closest('.sq')?.id
+    assert.ok(waiting === 'card' || waiting === 'second', 'one slot stands aside for the other')
+    const holder = waiting === 'card' ? 'second' : 'card'
+    assert.ok(s.main.querySelector(`#${holder} .cc-head-top`), 'POSITIVE CONTROL: the desk starts in the other slot')
+
+    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    assert.ok(!s.main.querySelector('.cc-head-top'), 'the desk really left the main window')
+    const notice = s.main.querySelector(`#${waiting} .popout-placeholder`)
+    await s.click([...notice.querySelectorAll('button')].find(b => b.textContent === 'Return here'))
+    await s.settle()
+
+    assert.ok(s.main.querySelector(`#${waiting} .cc-head-top`),
+      `Return here was pressed in #${waiting}, so the desk belongs in #${waiting}`)
+    assert.ok(!s.main.querySelector(`#${holder} .cc-head-top`),
+      'and must not have gone back to the slot it was popped out of')
+  } finally { await s.teardown() }
+})
+
+test('Show desk aims the camera at the host the desk is actually in', async () => {
+  // The other half of that button. With two slots for one desk, the slot
+  // standing aside is where a reader looks for a desk that is somewhere else
+  // in the SAME window — so its "Show desk" has to go to the desk, which is
+  // the canvas jump the card already owns.
+  // Unlike the two tests above this one is a LOCK, not a reproduction: it is
+  // green on 2.0.8 as well, because jsdom dispatches the click straight at
+  // the button and the user's symptom needs a real capturing viewport. It is
+  // here so the jump cannot be quietly dropped later.
+  const s = stage()
+  const jumped = []
+  try {
+    const map = new Map([[NODE.id, NODE]])
+    // jsdom has no scroller, so `scrollIntoView` is absent; the app calls it
+    // on the host's anchor. Supplying it keeps this test about the jump.
+    s.main.defaultView.Element.prototype.scrollIntoView ??= function () {}
+    const props = { ...deskProps, map, onJump: id => jumped.push(id) }
+    await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
+      React.createElement('div', { className: 'sq', id: 'card' },
+        React.createElement(DeskSlot, props)),
+      React.createElement('div', { className: 'sq', id: 'second' },
+        React.createElement(DeskSlot, props))))
+    const notice = s.main.querySelector('.popout-placeholder')
+    assert.ok(notice, 'POSITIVE CONTROL: one slot stands aside, so there is a Show desk to press')
+    assert.deepEqual(jumped, [], 'and nothing has been asked for yet')
+
+    await s.click([...notice.querySelectorAll('button')].find(b => b.textContent === 'Show desk'))
+    assert.deepEqual(jumped, [NODE.id], 'Show desk asks the canvas for the agent whose desk it is')
+    assert.deepEqual([...notice.querySelectorAll('button')].map(b => b.textContent), ['Show desk'],
+      'a desk that never left this window offers no way to return it')
+  } finally { await s.teardown() }
+})

@@ -28,6 +28,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     minimizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-minimize', name),
     toggleMaximizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-toggle-maximize', name),
     closePopout: (name: string) => ipcRenderer.invoke('desktop:popout-close', name),
+    focusPopout: (name: string) => ipcRenderer.invoke('desktop:popout-focus', name),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
     startProviderLogin: (provider: LoginProvider, opts?: { profileDir?: string; accountId?: string }) =>
       ipcRenderer.invoke('desktop:provider-login-start', provider, opts),
