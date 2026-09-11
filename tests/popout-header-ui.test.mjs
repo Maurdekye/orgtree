@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { build } from 'esbuild'
-import { JSDOM } from 'jsdom'
+import { JSDOM, VirtualConsole } from 'jsdom'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createRequire } from 'node:module'
@@ -63,8 +63,17 @@ const byLabel = (doc, label) => doc.querySelector(`[aria-label="${label}"]`)
  *  real second document, so anything adopted into it genuinely leaves the main
  *  one - which is the whole question being asked here. */
 function stage() {
-  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/' })
-  const child = new JSDOM('<html><head></head><body></body></html>', { url: 'http://localhost/' })
+  // Nothing may throw or report an error unnoticed: a green test that printed
+  // an uncaught TypeError is how the import order above came to light.
+  const problems = []
+  const watch = () => {
+    const console_ = new VirtualConsole()
+    console_.on('jsdomError', error => problems.push('uncaught: ' + error.message))
+    console_.on('error', (...args) => problems.push('console.error: ' + args.map(String).join(' ')))
+    return console_
+  }
+  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/', virtualConsole: watch() })
+  const child = new JSDOM('<html><head></head><body></body></html>', { url: 'http://localhost/', virtualConsole: watch() })
   globalThis.window = dom.window
   globalThis.document = dom.window.document
   globalThis.localStorage = dom.window.localStorage
@@ -76,6 +85,15 @@ function stage() {
   for (const view of [dom.window, cw]) {
     view.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} }
     view.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+    // react-dom decides once, when it is imported, whether this environment
+    // supports input events; imported before any document exists - which is
+    // what an ESM test file does - it concludes not, and watches a focused
+    // field the IE way instead. jsdom has no attachEvent, so that path threw on
+    // every composer focus while the suite still went green. These are the
+    // compatibility methods it expects, doing what the modern path does here:
+    // nothing this test observes.
+    view.Element.prototype.attachEvent ??= function () {}
+    view.Element.prototype.detachEvent ??= function () {}
   }
   globalThis.ResizeObserver = dom.window.ResizeObserver
   dom.window.open = () => cw
@@ -96,7 +114,11 @@ function stage() {
     /** Adopting a surface back home re-parents real DOM and then re-renders;
      *  one more flushed tick lets that second pass land. */
     settle: () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) }),
-    teardown: async () => { await act(async () => rootNode.unmount()); child.window.close(); dom.window.close() },
+    teardown: async () => {
+      await act(async () => rootNode.unmount())
+      child.window.close(); dom.window.close()
+      assert.deepEqual(problems, [], 'the run must not leave errors behind, reported or uncaught')
+    },
   }
 }
 
