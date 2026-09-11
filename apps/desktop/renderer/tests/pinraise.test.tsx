@@ -20,14 +20,17 @@
 // file mounts the REAL PinLayer -> PinWindow -> DeskChat, and presses on the
 // real `.msgs` transcript, which is the element the wall actually matches.
 //
-// Watched fail (mutate-pinraise.py in the author's scratch drives these):
-//   raise back on the bubble phase, or deleted        §1 §2 §3
-//   the keyboard-only click leg deleted               §4
-//   that leg ungated, so a mouse press raises twice   §2
-//   `raise()` put back inside `begin()`               §5 §6
-//   the resize frame's own capture raise deleted      §6
-//   raise made a no-op                                all six
-// No two mutations are caught by the same set, so no check here is redundant.
+// Watched fail — eight mutations of pins.tsx, and which checks caught each:
+//   raise back on the bubble phase (the shipped defect)  §1 §2 §3 §5
+//   the capture-phase raise deleted outright             §1 §2 §3 §5
+//   the keyboard-only click leg deleted                  §4 alone
+//   that leg ungated, so a mouse press raises twice      §2 §5
+//   the redundant second registry bump restored          §2 §5 §6
+//   `raise()` put back inside `begin()`                  §5 §6
+//   the sibling resize frame's own capture raise gone    §6 alone
+//   raise made a no-op                                   all six
+// §4 and §6 are each the only catcher of one mutation, and no check here is
+// idle. The harness that drives this lives in the author's scratch, not here.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs pinraise
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
