@@ -136,6 +136,16 @@ test('§0 the pass itself: repeats collapse, unknowns never do', () => {
   const b = d.list([{ id: 'y' }, { id: 'z' }], (r) => r.id)
   assert.deepEqual(a.map((r) => r.id), ['x', 'y'])
   assert.deepEqual(b.map((r) => r.id), ['z'], 'y was already drawn by the first list')
+  // WITHIN one list: first position, newest content
+  const d2 = eventDedup()
+  const merged = d2.list(
+    [{ id: 'p', v: 'stale' }, { id: 'q', v: 'other' }, { id: 'p', v: 'fresh' }],
+    (r) => r.id)
+  assert.deepEqual(merged, [{ id: 'p', v: 'fresh' }, { id: 'q', v: 'other' }],
+    'the later snapshot renders, in the earlier one’s place')
+  // ACROSS lists: the earlier list wins outright, content and all
+  assert.deepEqual(d2.list([{ id: 'p', v: 'from a later source' }], (r) => r.id), [],
+    'a second list never overwrites what the first already drew')
   // and two passes never see each other
   assert.equal(eventDedup().keep('x'), true)
 })
@@ -302,6 +312,76 @@ domTest('§7 scrollback across a mid-history renumber: the store doubles, the vi
     assert.equal(says(el, 'row 12'), 1, 'the doubled message is on screen once')
     assert.equal(says(el, 'row 13'), 1, 'its neighbours are untouched')
     assert.equal(says(el, 'row 11'), 1)
+  })
+
+domTest('§7b the surviving copy is the FRESH one: a stale scrollback snapshot never pins old content',
+  async ({ ND, s, sink, mount }) => {
+    // coordinator-astra review 2026-09-11: §7 proved the duplicate is removed,
+    // but not WHICH copy survives. The retained scrollback copy is joined
+    // AHEAD of the fresh window, so keeping the first copy outright would pin
+    // the older snapshot and hide text and tool results that landed since.
+    // Same real-store path as §7 — the only difference is that the fresh copy
+    // has moved on while the retained one has not.
+    s.cursorPages = true
+    for (let i = 0; i < 20; i++) row(s, `row ${i}`, `e${i}`)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await advance(100)
+    await inAct(() => { assert.equal(loadOlder(SL, ND, 8), true) })
+    await advance(100)
+    const retained = sink.at(-1)!.chat!.messages.find((m) => m.event_id === 'e12')!
+    assert.equal(retained.text, 'row 12', 'fixture: the retained snapshot says the old text')
+    assert.equal(retained.tools, undefined, 'fixture: and carries no tool yet')
+
+    await inAct(async () => {
+      // the row moves on server-side: its text completes and a tool lands
+      const fresh = s.messages.find((m) => m.event_id === 'e12')!
+      fresh.text = 'row 12, finished and revised'
+      fresh.tools = [{ id: 't-12', name: 'Bash', arg: 'the late tool result',
+        event_id: 'tool-evt-12' }] as never
+      // …and a row lands earlier in history, shifting every later seq by one,
+      // which is what makes the retained copy reappear under a new seq
+      for (const m of s.messages) m.seq = (m.seq ?? 0) + 1
+      s.messages.unshift({ role: 'user', text: 'the interleaved steer', seq: 0,
+        ts: new Date(Date.now()).toISOString(), event_id: 'e-steer' } as ChatMessage)
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+
+    const held = sink.at(-1)!.chat!.messages.filter((m) => m.event_id === 'e12')
+    assert.equal(held.length, 2, 'fixture: the store holds both snapshots')
+    assert.deepEqual(held.map((m) => m.text).sort(),
+      ['row 12', 'row 12, finished and revised'].sort(),
+      'fixture: and they genuinely DIFFER — one stale, one fresh')
+
+    const ids = rowIds(el)
+    assert.deepEqual(dup(ids), [], `still no id renders twice (${ids.join(',')})`)
+    assert.equal(says(el, 'row 12, finished and revised'), 1,
+      'the FRESH text is what renders')
+    assert.equal(says(el, 'the late tool result'), 1,
+      'and the tool result that landed after the stale snapshot is on screen')
+    assert.equal(el.querySelectorAll('.tchip').length, 1, 'exactly one chip')
+    // …at the position the reader already expects the row, not moved down
+    assert.equal(ids.indexOf('e12'), ids.indexOf('e11') + 1,
+      'and it is still between its neighbours')
+    assert.equal(ids.indexOf('e13'), ids.indexOf('e12') + 1)
+  })
+
+domTest('§7c across lists the EARLIER source still wins: a truncated live twin never overwrites',
+  async ({ ND, s, sink, mount }) => {
+    // the other half of the §7b rule, and its guard against over-correcting:
+    // "newest copy wins" is true WITHIN one list (two snapshots of one row),
+    // and false ACROSS lists (two sources, one of them deliberately cut).
+    // ⚠ same declared-inert caveat as §5 — no backend path stamps a durable
+    // id on a live row today.
+    row(s, 'the whole durable answer, every word of it', 'e-same')
+    s.live.push({ kind: 'text', text: 'the whole durable answ',
+      truncated: true, event_id: 'e-same', n: 1 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.equal(says(el, 'the whole durable answer, every word of it'), 1)
+    assert.equal(liveIds(el).length, 0, 'the live twin is gone, not promoted')
+    assert.equal(says(el, '✂'), 0, 'no truncation marker — the whole text survived')
   })
 
 // ================================================================ per view

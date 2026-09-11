@@ -1708,12 +1708,19 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // would let one window blank a row in the other), and two nodes never see
   // each other's ids at all.
   //
-  // FIRST OCCURRENCE WINS, which is why the order below matters and matches
-  // the JSX: the durable transcript is drawn above the live tail, and the
-  // live copy is the one the server truncates — so keeping the earlier row
-  // keeps the richer text and its position, and a row that later grows
-  // (streaming text, a tool result landing) keeps growing in place because
-  // it is the survivor, not the casualty.
+  // SUPPRESSING A ROW MUST NEVER SUPPRESS ITS CONTENT (coordinator-astra
+  // review, 2026-09-11). Two rules, and the order below matters because it is
+  // what tells them apart — it matches the JSX exactly:
+  //   · WITHIN one list the LAST copy's content renders at the FIRST copy's
+  //     POSITION. Two entries for one event in one list are two SNAPSHOTS of
+  //     one row, and the later one is the newer read — `refreshConvo` joins
+  //     retained scrollback AHEAD of the fresh window, so first-wins would
+  //     pin a stale copy and hide text and tool results that landed since.
+  //   · ACROSS lists the earlier list wins OUTRIGHT: the durable transcript
+  //     is drawn above the live tail and the live copy is the truncated one,
+  //     so taking the later source there would trade whole text for cut.
+  // Nothing is cached between renders either way, so a row that grows keeps
+  // growing — it is the survivor, not the casualty.
   //
   // A row with NO id is never collapsed — missing is "unknown", not "same".
   // Nothing here compares text: two events that say the same words are two

@@ -12,6 +12,23 @@
 //
 //     within ONE view, one stable event id renders at most once.
 //
+// ⚠ SUPPRESSING A ROW MUST NEVER SUPPRESS ITS CONTENT. That is the whole
+// difficulty, and it decides the two rules below (coordinator-astra review,
+// 2026-09-11: an earlier draft kept the first copy outright, which pinned a
+// STALE scrollback snapshot in front of a fresher same-id row and hid text and
+// tool results that had landed since).
+//
+//   · WITHIN one list, the LAST copy's content renders at the FIRST copy's
+//     POSITION. Two entries for one event in one list are two SNAPSHOTS of one
+//     row — the later one is the newer read (see the scrollback join in
+//     `refreshConvo`, which puts retained rows ahead of the fresh window) — so
+//     the newer content wins, in the place the reader already expects the row.
+//   · ACROSS lists, the earlier list wins OUTRIGHT. Lists are different
+//     SOURCES with a known precedence, not snapshots of each other: the
+//     durable transcript is drawn above the live tail, and the live copy is
+//     the one the server truncates (`LiveRow.truncated`, capped at 2000
+//     chars). Taking the later source there would trade whole text for cut.
+//
 // What it deliberately is NOT:
 //   · NOT text matching. Two different events that happen to say the same
 //     words are two events, and both render. (The server-side live sweep
@@ -23,45 +40,66 @@
 //   · NOT an identity guess. A row with NO id is NEVER collapsed. Missing is
 //     "unknown", not "same as the last unknown"; collapsing those would drop
 //     genuine messages from any legacy or id-less path.
-//   · NOT a merge. The FIRST occurrence in render order wins and later ones
-//     are dropped, so the row keeps its position and whatever the earlier list
-//     holds — which is the richer copy by construction, because the durable
-//     transcript renders above the live tail and the live copy is the one the
-//     server truncates (LiveRow.truncated, capped at 2000 chars).
+//   · NOT stateful across renders. Nothing is cached between passes, so a row
+//     that grows — streaming text, a tool result landing — keeps growing.
 //
 // Ids are compared as opaque strings and never parsed: transcript rows carry
 // the server's `_stable_event_id` (a provider id, or a content hash), live
 // rows carry `live:<boot>:<slug>:<node>:<n>`, transient rows carry a
-// reply_events id. Those are different namespaces on purpose — see
-// docs/dedup notes in the commit message for which overlaps this therefore
-// can and cannot catch.
+// reply_events id. Those are different namespaces on purpose — see the commit
+// message for which overlaps this therefore can and cannot catch.
 
 /** A single render pass's "already shown" set. Make one per render, feed every
  *  message list through it in the order those lists appear on screen. */
 export interface EventDedup {
   /** May a row with this id render? Records the id when it may. */
   keep(id: unknown): boolean
-  /** `rows` with every repeat of an already-shown id removed. */
+  /** `rows` with each id rendered once: at its FIRST position in this list,
+   *  carrying the content of its LAST copy in this list, and omitted entirely
+   *  if an earlier list already drew it. */
   list<T>(rows: readonly T[], idOf: (row: T) => unknown): T[]
   /** how many rows this pass has suppressed — for tests and diagnostics */
   readonly dropped: number
 }
 
+/** a readable id, or null for anything that is not an identity */
+function ident(id: unknown): string | null {
+  return typeof id === 'string' && id ? id : null
+}
+
 export function eventDedup(): EventDedup {
   const seen = new Set<string>()
   let dropped = 0
-  const guard = {
+  const guard: EventDedup = {
     keep(id: unknown): boolean {
       // An id we cannot read is not an identity. Render it.
-      if (typeof id !== 'string' || !id) return true
-      if (seen.has(id)) { dropped++; return false }
-      seen.add(id)
+      const key = ident(id)
+      if (key === null) return true
+      if (seen.has(key)) { dropped++; return false }
+      seen.add(key)
       return true
     },
     list<T>(rows: readonly T[], idOf: (row: T) => unknown): T[] {
-      // `filter` rather than a copy-on-write: the common case is no duplicate
-      // at all, and returning the same-length array keeps the render cheap.
-      return rows.filter((row) => guard.keep(idOf(row)))
+      // Index the repeats FIRST, so the copy that renders is the freshest
+      // snapshot this list holds rather than whichever one came first. The map
+      // is allocated only when a repeat actually exists — the ordinary render
+      // has none, and must not pay for the rare one.
+      let newest: Map<string, T> | null = null
+      const within = new Set<string>()
+      for (const row of rows) {
+        const key = ident(idOf(row))
+        if (key === null) continue
+        if (within.has(key)) (newest ??= new Map()).set(key, row)
+        else within.add(key)
+      }
+      const out: T[] = []
+      for (const row of rows) {
+        const key = ident(idOf(row))
+        if (key === null) { out.push(row); continue }   // no id, never collapsed
+        if (!guard.keep(key)) continue                  // an earlier list drew it
+        out.push(newest?.get(key) ?? row)               // first place, newest content
+      }
+      return out
     },
     get dropped() { return dropped },
   }
