@@ -1663,8 +1663,22 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {/* FR-03: presented documents pop out the card's side as square icon
           chips — click opens the in-page reader. Not at desk zoom (the desk
           HEADER carries titled doc badges instead — world-scaled side chips
-          blow up) and not on pile fronts (the side is the stack). */}
-      {!focused && !pile && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
+          blow up) and not on pile fronts (the side is the stack).
+          ⚠ AND NOT AT MINI (user 2026-09-11: "dont make any cards in agents
+          when zoomed out clickable"). These are the only cards left inside a
+          far-zoom card: the shortcut row, the badge row and the hire chips
+          were all unmounted at `mini` already, each for the same reason and
+          on this same threshold — a screen-constant control on an
+          ever-smaller card swallows the click that focuses the agent,
+          because `PresentationCard` stops the pointerdown and so starves the
+          drag-end → centerOn path. Unmounted rather than merely inert, for
+          the same reason as its three siblings: there is then no hit target,
+          no tab stop, no context menu and nothing that looks clickable but
+          is not. They return at `norm`. Pinned desks and the open desk are
+          untouched — neither is a far-zoom surface, and neither receives
+          `lod` at all. */}
+      {!focused && !pile && lod !== 'mini'
+        && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
         <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
       )}
       {/* F-03: side chips hire a COWORKER — same superior, landing on that
