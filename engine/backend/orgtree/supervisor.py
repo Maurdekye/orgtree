@@ -27585,6 +27585,19 @@ def _import_recovery_hold(org: Org, nid: str, inf: Any) -> bool:
         return True
     if not isinstance(inf, dict):
         return False
+    # IDENTITY, NOT PROSE. A marker carries the instant its turn started, so
+    # two markers are the same turn exactly when their stamps match — and a
+    # later turn that repeats an earlier prompt word for word is still a later
+    # turn, which comparing text alone would hold for ever (reviewer,
+    # 2026-09-11). The stamp also survives the import's own rewrite of the
+    # marker text ("[V1 COPY IMPORT] …", desktop_import), which is the same
+    # two markers disagreeing in the other direction.
+    retained_at = str(retained.get("at") or "")
+    marker_at = str(inf.get("at") or "")
+    if retained_at and marker_at:
+        return retained_at == marker_at
+    # One side carries no stamp — the native-hold transfer writes a marker
+    # without one — so the text is all the identity there is.
     return str(inf.get("text") or "") == str(retained.get("text") or "")
 
 
@@ -27689,6 +27702,14 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # where they left off (user ruling) — the interrupted turn text was
         # persisted at turn start
         inflight = []
+        # Which of those seats the RECOVERY observer owns. It is
+        # desktop_recovery's callback and it looks each node up in
+        # `recovery_attempts`, which only ever holds the imported agents — so
+        # handing it an ordinary node raised KeyError out of the whole pass,
+        # after every marker had already been taken. Measured 2026-09-11: an
+        # operator pressing resume-import while any ordinary agent was
+        # mid-turn lost that agent's turn outright.
+        recovery_seats: set[str] = set()
         dropped_cmd = False
         for nid, n in org.nodes.items():
             if recovery_observer is None and (
@@ -27702,6 +27723,9 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 # text) — a lost command is dropped, not degraded (review)
                 if inf and not inf.get("cmd"):
                     inflight.append((nid, inf))
+                    if recovery_observer is not None \
+                            and _import_recovery_unsettled(org, nid):
+                        recovery_seats.add(nid)
                 elif inf:
                     # ⚠ the pop above is IN MEMORY. Saving only when something
                     # is replayable meant an org whose only in-flight turn was
@@ -27778,26 +27802,62 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                   and not (recovery_observer is None
                            and _import_recovery_unsettled(org, nid))
                   and org.waking_mail(nid)]
-    for nid, inf in inflight:
-        print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
-        if recovery_observer:
-            recovery_observer(nid,'before')
-        try:
-            recovery_result = send_message(slug, nid,
-                     "[ORGTREE RESTART] orgtree shut down while you were mid-turn "
-                     "and is back up. The message that drove your interrupted "
-                     "turn is repeated below — you may have already completed "
-                     "part of it; check your recent work and CONTINUE from where "
-                     "you left off (do not redo finished steps).\n\n"
-                     + (inf.get("text") or ""),
-                     view=(str(inf.get("view") or "") if "view" in inf
-                           else str(inf.get("text") or "")))
-        except Exception:
-            if recovery_observer:
-                recovery_observer(nid,'error')
-            raise
-        if recovery_observer:
-            recovery_observer(nid,'result',recovery_result)
+    dispatched = 0
+    try:
+        for nid, inf in inflight:
+            print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
+            observer = recovery_observer if nid in recovery_seats else None
+            if observer:
+                observer(nid,'before')
+            try:
+                recovery_result = send_message(slug, nid,
+                         "[ORGTREE RESTART] orgtree shut down while you were mid-turn "
+                         "and is back up. The message that drove your interrupted "
+                         "turn is repeated below — you may have already completed "
+                         "part of it; check your recent work and CONTINUE from where "
+                         "you left off (do not redo finished steps).\n\n"
+                         + (inf.get("text") or ""),
+                         view=(str(inf.get("view") or "") if "view" in inf
+                               else str(inf.get("text") or "")))
+            except Exception:
+                if observer:
+                    observer(nid,'error')
+                raise
+            # THE TURN HAS BEEN HANDED OVER: this marker is spent, whatever
+            # happens next. Counted BEFORE the result observer on purpose —
+            # that observer writes to storage and can raise (a failed write,
+            # a recovery row that moved under it), and treating an ACCEPTED
+            # turn as undispatched would put its marker back and replay it
+            # at the next restart (reviewer, 2026-09-11). A REFUSAL is not
+            # an exception — send_message returns a dict saying so — and it
+            # spends the marker here exactly as it always has.
+            dispatched += 1
+            if observer:
+                observer(nid,'result',recovery_result)
+    finally:
+        # A MARKER IS SPENT BY ITS DISPATCH, NOT BY BEING READ. They are all
+        # taken under the lock above so the doc is consistent while this loop
+        # runs outside it; whatever the loop never reached — because an
+        # earlier seat's admission raised — goes back, and the next restart
+        # still has it. A node that has since started a new turn owns its
+        # own marker and must not be overwritten — and `inflight` is a key
+        # that legitimately holds None (a reseeded bearer), so the test is
+        # the VALUE, never the key's presence.
+        # (A COMMAND marker is deliberately absent from this list: dropping
+        # one is the honest outcome, see the drop above.)
+        undispatched = inflight[dispatched:]
+        if undispatched:
+            with store.DOC_LOCK:
+                back = store.load_org(slug)
+                restored = []
+                for nid, inf in undispatched:
+                    if nid in back.nodes and not back.node(nid).get("inflight"):
+                        back.node(nid)["inflight"] = inf
+                        restored.append(nid)
+                if restored:
+                    store.save_org(back)
+                    print(f"[orgtree] {slug}: restored {len(restored)} "
+                          f"undispatched turn marker(s): {restored}")
     for nid in ([] if active_only else revive):
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,

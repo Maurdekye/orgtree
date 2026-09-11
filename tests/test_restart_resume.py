@@ -46,23 +46,28 @@ class RestartResumeTests(unittest.TestCase):
 
     # ------------------------------------------------------------- fixtures
     def seed(self, slug, *, imported_marker='a turn started after the import',
-             unresolved=True):
+             imported_marker_at='2026-09-11T11:38:30.101Z',
+             retained_text=RETAINED, retained_at=None, unresolved=True):
         """An org shaped like the user's: ordinary agents mid-turn, plus an
         IMPORTED agent whose retained intent the operator never settled."""
         SLUGS.append(slug)
         org = store.create_org(slug)
         for nid in ('worker', 'other', 'imported', 'idle', 'mailed'):
             org.hire(ledger.USER, None, 'haiku', 0, nid)
-        org.node('worker')['inflight'] = {'at': '2026-09-11T11:37:45Z',
+        org.node('worker')['inflight'] = {'at': '2026-09-11T11:37:45.001Z',
                                           'text': 'worker original',
                                           'view': 'worker view'}
-        org.node('other')['inflight'] = {'at': '2026-09-11T11:38:08Z',
+        org.node('other')['inflight'] = {'at': '2026-09-11T11:38:08.002Z',
                                          'text': 'other original',
                                          'view': 'other view'}
         if imported_marker is not None:
-            org.node('imported')['inflight'] = {'at': '2026-09-11T11:38:30Z',
-                                                'text': imported_marker,
-                                                'view': 'imported view'}
+            marker = {'text': imported_marker, 'view': 'imported view'}
+            if imported_marker_at:
+                marker['at'] = imported_marker_at
+            org.node('imported')['inflight'] = marker
+        retained = {'text': retained_text, 'view': retained_text}
+        if retained_at:
+            retained['at'] = retained_at
         org.post_mail(ledger.USER, 'mailed', 'mail that waited across the restart')
         org.d['desktop_import'] = {
             'source_root': 'C:/old-install',
@@ -71,7 +76,7 @@ class RestartResumeTests(unittest.TestCase):
             'recovery_attempts': {
                 'imported': {'node': 'imported', 'attempt': 'a1',
                              'phase': 'not-dispatched',
-                             'intent': {'text': RETAINED, 'view': RETAINED}},
+                             'intent': retained},
                 # the row that makes the flag unsettleable: an agent that was
                 # archived after the import keeps its 'uncertain' phase for
                 # good, so `recovery_pending` never goes back to False
@@ -149,6 +154,28 @@ class RestartResumeTests(unittest.TestCase):
         self.assertEqual(saved.node('imported')['inflight']['text'],
                          'a turn started after the import')
 
+    def test_the_marker_stamp_identifies_the_turn_not_its_prose(self):
+        """Two markers are the same turn when their stamps match. Comparing
+        the text instead would hold a later turn that happens to repeat an
+        earlier prompt FOR EVER, which is the failure this whole item is
+        about (reviewer, 2026-09-11)."""
+        stamp = '2026-09-10T21:00:35.880Z'
+        # (a) same words, later turn — it is a LATER TURN and it must resume
+        self.seed('repeat', retained_at=stamp, imported_marker=RETAINED,
+                  imported_marker_at='2026-09-11T11:38:30.101Z')
+        driven = []
+        self.run_startup('repeat', driven)
+        self.assertIn('imported', [n for n, _, _ in driven])
+        # (b) same turn, different words — the import rewrites a marker's text
+        # itself ("[V1 COPY IMPORT] …", desktop_import), so the stamp decides
+        self.seed('rewritten', retained_at=stamp,
+                  imported_marker='[V1 COPY IMPORT] ' + RETAINED,
+                  imported_marker_at=stamp)
+        driven = []
+        saved = self.run_startup('rewritten', driven)
+        self.assertEqual(sorted(n for n, _, _ in driven), ['other', 'worker'])
+        self.assertEqual(saved.node('imported')['inflight']['at'], stamp)
+
     def test_a_settled_import_stops_holding_its_agent(self):
         org = self.seed('settled', imported_marker=RETAINED)
         org.d['desktop_import']['recovery_attempts']['imported']['phase'] = 'handled'
@@ -224,7 +251,128 @@ class RestartResumeTests(unittest.TestCase):
         self.assertEqual(saved.node('idle')['state'], 'unrecoverable')
         self.assertEqual(saved.node('imported')['state'], 'live')
 
-    # ------------------- §8 the sweep judges only the store it can actually read
+    # ----- §8 the operator's resume button, with an ordinary agent mid-turn
+    def mixed(self, slug):
+        """One IMPORTED node holding the retained intent, one ORDINARY node
+        mid-turn. `imported` is hired first, so it dispatches first."""
+        SLUGS.append(slug)
+        org = store.create_org(slug)
+        for nid in ('imported', 'ordinary'):
+            org.hire(ledger.USER, None, 'haiku', 0, nid)
+        org.node('imported')['inflight'] = {'at': '2026-09-08T17:35:00.000Z',
+                                            'text': RETAINED, 'view': 'im'}
+        org.node('ordinary')['inflight'] = {'at': '2026-09-11T11:38:08.002Z',
+                                            'text': "an ordinary agent's turn",
+                                            'view': 'ord'}
+        org.d['desktop_import'] = {'active_nodes': ['imported'],
+                                   'recovery_pending': True}
+        store.save_org(org)
+        return org
+
+    def test_resume_import_drives_both_and_observes_only_the_imported_node(self):
+        self.mixed('mixed')
+        seen, driven = [], []
+        real_observe = desktop_recovery._observe
+
+        def observe(slug, nid, stage, result=None):
+            seen.append((nid, stage))
+            return real_observe(slug, nid, stage, result)
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, 'send_message',
+                          side_effect=lambda s, n, t, **k: (
+                              driven.append((n, t)),
+                              {'accepted': True, 'queued': 0})[1]), \
+             patch.object(desktop_recovery, '_observe', side_effect=observe):
+            result = desktop_recovery.resume_import('mixed')
+        # the observer belongs to the imported agent alone — handing it the
+        # ordinary one raised KeyError out of the whole pass, after every
+        # marker had already been taken
+        self.assertEqual({nid for nid, _ in seen}, {'imported'})
+        self.assertEqual([n for n, _ in driven], ['imported', 'ordinary'])
+        self.assertEqual(result['pending'], [])
+        store._POOL.close_all('mixed')
+        saved = store.load_org('mixed')
+        for nid in ('imported', 'ordinary'):
+            self.assertIsNone(saved.node(nid).get('inflight'), nid)
+
+    def test_a_marker_is_never_spent_by_a_dispatch_that_did_not_happen(self):
+        self.mixed('aborted')
+        driven = []
+
+        def drive(s, nid, text, **kw):
+            driven.append(nid)
+            raise RuntimeError('admission rejected')
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, 'send_message', side_effect=drive):
+            with self.assertRaises(RuntimeError):
+                desktop_recovery.resume_import('aborted')
+        self.assertEqual(driven, ['imported'])     # it never reached 'ordinary'
+        store._POOL.close_all('aborted')
+        saved = store.load_org('aborted')
+        # the turn nobody dispatched is still there for the next restart...
+        self.assertEqual(saved.node('ordinary')['inflight']['text'],
+                         "an ordinary agent's turn")
+        # ...and the imported agent's intent is retained the way it always was
+        self.assertEqual(
+            saved.d['desktop_import']['recovery_intents']['imported']['text'],
+            RETAINED)
+
+    def test_an_accepted_turn_stays_spent_when_its_result_observer_raises(self):
+        """The observer writes to storage after the turn has been handed over,
+        so it can raise on a turn that WAS accepted. Counting the dispatch
+        after it would put that marker back and replay the turn at the next
+        restart (reviewer, 2026-09-11) — while the seat the loop never reached
+        would keep its marker. One boundary decides both."""
+        self.mixed('late-error')
+        driven = []
+        real_observe = desktop_recovery._observe
+
+        def observe(slug, nid, stage, result=None):
+            if stage == 'result':
+                raise RuntimeError('the recovery row moved under us')
+            return real_observe(slug, nid, stage, result)
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, 'send_message',
+                          side_effect=lambda s, n, t, **k: (
+                              driven.append(n),
+                              {'accepted': True, 'queued': 0})[1]), \
+             patch.object(desktop_recovery, '_observe', side_effect=observe):
+            with self.assertRaises(RuntimeError):
+                desktop_recovery.resume_import('late-error')
+        self.assertEqual(driven, ['imported'])
+        store._POOL.close_all('late-error')
+        saved = store.load_org('late-error')
+        # accepted -> spent, even though the bookkeeping after it blew up
+        self.assertIsNone(saved.node('imported').get('inflight'))
+        # never reached -> still there for the next restart
+        self.assertEqual(saved.node('ordinary')['inflight']['text'],
+                         "an ordinary agent's turn")
+
+    def test_a_restored_marker_never_overwrites_a_turn_that_started_since(self):
+        self.mixed('overtaken')
+        fresh = {'at': '2026-09-11T12:00:00.000Z', 'text': 'a brand new turn'}
+
+        def drive(s, nid, text, **kw):
+            # the ordinary node starts a new turn while this pass is still
+            # dispatching, and then the imported seat's admission fails
+            with store.DOC_LOCK:
+                live = store.load_org('overtaken')
+                live.node('ordinary')['inflight'] = dict(fresh)
+                store.save_org(live)
+            raise RuntimeError('admission rejected')
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, 'send_message', side_effect=drive):
+            with self.assertRaises(RuntimeError):
+                desktop_recovery.resume_import('overtaken')
+        store._POOL.close_all('overtaken')
+        saved = store.load_org('overtaken')
+        self.assertEqual(saved.node('ordinary')['inflight'], fresh)
+
+    # ------------------- §9 the sweep judges only the store it can actually read
     def test_a_foreign_lane_session_is_not_condemned_for_being_elsewhere(self):
         """`seen` is the claude/journal transcript index. A codex or
         antigravity session is never in it, so its absence says nothing —
