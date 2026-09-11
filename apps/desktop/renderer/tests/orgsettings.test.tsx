@@ -39,7 +39,7 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
   } as unknown as TreePayload
 }
 
-function stubFetch(seen: { method: string; path: string; body: unknown }[]) {
+function stubFetch(seen: { method: string; path: string; body: unknown }[], mcpServers?: string[]) {
   g.fetch = (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const method = init?.method ?? 'GET'
@@ -48,7 +48,8 @@ function stubFetch(seen: { method: string; path: string; body: unknown }[]) {
     const payload = path.startsWith('/api/orgs/acme/orgmd')
       ? { content: '# Acme\n' }
       : path.startsWith('/api/orgs/acme/net') ? { hubs: [], identity: null }
-        : {}
+        : path === '/api/mcp-servers' ? { servers: mcpServers ?? [], sandbox_mcp: false }
+          : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(payload),
@@ -321,3 +322,109 @@ test('account fallback org default starts off and toggles independently of auto-
   assert.ok(request)
   assert.deepEqual(request.body, { account_fallback_default: true })
 })
+
+test('⑦  Hire defaults displays current registered MCP servers while wildcard is checked and switches to checklist on uncheck', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  const registered = ['filesystem', 'github', 'memory']
+  stubFetch(seen, registered)
+  const { view } = await mountOrg()
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    // Checkbox is checked by default
+    const allBox = view.el.querySelector<HTMLInputElement>('input[aria-label="all registered MCP servers"]')
+    assert.ok(allBox, 'all registered MCP servers checkbox found')
+    assert.equal(allBox.checked, true)
+
+    // Current servers list is rendered
+    const currentList = view.el.querySelector('.hire-mcp-current')
+    assert.ok(currentList, '.hire-mcp-current container found')
+    const chips = [...currentList.querySelectorAll('.hire-mcp-tags .chip')].map((c) => c.textContent?.trim())
+    assert.deepEqual(chips, ['filesystem', 'github', 'memory'])
+
+    // Checklist is not rendered while wildcard is active (only 4 default tool checkboxes + 1 allMcp checkbox)
+    assert.equal(view.el.querySelectorAll('label.checkline input[type="checkbox"]').length, 5)
+
+    // Uncheck all registered servers
+    await inAct(async () => { allBox.click(); await flush(20) })
+    assert.equal(allBox.checked, false)
+
+    // .hire-mcp-current is hidden when wildcard is unchecked
+    assert.equal(view.el.querySelector('.hire-mcp-current'), null)
+
+    // McpChecklist is now visible with individual checkboxes
+    const checklines = [...view.el.querySelectorAll('label.checkline')]
+    const serverLabels = checklines.map((l) => l.querySelector('.mono')?.textContent?.trim()).filter(Boolean)
+    assert.deepEqual(serverLabels, ['filesystem', 'github', 'memory'])
+
+    // Check all registered servers back on
+    await inAct(async () => { allBox.click(); await flush(20) })
+    assert.equal(allBox.checked, true)
+    const chipsRestored = [...view.el.querySelectorAll('.hire-mcp-current .hire-mcp-tags .chip')].map((c) => c.textContent?.trim())
+    assert.deepEqual(chipsRestored, ['filesystem', 'github', 'memory'])
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑧  Hire defaults handles empty server list and updates when registered server set changes', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  let currentServers: string[] = []
+  g.fetch = (url: string, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    const method = init?.method ?? 'GET'
+    seen.push({ method, path,
+      body: init?.body ? JSON.parse(String(init.body)) : null })
+    const payload = path.startsWith('/api/orgs/acme/orgmd')
+      ? { content: '# Acme\n' }
+      : path.startsWith('/api/orgs/acme/net') ? { hubs: [], identity: null }
+        : path === '/api/mcp-servers' ? { servers: currentServers, sandbox_mcp: false }
+          : {}
+    return Promise.resolve({
+      ok: true, status: 200, headers: new Headers(),
+      json: () => Promise.resolve(payload),
+    })
+  }
+
+  const { view } = await mountOrg()
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    // Empty list: displays "currently registered: none"
+    const currentList = view.el.querySelector('.hire-mcp-current')
+    assert.ok(currentList, '.hire-mcp-current found')
+    assert.match(currentList.textContent ?? '', /currently registered:\s*none/)
+    assert.equal(currentList.querySelectorAll('.chip').length, 0)
+
+    // Server set changes externally and focus event triggers re-fetch
+    currentServers = ['fetch', 'sqlite']
+    await inAct(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await flush(20)
+    })
+
+    // Updated list is rendered
+    const updatedChips = [...view.el.querySelectorAll('.hire-mcp-current .hire-mcp-tags .chip')].map((c) => c.textContent?.trim())
+    assert.deepEqual(updatedChips, ['fetch', 'sqlite'])
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑨  Hire defaults renders long registered server lists in a scrollable container with chips', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  const manyServers = Array.from({ length: 30 }, (_, i) => `server-${i.toString().padStart(2, '0')}`)
+  stubFetch(seen, manyServers)
+  const { view } = await mountOrg()
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    const currentList = view.el.querySelector('.hire-mcp-current')
+    assert.ok(currentList, '.hire-mcp-current found')
+    const chips = [...currentList.querySelectorAll('.hire-mcp-tags .chip')]
+    assert.equal(chips.length, 30)
+    assert.equal(chips[0]?.textContent?.trim(), 'server-00')
+    assert.equal(chips[29]?.textContent?.trim(), 'server-29')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+

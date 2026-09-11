@@ -274,6 +274,7 @@ interface HireDefaultsTabProps {
   setPm: (v: string) => void
   dirs: DirGrant[]
   setDirs: (v: DirGrant[]) => void
+  servers?: string[]
 }
 
 /** the org's folder holdings as the server reports them, workspace excluded
@@ -292,18 +293,68 @@ export const orgDefaultTools = (tree: TreePayload): ToolGrant => ({
   mcp: [...(tree.default_tools?.mcp ?? ['*'])],
 })
 
+export function McpCurrentServers({ servers, sandboxed, sandboxMcp }: {
+  servers: string[]
+  sandboxed?: boolean
+  sandboxMcp?: boolean
+}) {
+  const dead = !!sandboxed && !sandboxMcp
+  return (
+    <div className="hire-mcp-current">
+      <span className="hire-mcp-current-label">
+        {servers.length === 0
+          ? 'currently registered: none'
+          : 'currently registered:'}
+      </span>
+      {dead && servers.length > 0 && (
+        <div className="hint">
+          sandboxed org — MCP servers are external contact points the sandbox restricts
+        </div>
+      )}
+      {servers.length > 0 && (
+        <div className="hire-mcp-tags" role="list" aria-label="currently registered MCP servers">
+          {servers.map((s) => (
+            <span key={s} className={'chip mono' + (dead ? ' dead' : '')} role="listitem"
+              title={dead ? 'unavailable in a sandboxed org' : undefined}>
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function HireDefaultsTab({ tree, slug, toast, close,
-  tools, setTools, vis, setVis, pm, setPm, dirs, setDirs }: HireDefaultsTabProps) {
+  tools, setTools, vis, setVis, pm, setPm, dirs, setDirs,
+  servers: propServers }: HireDefaultsTabProps) {
   const pub = !!tree.public
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
-  const [servers, setServers] = useState<string[]>([])
+  const [servers, setServers] = useState<string[]>(propServers ?? [])
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
   useEffect(() => {
-    getMcpServers().then((r) => {
-      setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
-    }).catch(() => {})
-  }, [])
+    if (propServers !== undefined) {
+      setServers(propServers)
+    }
+  }, [propServers])
+  useEffect(() => {
+    let active = true
+    const fetchServers = () => {
+      getMcpServers().then((r) => {
+        if (!active) return
+        setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
+      }).catch(() => {})
+    }
+    if (propServers === undefined) {
+      fetchServers()
+    }
+    window.addEventListener('focus', fetchServers)
+    return () => {
+      active = false
+      window.removeEventListener('focus', fetchServers)
+    }
+  }, [propServers])
   const allMcp = tools.mcp.includes('*')
   return (
     <>
@@ -374,6 +425,10 @@ export function HireDefaultsTab({ tree, slug, toast, close,
                 ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
             all registered servers (current and future)
           </label>
+          {allMcp && !pub && (
+            <McpCurrentServers servers={servers}
+              sandboxed={!!tree.sandboxed} sandboxMcp={sandboxMcp} />
+          )}
           {!allMcp && !pub && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
             sandboxed={!!tree.sandboxed}
             checked={(s) => tools.mcp.includes(s)}
@@ -630,6 +685,9 @@ function McpChecklist({ servers, sandboxed, sandboxMcp, checked, onToggle }: Mcp
           restricts, so none reach its agents (the ORGTREE_SANDBOX_MCP env var
           enables URL/portable servers experimentally)
         </div>
+      )}
+      {servers.length === 0 && (
+        <div className="hint dim">none registered</div>
       )}
       {servers.map((s) => (
         <label className={'checkline' + (dead ? ' dead' : '')} key={s}
