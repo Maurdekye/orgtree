@@ -66,6 +66,7 @@ import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
 import { MailMessage } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
+import { eventDedup } from '../events/dedup'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
 import { isMobile } from '../mobile'
 import { fmtFull, fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
@@ -1695,6 +1696,43 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         .then(() => refresh(true))
         .catch((e: Error) => toast([`error: ${e.message}`]))} />
   )
+  // ── THE RENDER-BOUNDARY DUPLICATE GUARD ────────────────────────────────
+  // (user request 2026-09-11: "intermittent double messages persist" — a
+  // FINAL guard against a second rendered event with the same id, wanted
+  // whether or not the upstream producer of the duplicate is known.)
+  //
+  // Every list this desk draws passes through ONE pass, in the order the
+  // lists appear on screen, so an id already drawn above cannot be drawn
+  // again below. The pass is built fresh per render and never leaves this
+  // component: two desks on the same node dedup independently (a shared set
+  // would let one window blank a row in the other), and two nodes never see
+  // each other's ids at all.
+  //
+  // FIRST OCCURRENCE WINS, which is why the order below matters and matches
+  // the JSX: the durable transcript is drawn above the live tail, and the
+  // live copy is the one the server truncates — so keeping the earlier row
+  // keeps the richer text and its position, and a row that later grows
+  // (streaming text, a tool result landing) keeps growing in place because
+  // it is the survivor, not the casualty.
+  //
+  // A row with NO id is never collapsed — missing is "unknown", not "same".
+  // Nothing here compares text: two events that say the same words are two
+  // events and both render. See events/dedup.ts.
+  const dedup = eventDedup()
+  const viewMessages = dedup.list(chat?.messages ?? [], (m) => m.event_id)
+  const viewPendNow = dedup.list(pendNow, (m) => m.event_id)
+  const viewLive = dedup.list(live_feed, (r) => r.event_id)
+  const viewTransient = dedup.list(transient, (r) => r.event_id)
+  // the standalone thinking/draft marks are the SAME events as their transient
+  // rows, drawn when no transient row carries them. `keep` is reached only
+  // when the mark would actually render, so a suppressed mark never reserves
+  // an id nothing drew.
+  const thinkingMark = !transientThinking && thinkSecs !== null && !!chat?.busy
+    && dedup.keep(convo.thinkingEventId)
+  const draftMark = !transientDraft && !!draft && dedup.keep(convo.draftEventId)
+  const viewPendLater = dedup.list(pendLater, (m) => m.event_id)
+  // optimistic ghosts are deliberately NOT in this pass: they are client-minted
+  // and carry no event id at all, so there is nothing here to compare them by.
   useEffect(() => {
     if (!convo.loaded) void refreshConvo(slug, node.id)
   }, [slug, node.id, convo.loaded])
@@ -2314,9 +2352,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 <b className="mono">{prior.id}</b> (read it from the lineage panel)
               </div>) : null
           })()}
-          {chat?.messages.map((m, i) => {
+          {viewMessages.map((m, i) => {
             // №15: one dim divider per idle gap — never per-message timestamps
-            const prev = chat.messages[i - 1]
+            const prev = viewMessages[i - 1]
             const gapMs = prev?.ts && m.ts
               ? Date.parse(m.ts) - Date.parse(prev.ts) : 0
             return (
@@ -2360,11 +2398,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               app-server's start otherwise.
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
-          {pendNow.map(pendBubble)}
+          {viewPendNow.map(pendBubble)}
           {/* keyed on the server's row id (`n`), never the index: rows retire
               from the MIDDLE of this list as the transcript catches up, and an
               index key would rename every row below the one that left */}
-          {live_feed.map((f, i) => (
+          {viewLive.map((f, i) => (
             <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} data-reply-quote={f.text} onContextMenu={e => openReply(e, f)}>
             {f.kind === 'thought'
               ? <div key={f.n ?? 'f' + i} className="msg assistant live">
@@ -2404,7 +2442,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                     </div>
             }</div>
           ))}
-          {transient.map(row => <div key={row.event_id} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
+          {viewTransient.map(row => <div key={row.event_id} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
@@ -2421,7 +2459,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                   html={md(row.event_id === convo.draftEventId && draft ? draft : row.text,
                     fileBase(slug, node.id), row.role === 'assistant')} />}
           </div>)}
-          {!transientThinking && thinkSecs !== null && chat?.busy && <div className="reply-event"
+          {thinkingMark && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
             // haiku streams its reasoning: the text IS the indicator
             ? <div className="msg live thinking">{thinking}</div>
@@ -2431,7 +2469,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 <PsychologyIcon fontSize="inherit" />{' '}thinking…
                 {thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}
               </div>)}</div>}
-          {!transientDraft && draft && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
+          {draftMark && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
             onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
             html={md(draft, fileBase(slug, node.id), true)} /></div>}
@@ -2452,7 +2490,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               ⚠ Only the ones that are still WAITING render here, at the
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
-          {pendLater.map(pendBubble)}
+          {viewPendLater.map(pendBubble)}
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command
               and it got stuck as a permanently undelivered message that i
               cant cancel"). The durable pending bubbles above have carried a
@@ -2999,8 +3037,13 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                       // ⚠ `nid` here is the BEARER, used for file links only.
                       // It is NOT a destination — see `lineageDir`.
                       <AgentDirectoryProvider value={lineageDir}>
-                        {readChat.messages.slice(-80).map((m, i) => (
-                          <Msg key={i} m={m} slug={slug} nid={b.id} />))}
+                        {/* the same render-boundary duplicate guard the live
+                            desk runs, on its OWN pass: this is a different
+                            conversation (an archived generation's), so it must
+                            never share an id set with the desk above it. */}
+                        {eventDedup().list(readChat.messages.slice(-80), (m) => m.event_id)
+                          .map((m, i) => (
+                            <Msg key={m.event_id ?? i} m={m} slug={slug} nid={b.id} />))}
                       </AgentDirectoryProvider>
                     )
                     : <div className="dim pad">no transcript found</div>}
