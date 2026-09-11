@@ -56,7 +56,7 @@ import threading
 import time
 from typing import Any
 
-from . import limits, store, tokens
+from . import limits, store, subproxy, tokens
 
 REGISTRY_NAME = "accounts.json"
 VERSION = 2
@@ -100,9 +100,15 @@ def _pool_of(tier: str) -> tuple[str, ...]:
 
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 OAUTH_BETA = "oauth-2025-04-20"
-# console/api hosts sit behind a WAF that 403s a default urllib UA (Cloudflare
-# 1010). Identifying as the CLI is what this client id legitimately is.
-USER_AGENT = "claude-cli (external, cli)"
+# These hosts sit behind a WAF that 403s a default urllib UA (Cloudflare 1010).
+# ⚠ ONE CONSTANT, deliberately: this module learned that the hard way and
+# subproxy.py — which talks to the same edge — did not, so it spent weeks
+# reporting a bare `403 Forbidden` for every token refresh. The lesson now
+# lives in the lower module and is inherited rather than rediscovered, and the
+# identifier is an honest orgtree one: the edge blocklists known scripting
+# signatures rather than allowlisting known clients, so there is nothing to
+# impersonate (measured 2026-09-11 — see subproxy.USER_AGENT).
+USER_AGENT = subproxy.USER_AGENT
 
 
 # Resolved per call, never captured at import: `store.DATA_ROOT` is what the

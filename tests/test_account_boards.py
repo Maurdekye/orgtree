@@ -183,7 +183,14 @@ class BoardsTests(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "cl-u"), exist_ok=True)
         out3 = asyncio.run(self.api.accounts_usage(prof["id"]))
         self.assertFalse(out3["available"])  # no credentials file yet
-        self.assertIn("credentials", out3["error"])
+        # user ruling 2026-09-11: `error` is the sentence a PERSON reads and
+        # the technical line moved to `detail`. This row has no credentials
+        # file at all, which is a local observation and a real sign-in
+        # problem — so it says so, and says which kind of evidence it had.
+        self.assertIn("sign", out3["error"].lower())
+        self.assertIn("credentials", out3["detail"])
+        self.assertTrue(out3["reauth_required"])
+        self.assertEqual(out3["reauth_evidence"], "not_connected")
         cx = self.registry.create_account(
             "openai", "cx", {"kind": "managed",
                              "path": os.path.join(self.root, "cx-u")})

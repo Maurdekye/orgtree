@@ -12,23 +12,133 @@ the proxy share one copy and never drift.
 ⚠ Semi-documented surface: the refresh endpoint, the public client id, and
 OAuth-over-API acceptance (`anthropic-beta: oauth-2025-04-20` + Bearer) are
 what Claude Code itself does, not a published contract — expect an
-occasional patch when the CLI/API move.
+occasional patch when the CLI/API move. Two such drifts are why this module
+answered every refresh with a bare `403 Forbidden`: see TOKEN_URL and
+USER_AGENT. They are the same mistake twice — a fact the product had already
+learned elsewhere and did not carry here.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, cast
 
 CREDS = os.path.expanduser("~/.claude/.credentials.json")
-TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+# ⚠ THE HOST MOVED AND THE OLD ONE STILL ANSWERS — which is why this went
+# unnoticed. MEASURED 2026-09-11, credential-free, with a deliberately invalid
+# refresh token:
+#     POST https://console.anthropic.com/v1/oauth/token → 404 not_found_error
+#     POST https://platform.claude.com/v1/oauth/token   → 400 invalid_grant
+# The old host still resolves, terminates TLS and serves; it simply no longer
+# has this path. Both installed Claude Code builds (2.1.241, and 2.1.258 which
+# is the build this app launches) carry TOKEN_URL
+# "https://platform.claude.com/v1/oauth/token" and contain the string
+# "console.anthropic.com" ZERO times.
+TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"   # Claude Code's public client
+# ⚠ NOT COSMETIC — THIS HEADER IS LOAD-BEARING. The OAuth token host sits
+# behind an edge that answers urllib's DEFAULT User-Agent with `403 Forbidden`
+# and the body `error code: 1010` (a Cloudflare browser-signature ban). It
+# arrives BEFORE the OAuth server sees the request, so nothing has looked at
+# the refresh token and that "403" says nothing whatsoever about the login.
+#
+# MEASURED the same second against the same URL, one variable: no UA → 403
+# `error code: 1010`; `axios/1.7.9` → 400 invalid_grant; `orgtree-subproxy/
+# 2.0.4` → 400 invalid_grant; and a nonsense `zzqqxx/0.0.1` → 400 invalid_grant
+# too. So the edge BLOCKLISTS a known scripting signature rather than
+# allowlisting known clients: any honest identifier gets through, and this one
+# does not have to impersonate the CLI. The exact string is free to change;
+# having one at all is not.
+#
+# `accounts.py` hit this in its own call and fixed it there. The lesson never
+# reached this module, and that omission IS the 403 — so there is one constant
+# now, and the next caller inherits the answer instead of rediscovering it.
+USER_AGENT = "orgtree/2.0.4"
 _lock = threading.Lock()
+
+#: What the modal says when the failure is RECOVERABLE — nothing is wrong with
+#: the login, the readout just is not available right now, and an ordinary turn
+#: on this account makes the CLI mint a fresh token (user wording, 2026-09-11).
+#: ⚠ It must never be shown for a genuinely rejected credential: telling
+#: someone to "start a turn" when they are signed out sends them at a wall.
+RECOVERABLE_MESSAGE = ("Usage unavailable. Starting a turn on this account "
+                       "may refresh it.")
+#: …and when the credential really was refused, which a turn CANNOT fix.
+SIGNED_OUT_MESSAGE = ("This account is signed out. Sign in again with the "
+                      "Claude CLI to see usage.")
+
+#: Markers meaning SOMETHING IN FRONT OF the OAuth server refused to pass the
+#: request along — an edge block or a throttle. A response carrying one of
+#: these is not an opinion about the credential, however authoritative its
+#: status code looks. (limits.py keeps a near-identical pattern for throttle
+#: WINDOWS; the two are deliberately left separate — that one decides how long
+#: to stand down, this one decides whether anything judged the token.)
+_EDGE_REFUSAL = re.compile(
+    r"error code: *101[0-9]"      # Cloudflare WAF block page (1010 & neighbours)
+    r"|cf-error|cloudflare"
+    r"|rate[_ -]?limit|too many requests",
+    re.I)
+
+
+class RefreshError(RuntimeError):
+    """A refresh that produced no token, WITH its evidence still attached.
+
+    Subclasses `RuntimeError` on purpose: every existing caller catches that
+    and keeps working unchanged. What is new is that the failure now carries
+    its HTTP status and response body — the 403 this module reported was
+    diagnosed blind, because the body said `error code: 1010` the entire time
+    and nothing kept it.
+
+    `evidence` is the ONE fact a sign-in prompt may be keyed off, and it is
+    None for an edge block, a throttle, a moved endpoint or any transport
+    failure, because none of those looked at the token. `user_message` is what
+    a person reads; `str(self)` is the technical line and stays out of the
+    panel's headline (user ruling 2026-09-11).
+    """
+
+    def __init__(self, message: str, *, status: int | None = None,
+                 body: str = "",
+                 evidence: str | None = None,
+                 user_message: str | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
+        self.evidence = evidence
+        self.user_message = user_message or (
+            SIGNED_OUT_MESSAGE if evidence else RECOVERABLE_MESSAGE)
+
+    @property
+    def credential_rejected(self) -> bool:
+        return self.evidence is not None
+
+
+def _judged_credential(status: int, body: str) -> bool:
+    """Did the endpoint form an opinion about THIS REFRESH TOKEN?
+
+    ⚠ THE DISCRIMINATION IS THE WHOLE POINT, and it is what makes the status
+    honest. Signing in again fixes a rejected token and fixes nothing else —
+    so when the truth is "a WAF bounced us" or "we asked a host that no longer
+    serves this path", saying "sign in again" sends the user through a ritual
+    that cannot work and hides the real defect behind their apparent mistake.
+    That is exactly what this module did.
+
+    An OAuth `invalid_grant` is the endpoint answering about the token — it is
+    what this endpoint returns for a dead refresh token (measured). A bare
+    401/403 with no edge marker is too. Everything else — a 404, a 5xx, a 400
+    that is not `invalid_grant`, anything an edge stamped — is not.
+    """
+    if _EDGE_REFUSAL.search(body):
+        return False
+    if "invalid_grant" in body:
+        return True
+    return status in (401, 403)
 
 
 def available() -> bool:
@@ -73,36 +183,89 @@ def profile_access_token(profile_dir: str) -> str:
     return _access_token_at(os.path.join(profile_dir, ".credentials.json"))
 
 
+def _http_failure(e: urllib.error.HTTPError, refresh_token: str) -> RefreshError:
+    """Turn a refused refresh into an error that still carries its evidence.
+
+    ⚠ The body is read HERE and nowhere else, and only on the FAILURE path — a
+    successful token response is the one body that holds secrets. Even so the
+    refresh token is redacted out of what we keep, so an endpoint that echoes
+    the credential back at us cannot put it into a log line or a UI panel.
+    """
+    try:
+        raw = e.read()[:600].decode("utf-8", "replace")
+    except Exception:                                # noqa: BLE001
+        raw = ""
+    if refresh_token and refresh_token in raw:
+        raw = raw.replace(refresh_token, "<redacted>")
+    detail = " ".join(raw.split())
+    rejected = _judged_credential(e.code, detail)
+    msg = f"subscription token refresh failed: HTTP {e.code}"
+    if detail:
+        msg += f" — {detail}"
+    return RefreshError(
+        msg, status=e.code, body=detail,
+        evidence="measured_refresh_rejected" if rejected else None)
+
+
 def _access_token_at(creds_path: str) -> str:
     with _lock:
         try:
-            doc = json.load(open(creds_path, encoding="utf-8"))
+            # `with`, not a bare open(): the un-closed handle leaked one file
+            # object per refresh and this runs on a warm loop.
+            with open(creds_path, encoding="utf-8") as fh:
+                doc = json.load(fh)
         except (OSError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"no readable Claude credentials at {creds_path}: {e}")
+            # A profile with no readable credentials has never completed a
+            # sign-in (or had it removed) — a LOCAL observation, the same kind
+            # Codex/Antigravity report as `not_connected`, never a measured
+            # server answer. Distinct on purpose: see types.ts.
+            raise RefreshError(
+                f"no readable Claude credentials at {creds_path}: {e}",
+                evidence="not_connected")
         o: dict[str, Any] = doc.get("claudeAiOauth") or {}
         if not o.get("accessToken"):
-            raise RuntimeError("credentials file has no OAuth access token — "
-                               "log in with the Claude Code CLI first")
+            raise RefreshError("credentials file has no OAuth access token — "
+                               "log in with the Claude Code CLI first",
+                               evidence="not_connected")
         if o.get("expiresAt", 0) / 1000 - time.time() > 300:
             return o["accessToken"]
         if not o.get("refreshToken"):
-            raise RuntimeError("subscription token expired and no refresh "
-                               "token present — re-login with the CLI")
-        body = json.dumps({"grant_type": "refresh_token",
-                           "refresh_token": o["refreshToken"],
-                           "client_id": CLIENT_ID}).encode()
+            raise RefreshError("subscription token expired and no refresh "
+                               "token present — re-login with the CLI",
+                               evidence="not_connected")
+        payload: dict[str, Any] = {"grant_type": "refresh_token",
+                                   "refresh_token": o["refreshToken"],
+                                   "client_id": CLIENT_ID}
+        # The CLI names the scope it is renewing. Take it from what THIS FILE
+        # records as granted rather than from a list hard-coded here: a refresh
+        # may never ask for more than was granted, and a fixed list would
+        # quietly over-request for any account holding fewer scopes. Absent or
+        # unreadable → omit the parameter, which RFC 6749 §6 defines as "the
+        # scope originally granted" — the same thing we wanted.
+        scopes = cast("list[Any]", o["scopes"]) if isinstance(
+            o.get("scopes"), list) else []
+        granted = " ".join(s for s in scopes if isinstance(s, str) and s)
+        if granted:
+            payload["scope"] = granted
+        body = json.dumps(payload).encode()
         req = urllib.request.Request(
             TOKEN_URL, data=body,
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers={"Content-Type": "application/json",
+                     "User-Agent": USER_AGENT}, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 res = json.load(r)
+        except urllib.error.HTTPError as e:
+            raise _http_failure(e, str(o["refreshToken"]))
         except Exception as e:                       # noqa: BLE001
-            raise RuntimeError(f"subscription token refresh failed: {e}")
+            # transport, TLS, timeout, unparseable success body: nothing
+            # judged the credential, so this must never read as a login
+            # problem. `evidence=None` is what keeps the sign-in button away.
+            raise RefreshError(f"subscription token refresh failed: {e}")
         try:
             access: str = res["access_token"]
         except (KeyError, TypeError) as e:
-            raise RuntimeError(f"subscription token refresh returned no "
+            raise RefreshError(f"subscription token refresh returned no "
                                f"access token: {e}")
         old_refresh = o["refreshToken"]
         o["accessToken"] = access

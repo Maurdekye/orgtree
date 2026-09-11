@@ -1637,14 +1637,35 @@ export interface AccountUsage {
    *  because a blank meaning "impossible" and a blank meaning "unknown" must
    *  not look the same. */
   unsupported?: boolean
+  /** ⚠ WHAT A PERSON READS, and nothing else (user ruling 2026-09-11 —
+   *  "usage unavailable; start a turn on this account to see usage"). A raw
+   *  `HTTP 403 error code: 1010` here told the user nothing they could act
+   *  on and read as "your account is broken" when it was not. The technical
+   *  line moved to `detail`. */
   error?: string
+  /** The technical line behind `error`, for diagnosis — never the headline.
+   *  Present when we have one; absent is normal, not an omission. */
+  detail?: string
   /** D-231 expansion: see UsagePayload's own field — same trigger (the
    *  panel shows a sign-in button either way), but `reauth_evidence` keeps
    *  Codex/Antigravity's LOCAL "installed but not signed in" observation
    *  distinct from Claude's server-measured 401/403 — never relabel one as
-   *  the other. */
+   *  the other.
+   *
+   *  ⚠ `reauth_required` is set ONLY when something actually JUDGED the
+   *  credential. A refresh that never reached the OAuth server — an edge/WAF
+   *  block, a throttle, a moved endpoint, a dropped connection — leaves it
+   *  absent however authoritative its status code looked. That distinction
+   *  is the whole of the 2026-09-11 fix: subproxy's `403 error code: 1010`
+   *  was a Cloudflare block on a scripting User-Agent, and showing a sign-in
+   *  button for it sent the user at a ritual that could not help. */
   reauth_required?: boolean
-  reauth_evidence?: 'measured_403' | 'not_connected'
+  /** `'measured_refresh_rejected'`: the OAUTH TOKEN endpoint refused the
+   *  refresh token itself (an `invalid_grant`, or a bare 401/403 carrying no
+   *  edge marker). Distinct from `'measured_403'`, which is the USAGE API
+   *  rejecting an access token, and from `'not_connected'`, a purely local
+   *  observation that no credential is present to try. */
+  reauth_evidence?: 'measured_403' | 'measured_refresh_rejected' | 'not_connected'
   limits?: UsageLimit[]
   plan?: string
   /** Time of the provider observation, not merely when the UI read it. */

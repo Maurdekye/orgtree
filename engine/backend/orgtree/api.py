@@ -4016,7 +4016,24 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
         try:
             token = subproxy.profile_access_token(cred["path"])
         except RuntimeError as e:
-            out.update(available=False, error=str(e))
+            # ⚠ THE ROW SAYS `authenticated` BECAUSE A DIRECTORY HOLDS AN
+            # ACCOUNT UUID — a fact about a FILE, which stays true long after
+            # the login behind it stops working, and which a failure here is
+            # not automatically entitled to contradict. So report what was
+            # actually observed: a plain sentence the user can act on, the
+            # technical line beside it for diagnosis, and a sign-in prompt
+            # ONLY when something genuinely judged the credential. An edge
+            # 403 or a moved endpoint is NOT that — and it was precisely that
+            # failure, dressed up as a login problem, that had this account
+            # being sent after a sign-in it never needed.
+            out.update(available=False,
+                       error=getattr(e, "user_message",
+                                     subproxy.RECOVERABLE_MESSAGE),
+                       detail=str(e))
+            evidence = getattr(e, "evidence", None)
+            if evidence:
+                out["reauth_required"] = True
+                out["reauth_evidence"] = evidence
             return out
         out.update(limits.fetch_for_token(token, f"acct:{row['id']}"))
         return out
