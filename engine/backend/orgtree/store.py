@@ -1387,7 +1387,7 @@ class LazyDoc(dict[str, Any]):
     _STATE_DEFAULTS: dict[str, Callable[[], Any]] = {
         "_slug": str, "_snap_doc": dict, "_snap_nodes": dict,
         "_snap_logs": dict, "_key_order": list, "_present": set,
-        "_dropped": set,
+        "_dropped": set, "_pending": dict,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -1409,17 +1409,59 @@ class LazyDoc(dict[str, Any]):
         self._key_order: list[str] = []                # top-level keys as loaded
         self._present: set[str] = set()                # lazy sections that exist in the db
         self._dropped: set[str] = set()                # lazy sections popped since load
+        # §4.7 append-only fast path: rows destined for a list-log section
+        # that NOBODY HAS READ. See `log_append`.
+        self._pending: dict[str, list[Any]] = {}
 
     # -- materialisation --------------------------------------------------
+    def log_append(self, k: str, row: Any) -> None:
+        """Append one row to a list-log section WITHOUT materialising it.
+
+        The append-only sections (`events`, `notice_log`, …) are the ones a
+        lifecycle op writes and never reads, and they grow without bound —
+        measured 2026-09-11 on the operator's org: 19,049 `events` rows
+        (4.19 MB) and 1,815 `notice_log` rows (1.07 MB). Reaching them
+        through `d[k].append(...)` costs a `json.loads` of every existing row
+        on the way in and a `_dumps` of every existing row on the way out,
+        for one new row — about 170 ms of the ~220 ms an idle hire, retire or
+        move spends in the ledger and the save.
+
+        ⚠ THE SAFETY ARGUMENT IS THE WHOLE DESIGN. `_write_log_rows`
+        re-serialises every entry precisely so that a NESTED edit
+        (`d["events"][5]["detail"] = …`, which no list method observes) still
+        reaches the database. A buffered row cannot weaken that: this path is
+        taken only while the section is unmaterialised, and a caller that has
+        never obtained an entry cannot have edited one. The moment anything
+        reads the section, `__missing__` loads it, folds the buffer in, and
+        every later save is byte-for-byte the old behaviour.
+
+        Falls back to the ordinary materialising append whenever the fast
+        path's premise does not hold: a dict-log, a section already read, one
+        deleted since load, or one stored as a wrong-shape `doc` blob (which
+        `_write_lazy` has to rewrite whole anyway)."""
+        if (k not in LAZY_SECTIONS or k in DICT_LOGS or k in self._dropped
+                or k in self._snap_doc or dict.__contains__(self, k)):
+            self.setdefault(k, []).append(row)
+            return
+        self._pending.setdefault(k, []).append(row)
+
     def __missing__(self, k: str) -> Any:
+        pending = self._pending.pop(k, None)
         if k in LAZY_SECTIONS and k in self._present and k not in self._dropped:
             v = _load_section(self._slug, k, self._snap_logs)
+            if pending:
+                v.extend(pending)
+            dict.__setitem__(self, k, v)
+            return v
+        if pending:
+            # a section with no rows on disk yet: the buffer IS the section
+            v = AppendLog(pending)
             dict.__setitem__(self, k, v)
             return v
         raise KeyError(k)
 
     def materialize_all(self) -> None:
-        for k in LAZY_SECTIONS:
+        for k in (*LAZY_SECTIONS, *list(self._pending)):
             if not dict.__contains__(self, k):
                 with contextlib.suppress(KeyError):
                     self[k]
@@ -1429,12 +1471,13 @@ class LazyDoc(dict[str, Any]):
                     value.materialize_all()
 
     def _unmaterialized(self) -> set[str]:
-        return {k for k in self._present
+        return {k for k in (self._present | set(self._pending))
                 if not dict.__contains__(self, k) and k not in self._dropped}
 
     # -- the overrides ----------------------------------------------------
     def __contains__(self, k: object) -> bool:
         return (dict.__contains__(self, k)
+                or (isinstance(k, str) and k in self._pending)
                 or (isinstance(k, str) and k in LAZY_SECTIONS
                     and k in self._present and k not in self._dropped))
 
@@ -1452,12 +1495,20 @@ class LazyDoc(dict[str, Any]):
 
     def __setitem__(self, k: str, v: Any) -> None:
         self._dropped.discard(k)
+        # §4.7: REPLACING a section discards anything buffered for it. Without
+        # this, `_write_doc` would write the new value through `_write_lazy`
+        # AND still insert the buffered rows beside it — the one way the fast
+        # path could duplicate a write. (`__missing__` sets the key with
+        # `dict.__setitem__`, deliberately bypassing this, because it has
+        # already folded the buffer into the value it is storing.)
+        self._pending.pop(k, None)
         dict.__setitem__(self, k, v)
 
     def __delitem__(self, k: str) -> None:
         if k in self and not dict.__contains__(self, k):
             self[k]                         # materialise so the semantics match a dict
         dict.__delitem__(self, k)
+        self._pending.pop(k, None)
         if k in LAZY_SECTIONS:
             self._dropped.add(k)
 
@@ -1494,6 +1545,8 @@ class LazyDoc(dict[str, Any]):
         # survived `clear()` and came back on the next load. Measured.
         self._dropped |= self._present
         self._dropped |= {k for k in LAZY_SECTIONS if dict.__contains__(self, k)}
+        self._dropped |= {k for k in self._pending if k in LAZY_SECTIONS}
+        self._pending.clear()
         dict.clear(self)
 
     def keys(self):   # pyright: ignore[reportIncompatibleMethodOverride]
@@ -1526,7 +1579,8 @@ class LazyDoc(dict[str, Any]):
         # section both leave it in `_present` while adding it to `_dropped`
         # (see both methods below) — a cleared or fully-emptied doc must
         # not read as truthy. Same exclusion `__contains__` already applies.
-        return dict.__len__(self) > 0 or bool(self._present - self._dropped)
+        return (dict.__len__(self) > 0 or bool(self._present - self._dropped)
+                or bool(self._pending))
 
     def __len__(self) -> int:
         self.materialize_all()
@@ -2081,6 +2135,17 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                 _drop_lazy_rows(conn, sect)
                 if snap_doc is not None and sect in snap_doc:
                     conn.execute("DELETE FROM doc WHERE key=?", (sect,))
+        # §4.7: sections nobody read, only appended to (`LazyDoc.log_append`).
+        # Pure INSERTs — the existing rows are not read, compared or rewritten,
+        # and `log_l.seq` is AUTOINCREMENT so the appends land in order under
+        # the reader's `ORDER BY seq`. A section that reached here has no
+        # entry in `d`, so the loop above skipped it and cannot double-write.
+        for sect, rows in lazy._pending.items():
+            if not rows:
+                continue
+            for entry in rows:
+                conn.execute("INSERT INTO log_l(sect, at, val) VALUES(?,?,?)",
+                             (sect, _at_of(entry), _dumps(entry)))
     else:
         for sect in LAZY_SECTIONS:
             if sect in d:
@@ -2134,8 +2199,14 @@ def _save_sqlite(org: Org) -> None:
         # the database now IS this document: adopt the new snapshot so a
         # second save of the same object compares against the right thing
         unmat = lazy._unmaterialized()
+        # §4.7: a section whose pending rows were just inserted now has rows on
+        # disk that no baseline of ours describes. Forget the stale baseline
+        # rather than carrying it forward — `_load_section` re-reads it whole
+        # on the next materialisation, and until then nothing may write it.
+        flushed = {k for k, rows in lazy._pending.items() if rows}
+        lazy._pending = {}
         for k in unmat:
-            if k in lazy._snap_logs:
+            if k in lazy._snap_logs and k not in flushed:
                 new_logs[k] = lazy._snap_logs[k]
         for k in LAZY_SECTIONS:
             if not dict.__contains__(d, k):
@@ -2168,7 +2239,8 @@ def _save_sqlite(org: Org) -> None:
                     lazy._snap_logs[k] = value._snaps
         lazy._key_order = order
         lazy._present = ({k for k in LAZY_SECTIONS
-                          if dict.__contains__(d, k) and k not in new_doc} | unmat)
+                          if dict.__contains__(d, k) and k not in new_doc}
+                         | unmat | flushed)
         lazy._dropped = set()
         for k in LAZY_SECTIONS:
             v = dict.get(d, k)
@@ -2859,6 +2931,22 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
         if not os.path.exists(db):
             raise LedgerError(f"no such org: {slug!r}") from None
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
+
+
+def log_append(d: dict[str, Any], sect: str, row: Any) -> None:
+    """Append one row to an append-only log section of an org document.
+
+    The ledger's `d[sect].append(row)` idiom is correct but, against SQLite's
+    lazy sections, pays the whole section's JSON round trip for one row (see
+    `LazyDoc.log_append`). This is the same statement written so the storage
+    layer can take the cheap path when it is available; on a plain dict (the
+    JSON backend, `Org.create`, a test fixture) it IS `setdefault().append()`.
+    """
+    appender = getattr(d, "log_append", None)
+    if appender is None:
+        d.setdefault(sect, []).append(row)
+        return
+    appender(sect, row)
 
 
 def load_org_snapshot(slug: str, sections: Iterable[str]) -> Org:

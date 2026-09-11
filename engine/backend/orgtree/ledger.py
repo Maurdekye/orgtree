@@ -2939,11 +2939,13 @@ class Org:
         """Queue an org-change notice for each node (user ruling: every agent
         affected by a manual action is told). Delivered by the supervisor at the
         node's NEXT turn boundary — never wakes or preempts anyone (§7.4)."""
+        from . import store
         box = self.d.setdefault("notices", {})
-        log = self.d.setdefault("notice_log", [])
         for nid in {n for n in nids if n and n in self.nodes}:
             box.setdefault(nid, []).append({"at": now(), "text": text})
-            log.append({"node": nid, "at": now(), "text": text})
+            # append-only, never read here — see `Org._log`
+            store.log_append(self.d, "notice_log",
+                             {"node": nid, "at": now(), "text": text})
 
 
     def _notify_ev(self, nids: Iterable[str | None], ev: Mapping[str, Any]) -> None:
@@ -2951,15 +2953,17 @@ class Org:
         the row carries the event (both the box and `notice_log`). Producers move
         from `_notify(text)` to this one family at a time; `_notify(text)` remains
         the legacy door until the last producer has moved."""
+        from . import store
         _validate_ev(ev)
         text = events.render_agent(ev)
         box = self.d.setdefault("notices", {})
-        log = self.d.setdefault("notice_log", [])
         for nid in {n for n in nids if n and n in self.nodes}:
             row: dict[str, Any] = {"at": now(), "text": text}
             row["ev"] = events.encode_row_ev(ev, row)
             box.setdefault(nid, []).append(cast(NoticeEntry, row))
-            log.append(cast(NoticeLogEntry, {"node": nid, **row}))
+            # append-only, never read here — see `Org._log`
+            store.log_append(self.d, "notice_log",
+                             cast(NoticeLogEntry, {"node": nid, **row}))
 
 
     def _fold_notices(self, nid: str) -> int:
@@ -3019,7 +3023,14 @@ class Org:
     # ---------------------------------------------------------------- events
     def _log(self, op: str, actor: str, detail: dict[str, Any],
              warnings: list[str]) -> None:
-        self.d["events"].append({
+        # `store.log_append`, not `self.d["events"].append`: every lifecycle op
+        # writes this log and none of them read it, and it grows forever. See
+        # `LazyDoc.log_append` for why reaching it through the item lookup cost
+        # a full parse-and-reserialise of all 19k rows per hire/retire/move.
+        # (`store` imports this module, so the import is local — same shape as
+        # the one at `_require_authority`.)
+        from . import store
+        store.log_append(self.d, "events", {
             "op": op, "actor": actor, "at": now(), "detail": detail,
             "warnings": warnings,
         })
