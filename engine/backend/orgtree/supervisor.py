@@ -27537,6 +27537,57 @@ def _legacy_transcript_evidence(org: Org) -> dict[str, str] | None:
         return None                     # unreadable ⇒ not evidence
 
 
+#: Import-recovery phases that need no further operator decision
+#: (desktop_recovery.SETTLED, restated here because that module imports this
+#: one — a name shared by import would be a cycle).
+_IMPORT_SETTLED: Final = frozenset({"admitted", "handled"})
+
+
+def _import_recovery_unsettled(org: Org, nid: str) -> bool:
+    """Is this node one of the IMPORTED agents whose interrupted work the
+    operator has not resolved yet (desktop_recovery)?"""
+    meta = org.d.get("desktop_import") or {}
+    if not meta.get("recovery_pending"):
+        return False
+    if nid not in (meta.get("active_nodes") or []):
+        return False
+    row = (meta.get("recovery_attempts") or {}).get(nid)
+    return not (isinstance(row, dict) and row.get("phase") in _IMPORT_SETTLED)
+
+
+def _import_recovery_hold(org: Org, nid: str, inf: Any) -> bool:
+    """Would replaying `inf` re-dispatch the imported turn that recovery is
+    holding for an operator decision?
+
+    ⚠ PER NODE AND PER MARKER, and both halves are load-bearing. This used
+    to be one org-wide test on `recovery_pending` at the top of reconcile(),
+    which returned [] for the ENTIRE org. That flag is durable and clears only
+    when every imported agent is settled: on the user's own org it has stood
+    since the 2026-09-08 import, two of its three imported agents being
+    archived and therefore unsettleable. The startup pass was thus off for
+    good — interrupted turns were never replayed (user report 2026-09-11,
+    two agents killed mid-turn by a 2.0.6 restart) and the delivery journal
+    was never folded back (13 messages stranded for two days, measured in the
+    live org the same day). What import recovery actually protects is the ONE
+    retained intent per agent, whose effects may already have happened on the
+    source installation; it says nothing about the turns that agent runs
+    afterwards, and those are ordinary restart recovery.
+    """
+    if not _import_recovery_unsettled(org, nid):
+        return False
+    meta = org.d.get("desktop_import") or {}
+    row = (meta.get("recovery_attempts") or {}).get(nid) or {}
+    retained = row.get("intent") or (meta.get("recovery_intents") or {}).get(nid)
+    if retained is None:
+        # The recovery panel is lazy (desktop_recovery._records seeds a row
+        # from the node's marker the first time anyone looks). With no record
+        # yet, the marker in hand IS the intent it would retain.
+        return True
+    if not isinstance(inf, dict):
+        return False
+    return str(inf.get("text") or "") == str(retained.get("text") or "")
+
+
 def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
     """№31: does this node's ledger row promise a session that is not there?
 
@@ -27547,6 +27598,12 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
       * `cost_usd == 0` — it has never run, so nothing is missing;
       * a `bearer_state` — a knowledge bearer stays consultable, and reseed
         owns the lost-transcript case for those (review C14);
+      * a FOREIGN session — `seen` indexes the claude/journal transcript
+        store, and the codex and antigravity lanes write their sessions
+        somewhere else entirely, so their absence from it is not evidence of
+        anything. Measured on the user's own org 2026-09-11: every live
+        antigravity agent was condemnable on sight, and the codex coordinator
+        with it (an unrelated import hold was all that spared it);
       * `session_unrun` — the session id was MINTED and never handed to the
         CLI (cheap_compact / reseed). Its transcript is absent because it was
         never written, not because it was lost, and the `cost_usd` that would
@@ -27559,6 +27616,7 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
     return (n["state"] == "live" and float(n.get("cost_usd") or 0.0) > 0
             and not n.get("bearer_state")
             and not n.get("session_unrun")
+            and _foreign_session_provider(n) is None
             # audit finding: the root MUST be the org's — sandboxed
             # transcripts live under <data>/sandboxes/<slug>/home, and
             # omitting it condemned every sandboxed node at restart
@@ -27572,8 +27630,9 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     marked = []
     with store.DOC_LOCK:
         org = store.load_org(slug)
-        if (org.d.get('desktop_import') or {}).get('recovery_pending') and recovery_observer is None:
-            return []  # Only explicit import recovery may dispatch unresolved work.
+        # (Only explicit import recovery may dispatch unresolved imported
+        # work. That hold is per node and per marker — `_import_recovery_hold`
+        # below — never a whole-org stop on this pass.)
         # ONE walk for the whole pass — see transcript_index. The per-node
         # `transcript_path` this replaces re-listed the user's entire
         # `projects/` directory for every node, once per org, at startup.
@@ -27584,7 +27643,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                   f"sweep is skipped (nothing condemned)")
         else:
             for nid, n in org.nodes.items():
-                if _native_context_hold(org, nid):
+                if _native_context_hold(org, nid) \
+                        or _import_recovery_unsettled(org, nid):
                     continue  # Ambiguous/unvalidated import is held, not lost.
                 # self-heal, so the never-run pardon can never be permanent:
                 # the transcript EXISTS, therefore the session ran, therefore
@@ -27631,7 +27691,9 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         inflight = []
         dropped_cmd = False
         for nid, n in org.nodes.items():
-            if recovery_observer is None and _native_context_hold(org, nid):
+            if recovery_observer is None and (
+                    _native_context_hold(org, nid)
+                    or _import_recovery_hold(org, nid, n.get("inflight"))):
                 continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
                 inf = n.pop("inflight", None)
@@ -27713,6 +27775,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         revive = [nid for nid, n in org.nodes.items()
                   if n["state"] == "live" and nid not in marked
                   and nid not in resumed and not n.get("frozen")
+                  and not (recovery_observer is None
+                           and _import_recovery_unsettled(org, nid))
                   and org.waking_mail(nid)]
     for nid, inf in inflight:
         print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
