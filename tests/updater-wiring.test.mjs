@@ -93,6 +93,25 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(main, /installedForAllUsers !== true && installDirectoryWritable\(installDirectory\(\)\)/)
   assert.match(main, /uninstallRegistryGuid\(appId\)/)
 
+  // START-UP ORDER. The poll's first tick can find a cached package and begin
+  // applying it, so the listeners, the install scope and any recovery hold must
+  // all be established BEFORE the first refresh - not after it.
+  const wiring = main.indexOf("autoUpdater.on('update-downloaded'")
+  const scope = main.indexOf('await readInstallScope()')
+  const hold = main.indexOf('pendingUpdateHold(updateLog.lastAttempt()')
+  const firstRefresh = main.indexOf('void refresh()')
+  const pollStart = main.indexOf('startPoll()\r\n')
+  for (const [name, at] of [['listener wiring', wiring], ['install scope', scope], ['recovery hold', hold]]) {
+    assert.ok(at > 0, `${name} must be present`)
+    assert.ok(at < firstRefresh, `${name} must be established before the first refresh`)
+    assert.ok(at < pollStart, `${name} must be established before the poll starts`)
+  }
+  // the hold is spent by its OWN durable marker, never by 'not-installed',
+  // which the spawn-failure path writes before the relaunch it causes
+  assert.match(main, /updateLog\.record\('hold-consumed'/)
+  assert.doesNotMatch(main, /!previous\.some\(entry => entry\.stage === 'not-installed'\)/,
+    "'not-installed' must not be the guard that spends the hold")
+
   // An unattended automatic install that provably needs elevation is HELD, not
   // performed: performing it shuts the app down and installs nothing.
   assert.match(main, /if \(unattended && !canInstallUnattended\(\)\)/)

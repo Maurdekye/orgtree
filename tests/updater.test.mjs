@@ -10,7 +10,7 @@ const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
-  uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs } = createRequire(import.meta.url)(outfile)
+  uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -570,6 +570,33 @@ test('a confirmation that never answers blocks the installer rather than hanging
   })
   assert.equal(result.stage, 'engine-unconfirmed')
   assert.ok(!calls.includes('handoff'))
+})
+
+test('a failed install holds the NEXT run exactly once, and a relaunch cannot loop', () => {
+  // The spawn-failure path relaunches, and records 'not-installed' on the way
+  // out. Using that record as the guard meant the boot it caused skipped the
+  // hold and could attempt again at once - relaunch, fail, relaunch, for ever.
+  const attempt = { at: 't0', stage: 'attempt', from: '2.0.3', to: '2.0.4' }
+  const failed = [attempt, { at: 't1', stage: 'handoff' },
+    { at: 't2', stage: 'handoff-refused' }, { at: 't3', stage: 'not-installed' }]
+  assert.equal(pendingUpdateHold(failed, '2.0.3'), true, 'the boot after a failed install is held')
+  // ...and spending the hold is what stops it repeating, so the run after that
+  // is free to try again.
+  assert.equal(pendingUpdateHold([...failed, { at: 't4', stage: 'hold-consumed' }], '2.0.3'), false)
+
+  // POSITIVE CONTROLS, so "held" is not simply what it always says:
+  // a handoff that DID install (the version moved on) holds nothing
+  assert.equal(pendingUpdateHold([attempt, { at: 't1', stage: 'handoff' }], '2.0.4'), false)
+  // an attempt still in flight holds nothing
+  assert.equal(pendingUpdateHold([attempt, { at: 't1', stage: 'layout' }], '2.0.3'), false)
+  // and no attempt at all holds nothing
+  assert.equal(pendingUpdateHold([], '2.0.3'), false)
+  assert.equal(pendingUpdateHold([{ at: 't0', stage: 'updater', detail: 'x' }], '2.0.3'), false)
+
+  // each of the three terminal stages is enough on its own
+  for (const stage of ['handoff', 'handoff-refused', 'not-installed']) {
+    assert.equal(pendingUpdateHold([attempt, { at: 't1', stage }], '2.0.3'), true, stage)
+  }
 })
 
 test('the forced exit outlasts every deadline it covers, with margin', () => {

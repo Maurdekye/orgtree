@@ -24,6 +24,11 @@ export type UpdateStage =
   | 'updater'                  /* a line from electron-updater's own logger */
   | 'error'
   | 'not-installed'            /* a handoff happened but the version did not change */
+  /** The one-run hold for a failed attempt has been applied. DISTINCT from
+   *  'not-installed', which merely describes the outcome and can be written
+   *  before the relaunch that leads to the very boot meant to be held. Reusing
+   *  that one as the guard let a failure hold nothing and retry immediately. */
+  | 'hold-consumed'
 
 export interface UpdateLogEntry { at: string; stage: UpdateStage; detail?: string; from?: string; to?: string }
 
@@ -49,6 +54,20 @@ const isLogEntry = (value: unknown): value is UpdateLogEntry => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const row = value as Record<string, unknown>
   return typeof row.at === 'string' && typeof row.stage === 'string'
+}
+
+/** Whether the last attempt ended without the running version changing, and
+ *  whether its one-run hold has already been spent. Pure, so the decision is
+ *  testable without a filesystem or an Electron app. */
+export function pendingUpdateHold(entries: UpdateLogEntry[], runningVersion: string): boolean {
+  if (!entries.length || entries[0]!.stage !== 'attempt') return false
+  // Every way an attempt can end without installing. 'not-installed' counts
+  // too: the spawn-failure path records it before relaunching, and that boot is
+  // exactly the one that must be held.
+  const ended = entries.some(e => e.stage === 'handoff' || e.stage === 'handoff-refused' || e.stage === 'not-installed')
+  if (!ended) return false
+  if (entries.some(e => e.stage === 'hold-consumed')) return false
+  return entries[0]!.from === runningVersion
 }
 
 /** A bounded, append-only record of update attempts, kept beside the other

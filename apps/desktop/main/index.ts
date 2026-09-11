@@ -13,7 +13,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateWatchdogMs } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateWatchdogMs } from './updater'
 import type { InstallableUpdater } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -670,35 +670,12 @@ else {
           await applyDownloadedUpdate(true).catch(() => {})
         }
       }
-      let refreshing = false
-      const startPoll = () => {
-        if (poll) clearInterval(poll)
-        poll = setInterval(() => { if (refreshing) return; refreshing = true; void refresh().finally(() => { refreshing = false }) }, 5000)
-      }
-      restartPoll = startPoll
-      startPoll()
-      void refresh()
-      // A handoff that did not change the running version is the reported
-      // failure, and until now it was invisible. Record it once, and hold the
-      // automatic path so the app cannot spend every idle minute shutting
-      // itself down for an install that will not happen. Update now still works.
-      await readInstallScope()
-      refreshTrayUpdates()
-      const previous = updateLog.lastAttempt()
-      // Either terminal outcome counts: a handoff that changed nothing, and a
-      // refusal that relaunched us. Without the second, a handoff that refuses
-      // every time would relaunch in a loop. The marker is written into the
-      // same attempt, so exactly ONE run is held and the next re-evaluates.
-      const ended = previous.some(entry => entry.stage === 'handoff' || entry.stage === 'handoff-refused')
-      if (ended && !previous.some(entry => entry.stage === 'not-installed')) {
-        const attempt = previous[0]
-        if (attempt?.from === app.getVersion()) {
-          updateLog.record('not-installed', 'the installer ran but the running version did not change',
-            { from: attempt.from, to: attempt.to })
-          updateHold = 'last install did not complete - use Update now'
-          refreshTrayUpdates()
-        }
-      }
+      // ------------------------------------------------ updater start-up
+      // EVERYTHING the updater needs is established BEFORE the first refresh.
+      // The poll's very first tick can find a cached package and begin applying
+      // it, so wiring the listeners or reading the install scope after that
+      // leaves a window in which a download completes with no listener attached
+      // and an attempt runs before it is known whether a hold applies.
       if (app.isPackaged) {
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
@@ -732,6 +709,29 @@ else {
         })
         autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
       }
+      // Awaited deliberately: canInstallUnattended must not answer before the
+      // scope is known, and the first refresh must not run before either.
+      await readInstallScope()
+      // A previous attempt that ended without the version changing holds the
+      // automatic path for exactly ONE run, so the app cannot spend every idle
+      // minute shutting itself down for an install that will not happen.
+      // 'hold-consumed' is what spends it - NOT 'not-installed', which the
+      // spawn-failure path writes before the relaunch that leads to this very
+      // boot, and which as a guard let that failure retry immediately instead.
+      if (pendingUpdateHold(updateLog.lastAttempt(), app.getVersion())) {
+        updateLog.record('hold-consumed', 'the previous attempt did not change the running version')
+        updateHold = 'last install did not complete - use Update now'
+      }
+      refreshTrayUpdates()
+
+      let refreshing = false
+      const startPoll = () => {
+        if (poll) clearInterval(poll)
+        poll = setInterval(() => { if (refreshing) return; refreshing = true; void refresh().finally(() => { refreshing = false }) }, 5000)
+      }
+      restartPoll = startPoll
+      startPoll()
+      void refresh()
     } catch (error) {
       await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not start its engine.', detail: error instanceof Error ? error.message : 'Unknown startup error' })
       app.quit()
