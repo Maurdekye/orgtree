@@ -49,6 +49,12 @@ CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"   # Claude Code's public clie
 # arrives BEFORE the OAuth server sees the request, so nothing has looked at
 # the refresh token and that "403" says nothing whatsoever about the login.
 #
+# ⚠ HOW WELL THIS IS ESTABLISHED, precisely: the body of the ORIGINAL live
+# failure was never captured — the old code read it and threw it away, which
+# is why `_http_failure` keeps it now. What follows is a REPRODUCTION of the
+# same request shape from the same machine, sufficient to explain a bare 403
+# and not a recording of the incident itself.
+#
 # MEASURED the same second against the same URL, one variable: no UA → 403
 # `error code: 1010`; `axios/1.7.9` → 400 invalid_grant; `orgtree-subproxy/
 # 2.0.4` → 400 invalid_grant; and a nonsense `zzqqxx/0.0.1` → 400 invalid_grant
@@ -86,6 +92,27 @@ _EDGE_REFUSAL = re.compile(
     r"|rate[_ -]?limit|too many requests",
     re.I)
 
+#: The ONLY evidence that the credential itself was refused. ⚠ A BARE STATUS
+#: CODE IS NOT ON THIS LIST, deliberately (root review of 2024af5): a 401 or
+#: 403 with nothing in it is an UNKNOWN refusal, and this module exists
+#: because an unknown refusal was being reported as a known one. Measured, a
+#: dead refresh token at this endpoint answers `400 {"error":"invalid_grant"}`
+#: — an explicit answer — so requiring one costs nothing real. Being too
+#: strict shows "usage unavailable" to someone who is genuinely signed out;
+#: being too loose sends someone who is signed in to a sign-in screen that
+#: cannot help them. The first is a worse readout, the second is the bug.
+_CREDENTIAL_REJECTION = re.compile(
+    r"invalid_grant"              # RFC 6749: the refresh token is dead
+    r"|invalid_client|unauthorized_client"
+    r"|authentication_error",     # Anthropic's own
+    re.I)
+
+#: How much of a failure body we will read at all, and how much may ever be
+#: shown. Kept apart on purpose — redaction happens on the WHOLE read, and
+#: truncation only afterwards (see `_redact`).
+_MAX_BODY = 8192
+_SNIPPET = 300
+
 
 class RefreshError(RuntimeError):
     """A refresh that produced no token, WITH its evidence still attached.
@@ -119,7 +146,8 @@ class RefreshError(RuntimeError):
         return self.evidence is not None
 
 
-def _judged_credential(status: int, body: str) -> bool:
+def _judged_credential(status: int, body: str,
+                       headers: Any = None) -> bool:
     """Did the endpoint form an opinion about THIS REFRESH TOKEN?
 
     ⚠ THE DISCRIMINATION IS THE WHOLE POINT, and it is what makes the status
@@ -130,15 +158,29 @@ def _judged_credential(status: int, body: str) -> bool:
     That is exactly what this module did.
 
     An OAuth `invalid_grant` is the endpoint answering about the token — it is
-    what this endpoint returns for a dead refresh token (measured). A bare
-    401/403 with no edge marker is too. Everything else — a 404, a 5xx, a 400
-    that is not `invalid_grant`, anything an edge stamped — is not.
+    what this endpoint returns for a dead refresh token (measured). A BARE
+    401/403 IS NOT: nothing in it says the credential was examined, and an
+    edge in front of the server answers with exactly those codes. Everything
+    else — a 404, a 5xx, a 400 that names no rejection, anything an edge
+    stamped — is not either.
     """
     if _EDGE_REFUSAL.search(body):
         return False
-    if "invalid_grant" in body:
-        return True
-    return status in (401, 403)
+    # ⚠ headers as well as body: Cloudflare's challenge can come back with an
+    # EMPTY body and only `cf-mitigated` to say so, and a body-only check
+    # would read that silence as a rejected credential. `Retry-After` says the
+    # same thing about a throttle. (limits.py makes the same two checks.)
+    try:
+        if headers is not None:
+            if headers.get("cf-mitigated") is not None:
+                return False
+            if str(headers.get("Retry-After") or "").strip():
+                return False
+    except (AttributeError, TypeError):
+        pass
+    if status not in (400, 401, 403):
+        return False
+    return bool(_CREDENTIAL_REJECTION.search(body))
 
 
 def available() -> bool:
@@ -183,6 +225,54 @@ def profile_access_token(profile_dir: str) -> str:
     return _access_token_at(os.path.join(profile_dir, ".credentials.json"))
 
 
+def _redact(raw: str, secret: str) -> str:
+    """Take the credential out of a response body — BEFORE anything truncates
+    it (root review of 2024af5).
+
+    ⚠ THE ORDER IS THE WHOLE GUARD. Truncating first and replacing second
+    fails exactly when it matters: an echoed token straddling the cutoff is no
+    longer present to match, `replace` finds nothing, and what is left on
+    screen is a PARTIAL CREDENTIAL. So redact the full read first — and then
+    handle the same straddle against our own read limit, because a token cut
+    by `_MAX_BODY` leaves a prefix at the very end of `raw` that `replace`
+    cannot see either. Eight characters is short enough to catch any real
+    remnant and long enough not to fire on coincidence.
+    """
+    if not secret:
+        return raw
+    raw = raw.replace(secret, "<redacted>")
+    for n in range(min(len(secret), len(raw)), 7, -1):
+        if raw.endswith(secret[:n]):
+            return raw[:-n] + "<redacted>"
+    return raw
+
+
+def _safe_detail(raw: str) -> str:
+    """What may be shown of a failure body: the structured OAuth fields when
+    there are any, the text otherwise (a WAF block page is not JSON, and
+    `error code: 1010` is the most useful thing in it). Second layer only —
+    `_redact` has already run on the whole body, so this narrows what is
+    displayed rather than being what makes it safe."""
+    try:
+        doc: Any = json.loads(raw)
+    except (ValueError, TypeError):
+        doc = None
+    if isinstance(doc, dict):
+        parts: list[str] = []
+        for k in ("error", "error_description", "error_uri"):
+            v: Any = cast("dict[str, Any]", doc).get(k)
+            if isinstance(v, str) and v:
+                parts.append(f"{k}={v}")
+            elif isinstance(v, dict):        # {"error":{"type":…,"message":…}}
+                for inner in ("type", "message"):
+                    iv: Any = cast("dict[str, Any]", v).get(inner)
+                    if isinstance(iv, str) and iv:
+                        parts.append(f"{k}.{inner}={iv}")
+        if parts:
+            return " ".join(" ".join(parts).split())[:_SNIPPET]
+    return " ".join(raw.split())[:_SNIPPET]
+
+
 def _http_failure(e: urllib.error.HTTPError, refresh_token: str) -> RefreshError:
     """Turn a refused refresh into an error that still carries its evidence.
 
@@ -192,13 +282,11 @@ def _http_failure(e: urllib.error.HTTPError, refresh_token: str) -> RefreshError
     the credential back at us cannot put it into a log line or a UI panel.
     """
     try:
-        raw = e.read()[:600].decode("utf-8", "replace")
+        raw = e.read(_MAX_BODY).decode("utf-8", "replace")
     except Exception:                                # noqa: BLE001
         raw = ""
-    if refresh_token and refresh_token in raw:
-        raw = raw.replace(refresh_token, "<redacted>")
-    detail = " ".join(raw.split())
-    rejected = _judged_credential(e.code, detail)
+    detail = _safe_detail(_redact(raw, refresh_token))
+    rejected = _judged_credential(e.code, detail, getattr(e, "headers", None))
     msg = f"subscription token refresh failed: HTTP {e.code}"
     if detail:
         msg += f" — {detail}"

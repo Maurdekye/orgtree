@@ -171,8 +171,35 @@ class ClassificationTests(unittest.TestCase):
         self.assertTrue(subproxy._judged_credential(
             400, '{"error": "invalid_grant", "error_description": "…"}'))
 
-    def test_bare_401_is_a_rejected_credential(self):
-        self.assertTrue(subproxy._judged_credential(401, ''))
+    def test_authentication_error_is_a_rejected_credential(self):
+        self.assertTrue(subproxy._judged_credential(
+            401, '{"type":"error","error":{"type":"authentication_error"}}'))
+
+    def test_a_bare_403_is_not_proof_of_anything(self):
+        """⚠ root review of 2024af5. A status code with nothing in it is an
+        UNKNOWN refusal — and an edge in front of the server answers with
+        exactly these codes. Calling it a rejected credential is the same
+        mistake this module was written to stop making, just further in."""
+        self.assertFalse(subproxy._judged_credential(403, ''))
+
+    def test_a_bare_401_is_not_proof_of_anything_either(self):
+        self.assertFalse(subproxy._judged_credential(401, ''))
+
+    def test_a_challenge_with_an_empty_body_is_not_a_rejected_credential(self):
+        """Cloudflare's challenge can carry NOTHING in the body and say so
+        only in a header, so a body-only check reads its silence as a dead
+        token."""
+        self.assertFalse(subproxy._judged_credential(
+            403, '', {'cf-mitigated': 'challenge'}))
+        self.assertFalse(subproxy._judged_credential(
+            403, '', {'Retry-After': '30'}))
+
+    def test_headers_do_not_veto_an_explicit_rejection_wrongly(self):
+        """POSITIVE CONTROL for the header check: absent those markers the
+        same 403 with real evidence still reads as a rejection, so the veto
+        is doing work rather than swallowing everything."""
+        self.assertTrue(subproxy._judged_credential(
+            403, '{"error":"invalid_grant"}', {'Content-Type': 'application/json'}))
 
     def test_waf_block_is_not_a_rejected_credential(self):
         """⚠ THE MISLEADING STATUS. This exact response — 403 with body
@@ -246,10 +273,23 @@ class FailureSurfaceTests(unittest.TestCase):
         """An endpoint that quotes the credential back at us must not put it
         into a log line or a panel."""
         e = self._fail_with(_http_error(
-            400, f'{{"error":"invalid_grant","token":"{REFRESH}"}}'.encode()))
+            400, f'{{"error":"invalid_grant","error_description":"bad {REFRESH}"}}'
+            .encode()))
         self.assertNotIn(REFRESH, str(e))
         self.assertNotIn(REFRESH, e.body)
         self.assertIn('<redacted>', e.body)
+
+    def test_a_token_late_in_a_long_body_is_still_removed(self):
+        """The ordering, end to end. Under the old code — truncate to 600,
+        THEN replace — a token sitting near that cutoff was no longer whole,
+        `replace` matched nothing, and a partial credential was what got
+        displayed. Redacting the full read first removes the case."""
+        head = b'x' * 590
+        e = self._fail_with(_http_error(400, head + REFRESH.encode()))
+        for n in range(8, len(REFRESH) + 1):
+            self.assertNotIn(REFRESH[:n], e.body,
+                             f'a {n}-character fragment survived')
+
 
     def test_a_transport_failure_asks_for_no_sign_in(self):
         e = self._fail_with(urllib.error.URLError('connection refused'))
@@ -270,6 +310,44 @@ class FailureSurfaceTests(unittest.TestCase):
         """Every existing caller catches RuntimeError. Narrowing that would
         turn a handled failure into a 500."""
         self.assertTrue(issubclass(subproxy.RefreshError, RuntimeError))
+
+
+class RedactionTests(unittest.TestCase):
+    """`_redact` on its own, because the guard that matters most here is the
+    one for a token cut in half by our own read limit — and at `_http_failure`
+    level that fragment lands past the display cutoff anyway, so an end-to-end
+    test of it would pass whether the guard existed or not. Tested directly,
+    it can fail."""
+
+    def test_an_echoed_token_is_replaced(self):
+        out = subproxy._redact(f'left {REFRESH} right', REFRESH)
+        self.assertNotIn(REFRESH, out)
+        self.assertIn('<redacted>', out)
+        self.assertIn('left', out)          # and the rest is left alone
+
+    def test_a_token_cut_by_the_read_limit_leaves_no_fragment(self):
+        """⚠ THE STRADDLE. Our own `_MAX_BODY` can slice a token in half, and
+        what remains is not matchable by `replace` — it is just a partial
+        credential sitting at the end of the string."""
+        for n in range(8, len(REFRESH)):
+            out = subproxy._redact('body ' + REFRESH[:n], REFRESH)
+            self.assertNotIn(REFRESH[:n], out,
+                             f'a {n}-character fragment survived')
+            self.assertIn('<redacted>', out)
+
+    def test_a_short_coincidence_is_not_eaten(self):
+        """POSITIVE CONTROL: the straddle guard must not chew up ordinary text
+        that happens to share a character or two with the credential, or it
+        would be quietly destroying every error body it touches."""
+        out = subproxy._redact('all quiet ' + REFRESH[:3], REFRESH)
+        self.assertTrue(out.endswith(REFRESH[:3]), out)
+
+    def test_a_body_with_no_token_is_untouched(self):
+        text = '{"error":"invalid_grant"}'
+        self.assertEqual(subproxy._redact(text, REFRESH), text)
+
+    def test_an_empty_secret_changes_nothing(self):
+        self.assertEqual(subproxy._redact('anything', ''), 'anything')
 
 
 class SuccessPathTests(unittest.TestCase):
