@@ -13,11 +13,18 @@ const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdate
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
+  const { BaseUpdater } = createRequire(import.meta.url)('electron-updater/out/BaseUpdater.js')
   const calls = []
   const updater = {
     installerPath: 'C:\\Downloads\\Orgtree Setup.exe',
     spawnLog: (exe, args) => { calls.push({ exe, args }); return Promise.resolve() },
     dispatchError: error => { throw error },
+    quitAndInstallCalled: false,
+    downloadedUpdateHelper: { file: 'C:\\Downloads\\Orgtree Setup.exe', packageFile: null, downloadedFileInfo: { isAdminRightsRequired: false } },
+    _logger: { info() {}, warn() {}, error() {} },
+    doInstall(options) { return NsisUpdater.prototype.doInstall.call(this, options) },
+    // the REAL BaseUpdater.install, which is what production now calls
+    install(isSilent, isForceRunAfter) { return BaseUpdater.prototype.install.call(this, isSilent, isForceRunAfter) },
     quitAndInstall(isSilent, isForceRunAfter) {
       NsisUpdater.prototype.doInstall.call(this, { isSilent, isForceRunAfter, isAdminRightsRequired: false })
     },
@@ -480,7 +487,7 @@ test('a renderer that never flushes cannot wedge the update: the installer is st
     record: stage => stages.push(stage),
     layoutMs: 20, engineMs: 1000,
   })
-  assert.equal(handoff.accepted, true)
+  assert.equal(handoff.stage, 'handed-off')
   assert.deepEqual(calls, ['arm', 'stop', 'quit-complete', 'handoff'])
   assert.deepEqual(stages, ['layout-timeout', 'engine-shutdown', 'handoff'])
   // The forced-exit watchdog is armed BEFORE anything is awaited. In 2.0.3 it
@@ -512,16 +519,67 @@ test('a layout flush that does complete is recorded as success, not as a timeout
   assert.deepEqual(stages, ['layout', 'engine-shutdown', 'handoff'])
 })
 
-test('an engine that will not confirm shutdown is bounded too, and never blocks the handoff', async () => {
-  const stages = []
+test('an engine that never confirms shutdown BLOCKS the installer: nothing is installed over a live engine', async () => {
+  // Installing over a running engine is never acceptable, so a stop that timed
+  // out has not earned the handoff. The watchdog is released as well, or the
+  // caller would be force-exited while it tries to put the app back.
+  const stages = [], calls = []
   const result = await prepareAndHandOff({
-    armWatchdog: () => {}, cancelWatchdog: () => {},
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
     saveLayout: async () => {}, stopEngine: () => new Promise(() => {}),
-    markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
     record: stage => stages.push(stage), layoutMs: 1000, engineMs: 20,
   })
-  assert.deepEqual(stages, ['layout', 'engine-shutdown-timeout', 'handoff'])
-  assert.equal(result.accepted, true)
+  assert.equal(result.stage, 'engine-unconfirmed')
+  assert.ok(!calls.includes('handoff'), 'the installer must NOT be launched')
+  assert.ok(!calls.includes('quit-complete'), 'and the quit must not be released either')
+  assert.deepEqual(calls, ['arm', 'cancel'])
+  assert.deepEqual(stages, ['layout', 'engine-shutdown-timeout'])
+})
+
+test('an engine stop that REJECTS blocks the installer for the same reason', async () => {
+  const calls = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => { throw new Error('shutdown route refused') },
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true } },
+    record: () => {}, layoutMs: 1000, engineMs: 1000,
+  })
+  assert.equal(result.stage, 'engine-unconfirmed')
+  assert.deepEqual(calls, ['arm', 'cancel'])
+})
+
+test('an engine that DOES confirm shutdown reaches the installer', async () => {
+  // POSITIVE CONTROL for the two tests above: without it, "the installer was
+  // not launched" would also pass against code that never launches it at all.
+  const calls = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => {},
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
+    record: () => {}, layoutMs: 1000, engineMs: 1000,
+  })
+  assert.equal(result.stage, 'handed-off')
+  assert.deepEqual(calls, ['arm', 'quit-complete', 'handoff'])
+})
+
+test('a handoff that throws is treated exactly like one that refuses', async () => {
+  // Either way no app.quit() is coming, so leaving the watchdog armed would
+  // force-exit a process that installed nothing. This window is the one place
+  // an unhandled throw would be unrecoverable.
+  const stages = [], calls = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => {},
+    markQuitComplete: () => {}, handOff: () => { throw new Error('spawn exploded') },
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+  })
+  assert.equal(result.stage, 'refused')
+  assert.deepEqual(calls, ['arm', 'cancel'])
+  assert.deepEqual(stages.slice(-2), ['error', 'handoff-refused'])
 })
 
 test('a refused handoff cancels the forced exit, so the app is never killed with nothing installed', async () => {
@@ -536,7 +594,7 @@ test('a refused handoff cancels the forced exit, so the app is never killed with
     markQuitComplete: () => {}, handOff: () => ({ accepted: false }),
     record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
   })
-  assert.equal(result.accepted, false)
+  assert.equal(result.stage, 'refused')
   assert.deepEqual(calls, ['arm', 'cancel'])
   assert.equal(stages.at(-1), 'handoff-refused')
   // ... and an ACCEPTED handoff must NOT cancel it, or the watchdog would stop
@@ -552,16 +610,17 @@ test('a refused handoff cancels the forced exit, so the app is never killed with
 })
 
 test('the handoff result reports whether electron-updater actually accepted it', () => {
-  // BaseUpdater.quitAndInstall clears quitAndInstallCalled when install()
-  // refuses, and leaves it set when the installer was launched. That latch is
-  // the only honest answer available to us about whether a quit is coming.
-  const accepted = { quitAndInstallCalled: false, quitAndInstall() { this.quitAndInstallCalled = true } }
-  assert.equal(installDownloadedUpdate(accepted, 'C:\\Orgtree').accepted, true)
-  const refused = { quitAndInstallCalled: false, quitAndInstall() { this.quitAndInstallCalled = false } }
+  // install() answers synchronously, which is the whole point: quitAndInstall
+  // would have scheduled app.quit() already, leaving no decision point.
+  assert.equal(installDownloadedUpdate({ install: () => true }, 'C:\\Orgtree').accepted, true)
+  // A refusal must also clear the library's own latch, or every later attempt
+  // is silently ignored as a duplicate and the update can never be retried.
+  const refused = { quitAndInstallCalled: true, install: () => false }
   assert.equal(installDownloadedUpdate(refused, 'C:\\Orgtree').accepted, false)
+  assert.equal(refused.quitAndInstallCalled, false)
 })
 
-test('an install directory containing a space is withheld from /D=, because Windows would quote it', () => {
+test('a /D= that Windows will quote is reported, and still passed through unchanged', () => {
   // Measured on the real Win32 command line: spawn turns
   //   /D=C:\Program Files\Orgtree
   // into
@@ -570,28 +629,35 @@ test('an install directory containing a space is withheld from /D=, because Wind
   // own GetDParameter scans the raw command line for "/D=" and copies
   // everything after it - trailing quote included - into $INSTDIR.
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
+  const { BaseUpdater } = createRequire(import.meta.url)('electron-updater/out/BaseUpdater.js')
   const calls = []
+  // Drives the REAL BaseUpdater.install and NsisUpdater.doInstall, so what
+  // the installer would actually receive is asserted, not re-stated.
   const updater = {
-    installerPath: 'C:\\Downloads\\Orgtree Setup.exe',
     quitAndInstallCalled: false,
+    _logger: { info() {}, warn() {}, error() {} },
+    downloadedUpdateHelper: { file: 'C:\\Downloads\\Orgtree Setup.exe', packageFile: null, downloadedFileInfo: { isAdminRightsRequired: false } },
+    get installerPath() { return this.downloadedUpdateHelper.file },
     spawnLog: (exe, args) => { calls.push({ exe, args }); return Promise.resolve() },
     dispatchError: error => { throw error },
-    quitAndInstall(isSilent, isForceRunAfter) {
-      this.quitAndInstallCalled = true
-      NsisUpdater.prototype.doInstall.call(this, { isSilent, isForceRunAfter, isAdminRightsRequired: false })
-    },
+    doInstall(options) { return NsisUpdater.prototype.doInstall.call(this, options) },
+    install(isSilent, isForceRunAfter) { return BaseUpdater.prototype.install.call(this, isSilent, isForceRunAfter) },
   }
-  const withheld = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree')
-  assert.equal(withheld.omittedDirectory, 'C:\\Program Files\\Orgtree')
-  assert.equal(withheld.directory, undefined)
-  assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run'],
-    'no /D= at all is better than one NSIS will mis-parse; the installer resolves its previous directory from the registry')
+  // The behaviour is DELIBERATELY UNCHANGED: withholding the argument would
+  // change where the installer lands and which scope it picks, and that cannot
+  // be verified without running the real installer. Only the log gains a note.
+  const flagged = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree')
+  assert.equal(flagged.directory, 'C:\\Program Files\\Orgtree')
+  assert.equal(flagged.directoryWillBeQuoted, true)
+  assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'],
+    'the exact existing installation directory is still passed through')
 
-  // POSITIVE CONTROL: a directory Windows will not quote is still passed, so
-  // this is a rule about quoting and not a silent removal of the feature.
+  // POSITIVE CONTROL: a directory Windows will not quote carries no warning, so
+  // the flag means something rather than being set on everything.
   updater.quitAndInstallCalled = false
-  const passed = installDownloadedUpdate(updater, 'C:\\Orgtree')
-  assert.equal(passed.directory, 'C:\\Orgtree')
+  const clean = installDownloadedUpdate(updater, 'C:\\Orgtree')
+  assert.equal(clean.directory, 'C:\\Orgtree')
+  assert.equal(clean.directoryWillBeQuoted, undefined)
   assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run', '/D=C:\\Orgtree'])
   assert.equal(installDirectoryIsSafeForNsis('C:\\Orgtree'), true)
   assert.equal(installDirectoryIsSafeForNsis('C:\\Program Files\\Orgtree'), false)
@@ -668,6 +734,31 @@ test('electron-updater log lines are captured, with its errors kept distinct fro
   assert.deepEqual(log.all().map(e => e.stage), ['updater', 'updater', 'error'])
   assert.equal(log.all()[0].detail, 'Install: isSilent: true, isForceRunAfter: true')
   assert.equal(log.all()[2].detail, 'Cannot run installer: error code: EPERM')
+})
+
+test('a cached package reported downloaded before any check still carries its version', async () => {
+  // electron-updater can report a previously cached download immediately, before
+  // (or instead of) a check of ours resolving. The listener used to discard
+  // info.version, which left the target version unknown on an ordinary,
+  // perfectly successful download - and the header tooltip with nothing to show.
+  const seen = []
+  const cold = new UpdateController({ run: async () => ({ hasUpdate: false }), report: s => seen.push(s) })
+  cold.downloaded('2.0.4')
+  assert.deepEqual(cold.current(), { state: 'pending-idle', version: '2.0.4' })
+
+  // ...and it must not REPLACE a version a check already established, when the
+  // event happens to carry none.
+  const warm = new UpdateController({ run: async () => ({ hasUpdate: true, version: '2.0.4' }), report: () => {} })
+  await warm.check()
+  warm.downloaded(undefined)
+  assert.deepEqual(warm.current(), { state: 'pending-idle', version: '2.0.4' })
+
+  // POSITIVE CONTROL: without a version from either source it is genuinely
+  // unknown, so the assertions above are not passing on a default.
+  const blind = new UpdateController({ run: async () => ({ hasUpdate: false }), report: () => {} })
+  blind.downloaded(undefined)
+  assert.equal(blind.current().state, 'pending-idle')
+  assert.equal(blind.current().version, undefined)
 })
 
 test('a held update still reads as installable in the tray, and says why it is waiting', () => {

@@ -33,6 +33,15 @@ export interface DesktopControlsState extends DesktopWindowState { minimized: bo
 export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state' | 'open-org'; data: unknown }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
+
+/** What this installation can actually DO about an update, as opposed to what
+ *  it has been asked to do. `unattendedInstall` is false when Orgtree cannot
+ *  write to its own program directory, which makes a silent install impossible:
+ *  the bundled installer needs an approval nobody is present to give. An
+ *  all-users installation is the usual cause; a read-only volume or a
+ *  restrictive ACL is indistinguishable from here, and the consequence is the
+ *  same either way. */
+export interface UpdateCapability { unattendedInstall: boolean; installDirectory: string }
 /** Which provider CLIs an app-driven sign-in exists for (D-231). Native,
  *  not domain/HTTP: the actual child process MUST be spawned by this
  *  (always-interactive) main process, never by the engine, which may be a
@@ -76,6 +85,7 @@ export interface DesktopBridge {
   notify(notification: DesktopNotification): Promise<boolean>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   getUpdateStatus(): Promise<UpdateStatus>
+  getUpdateCapability?(): Promise<UpdateCapability>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this

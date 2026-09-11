@@ -23,6 +23,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     notify: notification => ipcRenderer.invoke('desktop:notify', notification),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
+    getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
     startProviderLogin: (provider: LoginProvider, opts?: { profileDir?: string; accountId?: string }) =>
       ipcRenderer.invoke('desktop:provider-login-start', provider, opts),

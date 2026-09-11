@@ -111,12 +111,18 @@ export function updateLogger(log: UpdateLog) {
  *  gets to its next step. Measured need: webContents.executeJavaScript does
  *  NOT settle on a busy renderer, and does not settle even when that renderer
  *  is destroyed or force-crashed. */
-export function bounded<T>(work: Promise<T>, ms: number,
-  timer: (fn: () => void, delay: number) => unknown = setTimeout): Promise<'ok' | 'timeout' | { error: unknown }> {
+export function bounded<T>(work: Promise<T>, ms: number): Promise<'ok' | 'timeout' | { error: unknown }> {
   return new Promise(resolve => {
     let settled = false
-    const finish = (outcome: 'ok' | 'timeout' | { error: unknown }) => { if (!settled) { settled = true; resolve(outcome) } }
-    timer(() => finish('timeout'), ms)
+    const deadline = setTimeout(() => finish('timeout'), ms)
+    function finish(outcome: 'ok' | 'timeout' | { error: unknown }) {
+      if (settled) return
+      settled = true
+      // Cleared so work that DID finish does not hold the event loop open for
+      // the rest of its deadline, and so a late settle cannot resolve twice.
+      clearTimeout(deadline)
+      resolve(outcome)
+    }
     work.then(() => finish('ok'), error => finish({ error }))
   })
 }
@@ -157,11 +163,15 @@ export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
 /** NSIS requires /D= to be the LAST argument and UNQUOTED, even when the path
  *  contains spaces. Node's spawn quotes any argument containing whitespace, so
  *  a directory like `C:\Program Files\Orgtree` reaches the installer as
- *  `"/D=C:\Program Files\Orgtree"` (measured on the real Win32 command line).
- *  app-builder-lib's own GetDParameter then scans the raw command line for
- *  `/D=` and copies everything after it — INCLUDING the trailing quote — into
- *  $INSTDIR. Passing nothing is strictly better: the bundled installer already
- *  resolves its previous directory and scope from the registry. */
+ *  `"/D=C:\Program Files\Orgtree"` — measured on the real Win32 command
+ *  line — and app-builder-lib's own GetDParameter scans the raw command line
+ *  for `/D=` and copies everything after it, trailing quote included.
+ *
+ *  This is REPORTED, NOT ACTED ON. Withholding the argument would change where
+ *  the installer lands and which scope it picks, and that cannot be verified
+ *  without running the real installer. The existing behaviour is kept and the
+ *  hazard is written to the update log so a later, verified change has evidence
+ *  to work from. */
 export function installDirectoryIsSafeForNsis(directory: string): boolean {
   return directory.length > 0 && !/[\s"]/.test(directory)
 }
@@ -190,28 +200,45 @@ export interface HandoffResult {
    *  was launched: a spawn that fails afterwards is reported out of band
    *  through the 'error' event, never through this value. */
   accepted: boolean
-  /** The /D= directory actually passed, if any. */
+  /** The /D= directory passed to the installer. */
   directory?: string
-  /** Set when the directory was withheld because it would have been quoted. */
-  omittedDirectory?: string
+  /** Diagnostic only: Windows will quote this argument and NSIS will mis-parse
+   *  it. Recorded, not corrected — see installDirectoryIsSafeForNsis. */
+  directoryWillBeQuoted?: boolean
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
  * directory; the bundled installer reads its previous scope from the registry. */
-export function installDownloadedUpdate(updater: {
+/** The surface installDownloadedUpdate uses. electron-updater exports
+ *  `autoUpdater` typed as the abstract AppUpdater, but on every platform it is
+ *  really a BaseUpdater, whose synchronous install() is public. */
+export interface InstallableUpdater {
   installDirectory?: string
   quitAndInstallCalled?: boolean
-  quitAndInstall(silent: boolean, runAfter: boolean): void
-}, directory: string): HandoffResult {
-  const safe = installDirectoryIsSafeForNsis(directory)
-  updater.installDirectory = safe ? directory : undefined
-  updater.quitAndInstall(true, true)
-  // BaseUpdater.quitAndInstall sets its latch before installing and CLEARS it
-  // again when install() refuses, so the latch is the one honest answer to
-  // "is a quit coming?" available to us.
-  const accepted = updater.quitAndInstallCalled !== false
-  return { accepted, ...(safe ? { directory } : { omittedDirectory: directory }) }
+  install(silent: boolean, runAfter: boolean): boolean
 }
+
+export function installDownloadedUpdate(updater: InstallableUpdater, directory: string): HandoffResult {
+  updater.installDirectory = directory
+  // install(), not quitAndInstall(). quitAndInstall schedules app.quit() in a
+  // setImmediate the moment the spawn is LAUNCHED, and the spawn's own failure
+  // only surfaces later on the 'error' event — measured: a failing spawn
+  // still quits the app, which is the reported disappearance. Owning the quit
+  // ourselves is the only way to put a decision point in between.
+  const accepted = updater.install(true, true) === true
+  // A refusal must not leave the library's latch set, or every later attempt is
+  // silently ignored as a duplicate.
+  if (!accepted) updater.quitAndInstallCalled = false
+  return { accepted, directory, ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryWillBeQuoted: true }) }
+}
+
+export type PreparationOutcome =
+  /** The installer was launched. Whether it SUCCEEDS is still unknown here. */
+  | { stage: 'handed-off'; handoff: HandoffResult }
+  /** electron-updater declined outright, so no quit is coming from it. */
+  | { stage: 'refused' }
+  /** The engine did not confirm shutdown. NOTHING was handed off. */
+  | { stage: 'engine-unconfirmed'; detail: string }
 
 export interface PreparationSeams {
   /** Bounds the whole window below. Armed FIRST: in 2.0.3 the equivalent timer
@@ -236,28 +263,39 @@ export interface PreparationSeams {
  *  latched, before-quit refuses every app.quit(), so an await in here that
  *  never settles leaves the app with no way out but Task Manager. Every step is
  *  therefore bounded and recorded, and the handoff is always reached. */
-export async function prepareAndHandOff(seams: PreparationSeams): Promise<HandoffResult> {
+export async function prepareAndHandOff(seams: PreparationSeams): Promise<PreparationOutcome> {
   seams.armWatchdog()
   const layout = await bounded(seams.saveLayout(), seams.layoutMs)
   seams.record(layout === 'ok' ? 'layout' : 'layout-timeout',
     layout === 'ok' ? undefined : 'renderer did not flush its drafts in time')
   const stopped = await bounded(seams.stopEngine(), seams.engineMs)
-  seams.record(stopped === 'ok' ? 'engine-shutdown' : 'engine-shutdown-timeout',
-    stopped === 'ok' ? undefined : 'engine did not confirm shutdown in time')
+  if (stopped !== 'ok') {
+    // INSTALLING OVER A LIVE ENGINE IS NEVER ACCEPTABLE. A stop that timed out
+    // or threw has NOT established that the engine is down, so the installer is
+    // not launched at all. The watchdog is released so the caller can put the
+    // app back rather than be force-exited, and the update simply stays pending.
+    const detail = stopped === 'timeout'
+      ? 'engine did not confirm shutdown in time; refusing to install over it'
+      : 'engine shutdown failed; refusing to install over it'
+    seams.record('engine-shutdown-timeout', detail)
+    seams.cancelWatchdog()
+    return { stage: 'engine-unconfirmed', detail }
+  }
+  seams.record('engine-shutdown')
   seams.markQuitComplete()
-  const handoff = seams.handOff()
-  if (handoff.accepted) {
-    seams.record('handoff', handoff.omittedDirectory
-      ? '/D= withheld because ' + handoff.omittedDirectory + ' would reach NSIS quoted'
-      : 'installer launched for ' + handoff.directory)
-  } else {
-    // electron-updater declined, so it will never call app.quit(). Cancelling
-    // the watchdog here is what makes the refusal RECOVERABLE rather than a
-    // silent forced exit with nothing installed.
+  // A throw here means the same thing a refusal does - no quit is coming - so
+  // it must not escape into a state only the watchdog can end.
+  let handoff: HandoffResult
+  try { handoff = seams.handOff() }
+  catch (error) { seams.record('error', error); handoff = { accepted: false } }
+  if (!handoff.accepted) {
     seams.cancelWatchdog()
     seams.record('handoff-refused', 'electron-updater declined the install request')
+    return { stage: 'refused' }
   }
-  return handoff
+  seams.record('handoff', 'installer launched for ' + handoff.directory
+    + (handoff.directoryWillBeQuoted ? ' (NOTE: this /D= argument will reach NSIS quoted)' : ''))
+  return { stage: 'handed-off', handoff }
 }
 
 interface UpdateCallbacks {

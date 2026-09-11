@@ -12,7 +12,8 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, UpdateController, UpdateLog, updateLogger } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, UpdateController, UpdateLog, updateLogger } from './updater'
+import type { InstallableUpdater } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -35,6 +36,9 @@ else {
   // the 5s poll neither retries it forever nor re-probes the filesystem.
   let updateHold: string | undefined, updateHoldAnnounced = false
   let updateExitWatchdog: NodeJS.Timeout | undefined
+  let lastInstallError: unknown, installErrorWaiter: ((error: unknown) => void) | undefined
+  /** Assigned once the poll exists, so an abandoned update can restore it. */
+  let restartPoll: (() => void) | undefined
   // The 2.0.3 failures left no trace at all: electron-updater logs to `console`
   // by default, which a packaged Windows GUI process discards. Stages and
   // errors are written here instead, sanitized, beside the other desktop state.
@@ -164,7 +168,12 @@ else {
   const refreshTrayUpdates = () => {
     if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
-    if (automatic) automatic.checked = preferences.get().automaticUpdates
+    if (automatic) {
+      automatic.checked = preferences.get().automaticUpdates
+      // Same preference as the settings row, so it is disabled on the same
+      // terms: where nothing can install unattended, the switch is misleading.
+      automatic.enabled = canInstallUnattended()
+    }
   }
   const rebuildTray = () => {
     const image = runtimeIcon()
@@ -182,6 +191,7 @@ else {
             detail: error instanceof Error ? error.message : String(error) })
         }) } },
       { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
+        enabled: canInstallUnattended(),
         click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
       { type: 'separator' },
@@ -214,8 +224,38 @@ else {
   // Electron it does not settle on a busy renderer, and does not settle even
   // when that renderer is destroyed or force-crashed.
   const UPDATE_LAYOUT_MS = 5000, UPDATE_ENGINE_STOP_MS = 12000, UPDATE_EXIT_MS = 20000
+  // A spawn failure surfaces within a tick or two; this only delays a SUCCESSFUL
+  // handoff, and the installer is already waiting for this process to exit.
+  const UPDATE_SPAWN_GRACE_MS = 3000
   const installDirectory = () => path.dirname(process.execPath)
+  /** Probed ONCE per run. The answer is a property of where this copy is
+   *  installed, which does not change while it runs, and the probe writes a
+   *  real file - repeating it on every five-second poll and every settings
+   *  render would be pointless filesystem traffic. */
+  let unattendedInstallPossible: boolean | undefined
+  const canInstallUnattended = () => {
+    if (unattendedInstallPossible === undefined) unattendedInstallPossible = installDirectoryWritable(installDirectory())
+    return unattendedInstallPossible
+  }
   const cancelUpdateWatchdog = () => { if (updateExitWatchdog) clearTimeout(updateExitWatchdog); updateExitWatchdog = undefined }
+  /** Put the app back after a shutdown that must not complete. `quitting` is
+   *  latched by then, which is what makes every app.quit() a no-op, so leaving
+   *  it set is the 2.0.3 wedge by another route. */
+  const abandonUpdateShutdown = (message: string, detail: string) => {
+    cancelUpdateWatchdog()
+    quitting = false; quitComplete = false; updateApplying = false
+    updateHold = 'last attempt did not complete - use Update now'
+    restartPoll?.()
+    refreshTrayUpdates()
+    void dialog.showMessageBox({ type: 'error', message, detail }).catch(() => {})
+  }
+  /** electron-updater reports a spawn failure asynchronously. Resolves with the
+   *  error if one arrives inside the window, or undefined if none does. */
+  const awaitInstallError = (ms: number) => new Promise<unknown>(resolve => {
+    if (lastInstallError !== undefined) { const seen = lastInstallError; lastInstallError = undefined; return resolve(seen) }
+    const timer = setTimeout(() => { installErrorWaiter = undefined; resolve(undefined) }, ms)
+    installErrorWaiter = error => { clearTimeout(timer); installErrorWaiter = undefined; resolve(error) }
+  })
   const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling
     // automatic updates also holds any package that has already downloaded.
@@ -230,15 +270,17 @@ else {
     const version = updater.current().version
     updateLog.record('attempt', automatic ? 'automatic idle application' : 'explicit request', { from: app.getVersion(), to: version })
     try {
-    // An UNATTENDED silent install that cannot write the installed directory
-    // needs an administrator approval nobody is present to give: the bundled
-    // NSIS preflight calls UAC_RunElevated and quits, so the app would shut
-    // down and install nothing — the reported disappearance. Checked FIRST,
-    // before the engine is touched, so a hold disturbs nothing at all. An
-    // explicit request still proceeds: the user is there to approve the prompt.
-    if (unattended && !installDirectoryWritable(installDirectory())) {
-      updateHold = 'needs administrator approval - use Update now'
-      updateLog.record('held', 'installation directory is not writable without elevation: ' + installDirectory())
+    // An UNATTENDED install that cannot write the installed directory cannot
+    // succeed: the bundled NSIS preflight elevates and quits, so the app would
+    // shut down and install nothing. The write failure says only that THIS
+    // process cannot replace those files — an all-users installation is the
+    // usual cause, but a read-only volume or a restrictive ACL is identical, and
+    // the response is the same either way. Checked FIRST, before the engine is
+    // touched, so a hold disturbs nothing. An explicit request still proceeds:
+    // the user is there to approve whatever Windows asks.
+    if (unattended && !canInstallUnattended()) {
+      updateHold = 'cannot install unattended - use Update now'
+      updateLog.record('held', 'installation directory is not writable by this process: ' + installDirectory())
       updateApplying = false
       refreshTrayUpdates()
       // Held, never silently dropped: automatic updates stay ON and the
@@ -246,8 +288,11 @@ else {
       // otherwise reach this every five seconds.
       if (!updateHoldAnnounced) {
         updateHoldAnnounced = true
-        void dialog.showMessageBox({ type: 'info', message: 'Orgtree is ready to update, but needs your approval.',
-          detail: `This copy is installed for all users in ${installDirectory()}, so the installer needs administrator approval and cannot run unattended. Choose "Update now" in the Orgtree tray menu and approve the Windows prompt. Automatic updates remain enabled.` }).catch(() => {})
+        // A failed write means "this process cannot replace these files" and
+        // nothing more specific: an all-users installation is the usual cause,
+        // but a read-only volume or a restrictive ACL reads identically.
+        void dialog.showMessageBox({ type: 'info', message: 'Orgtree is ready to update, but cannot install it on its own.',
+          detail: `Orgtree cannot write to ${installDirectory()}, so the installer cannot run unattended. Choose "Update now" in the Orgtree tray menu and approve any Windows prompt. Automatic updates remain enabled.` }).catch(() => {})
       }
       return
     }
@@ -264,7 +309,7 @@ else {
     // Every step from here is bounded and recorded by prepareAndHandOff, which
     // is driven end to end in tests precisely because this is the window that
     // wedged: app.quit() is already refused, so nothing else can rescue it.
-    const handoff = await prepareAndHandOff({
+    const outcome = await prepareAndHandOff({
       armWatchdog: () => {
         updateExitWatchdog = setTimeout(() => {
           updateLog.record('watchdog-exit', 'update preparation exceeded ' + UPDATE_EXIT_MS + 'ms')
@@ -276,15 +321,42 @@ else {
       saveLayout: saveWindowLayout,
       stopEngine: () => engine.stop(),
       markQuitComplete: () => { quitComplete = true },
-      handOff: () => installDownloadedUpdate(autoUpdater, installDirectory()),
+      // Typed as the abstract AppUpdater, but always a BaseUpdater at runtime;
+      // InstallableUpdater names exactly the members used. Note that going
+      // through install() rather than quitAndInstall() also means the library
+      // does not emit 'before-quit-for-update' - nothing here listens for it,
+      // and owning the quit is what lets a failed spawn be caught at all.
+      handOff: () => installDownloadedUpdate(autoUpdater as unknown as InstallableUpdater, installDirectory()),
       record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
       layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS,
     })
-    if (handoff.accepted) return
-    // The engine is already stopped, so a declined handoff cannot be recovered
-    // from in place. Relaunch into a working app rather than leaving a
-    // half-shut-down process for the watchdog to kill with nothing installed.
-    app.relaunch(); app.exit(0)
+    if (outcome.stage === 'engine-unconfirmed') {
+      // Nothing was installed and nothing was handed off. The engine's state is
+      // UNKNOWN, so this process must not relaunch into a second one either.
+      // Put the app back the way it was and leave the update pending.
+      abandonUpdateShutdown('Orgtree did not install the update.',
+        'The engine did not confirm that it stopped, and Orgtree will not replace its files while it may still be running. The update is still ready; try again from the tray.')
+      return
+    }
+    if (outcome.stage === 'refused') {
+      // electron-updater declined, so no quit is coming from it. The engine IS
+      // confirmed stopped here, so relaunching into a working app is safe.
+      updateLog.record('handoff-refused', 'relaunching after a declined install request')
+      app.relaunch(); app.exit(0)
+      return
+    }
+    // The installer was LAUNCHED, which is not the same as succeeded: a spawn
+    // that fails does so asynchronously, on the 'error' event, after install()
+    // has already returned true. Measured, that failure still quit the app and
+    // installed nothing. Owning the quit lets us wait a bounded moment for it.
+    const spawnFailure = await awaitInstallError(UPDATE_SPAWN_GRACE_MS)
+    if (spawnFailure !== undefined) {
+      updateLog.record('handoff-refused', spawnFailure)
+      abandonUpdateShutdown('Orgtree could not start the update installer.',
+        sanitizeUpdateDetail(spawnFailure) + '\n\nThe update is still ready; try again from the tray.')
+      return
+    }
+    app.quit()
     } catch (error) {
       updateLog.record('error', error)
       // Before the point of no return nothing was disturbed: release the
@@ -427,6 +499,7 @@ else {
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
     })
     handle('desktop:update-status', () => updater.current())
+    handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
     handle('desktop:check-for-updates', () => updater.check())
     // Provider sign-in (D-231): the child spawn lives ONLY in this process —
     // see providerlogin.ts's module docstring for why. `assertNativeSender`
@@ -556,7 +629,12 @@ else {
         }
       }
       let refreshing = false
-      poll = setInterval(() => { if (refreshing) return; refreshing = true; void refresh().finally(() => { refreshing = false }) }, 5000)
+      const startPoll = () => {
+        if (poll) clearInterval(poll)
+        poll = setInterval(() => { if (refreshing) return; refreshing = true; void refresh().finally(() => { refreshing = false }) }, 5000)
+      }
+      restartPoll = startPoll
+      startPoll()
       void refresh()
       // A handoff that did not change the running version is the reported
       // failure, and until now it was invisible. Record it once, and hold the
@@ -590,13 +668,24 @@ else {
           // controller's state machine is left alone; the error is recorded,
           // and while an application attempt is in flight it is also shown.
           updateLog.record('error', error)
+          // While an attempt is in flight this is very likely the installer
+          // spawn failing. Hand it to whoever is waiting on the grace window
+          // rather than showing a dialog the imminent quit would discard.
           if (updateApplying || quitting) {
-            void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
-              detail: error instanceof Error ? error.message : String(error) }).catch(() => {})
+            if (installErrorWaiter) installErrorWaiter(error)
+            else lastInstallError = error
           }
           updater.errored()
         })
-        autoUpdater.on('update-downloaded', () => { downloaded = true; updater.downloaded() })
+        // Forward the REAL version. A cached package can be reported downloaded
+        // before any check of ours has resolved, and discarding info.version
+        // then leaves the target unknown on an ordinary, successful download.
+        autoUpdater.on('update-downloaded', info => {
+          downloaded = true
+          const version = info && typeof info === 'object' && typeof (info as { version?: unknown }).version === 'string'
+            ? (info as { version: string }).version : undefined
+          updater.downloaded(version)
+        })
         autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
       }
     } catch (error) {

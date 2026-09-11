@@ -27,7 +27,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   }
   // the install directory is still the RUNNING install's own directory
   assert.match(main, /const installDirectory = \(\) => path\.dirname\(process\.execPath\)/)
-  assert.match(main, /installDownloadedUpdate\(autoUpdater, installDirectory\(\)\)/)
+  assert.match(main, /installDownloadedUpdate\(autoUpdater as unknown as InstallableUpdater, installDirectory\(\)\)/)
   assert.match(main, /new UpdateController\(/)
   // the availability answer must come from electron-updater's own events, not a
   // hand-rolled version-string comparison (an older/disallowed release could
@@ -48,7 +48,13 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(main, /autoUpdater\.on\('error', error => \{/)
   assert.match(main, /updateLog\.record\('error', error\)/)
   assert.match(main, /updater\.errored\(\)/)
-  assert.match(main, /autoUpdater\.on\('update-downloaded', \(\) => \{ downloaded = true; updater\.downloaded\(\) \}\)/)
+  // the event's own version must reach the controller: a cached package can be
+  // reported downloaded before any check resolves, and discarding it there
+  // leaves the target version unknown on a perfectly ordinary download
+  assert.match(main, /autoUpdater\.on\('update-downloaded', info => \{/)
+  assert.match(main, /updater\.downloaded\(version\)/)
+  assert.doesNotMatch(main, /updater\.downloaded\(\)/,
+    'the update-downloaded listener must not throw the version away')
   assert.match(main, /autoUpdater\.on\('download-progress', progress => updater\.progress\(Math\.round\(progress\.percent\)\)\)/)
   assert.doesNotMatch(main, /autoUpdater\.on\('error', \(\) => \{ broadcast/,
     'the error handler must route through the controller, not broadcast a hardcoded state directly')
@@ -72,7 +78,14 @@ test('the update controller is wired end to end: contracts, preload, main proces
 
   // An unattended automatic install that provably needs elevation is HELD, not
   // performed: performing it shuts the app down and installs nothing.
-  assert.match(main, /if \(unattended && !installDirectoryWritable\(installDirectory\(\)\)\)/)
+  assert.match(main, /if \(unattended && !canInstallUnattended\(\)\)/)
+  // decided by WRITING, because Windows access checks report the read-only
+  // attribute rather than the ACL, and probed once rather than every poll
+  assert.match(main, /unattendedInstallPossible = installDirectoryWritable\(installDirectory\(\)\)/)
+  // the same answer drives the settings row and the tray item the user asked
+  // to be greyed out where nothing can install unattended
+  assert.match(main, /handle\('desktop:update-capability', \(\) => \(\{ unattendedInstall: canInstallUnattended\(\)/)
+  assert.match(main, /automatic\.enabled = canInstallUnattended\(\)/)
   // the engine-issued maintenance update is unattended too, so it must be
   // held by the same rule even though the preference does not govern it
   assert.match(main, /apply: \(\) => applyDownloadedUpdate\(false, true\)/)
