@@ -183,5 +183,34 @@ class ClosedTicketArchivalTests(unittest.TestCase):
         self.assertEqual(listing["counts"]["attention"], 0)
 
 
+    def test_delete_takes_the_row_and_its_count_together(self):
+        """DELETE is not archival and must not be given the archive's guard.
+
+        Holding a flagged row out of the archive exists so the badge opens
+        onto something; deletion removes the row AND the count in one act, so
+        there is nothing left to point at and nothing to strand. The check
+        that matters is that the two move together. An open attached question
+        is the one thing that does block it, and that guard is older than this
+        work — it is pinned here because it now sits beside the archive guard
+        and the two read the same `_work_questions`."""
+        org, item = self._org()
+        item["status"] = "done"
+        item["docket_at"] = "1970-01-01T00:00:00Z"
+        item["manual_attention"] = True
+        self.assertEqual(org.work_counts(now_ts=3600.001)["attention"], 1)
+        org.work_delete(self.ledger.USER, item["slug"])
+        self.assertEqual(org.work_counts(now_ts=3600.001)["attention"], 0)
+        self.assertEqual(org._work_active(), [])
+        self.assertEqual(org._work_archive(), [])
+
+        org2, other = self._org()
+        other["status"] = "done"
+        other["docket_at"] = "1970-01-01T00:00:00Z"
+        self._ask(org2, other["slug"])
+        with self.assertRaises(self.ledger.LedgerError) as caught:
+            org2.work_delete(self.ledger.USER, other["slug"])
+        self.assertIn("open attached question", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
