@@ -3,12 +3,17 @@
 //
 // WHICH CARDS. An agent card carries presented-document cards on its edge
 // (`DocChips` → `PresentationCard`, class `.doc-chip`). They were the last
-// OPERABLE thing on a far-zoom card: the shortcut row (`.sq-actions`), the
-// badge row (`.sq-badges`) and the hire chips are each unmounted at `mini`
-// already, on this same threshold and for this same reason — a
-// screen-constant control on an ever-smaller card swallows the click that
-// focuses the agent, because PresentationCard stops the pointerdown and so
-// starves the drag-end → centerOn path.
+// OPERABLE thing on a far-zoom card: the shortcut row (`.sq-actions`) and the
+// badge row (`.sq-badges`) are unmounted at `mini` already, on this same
+// threshold and for this same reason — a screen-constant control drawn OVER
+// an ever-smaller card swallows the click that focuses the agent, because
+// PresentationCard stops the pointerdown and so starves the drag-end →
+// centerOn path.
+//
+// (The hire strips were in that list until 2026-09-11, when the user asked
+// for them back at maximum zoom — they sit OUTSIDE the card rather than over
+// it, so they take nothing from it. tests/minihire.test.tsx and
+// tests/minihire_probe.py own that behaviour; nothing here depends on it.)
 //
 // NOT REMOVED, INERT. The chips stay visible: the ask was that they not be
 // clickable, and a chip you can see is how you know at a glance which agents

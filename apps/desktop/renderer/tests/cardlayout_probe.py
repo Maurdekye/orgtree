@@ -205,11 +205,14 @@ def main() -> int:
                          return { dx: r.left + r.width / 2 - c.left, dy: r.top + r.height / 2 - c.top };
                        })() };
             }""")
-            # hover-created EDGE HIRE CHIPS (user 2026-09-10: they intercept
-            # too): a real pointer at the norm card's bottom edge reveals the
-            # bottom hire strip and its chips are hit-targetable just below
-            # the border (positive control); the same hover on the mini card
-            # reveals NOTHING because the chips are unmounted there.
+            # hover-created EDGE HIRE CHIPS: a real pointer at the card's
+            # bottom edge reveals the bottom hire strip, and its chips are
+            # hit-targetable just below the border. Checked at BOTH LODs since
+            # 2026-09-11 — the user asked for the tokens back at maximum zoom,
+            # so "mini reveals nothing" became the regression rather than the
+            # rule. The norm card is the positive control for the detector;
+            # what keeps a far-zoom token off the NEIGHBOURING card is a
+            # stacking rule, measured in tests/minihire_probe.py.
             norm_box = page.locator("#normal .sq").nth(0).bounding_box()
             page.mouse.move(norm_box["x"] + norm_box["width"] / 2,
                             norm_box["y"] + norm_box["height"] - 3)
@@ -228,6 +231,7 @@ def main() -> int:
               const r = card.getBoundingClientRect();
               const el = document.elementFromPoint(r.left + r.width / 2, r.bottom + 8);
               return { mounted: card.querySelectorAll('.hsof, .hsof-bridge').length,
+                       strips: card.querySelectorAll('.hsof').length,
                        chipHit: Boolean(el && el.closest('.hsof')),
                        buttonHit: Boolean(el && el.closest('button')) };
             }""")
@@ -325,10 +329,11 @@ def main() -> int:
     if not edge.get("chipHit"):
         failures.append(f"positive control failed: hovered norm bottom edge missed the hire strip: {edge!r}")
     medge = values.get("miniEdgeHire") or {}
-    if medge.get("mounted"):
-        failures.append(f"mini card still mounts hire chips/bridges: {medge!r}")
-    if medge.get("chipHit") or medge.get("buttonHit"):
-        failures.append(f"mini bottom edge still hit-targets a hire control: {medge!r}")
+    if medge.get("strips") != 4:
+        failures.append(f"far-zoom card lost its hire tokens: {medge!r}")
+    if not medge.get("chipHit") or not medge.get("buttonHit"):
+        failures.append(f"the far-zoom hire token is not clickable below the "
+                        f"card border: {medge!r}")
     # BOTH halves of the click must reach the card with the SAME agent id —
     # endNodeDrag focuses only when the up follows a matching down, and a
     # button's stopPropagation eats the down while the up still bubbles, so

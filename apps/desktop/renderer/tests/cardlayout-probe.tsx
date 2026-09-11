@@ -3,6 +3,7 @@
 // boxes/cascade in Edge.
 import { createRoot } from 'react-dom/client'
 import { NodeSquare } from '../src/canvas/cards'
+import { setAgentShortcutsOn } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -65,6 +66,11 @@ const nodes = [
   node('idle-flash-agent', 'flash', false),
 ]
 ;(nodes[0] as unknown as { documents: unknown[] }).documents = [{ id: 'presented-doc' }]
+// The card shortcuts became opt-in app-wide (commit fdc1b12), and this fixture
+// is about where they SIT when they are shown — without this every shortcut
+// assertion in cardlayout_probe.py was waiting on a button that now never
+// renders, which is what it had been failing on.
+setAgentShortcutsOn(true)
 createRoot(document.getElementById('root')!).render(<>
   <section id="normal" style={{ position: 'relative', height: 150 }}>{nodes.map((n, i) => <div key={n.id}>{card(n, 'norm', false, { x: i * 150, y: 0 })}</div>)}</section>
   <section id="mini" style={{ position: 'relative', height: 150 }}>{nodes.map((n, i) => <div key={n.id}>{card(n, 'mini', false, { x: i * 150, y: 0 })}</div>)}</section>

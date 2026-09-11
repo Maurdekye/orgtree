@@ -12,3 +12,4 @@ engine/runtime/
 
 # regenerated on every cardlayout probe run — evidence artifact, not source
 apps/desktop/renderer/tests/gear-browser-evidence.png
+apps/desktop/renderer/tests/minihire-browser-evidence.png

@@ -156,7 +156,13 @@ nav { display: flex; flex-direction: column; gap: 2px; }
    surface for retirees the setting hides. World-positioned like the cards
    (transform carries the translate), quiet like the retired pile's grey. */
 .retired-token {
-  position: absolute; left: 0; top: 0;
+  /* z 2 = where it already was, now said out loud. It is a satellite of its
+     owner card and used to ride above every card simply by being rendered
+     after them; `.space > .sq` is a numbered layer since 2026-09-11 (see the
+     far-map hire-token rule), so without a number of its own this would have
+     dropped under the cards. `.wd-chip`, the other satellite, has carried an
+     explicit 2 all along — this is the same statement. */
+  position: absolute; left: 0; top: 0; z-index: 2;
   background: var(--panel-2); color: var(--dim);
   border: 1px solid var(--line-soft); border-radius: 9px;
   padding: 1px 8px; font-size: 10px; line-height: 1.5;
@@ -2527,6 +2533,45 @@ button.cc-name:hover {
 .sq.edge-b:hover > .hsof:not(.side),
 .sq.edge-l:hover > .hsof.side-l,
 .sq.edge-r:hover > .hsof.side-r { opacity: 1; pointer-events: auto; }
+/* FAR MAP: A CARD BODY ALWAYS BEATS ANOTHER CARD'S HIRE TOKEN (the rule that
+   makes it safe to keep the tokens out here — user report 2026-09-11).
+
+   The tokens are screen-constant by design and the cards are not, so past a
+   certain distance a 22px token is simply wider than the open canvas between
+   two cards and MUST reach over a neighbour. Measured at the wheel's zoom-out
+   clamp (z=.24, cards 29.8px on the 186x200 world grid): the bottom token laps
+   3.3px onto the card below and the left column 12.2px onto the card beside
+   it, and a press there opened a hire instead of the agent. That is the
+   2026-09-10 complaint again, one card over — it is why these were unmounted
+   here, and it is not a reason they have to be.
+
+   What carried the token over the neighbour was not its own z-index but the
+   HOVER RAISE below (`.sq:hover { z-index: 6 }`), which lifts the whole
+   hovered card — token included — clear of every other card. That raise is
+   there to clear a neighbouring OPEN DESK, and a desk only exists from
+   Z_DESK=2.1 up: at mini it has nothing to clear and only costs the neighbour
+   its own clicks. So at mini the hovered card goes UNDER the others instead of
+   over them. The token still wins the open canvas it stands in — that is what
+   makes it usable — while the part of it lying over another agent is neither
+   drawn nor hit-testable. A press aimed at a card reaches that card at every
+   zoom BY CONSTRUCTION, rather than by anyone measuring gaps again.
+
+   Both halves are load-bearing: the `1` puts every card in one numbered layer
+   so `0` is reliably below ALL of them and not merely below the ones later in
+   DOM order (measured — with the raise simply removed, a card hovered later in
+   tree order still painted its token over an earlier neighbour).
+   tests/minihire_probe.py measures all of this in a real browser. */
+.space > .sq { z-index: 1; }
+.sq.mini:hover { z-index: 0; }
+/* ...EXCEPT while the token's menu is open, which is a different intent. The
+   compact token is one arrow; clicking it fans out the tier buttons, and those
+   rows are taller than the gap they stand in — measured at z=.24, two of the
+   ten landed under the card below and could not be clicked at all. Once the
+   user has opened the menu they are reaching for a tier, not for the agent
+   underneath it, so the card takes the raise back for exactly as long as the
+   menu is open. It closes on leaving the card or crossing to another edge
+   (cards.tsx: expandedHireEdge), and the card drops again with it. */
+.sq.mini:hover:has(> .hsof.is-expanded) { z-index: 6; }
 /* F-03 coworker chips: vertical columns riding the card's edges — same hover
    gate and counter-scaling as the bottom row, anchored 1px inside the border
    for the same contiguous-hover reason */

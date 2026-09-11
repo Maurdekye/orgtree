@@ -1330,11 +1330,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     setEdge((cur) => cur === next ? cur : next)
   }
   const live = node.state === 'live'
-  // far-zoom mini cards are locators (user 2026-09-10): the hover-created
-  // hire chips are counter-scaled UNCLAMPED (screen-constant on an ever
-  // smaller card), so like the shortcut row they would swallow the click
-  // that focuses the agent — unmounted at mini, kept at norm and on the desk
-  const hireChips = focused || lod !== 'mini'
   const cls = ['sq', node.state, focused ? 'desk' : lod, 'tier-' + node.tier,
                'edge-' + edge]
   // provider theming (user spec 2026-08-28): codex agents wear an
@@ -1652,8 +1647,22 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       )}
       {/* user ruling: chips are NEVER disabled by the node's own free credits —
           a user hire §4.6-cascades, granting the chain whatever it lacks.
-          (Kiosk mode will pass the cap remainder here instead.) */}
-      {hireChips && live && !node.isBearerOf && !node.bearer_state &&
+          (Kiosk mode will pass the cap remainder here instead.)
+
+          ⚠ AND NOT GATED ON `lod` (user report 2026-09-11: the hire tokens
+          "disappear at maximum zoom and only come back when the card quick
+          actions do"). They shared the shortcut row's Z_MINI threshold from
+          2026-09-10, because a far-zoom control can swallow the click that
+          focuses an agent — but that is a claim about geometry, and the two
+          controls do not share the geometry. `.sq-actions` is a card ROW,
+          drawn over the body it would steal from; a hire strip is anchored
+          1 world px inside an EDGE and grows outward, covering 0.24px of its
+          own card at the zoom clamp, and `farCompact` already holds it to the
+          card's own width. What it CAN reach is the neighbour it grows
+          toward, and that is settled in the stylesheet by paint order rather
+          than by hiding the control (`.sq.mini:hover`); the numbers and the
+          hit tests are in tests/minihire_probe.py. */}
+      {live && !node.isBearerOf && !node.bearer_state &&
         <SpawnChips onSpawn={onSpawn} free={kioskRemaining ?? Infinity} seats={seats}
           maxTier={maxTier} codexHire={codexHire} antigravityHire={antigravityHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
@@ -1666,12 +1675,15 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           blow up) and not on pile fronts (the side is the stack).
           ⚠ AND INERT AT MINI (user 2026-09-11: "dont make any cards in
           agents when zoomed out clickable"). These were the last CARDS still
-          operable on a far-zoom card; the shortcut row, the badge row and the
-          hire chips are unmounted at `mini` already, on this threshold and
-          for this reason: a screen-constant control on an ever-smaller card
-          swallows the click that focuses the agent, because
-          `PresentationCard` stops the pointerdown and starves the drag-end
-          → centerOn path.
+          operable on a far-zoom card; the shortcut row and the badge row are
+          unmounted at `mini`, on this threshold and for this reason: a
+          screen-constant control drawn OVER a shrinking card swallows the
+          click that focuses the agent, because `PresentationCard` stops the
+          pointerdown and starves the drag-end → centerOn path.
+          (The hire strips were unmounted here too until 2026-09-11, when the
+          user asked for them back at maximum zoom. They are the one far-zoom
+          control that sits OUTSIDE the card rather than over it, so they cost
+          the card nothing; see the SpawnChips comment above.)
           They stay VISIBLE rather than going away like those three — the ask
           was that they not be CLICKABLE — and `inert` removes every route in
           (see canvas/docs.tsx). Interaction returns whole at `norm`. Pinned
@@ -1684,7 +1696,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {/* F-03: side chips hire a COWORKER — same superior, landing on that
           side. Not on pile/crowd fronts: the card's edges there are the
           stack's layers, and "the side of the agent" is not a free position. */}
-      {hireChips && live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnSide && (
+      {live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnSide && (
         <>
           {/* transparent hover bridges (user report 2026-08-28). The columns
               now sit beyond the credit bar and the doc chips so they cannot
@@ -1716,7 +1728,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           draft takes this card's slot immediately (anchor hangs beneath it,
           dashed both ways), and the confirmed hire splices in server-side
           atomically. Same pile/bearer exclusions as the side chips. */}
-      {hireChips && live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnTop && (
+      {live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnTop && (
         <SpawnChips side="top" onSpawn={(t) => onSpawnTop(t)}
           free={kioskRemaining ?? Infinity} seats={seats} maxTier={maxTier}
           codexHire={codexHire} antigravityHire={antigravityHire}

@@ -94,8 +94,16 @@ for (const lod of ['norm', 'mini'] as const) {
           assert.equal(actions, null, 'mini cards mount no shortcut action row')
           assert.equal(root.querySelectorAll('.sq-actions button').length, 0,
             'no shortcut button hit targets at far zoom')
-          assert.equal(root.querySelectorAll('.hsof, .hsof-bridge').length, 0,
-            'hover-created edge hire chips are unmounted at far zoom too')
+          // ...but the HIRE TOKENS stay (user 2026-09-11): they are the one
+          // far-zoom control that does not sit over the card it belongs to,
+          // and their visibility is no longer tied to this threshold. What
+          // keeps them from taking a NEIGHBOUR's click is a stacking rule
+          // (styles.css `.sq.mini:hover`), measured in tests/minihire_probe.py
+          assert.ok(root.querySelectorAll('.hsof').length > 0,
+            'hire tokens must survive the far map — that is the whole ask')
+          assert.ok(root.querySelectorAll('.hsof-bridge').length > 0,
+            'their hover bridges come with them, or the side columns are '
+            + 'unreachable across the gap')
           continue
         }
         assert.ok(name && meta && actions, 'all three card rows are mounted')
