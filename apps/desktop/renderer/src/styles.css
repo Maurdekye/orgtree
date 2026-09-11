@@ -5385,6 +5385,17 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .acct-provider-head.provider-off {
   border-bottom-style: dashed; color: var(--dim);
 }
+/* button to add a secondary account in the provider head */
+.acct-secondary-btn {
+  padding: 4px 8px; height: auto; font-size: 11.5px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: transparent; color: var(--ink); cursor: pointer;
+  font-weight: 500; }
+.acct-secondary-btn:hover:not(:disabled) {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+  border-color: var(--accent); }
+.acct-secondary-btn:disabled {
+  opacity: 0.6; cursor: not-allowed; }
 
 /* ------------------------------------------ D-222: the settings row ------
    ONE GRID FOR EVERY ADJUSTABLE THING, in App settings and org settings

@@ -29,6 +29,7 @@ import {
 } from './shared'
 import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
+import { AutorenewIcon } from '../icons'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -440,14 +441,19 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && <p className="dim" role="status">{discovering
         ? 'Refreshing provider status... Showing the last result.'
-        : <button onClick={() => { void loadProviders() }}>Refresh provider status</button>}</p>}
+        : <button type="button" className="usage-refresh-button"
+            aria-label="refresh provider status"
+            title="refresh provider status"
+            onClick={() => { void loadProviders() }}>
+            <AutorenewIcon fontSize="inherit" />
+          </button>}</p>}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
       {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
           <span>{p.label}<span className='dim'> · {p.cli}</span></span>
           <span className='set-head-right'>
-            <button onClick={() => setAddAccount(p.id as AccountProvider)}>Add secondary account</button>
+            <button className="acct-secondary-btn" onClick={() => setAddAccount(p.id as AccountProvider)}>Add secondary account</button>
             {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
             <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
