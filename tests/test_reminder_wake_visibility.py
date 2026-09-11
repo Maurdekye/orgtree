@@ -42,9 +42,14 @@ drive `_idle_docket_reminder_reserve` — the function that wrote seq 12013 — 
 then the real composer `_envelope` on a carrier of the real wake shape (a ping,
 whose projection is EMPTY). §6, §11 and §12 go on through the real reader.
 
-MEASURED RED BEFORE THE FIX: §2, §3, §6, §7, §9. Green before and after: §1,
-§4, §5, §8, §10, §11, §12 — a "fix" that showed every machine row fails §4 and
-§8, and one that showed every empty-projection turn fails §11 and §12.
+§13 goes further still and composes the COPIED BYTES of seq 12013 — the row
+itself, not a re-minted lookalike — so a later change to the producer cannot
+quietly retire the shape an existing archive is full of.
+
+MEASURED RED BEFORE THE FIX (against main's supervisor.py): §2, §3, §6, §7,
+§9, §13, §13b. Green before and after: §1, §4, §5, §8, §10, §11, §12 — a "fix"
+that showed every machine row fails §4 and §8, and one that showed every
+empty-projection turn fails §11 and §12.
 
     python -B tests/test_reminder_wake_visibility.py
 """
@@ -446,6 +451,71 @@ class ReminderWake(unittest.TestCase):
         self.assertEqual(visible, '')
         self.assertEqual(self.replay(enveloped, visible, segments), [],
                          'a notice-only wake changed its rendering')
+
+
+class MeasuredRow(unittest.TestCase):
+    """§13 — the COPIED BYTES, not a re-minted lookalike.
+
+    `MEASURED` below is `log_d` seq 12013 verbatim: the row that woke
+    coordinator-astra. Everything else in this file drives the producer and
+    trusts it to keep writing what it wrote that day; this section does not.
+    If the producer is ever changed, this row still reads as it is stored, and
+    an archive full of them still has to render.
+    """
+
+    MEASURED = {
+        "id": "47452396",
+        "from": "@system",
+        "kind": "message",
+        "body": "\n".join([
+            sup.IDLE_DOCKET_REMINDER_MARK,
+            "You have been idle for 20 minutes and these docket items are "
+            "waiting on YOU for their next action:",
+            "- keep-hire-tokens-visible-at-maximum-zoom (deploy_ready): "
+            "Keep hire tokens visible at maximum zoom",
+            "Pick the work back up: read each one with orgtree_work get, take "
+            "the next concrete step, and leave an honest orgtree_work update.",
+        ]),
+        "at": "2026-09-11T14:02:57.338550Z",
+        "model_only": True,
+        "relationship": "the orgtree engine reminding an idle agent of the "
+                        "unfinished docket items whose next action is its own, "
+                        "after 20 minutes without a wake",
+        "ev": {
+            "v": 1,
+            "variant": "reminder.idle_docket",
+            "actor": {"kind": "system", "id": "@system"},
+            "object": {"kind": "node", "org": "orgtree",
+                       "id": "coordinator-astra", "name": "coordinator-astra",
+                       "generation": 1},
+            "engine_authored": True,
+            "items": [{"slug": "keep-hire-tokens-visible-at-maximum-zoom",
+                       "title": "Keep hire tokens visible at maximum zoom",
+                       "status": "deploy_ready", "role": "owner"}],
+            "more": 0,
+        },
+    }
+
+    def test_13_the_measured_row_composes_a_visible_wake(self):
+        segments = sup._segments_for([dict(self.MEASURED)], None, '', view='')
+        self.assertEqual([s['kind'] for s in segments], ['state'],
+                         'the stored row composed %r'
+                         % ([s['kind'] for s in segments],))
+        event = segments[0]['event']
+        self.assertEqual(event['variant'], 'reminder.idle_docket')
+        self.assertEqual([i['slug'] for i in event['items']],
+                         ['keep-hire-tokens-visible-at-maximum-zoom'])
+        self.assertEqual(event['items'][0]['status'], 'deploy_ready')
+        self.assertEqual(segments[0]['text'], self.MEASURED['body'],
+                         'the frozen agent rendering rides along as the '
+                         'fallback for a row whose event stops decoding')
+
+    def test_13b_and_the_desk_would_draw_it(self):
+        segments = sup._segments_for([dict(self.MEASURED)], None, '', view='')
+        self.assertEqual(len(events_of(segments, 'reminder.idle_docket')), 1)
+        self.assertEqual(prose_on_screen(segments, ''), [])
+        self.assertTrue(sup._wake_card_on_screen(segments),
+                        'the reader would still drop this turn as machine-only')
 
 
 class HumanVisibleVariant(unittest.TestCase):
