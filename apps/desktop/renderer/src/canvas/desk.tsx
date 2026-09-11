@@ -1405,8 +1405,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const copyTextOf = useMemo(() => {
     const profile = BASE ? 'public' : 'operator'
     const out = new Map<string, string>()
+    // the same emptiness rule `copytext`'s join uses, and the same refusal to
+    // alter what survives it: a row with nothing but whitespace in it has
+    // nothing to copy, and one with real text is stored byte for byte
     const put = (id: string | undefined | null, text: string) => {
-      if (id && text) out.set(id, text)
+      if (id && text.trim() !== '') out.set(id, text)
     }
     for (const m of chat?.messages ?? []) {
       put(m.event_id, messageCopyText(m, profile))

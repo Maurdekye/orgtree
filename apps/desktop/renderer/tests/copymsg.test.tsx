@@ -167,6 +167,44 @@ test('§2 a message longer than the 4000-char reply quote copies WHOLE', async (
   } finally { clip.restore(); await m.unmount() }
 })
 
+// ────────────────────────────────────── §2b byte-for-byte, not a tidied copy
+
+test('§2b the stored text is copied EXACTLY — indentation and trailing newlines survive', async () => {
+  // coordinator-astra review of f910f75: the first cut ran every part through
+  // trim(), which silently ate leading indentation and trailing blank lines.
+  // For a message whose whole point is its layout — a fenced block, a YAML
+  // fragment, a patch — that is not "the complete contents", it is a tidied
+  // paraphrase, and pasting it back somewhere indentation-sensitive breaks it.
+  const clip = stubClipboard()
+  const body = '    four spaces in\n\tand a tab\n\n```\n  code\n```\n\n\n'
+  const m = await desk([{ role: 'assistant', text: body, seq: 0, event_id: 'exact-1' }])
+  try {
+    await rightClick(rowOf(m, 'exact-1').querySelector('.msgtext')!)
+    await pick('Copy contents')
+    assert.equal(clip.writes[0], body, 'the stored source, byte for byte')
+  } finally { clip.restore(); await m.unmount() }
+})
+
+test('§2c a segment keeps its own layout, and only distinct parts gain a separator', async () => {
+  const indented = '  - one\n  - two\n\n'
+  const copied = messageCopyText({ role: 'user', text: 'x', segments: [
+    { kind: 'text', text: indented },
+  ] } as ChatMessage, 'operator')
+  assert.equal(copied, indented, 'one visible segment copies as itself, untouched')
+  const two = messageCopyText({ role: 'user', text: 'x', segments: [
+    { kind: 'mail', rows: [{ id: 'm', from: 'a', kind: 'message', body: '  from mail\n',
+      at: '2026-09-11T17:00:00.000Z' }] },
+    { kind: 'text', text: indented },
+  ] } as ChatMessage, 'operator')
+  assert.equal(two, '  from mail\n' + '\n\n' + indented,
+    'two distinct parts keep the blank-line separator AND their own layout')
+  // a wholly empty part is still dropped rather than contributing a separator
+  assert.equal(messageCopyText({ role: 'user', text: 'x', segments: [
+    { kind: 'text', text: '   \n ' },
+    { kind: 'text', text: indented },
+  ] } as ChatMessage, 'operator'), indented)
+})
+
 // ───────────────────────────────────────────── §3 not the rendered DOM
 
 test('§3 a collapsed compaction summary is copied although it is not rendered', async () => {

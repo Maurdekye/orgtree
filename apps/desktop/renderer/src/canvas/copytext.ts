@@ -37,9 +37,18 @@ import type { ChatMessage, ToolChip } from '../types'
 
 /** Join the parts of a row with a blank line, dropping the ones that have no
  *  text at all. A row made only of empty parts copies as '' — the caller
- *  offers a DISABLED menu item for that, never an empty clipboard write. */
+ *  offers a DISABLED menu item for that, never an empty clipboard write.
+ *
+ *  ⚠ A KEPT PART IS NEVER TOUCHED (coordinator-astra review of f910f75). The
+ *  first cut ran every part through `trim()`, which silently ate leading
+ *  indentation and trailing blank lines — so a fenced block, a YAML fragment
+ *  or a patch pasted back somewhere indentation-sensitive was BROKEN, while
+ *  reading as a complete copy. Emptiness is still judged by whether a part
+ *  has any non-whitespace in it; the part that survives that judgement goes
+ *  on the clipboard byte for byte. The blank line is inserted only BETWEEN
+ *  distinct parts the UI model shows as separate things, never around one. */
 function join(parts: (string | null | undefined)[]): string {
-  return parts.map(p => (typeof p === 'string' ? p.trim() : '')).filter(Boolean).join('\n\n')
+  return parts.filter((p): p is string => typeof p === 'string' && p.trim() !== '').join('\n\n')
 }
 
 /** The visible prose of a typed turn's composition.
@@ -73,14 +82,16 @@ export function segmentsCopyText(segments: unknown, profile: EventProfile): stri
   return join(parts)
 }
 
-/** The text of a tool CALL chip — the one line the chip shows. `reply_quote`
- *  is the server's own rendering of it and is not capped for this shape (it
- *  is built from the name and argument, not from a body), so it is the
- *  faithful source; the name/argument pair is the same fallback the chip
- *  itself uses. */
+/** The text of a tool CALL chip — the one line the chip shows, as stored.
+ *  `reply_quote` is the server's own rendering of it (reply_events.py builds
+ *  it as `name + ' ' + arg`), so it is the faithful source and is returned
+ *  UNCHANGED; the same name-space-argument shape is the fallback when a row
+ *  predates the quote, and it is one line, not two parts. */
 export function toolCallCopyText(t: ToolChip): string {
   const quote = typeof t.reply_quote === 'string' ? t.reply_quote : ''
-  return quote.trim() || join([String(t.name ?? ''), t.arg == null ? '' : String(t.arg)])
+  if (quote.trim() !== '') return quote
+  const call = String(t.name ?? '') + ' ' + (t.arg == null ? '' : String(t.arg))
+  return call.trim() === '' ? '' : call
 }
 
 /** A tool RESULT: the result itself, whole. `result_reply_quote` is capped at
