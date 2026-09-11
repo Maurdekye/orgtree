@@ -676,6 +676,7 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
   const node = mkNode('worker') as CanvasNode
   const map = new Map<string, CanvasNode>([['worker', node]])
   const jumped: string[] = []
+  const shown: string[] = []
   const vp = { current: null as HTMLDivElement | null }
   resetConvos()
   const hadFetch = (globalThis as { fetch?: typeof fetch }).fetch
@@ -686,7 +687,8 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
       <PinLayer slug="mine" map={map} viewportRef={vp} targetOf={() => null}
         op={() => Promise.resolve({} as never)} toast={noop} pub={false} maxTop={100} pxc={1}
         onMailLink={noop} onWorkLink={noop} onOpenDoc={noop} onLineage={noop} onConfig={noop}
-        onJump={(id) => { jumped.push(id) }} />
+        onJump={(id) => { jumped.push(id) }}
+        onShowOnCanvas={(id) => { shown.push(id) }} />
     </div>, (h) => h)
   t.after(() => { v.unmount(); forgetPins('mine') })
   await flush(); await advance(200, 16); await flush()
@@ -695,7 +697,11 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
   await rightClick(title)
   assert.deepEqual(labels(), ['Show on canvas', 'Unpin'])
   await pick('Show on canvas')
-  assert.deepEqual(jumped, ['worker'])
+  // user bug 2026-09-11: this entry takes the CANVAS route, never the generic
+  // jump - a generic jump to a pinned agent raises the window the reader is
+  // already looking at, which is the whole complaint
+  assert.deepEqual(shown, ['worker'])
+  assert.deepEqual(jumped, [], 'Show on canvas must not take the generic jump')
   await rightClick(title)
   await pick('Unpin')
   await flush(3)

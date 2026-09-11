@@ -332,6 +332,12 @@ export interface PinLayerProps {
   onLineage: (id: string) => void
   onConfig: (id: string) => void
   onJump: (id: string) => void
+  /** the title menu's "Show on canvas" - the ONE action that means the canvas
+   *  literally rather than "take me to this agent", which for a pinned agent
+   *  is the window already in front of the reader. REQUIRED, not optional: a
+   *  missing wire has to be a compile error, because the failure it causes is
+   *  a menu entry that looks right and does nothing new. */
+  onShowOnCanvas: (id: string) => void
 }
 
 /** The viewport's PADDING box, in px. Pinned windows are absolutely positioned
@@ -436,7 +442,7 @@ type Gesture = GestureShape & { pointerId: number; moved: boolean; capture: HTML
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
-  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, map, viewportRef }:
+  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef }:
   PinLayerProps & { pin: Pin; node: CanvasNode; vp: { w: number; h: number } | null
     onUnpin: (id: string, from: PinRect) => void }) {
   // the in-flight gesture's rect lives in component state (one render per
@@ -595,7 +601,13 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
         }}
         onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}
         onContextMenu={(e) => menu.open(e, [
-          { label: 'Show on canvas', onSelect: () => onJump?.(pin.id), disabled: !onJump },
+          // ⚠ NOT `onJump` (user bug 2026-09-11: "it only highlights the
+          // pinned desk that is already open"). A generic jump to a pinned
+          // agent is defined to raise its window, which is exactly where the
+          // reader is standing when they reach this menu. This entry is the
+          // explicit request for the other thing.
+          { label: 'Show on canvas', title: `go to ${node.id}'s place on the canvas; the window stays open`,
+            onSelect: () => onShowOnCanvas(pin.id) },
           'sep',
           { label: 'Unpin', title: `minimise ${node.id} back to its desk`,
             onSelect: () => onUnpin(pin.id, rect) },

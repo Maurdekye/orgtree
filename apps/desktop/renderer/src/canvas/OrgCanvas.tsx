@@ -161,7 +161,7 @@ let leftFirstOrg = false
  *  command. */
 type CamIntent =
   | { kind: 'org' }
-  | { kind: 'focus'; id: string; z: number | null }
+  | { kind: 'focus'; id: string; z: number | null; onCanvas?: boolean }
 /** tests only: put the module back in the fresh-session state */
 export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
 
@@ -1418,13 +1418,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       z: zz,
     }
   }, [eyeWorldW, regionOf])
-  const centerOn = useCallback((id: string, z: number | null = null) => {
+  /** `onCanvas` is the ONE caller that means the canvas literally: the
+   *  pinned window's own "Show on canvas" (user bug 2026-09-11). Every other
+   *  jump stays generic and keeps preferring the open window. */
+  const centerOn = useCallback((id: string, z: number | null = null,
+    onCanvas = false) => {
     // ⚠ A PINNED AGENT'S DESTINATION IS ITS WINDOW, NOT ITS CARD. The card
     // renders a placeholder while the agent is pinned (`pinnedFocusId`), so
     // gliding there lands the reader on the placeholder while the real chat
     // sits somewhere else, unraised. Raise it instead — the same `showPin`
     // the placeholder and the switchboard tab already call.
-    if (pinnedIdsRef.current.has(id)) {
+    // …unless the reader ASKED FOR THE CANVAS. Then the placeholder is the
+    // point: it is the card's designed pinned state, it says where the agent
+    // sits in the org, and the window stays open and unraised behind it.
+    if (!onCanvas && pinnedIdsRef.current.has(id)) {
       showPin(slug, id, vpSizeNow())
       return
     }
@@ -1442,7 +1449,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       }
       setShownRetired((s) => new Set([...s, ...add]))
       requestAnimationFrame(() => requestAnimationFrame(() =>
-        centerRef.current?.(id, z)))
+        centerRef.current?.(id, z, onCanvas)))
       return
     }
     // focusing a BURIED pile member brings it to the front first (user spec
@@ -1452,7 +1459,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (pile && pile.front !== id) {
       setFront(pile.key, id)
       requestAnimationFrame(() => requestAnimationFrame(() =>
-        centerRef.current?.(id, z)))
+        centerRef.current?.(id, z, onCanvas)))
       return
     }
     const to = focusView(id, z)
@@ -1486,18 +1493,26 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     animateTo(to)
     // the focus STICKS: claim the camera back from `animateTo`, as `fitAll`
     // does for the whole org. After the glide starts, never before.
-    camIntent.current = { kind: 'focus', id, z }
+    camIntent.current = { kind: 'focus', id, z, onCanvas }
   }, [animateTo, focusView, regionOf, setFront, toast])
+
+  /** the pinned window's "Show on canvas": navigate the CANVAS to the agent
+   *  and leave the window open (user bug 2026-09-11 - it used to raise the
+   *  window it was invoked from, which is where the reader already was). */
+  const showOnCanvas = useCallback((id: string) => { centerOn(id, null, true) },
+    [centerOn])
 
   // Re-aim an ALREADY FOCUSED target after the canvas changed under it.
   // NOT `centerOn`: a refit is not a focus gesture, so it reveals no hidden
   // retiree, re-fronts no pile, raises no pin and repeats none of centerOn's
   // toasts (a window drag fires this many times a second).
-  const refocus = useCallback((id: string, z: number | null) => {
+  const refocus = useCallback((id: string, z: number | null,
+    onCanvas = false) => {
     // a STALE intent - target retired, hidden, or now a pinned window - is
-    // dropped rather than fired at forever
+    // dropped rather than fired at forever. A card the reader deliberately
+    // showed ON THE CANVAS is not stale just because it is also pinned.
     if (!targetRef.current.has(id) || hiddenRef.current.has(id)
-      || pinnedIdsRef.current.has(id)) {
+      || (!onCanvas && pinnedIdsRef.current.has(id))) {
       camIntent.current = null
       return
     }
@@ -1506,7 +1521,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // window off again re-fits
     if (!to) return
     animateTo(to, 320)     // the same glide length the whole-org refit uses
-    camIntent.current = { kind: 'focus', id, z }
+    camIntent.current = { kind: 'focus', id, z, onCanvas }
   }, [animateTo, focusView])
   const centerRef = useRef<typeof centerOn | null>(null)
   centerRef.current = centerOn
@@ -1748,7 +1763,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // does not set this follow fighting the rotate refit above. It guards
     // nothing today; do not read it as a tested branch.
     if (isMobile || previous.canvas === canvas) return
-    refocus(intent.id, intent.z)
+    refocus(intent.id, intent.z, intent.onCanvas)
   }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll, refocus])
 
   // …and the camera is REMEMBERED (D-228), whatever the startup mode: the
@@ -2935,7 +2950,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           targetOf={cardRectOf} op={op} toast={toast} pub={!!tree.public}
           compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
-          onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn} />
+          onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
+          onShowOnCanvas={showOnCanvas} />
       )}
       {/* nav cluster (user spec): bottom-LEFT beside the agents tray, so
           every zoom target lives in one stack — ordered top to bottom:

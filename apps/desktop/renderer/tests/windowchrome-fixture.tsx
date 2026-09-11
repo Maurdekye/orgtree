@@ -23,7 +23,7 @@ function Fixture(){
  return <CurrentOrg.Provider value="fixture"><DeskHosts slug="fixture" map={map}>
  <div ref={viewportRef} style={{position:'fixed',inset:0,overflow:'hidden'}}>
  <output id="jumps">{jumps}</output><div id="flow-marker" style={{width:160,height:40}}>Main canvas marker</div>
- <PinLayer slug="fixture" map={map} viewportRef={viewportRef} targetOf={()=>null} op={async()=>({})} toast={noop} pub={false} maxTop={100} pxc={1} onMailLink={noop} onWorkLink={noop} onOpenDoc={noop} onLineage={noop} onConfig={noop} onJump={()=>setJumps(v=>v+1)} />
+ <PinLayer slug="fixture" map={map} viewportRef={viewportRef} targetOf={()=>null} op={async()=>({})} toast={noop} pub={false} maxTop={100} pxc={1} onMailLink={noop} onWorkLink={noop} onOpenDoc={noop} onLineage={noop} onConfig={noop} onJump={()=>setJumps(v=>v+1)} onShowOnCanvas={()=>setJumps(v=>v+1)} />
  </div>
  {open.map(id=><PinFrame key={id} kind={id} title={id} panel={'settings test-'+id} close={()=>setOpen(v=>v.filter(x=>x!==id))}>
  <h3>{id}</h3><input aria-label={'Draft '+id} defaultValue="preserved"/><div style={{minHeight:1000}}>Long scrollable content</div><button onClick={()=>setOpen(v=>v.filter(x=>x!==id))}>Done {id}</button>
