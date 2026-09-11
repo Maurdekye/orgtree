@@ -617,7 +617,7 @@ domTest('§9.4 a resize recomputes the ↑-jump target, not just the pin',
 
 const userNodeEl = (map: Map<string, CanvasNode>, slug: string) => (
   <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
-    stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={{ haiku: 1 }}
+    stats={{ circ: 0, seats: 0, free: 0 }} seats={{ haiku: 1 }}
     kiosk={undefined} pub={false} kioskRemaining={null} pxc={1} zoom={1}
     onSpawn={noop} onMailLink={noop} focused eyeW={2000}
     posX={(id) => (id === 'a' ? 0 : 1)} map={map} op={op} slug={slug}

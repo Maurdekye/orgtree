@@ -33,7 +33,7 @@ import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
-import { NodeConfig, PilePicker, UserConfig, WatchdogPanel } from './modals'
+import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { addPin, clampRect, PinLayer, prunePins, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
@@ -200,12 +200,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     }
     setConfigId((v) => isModalPinned('node-config', slug) && v === id ? null : id)
   }, [])
-  const toggleUserConfig = useCallback(() => {
-    if (pinnedModalBehind('user-config', slug)) {
-      raisePinnedModal('user-config', slug); setUserCfg(true); return
-    }
-    setUserCfg((v) => isModalPinned('user-config', slug) ? !v : true)
-  }, [])
   const toggleNodeSurface = useCallback((kind: string, id: string,
     set: (v: string | null | ((current: string | null) => string | null)) => void) => {
     if (pinnedModalBehind(kind, slug)) {
@@ -225,7 +219,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   const [restoredDocs, setRestoredDocs] = useState(() => restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document))
   const restoredModalOrg = useRef<string | null>(null)
   const [docView, setDocView] = useState<string | null>(null)   // FR-03 reader
-  const [userCfg, setUserCfg] = useState(false)
   const [trayOpen, setTrayOpen] = useState(false)   // the flat agent tray
   const trayWrapRef = useRef<HTMLDivElement | null>(null)
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
@@ -405,7 +398,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
   usePersistedModalOpen('agent-docket', slug, agentDocketId !== null, agentDocketId ? { agent: agentDocketId, generation: map.get(agentDocketId)?.generation } : undefined)
   usePersistedModalOpen('watchdog', slug, dogView !== null, dogView ? { watchdog: dogView } : undefined)
-  usePersistedModalOpen('user-config', slug, userCfg)
   usePersistedModalOpen('org-inbox', slug, oiOpen)
   usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
   usePersistedModalOpen('agent-list', slug, trayOpen)
@@ -427,7 +419,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
     setLineageId(pinnedKind('lineage') ? (agent('lineage') ?? pinnedAgent('lineage')) : agent('lineage'))
     setInboxId(pinnedKind('node-inbox') ? (agent('node-inbox') ?? pinnedAgent('node-inbox')) : agent('node-inbox'))
     setAgentDocketId(pinnedKind('agent-docket') ? (agent('agent-docket') ?? pinnedAgent('agent-docket')) : agent('agent-docket'))
-    setUserCfg(pinnedKind('user-config') || rows.some(r => r.kind === 'user-config'))
     setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
     setTrayOpen(pinnedKind('agent-list') || rows.some(r => r.kind === 'agent-list'))
     const watchdogRow = pinned.find(r => r.kind === 'watchdog') || rows.find(r => r.kind === 'watchdog')
@@ -2661,19 +2652,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               pinnedIds={pinnedIds}
               onShowPin={(id) => showPin(slug, id, vpSizeNow())}
               compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
-              /* the pip is DECIDED HERE and handed down (D-169): asks + urgent
-                 mail outrank plain unread, and `asks_open` already covers
-                 pending credit requests as well as open questions (adding
-                 credit_requests too would double-count). One call, so the
-                 eye, its switchboard and the map marker cannot disagree. */
-              pip={attentionPip(tree)}
-              onInbox={() => {
-                const nw = tree.user_inbox_newest ?? new Date().toISOString()
-                localStorage.setItem('orgtree-inbox-seen-' + slug, nw)
-                setInboxSeen(nw)
-                onInbox?.()
-              }}
-              onGear={toggleUserConfig}
+              /* no `pip`, no `onInbox`, no `onGear` (user 2026-09-11): the
+                 eye card and the switchboard head no longer carry a ✉ or a
+                 ⚙, so there is nothing left on this surface for them to
+                 drive. `attentionPip` is still DECIDED ONCE per surface —
+                 the compact map marker above and the chrome's `.ask-bell`
+                 both call it — so the two survivors still cannot disagree. */
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
               /* switchboard panel headers mirror the desk header identically
                  (user spec 2026-08-19): the gen badge and gear in each panel
@@ -3103,10 +3087,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
         <MaybePortal><DocReader slug={slug} docId={docView} toast={toast}
           refs={docRefs}
           close={() => setDocView(null)} /></MaybePortal>
-      )}
-      {userCfg && (
-        <MaybePortal><UserConfig tree={tree} slug={slug} toast={toast}
-          close={() => setUserCfg(false)} /></MaybePortal>
       )}
       {inboxId && map.get(inboxId) && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}

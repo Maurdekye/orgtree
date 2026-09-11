@@ -46,7 +46,7 @@ function Rig({ slug, eyeW }: { slug: string; eyeW: number }) {
   const [ids, setIds] = useState(['first'])
   pushIds = setIds
   const map = new Map<string, CanvasNode>(ids.map((id) => [id, agent(id)]))
-  return <EyeDesk map={map} op={op} slug={slug} toast={noop} pip={null}
+  return <EyeDesk map={map} op={op} slug={slug} toast={noop}
     pub={false} eyeW={eyeW} posX={() => 0} onMailLink={noop} />
 }
 
@@ -124,7 +124,7 @@ test('§4 mount catch-up: lines that arrived while AWAY minimize even with the t
   const map = new Map<string, CanvasNode>(
     [agent('first'), agent('away')].map((a) => [a.id, a]))
   const view = await mountView(
-    <EyeDesk map={map} op={op} slug="ea4" toast={noop} pip={null} pub={false}
+    <EyeDesk map={map} op={op} slug="ea4" toast={noop} pub={false}
       eyeW={eyeWFor(3)} posX={() => 0} onMailLink={noop} />, (el) => el)
   t.after(() => view.unmount())
   await flush()

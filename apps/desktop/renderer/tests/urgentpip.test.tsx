@@ -14,11 +14,17 @@
 // beside the asks, EyeDesk's said only "your inbox". Threading a third input
 // through four copies is how one of them ends up wrong, which is the shape
 // that produced the freeze-label bug. `attentionPip` is now the only place
-// the rule exists, so §1-§4 test all four surfaces at once by testing it.
-// Two of the four no longer compute anything at all — UserNode and EyeDesk
-// take the decided pip as a required prop — so for those the guarantee is
-// structural rather than tested, which is stronger. §5 renders UserNode to
-// prove the prop actually reaches the DOM class that carries the animation.
+// the rule exists, so §1-§4 test every surface at once by testing it.
+//
+// ⚠ THERE IS ONLY ONE LIVE SURFACE LEFT (2026-09-11). The user had the ✉
+// removed from the overseer eye and from the switchboard head, so UserNode
+// and EyeDesk no longer take a pip at all; the compact map marker still
+// renders one but is unreachable in v2 (`isCompact()` is a hardcoded false —
+// mobile is out of v2 scope). The header ask-bell is the survivor, and §6
+// now mounts IT. That is why `AskBell` is a named export of App.tsx rather
+// than an inline IIFE in the chrome: as an IIFE the only way to reach this
+// markup was to mount the whole application, which no test here does, and
+// the pulsing class would have had no DOM-level test at any surface.
 //
 // ⚠ ANTI-VACUITY. §4 pins the ZERO EDGE in the direction that would otherwise
 // pass silently: an inbox with ordinary unread mail and nothing urgent must
@@ -33,9 +39,9 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { attentionPip } from '../src/canvas/shared'
-import type { MailRow, OpFn } from '../src/canvas/shared'
+import type { MailRow } from '../src/canvas/shared'
 import { MailList } from '../src/canvas/mail'
-import { UserNode } from '../src/canvas/cards'
+import { AskBell } from '../src/App'
 
 // ===================================================== §1-§4  THE PIP RULE
 
@@ -127,36 +133,38 @@ function uiTest(name: string, body: (mount: (el: React.ReactElement)
 }
 
 const noop = () => {}
-const userNode = (pip: ReturnType<typeof attentionPip>) => (
-  <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
-    stats={{ circ: 0, seats: 0, free: 0 }}
-    pip={pip} seats={{ opus: 5 }} kiosk={undefined} pub={false}
-    kioskRemaining={null} pxc={1} zoom={1} onSpawn={noop}
-    onMailLink={noop} focused={false} eyeW={124} posX={() => 0}
-    map={new Map()} op={(() => Promise.resolve({})) as unknown as OpFn}
-    slug="org" toast={noop} />
-)
+/** the chrome bell, given only the tree fields the pip rule reads */
+const bell = (tree: Parameters<typeof attentionPip>[0]) =>
+  <AskBell tree={tree} onOpen={noop} />
 
-uiTest('§6 the pip prop reaches the DOM, pulsing class and all', async (mount) => {
+uiTest('§6 the rule reaches the DOM at the surviving surface, pulsing class '
+  + 'and all', async (mount) => {
   // the ATTENTION tier wears `.asks` — the class that carries the askpip
   // animation and is the EXISTING question signal, not a second one built to
-  // look like it
-  const loud = await mount(userNode(attentionPip({ urgent_unread: 2, user_inbox_count: 6 })))
-  const badge = loud.querySelector('.eye-inbox .count')
+  // look like it. The BUTTON also wears `.glow`, which is the 2026-08-04
+  // ruling that this bell is the only glowing thing in the chrome.
+  const loud = await mount(bell({ urgent_unread: 2, user_inbox_count: 6 }))
+  const badge = loud.querySelector('.ask-bell .eye-count')
   assert.equal(badge?.textContent, '2')
   assert.ok(badge?.classList.contains('asks'),
     'urgent mail must drive the same pulsing class an open ask does')
+  assert.ok(loud.querySelector('.ask-bell')?.classList.contains('glow'),
+    'the attention tier must glow the bell')
 
   // …and the quiet tier does NOT, which is the leg that fails if the rule
   // ever returns urgent:true unconditionally
-  const quiet = await mount(userNode(attentionPip({ user_inbox_count: 6 })))
-  const qb = quiet.querySelector('.eye-inbox .count')
+  const quiet = await mount(bell({ user_inbox_count: 6 }))
+  const qb = quiet.querySelector('.ask-bell .eye-count')
   assert.equal(qb?.textContent, '6')
   assert.ok(!qb?.classList.contains('asks'), 'ordinary unread mail must not pulse')
+  assert.ok(!quiet.querySelector('.ask-bell')?.classList.contains('glow'),
+    'ordinary unread mail must not glow the bell either')
 
-  // nothing waiting → no badge element at all (not an empty one)
-  const none = await mount(userNode(attentionPip({})))
-  assert.equal(none.querySelector('.eye-inbox .count'), null)
+  // nothing waiting → no badge element at all (not an empty one), but the
+  // bell itself stays: it is how the inbox is opened
+  const none = await mount(bell({}))
+  assert.equal(none.querySelector('.ask-bell .eye-count'), null)
+  assert.ok(none.querySelector('.ask-bell'), 'the bell is always there')
 })
 
 const row = (over: Partial<MailRow> = {}): MailRow => ({

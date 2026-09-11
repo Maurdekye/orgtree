@@ -135,12 +135,14 @@ test('①  ONE modal: a single overlay, no advanced disclosure, and every '
     const labels = tabs(view.el).map((t) => t.textContent?.trim())
     assert.equal(labels[0]?.startsWith('Basic'), true)
     assert.deepEqual(labels,
-      ['Basic', 'Policies', 'Connections', 'Autonomy', 'History'])
+      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy',
+        'History'])
     assert.equal(tabs(view.el)[0]!.getAttribute('aria-selected'), 'true')
 
     // every former advanced category is now reachable in ONE click from the
     // strip, rather than one click to open a modal and another to pick a tab
-    for (const label of ['Policies', 'Connections', 'Autonomy', 'History']) {
+    for (const label of ['Hire defaults', 'Policies', 'Connections',
+      'Autonomy', 'History']) {
       const t = await open(view.el, label)
       assert.equal(t.getAttribute('aria-selected'), 'true')
       // still one overlay: picking a tab must not open a second surface
@@ -158,7 +160,8 @@ test('②  ONE save surface, on every tab — and none of the four "changes here
   stubFetch(seen)
   const { view } = await mountOrg()
   try {
-    for (const label of ['Basic', 'Policies', 'Autonomy', 'History']) {
+    for (const label of ['Basic', 'Hire defaults', 'Policies', 'Autonomy',
+      'History']) {
       await open(view.el, label)
       const saves = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
         .filter((b) => b.textContent?.trim() === 'save')
@@ -221,7 +224,7 @@ test('④  the tab set follows the org: an '
   let m = await mountOrg({ net: null })
   try {
     assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Policies', 'Autonomy', 'History'])
+      ['Basic', 'Hire defaults', 'Policies', 'Autonomy', 'History'])
   } finally { await m.view.unmount() }
 
 })

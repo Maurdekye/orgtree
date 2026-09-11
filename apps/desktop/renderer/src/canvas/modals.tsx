@@ -1,9 +1,14 @@
 import { useSurfaceDocument } from '../popout'
-// canvas/modals.tsx — the config modals: the in-page ConfirmModal, the org
-// agent-hire defaults panel (UserConfig), the pre-hire permissions modal
-// (DraftScopeModal), the per-node ⚙ config (NodeConfig) with the shared MCP
-// checklist, and the retired/crowd pile picker. Extracted verbatim from
-// Canvas.tsx in the phase-3 split.
+// canvas/modals.tsx — the config modals: the in-page ConfirmModal, the
+// pre-hire permissions modal (DraftScopeModal), the per-node ⚙ config
+// (NodeConfig) with the shared MCP checklist, and the retired/crowd pile
+// picker. Extracted verbatim from Canvas.tsx in the phase-3 split.
+//
+// The org agent-hire defaults ALSO live here, but they are no longer a modal
+// — `HireDefaultsTab` is a tab body inside org settings now (user
+// 2026-09-11). It stayed in this file because TOOL_LABELS, VIS_OPTIONS and
+// McpChecklist are module-private and shared with the two scope modals
+// below; moving it out would have had to export all three.
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -12,7 +17,7 @@ import type {
 } from '../types'
 import {
   assignAccount, dissolveAll, getChat, getMcpServers, removeReplyEvents,
-  req, saveHireDefaults, saveScope, saveSettings, watchdogAction,
+  req, saveScope, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
 import {
@@ -23,6 +28,7 @@ import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
 import { ModalOverPins, PinFrame } from './modalpin'
+import { SetBlock, SetGroup, SetRow } from './settingskit'
 import { fmtStamp } from '../timefmt'
 
 export interface ConfirmModalProps {
@@ -224,180 +230,194 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
   )
 }
 
-// ⚙ on the overseer — the org's agent-hire defaults, symmetric with each
-// agent's own config modal. Granted to hires that don't state tools: top-level
+// The org's agent-hire defaults — WAS the standalone `UserConfig` modal
+// behind the ⚙ on the overseer eye. User 2026-09-11: "remove agent hire
+// defaults icon and put it as a new tab in Org settings." So this is no
+// longer a modal at all: it is the body of org settings' `Hire defaults`
+// tab, and the panel's ONE save button carries its edits (App.tsx).
+//
+// WHAT IT GRANTS: hires that don't state tools of their own. Top-level
 // agents get exactly this; deeper hires get the ∩ with the superior's
 // capability (clamped server-side at hire time). "*" = every registered MCP
 // server, present and future.
-interface UserConfigProps {
+//
+// ⚠ THE STATE LIVES IN THE CALLER, not here. SettingsPanel keeps ONE edit
+// buffer for every tab (its P3 note explains why: seventeen private
+// useState copies of server values is how a panel shows yesterday's answer),
+// and its save reads that buffer. Every key this tab writes is prefixed
+// `hire.` so the save row can tell — structurally, rather than by keeping a
+// list in step — whether anything here was touched. See `hireEdited`.
+//
+// ⚠ NO VISITOR DOOR WAS ADDED. The ⚙ this replaces was deliberately open to
+// kiosk visitors (v1 ruling 2026-07-31) while org settings is admin-only:
+// both chrome buttons that open it are gated `!tree.public`. That is not a
+// regression here, because docs/v2-user-decisions.md excludes "Kiosk mode
+// and every public/browser-sharing exposure" from v2 and reaffirms it
+// (7 Sep 20:34 "REMOVE ALL kiosk and agent sandbox/isolation features";
+// 21:22 "Kiosk and agent isolation stay out for the foreseeable future"),
+// superseding the v1 rule. The `pub` conditionals below are kept anyway: a
+// PINNED org-settings window restores without passing the chrome's gate, so
+// they are a guard of last resort, not a visitor feature.
+interface HireDefaultsTabProps {
   tree: TreePayload
   slug: string
   toast: ToastFn
+  /** closes the whole settings panel — `dissolve all agents` dismissed the
+   *  old modal on success and still dismisses what it now sits in */
   close: () => void
+  /** the live values and setters from SettingsPanel's edit buffer */
+  tools: ToolGrant
+  setTools: (v: ToolGrant) => void
+  vis: string
+  setVis: (v: string) => void
+  pm: string
+  setPm: (v: string) => void
+  dirs: DirGrant[]
+  setDirs: (v: DirGrant[]) => void
 }
 
-export function UserConfig({ tree, slug, toast, close }: UserConfigProps) {
-  // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
-  // PINNED window ignores it the way an agent window does.
-  // visitors configure the HIRE DEFAULTS too (user ruling 2026-07-31),
-  // ceiling-clamped server-side; the org folder holdings stay admin-only
-  // (host paths — the public payload only carries basenames anyway)
+/** the org's folder holdings as the server reports them, workspace excluded
+ *  — it is permanent RW and is re-added server-side on every save (api.py
+ *  `_org_settings_locked`: `org.d["dirs"] = ws_dir + new`). Exported so the
+ *  panel that owns the edit buffer derives the same list this tab renders,
+ *  rather than keeping a second copy of the rule. */
+export const orgDirHoldings = (tree: TreePayload): DirGrant[] =>
+  (tree.dirs ?? []).filter((d) => d.path !== tree.workspace)
+    .map((d) => ({ ...d }))
+
+/** ...and the same for the tool grant, defaults included. */
+export const orgDefaultTools = (tree: TreePayload): ToolGrant => ({
+  bash: true, web: true, edit: true, subagents: true,
+  ...(tree.default_tools ?? {}),
+  mcp: [...(tree.default_tools?.mcp ?? ['*'])],
+})
+
+export function HireDefaultsTab({ tree, slug, toast, close,
+  tools, setTools, vis, setVis, pm, setPm, dirs, setDirs }: HireDefaultsTabProps) {
   const pub = !!tree.public
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
-  // P3: derived from `tree`, with a buffer holding only what has been edited
-  // — see NodeConfig for the reasoning. These are org DEFAULTS the server
-  // owns, so a snapshot at mount could show yesterday's answer.
-  const [edit, setEdit] = useState<Record<string, unknown>>({})
-  const val = <T,>(k: string, server: T): T => (k in edit ? edit[k] as T : server)
-  const set = <T,>(k: string, cur: T) => (v: T | ((prev: T) => T)) =>
-    setEdit((e) => ({ ...e,
-      [k]: typeof v === 'function' ? (v as (p: T) => T)(cur) : v }))
-  const srvTools = useMemo<ToolGrant>(() => ({
-    bash: true, web: true, edit: true, subagents: true,
-    ...(tree.default_tools ?? {}),
-    mcp: [...(tree.default_tools?.mcp ?? ['*'])],
-  }), [tree.default_tools])
-  const defTools = val<ToolGrant>('defTools', srvTools)
-  const setDefTools = set<ToolGrant>('defTools', defTools)
-  const vis = val('vis', tree.default_visibility ?? 'full')
-  const setVis = set<string>('vis', vis)
-  const pm = val('pm', tree.permission_mode ?? 'acceptEdits')
-  const setPm = set<string>('pm', pm)
-  // the org's folder holdings (workspace excluded — it is permanent RW).
-  // These double as the folder defaults for every hire.
-  const srvDirs = useMemo<DirGrant[]>(
-    () => (tree.dirs ?? []).filter((d) => d.path !== tree.workspace)
-      .map((d) => ({ ...d })), [tree.dirs, tree.workspace])
-  const orgDirs = val<DirGrant[]>('orgDirs', srvDirs)
-  const setOrgDirs = set<DirGrant[]>('orgDirs', orgDirs)
   const [newPath, setNewPath] = useState('')
   useEffect(() => {
     getMcpServers().then((r) => {
       setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
     }).catch(() => {})
   }, [])
-  const allMcp = defTools.mcp.includes('*')
+  const allMcp = tools.mcp.includes('*')
   return (
-    <PinFrame kind="user-config" title="you · configuration" panel="settings"
-      close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> you <span className="dim">· configuration</span></h3>
-        <div className="row">
-          <button className="danger" onClick={() => setAsking(true)}>
-            dissolve all agents</button>
-        </div>
-        {/* folder access FIRST — same order as the per-agent config (user ruling) */}
-        {!pub && <><div className="field-label">folder access</div>
-        <div className="dirlist">
-          {tree.workspace && (
+    <>
+      {/* folder access FIRST — the same order as the per-agent config (user
+          ruling), which is the order the ⚙ panel used */}
+      {!pub && <SetGroup title="Folder access"
+        note="the org's holdings — also the folder defaults for every hire">
+        <SetBlock hint={'additions apply to FUTURE hires; removing one '
+          + 'revokes it everywhere, and an RW→RO downgrade reaches every '
+          + 'grant already handed out'}>
+          <div className="dirlist">
+            {tree.workspace && (
+              <div className="dirrow">
+                <span className="chip mono grow">{tree.workspace}</span>
+                <span className="modebtn rw"
+                  title="the org workspace — permanent, always read/write">RW</span>
+              </div>
+            )}
+            {dirs.map((d, i) => (
+              <div className="dirrow" key={d.path}>
+                <span className="chip mono grow">{d.path}</span>
+                <button type="button" className={'modebtn ' + d.mode}
+                  title="toggle read/write vs read-only"
+                  onClick={() => setDirs(dirs.map((x, j) =>
+                    j === i ? { ...x, mode: x.mode === 'rw' ? 'ro' : 'rw' } : x))}>
+                  {d.mode === 'rw' ? 'RW' : 'RO'}
+                </button>
+                <button type="button" className="iconbtn"
+                  title="remove from the org (revokes everywhere)"
+                  onClick={() => setDirs(dirs.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
+              </div>
+            ))}
             <div className="dirrow">
-              <span className="chip mono grow">{tree.workspace}</span>
-              <span className="modebtn rw"
-                title="the org workspace — permanent, always read/write">RW</span>
+              <input placeholder="add an absolute path"
+                aria-label="add an absolute path"
+                value={newPath} onChange={(e) => setNewPath(e.target.value)} />
+              <button type="button" className="iconbtn" title="browse for a folder"
+                onClick={() => pickFolder().then((r) => {
+                  if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
+                }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
+              <button type="button" className="addrow" onClick={() => {
+                if (newPath.trim()) {
+                  setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }])
+                  setNewPath('')
+                }
+              }}>add</button>
             </div>
-          )}
-          {orgDirs.map((d, i) => (
-            <div className="dirrow" key={d.path}>
-              <span className="chip mono grow">{d.path}</span>
-              <button type="button" className={'modebtn ' + d.mode}
-                title="toggle read/write vs read-only"
-                onClick={() => setOrgDirs(orgDirs.map((x, j) =>
-                  j === i ? { ...x, mode: x.mode === 'rw' ? 'ro' : 'rw' } : x))}>
-                {d.mode === 'rw' ? 'RW' : 'RO'}
-              </button>
-              <button type="button" className="iconbtn"
-                title="remove from the org (revokes everywhere)"
-                onClick={() => setOrgDirs(orgDirs.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
-            </div>
-          ))}
-          <div className="dirrow">
-            <input placeholder="add an absolute path"
-              value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-            <button type="button" className="iconbtn" title="browse for a folder"
-              onClick={() => pickFolder().then((r) => {
-                if (r.path) setOrgDirs([...orgDirs, { path: r.path, mode: 'rw' }])
-              }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
-            <button type="button" className="addrow" onClick={() => {
-              if (newPath.trim()) {
-                setOrgDirs([...orgDirs, { path: newPath.trim(), mode: 'rw' }])
-                setNewPath('')
-              }
-            }}>add</button>
           </div>
-        </div></>}
-        <div className="field-label">tools</div>
-        {TOOL_LABELS.map(([k, label]) => (
-          <label className="checkline" key={k}>
-            <input type="checkbox" checked={!!defTools[k]}
-              onChange={(e) => setDefTools({ ...defTools, [k]: e.target.checked })} />
-            {label}
+        </SetBlock>
+      </SetGroup>}
+
+      <SetGroup title="Agent hire defaults"
+        note="granted to hires that state no tools of their own">
+        <SetBlock label="tools">
+          {TOOL_LABELS.map(([k, label]) => (
+            <label className="checkline" key={k}>
+              <input type="checkbox" checked={!!tools[k]}
+                onChange={(e) => setTools({ ...tools, [k]: e.target.checked })} />
+              {label}
+            </label>
+          ))}
+        </SetBlock>
+        <SetBlock label="MCP servers">
+          <label className="checkline">
+            <input type="checkbox" checked={allMcp}
+              aria-label="all registered MCP servers"
+              onChange={(e) => setTools({
+                ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
+            all registered servers (current and future)
           </label>
-        ))}
-        <div className="field-label">MCP servers</div>
-        <label className="checkline">
-          <input type="checkbox" checked={allMcp}
-            onChange={(e) => setDefTools({
-              ...defTools, mcp: e.target.checked ? ['*'] : [...servers] })} />
-          all registered servers (current and future)
-        </label>
-        {!allMcp && !pub && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
-          sandboxed={!!tree.sandboxed}
-          checked={(s) => defTools.mcp.includes(s)}
-          onToggle={(s, on) => setDefTools({
-            ...defTools,
-            mcp: on ? [...defTools.mcp, s] : defTools.mcp.filter((x) => x !== s),
-          })} />}
-        {!allMcp && pub && <div className="dim">
-          individual server names are admin-side — off means none</div>}
-        <div className="field-label">org-structure visibility</div>
-        <select value={vis} onChange={(e) => setVis(e.target.value)}>
-          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-        </select>
+          {!allMcp && !pub && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
+            sandboxed={!!tree.sandboxed}
+            checked={(s) => tools.mcp.includes(s)}
+            onToggle={(s, on) => setTools({
+              ...tools,
+              mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
+            })} />}
+          {!allMcp && pub && <div className="dim">
+            individual server names are admin-side — off means none</div>}
+        </SetBlock>
+        <SetRow label="org-structure visibility">
+          <select value={vis} aria-label="org-structure visibility"
+            onChange={(e) => setVis(e.target.value)}>
+            {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </SetRow>
         {/* D-101: the born-with mode, editable post-creation. Admin-only —
-            it rides /settings (frozen for kiosk visitors), never the
-            visitor-open defaults endpoint. It is a DEFAULT: existing agents
-            keep the mode they were hired with and change one at a time in
-            their own ⚙. */}
-        {!pub && <>
-          <div className="field-label">permission mode for NEW agents — existing
-            ones keep theirs (change those in the agent&apos;s own ⚙)</div>
-          <select value={pm} onChange={(e) => setPm(e.target.value)}>
+            it rides /settings, never the visitor-open defaults endpoint. It
+            is a DEFAULT: existing agents keep the mode they were hired with
+            and change one at a time in their own ⚙. */}
+        {!pub && <SetRow label="permission mode for NEW agents"
+          hint="existing agents keep theirs — change those in the agent's own ⚙">
+          <select value={pm} aria-label="permission mode for new agents"
+            onChange={(e) => setPm(e.target.value)}>
             <option value="plan">plan — read-only planning seat</option>
             <option value="default">default — asks (headless: auto-denies)</option>
             <option value="acceptEdits">acceptEdits — the normal seat</option>
             <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
           </select>
-        </>}
-        <div className="row">
-          <button className="primary" onClick={() =>
-            // defaults ride their own visitor-open, ceiling-clamped endpoint;
-            // the org folder holdings stay on the admin-only /settings
-            Promise.all([
-              saveHireDefaults(slug, { default_tools: defTools,
-                                       default_visibility: vis }),
-              pub ? Promise.resolve<{ warnings?: string[] }>({})
-                : saveSettings(slug, { org_dirs: orgDirs,
-                                       permission_mode: pm }),
-            ])
-              .then(([r, r2]) => {
-                const warns = [...(r.warnings ?? []), ...(r2.warnings ?? [])]
-                if (r?.bridge?.raise_ceiling) {
-                  toast(warns.length ? warns
-                    : ['clamped to the kiosk permission ceiling'],
-                  { label: 'raise ceiling & apply',
-                    fn: () => saveHireDefaults(slug,
-                      { default_tools: defTools, default_visibility: vis,
-                        raise_ceiling: true })
-                      .then((r3) => toast(r3.warnings?.length ? r3.warnings
-                        : ['ceiling raised — defaults applied']))
-                      .catch((e: Error) => toast([`error: ${e.message}`])) })
-                } else toast(warns)
-                close()
-              })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>save</button>
-          <button onClick={close}>cancel</button>
-        </div>
+        </SetRow>}
+      </SetGroup>
+
+      {/* the ⚙ panel's own danger row. It is not a hire default, but that
+          panel was the only place it has ever been reachable from — dropping
+          it with the modal would delete the capability, not move it. */}
+      <SetGroup title="Dissolve all agents">
+        <SetBlock hint="every agent in the entire org is retired at once. Context is kept; rehire brings any of them back.">
+          <div className="row">
+            <button className="danger" onClick={() => setAsking(true)}>
+              dissolve all agents</button>
+          </div>
+        </SetBlock>
+      </SetGroup>
+
       {/* portaled out: a confirmation nested in a pinned panel is trapped in
           that panel's stacking context — see ModalOverPins */}
       {asking && (
@@ -409,7 +429,7 @@ export function UserConfig({ tree, slug, toast, close }: UserConfigProps) {
             .catch((e: Error) => toast([`error: ${e.message}`]))}
           close={() => setAsking(false)} /></ModalOverPins>
       )}
-    </PinFrame>
+    </>
   )
 }
 // Pre-hire permissions (user spec): the same scope surface as the per-agent

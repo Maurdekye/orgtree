@@ -54,7 +54,7 @@ test('switchboard tabs: each unread count wears ITS agent\'s provider, like its 
   localStorage.removeItem('orgtree-eyeseen-swb')
   const map = new Map<string, CanvasNode>(MIX.map((a) => [a.id, a]))
   const view = await mountView(
-    <EyeDesk map={map} op={op} slug="swb" toast={noop} pip={null} pub={false}
+    <EyeDesk map={map} op={op} slug="swb" toast={noop} pub={false}
       eyeW={1200} posX={() => 0} onMailLink={noop} />, (el) => el)
   t.after(() => view.unmount())
   const tabs = [...view.el.querySelectorAll('.eye-tab')]

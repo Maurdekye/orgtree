@@ -23,7 +23,7 @@ import {
   getUsage, getUsagePeek, killAll, listOrgs,
   markRead, openWs,
   probeHub, putOrgMd,
-  resumeFrozen, runOp, saveDefaults, saveSettings,
+  resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
 } from './api'
 import { fmtClock, fmtFull } from './timefmt'
 import { bumpLive } from './livebus'
@@ -46,6 +46,7 @@ import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
 import { closeIfCentred, isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen } from './canvas/modalpin'
+import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
@@ -56,8 +57,9 @@ import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import type {
   AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
-  MailEntry, OpRequest, OrgEvent, OrgListEntry, OrgMdPayload, ToastFn,
-  ProvidersPayload,
+  DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
+  OrgMdPayload, ToastFn,
+  ProvidersPayload, ToolGrant,
   AntigravityEstimate as AgyEstimate,
   AccountRegistryRow,
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
@@ -276,6 +278,42 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
  * A plain browser has no app version and gets no invented one: it keeps the
  * backend build hash as its visible badge, and shows nothing when even that
  * is unknown. */
+/** the chrome's inbox bell and its attention badge.
+ *
+ *  D-169: the rule is `attentionPip` — ONE classifier, and as of 2026-09-11
+ *  this is its only live surface. The eye card and the switchboard head each
+ *  carried a copy of the badge until the user had both ✉ icons removed, and
+ *  the compact map marker that also renders it is unreachable in v2
+ *  (`isCompact()` returns a hardcoded false — mobile is out of v2 scope).
+ *
+ *  ⚠ EXTRACTED FROM THE CHROME ON PURPOSE, not for tidiness. As an inline
+ *  IIFE inside `App` this markup could only be reached by a test that mounts
+ *  the entire application, which no node test does — so when the eye's badge
+ *  went, tests/urgentpip.test.tsx §6 ("the prop reaches the DOM, pulsing
+ *  class and all") lost the only surface it could mount, and the pulse class
+ *  would have gone untested at every surface that still renders it. A named
+ *  component is mountable. Behaviour is unchanged: same classes, same title,
+ *  same two-tier badge, same click.
+ *
+ *  The 2026-08-04 ruling that this bell glows ALONE in the whole chrome is
+ *  untouched; the user widened WHAT counts (urgent mail joins open asks),
+ *  not the property. Nothing else in the chrome starts glowing. */
+export function AskBell({ tree, onOpen }: {
+  tree: Parameters<typeof attentionPip>[0]
+  onOpen: () => void
+}) {
+  const pip = attentionPip(tree)
+  return (
+    <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
+      title={pip?.title ?? 'your inbox'}
+      onClick={onOpen}>
+      <MailIcon fontSize="inherit" />
+      {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
+        {pip.count}</b>}
+    </button>
+  )
+}
+
 export function TitleBadge({ appVersion, build }: {
   appVersion: string | null
   build: HostPayload['build'] | null
@@ -1033,23 +1071,10 @@ export default function App() {
                     ruling): with asks open the badge shows the ASK count in
                     the vibrant pulsing form; otherwise the unread-mail count,
                     muted. Click opens the inbox either way. */}
-                {(() => {
-                  // D-169: the rule is `attentionPip` now — one classifier,
-                  // four surfaces. The 2026-08-04 ruling that this bell glows
-                  // ALONE in the whole chrome is untouched; the user widened
-                  // WHAT counts (urgent mail joins open asks), not the
-                  // property. Nothing else in the chrome starts glowing.
-                  const pip = attentionPip(tree)
-                  return (
-                    <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
-                      title={pip?.title ?? 'your inbox'}
-                      onClick={() => { setInboxJump(null); toggleSurface('inbox', showInbox, setShowInbox) }}>
-                      <MailIcon fontSize="inherit" />
-                      {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
-                        {pip.count}</b>}
-                    </button>
-                  )
-                })()}
+                <AskBell tree={tree} onOpen={() => {
+                  setInboxJump(null)
+                  toggleSurface('inbox', showInbox, setShowInbox)
+                }} />
                 {/* the presented-document gallery sits BESIDE the inbox (user
                     ruling 2026-09-03: "place it next to the mail icon"). They
                     are the same kind of thing — a standing pile of what agents
@@ -2461,7 +2486,8 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
  *  now siblings of it. `mailserver` and `autonomy` are conditional — see
  *  `orgTabs` in the panel. */
 type OrgSettingsTab =
-  'basic' | 'policies' | 'orgtype' | 'mailserver' | 'autonomy' | 'history'
+  'basic' | 'hiredefaults' | 'policies' | 'orgtype' | 'mailserver'
+  | 'autonomy' | 'history'
 
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
 // about THIS component's shape (one modal, one save, tabs not a nested
@@ -2506,6 +2532,10 @@ export function SettingsPanel({ tree, toast, close }: {
   // the panels below cannot disagree about which tabs exist.
   const orgTabs = useMemo<SettingsTab<OrgSettingsTab>[]>(() => [
     { id: 'basic', label: 'Basic' },
+    // user 2026-09-11: the overseer eye's standalone ⚙ is gone and its panel
+    // is this tab. It sits next to Basic because Basic's "Agent defaults"
+    // group is the other half of the same subject.
+    { id: 'hiredefaults', label: 'Hire defaults' },
     { id: 'policies', label: 'Policies' },
     ...(tree.net != null
       ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
@@ -2557,6 +2587,28 @@ export function SettingsPanel({ tree, toast, close }: {
   // pre-resume cheap compact (2026-08-17): rides the AUTO limit resume only
   const arCompact = val('arCompact', !!tree.auto_resume_compact)
   const setArCompact = set('arCompact', arCompact)
+  // ── the Hire defaults tab (user 2026-09-11, was the eye's ⚙ modal).
+  // ⚠ EVERY KEY HERE IS PREFIXED `hire.`, and that prefix is load-bearing:
+  // `hireEdited` below asks whether ANY of them is in the buffer, so a field
+  // added to that tab later is covered by construction rather than by
+  // somebody remembering to extend a list. Do not give one of these an
+  // unprefixed key, and do not use this prefix for anything else.
+  const srvTools = useMemo(() => orgDefaultTools(tree), [tree])
+  const hireTools = val<ToolGrant>('hire.tools', srvTools)
+  const setHireTools = set<ToolGrant>('hire.tools', hireTools)
+  const hireVis = val('hire.vis', tree.default_visibility ?? 'full')
+  const setHireVis = set<string>('hire.vis', hireVis)
+  const hirePm = val('hire.pm', tree.permission_mode ?? 'acceptEdits')
+  const setHirePm = set<string>('hire.pm', hirePm)
+  const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
+  const hireDirs = val<DirGrant[]>('hire.dirs', srvDirs)
+  const setHireDirs = set<DirGrant[]>('hire.dirs', hireDirs)
+  // Did the reader actually touch that tab? The save below skips its two
+  // writes when not. This is not cosmetic: `org_dirs` makes the server walk
+  // every node looking for grants to revoke or downgrade
+  // (api.py `_org_settings_locked`), and re-sending an unchanged holding
+  // list on every ordinary settings save would run that sweep for nothing.
+  const hireEdited = Object.keys(edit).some((k) => k.startsWith('hire.'))
   useEffect(() => {
     // null = not loaded: the textarea is disabled and save skips the write.
     // ☠ The catch used to set '' — an empty EDITABLE buffer — so a transient
@@ -2690,6 +2742,21 @@ export function SettingsPanel({ tree, toast, close }: {
             )}
           </SetBlock>
         </SetGroup>
+        </SettingsTabPanel>
+
+        {/* ── Hire defaults — the overseer eye's ⚙ panel, moved here whole
+            (user 2026-09-11). Rendered only once visited, like the other
+            fetching tabs: its MCP server list is a request nobody asked for
+            until they open it. Its EDITS live in this panel's one buffer, so
+            they survive a tab switch exactly like Basic's do. ────────── */}
+        <SettingsTabPanel id="hiredefaults" idBase="org-settings"
+          active={tab === 'hiredefaults'}>
+          {visited('hiredefaults') && <HireDefaultsTab tree={tree} slug={tree.slug}
+            toast={toast} close={close}
+            tools={hireTools} setTools={setHireTools}
+            vis={hireVis} setVis={setHireVis}
+            pm={hirePm} setPm={setHirePm}
+            dirs={hireDirs} setDirs={setHireDirs} />}
         </SettingsTabPanel>
 
         {/* ── Policies (was the advanced modal's "general" tab) ─────────── */}
@@ -2834,7 +2901,14 @@ export function SettingsPanel({ tree, toast, close }: {
                   cascade_alloc: cascadeAlloc,
                   auto_resume_compact: arCompact,
                   auto_cheap_compact: { enabled: accOn,
-                    occ: (+accOcc || 50) / 100 } }),
+                    occ: (+accOcc || 50) / 100 },
+                  // Hire defaults' ADMIN half, unchanged from the ⚙ panel:
+                  // the org's folder holdings and the born-with permission
+                  // mode ride /settings, which is frozen for visitors. Only
+                  // when that tab was actually edited — an unchanged
+                  // `org_dirs` still makes the server sweep every node.
+                  org_dirs: hireEdited ? hireDirs : undefined,
+                  permission_mode: hireEdited ? hirePm : undefined }),
               // pass the org.md warnings through rather than swallowing them:
               // a save that delivers less than it stored has to SAY so, and
               // this array is already how every other job reaches the toast
@@ -2842,14 +2916,36 @@ export function SettingsPanel({ tree, toast, close }: {
                 ? putOrgMd(tree.slug, orgMd).then((r) => ({ warnings: r.warnings }))
                 : Promise.resolve({}),
             ]
-            Promise.all(jobs).then((rs) => {
+            // ...and its OPEN half stays on the separate, ceiling-clamped
+            // /defaults endpoint rather than being folded into /settings.
+            // That split is the whole reason the ⚙ panel made two calls, and
+            // it survives the move (see `HireDefaultsTab`).
+            const hireJob: Promise<OpResult> = hireEdited
+              ? saveHireDefaults(tree.slug, { default_tools: hireTools,
+                                              default_visibility: hireVis })
+              : Promise.resolve({})
+            Promise.all([Promise.all(jobs), hireJob]).then(([rs, hire]) => {
               const cleared = rs.flatMap((r) => r.freezes_cleared ?? [])
               const lines = [
                 ...(cleared.length
                   ? [`limit raised — cleared: ${cleared.join(', ')}`] : []),
                 ...rs.flatMap((r) => r.warnings ?? []),
+                ...(hire.warnings ?? []),
               ]
-              toast(lines.length ? lines : ['settings saved'])
+              // the one-action ceiling bridge, carried over verbatim from the
+              // ⚙ panel: when the defaults were clamped, the toast itself
+              // offers to raise the ceiling and re-send.
+              if (hire.bridge?.raise_ceiling) {
+                toast(lines.length ? lines
+                  : ['clamped to the kiosk permission ceiling'],
+                { label: 'raise ceiling & apply',
+                  fn: () => saveHireDefaults(tree.slug,
+                    { default_tools: hireTools, default_visibility: hireVis,
+                      raise_ceiling: true })
+                    .then((r3) => toast(r3.warnings?.length ? r3.warnings
+                      : ['ceiling raised — defaults applied']))
+                    .catch((e: Error) => toast([`error: ${e.message}`])) })
+              } else toast(lines.length ? lines : ['settings saved'])
               // the edits are the server's now — drop the buffer so the panel
               // reads from the tree again rather than from what was typed
               clearEdits()

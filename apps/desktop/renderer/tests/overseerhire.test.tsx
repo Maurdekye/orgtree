@@ -37,7 +37,7 @@ const available = { enabled: true, installed: true, reason: null }
 function eye(zoom: number) {
   return mountView(
     <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
-      stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={seats}
+      stats={{ circ: 0, seats: 0, free: 0 }} seats={seats}
       codexHire={available} antigravityHire={available} claudeHire={available}
       pub={false} kiosk={undefined} kioskRemaining={null} pxc={1} zoom={zoom}
       onSpawn={noop} onMailLink={noop} focused={false} eyeW={124}

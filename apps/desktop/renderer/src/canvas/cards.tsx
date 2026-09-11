@@ -20,7 +20,7 @@ import {
   USER_H, USER_W, useAgentShortcuts,
 } from './shared'
 import type {
-  AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
+  CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
   WorkLinkFn,
   Pt,
 } from './shared'
@@ -41,11 +41,6 @@ interface UserNodeProps {
   pos: Pt
   isDrop: boolean
   stats: { circ: number; seats: number; free: number }
-  /** the inbox badge, already decided (D-169). Passed in rather than
-   *  re-derived from counts here: this component and EyeDesk below used to
-   *  each write the two-tier rule out by hand, and had already drifted apart
-   *  on the tooltip. `attentionPip` owns it now — see canvas/shared.ts. */
-  pip: AttentionPip | null
   seats: Record<string, number>
   codexHire?: HireState | null
   antigravityHire?: HireState | null
@@ -59,8 +54,6 @@ interface UserNodeProps {
   kioskSegs?: { seat: number; grant: number }[]
   pxc: number
   zoom: number
-  onInbox?: () => void
-  onGear?: () => void
   onSpawn: (tier: string) => void
   onMailLink: MailLinkFn
   onWorkLink: WorkLinkFn
@@ -86,9 +79,9 @@ interface UserNodeProps {
   onShowPin?: (id: string) => void
 }
 
-export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
+export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onNoHarness,
   antigravityHire, openrouterHire,
-  kiosk, pub, kioskRemaining, kioskSegs, pxc, zoom, onInbox, onGear, onSpawn,
+  kiosk, pub, kioskRemaining, kioskSegs, pxc, zoom, onSpawn,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
@@ -159,21 +152,17 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         <circle className="pupil" cx="24" cy="13" r="2.6" />
       </svg>
       {!focused && <div className="user-label">you</div>}
-      {/* two-tier pip (user spec 2026-08-06): open asks outrank unread mail —
-          the ask count wears the vibrant pulsing form, plain unread the
-          muted one */}
-      {!focused && <button className="eye-inbox"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => { e.stopPropagation(); onInbox?.() }}>
-        <MailIcon fontSize="inherit" />
-        {pip && <span className={'count' + (pip.urgent ? ' asks' : '')}>
-          {pip.count}</span>}
-      </button>}
-      {/* open to visitors too (user ruling): agent-hire defaults are
-          configurable by anyone, ceiling-clamped like any grant */}
-      {!focused && <button className="eye-gear" title="agent-hire defaults"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => { e.stopPropagation(); onGear?.() }}><SettingsIcon fontSize="inherit" /></button>}
+      {/* ⚠ NO MAIL BUTTON AND NO ⚙ HERE (user 2026-09-11: "remove mail icon
+          from switchboard; remove agent hire defaults icon"). Both were
+          removed from the overview card AND from the switchboard head below.
+          Neither capability was lost with them:
+          · unread/ask attention is the chrome's `.ask-bell` (App.tsx), which
+            renders the SAME `attentionPip(tree)` two-tier badge and is the
+            only glowing control in the chrome. The compact map marker keeps
+            its bare count too (OrgCanvas).
+          · the agent-hire defaults are a TAB of org settings now
+            (App.tsx SettingsPanel, `hiredefaults`), which is also where
+            `dissolve all agents` went — that button had no other door. */}
       {/* real seat costs in the hover hints — a literal 0 was technically true
           (infinite pool) but read as wrong next to every other card. The
           chips survive switchboard focus too (user spec) — hiring is never
@@ -194,8 +183,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
              for again, so it is the same callback, not a second one that
              could drift from it. */
           onRecenter={onFocus}
-          pip={pip} onInbox={onInbox}
-          onGear={onGear} pub={pub} eyeW={eyeW} posX={posX} onJump={onJump}
+          pub={pub} eyeW={eyeW} posX={posX} onJump={onJump}
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onNodeLineage={onNodeLineage} onNodeConfig={onNodeConfig}
@@ -216,10 +204,6 @@ interface EyeDeskProps {
   op: OpFn
   slug: string
   toast: ToastFn
-  /** the ✉ badge, already decided — see UserNodeProps.pip above */
-  pip: AttentionPip | null
-  onInbox?: () => void
-  onGear?: () => void
   pub: boolean
   eyeW: number
   posX: (id: string) => number
@@ -249,8 +233,8 @@ interface EyeDeskProps {
   onShowPin?: (id: string) => void
 }
 
-export function EyeDesk({ map, op, slug, toast, pip,
-  onInbox, onGear, pub, eyeW, posX, onJump, compactAt, maxTop, pxc,
+export function EyeDesk({ map, op, slug, toast,
+  pub, eyeW, posX, onJump, compactAt, maxTop, pxc,
   onMailLink, onWorkLink, onOpenDoc, onNodeLineage, onNodeConfig, onRecenter,
   pinnedIds, onShowPin }: EyeDeskProps) {
   const isPinned = (id: string) => !!pinnedIds?.has(id)
@@ -437,15 +421,9 @@ export function EyeDesk({ map, op, slug, toast, pip,
               } catch { /* private mode */ }
               return next
             })}>auto</button>
-          <button className="cc-icon"
-            title={pip?.title ?? 'your inbox'}
-            onClick={() => onInbox?.()}>
-            <MailIcon fontSize="inherit" />
-            {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
-              {pip.count}</b>}
-          </button>
-          <button className="cc-icon" title="agent-hire defaults"
-            onClick={() => onGear?.()}><SettingsIcon fontSize="inherit" /></button>
+          {/* the ✉ and ⚙ that sat here are gone — see UserNode above for
+              where each capability lives now. `auto` is the only head
+              control left, and it is not one of the two the user named. */}
         </div>
         <div className="eye-panels">
           {open.map((a) => (
