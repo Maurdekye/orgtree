@@ -7523,6 +7523,89 @@ def _org_ref(org: Org) -> dict[str, Any]:
     return {"kind": "org", "org": str(org.d.get("slug") or "")}
 
 
+def _wake_card_on_screen(segments: Any) -> bool:
+    """Does this composition hold a MACHINE-CONTEXT event the desk draws?
+
+    The reader needs the question because an empty human projection stopped
+    being the same statement as "nothing on screen". `state` and `drive` are the
+    machine-context segment kinds, and segments.tsx draws one only when its
+    event is human-visible by disposition — asked here from the same derivation
+    (`events.human_visible_variant`), so server and desk cannot disagree about
+    one event.
+
+    ⚠ DELIBERATELY NARROW, and the narrowness is the compatibility promise.
+    `mail` cannot be the answer anyway: a human mail row always puts its
+    envelope in the projection, so a drawable mail segment implies a non-empty
+    `visible`. `notices` CAN sit on a turn whose projection is empty — the
+    measured 14:02:57Z row carried a `runtime.delivery_unread` beside the lost
+    reminder — and counting it would give a chat bubble to every notice-only
+    wake, including restart notices, which this change is required to leave
+    exactly as they are. A notice-only wake therefore still renders nothing;
+    that is the behaviour that was there before, kept on purpose.
+    """
+    if not isinstance(segments, list):
+        return False
+    for seg in segments:
+        if not isinstance(seg, dict) or seg.get("kind") not in ("state", "drive"):
+            continue
+        ev = seg.get("event")
+        if isinstance(ev, dict) and events.human_visible_variant(
+                str(ev.get("variant") or "")):
+            return True
+    return False
+
+
+def _mail_segments(mail: list[MailEntry]) -> list[dict[str, Any]]:
+    """The mail half of a composition, split by WHOSE row each one is.
+
+    An ORDINARY row is a message somebody sent, and rides a `mail` segment as it
+    always has. A `model_only` row is the ENGINE'S OWN HAND — today exactly the two
+    automatic wakes, `reminder.working_checkup` and `reminder.idle_docket` — and its
+    [MAIL] envelope really is machine context: a human transcript must never show
+    "FROM @system" prose as somebody's words, which is why `_human_view_spans` keeps
+    those rows out of the `visible` string and will keep doing so.
+
+    ⚠ THE DEFECT THIS EXISTS FOR (coordinator-astra, 2026-09-11T14:02:57Z). The row
+    being machine context never made its EVENT hidden, and the composer conflated
+    the two: it dropped the row outright, so the idle-docket reminder that woke the
+    coordinator and drove a whole turn left a `mail` segment with ZERO rows, a
+    `visible` of "", and no trace on screen of why the turn happened. Human
+    visibility of a typed event is decided in ONE place and by disposition
+    (`events.human_visible_variant`, the same derivation the frontend's
+    HUMAN_HIDDEN_VARIANTS uses); `reminder.idle_docket` declares every field `both`,
+    so that one place had already answered "show it".
+
+    So a machine row is composed as a `state` segment — the machine-context carrier
+    the org-state and provider-usage blocks already ride, which the desk renders
+    through exactly that disposition gate. Nothing else changes: relative order is
+    preserved (rows appear in the order the agent's [MAIL] block carries them), and
+    a machine row whose event is hidden, absent or undecodable contributes nothing,
+    which is what it did before.
+    """
+    out: list[dict[str, Any]] = []
+    batch: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        if batch:
+            out.append({"kind": "mail", "rows": list(batch)})
+            batch.clear()
+
+    for m in mail:
+        row = events.journal_row(m)          # the one decoder: ev -> the FULL event
+        if not m.get("model_only"):
+            batch.append(row)
+            continue
+        ev = row.get("ev")
+        if not isinstance(ev, dict) \
+                or not events.human_visible_variant(str(ev.get("variant") or "")):
+            continue
+        flush()                              # keep the agent's own reading order
+        out.append({"kind": "state", "event": ev,
+                    "text": str(m.get("body") or "")})
+    flush()
+    return out
+
+
 def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | None,
                   text: str | None, *, drive: Mapping[str, Any] | None = None,
                   owned: list[dict[str, Any]] | None = None,
@@ -7555,8 +7638,7 @@ def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | Non
     if pending:
         segs.append({"kind": "notices", "rows": [events.journal_row(n) for n in pending]})
     if mail:
-        segs.append({"kind": "mail", "rows": [events.journal_row(m) for m in mail
-                                              if not m.get("model_only")]})
+        segs.extend(_mail_segments(mail))
     if owned is not None:
         segs.extend(owned)
     elif drive is not None:
@@ -28844,8 +28926,14 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             if projected:
                 # An empty projection is a machine-only turn (automatic
                 # checkup/recovery/state plumbing).  It reached the provider
-                # and remains in the raw transcript, but has no chat bubble.
-                if not human_text:
+                # and remains in the raw transcript, and has no chat bubble —
+                # UNLESS its typed composition carries a machine-context event
+                # the desk draws. An automatic wake is exactly that case: no
+                # human text at all, and a `reminder.*` card that is the only
+                # account of why the turn happened (coordinator-astra,
+                # 2026-09-11). The row is then kept with its empty text; the
+                # segments are what renders.
+                if not human_text and not _wake_card_on_screen(view_segments):
                     continue
                 content = human_text
         if t == "user" and isinstance(content, str):

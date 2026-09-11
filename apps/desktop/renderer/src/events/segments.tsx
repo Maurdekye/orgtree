@@ -79,7 +79,13 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
           : { text: segment.text, ...(segment.ev_error ? { ev_error: segment.ev_error } : {}) }
         const decoded = decodeEventRow(row, profile)
         if (decoded.kind === 'known' && !humanSegmentEvent(decoded.event)) return null
-        return <div key={i} className={'event-segment-' + segment.kind}>{card(row, false)}</div>
+        // show-automatic-docket-reminders-in-transcripts: `preview` — the same
+        // five-line fold a received mail body gets. A machine-context segment
+        // that IS human-visible (an automatic wake: the idle-docket reminder
+        // can list 20 items) must not out-shout the turn it merely explains,
+        // and neither must the raw block text a segment whose event failed to
+        // decode falls back to.
+        return <div key={i} className={'event-segment-' + segment.kind}>{card(row, true)}</div>
       }
       case 'notices': return <div key={i} className="event-notices">{segment.rows.map((row, j) => <div key={j}>
         {card(row, false, undefined, <time className="event-time">{fmtFull(row.at)}</time>)}</div>)}</div>

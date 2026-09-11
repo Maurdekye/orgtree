@@ -20,6 +20,7 @@ LedgerError.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 import re
@@ -570,6 +571,24 @@ def human_hidden_variants() -> list[str]:
         if own and all(f["d"] in ("model_only", "internal") for f in own.values()):
             out.append(v)
     return out
+
+
+@functools.lru_cache(maxsize=1)
+def _human_hidden() -> frozenset[str]:
+    """`human_hidden_variants` as a set, computed once (the table never changes at
+    runtime). Kept private so the generated manifest keeps its stable list order."""
+    return frozenset(human_hidden_variants())
+
+
+def human_visible_variant(variant: str) -> bool:
+    """Does a human transcript draw a card for this leaf? The SERVER's half of the
+    one question `HUMAN_HIDDEN_VARIANTS` answers in the frontend — the same derived
+    policy, so a composer and a renderer cannot disagree about one event.
+
+    An unknown variant answers False: a reader that cannot type an event cannot say
+    it is safe to put on screen.
+    """
+    return variant in VARIANTS and variant not in _human_hidden()
 
 
 def manifest() -> dict[str, Any]:
