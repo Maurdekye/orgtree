@@ -10374,9 +10374,22 @@ class Org:
     #: Because archival is DERIVED on read, an item dropped before this rule
     #: existed reads as archived at once too, and the next sweep moves it.
     #:
-    #: Manual attention still prevents archival for non-closed rows. Closed
-    #: rows follow their status clock while retaining the attention flag and
-    #: linked questions/notices in the archived record.
+    #: ⚠ THE ONE RETAINED EXCEPTION IS ATTENTION, NOT TIME (coordinator
+    #: qualification 2026-09-07; RESTORED 2026-09-11 after d7fb84f dropped it
+    #: as collateral while making `superseded` age out). `_work_archived` /
+    #: `_work_sweep` keep an item that HOLDS ATTENTION on the main list
+    #: whatever its status — a manual flag or an open attached question —
+    #: because the badge must open onto a visible row (Astra 2026-09-05).
+    #: Between those two commits the badge counted rows only the archive held,
+    #: which is the defect this restores: closed rows were following their
+    #: status clock straight past the flag.
+    #: So "at once" means "the instant it is dropped AND attention-free": the
+    #: drop update itself clears a manual flag it does not restate
+    #: (`work_update`, "the manual flag is restated by every update"), a drop
+    #: that passes attention=True holds the row until the user dismisses or
+    #: replies, and an open attached question holds it until the asker
+    #: withdraws or the user answers — the drop touches no ask. Nothing waits
+    #: on a clock.
     WORK_ARCHIVES_AT_ONCE: Final = ("dropped",)
 
     def _work_eligible(self, it: WorkItem, now_ts: float) -> bool:
@@ -10403,8 +10416,14 @@ class Org:
 
     def _work_archived(self, it: WorkItem, physically: bool,
                        now_ts: float) -> bool:
-        if self._work_status(it) in self.WORK_CLOSED:
-            return physically or self._work_eligible(it, now_ts)
+        """⚠ ATTENTION OUTRANKS EVERY STATUS, AND OUTRANKS THE LIST THE ROW IS
+        PHYSICALLY IN. `physically` says which list holds the item; this says
+        which list SERVES it. A row that holds attention reads as unarchived
+        even when the archive already holds it, so a badge raised before this
+        rule was restored — or by any future path that moves a row without
+        asking — still opens onto something the user can see. When the
+        attention clears, the row is already where it belongs and simply stops
+        being served on the main list; nothing has to migrate it back."""
         if self._work_attention(it):
             return False
         return physically or self._work_eligible(it, now_ts)
@@ -10468,7 +10487,12 @@ class Org:
         # "closed" either.
         outcomes: dict[str, str] = {}
         for it in list(active):
-            if self._work_eligible(it, now_ts):
+            # ⚠ ATTENTION HOLDS THE ROW, whatever its status and whatever its
+            # clock says (restored 2026-09-11; d7fb84f dropped this clause
+            # while making `superseded` age out, and from then on a closed row
+            # with a manual flag or an open attached question was swept into
+            # the archive with the badge still counting it).
+            if self._work_eligible(it, now_ts) and not self._work_attention(it):
                 active.remove(it)
                 it["archived_at"] = now()
                 self.d.setdefault("work_items_archive", []).append(it)
@@ -12120,6 +12144,18 @@ class Org:
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, phys = self._work_get_for(actor, wid)
+        # ⚠ BEFORE THE ALREADY-ARCHIVED SHORTCUT, not after it. A row stranded
+        # in the archive list by the pre-restoration sweep still READS as
+        # unarchived (`_work_archived`), so the user is looking at it on the
+        # main list; answering "already archived" would deny what is on their
+        # screen. The sweep above no longer moves such a row, so for everything
+        # written after the restoration this is the guard that was always
+        # meant to fire — it just used to run after `_work_sweep()` had
+        # already carried the item away.
+        if self._work_attention(it):
+            raise LedgerError(f"{wid} still holds attention (a pending question "
+                              f"or a manual flag) — it stays visible until that "
+                              f"clears")
         if phys:
             return {"archived": wid, "already": True}
         if not self._work_can_manage(actor, it):
@@ -12128,10 +12164,6 @@ class Org:
         if it.get("status") not in self.WORK_CLOSED:
             raise LedgerError(f"only done|superseded|dropped items archive — "
                               f"{wid} is {it.get('status')}")
-        if self._work_attention(it):
-            raise LedgerError(f"{wid} still holds attention (a pending question "
-                              f"or a manual flag) — it stays visible until that "
-                              f"clears")
         self._work_active().remove(it)
         it["archived_at"] = now()
         self.d.setdefault("work_items_archive", []).append(it)
