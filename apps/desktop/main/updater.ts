@@ -1,8 +1,128 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
 
+// ------------------------------------------------------------ diagnostics
+// 2.0.3 failed twice and left NOTHING behind: electron-updater's logger
+// defaults to `console`, which a packaged Windows GUI process discards, and
+// the only 'error' listener threw its argument away. Every stage of an
+// application attempt is now written to disk, sanitized, so the next launch
+// (and the operator) can say what actually happened.
+
+export type UpdateStage =
+  | 'attempt'                  /* an application attempt began */
+  | 'engine-stopped'           /* the attached boot engine was verifiably stopped */
+  | 'held'                     /* the attempt was refused before anything was disturbed */
+  | 'layout' | 'layout-timeout'
+  | 'engine-shutdown' | 'engine-shutdown-timeout'
+  | 'handoff'                  /* electron-updater accepted the install request */
+  | 'handoff-refused'          /* it declined, and will therefore never quit the app */
+  | 'watchdog-exit'            /* preparation outlived its deadline */
+  | 'updater'                  /* a line from electron-updater's own logger */
+  | 'error'
+  | 'not-installed'            /* a handoff happened but the version did not change */
+
+export interface UpdateLogEntry { at: string; stage: UpdateStage; detail?: string; from?: string; to?: string }
+
+// A feed URL can carry signed query credentials and our own errors can carry
+// the engine token; neither belongs in a file the operator may send on.
+const REDACTIONS: { pattern: RegExp; keepPrefix: boolean }[] = [
+  { pattern: /([?&](?:token|access_token|refresh_token|signature|sig|key|password|credential|x-amz-[a-z0-9-]+)=)[^&\s"']*/gi, keepPrefix: true },
+  { pattern: /\b[0-9a-f]{32,}\b/gi, keepPrefix: false },
+]
+
+export function sanitizeUpdateDetail(value: unknown, limit = 400): string {
+  let text = value instanceof Error ? (value.message || String(value))
+    : typeof value === 'string' ? value
+    : (() => { try { return JSON.stringify(value) ?? String(value) } catch { return String(value) } })()
+  text = text.replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim()
+  for (const { pattern, keepPrefix } of REDACTIONS) {
+    text = text.replace(pattern, (_match, prefix: string | undefined) => (keepPrefix && prefix ? prefix : '') + '[redacted]')
+  }
+  return text.length > limit ? text.slice(0, limit) + '...' : text
+}
+
+const isLogEntry = (value: unknown): value is UpdateLogEntry => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  return typeof row.at === 'string' && typeof row.stage === 'string'
+}
+
+/** A bounded, append-only record of update attempts, kept beside the other
+ *  desktop state files. Never throws: losing the log must never be able to
+ *  break the update it is describing. */
+export class UpdateLog {
+  private entries: UpdateLogEntry[] = []
+  private readonly now: () => number
+  constructor(private readonly file?: string, private readonly limit = 200, now?: () => number) {
+    this.now = now ?? Date.now
+    if (file) {
+      try {
+        const saved: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (Array.isArray(saved)) this.entries = saved.filter(isLogEntry).slice(-limit)
+      } catch { /* first launch, or an unreadable log: start a new one */ }
+    }
+  }
+
+  all(): UpdateLogEntry[] { return [...this.entries] }
+
+  record(stage: UpdateStage, detail?: unknown, versions?: { from?: string; to?: string }): UpdateLogEntry {
+    const entry: UpdateLogEntry = { at: new Date(this.now()).toISOString(), stage }
+    if (detail !== undefined) entry.detail = sanitizeUpdateDetail(detail)
+    if (versions?.from) entry.from = versions.from
+    if (versions?.to) entry.to = versions.to
+    this.entries.push(entry)
+    if (this.entries.length > this.limit) this.entries = this.entries.slice(-this.limit)
+    this.save()
+    return entry
+  }
+
+  /** Every entry since the most recent attempt, oldest first; empty if none. */
+  lastAttempt(): UpdateLogEntry[] {
+    for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i]!.stage === 'attempt') return this.entries.slice(i)
+    return []
+  }
+
+  private save() {
+    if (!this.file) return
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true })
+      fs.writeFileSync(this.file + '.tmp', JSON.stringify(this.entries), { mode: 0o600 })
+      fs.renameSync(this.file + '.tmp', this.file)
+    } catch { /* diagnostics are never worth failing an update over */ }
+  }
+}
+
+/** electron-updater's Logger shape. Its own info lines name the installer, its
+ *  arguments and the exact spawn failure - the single most useful record there
+ *  is, and previously thrown away. */
+export function updateLogger(log: UpdateLog) {
+  return {
+    info: (message?: unknown) => { log.record('updater', message) },
+    warn: (message?: unknown) => { log.record('updater', message) },
+    error: (message?: unknown) => { log.record('error', message) },
+  }
+}
+
+/** Resolve a promise that may never settle. Returns 'timeout' instead of
+ *  hanging, and 'error' instead of throwing, so a caller mid-shutdown always
+ *  gets to its next step. Measured need: webContents.executeJavaScript does
+ *  NOT settle on a busy renderer, and does not settle even when that renderer
+ *  is destroyed or force-crashed. */
+export function bounded<T>(work: Promise<T>, ms: number,
+  timer: (fn: () => void, delay: number) => unknown = setTimeout): Promise<'ok' | 'timeout' | { error: unknown }> {
+  return new Promise(resolve => {
+    let settled = false
+    const finish = (outcome: 'ok' | 'timeout' | { error: unknown }) => { if (!settled) { settled = true; resolve(outcome) } }
+    timer(() => finish('timeout'), ms)
+    work.then(() => finish('ok'), error => finish({ error }))
+  })
+}
+
 /** Update controls stay in one native menu, so progress also changes while open. */
-export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean) {
+export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string) {
   const version = status.version ? ` ${status.version}` : ''
   const labels: Record<UpdateState, string> = {
     idle: 'Updates have not been checked', checking: 'Checking for updates...',
@@ -11,8 +131,12 @@ export function trayUpdateState(status: UpdateStatus, downloaded: boolean, apply
     'up-to-date': 'Orgtree is up to date', unavailable: 'Updates are unavailable',
     failed: 'Update failed - check again',
   }
+  // A held update is still installable BY HAND - that is the whole point of
+  // holding it - so the install item stays enabled and only the status line
+  // changes. Applying outranks the hold: it describes work already under way.
+  const ready = downloaded ? (hold ? `Update${version}: ${hold}` : labels['pending-idle']) : labels[status.state]
   return {
-    label: applying ? 'Installing update...' : downloaded ? labels['pending-idle'] : labels[status.state],
+    label: applying ? 'Installing update...' : ready,
     installVisible: downloaded, installEnabled: downloaded && !applying,
     checkEnabled: !applying && !downloaded && status.state !== 'checking' && status.state !== 'downloading',
   }
@@ -20,8 +144,8 @@ export function trayUpdateState(status: UpdateStatus, downloaded: boolean, apply
 
 export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
   label: string; enabled: boolean; visible: boolean
-} | null }, status: UpdateStatus, downloaded: boolean, applying: boolean): void {
-  const view = trayUpdateState(status, downloaded, applying)
+} | null }, status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string): void {
+  const view = trayUpdateState(status, downloaded, applying, hold)
   const label = menu.getMenuItemById('update-status')
   const install = menu.getMenuItemById('update-install')
   const check = menu.getMenuItemById('update-check')
@@ -30,14 +154,110 @@ export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
   if (check) check.enabled = view.checkEnabled
 }
 
+/** NSIS requires /D= to be the LAST argument and UNQUOTED, even when the path
+ *  contains spaces. Node's spawn quotes any argument containing whitespace, so
+ *  a directory like `C:\Program Files\Orgtree` reaches the installer as
+ *  `"/D=C:\Program Files\Orgtree"` (measured on the real Win32 command line).
+ *  app-builder-lib's own GetDParameter then scans the raw command line for
+ *  `/D=` and copies everything after it — INCLUDING the trailing quote — into
+ *  $INSTDIR. Passing nothing is strictly better: the bundled installer already
+ *  resolves its previous directory and scope from the registry. */
+export function installDirectoryIsSafeForNsis(directory: string): boolean {
+  return directory.length > 0 && !/[\s"]/.test(directory)
+}
+
+/** Whether this process can actually write into the installed application's
+ *  own directory, decided by WRITING — `fs.access(W_OK)` on Windows reports the
+ *  read-only attribute, not the ACL, so it would pass on a directory this user
+ *  cannot touch. A per-machine install under Program Files fails here, and an
+ *  unelevated silent installer cannot replace it: the bundled preflight calls
+ *  UAC_RunElevated and quits. */
+export function installDirectoryWritable(directory: string, io: Pick<typeof fs, 'writeFileSync' | 'unlinkSync'> = fs): boolean {
+  if (!directory) return false
+  const probe = path.join(directory, `.orgtree-update-probe-${process.pid}`)
+  try {
+    io.writeFileSync(probe, '', { flag: 'w', mode: 0o600 })
+    return true
+  } catch { return false }
+  finally { try { io.unlinkSync(probe) } catch { /* nothing was created */ } }
+}
+
+export interface HandoffResult {
+  /** electron-updater accepted the request and WILL quit the app. False means
+   *  it declined — BaseUpdater then resets its own latch and never calls
+   *  app.quit(), so a caller that has already begun shutting down would sit
+   *  wedged until something kills it. Note that `true` only means the installer
+   *  was launched: a spawn that fails afterwards is reported out of band
+   *  through the 'error' event, never through this value. */
+  accepted: boolean
+  /** The /D= directory actually passed, if any. */
+  directory?: string
+  /** Set when the directory was withheld because it would have been quoted. */
+  omittedDirectory?: string
+}
+
 /** NSIS already supports --updated /S --force-run. Keep the running install's
  * directory; the bundled installer reads its previous scope from the registry. */
 export function installDownloadedUpdate(updater: {
   installDirectory?: string
+  quitAndInstallCalled?: boolean
   quitAndInstall(silent: boolean, runAfter: boolean): void
-}, directory: string): void {
-  updater.installDirectory = directory
+}, directory: string): HandoffResult {
+  const safe = installDirectoryIsSafeForNsis(directory)
+  updater.installDirectory = safe ? directory : undefined
   updater.quitAndInstall(true, true)
+  // BaseUpdater.quitAndInstall sets its latch before installing and CLEARS it
+  // again when install() refuses, so the latch is the one honest answer to
+  // "is a quit coming?" available to us.
+  const accepted = updater.quitAndInstallCalled !== false
+  return { accepted, ...(safe ? { directory } : { omittedDirectory: directory }) }
+}
+
+export interface PreparationSeams {
+  /** Bounds the whole window below. Armed FIRST: in 2.0.3 the equivalent timer
+   *  was the last statement before the handoff, so a preparation step that
+   *  never settled meant it was never armed at all. */
+  armWatchdog: () => void
+  cancelWatchdog: () => void
+  /** Best effort: gives the renderer a chance to flush drafts. */
+  saveLayout: () => Promise<void>
+  stopEngine: () => Promise<void>
+  /** Releases before-quit so the updater's own app.quit() can take effect. */
+  markQuitComplete: () => void
+  handOff: () => HandoffResult
+  record: (stage: UpdateStage, detail?: unknown) => void
+  layoutMs: number
+  engineMs: number
+}
+
+/** Everything between "this process is now committed to shutting down" and the
+ *  installer handoff. Extracted so it can be driven end to end by a test,
+ *  because this is the exact window in which 2.0.3 wedged: once `quitting` is
+ *  latched, before-quit refuses every app.quit(), so an await in here that
+ *  never settles leaves the app with no way out but Task Manager. Every step is
+ *  therefore bounded and recorded, and the handoff is always reached. */
+export async function prepareAndHandOff(seams: PreparationSeams): Promise<HandoffResult> {
+  seams.armWatchdog()
+  const layout = await bounded(seams.saveLayout(), seams.layoutMs)
+  seams.record(layout === 'ok' ? 'layout' : 'layout-timeout',
+    layout === 'ok' ? undefined : 'renderer did not flush its drafts in time')
+  const stopped = await bounded(seams.stopEngine(), seams.engineMs)
+  seams.record(stopped === 'ok' ? 'engine-shutdown' : 'engine-shutdown-timeout',
+    stopped === 'ok' ? undefined : 'engine did not confirm shutdown in time')
+  seams.markQuitComplete()
+  const handoff = seams.handOff()
+  if (handoff.accepted) {
+    seams.record('handoff', handoff.omittedDirectory
+      ? '/D= withheld because ' + handoff.omittedDirectory + ' would reach NSIS quoted'
+      : 'installer launched for ' + handoff.directory)
+  } else {
+    // electron-updater declined, so it will never call app.quit(). Cancelling
+    // the watchdog here is what makes the refusal RECOVERABLE rather than a
+    // silent forced exit with nothing installed.
+    seams.cancelWatchdog()
+    seams.record('handoff-refused', 'electron-updater declined the install request')
+  }
+  return handoff
 }
 
 interface UpdateCallbacks {

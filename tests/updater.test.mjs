@@ -8,7 +8,8 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updater-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate } = createRequire(import.meta.url)(outfile)
+const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
+  bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -21,7 +22,12 @@ test('downloaded install uses the real NSIS silent-update command and relaunches
       NsisUpdater.prototype.doInstall.call(this, { isSilent, isForceRunAfter, isAdminRightsRequired: false })
     },
   }
-  for (const directory of ['C:\\Program Files\\Orgtree', 'D:\\My Apps\\Orgtree']) {
+  // Both of the directories this originally used contained a space, which is
+  // measurably NOT passed through intact: Windows quotes such an argument and
+  // NSIS requires /D= unquoted. That case now has its own test below; these are
+  // the directories for which /D= genuinely survives the command line.
+  for (const directory of ['C:\\Orgtree', 'D:\\Apps\\Orgtree']) {
+    updater.quitAndInstallCalled = false
     installDownloadedUpdate(updater, directory)
     assert.deepEqual(calls.at(-1), { exe: updater.installerPath,
       args: ['--updated', '/S', '--force-run', `/D=${directory}`] })
@@ -435,4 +441,243 @@ test('disabling automatic updates suppresses due checks but leaves manual checks
   advance(10000)
   await controller.tick()
   assert.equal(calls, 2)
+})
+
+// ===================================================================
+// Update application: the 2.0.3 hang and the shutdown-without-install.
+// ===================================================================
+
+test('bounded reports a deadline instead of hanging, and still distinguishes success from failure', async () => {
+  const never = new Promise(() => {})
+  assert.equal(await bounded(never, 20), 'timeout')
+  // POSITIVE CONTROLS: the same helper must be able to say 'ok' and to carry an
+  // error, otherwise "timeout" would be the only thing it can ever report.
+  assert.equal(await bounded(Promise.resolve('x'), 1000), 'ok')
+  const failed = await bounded(Promise.reject(new Error('boom')), 1000)
+  assert.equal(typeof failed, 'object')
+  assert.equal(failed.error.message, 'boom')
+  // A promise that settles just after the deadline must not resolve it twice.
+  const late = new Promise(resolve => setTimeout(resolve, 60))
+  assert.equal(await bounded(late, 10), 'timeout')
+  await late
+})
+
+test('a renderer that never flushes cannot wedge the update: the installer is still reached', async () => {
+  // This is the measured 2.0.3 failure. In real Electron 44,
+  // webContents.executeJavaScript does not settle on a busy renderer, and does
+  // not settle even when that renderer is destroyed or force-crashed, so
+  // saveWindowLayout()'s promise can simply never resolve. It was awaited after
+  // "quitting" was already latched - the point at which before-quit refuses
+  // every app.quit() - and before the forced-exit timer was armed.
+  const stages = [], calls = []
+  const handoff = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'),
+    cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: () => new Promise(() => {}),           // never settles, as measured
+    stopEngine: async () => { calls.push('stop') },
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
+    record: stage => stages.push(stage),
+    layoutMs: 20, engineMs: 1000,
+  })
+  assert.equal(handoff.accepted, true)
+  assert.deepEqual(calls, ['arm', 'stop', 'quit-complete', 'handoff'])
+  assert.deepEqual(stages, ['layout-timeout', 'engine-shutdown', 'handoff'])
+  // The forced-exit watchdog is armed BEFORE anything is awaited. In 2.0.3 it
+  // was the last statement before the handoff, so a preparation step that never
+  // settled meant it was never armed - the app simply sat there forever.
+  assert.equal(calls.indexOf('arm'), 0)
+})
+
+test('the wedge is real: the same sequence awaited without a deadline never reaches the installer', async () => {
+  // NEGATIVE CONTROL for the test above. Without it, "the installer was
+  // reached" proves nothing - it would also pass against code that could hang.
+  let reached = false
+  const productionShape = (async () => { await new Promise(() => {}); reached = true })()
+  const outcome = await Promise.race([productionShape.then(() => 'finished'), new Promise(r => setTimeout(() => r('still-waiting'), 80))])
+  assert.equal(outcome, 'still-waiting')
+  assert.equal(reached, false, 'an unbounded await really does stop the sequence dead')
+})
+
+test('a layout flush that does complete is recorded as success, not as a timeout', async () => {
+  // POSITIVE CONTROL for the stage record: if every run said 'layout-timeout'
+  // the stage log would be telling us nothing.
+  const stages = []
+  await prepareAndHandOff({
+    armWatchdog: () => {}, cancelWatchdog: () => {},
+    saveLayout: async () => {}, stopEngine: async () => {},
+    markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+  })
+  assert.deepEqual(stages, ['layout', 'engine-shutdown', 'handoff'])
+})
+
+test('an engine that will not confirm shutdown is bounded too, and never blocks the handoff', async () => {
+  const stages = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => {}, cancelWatchdog: () => {},
+    saveLayout: async () => {}, stopEngine: () => new Promise(() => {}),
+    markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 20,
+  })
+  assert.deepEqual(stages, ['layout', 'engine-shutdown-timeout', 'handoff'])
+  assert.equal(result.accepted, true)
+})
+
+test('a refused handoff cancels the forced exit, so the app is never killed with nothing installed', async () => {
+  // electron-updater's BaseUpdater does NOT call app.quit() when install()
+  // refuses - it just clears its own latch. Left alone, the app sits in a
+  // half-shut-down state until the watchdog force-exits it, having installed
+  // nothing: the reported unattended disappearance.
+  const stages = [], calls = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => {},
+    markQuitComplete: () => {}, handOff: () => ({ accepted: false }),
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+  })
+  assert.equal(result.accepted, false)
+  assert.deepEqual(calls, ['arm', 'cancel'])
+  assert.equal(stages.at(-1), 'handoff-refused')
+  // ... and an ACCEPTED handoff must NOT cancel it, or the watchdog would stop
+  // covering the window between the spawn and the updater's own app.quit().
+  const kept = []
+  await prepareAndHandOff({
+    armWatchdog: () => kept.push('arm'), cancelWatchdog: () => kept.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => {},
+    markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
+    record: () => {}, layoutMs: 1000, engineMs: 1000,
+  })
+  assert.deepEqual(kept, ['arm'])
+})
+
+test('the handoff result reports whether electron-updater actually accepted it', () => {
+  // BaseUpdater.quitAndInstall clears quitAndInstallCalled when install()
+  // refuses, and leaves it set when the installer was launched. That latch is
+  // the only honest answer available to us about whether a quit is coming.
+  const accepted = { quitAndInstallCalled: false, quitAndInstall() { this.quitAndInstallCalled = true } }
+  assert.equal(installDownloadedUpdate(accepted, 'C:\\Orgtree').accepted, true)
+  const refused = { quitAndInstallCalled: false, quitAndInstall() { this.quitAndInstallCalled = false } }
+  assert.equal(installDownloadedUpdate(refused, 'C:\\Orgtree').accepted, false)
+})
+
+test('an install directory containing a space is withheld from /D=, because Windows would quote it', () => {
+  // Measured on the real Win32 command line: spawn turns
+  //   /D=C:\Program Files\Orgtree
+  // into
+  //   "/D=C:\Program Files\Orgtree"
+  // NSIS requires /D= to be the last parameter AND unquoted; app-builder-lib's
+  // own GetDParameter scans the raw command line for "/D=" and copies
+  // everything after it - trailing quote included - into $INSTDIR.
+  const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
+  const calls = []
+  const updater = {
+    installerPath: 'C:\\Downloads\\Orgtree Setup.exe',
+    quitAndInstallCalled: false,
+    spawnLog: (exe, args) => { calls.push({ exe, args }); return Promise.resolve() },
+    dispatchError: error => { throw error },
+    quitAndInstall(isSilent, isForceRunAfter) {
+      this.quitAndInstallCalled = true
+      NsisUpdater.prototype.doInstall.call(this, { isSilent, isForceRunAfter, isAdminRightsRequired: false })
+    },
+  }
+  const withheld = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree')
+  assert.equal(withheld.omittedDirectory, 'C:\\Program Files\\Orgtree')
+  assert.equal(withheld.directory, undefined)
+  assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run'],
+    'no /D= at all is better than one NSIS will mis-parse; the installer resolves its previous directory from the registry')
+
+  // POSITIVE CONTROL: a directory Windows will not quote is still passed, so
+  // this is a rule about quoting and not a silent removal of the feature.
+  updater.quitAndInstallCalled = false
+  const passed = installDownloadedUpdate(updater, 'C:\\Orgtree')
+  assert.equal(passed.directory, 'C:\\Orgtree')
+  assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run', '/D=C:\\Orgtree'])
+  assert.equal(installDirectoryIsSafeForNsis('C:\\Orgtree'), true)
+  assert.equal(installDirectoryIsSafeForNsis('C:\\Program Files\\Orgtree'), false)
+  assert.equal(installDirectoryIsSafeForNsis(''), false)
+})
+
+test('writability is decided by writing, because Windows access checks ignore the ACL', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-writable-'))
+  assert.equal(installDirectoryWritable(dir), true, 'a real writable directory must pass')
+  assert.equal(fs.readdirSync(dir).length, 0, 'the probe file must not be left behind')
+  // NEGATIVE CONTROL: a path that cannot accept a child file fails. Using a
+  // FILE as the directory makes the write fail for a real filesystem reason
+  // (ENOTDIR) without needing an elevated fixture.
+  const file = path.join(dir, 'not-a-directory')
+  fs.writeFileSync(file, 'x')
+  assert.equal(installDirectoryWritable(file), false)
+  assert.equal(installDirectoryWritable(path.join(dir, 'absent')), false)
+  assert.equal(installDirectoryWritable(''), false)
+})
+
+test('update diagnostics are persisted, bounded, and redact credentials', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updatelog-'))
+  const file = path.join(dir, 'update-log.json')
+  let clock = 1757000000000
+  const log = new UpdateLog(file, 5, () => clock)
+  log.record('attempt', 'explicit request', { from: '2.0.3', to: '2.0.4' })
+  clock += 1000
+  log.record('handoff', 'installer launched for C:\\Orgtree')
+  assert.deepEqual(log.all().map(e => e.stage), ['attempt', 'handoff'])
+  assert.equal(log.all()[0].from, '2.0.3')
+  assert.equal(log.all()[0].to, '2.0.4')
+  assert.match(log.all()[0].at, /^2025-|^2026-/)
+
+  // it survives the process that wrote it - the whole point
+  assert.deepEqual(new UpdateLog(file, 5).all().map(e => e.stage), ['attempt', 'handoff'])
+
+  // bounded: the oldest entries are dropped, not the newest
+  for (let i = 0; i < 10; i++) log.record('updater', 'line ' + i)
+  const kept = new UpdateLog(file, 5).all()
+  assert.equal(kept.length, 5)
+  assert.equal(kept.at(-1).detail, 'line 9')
+
+  // lastAttempt slices from the most recent attempt only
+  log.record('attempt', 'automatic idle application', { from: '2.0.3' })
+  log.record('layout-timeout')
+  log.record('handoff', 'installer launched')
+  assert.deepEqual(log.lastAttempt().map(e => e.stage), ['attempt', 'layout-timeout', 'handoff'])
+  assert.equal(new UpdateLog(path.join(dir, 'none.json')).lastAttempt().length, 0)
+
+  // a log that cannot be written must never break the update it describes
+  assert.doesNotThrow(() => new UpdateLog(path.join(file, 'under-a-file.json')).record('error', 'x'))
+})
+
+test('sanitized details drop secrets and stay one bounded line, without gutting ordinary text', () => {
+  const token = 'a'.repeat(64)
+  assert.equal(sanitizeUpdateDetail('auth failed for ' + token), 'auth failed for [redacted]')
+  assert.equal(sanitizeUpdateDetail('https://host/f.exe?token=abc123&x=1'), 'https://host/f.exe?token=[redacted]&x=1')
+  assert.equal(sanitizeUpdateDetail('https://s3/f.exe?X-Amz-Signature=deadbeefcafe'), 'https://s3/f.exe?X-Amz-Signature=[redacted]')
+  assert.equal(sanitizeUpdateDetail(new Error('Cannot run installer: error code EPERM')), 'Cannot run installer: error code EPERM')
+  assert.equal(sanitizeUpdateDetail('line one\r\nline two\ttabbed'), 'line one line two tabbed')
+  assert.equal(sanitizeUpdateDetail('x'.repeat(500)).length, 403)
+  // POSITIVE CONTROL: an ordinary installer message must survive intact, or the
+  // redaction would be destroying the very evidence this exists to keep.
+  const real = 'Executing: C:\\Users\\u\\AppData\\Local\\orgtree-updater\\pending\\Orgtree-Setup-2.0.4.exe with args: --updated,/S,--force-run'
+  assert.equal(sanitizeUpdateDetail(real), real)
+})
+
+test('electron-updater log lines are captured, with its errors kept distinct from its chatter', () => {
+  const log = new UpdateLog()
+  const logger = updateLogger(log)
+  logger.info('Install: isSilent: true, isForceRunAfter: true')
+  logger.warn('install call ignored: quitAndInstallCalled is set to true')
+  logger.error(new Error('Cannot run installer: error code: EPERM'))
+  assert.deepEqual(log.all().map(e => e.stage), ['updater', 'updater', 'error'])
+  assert.equal(log.all()[0].detail, 'Install: isSilent: true, isForceRunAfter: true')
+  assert.equal(log.all()[2].detail, 'Cannot run installer: error code: EPERM')
+})
+
+test('a held update still reads as installable in the tray, and says why it is waiting', () => {
+  const pending = { state: 'pending-idle', version: '2.0.4' }
+  const held = trayUpdateState(pending, true, false, 'needs administrator approval - use Update now')
+  assert.equal(held.label, 'Update 2.0.4: needs administrator approval - use Update now')
+  assert.equal(held.installVisible, true)
+  assert.equal(held.installEnabled, true, 'holding the AUTOMATIC path must never disable the manual one')
+  // POSITIVE CONTROL: with no hold the wording is unchanged from before.
+  assert.equal(trayUpdateState(pending, true, false).label, 'Update 2.0.4 ready to install')
+  // and work already under way still outranks the hold
+  assert.equal(trayUpdateState(pending, true, true, 'needs administrator approval').label, 'Installing update...')
 })

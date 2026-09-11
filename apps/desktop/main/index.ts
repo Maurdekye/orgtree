@@ -12,7 +12,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { checkForUpdatesViaEvents, installDownloadedUpdate, refreshTrayUpdateMenu, UpdateController } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, UpdateController, UpdateLog, updateLogger } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -31,6 +31,14 @@ else {
   let trayMenu: Menu | undefined
   let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
+  // Set once an automatic attempt is refused before anything is disturbed, so
+  // the 5s poll neither retries it forever nor re-probes the filesystem.
+  let updateHold: string | undefined, updateHoldAnnounced = false
+  let updateExitWatchdog: NodeJS.Timeout | undefined
+  // The 2.0.3 failures left no trace at all: electron-updater logs to `console`
+  // by default, which a packaged Windows GUI process discards. Stages and
+  // errors are written here instead, sanitized, beside the other desktop state.
+  const updateLog = new UpdateLog(path.join(app.getPath('userData'), 'update-log.json'))
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
@@ -154,7 +162,7 @@ else {
     rebuildTray()
   }
   const refreshTrayUpdates = () => {
-    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting)
+    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
     if (automatic) automatic.checked = preferences.get().automaticUpdates
   }
@@ -198,28 +206,91 @@ else {
   const quitAfterLastView = () => {
     if (!quitting && preferences.get().exitOnClose && BrowserWindow.getAllWindows().every(w => !w.isVisible())) app.quit()
   }
-  const applyDownloadedUpdate = async (automatic = false) => {
+  // Deadlines for the shutdown sequence. Nothing awaited between `quitting`
+  // becoming true and the installer handoff may be unbounded: at that point
+  // before-quit refuses every app.quit(), so an await that never settles
+  // leaves the app wedged at "Installing update..." with no way out but Task
+  // Manager. executeJavaScript is exactly such an await — measured in real
+  // Electron it does not settle on a busy renderer, and does not settle even
+  // when that renderer is destroyed or force-crashed.
+  const UPDATE_LAYOUT_MS = 5000, UPDATE_ENGINE_STOP_MS = 12000, UPDATE_EXIT_MS = 20000
+  const installDirectory = () => path.dirname(process.execPath)
+  const cancelUpdateWatchdog = () => { if (updateExitWatchdog) clearTimeout(updateExitWatchdog); updateExitWatchdog = undefined }
+  const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling
     // automatic updates also holds any package that has already downloaded.
+    // `unattended` is the wider property: the engine-issued maintenance update
+    // also runs with nobody present, but is deliberately NOT governed by the
+    // automatic-updates preference, so the two cannot be the same flag.
     if (automatic && !preferences.get().automaticUpdates) return
+    if (unattended && updateHold) return
     if (updateApplying || quitting) return
     updateApplying = true
     refreshTrayUpdates()
+    const version = updater.current().version
+    updateLog.record('attempt', automatic ? 'automatic idle application' : 'explicit request', { from: app.getVersion(), to: version })
     try {
+    // An UNATTENDED silent install that cannot write the installed directory
+    // needs an administrator approval nobody is present to give: the bundled
+    // NSIS preflight calls UAC_RunElevated and quits, so the app would shut
+    // down and install nothing — the reported disappearance. Checked FIRST,
+    // before the engine is touched, so a hold disturbs nothing at all. An
+    // explicit request still proceeds: the user is there to approve the prompt.
+    if (unattended && !installDirectoryWritable(installDirectory())) {
+      updateHold = 'needs administrator approval - use Update now'
+      updateLog.record('held', 'installation directory is not writable without elevation: ' + installDirectory())
+      updateApplying = false
+      refreshTrayUpdates()
+      // Held, never silently dropped: automatic updates stay ON and the
+      // package stays ready. Said once per run, because the idle path would
+      // otherwise reach this every five seconds.
+      if (!updateHoldAnnounced) {
+        updateHoldAnnounced = true
+        void dialog.showMessageBox({ type: 'info', message: 'Orgtree is ready to update, but needs your approval.',
+          detail: `This copy is installed for all users in ${installDirectory()}, so the installer needs administrator approval and cannot run unattended. Choose "Update now" in the Orgtree tray menu and approve the Windows prompt. Automatic updates remain enabled.` }).catch(() => {})
+      }
+      return
+    }
     // A boot-host engine is stopped gracefully through its authenticated
     // shutdown route before its files are replaced; the installer restarts
     // the task afterwards. A stop that cannot be VERIFIED throws here, with
     // no state disturbed — a maintenance request then lands in its designed
     // failure report, and the idle auto-path simply retries later — because
     // installing over a live engine is never acceptable.
-    if (!engine.managed) await engine.stopAttachedForUpdate()
+    if (!engine.managed) { await engine.stopAttachedForUpdate(); updateLog.record('engine-stopped', 'attached boot engine confirmed stopped') }
     if (quitting) return
     quitting = true
     if (poll) clearInterval(poll)
-    await saveWindowLayout(); await engine.stop(); quitComplete = true
-    setTimeout(() => app.exit(1), 15000).unref()
-    installDownloadedUpdate(autoUpdater, path.dirname(process.execPath))
+    // Every step from here is bounded and recorded by prepareAndHandOff, which
+    // is driven end to end in tests precisely because this is the window that
+    // wedged: app.quit() is already refused, so nothing else can rescue it.
+    const handoff = await prepareAndHandOff({
+      armWatchdog: () => {
+        updateExitWatchdog = setTimeout(() => {
+          updateLog.record('watchdog-exit', 'update preparation exceeded ' + UPDATE_EXIT_MS + 'ms')
+          app.exit(1)
+        }, UPDATE_EXIT_MS)
+        updateExitWatchdog.unref()
+      },
+      cancelWatchdog: cancelUpdateWatchdog,
+      saveLayout: saveWindowLayout,
+      stopEngine: () => engine.stop(),
+      markQuitComplete: () => { quitComplete = true },
+      handOff: () => installDownloadedUpdate(autoUpdater, installDirectory()),
+      record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
+      layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS,
+    })
+    if (handoff.accepted) return
+    // The engine is already stopped, so a declined handoff cannot be recovered
+    // from in place. Relaunch into a working app rather than leaving a
+    // half-shut-down process for the watchdog to kill with nothing installed.
+    app.relaunch(); app.exit(0)
     } catch (error) {
+      updateLog.record('error', error)
+      // Before the point of no return nothing was disturbed: release the
+      // attempt and let the caller decide. After it, quitting is latched and
+      // the engine may be stopped, so the armed watchdog is what guarantees
+      // this can never become the 2.0.3 wedge.
       if (!quitting) updateApplying = false
       refreshTrayUpdates()
       throw error
@@ -227,6 +298,9 @@ else {
   }
   const requestUpdateInstall = async () => {
     if (!downloaded || !app.isPackaged) throw new Error('No downloaded update is ready to install.')
+    // An explicit request retires any hold: the user is present, so the
+    // administrator approval the automatic path could not obtain can be given.
+    updateHold = undefined
     await applyDownloadedUpdate()
   }
   const maintenance = new MaintenanceController({
@@ -237,7 +311,9 @@ else {
       // Electron's relaunch helper is outside the Python Job, as is the updater.
       app.relaunch(); app.quit()
     },
-    apply: () => applyDownloadedUpdate(),
+    // Unattended, though not automatic: nobody is present to approve a UAC
+    // prompt, so this must respect the same hold as the idle path.
+    apply: () => applyDownloadedUpdate(false, true),
     check: async () => {
       if (!app.isPackaged) return 'unavailable'
       try {
@@ -299,7 +375,13 @@ else {
     // launchAntigravityTerminal's docstring) and must outlive the app.
     cancelProviderLogin('claude', true)
     cancelProviderLogin('codex', true)
-    void saveWindowLayout().then(() => engine.stop()).finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
+    // Bounded for the same measured reason as the update path: executeJavaScript
+    // does not settle on a busy or crashed renderer, and until quitComplete is
+    // set this handler preventDefaults every further app.quit() — so an
+    // unbounded flush here is a Quit that can never complete.
+    void bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
+      .then(() => bounded(engine.stop(), UPDATE_ENGINE_STOP_MS))
+      .finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
   })
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
@@ -476,10 +558,44 @@ else {
       let refreshing = false
       poll = setInterval(() => { if (refreshing) return; refreshing = true; void refresh().finally(() => { refreshing = false }) }, 5000)
       void refresh()
+      // A handoff that did not change the running version is the reported
+      // failure, and until now it was invisible. Record it once, and hold the
+      // automatic path so the app cannot spend every idle minute shutting
+      // itself down for an install that will not happen. Update now still works.
+      const previous = updateLog.lastAttempt()
+      // Either terminal outcome counts: a handoff that changed nothing, and a
+      // refusal that relaunched us. Without the second, a handoff that refuses
+      // every time would relaunch in a loop. The marker is written into the
+      // same attempt, so exactly ONE run is held and the next re-evaluates.
+      const ended = previous.some(entry => entry.stage === 'handoff' || entry.stage === 'handoff-refused')
+      if (ended && !previous.some(entry => entry.stage === 'not-installed')) {
+        const attempt = previous[0]
+        if (attempt?.from === app.getVersion()) {
+          updateLog.record('not-installed', 'the installer ran but the running version did not change',
+            { from: attempt.from, to: attempt.to })
+          updateHold = 'last install did not complete - use Update now'
+          refreshTrayUpdates()
+        }
+      }
       if (app.isPackaged) {
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
-        autoUpdater.on('error', () => updater.errored())
+        // Its own info lines name the installer, its arguments and the exact
+        // spawn failure. Previously they went to a console nobody can read.
+        autoUpdater.logger = updateLogger(updateLog)
+        autoUpdater.on('error', error => {
+          // errored() is deliberately a no-op outside a download (it exists to
+          // stop a check-time failure being counted twice), which is precisely
+          // why an INSTALL-stage failure used to vanish without trace. The
+          // controller's state machine is left alone; the error is recorded,
+          // and while an application attempt is in flight it is also shown.
+          updateLog.record('error', error)
+          if (updateApplying || quitting) {
+            void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
+              detail: error instanceof Error ? error.message : String(error) }).catch(() => {})
+          }
+          updater.errored()
+        })
         autoUpdater.on('update-downloaded', () => { downloaded = true; updater.downloaded() })
         autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
       }
