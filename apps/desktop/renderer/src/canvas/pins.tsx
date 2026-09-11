@@ -497,10 +497,8 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     }
   }, [])
 
-  /** front of the shared desk/modal band. ONE bump per call: `raisePin`
-   *  already raises the shared surface registry under the same key, so the
-   *  extra `raisePinSurface(layout.key)` this replaced advanced the ordinal
-   *  twice for one press. */
+  /** front of the shared desk/modal band, ONE place per press: `raisePin`
+   *  already advances the shared surface registry under the same key. */
   const raise = () => raisePin(slug, pin.id)
   const begin = (e: ReactPointerEvent<HTMLElement>, g: GestureShape) => {
     if (e.button !== 0 || gesture.current) return
@@ -509,7 +507,6 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     gesture.current = { ...g, pointerId: e.pointerId, moved: false, capture: e.currentTarget }
     setFreePlacement(e.shiftKey)
     e.currentTarget.setPointerCapture(e.pointerId)
-    raise()
   }
   const gestureRect = (g: Gesture, e: ReactPointerEvent<HTMLElement>) => {
     // viewport px: a window drag is 1:1 with the pointer — there is NO `/z`
@@ -592,17 +589,12 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     <div className={'pinwin prov-' + providerOf(node.tier ?? '')
         + (state ? ' pin-' + state : '') + (flash ? ' flash' : '') + (live ? ' moving' : '')}
       ref={panelRef} style={{...style, opacity:overlapSetting.enabled && overlapsDesk ? overlapSetting.opacity : undefined}} data-id={pin.id} data-z={pin.z}
-      /* ⚠ CAPTURE PHASE, and it is load-bearing. The desk body stops this
-         pointerdown's React propagation for any target inside `button,
-         input, textarea, select, a, label, .msgs, .mailrow, .eff-pop`
-         (desk.tsx's canvas-pan rule) — most of what a reader clicks — so a
-         bubble-phase raise here never ran and the window kept its ordinal.
-         modalpin.tsx raises from capture for the same reason. */
+      /* ⚠ CAPTURE, and it is load-bearing: the desk body stops this
+         pointerdown's React propagation for its own content (desk.tsx's
+         canvas-pan rule), so a bubble-phase raise here never ran. */
       onPointerDownCapture={raise}
-      /* KEYBOARD ONLY (`detail === 0`, the convention the title-bar name
-         uses below): a mouse press already raised on pointerdown, and
-         raising again would advance the shared ordinal twice for one
-         press. */
+      /* keyboard only — a pointer press has already raised, and a second
+         raise would advance the shared ordinal twice for one press */
       onClickCapture={(e) => { if (e.detail === 0) raise() }}
       /* the WHOLE window is a screen-space surface: a press anywhere inside
          it is never a canvas pan (this is the stopPropagation half of the
@@ -659,7 +651,10 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
           onJump={onJump} />
       </div>
     </div>
-    <div className="pinwin-resize-frame" style={style} data-id={pin.id}>
+    {/* ⚠ OUTSIDE `.pinwin`, so the capture handler above never sees these:
+        the handles raise for themselves. `begin` must not also raise. */}
+    <div className="pinwin-resize-frame" style={style} data-id={pin.id}
+      onPointerDownCapture={raise}>
       {EDGES.map((edge) => (
         <div key={edge} className={'pinwin-rs ' + edge}
           onPointerDown={(e) => begin(e, { kind: 'size', sx: e.clientX, sy: e.clientY, o: rect, edge })}

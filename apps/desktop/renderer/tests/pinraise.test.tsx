@@ -20,9 +20,14 @@
 // file mounts the REAL PinLayer -> PinWindow -> DeskChat, and presses on the
 // real `.msgs` transcript, which is the element the wall actually matches.
 //
-// Watched fail: with `onPointerDownCapture` put back to `onPointerDown` in
-// pins.tsx, §1, §2 and §4 fail and §3 (the modal, which was never broken)
-// still passes.
+// Watched fail (mutate-pinraise.py in the author's scratch drives these):
+//   raise back on the bubble phase, or deleted        §1 §2 §3
+//   the keyboard-only click leg deleted               §4
+//   that leg ungated, so a mouse press raises twice   §2
+//   `raise()` put back inside `begin()`               §5 §6
+//   the resize frame's own capture raise deleted      §6
+//   raise made a no-op                                all six
+// No two mutations are caught by the same set, so no check here is redundant.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs pinraise
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
@@ -189,6 +194,33 @@ uiTest('§3 the pinned usage window still comes forward when it is pressed', asy
   const after = z()
   assert.ok(after.modal > after.desk,
     `the modal family must keep working (${JSON.stringify(after)})`)
+})
+
+uiTest('§5 a title-bar press advances the desk exactly one place', async ({ el, orders, z }) => {
+  const before = orders()
+  assert.ok(before.desk < before.max, 'the desk must start behind, or "it advanced" is free')
+  const title = el.querySelector(`.pinwin[data-id="${DESK}"] .pinwin-title`) as HTMLElement | null
+  assert.ok(title, 'the window rendered its title bar')
+  await press(title!)
+  // the title bar is INSIDE .pinwin, so the capture handler covers it; the
+  // drag gesture it starts must not raise a second time
+  assert.equal(orders().desk, before.max + 1, 'one press is one raise')
+  assert.ok(z().desk > z().modal, 'and it really is in front')
+})
+
+uiTest('§6 a resize-handle press advances the desk exactly one place', async ({ el, orders, z }) => {
+  const before = orders()
+  assert.ok(before.desk < before.max, 'the desk must start behind, or "it advanced" is free')
+  // ⚠ the handles are OUTSIDE .pinwin (a sibling frame), so they are NOT
+  // covered by the window's capture handler and carry their own. This is the
+  // case the user could already do: resizing brought the desk forward when
+  // clicking it would not.
+  const handle = el.querySelector(`.pinwin-resize-frame[data-id="${DESK}"] .pinwin-rs.se`) as HTMLElement | null
+  assert.ok(handle, 'the window rendered its resize handles')
+  assert.ok(!handle!.closest('.pinwin'), 'the handles really are outside the window element')
+  await press(handle!)
+  assert.equal(orders().desk, before.max + 1, 'one press is one raise')
+  assert.ok(z().desk > z().modal, 'and it really is in front')
 })
 
 uiTest('§4 a keyboard activation inside the desk raises it too', async ({ z, el }) => {
