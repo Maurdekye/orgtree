@@ -61,9 +61,11 @@ node whose ⚙ scope narrows `bash`/`edit` is held to it by a PreToolUse HOOK
 (`<cwd>/.agents/hooks.json`, measured: {"decision":"deny"} blocks the call
 and the run CONTINUES with the reason shown to the model; a hook that fails
 to run blocks the call too — fail closed). The hook command is a wrapper
-script with NO quotes in its own path where possible: `cmd /c` mangles a
-quoted-executable-plus-argument command line (measured), which is the whole
-reason the wrapper exists.
+script taking NO arguments, and on Windows its path is emitted with NO
+QUOTES AND NO SPACES — see `_hook_command`, which carries the measurement.
+A quote of ours is fatal: the CLI is a Go binary, so `syscall.EscapeArg`
+backslash-escapes it on the way to `cmd`, and every tool call on that seat
+then dies before it runs (live, 2026-09-11).
 
 ⚠ THE CWD IS NOT THE WORKSPACE unless `--add-dir <cwd>` says so: without it
 the agent's tools ran in the CLI's own app-data scratch (measured),
@@ -82,6 +84,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -233,8 +236,13 @@ try:
     payload = json.load(sys.stdin)
 except Exception:                                            # noqa: BLE001
     payload = {}
-call = payload.get("toolCall") if isinstance(payload, dict) else None
-name = str((call or {}).get("name") or "")
+doc = payload if isinstance(payload, dict) else {}
+call = doc.get("toolCall")
+call = call if isinstance(call, dict) else {}
+# `toolCall.name` is the measured envelope; the alternates are read only so
+# that a renamed field DENIES as before instead of failing open silently
+name = str(call.get("name") or doc.get("tool_name")
+           or doc.get("toolName") or "")
 if name in DENY:
     print(json.dumps({"decision": "deny",
                       "reason": "orgtree: " + DENY[name]}))
@@ -243,14 +251,84 @@ else:
 '''
 
 
+#: characters that stop a Windows hook command from surviving the CLI's
+#: `cmd` envelope as ONE bare token — cmd's token delimiters (space, tab,
+#: comma, semicolon, equals) and its metacharacters. `%` and `!` are listed
+#: too: harmless in the shapes measured, but they are the expansion sigils
+#: and routing them through the 8.3 alias costs nothing.
+_CMD_UNSAFE: Final = ' \t"&<>|^()%!,;='
+
+
+def _short_path(path: str) -> str:
+    """The volume's 8.3 alias for `path`, or "" when there is no usable one.
+
+    8dot3 name creation is switchable PER VOLUME (and off by default on
+    non-system volumes), and a directory made while it was off never gets an
+    alias afterwards — so this returns "" far more often than it looks, and
+    every caller must have a fallback. The alias is only handed back once it
+    has been confirmed to open the SAME file, so a stale or refused lookup
+    can never redirect the permission hook at something else."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(4096)
+        n = int(ctypes.windll.kernel32.GetShortPathNameW(  # type: ignore[attr-defined]
+            str(path), buf, 4096))
+        short = buf.value if 0 < n < 4096 else ""
+    except (OSError, ValueError, AttributeError):            # noqa: BLE001
+        return ""
+    if not short or short == path:
+        return ""
+    try:
+        if not os.path.samefile(short, path):
+            return ""
+    except OSError:
+        return ""
+    return short
+
+
 def _hook_command(path: str) -> str:
-    """The hooks.json `command` for a wrapper at `path`. The CLI runs it via
-    `cmd /c` (Windows) or `sh -c`; a bare absolute path is the one shape
-    both take without quoting games, and a path WITH a space is quoted as a
-    single token, which both shells honour (it is the quoted-executable-
-    PLUS-arguments shape that cmd mangles — measured — and the wrapper
-    exists so this command never has arguments)."""
-    return f'"{path}"' if " " in path else path
+    """The hooks.json `command` for the wrapper at `path` — which must already
+    EXIST, because the Windows branch asks the filesystem for its 8.3 alias.
+
+    ⚠ ON WINDOWS THIS STRING MAY NOT CONTAIN A DOUBLE QUOTE. The CLI is a Go
+    binary and hands the command to `cmd` as ONE argv element, so Go's
+    syscall.EscapeArg BACKSLASH-escapes any quote we put in it on the way
+    out: `"C:\\p\\x.cmd"` leaves as `cmd.exe /c "\\"C:\\p\\x.cmd\\""`. cmd
+    does not understand `\\"`; it strips the outer pair and tries to run a
+    file literally named `\\"C:\\p\\x.cmd\\"`. That is the measured live
+    failure — every Flash tool call died before it ran:
+
+        '\\"…\\orgtree-rights.cmd\\"' is not recognized as an internal or
+        external command
+        (antigravity/logs/orgtree/provider-polish.log, 2026-09-11,
+         command_hook_executor.go:75)
+
+    A BARE path needs no quote of ours: EscapeArg supplies its own pair when
+    the path holds a space. That lands under `cmd /c` — but NOT under
+    `cmd /s /c`, which always strips the outer pair and then splits the path
+    at the space. The log cannot tell the two envelopes apart (both produce
+    the error above), so rather than bet on one, the command is kept free of
+    SPACES as well, via the 8.3 alias — the one shape measured to work under
+    both. Where no alias exists the bare path still beats a quoted one: it
+    carries a spaced path through `cmd /c`.
+
+    `&` and `^` survive 8.3 mangling and defeat every shape this envelope can
+    express; a path holding one is returned bare and will still fail. All of
+    the above is measured in tests/test_antigravity_hook_command.py, against
+    the real cmd.exe and the real EscapeArg rules."""
+    if os.name != "nt":
+        # `sh -c` takes the whole command as one word-split string, so here
+        # the quoting IS ours to do — and single quotes, not double, so a
+        # `$` in the path is not expanded on the way through.
+        return shlex.quote(path)
+    if not any(c in path for c in _CMD_UNSAFE):
+        return path
+    short = _short_path(path)
+    if short and not any(c in short for c in _CMD_UNSAFE):
+        return short
+    return path
 
 
 def write_workspace(cwd: str, *, identity: str, mcp_servers: dict[str, Any],
