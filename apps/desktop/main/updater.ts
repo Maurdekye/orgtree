@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -104,6 +105,44 @@ export function updateLogger(log: UpdateLog) {
     warn: (message?: unknown) => { log.record('updater', message) },
     error: (message?: unknown) => { log.record('error', message) },
   }
+}
+
+/** Every deadline in the shutdown sequence, in one place, because the forced
+ *  exit must be DERIVED from them rather than set beside them: a watchdog equal
+ *  to the sum of the steps it covers can fire during the last one, killing the
+ *  app in the very window it exists to protect. */
+export const UPDATE_DEADLINES = {
+  layoutMs: 5000,
+  engineStopMs: 10000,
+  /** Waiting for the engine process to be OBSERVED gone, which engine.stop()
+   *  resolving does not establish - it returns straight after child.kill(). */
+  engineConfirmMs: 5000,
+  /** electron-updater reports a spawn failure asynchronously, after install()
+   *  has already returned true. */
+  spawnGraceMs: 3000,
+  marginMs: 5000,
+}
+
+export function updateWatchdogMs(d: typeof UPDATE_DEADLINES = UPDATE_DEADLINES): number {
+  return d.layoutMs + d.engineStopMs + d.engineConfirmMs + d.spawnGraceMs + d.marginMs
+}
+
+/** electron-builder registers the uninstaller under a key whose name is a
+ *  UUIDv5 of the application id in its own namespace, in HKLM for an all-users
+ *  installation and HKCU for a per-user one. Deriving the exact name is what
+ *  makes the install SCOPE checkable: a writability probe cannot tell them
+ *  apart, because an elevated process can write to an all-users directory.
+ *  Verified against this machine's real registry entry in the tests. */
+const ELECTRON_BUILDER_NS = '50e065bc-3134-11e6-9bab-38c9862bdaf3'
+
+export function uninstallRegistryGuid(appId: string): string {
+  const namespace = Buffer.from(ELECTRON_BUILDER_NS.replace(/-/g, ''), 'hex')
+  const hash = crypto.createHash('sha1').update(namespace).update(Buffer.from(appId, 'utf8')).digest()
+  const bytes = Buffer.from(hash.subarray(0, 16))
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50          // version 5
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80          // RFC 4122 variant
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /** Resolve a promise that may never settle. Returns 'timeout' instead of
@@ -249,12 +288,17 @@ export interface PreparationSeams {
   /** Best effort: gives the renderer a chance to flush drafts. */
   saveLayout: () => Promise<void>
   stopEngine: () => Promise<void>
+  /** Must answer true only when the engine process is OBSERVED to be gone.
+   *  stopEngine() resolving is not that: Engine.stop returns immediately after
+   *  child.kill(), without waiting for the exit it just requested. */
+  confirmEngineStopped: () => Promise<boolean>
   /** Releases before-quit so the updater's own app.quit() can take effect. */
   markQuitComplete: () => void
   handOff: () => HandoffResult
   record: (stage: UpdateStage, detail?: unknown) => void
   layoutMs: number
   engineMs: number
+  engineConfirmMs: number
 }
 
 /** Everything between "this process is now committed to shutting down" and the
@@ -269,19 +313,26 @@ export async function prepareAndHandOff(seams: PreparationSeams): Promise<Prepar
   seams.record(layout === 'ok' ? 'layout' : 'layout-timeout',
     layout === 'ok' ? undefined : 'renderer did not flush its drafts in time')
   const stopped = await bounded(seams.stopEngine(), seams.engineMs)
-  if (stopped !== 'ok') {
-    // INSTALLING OVER A LIVE ENGINE IS NEVER ACCEPTABLE. A stop that timed out
-    // or threw has NOT established that the engine is down, so the installer is
-    // not launched at all. The watchdog is released so the caller can put the
-    // app back rather than be force-exited, and the update simply stays pending.
-    const detail = stopped === 'timeout'
-      ? 'engine did not confirm shutdown in time; refusing to install over it'
-      : 'engine shutdown failed; refusing to install over it'
+  // INSTALLING OVER A LIVE ENGINE IS NEVER ACCEPTABLE, and neither half of this
+  // is redundant: the stop can time out or throw, AND a stop that RESOLVES
+  // still proves nothing, because Engine.stop returns straight after
+  // child.kill() without waiting for the exit. Death must be observed.
+  // bounded() reports HOW a promise ended, not what it resolved to, so the
+  // answer is captured on the way through; all three facts are required.
+  let observedGone = false
+  const confirmed = await bounded(
+    seams.confirmEngineStopped().then(value => { observedGone = value === true }),
+    seams.engineConfirmMs)
+  const gone = stopped === 'ok' && confirmed === 'ok' && observedGone
+  if (!gone) {
+    const detail = stopped === 'timeout' ? 'engine did not confirm shutdown in time; refusing to install over it'
+      : stopped !== 'ok' ? 'engine shutdown failed; refusing to install over it'
+      : 'engine process was not observed to exit; refusing to install over it'
     seams.record('engine-shutdown-timeout', detail)
     seams.cancelWatchdog()
     return { stage: 'engine-unconfirmed', detail }
   }
-  seams.record('engine-shutdown')
+  seams.record('engine-shutdown', 'engine process observed gone')
   seams.markQuitComplete()
   // A throw here means the same thing a refusal does - no quit is coming - so
   // it must not escape into a state only the watchdog can end.

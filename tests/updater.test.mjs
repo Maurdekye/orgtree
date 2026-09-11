@@ -9,7 +9,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-updater-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
-  bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail } = createRequire(import.meta.url)(outfile)
+  bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
+  uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -481,11 +482,11 @@ test('a renderer that never flushes cannot wedge the update: the installer is st
     armWatchdog: () => calls.push('arm'),
     cancelWatchdog: () => calls.push('cancel'),
     saveLayout: () => new Promise(() => {}),           // never settles, as measured
-    stopEngine: async () => { calls.push('stop') },
+    stopEngine: async () => { calls.push('stop') }, confirmEngineStopped: async () => true,
     markQuitComplete: () => calls.push('quit-complete'),
     handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
     record: stage => stages.push(stage),
-    layoutMs: 20, engineMs: 1000,
+    layoutMs: 20, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.equal(handoff.stage, 'handed-off')
   assert.deepEqual(calls, ['arm', 'stop', 'quit-complete', 'handoff'])
@@ -512,9 +513,9 @@ test('a layout flush that does complete is recorded as success, not as a timeout
   const stages = []
   await prepareAndHandOff({
     armWatchdog: () => {}, cancelWatchdog: () => {},
-    saveLayout: async () => {}, stopEngine: async () => {},
+    saveLayout: async () => {}, stopEngine: async () => {}, confirmEngineStopped: async () => true,
     markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
-    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.deepEqual(stages, ['layout', 'engine-shutdown', 'handoff'])
 })
@@ -526,10 +527,10 @@ test('an engine that never confirms shutdown BLOCKS the installer: nothing is in
   const stages = [], calls = []
   const result = await prepareAndHandOff({
     armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
-    saveLayout: async () => {}, stopEngine: () => new Promise(() => {}),
+    saveLayout: async () => {}, stopEngine: () => new Promise(() => {}), confirmEngineStopped: async () => true,
     markQuitComplete: () => calls.push('quit-complete'),
     handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
-    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 20,
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 20, engineConfirmMs: 1000,
   })
   assert.equal(result.stage, 'engine-unconfirmed')
   assert.ok(!calls.includes('handoff'), 'the installer must NOT be launched')
@@ -538,14 +539,74 @@ test('an engine that never confirms shutdown BLOCKS the installer: nothing is in
   assert.deepEqual(stages, ['layout', 'engine-shutdown-timeout'])
 })
 
+test('an engine stop that RESOLVES but is not observed gone still blocks the installer', async () => {
+  // Engine.stop returns immediately after child.kill(), which only REQUESTS
+  // termination. A resolved stop is therefore not evidence of death, and this
+  // is the case a "did the promise settle" check cannot see at all.
+  const calls = [], stages = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => { calls.push('stop') },
+    confirmEngineStopped: async () => false,
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true } },
+    record: (stage, detail) => stages.push([stage, detail]), layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
+  })
+  assert.equal(result.stage, 'engine-unconfirmed')
+  assert.ok(!calls.includes('handoff'), 'the installer must NOT be launched')
+  assert.deepEqual(calls, ['arm', 'stop', 'cancel'])
+  assert.match(stages.at(-1)[1], /not observed to exit/)
+})
+
+test('a confirmation that never answers blocks the installer rather than hanging', async () => {
+  const calls = []
+  const result = await prepareAndHandOff({
+    armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
+    saveLayout: async () => {}, stopEngine: async () => {},
+    confirmEngineStopped: () => new Promise(() => {}),
+    markQuitComplete: () => calls.push('quit-complete'),
+    handOff: () => { calls.push('handoff'); return { accepted: true } },
+    record: () => {}, layoutMs: 1000, engineMs: 1000, engineConfirmMs: 20,
+  })
+  assert.equal(result.stage, 'engine-unconfirmed')
+  assert.ok(!calls.includes('handoff'))
+})
+
+test('the forced exit outlasts every deadline it covers, with margin', () => {
+  // The previous watchdog was 20s against deadlines of 5 + 12 + 3 = 20, so it
+  // could fire during the very last step it exists to protect.
+  const covered = UPDATE_DEADLINES.layoutMs + UPDATE_DEADLINES.engineStopMs
+    + UPDATE_DEADLINES.engineConfirmMs + UPDATE_DEADLINES.spawnGraceMs
+  assert.ok(updateWatchdogMs() > covered,
+    `watchdog ${updateWatchdogMs()}ms must exceed the ${covered}ms of steps it covers`)
+  assert.equal(updateWatchdogMs(), covered + UPDATE_DEADLINES.marginMs)
+  // NEGATIVE CONTROL: a budget with no margin is reported as such, so this
+  // assertion is about the relationship and not about today's numbers.
+  const noMargin = { ...UPDATE_DEADLINES, marginMs: 0 }
+  assert.equal(updateWatchdogMs(noMargin) > covered, false)
+})
+
+test('the uninstall registry key is derived exactly as electron-builder writes it', () => {
+  // POSITIVE CONTROL AGAINST REALITY: this machine's installed 2.0.3 registers
+  // HKLM\...\Uninstall\{21991930-a33d-57f0-b948-692a56fc3ca7}, read from the
+  // real registry. Deriving that same name is what makes the install SCOPE
+  // checkable - a writability probe cannot see it, because an elevated process
+  // can write to an all-users directory perfectly well.
+  assert.equal(uninstallRegistryGuid('com.maurdekye.orgtree'), '21991930-a33d-57f0-b948-692a56fc3ca7')
+  // a different id must give a different key, or the derivation is inert
+  assert.notEqual(uninstallRegistryGuid('com.example.other'), uninstallRegistryGuid('com.maurdekye.orgtree'))
+  // and it must be a well-formed v5 UUID
+  assert.match(uninstallRegistryGuid('com.maurdekye.orgtree'), /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+})
+
 test('an engine stop that REJECTS blocks the installer for the same reason', async () => {
   const calls = []
   const result = await prepareAndHandOff({
     armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
-    saveLayout: async () => {}, stopEngine: async () => { throw new Error('shutdown route refused') },
+    saveLayout: async () => {}, stopEngine: async () => { throw new Error('shutdown route refused') }, confirmEngineStopped: async () => true,
     markQuitComplete: () => calls.push('quit-complete'),
     handOff: () => { calls.push('handoff'); return { accepted: true } },
-    record: () => {}, layoutMs: 1000, engineMs: 1000,
+    record: () => {}, layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.equal(result.stage, 'engine-unconfirmed')
   assert.deepEqual(calls, ['arm', 'cancel'])
@@ -557,10 +618,10 @@ test('an engine that DOES confirm shutdown reaches the installer', async () => {
   const calls = []
   const result = await prepareAndHandOff({
     armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
-    saveLayout: async () => {}, stopEngine: async () => {},
+    saveLayout: async () => {}, stopEngine: async () => {}, confirmEngineStopped: async () => true,
     markQuitComplete: () => calls.push('quit-complete'),
     handOff: () => { calls.push('handoff'); return { accepted: true, directory: 'C:\\Orgtree' } },
-    record: () => {}, layoutMs: 1000, engineMs: 1000,
+    record: () => {}, layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.equal(result.stage, 'handed-off')
   assert.deepEqual(calls, ['arm', 'quit-complete', 'handoff'])
@@ -573,9 +634,9 @@ test('a handoff that throws is treated exactly like one that refuses', async () 
   const stages = [], calls = []
   const result = await prepareAndHandOff({
     armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
-    saveLayout: async () => {}, stopEngine: async () => {},
+    saveLayout: async () => {}, stopEngine: async () => {}, confirmEngineStopped: async () => true,
     markQuitComplete: () => {}, handOff: () => { throw new Error('spawn exploded') },
-    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.equal(result.stage, 'refused')
   assert.deepEqual(calls, ['arm', 'cancel'])
@@ -590,9 +651,9 @@ test('a refused handoff cancels the forced exit, so the app is never killed with
   const stages = [], calls = []
   const result = await prepareAndHandOff({
     armWatchdog: () => calls.push('arm'), cancelWatchdog: () => calls.push('cancel'),
-    saveLayout: async () => {}, stopEngine: async () => {},
+    saveLayout: async () => {}, stopEngine: async () => {}, confirmEngineStopped: async () => true,
     markQuitComplete: () => {}, handOff: () => ({ accepted: false }),
-    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000,
+    record: stage => stages.push(stage), layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.equal(result.stage, 'refused')
   assert.deepEqual(calls, ['arm', 'cancel'])
@@ -602,9 +663,9 @@ test('a refused handoff cancels the forced exit, so the app is never killed with
   const kept = []
   await prepareAndHandOff({
     armWatchdog: () => kept.push('arm'), cancelWatchdog: () => kept.push('cancel'),
-    saveLayout: async () => {}, stopEngine: async () => {},
+    saveLayout: async () => {}, stopEngine: async () => {}, confirmEngineStopped: async () => true,
     markQuitComplete: () => {}, handOff: () => ({ accepted: true, directory: 'C:\\Orgtree' }),
-    record: () => {}, layoutMs: 1000, engineMs: 1000,
+    record: () => {}, layoutMs: 1000, engineMs: 1000, engineConfirmMs: 1000,
   })
   assert.deepEqual(kept, ['arm'])
 })

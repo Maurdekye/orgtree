@@ -8,6 +8,10 @@ export interface SavedWindow { restore?: WindowRestore; key: string; kind: strin
 let exiting = false
 export const windowExitStarted = () => exiting
 export const beginWindowExit = () => { exiting = true }
+/** An exit can be ABANDONED - an update that refuses to replace files over an
+ *  engine it cannot confirm has stopped puts the app back. Without this the
+ *  flag stayed latched and the window silently stopped saving its layout. */
+export const endWindowExit = () => { exiting = false }
 export function useRestoreWindows() {
   const bridge = desktop()
   const [allowed, setAllowed] = useState<boolean>(() => !!bridge && !bridge.getWindowState)

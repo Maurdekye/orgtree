@@ -325,6 +325,21 @@ export class Engine extends EventEmitter {
     } catch { return false }
   }
 
+  /** Whether the engine process is OBSERVED to be gone. stop() resolving is
+   *  NOT that: it returns immediately after child.kill(), which only REQUESTS
+   *  termination. An attached boot engine is excluded because it is never this
+   *  process's to stop - stopAttachedForUpdate proves that one separately, by
+   *  its own three-fact conjunction. */
+  async stoppedConfirmed(deadlineMs = 5000): Promise<boolean> {
+    if (!this.managed) return !this.endpoint
+    const deadline = Date.now() + deadlineMs
+    for (;;) {
+      if (!this.child || this.child.exitCode !== null || this.child.signalCode !== null) return true
+      if (Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
   async stop(): Promise<void> {
     // An attached boot-host engine outlives this window by design; only the
     // host (or the operator's task controls) stops it.

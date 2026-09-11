@@ -75,13 +75,30 @@ test('the update controller is wired end to end: contracts, preload, main proces
     'the ordinary quit path must not await the layout flush without a deadline either')
   assert.match(main, /await prepareAndHandOff\(\{/)
   assert.match(main, /bounded\(saveWindowLayout\(\), UPDATE_LAYOUT_MS\)/)
+  // a resolved engine.stop() is NOT proof of death - it returns straight after
+  // child.kill() - so the installer must wait on an OBSERVED exit
+  assert.match(main, /confirmEngineStopped: \(\) => engine\.stoppedConfirmed\(UPDATE_ENGINE_CONFIRM_MS\)/)
+  // the forced exit is derived from the budget, never written beside it
+  assert.match(main, /const UPDATE_EXIT_MS = updateWatchdogMs\(\)/)
+  // an abandoned shutdown must reject, or a manual Update now leaves the
+  // renderer's button stuck on "Restarting..." for ever
+  assert.match(main, /throw new Error\('The engine did not confirm that it stopped/)
+  // ...and must release the renderer's exit latch, which otherwise stays set
+  assert.match(main, /orgtree:exit-cancelled/)
+  const life = read('apps/desktop/renderer/src/windowlife.ts')
+  assert.match(life, /window\.addEventListener\('orgtree:exit-cancelled'/)
+  assert.match(read('apps/desktop/renderer/src/windowlayout.ts'), /export const endWindowExit = \(\) => \{ exiting = false \}/)
+  // install SCOPE, not just writability: an elevated process can write to an
+  // all-users directory, and the user wants the control off for those anyway
+  assert.match(main, /installedForAllUsers !== true && installDirectoryWritable\(installDirectory\(\)\)/)
+  assert.match(main, /uninstallRegistryGuid\(appId\)/)
 
   // An unattended automatic install that provably needs elevation is HELD, not
   // performed: performing it shuts the app down and installs nothing.
   assert.match(main, /if \(unattended && !canInstallUnattended\(\)\)/)
   // decided by WRITING, because Windows access checks report the read-only
   // attribute rather than the ACL, and probed once rather than every poll
-  assert.match(main, /unattendedInstallPossible = installDirectoryWritable\(installDirectory\(\)\)/)
+
   // the same answer drives the settings row and the tray item the user asked
   // to be greyed out where nothing can install unattended
   assert.match(main, /handle\('desktop:update-capability', \(\) => \(\{ unattendedInstall: canInstallUnattended\(\)/)

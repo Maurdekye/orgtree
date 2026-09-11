@@ -1,4 +1,4 @@
-import { beginWindowExit } from './windowlayout'
+import { beginWindowExit, endWindowExit } from './windowlayout'
 // One opener owns all movable surfaces and the restart decision. No React/API
 // imports: api.ts can consult this without creating an application cycle.
 export interface WindowSurface {
@@ -67,6 +67,12 @@ export function resetActionDocument() { actionDocument = document }
 if (typeof window !== 'undefined') {
   window.addEventListener('orgtree:before-exit', () => {
     beginWindowExit(); flushWindowDrafts(); reloadStarted = true
+  })
+  // The native side abandons a shutdown it cannot complete safely. Without
+  // this the exit latch stayed set and this window stopped saving its layout
+  // for the rest of the session.
+  window.addEventListener('orgtree:exit-cancelled', () => {
+    endWindowExit(); reloadStarted = false
   })
   window.addEventListener('beforeunload', (e) => {
     if (reloadStarted || !openSurfaces().some((s) => s.editable)) return

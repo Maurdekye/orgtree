@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, p
 import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
@@ -12,7 +13,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, UpdateController, UpdateLog, updateLogger } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateWatchdogMs } from './updater'
 import type { InstallableUpdater } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -20,6 +21,9 @@ import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProv
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 
+// The build's appId, which is what electron-builder derives its uninstall
+// registry key from. Kept beside setName so the two are read together.
+const appId = 'com.maurdekye.orgtree'
 app.setName('Orgtree v2')
 // Development notifications must not register Electron against the installed app.
 app.setAppUserModelId(appUserModelId(app.isPackaged))
@@ -223,20 +227,45 @@ else {
   // Manager. executeJavaScript is exactly such an await — measured in real
   // Electron it does not settle on a busy renderer, and does not settle even
   // when that renderer is destroyed or force-crashed.
-  const UPDATE_LAYOUT_MS = 5000, UPDATE_ENGINE_STOP_MS = 12000, UPDATE_EXIT_MS = 20000
-  // A spawn failure surfaces within a tick or two; this only delays a SUCCESSFUL
-  // handoff, and the installer is already waiting for this process to exit.
-  const UPDATE_SPAWN_GRACE_MS = 3000
+  // Derived, never set beside the steps it covers: the previous 20s equalled
+  // 5 + 12 + 3 exactly, so the forced exit could fire DURING the spawn grace
+  // it is supposed to be protecting.
+  const UPDATE_LAYOUT_MS = UPDATE_DEADLINES.layoutMs
+  const UPDATE_ENGINE_STOP_MS = UPDATE_DEADLINES.engineStopMs
+  const UPDATE_ENGINE_CONFIRM_MS = UPDATE_DEADLINES.engineConfirmMs
+  const UPDATE_SPAWN_GRACE_MS = UPDATE_DEADLINES.spawnGraceMs
+  const UPDATE_EXIT_MS = updateWatchdogMs()
   const installDirectory = () => path.dirname(process.execPath)
-  /** Probed ONCE per run. The answer is a property of where this copy is
-   *  installed, which does not change while it runs, and the probe writes a
-   *  real file - repeating it on every five-second poll and every settings
-   *  render would be pointless filesystem traffic. */
-  let unattendedInstallPossible: boolean | undefined
+  /** Resolved ONCE per run: both facts are properties of where this copy is
+   *  installed, which cannot change while it runs, and the writability half
+   *  writes a real file. `allUsers` stays undefined when the scope could not be
+   *  read, in which case writability alone decides. */
+  let unattendedInstallPossible: boolean | undefined, installedForAllUsers: boolean | undefined
   const canInstallUnattended = () => {
-    if (unattendedInstallPossible === undefined) unattendedInstallPossible = installDirectoryWritable(installDirectory())
+    if (unattendedInstallPossible === undefined) {
+      // BOTH are needed. A writability probe alone cannot see the scope: an
+      // ELEVATED process can write to an all-users directory perfectly well,
+      // and the user asked for the control to be off for all-users regardless.
+      // The scope alone is not enough either - a read-only volume or a
+      // restrictive ACL blocks a per-user install just as completely.
+      unattendedInstallPossible = installedForAllUsers !== true && installDirectoryWritable(installDirectory())
+    }
     return unattendedInstallPossible
   }
+  /** electron-builder registers its uninstaller under a derived GUID: HKLM for
+   *  an all-users installation, HKCU for a per-user one. Read once at startup,
+   *  bounded, read-only; failure leaves the answer unknown rather than wrong. */
+  const readInstallScope = () => new Promise<void>(resolve => {
+    if (process.platform !== 'win32' || !app.isPackaged) return resolve()
+    const key = `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${uninstallRegistryGuid(appId)}`
+    execFile('reg', ['query', key], { timeout: 4000, windowsHide: true }, (error, stdout) => {
+      if (!error && /InstallLocation|UninstallString|DisplayName/i.test(stdout)) installedForAllUsers = true
+      else if (error && /not.*(find|exist)/i.test(String(error.message))) installedForAllUsers = false
+      updateLog.record('updater', `install scope: ${installedForAllUsers === undefined ? 'unknown' : installedForAllUsers ? 'all users' : 'per user'}`)
+      unattendedInstallPossible = undefined
+      resolve()
+    })
+  })
   const cancelUpdateWatchdog = () => { if (updateExitWatchdog) clearTimeout(updateExitWatchdog); updateExitWatchdog = undefined }
   /** Put the app back after a shutdown that must not complete. `quitting` is
    *  latched by then, which is what makes every app.quit() a no-op, so leaving
@@ -247,6 +276,13 @@ else {
     updateHold = 'last attempt did not complete - use Update now'
     restartPoll?.()
     refreshTrayUpdates()
+    // saveWindowLayout already told the renderer it was exiting, which latches
+    // a flag that stops it persisting layout. Nothing was going to take that
+    // back, so a window that survived an abandoned update stopped saving its
+    // position for the rest of the session.
+    if (main && !main.isDestroyed()) {
+      void main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:exit-cancelled"))').catch(() => {})
+    }
     void dialog.showMessageBox({ type: 'error', message, detail }).catch(() => {})
   }
   /** electron-updater reports a spawn failure asynchronously. Resolves with the
@@ -320,6 +356,7 @@ else {
       cancelWatchdog: cancelUpdateWatchdog,
       saveLayout: saveWindowLayout,
       stopEngine: () => engine.stop(),
+      confirmEngineStopped: () => engine.stoppedConfirmed(UPDATE_ENGINE_CONFIRM_MS),
       markQuitComplete: () => { quitComplete = true },
       // Typed as the abstract AppUpdater, but always a BaseUpdater at runtime;
       // InstallableUpdater names exactly the members used. Note that going
@@ -328,15 +365,17 @@ else {
       // and owning the quit is what lets a failed spawn be caught at all.
       handOff: () => installDownloadedUpdate(autoUpdater as unknown as InstallableUpdater, installDirectory()),
       record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
-      layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS,
+      layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS, engineConfirmMs: UPDATE_ENGINE_CONFIRM_MS,
     })
     if (outcome.stage === 'engine-unconfirmed') {
       // Nothing was installed and nothing was handed off. The engine's state is
       // UNKNOWN, so this process must not relaunch into a second one either.
-      // Put the app back the way it was and leave the update pending.
+      // Put the app back the way it was and leave the update pending. THROWING
+      // matters: a manual request that resolved here would leave the renderer's
+      // Update now button stuck on "Restarting..." for ever.
       abandonUpdateShutdown('Orgtree did not install the update.',
         'The engine did not confirm that it stopped, and Orgtree will not replace its files while it may still be running. The update is still ready; try again from the tray.')
-      return
+      throw new Error('The engine did not confirm that it stopped, so the update was not installed.')
     }
     if (outcome.stage === 'refused') {
       // electron-updater declined, so no quit is coming from it. The engine IS
@@ -351,9 +390,12 @@ else {
     // installed nothing. Owning the quit lets us wait a bounded moment for it.
     const spawnFailure = await awaitInstallError(UPDATE_SPAWN_GRACE_MS)
     if (spawnFailure !== undefined) {
+      // Unlike the unconfirmed-stop path, the engine here IS confirmed gone, so
+      // carrying on in place would leave a running app with a dead engine.
+      // Relaunch into a working one, exactly as a declined handoff does.
       updateLog.record('handoff-refused', spawnFailure)
-      abandonUpdateShutdown('Orgtree could not start the update installer.',
-        sanitizeUpdateDetail(spawnFailure) + '\n\nThe update is still ready; try again from the tray.')
+      updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
+      app.relaunch(); app.exit(0)
       return
     }
     app.quit()
@@ -640,6 +682,8 @@ else {
       // failure, and until now it was invisible. Record it once, and hold the
       // automatic path so the app cannot spend every idle minute shutting
       // itself down for an install that will not happen. Update now still works.
+      await readInstallScope()
+      refreshTrayUpdates()
       const previous = updateLog.lastAttempt()
       // Either terminal outcome counts: a handoff that changed nothing, and a
       // refusal that relaunched us. Without the second, a handoff that refuses
