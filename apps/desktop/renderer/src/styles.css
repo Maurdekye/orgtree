@@ -1987,6 +1987,18 @@ button.cc-name:hover {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
   animation: askbell 2s ease-in-out infinite;
 }
+@media (prefers-reduced-motion: reduce) {
+  /* no pulse, but STILL THE SIGNAL — the same bargain .docket-flash and
+     .h1-usage.u-crit strike above. Removing the animation and nothing else
+     would leave a reduced-motion reader with a button that looks exactly
+     like an ordinary one, which is the state this whole change exists to
+     fix. So the glow holds at the pulse's bright end instead of moving:
+     the accent colour, the accent border and a static halo. */
+  .update-notice button.update-now.glow {
+    animation: none;
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+}
 /* ------------------------------- the mail interface (webmail two-pane layout):
    list on the left (sender · time · truncated brief), reading pane on the
    right. One component serves the eye's inbox, card modals and the desk tab. */
@@ -2144,7 +2156,9 @@ button.cc-name:hover {
    strong rows still read as a list. The pulse lives on the inbox pip
    (.eye-count.asks) and the header bell (.ask-bell.glow), which is also the
    signal that already existed — nothing here is a second animation that
-   could drift out of step with it. */
+   could drift out of step with it. (The update-ready button joined that
+   same treatment on 2026-09-11 at the user's request; it reuses the
+   keyframes rather than adding to the count of animations.) */
 .mailrow.urgent {
   border-left: 4px solid var(--accent); padding-left: 6px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);

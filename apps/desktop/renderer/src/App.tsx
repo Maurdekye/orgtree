@@ -295,9 +295,14 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
  *  component is mountable. Behaviour is unchanged: same classes, same title,
  *  same two-tier badge, same click.
  *
- *  The 2026-08-04 ruling that this bell glows ALONE in the whole chrome is
- *  untouched; the user widened WHAT counts (urgent mail joins open asks),
- *  not the property. Nothing else in the chrome starts glowing. */
+ *  The 2026-08-04 ruling was that this bell is the ONLY thing in the chrome
+ *  that glows for attention; the user widened WHAT counts for it (urgent mail
+ *  joined open asks) without touching that. It is no longer sole: on
+ *  2026-09-11 the user asked for the `Update now` button to glow as well
+ *  while a downloaded update waits. Two authorised signals, both meaning
+ *  "something is waiting on you", both saying it in the same words — the
+ *  `glow` class over the `askbell` keyframes. Nothing else may start
+ *  glowing without the user asking for it. */
 export function AskBell({ tree, onOpen }: {
   tree: Parameters<typeof attentionPip>[0]
   onOpen: () => void
@@ -1064,9 +1069,11 @@ export default function App() {
                     then press after 500ms safety window — interrupts EVERY
                     active agent and clears their queues */}
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree} />
-                {/* the SECOND inbox icon (user ruling 2026-08-04): it glows —
-                    alone in the whole chrome — iff an un-nulled ask (question
-                    or credit request) is waiting on the user. Two-tier badge
+                {/* the SECOND inbox icon (user ruling 2026-08-04): it glows
+                    iff an un-nulled ask (question or credit request) is
+                    waiting on the user. It was the only glowing control in
+                    the chrome until the user authorised the update-ready
+                    glow on 2026-09-11 (see UpdateNotice). Two-tier badge
                     (user spec 2026-08-06, supersedes the 2026-08-05 full-total
                     ruling): with asks open the badge shows the ASK count in
                     the vibrant pulsing form; otherwise the unread-mail count,
@@ -1087,8 +1094,9 @@ export default function App() {
                   // documents presented by CURRENTLY HIRED agents — the set
                   // the panel shows with "show retired agents" unticked. It
                   // never wears the `.asks` pulse: nothing here is waiting on
-                  // an answer, and the 2026-08-04 ruling leaves the bell the
-                  // only glowing thing in the chrome.
+                  // an answer. Glowing is reserved for a control the user has
+                  // asked to be pulled to — the ask bell, and (2026-09-11)
+                  // the update-ready button — and this is not one.
                   const docs = activeDocCount(tree.roots)
                   return (
                     <button className="iconbtn doc-bell"

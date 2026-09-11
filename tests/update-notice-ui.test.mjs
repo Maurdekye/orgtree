@@ -158,6 +158,24 @@ test('the glow is the SAME treatment as the unread-ask bell, in the active '
   assert.match(bell[1], /animation:\s*askbell /)
 })
 
+// jsdom does not evaluate media queries, so the stylesheet source IS the
+// instrument here - the same one this file already uses for the glow rule.
+// ⚠ THE SECOND ASSERTION IS THE POINT. `animation: none` alone would satisfy
+// "reduced motion respected" while deleting the signal outright, leaving that
+// reader a button indistinguishable from an ordinary one - which is the exact
+// state this change exists to fix. The static halo is what must survive.
+test('reduced motion drops the pulse but keeps the signal', async () => {
+  const css = fs.readFileSync(path.join(root, 'apps/desktop/renderer/src/styles.css'), 'utf8')
+  const blocks = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)^\}/gm)]
+    .map(m => m[1])
+  const mine = blocks.find(b => b.includes('.update-notice button.update-now.glow'))
+  assert.ok(mine, 'the update glow has no reduced-motion treatment at all')
+  assert.match(mine, /animation:\s*none/, 'the pulse must stop')
+  assert.match(mine, /box-shadow:[^;]*var\(--accent\)/,
+    'a static accent halo must remain, or reduced motion loses the signal '
+    + 'entirely rather than losing the movement')
+})
+
 test('hovering Update now names the DOWNLOADED target version, and says less '
   + 'rather than guessing when there is none', async () => {
   const bridge = { installUpdate: () => new Promise(() => {}) }

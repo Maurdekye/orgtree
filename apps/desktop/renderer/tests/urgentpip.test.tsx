@@ -141,8 +141,9 @@ uiTest('§6 the rule reaches the DOM at the surviving surface, pulsing class '
   + 'and all', async (mount) => {
   // the ATTENTION tier wears `.asks` — the class that carries the askpip
   // animation and is the EXISTING question signal, not a second one built to
-  // look like it. The BUTTON also wears `.glow`, which is the 2026-08-04
-  // ruling that this bell is the only glowing thing in the chrome.
+  // look like it. The BUTTON also wears `.glow` — the 2026-08-04 attention
+  // treatment, which the update-ready button now shares by the user's own
+  // request (2026-09-11); it is the same class over the same keyframes.
   const loud = await mount(bell({ urgent_unread: 2, user_inbox_count: 6 }))
   const badge = loud.querySelector('.ask-bell .eye-count')
   assert.equal(badge?.textContent, '2')
