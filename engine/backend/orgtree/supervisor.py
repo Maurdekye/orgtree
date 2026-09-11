@@ -28892,20 +28892,35 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                         #
                         # The identity comes from the RESULT's `item` field —
                         # never from the arguments and never from the chip's
-                        # text. A failed call has no item to open, and
-                        # `list`/`get`/`verify` are not writes, so neither gets
-                        # a button: `item` is only present on a successful
-                        # mutation. Same bare-name rule as above — the
-                        # codex/antigravity lanes journal the unprefixed name.
+                        # text. A failed call has no item to open. Same bare-name
+                        # rule as above — the codex/antigravity lanes journal the
+                        # unprefixed name.
+                        #
+                        # ⚠ THAT KEY HOLDS TWO SHAPES, and this read assumed one.
+                        # A mutation answers with the item's NAME; `get` answers
+                        # with the whole RECORD under the same key. The old
+                        # `str(r["item"])` turned that record into a dict repr and
+                        # the button asked the docket to open it — which the docket
+                        # faithfully reported it could not find, filling its detail
+                        # pane with the text (user report 2026-09-11). Take the
+                        # name from either shape, never stringify a mapping, and
+                        # offer NO button when neither yields one: a button that
+                        # opens nothing is what put a record on the reader's
+                        # screen.
                         if (entry.get("name", "").removeprefix("mcp__orgtree__")
                                 == "orgtree_work"
                                 and not block.get("is_error")):
                             try:
                                 r = json.loads(body)
-                                if isinstance(r, dict) and r.get("item"):
-                                    entry["work"] = {"slug": str(r["item"])}
                             except (ValueError, AttributeError):
-                                pass
+                                r = None
+                            if isinstance(r, dict):
+                                got = r.get("item")
+                                name = (got if isinstance(got, str)
+                                        else got.get("slug")
+                                        if isinstance(got, Mapping) else None)
+                                if isinstance(name, str) and name.strip():
+                                    entry["work"] = {"slug": name.strip()}
                     tools.append(None)   # marker: this user record is plumbing
         # №10: the pre-computed diff rides the parent record's sidecar
         tur = rec.get("toolUseResult")

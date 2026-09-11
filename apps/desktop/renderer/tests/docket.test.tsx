@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AgentDocketView, DocketModal, DocketToolbarButton } from '../src/canvas/docket'
 import { ago } from '../src/canvas/shared'
+import { pinModal, unpinModal } from '../src/canvas/modalpin'
+import { CurrentOrg } from '../src/popout'
 import { InboxPanel, SenderChip } from '../src/App'
 // The inbox now scrolls to its oldest unread on mount; jsdom has no layout.
 window.HTMLElement.prototype.scrollIntoView = () => {}
@@ -2492,4 +2494,128 @@ uiTest('§D the redundant local × is gone, and the way out is not',
     await flush()
     assert.equal(closed.length, 1,
       'no close button AND no backdrop close would strand the reader')
+  })
+
+
+// ═════════ §E an event's "open" button, into a docket already on screen ═════
+//
+// User report 2026-09-11: with the docket PINNED and nothing selected, the
+// button on an event filled the detail pane with the ticket's whole record,
+// while clicking the row for the same ticket rendered it properly.
+//
+// The cause was upstream of this panel. The desk builds that button from the
+// tool RESULT, and `orgtree_work get` answers with the item OBJECT under the
+// same `item` key a mutation uses for the item's NAME; the builder called
+// `str()` on it, so the button handed this panel a Python dict repr to find.
+// tests/test_work_chip_slug.py is the repro and the fix for that half.
+//
+// This half is the end of the route: what the panel does with what it is
+// handed. §E1 is the user's own scene, §E2 pins the two routes to the SAME
+// rendering, and §E3 is what an unfindable name must look like — which is
+// also what they saw, with a 3 KB name.
+
+const ITEM_FOR_JUMP = () => mkItem({
+  slug: 'ship-the-thing', title: 'ship-the-thing',
+  objective: 'The problem, and then the plan for it.',
+  done_so_far: ['drew the route'],
+  working_on_next: ['land it'],
+})
+
+/** the user's scene: a docket PINNED to the window, not a centred modal */
+const pinnedDocket = (extra?: Parameters<typeof docketModal>[0]) => (
+  <CurrentOrg.Provider value="org1">{docketModal(extra)}</CurrentOrg.Provider>
+)
+
+/** ⚠ A PINNED SURFACE IS PORTALLED OUT of the host this test mounted — into
+ *  the window's own pin layer — so `el` contains none of it. Everything below
+ *  is read from the pinned window itself, which is also the positive control
+ *  for the scene: no pinned window, no queries, and the test says so. */
+const pinnedWindow = (el: HTMLElement) => {
+  const win = el.ownerDocument.querySelector<HTMLElement>('.docket-modal.modalpin-win')
+  assert.ok(win, 'the docket is not pinned, so this is not the reported scene')
+  return win
+}
+const paneText = (el: HTMLElement) =>
+  pane(pinnedWindow(el))?.textContent ?? ''
+const paneHeadings = (el: HTMLElement) =>
+  [...(pane(pinnedWindow(el))?.querySelectorAll('.docket-list-heading') ?? [])]
+    .map((h) => h.textContent)
+
+const PIN_RECT = { x: 40, y: 40, w: 760, h: 560 }
+
+uiTest('§E1 a jump into a PINNED docket with nothing selected renders the '
+  + 'formatted detail, never the record', async (mount) => {
+    pinModal('docket', PIN_RECT, 'org1')
+    try {
+      mockWorkItems([ITEM_FOR_JUMP(), mkItem({ title: 'other-item' })])
+      const { el, render: re } = await mount(pinnedDocket())
+      await flush()
+      // POSITIVE CONTROL: the scene really is the reported one — a pinned
+      // window whose detail pane has nothing in it yet.
+      assert.match(paneText(el), /select an item to view it/,
+        'something was already selected, so this is not the empty pane')
+
+      // the event's button arrives: it names the item, nothing more
+      await re(pinnedDocket({ jumpTo: 'ship-the-thing', jumpSeq: 1 }))
+      await flush()
+
+      // …and the pane is the FORMATTED detail, section by section
+      assert.deepEqual(paneHeadings(el),
+        ['DESCRIPTION', 'DONE SO FAR', 'WORKING ON / NEXT', 'ATTACHMENTS'])
+      assert.match(paneText(el), /The problem, and then the plan for it\./)
+      assert.match(paneText(el), /drew the route/)
+      assert.match(paneText(el), /land it/)
+      // and none of a serialized record's punctuation survives in it
+      assert.doesNotMatch(paneText(el), /['"]slug['"]\s*:|['"]rev['"]\s*:/,
+        'the pane is showing a record again')
+    } finally { unpinModal('docket', 'org1') }
+  })
+
+uiTest('§E2 the jump and a row click render the SAME pane', async (mount) => {
+  pinModal('docket', PIN_RECT, 'org1')
+  try {
+    mockWorkItems([ITEM_FOR_JUMP(), mkItem({ title: 'other-item' })])
+    const { el, render: re } = await mount(pinnedDocket())
+    await flush()
+    const row = rows(pinnedWindow(el))
+      .find((r) => (r.textContent ?? '').includes('ship-the-thing'))
+    assert.ok(row, 'the item has no row to click')
+    await inAct(() => { (row as HTMLElement).click() })
+    await flush()
+    assert.match(paneText(el), /DESCRIPTION/,
+      'positive control: the row click opened the detail')
+    const byClick = paneText(el)
+
+    // …the reader deselects, leaving the pane empty exactly as the report
+    // describes, and the event's button is what arrives next
+    await inAct(() => { (row as HTMLElement).click() })
+    await flush()
+    assert.match(paneText(el), /select an item to view it/)
+    await re(pinnedDocket({ jumpTo: 'ship-the-thing', jumpSeq: 1 }))
+    await flush()
+
+    // the same loader, so the same text — the report's own claim ("clicking
+    // the row renders correctly") stated as an equality rather than as two
+    // lists of assertions that can drift apart
+    assert.equal(paneText(el), byClick)
+  } finally { unpinModal('docket', 'org1') }
+})
+
+uiTest('§E3 CONTROL — a name that is not an item says so, and renders no detail',
+  async (mount) => {
+    pinModal('docket', PIN_RECT, 'org1')
+    try {
+      mockWorkItems([ITEM_FOR_JUMP()])
+      const { el, render: re } = await mount(pinnedDocket())
+      await flush()
+      // the shape the broken button used to send: a whole record, stringified
+      const repr = "{'slug': 'ship-the-thing', 'rev': 2, 'title': 'Ship the thing'}"
+      await re(pinnedDocket({ jumpTo: repr, jumpSeq: 1 }))
+      await flush()
+      assert.match(paneText(el), /is not an item in this org/)
+      // ⚠ AND NO DETAIL. Without this, §E1 would pass for a panel that renders
+      // the formatted pane for anything at all.
+      assert.deepEqual(paneHeadings(el), [])
+      assert.doesNotMatch(paneText(el), /The problem, and then the plan for it/)
+    } finally { unpinModal('docket', 'org1') }
   })
