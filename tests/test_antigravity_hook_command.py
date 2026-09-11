@@ -121,6 +121,27 @@ class HookCommandTests(unittest.TestCase):
                 "store bound outside the fixture: %s" % store.DATA_ROOT)
         cls.agy = antigravityrun
 
+    def _write(self, cwd, rights):
+        """`write_workspace`, with the ONE environmental refusal turned into
+        a stated skip.
+
+        On a volume with 8dot3 name creation switched off there is no
+        space-free form of a spaced scratch path, and the generator now
+        REFUSES rather than emit something cmd would re-split. That is the
+        intended behaviour, not a defect — but it makes the spaced fixtures
+        below unbuildable, so they must say so instead of erroring or, worse,
+        passing on a path that never exercised the bug."""
+        try:
+            return self.agy.write_workspace(
+                cwd, identity="# seat", mcp_servers={}, rights=rights,
+                python=sys.executable)
+        except self.agy.AntigravityError as exc:
+            self.skipTest(
+                "INERT on this volume: the fixture path cannot be expressed "
+                "for cmd and the generator correctly refused it, so there is "
+                "nothing to exercise here. Refusal itself is covered by the "
+                "tests that force it. (%s)" % exc)
+
     def _workspace(self, denied_rights=None):
         """A real `write_workspace` run, in a scratch path WITH A SPACE."""
         base = tempfile.mkdtemp(prefix="agyhook-")
@@ -128,11 +149,8 @@ class HookCommandTests(unittest.TestCase):
         os.makedirs(cwd, exist_ok=True)
         # guard against a vacuous fixture: no space, nothing under test
         self.assertIn(" ", cwd, "fixture lost its space")
-        out = self.agy.write_workspace(
-            cwd, identity="# seat", mcp_servers={},
-            rights=denied_rights if denied_rights is not None
-            else {"bash": False, "edit": False},
-            python=sys.executable)
+        out = self._write(cwd, denied_rights if denied_rights is not None
+                          else {"bash": False, "edit": False})
         return cwd, out
 
     def _command_from_disk(self, cwd):
@@ -141,20 +159,6 @@ class HookCommandTests(unittest.TestCase):
                   encoding="utf-8") as f:
             doc = json.load(f)
         return doc["orgtree-rights"]["PreToolUse"][0]["hooks"][0]["command"]
-
-    def _needs_short_names(self, cwd):
-        """Defending the `cmd /s /c` envelope needs a space-free alias, and
-        8dot3 name creation is switchable per volume. Where it is off, SAY SO
-        — the fix degrades to `cmd /c` only, and a test that quietly passed
-        would be hiding exactly that."""
-        wrapper = os.path.abspath(
-            os.path.join(cwd, ".agents", "orgtree-rights.cmd"))
-        if not self.agy._short_path(wrapper):
-            self.skipTest(
-                "INERT on this volume: 8dot3 name creation is off, so no "
-                "space-free alias exists for a spaced scratch path. The bare "
-                "path still carries the `cmd /c` envelope (covered by the "
-                "sibling tests); `cmd /s /c` cannot be defended here.")
 
     # ── the positive control ─────────────────────────────────────────────
 
@@ -184,7 +188,6 @@ class HookCommandTests(unittest.TestCase):
 
     def test_generated_command_is_space_free(self):
         cwd, _ = self._workspace()
-        self._needs_short_names(cwd)
         self.assertNotIn(" ", self._command_from_disk(cwd))
 
     def test_generated_command_points_at_the_real_wrapper(self):
@@ -219,7 +222,6 @@ class HookCommandTests(unittest.TestCase):
         """The log cannot say which envelope the CLI uses, so both are held."""
         cwd, out = self._workspace()
         self.assertIn("run_command", out["denied"])
-        self._needs_short_names(cwd)
         self._assert_allow_and_deny(self._command_from_disk(cwd), True)
 
     def test_web_and_subagent_switches_still_deny(self):
@@ -252,10 +254,8 @@ class HookCommandTests(unittest.TestCase):
         cwd, _ = self._workspace()
         self.assertTrue(os.path.exists(os.path.join(cwd, ".agents",
                                                     "hooks.json")))
-        out = self.agy.write_workspace(
-            cwd, identity="# seat", mcp_servers={},
-            rights={"bash": True, "edit": True, "web": True,
-                    "subagents": True}, python=sys.executable)
+        out = self._write(cwd, {"bash": True, "edit": True, "web": True,
+                                "subagents": True})
         self.assertEqual(out, {"hooks": False, "denied": []})
         for name in ("hooks.json", "orgtree-rights.py", "orgtree-rights.cmd"):
             self.assertFalse(os.path.exists(
@@ -274,12 +274,95 @@ class HookCommandTests(unittest.TestCase):
         cwd = os.path.join(base, "orgtree_data", "seat")
         os.makedirs(cwd, exist_ok=True)
         self.assertNotIn(" ", cwd)
-        self.agy.write_workspace(
-            cwd, identity="# seat", mcp_servers={}, rights={"bash": False},
-            python=sys.executable)
+        self._write(cwd, {"bash": False})
         command = self._command_from_disk(cwd)
         self.assertEqual(command, os.path.abspath(
             os.path.join(cwd, ".agents", "orgtree-rights.cmd")))
+
+    # ── never emit an unsafe command (coordinator review, 2026-09-11) ────
+
+    def test_no_alias_and_a_space_refuses_instead_of_falling_back(self):
+        """THE CONTROLLED NO-ALIAS CASE. With 8dot3 off there is no
+        space-free form — and a bare spaced path is NOT a safe best effort:
+        `...\\Orgtree v2\\...` runs `...\\Orgtree` and hands it `v2\\...`, so
+        a stray `Orgtree.exe` beside the data root would be executed."""
+        # no filesystem needed: the alias lookup is stubbed out, which is
+        # exactly the state of a volume with 8dot3 name creation switched off
+        wrapper = ("C:" + BS + "data" + BS + SPACED + BS + ".agents" + BS
+                   + "orgtree-rights.cmd")
+        self.assertIn(" ", wrapper, "fixture lost its space")
+        with mock.patch.object(self.agy, "_short_path",
+                               staticmethod(lambda p: "")):
+            with self.assertRaises(self.agy.AntigravityError) as caught:
+                self.agy._hook_command(wrapper)
+        self.assertIn("8dot3", str(caught.exception))
+
+    def test_refusal_leaves_no_hooks_json_written(self):
+        """A zero-byte or stale hooks.json is the one failure shape that
+        loses enforcement WITHOUT looking broken: the CLI finds no hook and
+        the seat is already running --dangerously-skip-permissions."""
+        base = tempfile.mkdtemp(prefix="agyrefuse-")
+        cwd = os.path.join(base, SPACED, "seat")
+        os.makedirs(cwd, exist_ok=True)
+        hooks = os.path.join(cwd, ".agents", "hooks.json")
+        with mock.patch.object(self.agy, "_short_path",
+                               staticmethod(lambda p: "")):
+            with self.assertRaises(self.agy.AntigravityError):
+                self.agy.write_workspace(
+                    cwd, identity="# seat", mcp_servers={},
+                    rights={"bash": False}, python=sys.executable)
+        self.assertFalse(os.path.exists(hooks),
+                         "refusal must not leave a hooks.json behind")
+
+    def test_expansion_sigil_is_refused_outright(self):
+        """`%VAR%` is substituted before `^` is even considered — measured,
+        nothing rescues it — so it may never reach a command line."""
+        for bad in ("C:" + BS + "%PATH%data" + BS + "x.cmd",
+                    "C:" + BS + "a!B!c" + BS + "x.cmd",
+                    "C:" + BS + "a,b=c" + BS + "x.cmd"):
+            with mock.patch.object(self.agy, "_short_path",
+                                   staticmethod(lambda p: "")):
+                with self.assertRaises(self.agy.AntigravityError, msg=bad):
+                    self.agy._hook_command(bad)
+
+    def test_emitted_command_never_carries_a_raw_metacharacter(self):
+        """Whatever shape comes out, every cmd metacharacter in it is either
+        absent or caret-escaped. This is the invariant the review asked for."""
+        cwd, _ = self._workspace()
+        command = self._command_from_disk(cwd)
+        for i, ch in enumerate(command):
+            if ch in self.agy._CMD_ESCAPABLE:
+                self.assertTrue(i and command[i - 1] == "^",
+                                "unescaped %r in %r" % (ch, command))
+            self.assertNotIn(ch, self.agy._CMD_INEXPRESSIBLE,
+                             "inexpressible %r in %r" % (ch, command))
+
+    def test_metacharacter_path_is_caret_escaped_and_actually_runs(self):
+        """A `&` in the path is carried by `^`, not shrugged at — and the
+        proof is the hook still allowing and still denying, through a real
+        cmd.exe, under both envelopes."""
+        base = tempfile.mkdtemp(prefix="agyamp-")
+        cwd = os.path.join(base, "org&tree", "seat")     # no space: caret alone
+        os.makedirs(cwd, exist_ok=True)
+        out = self._write(cwd, {"bash": False, "edit": False})
+        self.assertIn("run_command", out["denied"])
+        command = self._command_from_disk(cwd)
+        self.assertIn("^&", command)
+        for slash_s in (False, True):
+            self._assert_allow_and_deny(command, slash_s)
+
+    def test_metacharacter_plus_space_goes_through_the_alias(self):
+        """Caret alone cannot save a path that ALSO holds a space — the space
+        forces EscapeArg to quote, and `^` is literal inside quotes. The 8.3
+        alias drops the space first; then the caret carries the `&`."""
+        base = tempfile.mkdtemp(prefix="agyampsp-")
+        cwd = os.path.join(base, "org&tree v2", "seat")
+        os.makedirs(cwd, exist_ok=True)
+        self._write(cwd, {"bash": False, "edit": False})
+        command = self._command_from_disk(cwd)
+        self.assertNotIn(" ", command)
+        for slash_s in (False, True):
+            self._assert_allow_and_deny(command, slash_s)
 
     def test_posix_branch_shell_quotes_instead(self):
         """`sh -c` word-splits, so THERE the quoting is ours to do — and it

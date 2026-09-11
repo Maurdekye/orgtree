@@ -251,12 +251,24 @@ else:
 '''
 
 
-#: characters that stop a Windows hook command from surviving the CLI's
-#: `cmd` envelope as ONE bare token — cmd's token delimiters (space, tab,
-#: comma, semicolon, equals) and its metacharacters. `%` and `!` are listed
-#: too: harmless in the shapes measured, but they are the expansion sigils
-#: and routing them through the 8.3 alias costs nothing.
-_CMD_UNSAFE: Final = ' \t"&<>|^()%!,;='
+#: characters no amount of escaping available here carries through cmd as
+#: part of ONE unquoted token. A path holding one is REFUSED, never emitted.
+#:   space, tab : the token re-splits — and a quote of ours is fatal, see
+#:                `_hook_command`, so quoting is not a way out
+#:   "          : cannot occur in a Windows filename anyway
+#:   , ; =      : cmd's other token delimiters; `^` does NOT rescue these
+#:                (measured — only the 8.3 alias, which drops them, does)
+#:   % !        : the expansion sigils. `%VAR%` is substituted before `^` is
+#:                ever considered (measured: nothing rescues `%PATH%data`),
+#:                and `!VAR!` is too wherever DelayedExpansion is switched on
+#:                machine-wide — a setting this process cannot see, so `!` is
+#:                refused even though it measures fine with the default one.
+_CMD_INEXPRESSIBLE: Final = ' \t",;=%!'
+
+#: cmd metacharacters a leading `^` DOES carry through an unquoted token
+#: (measured, both envelopes, before and after 8.3). `< > |` are absent
+#: because Windows refuses to create a name containing one at all.
+_CMD_ESCAPABLE: Final = '&^()'
 
 
 def _short_path(path: str) -> str:
@@ -288,6 +300,20 @@ def _short_path(path: str) -> str:
     return short
 
 
+def _cmd_token(path: str) -> str | None:
+    """`path` as ONE unquoted cmd token, or None when cmd cannot express it.
+
+    The caret is the only escape available: the command reaches cmd through
+    Go's EscapeArg, which would backslash-escape a quote of ours into
+    uselessness, and cmd honours `^` only OUTSIDE quotes — which is why a
+    path holding both a space and an `&` has to go through the 8.3 alias
+    first (measured: `org&tree v2` fails caret-escaped, and passes once the
+    alias has taken the space out)."""
+    if not path or any(c in path for c in _CMD_INEXPRESSIBLE):
+        return None
+    return "".join(("^" + c) if c in _CMD_ESCAPABLE else c for c in path)
+
+
 def _hook_command(path: str) -> str:
     """The hooks.json `command` for the wrapper at `path` — which must already
     EXIST, because the Windows branch asks the filesystem for its 8.3 alias.
@@ -311,24 +337,43 @@ def _hook_command(path: str) -> str:
     at the space. The log cannot tell the two envelopes apart (both produce
     the error above), so rather than bet on one, the command is kept free of
     SPACES as well, via the 8.3 alias — the one shape measured to work under
-    both. Where no alias exists the bare path still beats a quoted one: it
-    carries a spaced path through `cmd /c`.
+    both.
 
-    `&` and `^` survive 8.3 mangling and defeat every shape this envelope can
-    express; a path holding one is returned bare and will still fail. All of
-    the above is measured in tests/test_antigravity_hook_command.py, against
-    the real cmd.exe and the real EscapeArg rules."""
+    ⚠ NOTHING BEST-EFFORT COMES OUT OF HERE. A token cmd re-splits or expands
+    does not merely fail to find the hook: `…\\Orgtree v2\\…` runs
+    `…\\Orgtree` and hands it `v2\\…`, so a stray `Orgtree.exe` beside the
+    data root would be EXECUTED, and `%VAR%` pastes the environment into the
+    command line. Where no expressible shape exists this RAISES and the turn
+    never spawns — which is the safe direction, because a narrowed seat whose
+    hook is missing or broken runs under `--dangerously-skip-permissions`
+    with no enforcement at all.
+
+    Measured in tests/test_antigravity_hook_command.py against the real
+    cmd.exe and the real EscapeArg rules, both envelopes, allow and deny.
+
+    Raises:
+        AntigravityError: cmd cannot express this path, so no hook can be
+            installed and the caller must not spawn."""
     if os.name != "nt":
         # `sh -c` takes the whole command as one word-split string, so here
         # the quoting IS ours to do — and single quotes, not double, so a
         # `$` in the path is not expanded on the way through.
         return shlex.quote(path)
-    if not any(c in path for c in _CMD_UNSAFE):
-        return path
-    short = _short_path(path)
-    if short and not any(c in short for c in _CMD_UNSAFE):
-        return short
-    return path
+    # long path first (it is the readable one), then its 8.3 alias, which is
+    # what drops a space or a `,;=` delimiter the long form cannot carry
+    for candidate in (path, _short_path(path)):
+        token = _cmd_token(candidate) if candidate else None
+        if token is not None:
+            return token
+    raise AntigravityError(
+        "cannot install the orgtree rights hook for this agent: no cmd "
+        "command line resolves to %s. Its path holds a character cmd "
+        "re-splits or expands (a space, one of , ; = or a %% or ! sigil) "
+        "and the volume offers no 8.3 alias without it. Refusing to spawn "
+        "the turn — a narrowed seat whose hook does not run would get "
+        "FULL tool access, not a blocked one. Put orgtree's data root on a "
+        "path free of those characters, or re-enable 8dot3 name creation "
+        "on that volume." % path)
 
 
 def write_workspace(cwd: str, *, identity: str, mcp_servers: dict[str, Any],
@@ -344,7 +389,14 @@ def write_workspace(cwd: str, *, identity: str, mcp_servers: dict[str, Any],
         either direction takes effect at the next spawn
 
     Returns {"hooks": bool, "denied": [tool names]} for the caller's
-    bookkeeping (the cache fingerprint wants to know)."""
+    bookkeeping (the cache fingerprint wants to know).
+
+    Raises:
+        AntigravityError: a NARROWED node whose scratch path cmd cannot
+            express (see `_hook_command`). The caller must let this through
+            rather than spawn: the turn failing is recorded as `last_error`
+            by `_run_one_turn`, whereas spawning without a working hook hands
+            that seat every tool it was narrowed away from."""
     os.makedirs(cwd, exist_ok=True)
     with open(os.path.join(cwd, AGENTS_FILE), "w", encoding="utf-8") as f:
         f.write(identity)
@@ -415,11 +467,18 @@ def write_workspace(cwd: str, *, identity: str, mcp_servers: dict[str, Any],
         with open(wrapper, "w", encoding="utf-8", newline="\n") as f:
             f.write(body)
         os.chmod(wrapper, 0o755)
+    # ⚠ RESOLVED BEFORE hooks.json IS OPENED. `_hook_command` REFUSES a path
+    # cmd cannot express, and `open(…, "w")` truncates on the way in — so
+    # computing it inside the `with` would leave a ZERO-BYTE hooks.json
+    # behind on that raise, which is the one shape that loses enforcement
+    # without looking like it: the CLI finds no hook and the seat is already
+    # running under --dangerously-skip-permissions.
+    command = _hook_command(os.path.abspath(wrapper))
     with open(hooks_path, "w", encoding="utf-8") as f:
         json.dump({"orgtree-rights": {"PreToolUse": [{
             "matcher": "*",
             "hooks": [{"type": "command",
-                       "command": _hook_command(os.path.abspath(wrapper)),
+                       "command": command,
                        "timeout": 20}]}]}}, f, indent=1)
     return {"hooks": True, "denied": sorted(deny)}
 
