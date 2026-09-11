@@ -1758,20 +1758,44 @@ button.cc-name:hover {
    shortcuts" is on — the same setting that governs every agent card's hover
    row, default off. They are still gone from the switchboard head (the
    zoomed-in view with the desks), which the user did not ask to get back.
-   Nothing here fades or hides them: UserNode does not mount them at all, so
-   there is no hit target to swallow a click meant for the card. */
-.eye-inbox {
-  position: absolute; top: 6px; right: 24px;
-  background: none; border: none; padding: 2px 4px;
-  font-size: 13px; color: var(--dim); line-height: 1;
-}
-.eye-inbox:hover { color: var(--accent); background: none; }
+   When enabled, shortcuts remain hidden at rest and are revealed on card
+   hover or keyboard focus, preserving card tidiness while remaining usable
+   via keyboard navigation. */
+.eye-inbox,
 .eye-gear {
-  position: absolute; top: 6px; right: 6px;
+  position: absolute; top: 6px;
   background: none; border: none; padding: 2px 4px;
   font-size: 13px; color: var(--dim); line-height: 1;
+  opacity: 0; pointer-events: none;
+  transition: opacity .15s;
 }
-.eye-gear:hover { color: var(--accent); background: none; }
+.eye-inbox { right: 24px; }
+.eye-gear { right: 6px; }
+
+.sq.user:hover .eye-inbox,
+.sq.user:hover .eye-gear,
+.sq.user:focus-within .eye-inbox,
+.sq.user:focus-within .eye-gear,
+.sq.user:focus .eye-inbox,
+.sq.user:focus .eye-gear,
+.sq:hover .eye-inbox,
+.sq:hover .eye-gear,
+.sq:focus-within .eye-inbox,
+.sq:focus-within .eye-gear,
+.eye-inbox:focus,
+.eye-gear:focus,
+.eye-inbox:focus-visible,
+.eye-gear:focus-visible {
+  opacity: .8;
+  pointer-events: auto;
+}
+
+.eye-inbox:hover,
+.eye-gear:hover {
+  opacity: 1 !important;
+  color: var(--accent);
+  background: none;
+}
 /* (the eye's unread-mail glow is gone — user ruling 2026-08-04: attention
    glow means "an agent needs your answer", nothing else; unread mail keeps
    its count badge and the header ask icon carries the pulse) */
@@ -4942,6 +4966,7 @@ html.mobile .chip-x { min-width: 28px; min-height: 28px; }
   html.mobile .hsof, html.mobile .doc-chips, html.mobile .sq-actions,
   html.mobile .gearbtn,
   html.mobile .mailbtn, html.mobile .retirebtn,
+  html.mobile .eye-inbox, html.mobile .eye-gear,
   html.mobile .user-label { display: none !important; }
 
   /* ---- HUD: fit + zoom pair at 44px, safe-area cleared ---- */

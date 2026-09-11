@@ -34,11 +34,16 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { EyeDesk, UserNode } from '../src/canvas/cards'
 import { SettingsPanel } from '../src/App'
 import { setAgentShortcutsOn, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult, TreePayload } from '../src/types'
+
+declare const __SRC_DIR__: string
+const src = (name: string) => fs.readFileSync(path.join(__SRC_DIR__, name), 'utf8')
 
 const noop = () => {}
 const op = () => Promise.resolve({} as OpResult)
@@ -115,6 +120,110 @@ test('§1c a card with nowhere to send the reader shows no control for it — '
   assert.ok(view.el.querySelector('.eye-inbox'), 'the ✉ still shows')
   assert.equal(view.el.querySelector('.eye-gear'), null,
     'a ⚙ with no handler would be a dead control')
+})
+
+test('§1g enabled switchboard shortcuts are hidden at rest and appear on hover or keyboard focus', () => {
+  const css = src('styles.css')
+  // POSITIVE CONTROL: the stylesheet really loaded and has the base rules
+  assert.ok(css.includes('.eye-inbox'), 'styles.css must contain .eye-inbox')
+  assert.ok(css.includes('.eye-gear'), 'styles.css must contain .eye-gear')
+
+  // 1. At rest: both .eye-inbox and .eye-gear are opacity: 0 and pointer-events: none
+  assert.match(css, /\.eye-inbox,\r?\n\.eye-gear\s*\{[^}]*opacity:\s*0/s,
+    'switchboard shortcuts must have opacity: 0 at rest')
+  assert.match(css, /\.eye-inbox,\r?\n\.eye-gear\s*\{[^}]*pointer-events:\s*none/s,
+    'switchboard shortcuts must have pointer-events: none at rest')
+
+  // 2. On card hover: revealed on .sq.user:hover and .sq:hover
+  assert.match(css, /\.sq\.user:hover\s+\.eye-inbox/s, 'card hover must reveal .eye-inbox')
+  assert.match(css, /\.sq\.user:hover\s+\.eye-gear/s, 'card hover must reveal .eye-gear')
+  assert.match(css, /\.sq:hover\s+\.eye-inbox/s, '.sq:hover must reveal .eye-inbox')
+  assert.match(css, /\.sq:hover\s+\.eye-gear/s, '.sq:hover must reveal .eye-gear')
+
+  // 3. On keyboard focus: revealed on .sq.user:focus-within, direct :focus, and :focus-visible
+  assert.match(css, /\.sq\.user:focus-within\s+\.eye-inbox/s,
+    'card focus-within must reveal .eye-inbox')
+  assert.match(css, /\.sq\.user:focus-within\s+\.eye-gear/s,
+    'card focus-within must reveal .eye-gear')
+  assert.match(css, /\.eye-inbox:focus/s, 'direct focus must reveal .eye-inbox')
+  assert.match(css, /\.eye-gear:focus/s, 'direct focus must reveal .eye-gear')
+  assert.match(css, /\.eye-inbox:focus-visible/s, 'focus-visible must reveal .eye-inbox')
+  assert.match(css, /\.eye-gear:focus-visible/s, 'focus-visible must reveal .eye-gear')
+
+  // 4. The reveal rule grants opacity: .8 and pointer-events: auto
+  const revealMatch = /\.sq\.user:hover\s+\.eye-inbox[\s\S]*?\{([^}]*)\}/.exec(css)
+  assert.ok(revealMatch, 'reveal rule block must exist in styles.css')
+  assert.match(revealMatch[1], /opacity:\s*\.8/, 'revealed shortcuts must have opacity: .8')
+  assert.match(revealMatch[1], /pointer-events:\s*auto/, 'revealed shortcuts must have pointer-events: auto')
+
+  // 5. Hovering a shortcut button directly provides full contrast
+  const btnHover = /\.eye-inbox:hover,\r?\n\.eye-gear:hover\s*\{([^}]*)\}/.exec(css)
+  assert.ok(btnHover, 'button direct hover rule must exist')
+  assert.match(btnHover[1], /opacity:\s*1\s*!important/, 'button hover must have full opacity')
+})
+
+test('§1h the controls remain clickable, focusable, and do not shift card layout when revealed', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => setAgentShortcutsOn(false))
+  const opened: string[] = []
+  let view!: Awaited<ReturnType<typeof mountView>>
+  await inAct(async () => {
+    view = await mountView(eye({
+      onInbox: () => opened.push('inbox'), onGear: () => opened.push('gear'),
+    }), (el) => el)
+  })
+  t.after(() => view.unmount())
+
+  // POSITIVE CONTROLS
+  const card = view.el.querySelector<HTMLElement>('.sq.user')!
+  assert.ok(card, 'positive control: .sq.user rendered')
+  const eyeSvg = card.querySelector('svg.eye')!
+  assert.ok(eyeSvg, 'positive control: svg.eye rendered')
+  const userLabel = card.querySelector('.user-label')!
+  assert.ok(userLabel, 'positive control: .user-label rendered')
+
+  const mail = card.querySelector<HTMLButtonElement>('.eye-inbox')!
+  const gear = card.querySelector<HTMLButtonElement>('.eye-gear')!
+  assert.ok(mail, 'mail button exists')
+  assert.ok(gear, 'gear button exists')
+
+  // Clickable: clicking invokes handlers cleanly
+  await inAct(async () => { mail.click(); gear.click(); await flush() })
+  assert.deepEqual(opened, ['inbox', 'gear'], 'clicking revealed shortcuts invokes handlers')
+
+  // Focusable: standard HTML button elements support keyboard focus
+  assert.equal(mail.tagName, 'BUTTON')
+  assert.equal(gear.tagName, 'BUTTON')
+  assert.equal(mail.tabIndex, 0, 'mail button must be in tab sequence')
+  assert.equal(gear.tabIndex, 0, 'gear button must be in tab sequence')
+  await inAct(async () => { mail.focus(); await flush() })
+  assert.equal(document.activeElement, mail, 'mail button receives keyboard focus')
+  await inAct(async () => { gear.focus(); await flush() })
+  assert.equal(document.activeElement, gear, 'gear button receives keyboard focus')
+
+  // Does not shift card layout: buttons are positioned absolutely out of flow
+  const css = src('styles.css')
+  const posMatch = /\.eye-inbox,\r?\n\.eye-gear\s*\{([^}]*)\}/.exec(css)
+  assert.ok(posMatch, 'positioning rule exists')
+  assert.match(posMatch[1], /position:\s*absolute/, 'shortcuts must be position: absolute')
+  assert.match(posMatch[1], /top:\s*6px/, 'shortcuts must be pinned to top: 6px')
+})
+
+test('§1i disabled shortcuts remain absent and cannot be focused', async (t) => {
+  setAgentShortcutsOn(false)
+  let view!: Awaited<ReturnType<typeof mountView>>
+  await inAct(async () => {
+    view = await mountView(eye({ onInbox: noop, onGear: noop }), (el) => el)
+  })
+  t.after(() => view.unmount())
+
+  // POSITIVE CONTROL
+  assert.ok(view.el.querySelector('.sq.user svg.eye'), 'the eye did not render')
+
+  assert.equal(view.el.querySelector('.eye-inbox'), null, 'mail shortcut must not be mounted')
+  assert.equal(view.el.querySelector('.eye-gear'), null, 'gear shortcut must not be mounted')
+  assert.equal(iconButtons(view.el, 'MailIcon').length, 0)
+  assert.equal(iconButtons(view.el, 'SettingsIcon').length, 0)
 })
 
 // ======================================== §1d-§1f THE EYE'S CONTEXT MENU
