@@ -425,14 +425,17 @@ class WarmProc:
         with self._lk:
             self.active = True
 
-    def lines_iter(self) -> Iterator[str]:
+    def lines_iter(self, stop: threading.Event | None = None) -> Iterator[str]:
         """Line source for the turn loop. Ends on process EOF (None marker),
-        exactly like iterating proc.stdout on the cold path — the idle
-        watchdog still bounds a wedged process by killing it, which lands
-        here as EOF."""
+        as with the cold process pump — the idle
+        watchdog also wakes the consumer explicitly: killing a launcher does
+        not guarantee EOF when a descendant inherited the pipe."""
         q = self.lines            # this claim's queue, pinned
-        while True:
-            line = q.get()
+        while stop is None or not stop.is_set():
+            try:
+                line = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
             if line is None:
                 q.put(None)              # stay terminated for any re-reader
                 return
@@ -535,7 +538,7 @@ def journal_cache_break_lines(slug: str, nid: str, sid: str,
     private tail. The raw sentinel line is the diagnoser's evidence, so keep
     it verbatim apart from line terminators and a deterministic 4096-character
     cap. This helper is shared by BOTH stderr owners: WarmProc._pump_err and
-    read_cold_stderr. Missing either owner removes exactly the population this
+    ColdStderr. Missing either owner removes exactly the population this
     instrument is meant to explain. `_journal`'s `at` is COLLECTION time, not
     an API request timestamp; consumers join by session/order plus the raw
     line's call/read/create tuple (the warning carries no requestId).
@@ -613,15 +616,53 @@ def journal_limit_cache_usage(
     _journal("limit-cache", **rec)
 
 
-def read_cold_stderr(proc: subprocess.Popen[str], slug: str, nid: str,
-                     sid: str) -> str:
-    """The non-pooled stderr owner, with the same cache-break observation as
-    the warm pump. Kept as one helper so a cold success cannot read and then
-    silently discard the very warning that explains its cache miss."""
-    err = proc.stderr.read()     # pyright: ignore[reportOptionalMemberAccess]
-    journal_cache_break_lines(slug, nid, sid, getattr(proc, "pid", None),
-                              "cold-stderr", err)
-    return err
+class ColdStderr:
+    """Drain diagnostics for the entire cold process lifetime, independently
+    of stdout. Waiting until stdout EOF deadlocks a CLI whose stderr pipe
+    fills (the Windows pipe in the 2026-09-11 incident was only 4096 bytes).
+
+    Keep at most 64K characters and 200 chunks, even without newlines.
+    The join is bounded: an inherited writer must never hold turn cleanup.
+    """
+
+    def __init__(self, proc: subprocess.Popen[str], slug: str, nid: str,
+                 sid: str) -> None:
+        self._tail: collections.deque[str] = collections.deque()
+        self._chars = 0
+        self._lock = threading.Lock()
+        self._done = threading.Event()
+
+        def drain() -> None:
+            try:
+                if proc.stderr is None:
+                    return
+                while chunk := proc.stderr.readline(8192):
+                    with self._lock:
+                        self._tail.append(chunk)
+                        self._chars += len(chunk)
+                        while self._chars > 65536 or len(self._tail) > 200:
+                            self._chars -= len(self._tail.popleft())
+                    # Observation must never stop the pipe reader. A failure
+                    # to journal one warning is not a reason to wedge a turn.
+                    try:
+                        journal_cache_break_lines(
+                            slug, nid, sid, getattr(proc, "pid", None),
+                            "cold-stderr", chunk)
+                    except Exception:                       # noqa: BLE001
+                        pass
+            except (OSError, ValueError):
+                pass
+            finally:
+                self._done.set()
+
+        self.thread = threading.Thread(target=drain, daemon=True,
+                                       name=f"claudeerr-{slug}-{nid}")
+        self.thread.start()
+
+    def text(self, timeout: float = 1.0) -> str:
+        self._done.wait(timeout)
+        with self._lock:
+            return "".join(self._tail)
 
 
 def journal_admit(slug: str, nid: str, sid: str, served: str, reason: str,

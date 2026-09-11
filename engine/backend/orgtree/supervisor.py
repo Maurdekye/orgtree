@@ -2357,9 +2357,13 @@ def _mcp_gate_terminal(outcome: str) -> None:
         raise RuntimeError("provider process changed while waiting for MCP tools")
 
 
-def _mcp_queue_lines(lines: "queue.Queue[str | None]") -> Iterable[str]:
-    while True:
-        line = lines.get()
+def _mcp_queue_lines(lines: "queue.Queue[str | None]", *,
+                     stop: threading.Event | None = None) -> Iterable[str]:
+    while stop is None or not stop.is_set():
+        try:
+            line = lines.get(timeout=0.1)
+        except queue.Empty:
+            continue
         if line is None:
             return
         yield line
@@ -15924,6 +15928,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # never the source of truth: any doubt below falls through to the
             # cold spawn, which is byte-for-byte today's behaviour.
             wp_turn: warmpool.WarmProc | None = None
+            cold_stderr: warmpool.ColdStderr | None = None
             turn_hash: str | None = None      # identity hash at spawn/claim
             turn_components: dict[str, str] | None = None
             warm_cost_base = 0.0              # $ booked by this process's
@@ -15977,6 +15982,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     text=True, encoding="utf-8", errors="replace",
                     creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                    if os.name == "nt" else 0))
+                cold_stderr = warmpool.ColdStderr(proc, slug, nid, sid)
                 _leash(proc)              # dies with the backend (№29)
                 warmpool.journal_admit(
                     slug, nid, sid, "cold", _adm_reason, turn_hash or "",
@@ -16001,23 +16007,36 @@ def _run_one_turn_recorded(slug: str, nid: str,
             except Exception:                              # noqa: BLE001
                 turn_mcp_fingerprint = None
             cold_mcp_lines: queue.Queue[str | None] | None = None
+            stream_stop = threading.Event()
 
             def _start_cold_mcp_pump(
                     target: subprocess.Popen[str],
             ) -> "queue.Queue[str | None]":
                 """Read a cold Claude init before its first prompt.
 
-                The turn loop still consumes every byte from this queue. The
-                extra reader exists only while readiness waiting is enabled;
-                default-off turns retain the direct stdout path.
+                Every cold turn consumes this queue, even when MCP readiness
+                waiting is disabled. This gives timeout cleanup a wake path
+                independent of EOF from child-inherited pipe handles.
                 """
-                lines: queue.Queue[str | None] = queue.Queue()
+                lines: queue.Queue[str | None] = queue.Queue(maxsize=256)
+
+                def _put(line: str | None) -> None:
+                    # Preserve backpressure without stranding a pump when
+                    # the consumer stops after a timeout or parse failure.
+                    while not stream_stop.is_set():
+                        try:
+                            lines.put(line, timeout=0.1)
+                            return
+                        except queue.Full:
+                            continue
 
                 def _pump() -> None:
                     try:
                         if target.stdout is None:
                             return
                         for raw_line in target.stdout:
+                            if stream_stop.is_set():
+                                return
                             try:
                                 init_ev = json.loads(raw_line)
                             except json.JSONDecodeError:
@@ -16029,9 +16048,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     slug, nid, target,
                                     init_ev.get("tools") or [], "claude",
                                     "system/init.tools")
-                            lines.put(raw_line)
+                            _put(raw_line)
                     finally:
-                        lines.put(None)
+                        _put(None)
                         with _state_lock:
                             wake = (st.get("mcp_tool_event")
                                     if st.get("mcp_tool_owner") is target
@@ -16161,17 +16180,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
             def _expire() -> None:
                 timed_out.set()
                 if wp_turn is not None:
-                    # the watchdog killing an ACTIVE turn is today's turn
-                    # machinery, not a pool decision — but it still ends a
-                    # warm-origin process, and every such end is classified
                     wp_turn.exit_reason = wp_turn.exit_reason or "turn-timeout"
-                proc.kill()
-                if sandbox_name:
-                    # killing the docker-exec client leaves the in-container
-                    # process alive — reap it, and ONLY it: the container is
-                    # shared by every agent in the org, and a blanket
-                    # `pkill -f claude` SIGKILLed unrelated turns (№40)
-                    sbx.kill_claude(sandbox_name, sid)
+                try:
+                    # The handle can be cmd.exe launching the CLI. Kill the
+                    # tree BEFORE the parent vanishes, or its child keeps
+                    # stdout/stderr open and the reader never reaches finally.
+                    _wd_kill_tree(proc)
+                    if sandbox_name:
+                        # The container is shared; reap only this session.
+                        sbx.kill_claude(sandbox_name, sid)
+                finally:
+                    # Even failed OS cleanup cannot leave the turn waiting
+                    # forever for pipe EOF. The finally path checks the exit.
+                    stream_stop.set()
             # ONE polling thread, not a Timer cancelled per event — deltas
             # arrive at ~8 Hz and a Timer per event is a thread per event.
             # `last_ev` is stamped by every parsed stdout line; `budget_t0`
@@ -16244,8 +16265,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # (the pyright ignores below: stdin/stdout/stderr are PIPE ⇒
                 # non-None, which typeshed's Popen cannot express)
                 try:
-                    if (wp_turn is None
-                            and appsettings.wait_for_mcp_tools_enabled()):
+                    if wp_turn is None:
                         cold_mcp_lines = _start_cold_mcp_pump(proc)
                     _mcp_gate_terminal(_mcp_wait_for_surface(
                         org, nid, proc, "claude", turn_mcp_fingerprint))
@@ -16280,6 +16300,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         text=True, encoding="utf-8", errors="replace",
                         creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                        if os.name == "nt" else 0))
+                    cold_stderr = warmpool.ColdStderr(proc, slug, nid, sid)
                     _leash(proc)
                     with _state_lock:
                         st["proc"] = proc
@@ -16289,9 +16310,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         slug, nid, proc, "claude", "system/init.tools",
                         "Claude process is restarting; runtime tools are not resolved yet",
                         org.node(nid).get("last_turn_mcp_tool_count"))
-                    cold_mcp_lines = None
-                    if appsettings.wait_for_mcp_tools_enabled():
-                        cold_mcp_lines = _start_cold_mcp_pump(proc)
+                    cold_mcp_lines = _start_cold_mcp_pump(proc)
                     _mcp_gate_terminal(_mcp_wait_for_surface(
                         org, nid, proc, "claude", turn_mcp_fingerprint))
                     warmpool.journal_admit(
@@ -16322,11 +16341,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # D-201: a warm process's stdout is owned by its pump thread
                 # for the process's whole life (a turn ends at a boundary the
                 # process outlives) — this turn reads through the pump's
-                # queue. The cold path iterates the pipe directly, unchanged.
-                for line in (wp_turn.lines_iter() if wp_turn is not None
-                             else _mcp_queue_lines(cold_mcp_lines)
-                             if cold_mcp_lines is not None
-                             else proc.stdout):      # live per-message feed to the UI  # pyright: ignore[reportOptionalIterable]
+                # queue. Cold turns also use a pump so an expired turn can
+                # stop reading even if an inherited writer prevents EOF.
+                if wp_turn is not None:
+                    turn_lines = wp_turn.lines_iter(stop=stream_stop)
+                else:
+                    assert cold_mcp_lines is not None
+                    turn_lines = _mcp_queue_lines(cold_mcp_lines, stop=stream_stop)
+                for line in turn_lines:
                     line = line.strip()
                     if not line:
                         continue
@@ -17288,13 +17310,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # life — reading the pipe here would race it. The process
                     # is dying (stdin closed or killed): wait, then take the
                     # drained tail.
-                    proc.wait()
+                    proc.wait(timeout=5)
                     err = wp_turn.err_text()
                 else:
-                    err = warmpool.read_cold_stderr(proc, slug, nid, sid)
-                    proc.wait()
+                    assert cold_stderr is not None
+                    proc.wait(timeout=5)
+                    err = cold_stderr.text()
             finally:
                 dog_stop.set()
+                stream_stop.set()
                 try:
                     # THE STATE FLAGS FIRST: everything below them can raise,
                     # and `st["proc"]` is the handle ⏸ acts on.
@@ -22119,6 +22143,14 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     if proc is None:
         return {"interrupted": False,
                 "reason": "the turn is admitted but no provider call is active"}
+    if proc.poll() is not None:
+        # A child can retain writable stdin after its launcher has died. A
+        # successful write is not evidence that a CLI can receive the stop.
+        with _state_lock:
+            if st.get("proc") is proc:
+                st.pop("interrupted", None)
+        return {"interrupted": False,
+                "reason": "the CLI process exited; turn cleanup is pending"}
     try:
         proc.stdin.write(json.dumps({
             "type": "control_request",
