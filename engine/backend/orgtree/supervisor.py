@@ -7525,7 +7525,8 @@ def _org_ref(org: Org) -> dict[str, Any]:
 
 def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | None,
                   text: str | None, *, drive: Mapping[str, Any] | None = None,
-                  owned: list[dict[str, Any]] | None = None
+                  owned: list[dict[str, Any]] | None = None,
+                  view: str | None = None
                   ) -> list[dict[str, Any]]:
     """The typed composition of an envelope, in the order the agent text carries it
     (design §6): notices, mail, then the drive nudge — as a typed `drive` segment
@@ -7537,7 +7538,19 @@ def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | Non
     drained earlier (`_owned_segments`), whose enveloped text is `text` here. It
     takes the tail's place: those rows are re-read structurally, in carrier
     order, and the enveloped text is never filed as a text segment. The agent
-    text is untouched either way; this only says what the text is made of."""
+    text is untouched either way; this only says what the text is made of.
+
+    ⚠ THE INVARIANT, STATED HERE ONCE. `view` is the TAIL; `text` is only the
+    bytes that went to the model. They are the same string for a typed message
+    and diverge for a REPLAYED frozen turn (▶ resume, unstick, retry), whose
+    text is already enveloped and which brings its own projection — the
+    2026-09-11 bug, where that envelope rendered as an ordinary message. The
+    `visible` string beside these segments has always used the projection, and
+    the two encodings of one projection must not be able to disagree. `owned`
+    covers the other enveloped carrier (a steer leftover) but keys on journal
+    tokens, which a replay carrier has none of.
+    `view=None` = no projection was composed, text stands as its own tail;
+    `view=""` = a deliberately empty projection, so there is no tail at all."""
     segs: list[dict[str, Any]] = []
     if pending:
         segs.append({"kind": "notices", "rows": [events.journal_row(n) for n in pending]})
@@ -7548,9 +7561,27 @@ def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | Non
         segs.extend(owned)
     elif drive is not None:
         segs.append({"kind": "drive", "event": events.encode_ev(drive), "text": text or ""})
-    elif text:
-        segs.append({"kind": "text", "text": text})
+    else:
+        # the projection when one was composed; the bytes otherwise
+        tail = text if view is None else view
+        if tail:
+            segs.append({"kind": "text", "text": tail})
     return segs
+
+
+def _carrier_projection(carrier: Any) -> str | None:
+    """The projection a QUEUE CARRIER brought — "" (brought an empty one) and
+    None (brought none) are different answers; see `_segments_for`.
+
+      dict with `view`      that view, possibly "" — machine-only, no tail
+      dict without `view`   its own text: an ordinary message projects to itself
+      bare string           None — no view composed, the text is its own tail
+
+    Named, not inlined, so the rule is testable: the turn function is not."""
+    if not isinstance(carrier, dict):
+        return None
+    return (str(carrier.get("view") or "") if "view" in carrier
+            else str(carrier.get("text") or ""))
 
 
 def _owned_segments(org: Org, nid: str, toks: Iterable[str] | None
@@ -8081,7 +8112,7 @@ def _human_view_spans(human_mail: list[MailEntry], base_view: str,
 
 
 def _envelope(slug: str, nid: str, text: str,
-              via: str = "steer", *, base_view: str = "",
+              via: str = "steer", *, base_view: str | None = None,
               view_out: list[str] | None = None,
               spans_out: list[list[dict[str, Any]]] | None = None,
               segments_out: list[list[dict[str, Any]]] | None = None,
@@ -8094,6 +8125,10 @@ def _envelope(slug: str, nid: str, text: str,
     as a typed `drive` segment (`context.drive_mail_pointer`, see `_ping_drive`)
     rather than a plain `text` segment; `ping_reason` is the site's stated
     reason for it, if any.
+
+    `base_view`: the human projection of `text`, and the tail of both the view
+    string and the typed composition — see the invariant on `_segments_for`.
+    Load-bearing for an already-enveloped `text`.
 
     `owned_toks`: the journal tokens the carrier ALREADY holds (a steer carrier
     folded into the queue: `text` is its enveloped text). Its composition is
@@ -8133,7 +8168,8 @@ def _envelope(slug: str, nid: str, text: str,
         # the text segment, which keeps the meaningful text on screen.
         drive = (_ping_drive(org, nid, text, ping_reason)
                  if ping and not held else None)
-        segments = _segments_for(mail, pending, text, drive=drive, owned=owned)
+        segments = _segments_for(mail, pending, text, drive=drive, owned=owned,
+                                 view=base_view)
         if pending or mail:
             tok = _journal_drain(org, nid, mail, pending, via, drive=drive,
                                  segments=(_segments_for(mail, pending, None)
@@ -8156,7 +8192,7 @@ def _envelope(slug: str, nid: str, text: str,
         # mail keeps the same formatter/body/attachment semantics as before.
         human_mail = [m for m in (mail or []) if not m.get("model_only")]
         view, spans = _human_view_spans(
-            human_mail, base_view, slug, nid, inline=(via == "turn"))
+            human_mail, base_view or "", slug, nid, inline=(via == "turn"))
         view_out.append(view)
         if spans_out is not None:
             spans_out.append(spans)
@@ -15152,10 +15188,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
     # a replayed retry carrier brings the ORIGINAL message along (resume_frozen
     # sets it), so a second death wraps that and not the previous banner
     retry_payload = ""
+    # the composer needs "brought none" apart from "brought an empty one";
+    # `turn_view` flattens both to "" (invariant: `_segments_for`)
+    carrier_view: str | None = _carrier_projection(text)
     if isinstance(text, dict):
         is_cmd = bool(text.get("cmd"))
-        turn_view = (str(text.get("view") or "") if "view" in text
-                     else str(text.get("text") or ""))
+        turn_view = carrier_view or ""
         retry_payload = str(text.get("retry_payload") or "")
         toks, text = list(text.get("toks") or []), text["text"]
     text = cast(str, text)    # unwrapped above — plain str from here on
@@ -15380,7 +15418,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                               and not toks else None)
                 view_segments = None if is_cmd else _segments_for(
                     mail, pending, text if isinstance(text, str) else None,
-                    drive=turn_drive, owned=owned)
+                    drive=turn_drive, owned=owned, view=carrier_view)
                 if pending or mail:
                     # journal the batch: if the CLI never launches (bad
                     # binary, Docker down, timeout) the drained mail would
