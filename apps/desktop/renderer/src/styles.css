@@ -1972,6 +1972,21 @@ button.cc-name:hover {
   0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 40%, transparent); }
   50% { box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 80%, transparent); }
 }
+/* A DOWNLOADED UPDATE WAITING TO INSTALL (user 2026-09-11: "make the Update
+   now button glow"). It is the same kind of claim on the reader's attention
+   as an unanswered ask — something is waiting on them — so it is said in the
+   SAME words: the `glow` class and the `askbell` keyframes above, not a
+   second animation beside them that could drift out of step. That also makes
+   it follow the active provider theme without a line of its own: the whole
+   treatment is built on `--accent`, which themes.tsx sets on the document
+   element from the resolved theme.
+   Only while ready: update-notice.tsx drops `glow` the moment the button is
+   pressed, so a disabled "Restarting…" never pulses. */
+.update-notice button.update-now.glow {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+  animation: askbell 2s ease-in-out infinite;
+}
 /* ------------------------------- the mail interface (webmail two-pane layout):
    list on the left (sender · time · truncated brief), reading pane on the
    right. One component serves the eye's inbox, card modals and the desk tab. */

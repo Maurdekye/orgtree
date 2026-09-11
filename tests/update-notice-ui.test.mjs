@@ -59,10 +59,17 @@ test('a downloading push shows its percent and stays visible with no timer', asy
   await teardown()
 })
 
+// The expectation here used to be /installs automatically when idle/, which
+// is the wording 13517e2 replaced when it made automatic installation
+// OPTIONAL - the old sentence became a claim the app can no longer make, and
+// this assertion has been red ever since. It follows the label again.
+// (No bridge is passed, so there is no installUpdate and this renders the
+// LABEL rather than the button - which is the path this test is about.)
 test('pending-idle stays visible (no auto-hide) and reports the ready-to-install message', async () => {
   const { push, teardown } = await mount({ state: 'idle' }, 50)
   await push({ state: 'pending-idle', version: '2.0.0-alpha.6' })
-  assert.match(document.querySelector('.update-notice').textContent, /installs automatically when idle/)
+  assert.match(document.querySelector('.update-notice').textContent, /Update ready to install/)
+  assert.equal(document.querySelector('button'), null, 'no install bridge, so no button')
   await sleep(150)
   assert.ok(document.querySelector('.update-notice'))
   await teardown()
@@ -98,6 +105,81 @@ test('checking has no label text change mid-flight and clears cleanly on unmount
   assert.equal(listeners.size, 0, 'the event subscription must be released on unmount')
 })
 
+
+// ── the attention glow, and what hovering it says (user 2026-09-11) ───────
+//
+// ANTI-VACUITY. A class name on a button proves nothing on its own: if the
+// stylesheet never gives `.update-now.glow` a rule, the markup is present,
+// plausible and completely inert. So the CSS assertion below is not decoration
+// - it is the half that can actually fail when the glow does not exist. And
+// the class must come OFF again, or "only while ready to install" is untested
+// in the direction that matters.
+test('a ready download glows in the theme accent, and stops the moment it is '
+  + 'being installed', async () => {
+  let resolveInstall
+  const bridge = { installUpdate: () => new Promise(resolve => { resolveInstall = resolve }) }
+  const { push, teardown } = await mount({ state: 'downloading', percent: 50 }, 20, bridge)
+  // POSITIVE CONTROL: downloading is not ready, so there is no button at all
+  // to carry a glow - without this, "no glow while downloading" would pass
+  // against a component that rendered nothing.
+  assert.equal(document.querySelector('button'), null)
+
+  await push({ state: 'pending-idle', version: '2.0.5' })
+  const button = document.querySelector('button')
+  assert.ok(button, 'a ready download must offer the button')
+  assert.ok(button.classList.contains('update-now'))
+  assert.ok(button.classList.contains('glow'),
+    'a downloaded update waiting to install must glow')
+
+  // pressing it is no longer "ready to install"
+  await act(async () => button.click())
+  assert.equal(button.disabled, true)
+  assert.equal(button.classList.contains('glow'), false,
+    'a disabled "Restarting…" button must not keep pulsing for a click it refuses')
+  await act(async () => resolveInstall())
+  await teardown()
+})
+
+test('the glow is the SAME treatment as the unread-ask bell, in the active '
+  + 'provider theme - not a second animation beside it', async () => {
+  const css = fs.readFileSync(path.join(root, 'apps/desktop/renderer/src/styles.css'), 'utf8')
+  const rule = css.match(/\.update-notice button\.update-now\.glow\s*\{([^}]*)\}/)
+  assert.ok(rule, 'the glow class has no rule in styles.css - the markup is inert')
+  assert.match(rule[1], /animation:\s*askbell /,
+    'it must reuse the ask-bell keyframes, not declare its own')
+  assert.match(rule[1], /var\(--accent\)/,
+    'the colour must be the theme accent, which follows the active provider')
+  // …and the keyframes it names really exist, so the animation is not a
+  // reference to nothing
+  assert.match(css, /@keyframes askbell\s*\{/)
+  // the treatment it claims to match is still there and still uses them
+  const bell = css.match(/\.ask-bell\.glow\s*\{([^}]*)\}/)
+  assert.ok(bell, 'the ask-bell glow this is modelled on has gone')
+  assert.match(bell[1], /animation:\s*askbell /)
+})
+
+test('hovering Update now names the DOWNLOADED target version, and says less '
+  + 'rather than guessing when there is none', async () => {
+  const bridge = { installUpdate: () => new Promise(() => {}) }
+  const { push, teardown } = await mount({ state: 'idle' }, 20, bridge)
+  await push({ state: 'pending-idle', version: '2.0.5' })
+  const title = document.querySelector('button').title
+  assert.match(title, /Update to Orgtree 2\.0\.5/,
+    'the tooltip must name the version that was downloaded')
+  await teardown()
+
+  // THE ZERO EDGE: main/updater.ts carries `version` as optional and there is
+  // a real path that leaves it unset (a cached autoDownload that fires
+  // update-downloaded before the check records a downloading status). The
+  // tooltip must not invent a number, and must never fall back to the
+  // RUNNING version - the one thing the user said it must not show.
+  const second = await mount({ state: 'idle' }, 20, bridge)
+  await second.push({ state: 'pending-idle' })
+  const bare = document.querySelector('button').title
+  assert.equal(bare, 'Install the downloaded update and restart Orgtree')
+  assert.doesNotMatch(bare, /\d+\.\d+/, 'no version may be invented')
+  await second.teardown()
+})
 
 test('ready update offers one explicit restart action, while downloading does not', async () => {
   let calls = 0
