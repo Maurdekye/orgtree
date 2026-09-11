@@ -110,6 +110,10 @@ interface MenuState {
   entries: MenuEntry[]
   /** where focus was when the menu opened — restored on close */
   restore: Element | null
+  /** the object the menu was opened FROM. Used by the scroll rule below to
+   *  tell a scroll that carries this menu's anchor away from one that
+   *  happened somewhere else entirely. */
+  anchor: Element | null
   /** raised without a usable pointer (keyboard): focus lands on the first
    *  item so the arrow keys have somewhere to start from */
   keyboard: boolean
@@ -147,6 +151,7 @@ export function useContextMenu(): ContextMenuHandle {
       y: inside ? e.clientY : r.bottom,
       entries: list,
       restore: el.ownerDocument.activeElement,
+      anchor: el,
       keyboard: !inside,
     })
   }, [])
@@ -160,6 +165,11 @@ const stop = (e: SyntheticEvent) => e.stopPropagation()
 
 function ContextMenu({ state, close }: { state: MenuState; close: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  // read through a ref so the listener effect below stays keyed on `close`
+  // alone — re-registering four document listeners on every anchor change
+  // would be a second behaviour, not a fix
+  const anchorRef = useRef<Element | null>(state.anchor)
+  anchorRef.current = state.anchor
   // Escape joins the owning document's stack (shared.ts): pushed last, so it
   // is the top entry and the surface beneath keeps its own Escape for later
   useEsc(close, true)
@@ -195,20 +205,50 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
       close()
     }
     const away = () => close()
+    // ⚠ SCROLL IS NOT LIKE THE OTHERS, and treating it as though it were was
+    // a real bug (user report 2026-09-11: "the menu closes itself when a new
+    // event arrives in an open pinned chat"). `scroll` DOES NOT BUBBLE, so
+    // this listener sees an element's scroll only because it is registered in
+    // CAPTURE mode — which means it sees EVERY scrollable pane on screen, not
+    // the page. A chat the reader is sitting at the bottom of autoscrolls on
+    // every arriving event (`pin()` in canvas/desk.tsx assigns
+    // `el.scrollTop = el.scrollHeight`), and that fired this handler from
+    // across the screen. The menu went away while the pointer was on it and
+    // nothing beneath it had moved.
+    //
+    // The REASON to close on scroll is that a menu is anchored to viewport
+    // coordinates: if the thing it was opened from scrolls away, the menu is
+    // left pointing at nothing. So ask exactly that — did this scroll move
+    // OUR anchor? A scroll inside a pane that does not contain the anchor
+    // cannot have. Everything else still closes it, including the document's
+    // own scroll, and the default when the question cannot be answered (no
+    // anchor, a detached anchor, a target that is not an element, another
+    // document) is to CLOSE, which is the behaviour this replaces.
+    const scrolled = (e: Event) => {
+      const t = e.target as Node | null
+      if (t && el.contains(t)) return                  // the menu's own scroll
+      const at = anchorRef.current
+      const target = t as Element | null
+      if (at?.isConnected && target && typeof target.contains === 'function'
+        && !target.contains(at)) return
+      close()
+    }
     // capture: the press closes the menu BEFORE whatever it lands on runs,
     // and is never prevented — clicking a card while a menu is open still
     // clicks the card; a second right-click elsewhere replaces the menu
     doc.addEventListener('pointerdown', outside, true)
     doc.addEventListener('contextmenu', outside, true)
+    // the wheel stays unconditional: it is a DELIBERATE gesture, and over the
+    // canvas it zooms, which moves every anchor there is
     doc.addEventListener('wheel', outside, true)
-    doc.addEventListener('scroll', outside, true)
+    doc.addEventListener('scroll', scrolled, true)
     win.addEventListener('resize', away)
     win.addEventListener('blur', away)
     return () => {
       doc.removeEventListener('pointerdown', outside, true)
       doc.removeEventListener('contextmenu', outside, true)
       doc.removeEventListener('wheel', outside, true)
-      doc.removeEventListener('scroll', outside, true)
+      doc.removeEventListener('scroll', scrolled, true)
       win.removeEventListener('resize', away)
       win.removeEventListener('blur', away)
     }
