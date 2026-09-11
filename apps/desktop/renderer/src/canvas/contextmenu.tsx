@@ -205,25 +205,16 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
       close()
     }
     const away = () => close()
-    // ⚠ SCROLL IS NOT LIKE THE OTHERS, and treating it as though it were was
-    // a real bug (user report 2026-09-11: "the menu closes itself when a new
-    // event arrives in an open pinned chat"). `scroll` DOES NOT BUBBLE, so
-    // this listener sees an element's scroll only because it is registered in
-    // CAPTURE mode — which means it sees EVERY scrollable pane on screen, not
-    // the page. A chat the reader is sitting at the bottom of autoscrolls on
-    // every arriving event (`pin()` in canvas/desk.tsx assigns
-    // `el.scrollTop = el.scrollHeight`), and that fired this handler from
-    // across the screen. The menu went away while the pointer was on it and
-    // nothing beneath it had moved.
-    //
-    // The REASON to close on scroll is that a menu is anchored to viewport
-    // coordinates: if the thing it was opened from scrolls away, the menu is
-    // left pointing at nothing. So ask exactly that — did this scroll move
-    // OUR anchor? A scroll inside a pane that does not contain the anchor
-    // cannot have. Everything else still closes it, including the document's
-    // own scroll, and the default when the question cannot be answered (no
-    // anchor, a detached anchor, a target that is not an element, another
-    // document) is to CLOSE, which is the behaviour this replaces.
+    // ⚠ SCROLL IS NOT LIKE THE OTHERS. It does not bubble, so this listener
+    // sees an element's scroll only because it is registered in CAPTURE mode
+    // — which means it sees EVERY pane on screen. A chat the reader is at the
+    // bottom of autoscrolls on each arriving event (`pin()` in desk.tsx), and
+    // that closed this menu from across the screen (user report 2026-09-11).
+    // The point of closing on scroll is that a menu is anchored to viewport
+    // coordinates, so ask exactly that: did this scroll move OUR anchor? A
+    // pane that does not contain it cannot have. Anything else still closes,
+    // and so does an unanswerable case — no anchor, a detached one, a
+    // non-element target, another document — which is the old behaviour.
     const scrolled = (e: Event) => {
       const t = e.target as Node | null
       if (t && el.contains(t)) return                  // the menu's own scroll
