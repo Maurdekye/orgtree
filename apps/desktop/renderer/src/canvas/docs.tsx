@@ -89,12 +89,28 @@ export function presentationMenu(el: Element | null, slug: string,
 
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
-export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast }: {
+export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false }: {
   slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'>; onOpen: (id: string) => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
   toast?: ToastFn
+  /** SHOWN BUT NOT OPERABLE (user 2026-09-11: "dont make any cards in agents
+   *  when zoomed out clickable"). A far-zoom agent card is a locator, and a
+   *  screen-constant chip on it swallowed the click that focuses the agent:
+   *  this component stops the pointerdown, which starved the drag-end to
+   *  centerOn path.
+   *
+   *  ⚠ IT IS NOT A `disabled` BUTTON. A disabled button is still a button,
+   *  and the several ways an inert control can go on lying about itself are
+   *  exactly what had to go. So the ELEMENT changes: a plain span has no
+   *  button role, no keyboard activation and no tab stop, and with no
+   *  pointerdown handler the press it used to swallow now reaches the card
+   *  underneath. `.doc-chips.inert` adds `pointer-events: none` on top, so
+   *  the gesture never begins here at all. aria-hidden because it is no
+   *  longer an action, and offering a screen reader a control that does
+   *  nothing is the same lie in another modality. */
+  inert?: boolean
 }) {
   // the card's context menu (contextmenu.tsx): the same open the click does,
   // plus copy/download. No dismiss here — that control lives in the reader
@@ -104,10 +120,12 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
     presentationMenu(e.currentTarget, slug, doc, {
       open: () => onOpen(doc.id), toast,
     }))
+  const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
+  if (inert) return <span className={className + ' inert'} aria-hidden="true">{body}</span>
   return <button className={className} title={`read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); onOpen(doc.id) }}
-    onContextMenu={onContextMenu}>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}{menu.node}</button>
+    onContextMenu={onContextMenu}>{body}{menu.node}</button>
 }
 
 /** Reference and gallery readers never put HTML into the app's own DOM. */
@@ -168,16 +186,21 @@ export function dismissDoc(slug: string, docId: string, title: string,
  *  Square ICONS only (user report 2026-08-05: the titled chips were wide
  *  enough to overlap the adjacent card) — the title lives in the tooltip;
  *  the desk header carries the readable titled badges. */
-export function DocChips({ slug, docs, onOpen }: {
+export function DocChips({ slug, docs, onOpen, inert = false }: {
   slug: string
   docs: DocMeta[]
   onOpen: (id: string) => void
+  /** far zoom: the chips stay VISIBLE, because seeing at a glance which
+   *  agents have presented something is the whole value of a chip, but
+   *  nothing on them activates. See PresentationCard for why this is not a
+   *  disabled button. */
+  inert?: boolean
 }) {
   return (
-    <div className="doc-chips">
+    <div className={'doc-chips' + (inert ? ' inert' : '')}>
       {docs.slice(-4).map((d) => (
         <PresentationCard key={d.id} slug={slug} doc={d}
-          className="doc-chip" compact onOpen={onOpen}>
+          className="doc-chip" compact onOpen={onOpen} inert={inert}>
           {d.format !== 'html' && <DocIcon fontSize="inherit" />}
         </PresentationCard>
       ))}

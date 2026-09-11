@@ -1851,6 +1851,20 @@ button.cc-name:hover {
   color: var(--ink); font-size: 12px; cursor: pointer;
 }
 .doc-chip:hover { border-color: var(--accent); color: var(--ink-strong); }
+/* ZOOMED OUT, THE CHIPS ARE A SIGN AND NOT A CONTROL (user 2026-09-11: "dont
+   make any cards in agents when zoomed out clickable"). They stay legible so
+   a glance still tells you which agents have presented something — what goes
+   is every way of acting on them.
+   `pointer-events: none` is the half this sheet owns: the press passes
+   straight through to the agent card, which is the gesture that focuses it
+   and the one these chips used to swallow. The other half is structural and
+   lives in canvas/docs.tsx — an inert chip renders as a span, so there is no
+   button role, no keyboard activation, no tab stop and no context menu. A
+   `disabled` button would have kept all four.
+   The cursor goes back to the card's own, because a hand over something that
+   cannot be clicked is the lie this is removing. */
+.doc-chips.inert { pointer-events: none; }
+.doc-chips.inert .doc-chip { cursor: inherit; }
 /* the desk's titled document badges (the canvas chip's readable twin) live
    on their own wrapping strip under the header — inline in .cc-head they
    starved the agent name and pushed the actions/tabs off the edge (user
