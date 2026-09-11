@@ -2383,23 +2383,36 @@ uiTest('agent docket exposes backlog, all three clocks and status groups without
 
 // ===================== the docket head's two controls (user 2026-09-11) =====
 //
-// The screenshot showed "View options \u25be" as words with a separate \u00d7 right
-// beside it. The \u00d7 was this modal's own \u2014 no other centred surface here has
-// one \u2014 and it duplicated what the frame already provides. The words became
+// The screenshot showed "View options ▾" as words with a separate × right
+// beside it. The × was this modal's own — no other centred surface here has
+// one — and it duplicated what the frame already provides. The words became
 // the sliders glyph.
 //
-// \u26a0 AN ICON BUTTON WITH NO ACCESSIBLE NAME IS A BUTTON CALLED NOTHING. The
+// ⚠ AN ICON BUTTON WITH NO ACCESSIBLE NAME IS A BUTTON CALLED NOTHING. The
 // text WAS the name here, so removing it without `aria-label` would announce
-// this control as empty and make the disclosure unreachable by name \u2014 which
+// this control as empty and make the disclosure unreachable by name — which
 // is also how the Playwright probe finds it (`get_by_role('button',
-// name='View options')`). \u00a7B is what refuses that regression, and it asserts
-// the NAME rather than the attribute, so a future switch to aria-labelledby
-// or a visually-hidden span still passes.
+// name='View options')`). §B is what refuses that regression, and it reads
+// the name the way the platform computes it rather than pinning one
+// attribute, so a visually-hidden span or an aria-labelledby reference
+// would still pass.
 
 const viewOptionsBtn = (el: HTMLElement) =>
   el.querySelector<HTMLButtonElement>('.docket-options-toggle')
 
-uiTest('\u00a7A the view-options foldout is an icon, not words', async (mount) => {
+/** The accessible name, in the order the platform computes it. The part
+ *  worth care: `aria-labelledby` holds element IDs, not text, so it is
+ *  RESOLVED through what it points at — reading the attribute itself as a
+ *  name would compare an id string against the label and call that a match. */
+const accessibleName = (btn: HTMLElement) => {
+  const referenced = (btn.getAttribute('aria-labelledby') ?? '')
+    .split(/\s+/).filter(Boolean)
+    .map((id) => btn.ownerDocument.getElementById(id)?.textContent ?? '')
+    .join(' ').trim()
+  return referenced || btn.getAttribute('aria-label') || btn.textContent || ''
+}
+
+uiTest('§A the view-options foldout is an icon, not words', async (mount) => {
   mockWorkItems([])
   const { el } = await mount(docketModal())
   await flush()
@@ -2413,21 +2426,30 @@ uiTest('\u00a7A the view-options foldout is an icon, not words', async (mount) =
   assert.ok(btn!.querySelector('svg'), 'no icon on the toggle')
 })
 
-uiTest('\u00a7B \u2026and it still says what it is', async (mount) => {
+uiTest('§B …and it still says what it is', async (mount) => {
   mockWorkItems([])
   const { el } = await mount(docketModal())
   await flush()
   const btn = viewOptionsBtn(el)!
-  // the accessible NAME, not one particular attribute
-  const name = btn.getAttribute('aria-label')
-    || btn.getAttribute('aria-labelledby')
-    || btn.textContent
-  assert.match(name ?? '', /View options/,
+  // POSITIVE CONTROL: the resolver really does follow an id reference, so
+  // 'named by another element' cannot read here as 'not named at all'
+  const doc = btn.ownerDocument
+  const target = doc.createElement('span')
+  target.id = 'docket-name-probe'
+  target.textContent = 'View options'
+  doc.body.appendChild(target)
+  const probe = doc.createElement('button')
+  probe.setAttribute('aria-labelledby', 'docket-name-probe')
+  assert.equal(accessibleName(probe), 'View options',
+    'the name resolver does not resolve, so this section proves nothing')
+  target.remove()
+
+  assert.match(accessibleName(btn), /View options/,
     'an icon button with no accessible name announces as nothing')
   assert.equal(btn.title, 'View options', 'no hover tooltip either')
 })
 
-uiTest('\u00a7C the foldout still folds', async (mount) => {
+uiTest('§C the foldout still folds', async (mount) => {
   mockWorkItems([])
   const { el } = await mount(docketModal())
   await flush()
@@ -2444,7 +2466,7 @@ uiTest('\u00a7C the foldout still folds', async (mount) => {
   assert.equal(btn.getAttribute('aria-expanded'), 'false')
 })
 
-uiTest('\u00a7D the redundant local \u00d7 is gone, and the way out is not',
+uiTest('§D the redundant local × is gone, and the way out is not',
   async (mount) => {
     const closed: true[] = []
     mockWorkItems([])
@@ -2458,7 +2480,7 @@ uiTest('\u00a7D the redundant local \u00d7 is gone, and the way out is not',
       .filter((b) => /close/i.test(b.title) || /close/i.test(b.getAttribute('aria-label') ?? ''))
       .length, 0, 'a close control survived in the head under another name')
 
-    // \u26a0 AND THE POINT OF THE OTHER HALF: removing a close button is only
+    // ⚠ AND THE POINT OF THE OTHER HALF: removing a close button is only
     // safe if another way out remains. An unpinned surface closes on its
     // backdrop (PinFrame `backdropClose`, on by default and not overridden
     // here), which is what every other centred modal in this app relies on.
