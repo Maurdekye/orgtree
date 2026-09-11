@@ -1166,6 +1166,14 @@ export default function App() {
                   raisePinnedModal('agent-gallery', slug)
                 }}
                 onAccounts={BASE ? undefined : () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
+                /* the eye's ⚙ and its context menu open the WHOLE settings
+                   modal (user ruling 2026-09-11), not the Hire defaults tab
+                   directly — so it is the same call the chrome's gear makes,
+                   and lands on whichever tab was last open. Withheld on a
+                   public org for the same reason the chrome gear is hidden
+                   there: the endpoint 404s for a visitor. */
+                onOrgSettings={tree.public ? undefined
+                  : () => toggleSurface('org-settings', showSettings, setShowSettings)}
                 onInbox={(jump: unknown) => {
                   if (typeof jump === 'string') {
                     // a targeted jump opens AND surfaces a pinned window —

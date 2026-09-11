@@ -1751,14 +1751,27 @@ button.cc-name:hover {
 .statuschip.working { color: var(--work); border: 1px solid rgba(124, 192, 255, .4); }
 .statuschip.idle { color: var(--dim); border: 1px solid var(--line); }
 
-/* ---------------------------------------------- the attention pip's pulse */
-/* ⚠ .eye-inbox and .eye-gear ARE GONE (user 2026-09-11: "remove mail icon
-   from switchboard; remove agent hire defaults icon"). The eye card carries
-   no ✉ and no ⚙ on either surface — the overview card or the switchboard
-   head — so their positioning rules went with the buttons. What survives is
-   the badge language below, which was never theirs alone: the chrome
-   ask-bell, the switchboard's per-agent tab counts and the compact map
-   marker all wear .eye-count (base at line ~4003, provider tints at ~1221). */
+/* ---------------------------------------------- user inbox (on the eye) */
+/* the eye mirrors agent cards: ⚙ at the far top-right, ✉ just left of it.
+   ⚠ BOTH ARE CONDITIONAL NOW (user 2026-09-11). They were removed outright,
+   then restored for the OVERVIEW card only and only when "Show agent card
+   shortcuts" is on — the same setting that governs every agent card's hover
+   row, default off. They are still gone from the switchboard head (the
+   zoomed-in view with the desks), which the user did not ask to get back.
+   Nothing here fades or hides them: UserNode does not mount them at all, so
+   there is no hit target to swallow a click meant for the card. */
+.eye-inbox {
+  position: absolute; top: 6px; right: 24px;
+  background: none; border: none; padding: 2px 4px;
+  font-size: 13px; color: var(--dim); line-height: 1;
+}
+.eye-inbox:hover { color: var(--accent); background: none; }
+.eye-gear {
+  position: absolute; top: 6px; right: 6px;
+  background: none; border: none; padding: 2px 4px;
+  font-size: 13px; color: var(--dim); line-height: 1;
+}
+.eye-gear:hover { color: var(--accent); background: none; }
 /* (the eye's unread-mail glow is gone — user ruling 2026-08-04: attention
    glow means "an agent needs your answer", nothing else; unread mail keeps
    its count badge and the header ask icon carries the pulse) */
@@ -1768,7 +1781,13 @@ button.cc-name:hover {
    one thing in the chrome that demands the eye. Plain unread mail renders
    MUTED (the badge gave up its old full-accent vibrancy so the ask tier
    has somewhere to stand out to). */
-.eye-count.asks {
+.eye-inbox .count {
+  position: absolute; top: -5px; right: -7px;
+  background: color-mix(in srgb, var(--accent) 42%, var(--panel-2));
+  color: var(--ink-strong); border-radius: 8px; font-size: 9.5px;
+  padding: 0 4px; font-weight: 700;
+}
+.eye-inbox .count.asks, .eye-count.asks {
   background: var(--accent); color: #fff;
   animation: askpip 2s ease-in-out infinite;
 }
@@ -4016,8 +4035,7 @@ svg.MuiSvgIcon-root {
 .eye-mini .iris { fill: none; stroke: var(--accent); stroke-width: 2; }
 .eye-mini .pupil { fill: var(--accent); }
 /* muted by default (user spec 2026-08-06) — the vibrant full-accent form is
-   reserved for the .asks tier, see `.eye-count.asks` in the attention-pip
-   block above */
+   reserved for the .asks tier, see the pip rules by .eye-inbox */
 .eye-count {
   font-size: 10.5px;
   background: color-mix(in srgb, var(--accent) 42%, var(--panel-2));

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { audienceAction, getCharters, unstickNode } from '../api'
+import { audienceAction, dissolveAll, getCharters, unstickNode } from '../api'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
@@ -20,7 +20,7 @@ import {
   USER_H, USER_W, useAgentShortcuts,
 } from './shared'
 import type {
-  CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
+  AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
   WorkLinkFn,
   Pt,
 } from './shared'
@@ -41,6 +41,11 @@ interface UserNodeProps {
   pos: Pt
   isDrop: boolean
   stats: { circ: number; seats: number; free: number }
+  /** the inbox badge, already decided (D-169) — see `attentionPip` in
+   *  canvas/shared.ts. Passed in rather than re-derived: several surfaces
+   *  show it, and they used to each write the two-tier rule out by hand and
+   *  drift apart on the tooltip. */
+  pip: AttentionPip | null
   seats: Record<string, number>
   codexHire?: HireState | null
   antigravityHire?: HireState | null
@@ -54,6 +59,15 @@ interface UserNodeProps {
   kioskSegs?: { seat: number; grant: number }[]
   pxc: number
   zoom: number
+  /** open the user's inbox. Reachable two ways (user 2026-09-11): the ✉ on
+   *  the card, which appears only with agent-card shortcuts turned on, and
+   *  the card's context menu, which does not depend on that setting. */
+  onInbox?: () => void
+  /** open GENERAL org settings — the whole modal, not one of its tabs (user
+   *  ruling 2026-09-11). Absent on a public org, where that modal has no
+   *  door at all; the ⚙ and the menu entry both disappear with it rather
+   *  than becoming dead controls. */
+  onGear?: () => void
   onSpawn: (tier: string) => void
   onMailLink: MailLinkFn
   onWorkLink: WorkLinkFn
@@ -79,9 +93,9 @@ interface UserNodeProps {
   onShowPin?: (id: string) => void
 }
 
-export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onNoHarness,
+export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
   antigravityHire, openrouterHire,
-  kiosk, pub, kioskRemaining, kioskSegs, pxc, zoom, onSpawn,
+  kiosk, pub, kioskRemaining, kioskSegs, pxc, zoom, onInbox, onGear, onSpawn,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
@@ -93,6 +107,36 @@ export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onN
   // camera moves, same as NodeSquare.
   const [expandedHire, setExpandedHire] = useState(false)
   useEffect(() => { setExpandedHire(false) }, [zoom])
+  // The ✉ and ⚙ came BACK on 2026-09-11, but conditionally: the user asked
+  // for them "only when Show agent card shortcuts is enabled", and that
+  // setting's default stays OFF. It is the SAME flag that governs every
+  // agent card's hover row (`.sq-actions` in NodeSquare below) — one setting
+  // for "show me the shortcut buttons", not a second one that could be set
+  // differently and leave the reader wondering which card obeys which.
+  const showShortcuts = useAgentShortcuts()
+  const menu = useContextMenu()
+  const [askingRetireAll, setAskingRetireAll] = useState(false)
+  // ⚠ THE MENU IS THE UNCONDITIONAL ROUTE. The two buttons above are a
+  // convenience that most readers will never switch on, so every action they
+  // offer has to be reachable without them — otherwise turning the setting
+  // off would silently remove capabilities rather than just tidying the card.
+  // Retire-all is here and nowhere else on the canvas; its other door is the
+  // Hire defaults tab in org settings.
+  const menuEntries = (): MenuEntry[] => {
+    const entries: MenuEntry[] = []
+    if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
+    if (onGear) {
+      entries.push({ label: 'Org settings',
+        title: 'the whole settings modal — hire defaults are a tab of it',
+        onSelect: () => onGear() })
+    }
+    entries.push('sep', {
+      label: 'Retire all agents…', danger: true,
+      title: 'retires every agent in the org at once; context is kept',
+      onSelect: () => setAskingRetireAll(true),
+    })
+    return entries
+  }
   return (
     // the mail glow is GONE (user ruling 2026-08-04): unread mail keeps its
     // count badge; the only thing that glows anywhere is an agent that needs
@@ -101,6 +145,11 @@ export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onN
     // gate always resolves to them
     <div className={'sq user edge-b' + (focused ? ' desk eyeboard' : '')
       + (isDrop ? ' drop' : '')}
+      /* the eye's context menu — NOT at switchboard focus, character for
+         character the rule NodeSquare uses for its own desk: the open
+         surface has chat text, mail rows and its own controls, and a
+         right-click there must keep the browser's or the row's menu. */
+      onContextMenu={(e) => { if (!focused) menu.open(e, menuEntries) }}
       style={{
         transform: `translate(${pos.x}px, ${pos.y}px)`,
         width: focused ? eyeW : USER_W, height: USER_H,
@@ -152,17 +201,26 @@ export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onN
         <circle className="pupil" cx="24" cy="13" r="2.6" />
       </svg>
       {!focused && <div className="user-label">you</div>}
-      {/* ⚠ NO MAIL BUTTON AND NO ⚙ HERE (user 2026-09-11: "remove mail icon
-          from switchboard; remove agent hire defaults icon"). Both were
-          removed from the overview card AND from the switchboard head below.
-          Neither capability was lost with them:
-          · unread/ask attention is the chrome's `.ask-bell` (App.tsx), which
-            renders the SAME `attentionPip(tree)` two-tier badge and is the
-            only glowing control in the chrome. The compact map marker keeps
-            its bare count too (OrgCanvas).
-          · the agent-hire defaults are a TAB of org settings now
-            (App.tsx SettingsPanel, `hiredefaults`), which is also where
-            `dissolve all agents` went — that button had no other door. */}
+      {/* ⚠ STILL NOTHING ON THE SWITCHBOARD HEAD. The user had both icons
+          removed from the zoomed-in view where the desks are (EyeDesk below)
+          and that stands — these two are the OVERVIEW card's, and only with
+          agent-card shortcuts turned on. The ⚙ opens GENERAL org settings,
+          not the Hire defaults tab directly (user ruling 2026-09-11). */}
+      {/* two-tier pip (user spec 2026-08-06): open asks outrank unread mail —
+          the ask count wears the vibrant pulsing form, plain unread the
+          muted one */}
+      {!focused && showShortcuts && onInbox && <button className="eye-inbox"
+        title={pip?.title ?? 'your inbox'} aria-label="your inbox"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onInbox() }}>
+        <MailIcon fontSize="inherit" />
+        {pip && <span className={'count' + (pip.urgent ? ' asks' : '')}>
+          {pip.count}</span>}
+      </button>}
+      {!focused && showShortcuts && onGear && <button className="eye-gear"
+        title="org settings" aria-label="org settings"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onGear() }}><SettingsIcon fontSize="inherit" /></button>}
       {/* real seat costs in the hover hints — a literal 0 was technically true
           (infinite pool) but read as wrong next to every other card. The
           chips survive switchboard focus too (user spec) — hiring is never
@@ -189,6 +247,21 @@ export function UserNode({ pos, isDrop, stats, seats, codexHire, claudeHire, onN
           onNodeLineage={onNodeLineage} onNodeConfig={onNodeConfig}
           pinnedIds={pinnedIds} onShowPin={onShowPin} />
       )}
+      {menu.node}
+      {/* The SAME confirmation and the SAME call the org-settings button
+          makes — one action with two doors, not two implementations that
+          could come to disagree about what "retire all" means. Portaled to
+          <body> like NodeSquare's: this card lives inside the world
+          transform, where a position:fixed dialog would resolve against the
+          SCALED ancestor and render enormous. */}
+      {askingRetireAll && createPortal(
+        <ConfirmModal title="dissolve ALL agents?"
+          body="Every agent in the entire org is retired at once. Context is kept; rehire brings any of them back."
+          confirmLabel="dissolve all"
+          onConfirm={() => dissolveAll(slug)
+            .then((r) => toast([`dissolved ${r.nodes} node(s), freed ${fmtCredits(r.freed)} credits`]))
+            .catch((e: Error) => toast([`error: ${e.message}`]))}
+          close={() => setAskingRetireAll(false)} />, document.body)}
     </div>
   )
 }

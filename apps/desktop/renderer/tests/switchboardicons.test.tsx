@@ -7,6 +7,15 @@
 // So there were FOUR buttons, not two, and this file states the removal as
 // two properties — one per surface — plus the move of what the ⚙ opened.
 //
+// ⚠ THE USER THEN PARTLY REVERSED IT (2026-09-11 06:49). The OVERVIEW card's
+// ✉ and ⚙ come back, but ONLY with "Show agent card shortcuts" enabled, whose
+// default stays off; the ⚙ opens GENERAL org settings rather than the Hire
+// defaults tab; both stay gone from the zoomed-in switchboard head; and the
+// eye gains a context menu carrying Inbox, Org settings and Retire all
+// agents, reachable whether or not that setting is on. §1 therefore tests
+// the DEFAULT (still bare), §1b the enabled case, and §7 the menu — which is
+// the route that does not depend on the setting at all.
+//
 // ⚠ ANTI-VACUITY, and it matters more than usual here: every assertion about
 // the icons is a NEGATIVE ("no such button"), and a negative passes for free
 // against a component that rendered nothing at all — a broken fixture, a
@@ -27,13 +36,22 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EyeDesk, UserNode } from '../src/canvas/cards'
 import { SettingsPanel } from '../src/App'
-import { USER } from '../src/canvas/shared'
+import { setAgentShortcutsOn, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult, TreePayload } from '../src/types'
 
 const noop = () => {}
 const op = () => Promise.resolve({} as OpResult)
 const seats = { haiku: 1, sonnet: 2, opus: 5 }
+
+/** the eye card, with whatever handlers the case under test cares about */
+const eye = (over: Partial<Parameters<typeof UserNode>[0]> = {}) => (
+  <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
+    stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={seats}
+    pub={false} kiosk={undefined} kioskRemaining={null} pxc={1} zoom={1}
+    onSpawn={noop} onMailLink={noop} focused={false} eyeW={124}
+    posX={() => 0} map={new Map()} op={op} slug="org" toast={noop} {...over} />
+)
 
 /** every button on the surface, by its icon's test id. MUI icons render
  *  `data-testid="MailIcon"` / `"SettingsIcon"`, which is what lets this ask
@@ -45,15 +63,13 @@ const iconButtons = (el: HTMLElement, icon: string) =>
 
 // ========================================================= §1 THE OVERVIEW
 
-test('§1 the overseer eye card carries no ✉ and no ⚙', async (t) => {
-  const view = await mountView(
-    <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
-      stats={{ circ: 0, seats: 0, free: 0 }} seats={seats}
-      pub={false} kiosk={undefined} kioskRemaining={null} pxc={1} zoom={1}
-      onSpawn={noop} onMailLink={noop} focused={false} eyeW={124}
-      posX={() => 0} map={new Map()} op={op} slug="org" toast={noop} />,
-    (el) => el)
+test('§1 BY DEFAULT the overseer eye card carries no ✉ and no ⚙', async (t) => {
+  setAgentShortcutsOn(false)
+  const view = await mountView(eye({ onInbox: noop, onGear: noop }), (el) => el)
   t.after(() => view.unmount())
+  // ⚠ the handlers ARE passed above, deliberately. Asserting "no buttons"
+  // against a card that was given nothing to call would pass for the wrong
+  // reason — it is the SETTING that must hide them, not a missing prop.
 
   // POSITIVE CONTROL — the card really rendered. Without these two, the
   // assertions below would pass against an empty div.
@@ -65,9 +81,136 @@ test('§1 the overseer eye card carries no ✉ and no ⚙', async (t) => {
     'the mail button is still on the overview eye card')
   assert.equal(iconButtons(view.el, 'SettingsIcon').length, 0,
     'the agent-hire-defaults ⚙ is still on the overview eye card')
-  // the classes the two buttons wore, gone with them (and with their CSS)
   assert.equal(view.el.querySelector('.eye-inbox'), null)
   assert.equal(view.el.querySelector('.eye-gear'), null)
+})
+
+test('§1b …and WITH agent-card shortcuts on they come back, wired to the '
+  + 'inbox and to general org settings', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => setAgentShortcutsOn(false))
+  const opened: string[] = []
+  const view = await mountView(eye({
+    onInbox: () => opened.push('inbox'), onGear: () => opened.push('gear'),
+  }), (el) => el)
+  t.after(() => view.unmount())
+
+  const mail = view.el.querySelector<HTMLButtonElement>('.eye-inbox')
+  const gear = view.el.querySelector<HTMLButtonElement>('.eye-gear')
+  assert.ok(mail, 'the ✉ did not return with the setting on')
+  assert.ok(gear, 'the ⚙ did not return with the setting on')
+  await inAct(async () => { mail!.click(); gear!.click(); await flush() })
+  assert.deepEqual(opened, ['inbox', 'gear'])
+  // the ⚙ opens the WHOLE settings modal, not one tab of it — so its label
+  // must not promise the hire defaults
+  assert.equal(gear!.title, 'org settings')
+})
+
+test('§1c a card with nowhere to send the reader shows no control for it — '
+  + 'a public org has no settings door, so no ⚙ appears', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => setAgentShortcutsOn(false))
+  const view = await mountView(eye({ onInbox: noop }), (el) => el)   // no onGear
+  t.after(() => view.unmount())
+  assert.ok(view.el.querySelector('.eye-inbox'), 'the ✉ still shows')
+  assert.equal(view.el.querySelector('.eye-gear'), null,
+    'a ⚙ with no handler would be a dead control')
+})
+
+// ======================================== §1d-§1f THE EYE'S CONTEXT MENU
+//
+// The menu is the route that does NOT depend on the shortcuts setting, which
+// is what makes turning that setting off a tidying rather than a loss. Every
+// test here runs with the setting OFF for exactly that reason — if any of
+// them needed it on, the claim would be untrue.
+
+const WIN = window as unknown as Window & typeof globalThis
+const menuLabels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
+  .map((b) => b.textContent ?? '')
+const menuItem = (label: string) =>
+  [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
+    .find((b) => b.textContent === label) as HTMLButtonElement | undefined
+
+async function rightClick(el: Element) {
+  const ev = new WIN.MouseEvent('contextmenu',
+    { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
+  await inAct(async () => { el.dispatchEvent(ev); await flush(2) })
+  return ev.defaultPrevented
+}
+
+test('§1d the eye’s context menu reaches the inbox and org settings with '
+  + 'the shortcut buttons OFF', async (t) => {
+  setAgentShortcutsOn(false)
+  const opened: string[] = []
+  const view = await mountView(eye({
+    onInbox: () => opened.push('inbox'), onGear: () => opened.push('gear'),
+  }), (el) => el)
+  t.after(async () => { await view.unmount() })
+
+  // POSITIVE CONTROL: the buttons really are absent, so what follows cannot
+  // be passing through them
+  assert.equal(view.el.querySelector('.eye-inbox'), null)
+  assert.equal(view.el.querySelector('.eye-gear'), null)
+
+  const took = await rightClick(view.el.querySelector('.sq.user')!)
+  assert.equal(took, true, 'the eye must take the right-click, not leave it '
+    + 'to the browser menu')
+  assert.deepEqual(menuLabels(),
+    ['Open inbox', 'Org settings', 'Retire all agents…'])
+
+  await inAct(async () => { menuItem('Open inbox')!.click(); await flush(2) })
+  assert.deepEqual(opened, ['inbox'])
+  await rightClick(view.el.querySelector('.sq.user')!)
+  await inAct(async () => { menuItem('Org settings')!.click(); await flush(2) })
+  assert.deepEqual(opened, ['inbox', 'gear'])
+})
+
+test('§1e Retire all agents asks first, and only then sends the one request '
+  + 'the settings tab’s own button sends', async (t) => {
+  setAgentShortcutsOn(false)
+  const seen: { method: string; path: string }[] = []
+  const g = globalThis as unknown as Record<string, unknown>
+  const old = g.fetch
+  g.fetch = (url: string, init?: RequestInit) => {
+    seen.push({ method: init?.method ?? 'GET',
+      path: new URL(String(url), 'http://localhost').pathname })
+    return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
+      json: () => Promise.resolve({ nodes: 3, freed: 9 }) })
+  }
+  const view = await mountView(eye({ onInbox: noop, onGear: noop }), (el) => el)
+  t.after(async () => { await view.unmount(); g.fetch = old })
+
+  await rightClick(view.el.querySelector('.sq.user')!)
+  await inAct(async () => { menuItem('Retire all agents…')!.click(); await flush(2) })
+
+  // ⚠ THE CONFIRMATION IS THE POINT, and this is the assertion that fails if
+  // the entry ever becomes a one-click retirement of the whole org.
+  const dialog = [...document.querySelectorAll('h3, .modal h3, .overlay h3')]
+    .find((h) => /dissolve ALL agents/i.test(h.textContent ?? ''))
+  assert.ok(dialog, 'no confirmation appeared before retiring every agent')
+  assert.equal(seen.length, 0, 'nothing may be sent before the user confirms')
+
+  const confirm = [...document.querySelectorAll('button')]
+    .find((b) => b.textContent?.trim() === 'dissolve all')
+  assert.ok(confirm, 'the confirmation offers no way through')
+  await inAct(async () => { confirm!.click(); await flush(4) })
+  assert.deepEqual(seen,
+    [{ method: 'POST', path: '/api/orgs/org/dissolve-all' }])
+})
+
+test('§1f the menu is absent at switchboard focus, where the open surface '
+  + 'owns the right-click', async (t) => {
+  setAgentShortcutsOn(false)
+  const view = await mountView(eye({
+    onInbox: noop, onGear: noop, focused: true, eyeW: 1200,
+  }), (el) => el)
+  t.after(async () => { await view.unmount() })
+  // POSITIVE CONTROL: the focused eye really did render its switchboard
+  assert.ok(view.el.querySelector('.eye-desk'), 'the switchboard did not mount')
+  const took = await rightClick(view.el.querySelector('.sq.user')!)
+  assert.equal(took, false, 'a right-click on the open switchboard must be '
+    + 'left to the browser or to the row under it')
+  assert.equal(document.querySelector('.ctxmenu'), null)
 })
 
 // ============================================== §2 THE ZOOMED-IN SWITCHBOARD

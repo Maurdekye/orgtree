@@ -56,6 +56,12 @@ export interface OrgCanvasProps {
   /** D-199: open the accounts panel — the route out of the no-harness state,
    *  which the canvas can reach but cannot render itself (it lives in App). */
   onAccounts?: () => void
+  /** open GENERAL org settings (user ruling 2026-09-11): the eye's ⚙ and its
+   *  context menu both go here. Same shape as `onAccounts` and for the same
+   *  reason — SettingsPanel lives in App, not on the canvas. Absent on a
+   *  public org, where that modal has no door; the controls disappear with
+   *  it rather than becoming dead. */
+  onOrgSettings?: () => void
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
   onFocusAgentHandled?: () => void
@@ -183,7 +189,7 @@ export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
   return { root: walk(root), retiredByParent, prunedIds }
 }
 
-export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
+export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery }: OrgCanvasProps) {
   const [draft, setDraft] = useState<DraftState | null>(null)
@@ -2652,12 +2658,25 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onWorkItem,
               pinnedIds={pinnedIds}
               onShowPin={(id) => showPin(slug, id, vpSizeNow())}
               compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
-              /* no `pip`, no `onInbox`, no `onGear` (user 2026-09-11): the
-                 eye card and the switchboard head no longer carry a ✉ or a
-                 ⚙, so there is nothing left on this surface for them to
-                 drive. `attentionPip` is still DECIDED ONCE per surface —
-                 the compact map marker above and the chrome's `.ask-bell`
-                 both call it — so the two survivors still cannot disagree. */
+              /* the pip is DECIDED HERE and handed down (D-169): asks +
+                 urgent mail outrank plain unread, and `asks_open` already
+                 covers pending credit requests as well as open questions
+                 (adding credit_requests too would double-count). One call,
+                 so the eye, the map marker and the chrome bell cannot
+                 disagree.
+                 ⚠ The eye's ✉ and ⚙ appear only with agent-card shortcuts
+                 turned on, and its CONTEXT MENU reaches the same two places
+                 either way — that gating is UserNode's, deliberately, so
+                 this side stays "here is how to open those things" and does
+                 not also have to know when they are on screen. */
+              pip={attentionPip(tree)}
+              onInbox={() => {
+                const nw = tree.user_inbox_newest ?? new Date().toISOString()
+                localStorage.setItem('orgtree-inbox-seen-' + slug, nw)
+                setInboxSeen(nw)
+                onInbox?.()
+              }}
+              onGear={onOrgSettings}
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
               /* switchboard panel headers mirror the desk header identically
                  (user spec 2026-08-19): the gen badge and gear in each panel
