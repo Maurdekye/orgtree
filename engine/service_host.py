@@ -34,6 +34,11 @@ from typing import Any
 import urllib.error
 import urllib.request
 
+try:
+    from .startup_progress import parse_progress
+except ImportError:  # script entrypoint
+    from startup_progress import parse_progress
+
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 SHUTDOWN_WAIT = 10.0
 DESCRIPTOR = "engine-attach.json"
@@ -309,6 +314,38 @@ def confirmed_exit(child: "subprocess.Popen[Any]", timeout: float = 10.0) -> boo
     return True
 
 
+def failed_start_cleanup(child, root: Path, *, refused: bool = False, timeout: float = 10.0) -> bool:
+    """Terminate our failed launch tree, then prove its root is usable again.
+
+    A root-owned refusal belongs to another host: never wait on or terminate
+    its guardian. All other failures must observe both process exit and release.
+    """
+    if child.poll() is None and os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                           capture_output=True, timeout=5,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if not confirmed_exit(child, timeout=timeout):
+        return False
+    if refused:
+        return True
+    deadline = time.monotonic() + timeout
+    lock = root / ".desktop-engine.lock"
+    while True:
+        try:
+            # Same byte as RootLock writes. On Windows the guardian's byte
+            # range lock denies this until it has released the entire tree.
+            with lock.open("r+b", buffering=0) as stream:
+                stream.write(b"0")
+            return True
+        except OSError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+
 def request_shutdown(port: int, token: str) -> bool:
     request = urllib.request.Request(f"http://127.0.0.1:{port}/api/desktop/shutdown",
                                      method="POST", data=b"",
@@ -347,16 +384,31 @@ def main() -> int:
 
     ready: dict[str, Any] = {}
     failure: list[str] = []
+    checkpoints = {"sequence": 0, "at": time.monotonic(), "refused": False}
     def read_stdout() -> None:
         assert child.stdout is not None
-        buffered = 0
-        for raw in child.stdout:
-            buffered += len(raw)
-            if buffered > 65536:
+        while True:
+            raw = child.stdout.readline(65537)
+            if not raw:
+                break
+            if len(raw) > 65536:
                 failure.append("engine readiness exceeded size limit")
                 return
+            line = raw.decode("utf-8", "replace").strip()
+            sequence = parse_progress(line, child.pid, root, checkpoints["sequence"])
+            if sequence > checkpoints["sequence"]:
+                checkpoints.update(sequence=sequence, at=time.monotonic())
+                continue
             try:
-                value = parse_ready(raw.decode("utf-8", "replace").strip(), child.pid, root)
+                refusal = json.loads(line)
+                if isinstance(refusal, dict) and refusal.get("type") == "refused" and refusal.get("code") == "root-owned":
+                    checkpoints["refused"] = True
+                    failure.append("another engine owns this data root")
+                    break
+            except ValueError:
+                pass
+            try:
+                value = parse_ready(line, child.pid, root)
             except RuntimeError as exc:
                 failure.append(str(exc))
                 return
@@ -373,14 +425,15 @@ def main() -> int:
     # a file carrying OUR pid, so pre-write failures are a safe no-op and a
     # newer host's file can never be taken down by a dying older one.
     try:
-        deadline = time.monotonic() + READY_TIMEOUT
-        while not ready and not failure and child.poll() is None and time.monotonic() < deadline:
+        while not ready and not failure and child.poll() is None and time.monotonic() - checkpoints["at"] < READY_TIMEOUT:
             time.sleep(0.05)
         if not ready:
             reason = failure[0] if failure else (
                 "engine exited before readiness" if child.poll() is not None
                 else "engine did not become ready in time")
-            confirmed_exit(child)
+            released = failed_start_cleanup(child, root, refused=checkpoints["refused"])
+            if not released:
+                reason += "; engine tree release could not be verified"
             print(f"service host: {reason}", file=sys.stderr, flush=True)
             return 1
 
@@ -392,7 +445,8 @@ def main() -> int:
             # a crash here would loop a restart-on-failure task setting on a
             # traceback instead of a reason.
             print(f"service host: could not write attach descriptor: {exc}", file=sys.stderr, flush=True)
-            confirmed_exit(child)
+            if not failed_start_cleanup(child, root):
+                print("service host: engine tree release could not be verified", file=sys.stderr, flush=True)
             return 1
         print(f"service host: engine ready on 127.0.0.1:{port} (pid {child.pid})", file=sys.stderr, flush=True)
 

@@ -47,6 +47,8 @@ from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_
                limits, localtime, net, openrouter, opreceipts, providers,
                registry, sandbox as sbx, store,
                tokens, turnlog, turnusage, warmpool)
+from .fleet_walk import fleet_walk
+from .desktop_native import NativeInventory
 from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
                      freeze_describes_provider, now as now_iso)
 from .schema import (Denial, FrozenInfo, InflightInfo, KioskCfg, MailEntry,
@@ -75,12 +77,12 @@ def _deployment_org_gate(org: Org) -> None:
             "sandbox enabled before enabling frozen mode")
 
 
-def _native_context_hold(org: Org, nid: str) -> str | None:
+def _native_context_hold(org: Org, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
     if not org.node(nid).get('desktop_import'):
         return None
     try:
         from .desktop_native import native_hold_reason
-        return native_hold_reason(org,nid)
+        return native_hold_reason(org, nid, inventory=inventory)
     except ImportError:
         return 'Imported native session continuity has not been validated'
 
@@ -110,7 +112,6 @@ def workspace_usage_bytes(org: Org, max_age: float = 0.0) -> int:
             return du[0]
         hit = _ws_usage_cache.get(slug)
         return hit[1] if hit else 0
-    total = 0
     ws = org.d.get("workspace")
     roots = [p for p in (ws, store.scratch_root(slug))
              if p and os.path.isdir(p)]
@@ -126,6 +127,14 @@ def workspace_usage_bytes(org: Org, max_age: float = 0.0) -> int:
     # old per-file os.path.getsize paid one extra stat syscall PER FILE.
     # Measured on the same 3.6 GB / 99k-file org: 6.9 s → 0.82 s (8.4×).
     # Request paths still read through workspace_usage_cached, never inline.
+    total = _workspace_tree_bytes(roots)
+    _ws_usage_cache[slug] = (time.time(), total)
+    return total
+
+
+@fleet_walk("workspace-tree")
+def _workspace_tree_bytes(roots) -> int:
+    total = 0
     stack = list(roots)
     while stack:
         d = stack.pop()
@@ -141,7 +150,6 @@ def workspace_usage_bytes(org: Org, max_age: float = 0.0) -> int:
                         pass
         except OSError:
             pass
-    _ws_usage_cache[slug] = (time.time(), total)
     return total
 
 
@@ -3649,6 +3657,11 @@ _TPATH_MEMO: dict[tuple[str, str], str] = {}
 _TPATH_MEMO_CAP = 4096      # ~0.5 MB of strings; cleared wholesale, see below
 
 
+@fleet_walk("transcript-search")
+def _project_transcripts(pattern: str) -> list[str]:
+    return glob.glob(pattern)
+
+
 def transcript_path(session_id: str, root: str | None = None) -> str | None:
     if root is None:
         try:
@@ -3667,11 +3680,11 @@ def transcript_path(session_id: str, root: str | None = None) -> str | None:
     known = _TPATH_MEMO.get(key)
     if known is not None and os.path.exists(known):
         return known
-    hits = glob.glob(os.path.join(base, "projects", "*", session_id + ".jsonl"))
+    hits = _project_transcripts(os.path.join(base, "projects", "*", session_id + ".jsonl"))
     if not hits:
         # …then the supervisor's own journals (see journal_store): a codex
         # thread's record is as real a transcript as the Claude CLI's file
-        hits = glob.glob(os.path.join(journal_store(), "projects", "*",
+        hits = _project_transcripts(os.path.join(journal_store(), "projects", "*",
                                       session_id + ".jsonl"))
     if not hits:
         # ⚠ A MISS IS NEVER REMEMBERED. Absence is the one answer that flips
@@ -3689,6 +3702,7 @@ def transcript_path(session_id: str, root: str | None = None) -> str | None:
     return hits[0]
 
 
+@fleet_walk("transcript-index")
 def transcript_index(root: str | None = None,
                      strict: bool = False) -> dict[str, str]:
     """`session_id → transcript path`, built with ONE walk of `projects/`.
@@ -21827,7 +21841,8 @@ def send_message(slug: str, nid: str, text: str,
                  idle_only: bool = False,
                  view: str | None = None,
                  sender: str = "",
-                 ping_reason: str | None = None) -> dict[str, Any]:
+                 ping_reason: str | None = None,
+                 _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """Drive a node with a nudge; returns immediately. EVERY substantive message
     — user and agent alike — is MAIL (user ruling: the direct-message channel
     was folded into the mail system): it already sits persisted in the node's
@@ -21874,6 +21889,8 @@ def send_message(slug: str, nid: str, text: str,
     carrier, never inferred later — `start_steer_late_watchdog` mails this
     agent, and a guess would mail the wrong one.
     """
+    # A fleet replay may reuse its admission snapshot. _run_turn performs a
+    # fresh native hold check before executing, including on another thread.
     st = state(slug, nid)
     # a FROZEN node runs nothing: mail stays safe in its mailbox (not drained)
     # until the org-wide ▶ resume. Both freeze kinds land here — the usage
@@ -21882,7 +21899,7 @@ def send_message(slug: str, nid: str, text: str,
     # kind: it is accepted, queued: 0, and nothing starts.
     with store.DOC_LOCK:
         _o = store.load_org(slug)
-        if nid in _o.nodes and (native_reason := _native_context_hold(_o,nid)):
+        if nid in _o.nodes and (native_reason := _native_context_hold(_o, nid, inventory=_inventory)):
             return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
         if nid in _o.nodes and _o.node(nid).get("frozen"):
             return {"accepted": True, "queued": 0, "frozen": True}
@@ -23013,6 +23030,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                         int, str]] = []
     with store.DOC_LOCK:
         org = store.load_org(slug)
+        inventory = NativeInventory()
         if org.d.get("spend_frozen"):
             raise RuntimeError("the kiosk spend limit was reached — raise the "
                                "limit from the admin dashboard to resume")
@@ -23020,7 +23038,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
         for nid, n in list(org.nodes.items()):
             if pick is not None and nid not in pick:
                 continue
-            if _native_context_hold(org,nid):
+            if _native_context_hold(org, nid, inventory=inventory):
                 continue  # Preserve frozen replay; this button cannot clear native context holds.
             # review C6: the old unconditional pop discarded replay texts for
             # nodes that CANNOT restart. ▶ is now the third participant in the
@@ -27656,7 +27674,8 @@ def _store_provably_absent(proj: str) -> bool:
         return os.path.basename(p) not in names
 
 
-def _transcript_evidence(org: Org) -> dict[str, str] | None:
+def _transcript_evidence(org: Org, *, inventory: NativeInventory | None = None) -> dict[str, str] | None:
+    inventory = inventory if inventory is not None else NativeInventory()
     seen = _legacy_transcript_evidence(org)
     if seen is None:
         return None
@@ -27680,13 +27699,13 @@ def _transcript_evidence(org: Org) -> dict[str, str] | None:
             binding = (node.get('desktop_import') or {}).get('native_continuity') or {}
             if binding.get('provider') not in {'claude', 'openrouter'}:
                 continue  # Codex rollout is execution state, not a display transcript.
-            path = native_session_path(org, nid)
+            path = native_session_path(org, nid, inventory=inventory)
             if path:
                 sid = node['session_id']
                 if sid in native and native[sid] != path:
                     ambiguous.add(sid)
                 native[sid] = path
-        ambiguous.update(native_conflicts())
+        ambiguous.update(native_conflicts(inventory=inventory))
         return {sid:path for sid,path in {**seen, **native}.items() if sid not in ambiguous}
     except ImportError:
         return seen
@@ -27861,20 +27880,21 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     marked = []
     with store.DOC_LOCK:
         org = store.load_org(slug)
+        inventory = NativeInventory()
         # (Only explicit import recovery may dispatch unresolved imported
         # work. That hold is per node and per marker — `_import_recovery_hold`
         # below — never a whole-org stop on this pass.)
         # ONE walk for the whole pass — see transcript_index. The per-node
         # `transcript_path` this replaces re-listed the user's entire
         # `projects/` directory for every node, once per org, at startup.
-        seen = _transcript_evidence(org)
+        seen = _transcript_evidence(org, inventory=inventory)
         healed = False
         if seen is None:
             print(f"[orgtree] {slug}: transcript store unreadable — the №31 "
                   f"sweep is skipped (nothing condemned)")
         else:
             for nid, n in org.nodes.items():
-                if _native_context_hold(org, nid) \
+                if _native_context_hold(org, nid, inventory=inventory) \
                         or _import_recovery_unsettled(org, nid):
                     continue  # Ambiguous/unvalidated import is held, not lost.
                 # self-heal, so the never-run pardon can never be permanent:
@@ -27931,7 +27951,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         dropped_cmd = False
         for nid, n in org.nodes.items():
             if recovery_observer is None and (
-                    _native_context_hold(org, nid)
+                    _native_context_hold(org, nid, inventory=inventory)
                     or _import_recovery_hold(org, nid, n.get("inflight"))):
                 continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
@@ -28036,7 +28056,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                          "you left off (do not redo finished steps).\n\n"
                          + (inf.get("text") or ""),
                          view=(str(inf.get("view") or "") if "view" in inf
-                               else str(inf.get("text") or "")))
+                               else str(inf.get("text") or "")),
+                         _inventory=inventory)
             except Exception:
                 if observer:
                     observer(nid,'error')
@@ -28080,7 +28101,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,
                      "(orgtree) You have mail above — some of it waited across "
-                     "an orgtree restart. Handle it as appropriate.")
+                     "an orgtree restart. Handle it as appropriate.",
+                     _inventory=inventory)
     return marked
 
 

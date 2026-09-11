@@ -48,6 +48,21 @@ export function validateDataRoot(candidate: string, forbidden: string): string {
   return root
 }
 
+/** A checkpoint is evidence only for this child/root and only once. Arbitrary
+ * logs, duplicated checkpoints and another engine's output buy no extra time. */
+export function parseProgress(line: string, expectedRoot: string, expectedPid: number, previous: number): number {
+  let value: unknown
+  try { value = JSON.parse(line) } catch { return previous }
+  if (!value || typeof value !== 'object') return previous
+  const p = value as Record<string, unknown>
+  if (p.type !== 'startup-progress' || p.protocol !== 1 || p.pid !== expectedPid
+    || typeof p.sequence !== 'number' || !Number.isSafeInteger(p.sequence) || p.sequence <= previous
+    || typeof p.phase !== 'string' || !p.phase.length || p.phase.length > 100
+    || typeof p.dataRootId !== 'string' || !path.isAbsolute(p.dataRootId)
+    || canonicalPath(p.dataRootId) !== canonicalPath(expectedRoot)) return previous
+  return p.sequence
+}
+
 export function parseReady(line: string, expectedRoot: string, expectedPid: number): EngineReady | null {
   let value: unknown
   try { value = JSON.parse(line) } catch { return null }

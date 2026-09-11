@@ -3,11 +3,11 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner } from './policy'
+import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
-// Must exceed the host's READY_TIMEOUT (service_host.py) so a desktop that
-// lost the boot race never gives up before a healthy host can publish.
+// Attachment retries remain bounded independently of the child protocol.
+// This covers the host's initial 120s silence budget plus cleanup/attachment.
 export const ATTACH_RETRY_BUDGET_MS = 150000
 
 /** EVERY PHASE A QUIT CAN SPEND, and nothing else spends any. `stopForQuit`
@@ -178,14 +178,40 @@ export class Engine extends EventEmitter {
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
     child.on('exit', () => this.childExited(child))
     await new Promise<void>((resolve, reject) => {
-      let buffered = '', settled = false
-      const finish = (error?: Error) => {
+      let buffered = '', settled = false, progress = 0, refused = false
+      let timer: ReturnType<typeof setTimeout>
+      const resetDeadline = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => { void finish(new Error('Engine did not become ready in time')) }, options.timeoutMs ?? 60000)
+      }
+      const finish = async (error?: Error) => {
         if (settled) return
         settled = true; clearTimeout(timer); child.stdout.off('data', onData)
         child.stdout.resume()
         // A failed spawn no longer occupies this engine: the boot-race path
         // retries attach() on the same instance after a structured refusal.
-        if (error) { child.kill(); this.child = undefined; this.state({ state: 'unavailable', message: error.message }); reject(error) } else resolve()
+        if (!error) { resolve(); return }
+        // Detach state notifications before killing, but keep the child locally
+        // until its exit AND its guardian's root release have been observed.
+        this.child = undefined
+        this.endpoint = ''
+        if (child.pid && child.exitCode === null && child.signalCode === null) await this.forceKillTree(child.pid)
+        const deadline = Date.now() + QUIT_DEADLINES.provenMs
+        while (child.pid && child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 25))
+        }
+        const exited = !child.pid || child.exitCode !== null || child.signalCode !== null
+        // A structured root-owned refusal never owned the other engine's lock.
+        // It is the attach race, not a tree we may kill or wait to release.
+        const lockFile = path.join(realRoot, '.desktop-engine.lock')
+        const released = refused || (!progress && !fs.existsSync(lockFile)) ||
+          (await this.awaitAttachedRelease('', '', lockFile, QUIT_DEADLINES.provenMs)).released
+        if (!exited || !released) {
+          error = new Error(error.message + '; engine tree release could not be verified (guardian lock still held or unavailable)')
+          this.child = child // forbid another managed start over unverified cleanup
+        }
+        this.state({ state: 'unavailable', message: error.message })
+        reject(error)
       }
       const onData = (chunk: Buffer) => {
         buffered += chunk.toString('utf8')
@@ -193,14 +219,16 @@ export class Engine extends EventEmitter {
         while (buffered.includes('\n')) {
           const at = buffered.indexOf('\n'), line = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 1)
           const refusal = parseRefusal(line)
-          if (refusal) return finish(new Error(ENGINE_REFUSED + refusal))
+          if (refusal) { refused = true; void finish(new Error(ENGINE_REFUSED + refusal)); return }
+          const next = parseProgress(line, realRoot, child.pid ?? -1, progress)
+          if (next > progress) { progress = next; resetDeadline(); continue }
           try {
             const ready = parseReady(line, realRoot, child.pid ?? -1)
             if (ready) { this.endpoint = `http://127.0.0.1:${ready.port}`; this.state({ state: 'ready' }); finish(); return }
           } catch (error) { finish(error as Error); return }
         }
       }
-      const timer = setTimeout(() => finish(new Error('Engine did not become ready in time')), options.timeoutMs ?? 60000)
+      resetDeadline()
       child.stdout.on('data', onData)
       child.once('error', () => finish(new Error('Python engine could not start')))
       child.once('exit', () => finish(new Error('Python engine exited before readiness')))
@@ -309,7 +337,7 @@ export class Engine extends EventEmitter {
     // deadline says, so a caller with nothing left must not be charged one.
     if (deadlineMs <= 0) return { released: false, endpointDead: false }
     const deadline = Date.now() + deadlineMs
-    let endpointDead = false
+    let endpointDead = !endpoint // startup failure has no announced endpoint
     for (;;) {
       if (!endpointDead) {
         try {

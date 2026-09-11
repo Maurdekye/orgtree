@@ -103,6 +103,8 @@ if TYPE_CHECKING:
     from .schema import DirGrant, KioskCfg as KioskDoc, MailEntry, UserMailEntry
 
 app = FastAPI(title="orgtree", version="1.0.0")
+from . import startup
+app.add_middleware(startup.RecoveryBarrier)
 
 from .history import router as history_router
 app.include_router(history_router)
@@ -942,7 +944,9 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # A direct ``uvicorn orgtree.api:app`` launch bypasses main(), so repeat
     # the install-wide preflight at the ASGI lifecycle boundary. It must run
     # before warm processes or background drivers can admit a turn.
+    startup.progress("deployment-preflight")
     _deployment_preflight()
+    startup.progress("account-migration")
     # multi-account cutover (design D2a/S2): DORMANT unless the operator
     # sets ORGTREE_ACCOUNTS_CUTOVER=1 — committed behind explicit
     # activation per coordinator/user direction; running it binds every
@@ -1012,6 +1016,12 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # The explicit hub_changed() calls left at a few endpoints are now
     # redundant but harmless (they coalesce into the same window).
     store.on_save = hub_changed
+    # Awaiting the worker here would put fleet size back on readiness. The
+    # ASGI mutation barrier preserves repair-before-new-turn ordering instead.
+    startup.recovery.start(_recover_startup)
+
+
+def _recover_startup() -> None:
     # D-201: the warm pool starts FIRST, before every turn driver below
     # (auto-resume, the usage/watchdog engines, reconcile's re-drives), and
     # its first pass runs synchronously inside this call. The user's ruling
@@ -1020,42 +1030,14 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # ahead of the boot pre-warm makes the feature absent at exactly the
     # moment it was specified to be present, on every restart. Pinned by
     # test_warmpool's startup-order check.
+    startup.progress("warm-processes")
     warmpool.start_warm_pool()
     from . import transcript_ingest
     transcript_ingest.start()
-    supervisor.start_auto_resume_loop()
-    # user ruling 2026-08-18: keep the subscription's usage readout warm, so a
-    # usage freeze can stamp its reset time from cache instead of blocking the
-    # document lock on a >1 s fetch (limits.py owns the cadence)
-    supervisor.start_usage_warm_loop()
-    # storage watchdog (user spec): catches single long tool calls —
-    # clones/builds/downloads — that balloon past the limit MID-CALL
-    supervisor.start_storage_watchdog()
-    # (the chatq external bridge that used to register every org here is
-    # GONE — user ruling 2026-08-05: @ext: retired, chats ride the hub)
-    # F-06: the mail-hub client — connectivity TRANSITIONS broadcast an org
-    # `changed` so the UI's status dots are realtime without polling
+    # Prune staging before API writes are released: no current request can
+    # own any of these files yet. Network delivery starts after recovery too.
     net.notify_changed = hub_changed
-    net.start_net_client()
-    # compose-stage sweep: in-memory ids died with the last process, so every
-    # file already in <data>/net_stage is unreachable — remove them all
     _prune_stage(max_age_s=0.0)
-    # §9.2: warn EARLY when the subscription's refresh token nears expiry —
-    # an unattended box discovers an auth lapse as a pile of failed turns
-    supervisor.start_cred_watcher()
-    # FR-18: the watchdog scanner — polls due dogs and re-arms stream dogs'
-    # children, which is also their restart-recovery (the doc is the registry)
-    supervisor.start_watchdog_engine()
-    supervisor.start_extern_sweeper()          # D-166
-    # D-236: a mid-turn message whose recipient is inside a long tool call has
-    # no injection point until that call ends — this is what tells the SENDER,
-    # which is the half no answer available at send time could give.
-    supervisor.start_steer_late_watchdog()
-    # FR-27: the primed-restart engine. Same shape and same reason as the
-    # watchdog scanner above — the durable record is the registry and this is
-    # only its runtime attachment, which is exactly what makes an armed prime
-    # survive the bounce that just brought us up here.
-    supervisor.start_prime_restart_engine()
     # one-time migration of the retired v1 env-var kiosk mode into the org doc
     legacy = os.environ.get("ORGTREE_KIOSK")
     if legacy:
@@ -1093,14 +1075,35 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
             print(f"[orgtree] {o['slug']}: healed permission_mode "
                   f"'plan' → 'acceptEdits' on {len(healed)} node(s)")
     for o in store.list_orgs():                   # №31 eager reconciliation
+        if startup.recovery.cancelled.is_set():
+            return
         marked = supervisor.reconcile(o["slug"], active_only=True)
+        startup.progress("organization-reconciled")
         if marked:
             print(f"[orgtree] {o['slug']}: marked unrecoverable at startup: {marked}")
-    # Durable `working` statuses survive the restart. Start their cache keeper
-    # only after reconciliation classifies missing sessions and re-drives
-    # interrupted work, so maintenance cannot race startup repair.
+    # All turn drivers follow reconciliation, including network delivery,
+    # automatic resume, watchdogs and the working-status cache keeper. Their
+    # former startup order allowed them to race retained-turn repair.
+    if startup.recovery.cancelled.is_set():
+        return
+    supervisor.start_auto_resume_loop()
+    supervisor.start_usage_warm_loop()
+    supervisor.start_storage_watchdog()
+    net.start_net_client()
+    supervisor.start_cred_watcher()
+    supervisor.start_watchdog_engine()
+    supervisor.start_extern_sweeper()
+    supervisor.start_steer_late_watchdog()
+    supervisor.start_prime_restart_engine()
     supervisor.start_working_cache_keeper()
     restart_wake.on_backend_startup()
+    startup.progress("recovery-complete")
+
+
+@app.on_event("shutdown")
+async def _cancel_startup() -> None:
+    startup.recovery.cancel()
+
 
 PORT = int(os.environ.get("ORGTREE_PORT", "7360"))
 PUBLIC_PORT = int(os.environ.get("ORGTREE_PUBLIC_PORT", "0") or 0)

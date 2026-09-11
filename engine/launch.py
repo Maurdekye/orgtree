@@ -208,7 +208,7 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
             raise HTTPException(422,str(exc)) from exc
 
     """Add the small native-shell control surface to the real V1 app."""
-    from orgtree import store, supervisor, desktop_maintenance, desktop_import_jobs  # noqa: PLC0415
+    from orgtree import store, supervisor, desktop_maintenance, desktop_import_jobs, startup  # noqa: PLC0415
 
     @api_app.get("/api/desktop/status")
     def desktop_status() -> dict[str, Any]:
@@ -226,7 +226,7 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
             idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
                            for s in states)
         import_active = desktop_import_jobs.active()
-        return {"activeAgents": active, "totalAgents": total, "idle": idle and not import_active,
+        return {"activeAgents": active, "totalAgents": total, "idle": idle and not import_active and not startup.recovery.pending and startup.recovery.error is None,
                 "importActive": import_active,
                 "maintenance": desktop_maintenance.pending(),
                 "maintenance_outcome": desktop_maintenance.status()}
@@ -241,6 +241,7 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
 
     @api_app.post("/api/desktop/shutdown")
     def desktop_shutdown() -> dict[str, bool]:
+        startup.recovery.cancel()
         stop()
         return {"accepted": True}
 
@@ -317,6 +318,9 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 def main() -> None:
     global _HUB_RUNTIME
     data = validate_data_root(_required_path("ORGTREE_DATA"))
+    from engine.startup_progress import StartupProgress
+    progress = StartupProgress(data)
+    progress.report("lifetime-preparation")
     from engine.process_lifetime import arm_process_lifetime
     parent = os.environ.get("ORGTREE_V2_PARENT_PID", "").strip()
     try:
@@ -336,7 +340,11 @@ def main() -> None:
                               "reason": str(exc)[:300]},
                              separators=(",", ":")), flush=True)
         raise
+    progress.report("lifetime-owned")
     app, _token, data, port, stopping = load_app()
+    from orgtree import startup
+    startup.progress = progress.report
+    progress.report("api-loaded")
     # The v2 loopback hub is a sibling service, not an alternate API. Start it
     # only after the explicit root has been validated and the real API loaded;
     # shutdown is idempotent and always runs even when uvicorn exits early.
@@ -344,6 +352,7 @@ def main() -> None:
     hub = HubRuntime(data)
     _HUB_RUNTIME = hub
     hub_ready = hub.start()
+    progress.report("hub-started")
     # The copied production net client starts in the API startup hook. Give it
     # the embedded hub's dynamic address without rewriting remote configuration.
     # HubReadiness carries the owner token on the hardened hub contract;

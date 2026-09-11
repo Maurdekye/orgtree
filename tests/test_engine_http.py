@@ -74,14 +74,17 @@ def seeded():
     missing.node('worker')['cost_usd']=1
     store.save_org(missing)
     from orgtree import api
-    @api.app.on_event('startup')
+    recover = api._recover_startup
     def verify_native_startup_state():
+        recover()
         for slug in ('duplicate-one','duplicate-two'):
             node=store.load_org(slug).node('worker')
             assert node['state']=='live' and node['session_id']==duplicate_sid
             assert node['inflight']['text']=='retained ambiguous intent'
         assert store.load_org('unrelated-native').node('worker')['state']=='live'
         assert store.load_org('ordinary-missing').node('worker')['state']=='unrecoverable'
+        print(json.dumps({'fixtureReconciled':True}),flush=True)
+    api._recover_startup = verify_native_startup_state
     original_claim = supervisor.claim_steer
     def probe_claim(slug, nid, *args):
         if (slug, nid) == ('auth-fixture', 'caller'):
@@ -133,6 +136,8 @@ class EngineHTTPTests(unittest.TestCase):
             lines.put(None)
         threading.Thread(target=reader, daemon=True).start()
         cls.token = None
+        cls.port = None
+        reconciled = False
         try:
             while True:
                 line = lines.get(timeout=60)
@@ -148,10 +153,13 @@ class EngineHTTPTests(unittest.TestCase):
                     cls.ask_id = row['askId']
                 if 'guardEnv' in row:
                     cls.guard_env = row['guardEnv']
+                if row.get('fixtureReconciled') is True:
+                    reconciled = True
                 if row.get('type') == 'ready':
                     cls.port = row['port']
                     assert cls.port != 7360
                     assert row['dataRootId'] == str(data.resolve())
+                if cls.port is not None and reconciled:
                     break
         except BaseException:
             cls.process.terminate(); cls.process.wait(timeout=15)

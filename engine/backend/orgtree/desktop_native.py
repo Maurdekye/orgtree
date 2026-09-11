@@ -16,6 +16,8 @@ import stat
 import uuid
 from typing import Any
 
+from .fleet_walk import fleet_walk
+
 MAX_NATIVE_BYTES = 128 * 1024 * 1024
 UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
 
@@ -286,14 +288,39 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
         return {**meta, "reason": str(exc)}
 
 
-def native_session_path(org: Any, nid: str) -> str | None:
+class NativeInventory:
+    """One explicit, lazy snapshot for one synchronous reconciliation pass.
+
+    Never retained globally or across requests. Ad-hoc lookups still walk fresh.
+    Refusals belong to the snapshot too: a bad path must not cause every held
+    node to repeat the failed walk. Per-session path validation remains fresh.
+    """
+
+    def __init__(self) -> None:
+        self._value: tuple[dict[str, str], set[str]] | None = None
+        self._error: ValueError | OSError | None = None
+
+    def read(self) -> tuple[dict[str, str], set[str]]:
+        if self._error is not None:
+            raise self._error.with_traceback(None)
+        if self._value is None:
+            try:
+                self._value = _native_inventory()
+            except (ValueError, OSError) as exc:
+                self._error = exc
+                raise
+        found, conflicts = self._value
+        return dict(found), set(conflicts)
+
+
+def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
     from .desktop_import import _plain, _store
     doc = org.d if hasattr(org, "d") else org
     node = doc.get("nodes", {}).get(nid, {})
     native = node.get("desktop_import", {}).get("native_continuity", {})
     if native.get("status") != "ready" or native.get("session_id") != node.get("session_id"):
         return None
-    if node["session_id"] in native_conflicts():
+    if node["session_id"] in native_conflicts(inventory=inventory):
         return None
     root = Path(_store().DATA_ROOT).resolve()
     storage_node = native.get("storage_node") or nid
@@ -312,15 +339,15 @@ def spawn_cwd(dest: Path, slug: str, nid: str) -> str:
     return str(dest / "scratch" / slug / nid.split("@")[0])
 
 
-def native_hold_reason(org: Any, nid: str) -> str | None:
-    reason = _native_session_hold_reason(org, nid)
+def native_hold_reason(org: Any, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
+    reason = _native_session_hold_reason(org, nid, inventory=inventory)
     if reason:
         return reason
     from .desktop_native_claude_memory import hold_reason as memory_hold_reason
     return memory_hold_reason(org.d if hasattr(org, "d") else org, nid)
 
 
-def _native_session_hold_reason(org: Any, nid: str) -> str | None:
+def _native_session_hold_reason(org: Any, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
     doc = org.d if hasattr(org, "d") else org
     node = doc.get("nodes", {}).get(nid, {})
     imported = node.get("desktop_import")
@@ -341,7 +368,7 @@ def _native_session_hold_reason(org: Any, nid: str) -> str | None:
     if native.get("provider") != provider_for(node):
         return "Imported native session belongs to a different provider"
     try:
-        if not native_session_path(org, nid):
+        if not native_session_path(org, nid, inventory=inventory):
             return "Imported native session identity or independent file is unavailable"
     except (ValueError, OSError):
         return "Imported native session path failed validation"
@@ -409,6 +436,7 @@ Rename alone needs no retirement because storage_node stays stable.
     return True
 
 
+@fleet_walk("imports-inventory")
 def _native_inventory() -> tuple[dict[str, str], set[str]]:
     """Destination-only SID lookup for existing supervisor transcript readers.
 
@@ -458,9 +486,9 @@ refuse rather than selecting a plausible file belonging to somebody else.
     return {sid: path for sid, path in found.items() if sid not in conflicts}, conflicts
 
 
-def native_conflicts() -> set[str]:
+def native_conflicts(*, inventory: NativeInventory | None = None) -> set[str]:
     """IDs which must not fall through to a provider's unrelated global file."""
-    return _native_inventory()[1]
+    return (inventory.read() if inventory is not None else _native_inventory())[1]
 
 
 def native_index() -> dict[str, str]:
