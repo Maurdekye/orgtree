@@ -4,7 +4,7 @@ import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { appUserModelId, configureTaskbar } from './taskbar'
@@ -237,6 +237,12 @@ else {
   const UPDATE_ENGINE_CONFIRM_MS = UPDATE_DEADLINES.engineConfirmMs
   const UPDATE_SPAWN_GRACE_MS = UPDATE_DEADLINES.spawnGraceMs
   const UPDATE_EXIT_MS = updateWatchdogMs()
+  // The quit's own budget, DERIVED from the phases stopForQuit can actually
+  // spend (QUIT_DEADLINES) rather than guessed here: stopForQuit apportions
+  // that sum and never exceeds it, and this outer bound is the same number
+  // plus the usual margin — so `bounded` is the backstop it is meant to be
+  // and not the thing that routinely ends the quit.
+  const QUIT_ENGINE_TOTAL_MS = QUIT_STOP_BUDGET_MS + UPDATE_DEADLINES.marginMs
   const installDirectory = () => path.dirname(process.execPath)
   /** Resolved ONCE per run: both facts are properties of where this copy is
    *  installed, which cannot change while it runs, and the writability half
@@ -537,8 +543,15 @@ else {
     // does not settle on a busy or crashed renderer, and until quitComplete is
     // set this handler preventDefaults every further app.quit() — so an
     // unbounded flush here is a Quit that can never complete.
+    //
+    // ⚠ stopForQuit, NOT stop(). This handler is the ONLY thing a tray-menu
+    // Quit runs, and stop() returns immediately for an ATTACHED boot engine —
+    // which is why quitting left the engine, its guardian and every provider
+    // child running until the machine was rebooted. The update path does not
+    // come through here at all (prepareAndHandOff sets quitComplete before its
+    // own app.quit()), so this cannot disturb an install.
     void bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
-      .then(() => bounded(engine.stop(), UPDATE_ENGINE_STOP_MS))
+      .then(() => bounded(engine.stopForQuit(QUIT_STOP_BUDGET_MS), QUIT_ENGINE_TOTAL_MS))
       .finally(() => { quitComplete = true; tray?.destroy(); app.quit() })
   })
   app.whenReady().then(async () => {

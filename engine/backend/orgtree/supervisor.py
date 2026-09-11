@@ -11089,26 +11089,88 @@ def _arm_deploy_window(child: Any) -> bool:
     return True
 
 
-def _hold_for_deploy(slug: str, nid: str) -> None:
+def _hold_for_deploy(slug: str, nid: str) -> bool:
     """Park at the threshold while a deploy child is alive. Nothing is
     dequeued and nothing is refused — the turn simply starts late, or never,
     because the restart killed us first (which is the good outcome: the work
-    was never begun, so there is nothing half-done to explain)."""
+    was never begun, so there is nothing half-done to explain).
+
+    Returns False when the park was INTERRUPTED instead of ending. ⏸ used to
+    be inert here and the state it could not touch is the worst-looking one
+    on the desk: `busy` with no turn activity draws as "starting…", and
+    `interrupt_turn` had nothing to aim at — no provider process, no codex or
+    antigravity turn, no admission wait — so it answered "no provider call is
+    active" and the row stayed exactly as it was. Measured 2026-09-11, after
+    an acknowledged restart hold outlived the restart that took it. The park
+    is the one point in a turn that can be abandoned for free, so it is made
+    stoppable rather than left as the one busy state with no stop.
+
+    A cancel releases THIS node only. The hold is machine-wide and someone
+    else's restart may still be coming, so it is not this button's to lift —
+    `MAINTENANCE_HOLD_MAX_S` and the ceiling below are what bound the hold."""
     if _deploy_done.is_set():
-        return
-    t0 = time.monotonic()
-    print(f"[orgtree] {slug}/{nid}: holding this turn — a deploy is running "
-          f"and would cut it mid-flight")
-    if not _deploy_done.wait(DEPLOY_HOLD_MAX):
-        # BOUNDED. A deploy that never exits must not silence the machine
-        # forever; past the ceiling we proceed and take the old risk, which
-        # is strictly no worse than the behaviour before this guard existed.
-        print(f"[orgtree] {slug}/{nid}: deploy still running after "
-              f"{DEPLOY_HOLD_MAX:.0f}s — starting the turn anyway")
-        _deploy_done.set()
-        return
-    print(f"[orgtree] {slug}/{nid}: deploy finished without restarting us "
-          f"(held {time.monotonic() - t0:.1f}s) — starting the turn")
+        return True
+    st = state(slug, nid)
+    token = object()
+    with _state_lock:
+        st["deploy_hold_waiting"] = True
+        st["deploy_hold_token"] = token
+    # ⚠ NOTHING BETWEEN THE FLAG AND THE `try`. A flag left set by a thread
+    # that died on its way in would make every later ⏸ on this node report a
+    # park it cancelled and a turn it stopped, neither of which happened.
+    try:
+        t0 = time.monotonic()
+        print(f"[orgtree] {slug}/{nid}: holding this turn — a deploy is "
+              f"running and would cut it mid-flight")
+        deadline = t0 + DEPLOY_HOLD_MAX
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                # BOUNDED. A deploy that never exits must not silence the
+                # machine forever; past the ceiling we proceed and take the
+                # old risk, which is strictly no worse than the behaviour
+                # before this guard existed.
+                print(f"[orgtree] {slug}/{nid}: deploy still running after "
+                      f"{DEPLOY_HOLD_MAX:.0f}s — starting the turn anyway")
+                _deploy_done.set()
+                break
+            # Sliced, not one long wait: the slices are what make the cancel
+            # reachable. Everything else about the wait is unchanged.
+            if _deploy_done.wait(min(0.1, left)):
+                print(f"[orgtree] {slug}/{nid}: deploy finished without "
+                      f"restarting us (held {time.monotonic() - t0:.1f}s) — "
+                      f"starting the turn")
+                break
+            with _state_lock:
+                if st.get("deploy_hold_cancel") is token:
+                    break
+    finally:
+        proceed = _retire_deploy_hold(st, token)
+    if not proceed:
+        print(f"[orgtree] {slug}/{nid}: the held turn was interrupted before "
+              f"it started — nothing was dequeued")
+    return proceed
+
+
+def _retire_deploy_hold(st: dict[str, Any], token: object) -> bool:
+    """Retire the park and answer cancelled-vs-proceed IN THE SAME critical
+    section. ⚠ THE ATOMICITY IS THE POINT (coordinator review): with the
+    decision read before the flag was cleared, a ⏸ landing in between was
+    told it had stopped the turn — `interrupt_turn` saw `deploy_hold_waiting`
+    still true and answered `interrupted` — while the park had already
+    decided to proceed and the `finally` then threw its cancel away. The turn
+    ran, and the only record of the interrupt was the answer the user had
+    been given. Reading and clearing under one hold of `_state_lock` leaves no
+    such instant: an interrupt either lands before the flag clears and wins,
+    or lands after and falls through to `interrupt_turn`'s ordinary branches,
+    which say honestly that there is nothing to stop."""
+    with _state_lock:
+        cancelled = st.get("deploy_hold_cancel") is token
+        st["deploy_hold_waiting"] = False
+        st.pop("deploy_hold_token", None)
+        if cancelled:
+            st.pop("deploy_hold_cancel", None)
+    return not cancelled
 
 
 def _retire_breadcrumb_splice(slug: str, nid: str) -> None:
@@ -11283,7 +11345,21 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     _note_working_activity(slug, nid)
     # the single choke point: all three thread starts target this function,
     # so one gate here covers every way a turn can begin (D-142/a)
-    _hold_for_deploy(slug, nid)
+    if not _hold_for_deploy(slug, nid):
+        # Interrupted at the threshold. NOTHING was dequeued — mail is drained
+        # from the doc only AT DELIVERY, inside `_run_one_turn` — so the
+        # mailbox still holds every message and this carrier, a raw nudge, is
+        # simply dropped. The in-memory queue goes with it for the reason the
+        # killswitch clears it (`interrupt_all`): there is no result boundary
+        # to hand it to, and chaining a turn from here would start one BEHIND
+        # the hold that was just refused, which is D-142/a's own warning.
+        with _state_lock:
+            st["queue"].clear()
+            st["steer"] = []
+            st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
+            st["busy"] = False
+        notify(slug, nid, "turn_done")
+        return
     nxt: str | dict[str, Any] | None = text
     while nxt is not None:
         with store.DOC_LOCK:
@@ -21928,11 +22004,21 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         admission_waiting = bool(st.get("admission_waiting"))
         admission_token = st.get("admission_wait_token")
         readiness_event = st.get("mcp_tool_event") if readiness_wait else None
-        if admission_waiting:
+        # A turn parked at the deploy hold is strictly BEFORE admission and
+        # before any provider call, so none of the handles above exist — which
+        # is exactly why ⏸ used to do nothing to the "starting…" row a held
+        # turn draws. Cancelling the park IS the whole of stopping this turn.
+        hold_waiting = bool(st.get("deploy_hold_waiting"))
+        if hold_waiting:
+            st["deploy_hold_cancel"] = st.get("deploy_hold_token")
+        elif admission_waiting:
             st["admission_cancel_token"] = admission_token
         elif (proc is not None or codex_turn is not None \
               or antigravity_turn is not None or readiness_wait):
             st["interrupted"] = True
+    if hold_waiting:
+        return {"interrupted": True,
+                "reason": "turn held for a pending restart"}
     if (admission_waiting and not readiness_wait and proc is None
             and codex_turn is None and antigravity_turn is None):
         return {"interrupted": True, "reason": "turn waiting for a turn slot"}

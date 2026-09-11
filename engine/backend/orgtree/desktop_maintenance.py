@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import os
 import threading
+import time
 import uuid
 from . import store, supervisor
 from .ledger import LedgerError, now
@@ -10,6 +11,23 @@ from .ledger import LedgerError, now
 _lock = threading.RLock()
 _accepted_hold = None
 _boot_id = uuid.uuid4().hex
+
+#: How long an ACKNOWLEDGED request may hold every turn on this machine.
+#:
+#: ⚠ THE HOLD'S NORMAL RELEASE IS THIS PROCESS DYING. `_acknowledge` clears
+#: `supervisor._deploy_done` so nothing starts a turn into the restart it just
+#: authorised, and the restart is supposed to end the process seconds later.
+#: Nothing else releases it: `execution_failed` only fires when the native
+#: side REPORTS a failure, and a native side that quietly restarts something
+#: other than this engine reports nothing at all. Measured 2026-09-11: the
+#: desktop's restart callback stopped only its own window while an attached
+#: boot engine kept running, and this process then parked every later turn at
+#: `_hold_for_deploy` — `busy` set, no turn, nothing to interrupt.
+#:
+#: So the hold expires. Generous against a real quit-and-relaunch (seconds),
+#: and far inside `supervisor.DEPLOY_HOLD_MAX`, which is otherwise the only
+#: floor under a leak and is per parked turn rather than per hold.
+MAINTENANCE_HOLD_MAX_S = 120.0
 
 
 def _path():
@@ -109,7 +127,36 @@ def _acknowledge(request_id, outcome='execute'):
         except BaseException:
             supervisor._force_hold_settle(hold, release=True)
             raise
+        _arm_hold_expiry(hold, request_id, MAINTENANCE_HOLD_MAX_S)
         return {'accepted':True}
+
+
+def _arm_hold_expiry(token, request_id, after):
+    """Release an acknowledged hold this process is still alive to regret.
+
+    A restart that actually happens never reaches the release — the process
+    is gone and this thread with it — so FIRING IS ITSELF THE EVIDENCE that
+    the restart did not happen. The request is then recorded failed, exactly
+    as a reported native failure records it, and the machine is readmitted.
+    """
+    def expire():
+        global _accepted_hold
+        time.sleep(after)
+        with _lock:
+            if _accepted_hold != token:
+                return          # already settled, or a later force owns it
+            current = _read()
+            if current and current.get('id') == request_id and current.get('state') == 'acknowledged':
+                _write({**current,'state':'failed','failed_at':now(),
+                        'failure':'Native execution did not restart this engine '
+                                  'within %g s; the turn hold was released' % after})
+            _accepted_hold = None
+        # Outside `_lock`: settling takes supervisor's state lock, and no new
+        # hold can be taken meanwhile because `_deploy_done` is still clear.
+        supervisor._force_hold_settle(
+            token, release=True,
+            why='the acknowledged restart did not stop this engine')
+    threading.Thread(target=expire, daemon=True).start()
 
 
 def execution_failed(request_id):

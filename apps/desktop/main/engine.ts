@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
@@ -9,6 +9,40 @@ export const ENGINE_REFUSED = 'Engine start refused: '
 // Must exceed the host's READY_TIMEOUT (service_host.py) so a desktop that
 // lost the boot race never gives up before a healthy host can publish.
 export const ATTACH_RETRY_BUDGET_MS = 150000
+
+/** EVERY PHASE A QUIT CAN SPEND, and nothing else spends any. `stopForQuit`
+ *  apportions ONE budget across these and never exceeds it, and the desktop
+ *  bounds the call by the same sum — so the bound and the path it bounds are
+ *  the same number.
+ *
+ *  ⚠ THEY WERE NOT (coordinator review). The outer bound was
+ *  engineStop + forcedRelease + margin while the inner path could spend the
+ *  shutdown request, the release wait, the termination AND its proof on top
+ *  of each other. An outer bound shorter than its path means the BOUND is
+ *  what ends the quit: the app exits with a termination still in flight and
+ *  its proof never read, which is the one thing this whole change exists to
+ *  stop being possible. */
+export const QUIT_DEADLINES = {
+  /** `stop()`'s own worst case for a MANAGED child, by its own constants:
+   *  a 3 s shutdown POST plus the 5 s it waits for the exit before killing. */
+  managedStopMs: 8000,
+  /** the authenticated shutdown request to an ATTACHED engine */
+  requestMs: 4000,
+  /** waiting for the three-fact proof after asking nicely */
+  releaseMs: 8000,
+  /** TerminateProcess across the tree — taskkill answers in well under a
+   *  second; this is the ceiling, not the expectation */
+  killMs: 5000,
+  /** and the proof AFTER it, which is third-party: the boot host has to
+   *  notice its child and remove the descriptor, and Windows has to finish
+   *  tearing the job down. This waits for those two, never for the kill. */
+  provenMs: 5000,
+}
+/** The worst case of either path — managed (`stop` → confirm → kill →
+ *  confirm) or attached (request → release → kill → proof) — which is the
+ *  larger first phase plus the three they share. */
+export const QUIT_STOP_BUDGET_MS = Math.max(QUIT_DEADLINES.managedStopMs, QUIT_DEADLINES.requestMs)
+  + QUIT_DEADLINES.releaseMs + QUIT_DEADLINES.killMs + QUIT_DEADLINES.provenMs
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
@@ -29,6 +63,12 @@ export class Engine extends EventEmitter {
   managed = true
   /** Resolved data root of the current attachment; '' when managed. */
   private attachedRoot = ''
+  /** The engine PID this attachment authenticated, and the exact descriptor
+   *  bytes it was read from. Only `stopForQuit`'s forced path uses them, and
+   *  only together: a PID is not an identity, but a PID whose descriptor is
+   *  still on disk unchanged, under a root lock still held, is. */
+  private attachedEnginePid = 0
+  private attachedDescriptor = ''
   /** Why the last attach attempt was declined; empty when no descriptor existed. */
   attachDiagnostic = ''
   status: EngineStatus = { state: 'starting' }
@@ -107,6 +147,8 @@ export class Engine extends EventEmitter {
       this.endpoint = origin
       this.managed = false
       this.attachedRoot = realRoot
+      this.attachedEnginePid = attach.enginePid
+      this.attachedDescriptor = raw
       this.attachProbeFailures = 0
       this.state({ state: 'ready' })
       return true
@@ -237,25 +279,38 @@ export class Engine extends EventEmitter {
     } catch { return false }
   }
 
-  /** Graceful authenticated stop of the boot engine so an update can replace
-   *  its files; the installer restarts the task afterwards. PROOF is three
+  private attachedFile(name: string): string { return this.attachedRoot ? path.join(this.attachedRoot, name) : '' }
+
+  /** Ask the attached engine to shut itself down, over its authenticated
+   *  route. Nothing is concluded from the answer: a refusal and a timeout are
+   *  equally uninformative about whether the process is going away, and
+   *  `awaitAttachedRelease` is what decides. */
+  private async requestAttachedShutdown(endpoint: string, timeoutMs = 5000): Promise<void> {
+    if (timeoutMs <= 0) return
+    try {
+      await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' })
+    } catch { /* liveness decides below */ }
+  }
+
+  /** Whether the attached engine's TREE has released this root, by three
    *  layered facts: the endpoint stops answering with a CONNECTION failure
    *  (a timeout is a busy engine, not a dead one), the attach descriptor
    *  disappears (the host deletes it only after the engine PROCESS exited),
-   *  and the guardian's root lock releases (held until the whole TREE is
-   *  terminated). Throws — with no state disturbed — when any proof is
-   *  missing at the deadline, naming the missing one. */
-  async stopAttachedForUpdate(deadlineMs = 15000): Promise<void> {
-    if (this.managed || !this.endpoint) return
-    const endpoint = this.endpoint
-    const descriptorFile = this.attachedRoot ? path.join(this.attachedRoot, 'engine-attach.json') : ''
-    const lockFile = this.attachedRoot ? path.join(this.attachedRoot, '.desktop-engine.lock') : ''
-    try {
-      await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(5000), redirect: 'error' })
-    } catch { /* liveness decides below */ }
+   *  and the guardian's root lock releases (held until the whole tree is
+   *  terminated).
+   *
+   *  ⚠ ONE BODY, TWO CALLERS, DELIBERATELY. The update REFUSES when a proof
+   *  is missing and the quit FORCES, and those are the only two things that
+   *  ever stop somebody else's engine. Written twice they would drift, and
+   *  the day they disagree is the day one of them installs over a live
+   *  engine. `endpointDead` rides out so each caller can name what it lacked. */
+  private async awaitAttachedRelease(endpoint: string, descriptorFile: string, lockFile: string, deadlineMs: number): Promise<{ released: boolean; endpointDead: boolean }> {
+    // A spent budget buys nothing: the probe below costs 2 s whatever the
+    // deadline says, so a caller with nothing left must not be charged one.
+    if (deadlineMs <= 0) return { released: false, endpointDead: false }
     const deadline = Date.now() + deadlineMs
     let endpointDead = false
-    while (Date.now() < deadline) {
+    for (;;) {
       if (!endpointDead) {
         try {
           await fetch(endpoint + '/api/desktop/identity', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(2000), redirect: 'error' })
@@ -266,16 +321,111 @@ export class Engine extends EventEmitter {
           if (name !== 'TimeoutError' && name !== 'AbortError') endpointDead = true
         }
       }
-      if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile)) && this.guardianReleased(lockFile)) {
-        this.endpoint = ''
-        this.state({ state: 'stopped', message: 'Engine stopped' })
-        return
-      }
+      if (endpointDead && (!descriptorFile || !fs.existsSync(descriptorFile)) && this.guardianReleased(lockFile)) return { released: true, endpointDead }
+      if (Date.now() >= deadline) return { released: false, endpointDead }
       await new Promise(resolve => setTimeout(resolve, 500))
     }
-    if (!endpointDead) throw new Error('Background engine did not stop for the update')
+  }
+
+  /** Graceful authenticated stop of the boot engine so an update can replace
+   *  its files; the installer restarts the task afterwards. Throws — with no
+   *  state disturbed — when any of the three proofs above is missing at the
+   *  deadline, naming the missing one. */
+  async stopAttachedForUpdate(deadlineMs = 15000): Promise<void> {
+    if (this.managed || !this.endpoint) return
+    const endpoint = this.endpoint
+    const descriptorFile = this.attachedFile('engine-attach.json')
+    const lockFile = this.attachedFile('.desktop-engine.lock')
+    await this.requestAttachedShutdown(endpoint)
+    const outcome = await this.awaitAttachedRelease(endpoint, descriptorFile, lockFile, deadlineMs)
+    if (outcome.released) {
+      this.endpoint = ''
+      this.state({ state: 'stopped', message: 'Engine stopped' })
+      return
+    }
+    if (!outcome.endpointDead) throw new Error('Background engine did not stop for the update')
     if (descriptorFile && fs.existsSync(descriptorFile)) throw new Error('Background engine port closed but its host has not confirmed process exit; refusing the update')
     throw new Error('Background engine tree release could not be established (guardian lock still held or unverifiable); refusing the update')
+  }
+
+  /** Terminate `pid` and every descendant, and wait for the request to be
+   *  issued. On Windows that is taskkill /T /F: the engine's own death also
+   *  drops the guardian's job object, so the two cover each other — /T walks
+   *  the parent links and the job covers anything that has since reparented. */
+  private forceKillTree(pid: number, timeoutMs = QUIT_DEADLINES.killMs): Promise<void> {
+    return new Promise(resolve => {
+      if (process.platform !== 'win32') { try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ } return resolve() }
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: Math.max(1, timeoutMs), windowsHide: true }, () => resolve())
+    })
+  }
+
+  /** Whether the descriptor on disk is still byte-for-byte the one this
+   *  attachment authenticated. A newer boot host publishes a NEW file, so a
+   *  changed (or absent) descriptor says the root has moved on and the PID
+   *  recorded here is not its engine — possibly not anyone's. */
+  private descriptorUnchanged(descriptorFile: string): boolean {
+    if (!descriptorFile || !this.attachedDescriptor) return false
+    try { return fs.readFileSync(descriptorFile, 'utf8') === this.attachedDescriptor } catch { return false }
+  }
+
+  /** THE QUIT PATH — what an intentional "Quit Orgtree" must leave behind:
+   *  nothing. `stop()` refuses an ATTACHED engine on purpose, because a
+   *  window closing is not a reason to end a headless engine; measured on
+   *  this machine, that same refusal is what let a tray-menu Quit leave the
+   *  boot host, its engine, its guardian and every provider child running
+   *  until the PC was rebooted, and what turned a maintenance RESTART into a
+   *  restart of the window only.
+   *
+   *  Graceful first, then PROVEN by `awaitAttachedRelease`, then FORCED: a
+   *  quit has nowhere to refuse to, so where the update path throws, this
+   *  terminates the engine PID the descriptor names. Killing the engine is
+   *  what takes the descendants: the guardian owns the only handle to their
+   *  job and terminates it the moment the engine exits, and the boot host
+   *  then observes its child gone and leaves on its own.
+   *
+   *  ⚠ THE FORCE IS GUARDED BY IDENTITY, NEVER BY A BARE PID, and neither
+   *  guard is redundant. A RELEASED guardian lock means the tree is already
+   *  gone — there is nothing to kill, and that PID may since have been handed
+   *  to anything. A CHANGED descriptor means a newer host owns this root, so
+   *  the PID recorded here is not its engine. Only what can still be shown to
+   *  be the tree this window authenticated is ever terminated. */
+  async stopForQuit(deadlineMs = QUIT_STOP_BUDGET_MS): Promise<'stopped' | 'forced' | 'unverified'> {
+    // ONE budget, apportioned. Every wait below takes what is left of it, and
+    // the graceful half always leaves the forced half its share — otherwise a
+    // slow engine would eat the whole budget on asking nicely and the
+    // termination that the asking failed to achieve would never be attempted.
+    const until = Date.now() + deadlineMs
+    const left = (): number => Math.max(0, until - Date.now())
+    // What the graceful half must leave behind. Capped at HALF the budget so
+    // a caller with less than the full sum still gets to ask nicely — the
+    // reserve exists to stop the asking eating everything, not to make a
+    // short budget skip it altogether.
+    const reserve = Math.min(QUIT_DEADLINES.killMs + QUIT_DEADLINES.provenMs, Math.floor(deadlineMs / 2))
+    const graceful = (want: number): number => Math.max(0, Math.min(want, left() - reserve))
+    if (this.managed) {
+      // Our own child: stop() already asks, waits and kills, and the guardian
+      // takes the tree with it. Only the CONFIRMATION is new — stop()
+      // resolving is not death — and the force covers a child that ignored
+      // the signal (a kill() is a request, exactly as it is for the update).
+      await this.stop()
+      if (await this.stoppedConfirmed(graceful(QUIT_DEADLINES.releaseMs))) return 'stopped'
+      const pid = this.child?.pid
+      if (!pid) return 'unverified'
+      await this.forceKillTree(pid, Math.min(QUIT_DEADLINES.killMs, left()))
+      return await this.stoppedConfirmed(Math.min(QUIT_DEADLINES.provenMs, left())) ? 'forced' : 'unverified'
+    }
+    if (!this.endpoint) return 'stopped'
+    const endpoint = this.endpoint
+    const descriptorFile = this.attachedFile('engine-attach.json')
+    const lockFile = this.attachedFile('.desktop-engine.lock')
+    const settled = (): void => { this.endpoint = ''; this.state({ state: 'stopped', message: 'Engine stopped' }) }
+    this.stopping = true
+    await this.requestAttachedShutdown(endpoint, graceful(QUIT_DEADLINES.requestMs))
+    if ((await this.awaitAttachedRelease(endpoint, descriptorFile, lockFile, graceful(QUIT_DEADLINES.releaseMs))).released) { settled(); return 'stopped' }
+    if (this.attachedEnginePid <= 0 || !this.descriptorUnchanged(descriptorFile) || this.guardianReleased(lockFile)) return 'unverified'
+    await this.forceKillTree(this.attachedEnginePid, Math.min(QUIT_DEADLINES.killMs, left()))
+    if ((await this.awaitAttachedRelease(endpoint, descriptorFile, lockFile, Math.min(QUIT_DEADLINES.provenMs, left()))).released) { settled(); return 'forced' }
+    return 'unverified'
   }
 
   async stats(): Promise<RuntimeStats | null> {
