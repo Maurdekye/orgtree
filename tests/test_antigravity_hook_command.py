@@ -349,23 +349,33 @@ class HookCommandTests(unittest.TestCase):
                 self.assertEqual(body["decision"], "deny", label)
                 self.assertIn("could not read", body["reason"], label)
 
+    @staticmethod
+    def _utf8_call(tool, text):
+        """A tool call whose ARGUMENTS really do carry non-ASCII BYTES.
+
+        ⚠ `ensure_ascii` defaults to TRUE, so plain `json.dumps` escapes every
+        non-ASCII character to `\\uXXXX` and the payload goes out pure ASCII —
+        which made an earlier version of this test exercise nothing at all
+        (caught in review). The bytes are asserted non-ASCII below rather than
+        assumed, because that assumption is exactly what failed."""
+        return json.dumps({"toolCall": {"name": tool, "args": {"q": text}}},
+                          ensure_ascii=False).encode("utf-8")
+
     def test_non_ascii_arguments_are_still_read(self):
         """The other half of reading stdin as bytes: a tool call whose
         ARGUMENTS carry non-ASCII must still parse, or denying-the-unreadable
         would block ordinary work on any non-UTF-8 console codepage."""
         cwd, _ = self._workspace()
         command = self._command_from_disk(cwd)
-        blob = json.dumps({"toolCall": {"name": "view_file",
-                                        "args": {"q": "café — ünïcode 中文"}}}
-                          ).encode("utf-8")
-        proc = run_hook_raw(command, blob, False)
-        body = json.loads(proc.stdout.decode("utf-8", "replace"))
-        self.assertEqual(body["decision"], "allow")
-        blob = json.dumps({"toolCall": {"name": "run_command",
-                                        "args": {"q": "日本語"}}}
-                          ).encode("utf-8")
-        proc = run_hook_raw(command, blob, False)
-        self.assertEqual(decision_of(proc), "deny")
+        for tool, want in (("view_file", "allow"), ("run_command", "deny")):
+            blob = self._utf8_call(tool, "café — ünïcode 中文 日本語")
+            # the control on the fixture: no high bytes, no test
+            self.assertTrue(any(b > 127 for b in blob),
+                            "payload went out pure ASCII: %r" % blob)
+            for slash_s in (False, True):
+                proc = run_hook_raw(command, blob, slash_s)
+                self.assertEqual(decision_of(proc), want,
+                                 "%s %s" % (tool, proc.stderr[:200]))
 
     def test_denying_the_unreadable_did_not_deny_everything(self):
         """THE CONTROL ON THE CONTROL. A hook that denies every payload would
