@@ -148,6 +148,24 @@ const migrateClientNodeState = (slug: string, from: string, to: string): void =>
 // fresh session and plays the configured intro again.
 let firstCanvasSlug: string | null = null
 let leftFirstOrg = false
+
+/** THE CAMERA INTENT - the view the user last ASKED FOR by a command, which
+ *  the canvas keeps honouring as the available canvas changes underneath it.
+ *
+ *    'org'    the whole-org fit. This is the historical `fitFollowing`
+ *             boolean, renamed rather than re-designed.
+ *    'focus'  ONE target filling the canvas: an agent's desk, or the
+ *             SWITCHBOARD when the id is the eye - the eye's desk is reached
+ *             by the same `centerOn`/`focusView` pair as any other.
+ *
+ *  `null` is "the camera is where the user last put it by hand, and nothing
+ *  automatic may move it". There is exactly ONE intent at a time: a later
+ *  command REPLACES the earlier one rather than stacking onto it, which is
+ *  why focusing something else retargets the follow instead of adding a
+ *  second one. */
+type CamIntent =
+  | { kind: 'org' }
+  | { kind: 'focus'; id: string; z: number | null }
 /** tests only: put the module back in the fresh-session state */
 export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
 
@@ -680,8 +698,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const visibleRect = worldViewport(view, viewportSize.w, viewportSize.h)
   const viewRef = useRef(view); viewRef.current = view
   const animRef = useRef<number | null>(null)
-  const fitFollowing = useRef(false)
-  const fitGeometry = useRef<{ slug: string; signature: string } | null>(null)
+  // user 2026-09-11: "fit whole org" already kept refitting as the available
+  // canvas changed, until you dragged or focused elsewhere - they asked for
+  // the switchboard and individual desks to behave the same way. One ref, one
+  // set of release conditions, three destinations (see `CamIntent`).
+  const camIntent = useRef<CamIntent | null>(null)
+  const fitGeometry = useRef<{ slug: string; canvas: string; whole: string } | null>(null)
   const animBusyRef = useRef(false)  // a camera animation owns the view
   const focusRef = useRef<string | null>(null)   // №25: the desk the camera rides with
   const followRef = useRef<{ id: string; x: number; y: number } | null>(null)
@@ -1245,7 +1267,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [])
 
   const animateTo = useCallback((to: View, ms = 460) => {
-    fitFollowing.current = false
+    // any glide drops the intent; the COMMAND that ordered the glide puts its
+    // own back afterwards. Keeping the clear here (rather than at each manual
+    // gesture) is what makes an unclaimed camera move - a zoom button, a
+    // jump chip - release the follow, exactly as it always did.
+    camIntent.current = null
     cancelAnimationFrame(animRef.current!)
     animBusyRef.current = true
     const from = { ...viewRef.current }
@@ -1468,7 +1494,34 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       }
     }
     animateTo(to)
+    // ...and the focus STICKS (user 2026-09-11). `animateTo` just cleared the
+    // intent; this is the command claiming the camera, the same way `fitAll`
+    // claims it for the whole org. Set AFTER the glide starts, never before.
+    camIntent.current = { kind: 'focus', id, z }
   }, [animateTo, focusView, regionOf, setFront, toast])
+
+  // Re-aim the camera at an ALREADY FOCUSED target after the available canvas
+  // changed under it. Deliberately NOT `centerOn`: this is not a new focus
+  // gesture. It must not reveal a hidden retiree, re-front a pile, raise a
+  // pinned window or repeat `centerOn`'s advisory toasts - a window drag
+  // fires this many times a second, and a toast per frame is not advice.
+  const refocus = useCallback((id: string, z: number | null) => {
+    // the intent can go STALE: the agent was retired and hidden, pruned out
+    // of the layout, or its desk moved into a pinned window (FR-3, "pinned
+    // means pinned" - `centerOn` refuses to glide to a pinned card too).
+    // Drop it rather than keep firing at something that is not there.
+    if (!targetRef.current.has(id) || hiddenRef.current.has(id)
+      || pinnedIdsRef.current.has(id)) {
+      camIntent.current = null
+      return
+    }
+    const to = focusView(id, z)
+    // pins cover the whole canvas: hold still and KEEP the intent, so moving
+    // a window off again re-fits instead of leaving the desk stranded
+    if (!to) return
+    animateTo(to, 320)     // same glide length the whole-org refit uses
+    camIntent.current = { kind: 'focus', id, z }
+  }, [animateTo, focusView])
   const centerRef = useRef<typeof centerOn | null>(null)
   centerRef.current = centerOn
 
@@ -1569,7 +1622,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     if (animate) animateTo(to, ms)
     else { viewRef.current = to; setView(to) }
-    fitFollowing.current = true
+    camIntent.current = { kind: 'org' }
   }, [animateTo, fitView, regionOf, toast])
   // mobile zoom range (spec §5.1): compact retires Z_DESK — the map never
   // reaches desk zoom, so the camera-derived focusId never fires and the
@@ -1633,7 +1686,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const eye = targetRef.current.get(USER)
     if (!vp || !eye) { fitAll(false); return }
     const mode = startView()
-    fitFollowing.current = false
+    camIntent.current = null
     // an org SWITCH restores the org's saved camera whatever the start-view
     // mode; only the session's first org keeps the configured intro (an org
     // with no saved camera still introduces itself below, as in 'remember')
@@ -1647,11 +1700,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     // the switchboard is a desk, and compact never reaches desk zoom (§5.1:
     // the sheet is the only desk there) — so on a phone it opens on the org
-    const dest = (mode === 'switchboard' && !compactRef.current
-      ? focusView(USER) : null) ?? fitView()
+    const swb = mode === 'switchboard' && !compactRef.current
+      ? focusView(USER) : null
+    const dest = swb ?? fitView()
     if (!dest) return
-    const fitting = mode !== 'switchboard' || compactRef.current
-    fitFollowing.current = fitting
+    // the intent describes WHERE THE CAMERA ACTUALLY WENT, which is why this
+    // reads `swb` and not the mode: a switchboard start-view whose focus was
+    // refused (pins covering the canvas) falls back to the whole-org fit
+    // above, and it is that fit the canvas must then keep honouring.
+    const intent: CamIntent = swb ? { kind: 'focus', id: USER, z: null } : { kind: 'org' }
+    camIntent.current = intent
     if (mode !== 'remember' && !startZoomOn()) {
       viewRef.current = dest
       setView(dest)
@@ -1668,22 +1726,59 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // from the stale camera instead of the eye
     viewRef.current = v0
     setView(v0)
-    const raf = requestAnimationFrame(() => { animateTo(dest, 1700); fitFollowing.current = fitting })
+    const raf = requestAnimationFrame(() => { animateTo(dest, 1700); camIntent.current = intent })
     return () => cancelAnimationFrame(raf)
   }, [tree.slug])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // A late inbox/roster payload can move the whole tree after its opening
   // fit. Restored modal pins register after the opening camera effect too.
-  // Keep a requested whole-org view fitted as layout, pins or viewport change;
-  // manual pan/zoom and a focused desk relinquish that camera intent.
+  // Keep the REQUESTED camera honoured as layout, pins or viewport change;
+  // manual pan/zoom relinquishes that intent, and focusing something else
+  // retargets it.
   useEffect(() => {
-    const signature = `${viewportSize.w}:${viewportSize.h}|` + [...target]
-      .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|') + '|pins:' + pinRectsRef.current
+    // THE AVAILABLE CANVAS - the viewport box and everything that eats into
+    // it. `viewportSize` is a ResizeObserver on the viewport ELEMENT, so this
+    // covers a browser resize AND any app layout change that resizes the
+    // canvas box (a sidebar opening, the window leaving full screen); the pin
+    // rectangles add the desktop windows and pinned modals that take a bite
+    // out of it. Both are exactly what `regionOf` reads, so this signature
+    // changes when, and only when, the free region can have changed.
+    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsRef.current
       .map(p => `${p.x}:${p.y}:${p.w}:${p.h}`).join('|')
+    // ...and the ORG'S OWN EXTENT on top of it, which is the other half of
+    // what a whole-org fit is a function of
+    const whole = canvas + '|nodes:' + [...target]
+      .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
     const previous = fitGeometry.current
-    fitGeometry.current = { slug: tree.slug, signature }
-    if (previous?.slug === tree.slug && previous.signature !== signature && fitFollowing.current) fitAll()
-  }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll])
+    fitGeometry.current = { slug: tree.slug, canvas, whole }
+    const intent = camIntent.current
+    if (!previous || previous.slug !== tree.slug || !intent) return
+    if (intent.kind === 'org') {
+      if (previous.whole !== whole) fitAll()
+      return
+    }
+    // A FOCUSED DESK RIDES THE AVAILABLE CANVAS, NOT THE TREE. The whole-org
+    // fit refits when any node moves because the org's bounds ARE the thing
+    // it is fitted to. A desk's are not: its size is fixed, so the only thing
+    // that can un-fit it is the space it is fitted INTO. Keying the refit on
+    // the tree as well would hand every unrelated update - a hire three
+    // branches away, an inbox count landing - the power to move the camera
+    // while the user reads, which is the one thing this must not do. The
+    // focused card MOVING is already handled, and better, by the per-frame
+    // follow in the spring tick (No25): it translates the camera with the
+    // card instead of re-gliding to it.
+    // ⚠ THE `isMobile` HALF OF THIS CONDITION IS INERT IN THIS BUILD, and is
+    // written down rather than dropped. `mobile.tsx` currently exports
+    // `isMobile = false` outright, so nothing here can reach the mobile
+    // branch — but the mobile camera paths are still in this file (the rotate
+    // handler above refits the org after a 250ms settle, `regionOf` ignores
+    // pins there, and the sheet rather than the camera is the desk, §5.1),
+    // and whoever restores that export must not have this follow start
+    // fighting the rotate refit. It guards nothing today. Do not read it as a
+    // tested branch.
+    if (isMobile || previous.canvas === canvas) return
+    refocus(intent.id, intent.z)
+  }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll, refocus])
 
   // …and the camera is REMEMBERED (D-228), whatever the startup mode: the
   // position is saved in every mode so that switching to 'remember' later
@@ -1749,7 +1844,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // chat zooms the canvas underneath it
       if ((e.target as Element | null)?.closest?.('.pinwin')) return
       e.preventDefault()
-      fitFollowing.current = false
+      camIntent.current = null
       cancelAnimationFrame(animRef.current!)
       animBusyRef.current = false
       const v = viewRef.current
@@ -1782,7 +1877,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // background pan (+ mobile pinch/tap — desktop keeps the exact old path)
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
-    fitFollowing.current = false
+    camIntent.current = null
     cancelAnimationFrame(animRef.current!)
     animBusyRef.current = false
     if (isMobile) {
