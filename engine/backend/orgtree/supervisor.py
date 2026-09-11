@@ -11238,6 +11238,15 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     node = org.node(nid)
     previous = str(node.get("account") or "")
     node["account"] = account
+    if previous != account and (
+            providers.provider_of(str(node.get("model") or "")) == "openai"
+            or bool(node.get("codex_thread"))):
+        node["session_id"] = str(uuid.uuid4())
+        node["session_unrun"] = True
+        node.pop("codex_thread", None)
+        node.pop("codex_account", None)
+        node.pop("codex_usage_total", None)
+        node.pop("cache_continuity", None)
     org._log("account_assign", actor,
              {"account": account, "previous_account": previous or None,
               "via": "switch_model"}, [])
@@ -11863,6 +11872,16 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         except Exception:                                    # noqa: BLE001
             prev_hash, prev_comp = "", None
         node["account"] = row["id"]
+        if previous != row["id"] and (
+                row["provider"] == "openai"
+                or providers.provider_of(tier) == "openai"
+                or bool(node.get("codex_thread"))):
+            node["session_id"] = str(uuid.uuid4())
+            node["session_unrun"] = True
+            node.pop("codex_thread", None)
+            node.pop("codex_account", None)
+            node.pop("codex_usage_total", None)
+            node.pop("cache_continuity", None)
         try:
             next_hash, next_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
@@ -12717,15 +12736,20 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     # text does not make either carrier redundant, so the manifest supplies
     # one resolved value to both and preserves both delivery paths.
     ident = str(process_spec["identity"])
+    _bound_home, _bound_id = codex_bound_home(org, nid)
     # resume ONLY a session id this leg itself harvested (`codex_thread`
     # equals it exactly then): a fresh hire's session_id is a MINTED uuid no
     # codex thread answers to, and a rehire/compact re-mint (which also sets
     # `session_unrun`) breaks the equality — either way the thread starts
-    # fresh instead of failing a resume against an id codex never issued
+    # fresh instead of failing a resume against an id codex never issued.
+    # Cross-account resume is forbidden: a thread established under another
+    # provider account has no rollout in this account's rollout store.
     resume_tid = (str(n.get("session_id") or "") or None
                   if not n.get("session_unrun")
                   and str(n.get("session_id") or "")
-                  == str(n.get("codex_thread") or "") else None)
+                  == str(n.get("codex_thread") or "")
+                  and str(n.get("codex_account") or "") == str(_bound_id or "")
+                  else None)
     from .desktop_native import native_session_path
     native_resume_path = native_session_path(org, nid) if resume_tid else None
     # Use the exact catalogue captured with the cache/process manifest. C4
@@ -13635,15 +13659,21 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # The never-run pardon is spent here too: codex's evidence of a run
         # is this very response, not a transcript file on disk.
         if tid and (tid != n.get("session_id") or n.get("session_unrun")
-                    or tid != n.get("codex_thread")):
+                    or tid != n.get("codex_thread")
+                    or str(n.get("codex_account") or "") != str(_bound_id or "")):
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
                 if nid in o2.nodes:
                     o2.node(nid)["session_id"] = tid
                     # the resume marker: session_id is a REAL codex threadId
                     o2.node(nid)["codex_thread"] = tid
+                    o2.node(nid)["codex_account"] = _bound_id
                     o2.node(nid).pop("session_unrun", None)
                     store.save_org(o2)
+            n["session_id"] = tid
+            n["codex_thread"] = tid
+            n["codex_account"] = _bound_id
+            n.pop("session_unrun", None)
         # The belt to the hook's braces: a no-op when `on_thread` already
         # opened the journal (the normal path), and the whole activation when
         # something bypassed it. Either way the turn ends up journaled.

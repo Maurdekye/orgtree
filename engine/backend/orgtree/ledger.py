@@ -4418,6 +4418,7 @@ class Org:
             # fail their marker equality. The lane markers die with the lane
             # (the bearer keeps its own copy — its session IS that thread).
             n.pop("codex_thread", None)
+            n.pop("codex_account", None)
             n.pop("antigravity_conversation", None)
             # the successor session never posed the seat's open ask, and has
             # no baseline for the predecessor's notice backlog — the same two
