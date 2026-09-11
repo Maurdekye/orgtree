@@ -275,6 +275,9 @@ interface HireDefaultsTabProps {
   dirs: DirGrant[]
   setDirs: (v: DirGrant[]) => void
   servers?: string[]
+  account?: string
+  setAccount?: (v: string) => void
+  accounts?: { id: string; provider: string; label: string; standing?: { state: string } }[]
 }
 
 /** the org's folder holdings as the server reports them, workspace excluded
@@ -327,17 +330,20 @@ export function McpCurrentServers({ servers, sandboxed, sandboxMcp }: {
 
 export function HireDefaultsTab({ tree, slug, toast, close,
   tools, setTools, vis, setVis, pm, setPm, dirs, setDirs,
-  servers: propServers }: HireDefaultsTabProps) {
+  servers: propServers, account, setAccount, accounts: propAccounts }: HireDefaultsTabProps) {
   const pub = !!tree.public
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>(propServers ?? [])
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
+  const [acctRows, setAcctRows] = useState<{
+    id: string; provider: string; label: string
+    standing?: { state: string } }[]>(propAccounts ?? [])
   useEffect(() => {
-    if (propServers !== undefined) {
-      setServers(propServers)
+    if (propAccounts !== undefined) {
+      setAcctRows(propAccounts)
     }
-  }, [propServers])
+  }, [propAccounts])
   useEffect(() => {
     let active = true
     const fetchServers = () => {
@@ -355,6 +361,28 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       window.removeEventListener('focus', fetchServers)
     }
   }, [propServers])
+  useEffect(() => {
+    let active = true
+    const fetchAccounts = () => {
+      req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
+        .then((r) => {
+          if (!active) return
+          setAcctRows(Array.isArray(r?.accounts) ? r.accounts : [])
+        })
+        .catch(() => {
+          if (!active) return
+          setAcctRows([])
+        })
+    }
+    if (propAccounts === undefined) {
+      fetchAccounts()
+    }
+    window.addEventListener('focus', fetchAccounts)
+    return () => {
+      active = false
+      window.removeEventListener('focus', fetchAccounts)
+    }
+  }, [slug, propAccounts])
   const allMcp = tools.mcp.includes('*')
   return (
     <>
@@ -457,6 +485,19 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             <option value="default">default — asks (headless: auto-denies)</option>
             <option value="acceptEdits">acceptEdits — the normal seat</option>
             <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
+          </select>
+        </SetRow>}
+        {!pub && <SetRow label="provider account for NEW agents"
+          hint="existing agents keep theirs — change those in the agent's own ⚙">
+          <select value={account ?? ''} aria-label="default provider account for new hires"
+            onChange={(e) => setAccount?.(e.target.value)}>
+            <option value="">(unbound — machine default)</option>
+            {acctRows.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label || r.id}{r.provider ? ` (${r.provider})` : ''}
+                {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
+              </option>
+            ))}
           </select>
         </SetRow>}
       </SetGroup>

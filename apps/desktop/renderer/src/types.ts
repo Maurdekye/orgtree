@@ -735,6 +735,8 @@ export interface TreePayload {
   compact_at: number
   default_tools: ToolGrant | null
   default_visibility: string
+  /** default provider account ID for new hires (unbound/null = machine default) */
+  default_account?: string | null
   /** the mode NEW hires are born with (D-101); existing nodes carry their own
    *  in `scope.permission_mode` and are changed one at a time in the ⚙ */
   permission_mode?: string
@@ -1894,6 +1896,7 @@ export interface SettingsRequest {
   fable_filter_model?: string | null
   default_tools?: Partial<ToolGrant> | null
   default_visibility?: string | null
+  default_account?: string | null
   /** D-101 — the mode NEW hires are born with; admin-only (this endpoint is
    *  frozen for kiosk visitors, unlike /defaults) */
   permission_mode?: string | null
@@ -1936,6 +1939,7 @@ export interface HireDefaultsRequest {
   default_tools?: Partial<ToolGrant> | null
   default_visibility?: string | null
   default_effort?: string | null
+  default_account?: string | null
   raise_ceiling?: boolean
 }
 

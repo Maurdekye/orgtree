@@ -2283,6 +2283,7 @@ class Settings(Body):
                                             # (existing nodes keep theirs; the ⚙
                                             # panel changes those one at a time)
     default_effort: str | None = None       # ""=CLI default | low..max (live inherit)
+    default_account: str | None = None      # default provider account for new hires
     # app-wide Luna pool-order default; agents with no individual preference
     # inherit it (deliberately not an org-doc setting)
     prefer_reserve: bool | None = None
@@ -2520,7 +2521,7 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
             raise HTTPException(422, f"unknown model tier '{body.fable_filter_model}'")
         org.d["fable_filter_model"] = body.fable_filter_model
     if (body.default_tools is not None or body.default_visibility in VIS_LEVELS
-            or body.permission_mode is not None):
+            or body.permission_mode is not None or body.default_account is not None):
         # agent defaults: applied to unspecified hires — top level directly,
         # deeper as ∩ with the superior's capability (clamped at hire time).
         # Routed through the ledger so the kiosk ceiling clamps stored
@@ -2533,6 +2534,7 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
             # admin surface only — /settings is frozen for kiosk visitors, so
             # a share-token holder can never raise the born-with mode
             permission_mode=body.permission_mode,
+            default_account=body.default_account,
             raise_ceiling=bool((org.d.get("kiosk") or {}).get("auto_raise")))
         warnings.extend(r.get("warnings") or [])
     if body.default_effort is not None \
@@ -2870,6 +2872,7 @@ async def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
 class HireDefaults(Body):
     default_tools: dict[str, Any] | None = None  # {bash, web, edit, subagents, mcp}
     default_visibility: str | None = None   # self|team|subtree|full
+    default_account: str | None = None      # default provider account ID (admin only)
     raise_ceiling: bool = False             # admin bridge (ignored for visitors)
 
 
@@ -2888,6 +2891,7 @@ async def org_hire_defaults(slug: str, body: HireDefaults,
             result = org.set_hire_defaults(
                 default_tools=body.default_tools,
                 default_visibility=body.default_visibility,
+                default_account=body.default_account if not pub else None,
                 raise_ceiling=rc)
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -7117,7 +7121,8 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                       a.get("name") or "", add_dirs=hdirs,
                       tools=a.get("tools"),
                       org_visibility=a.get("org_visibility"),
-                      charter=a.get("charter"))
+                      charter=a.get("charter"),
+                      account=a.get("account"))
     if dwarns:
         result.setdefault("warnings", []).extend(dwarns)
     if result.get("node"):
@@ -10445,7 +10450,8 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                               tools=body.tools, org_visibility=body.org_visibility,
                               charter=body.charter,
                               external_handles=body.external_handles,
-                              raise_ceiling=rc)
+                              raise_ceiling=rc,
+                              account=body.account)
             if body.effort:
                 # applied WITH the hire, atomically (same save): the draft
                 # gear's effort used to ride a separate /scope call that the

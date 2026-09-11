@@ -39,7 +39,11 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
   } as unknown as TreePayload
 }
 
-function stubFetch(seen: { method: string; path: string; body: unknown }[], mcpServers?: string[]) {
+function stubFetch(
+  seen: { method: string; path: string; body: unknown }[],
+  mcpServers?: string[],
+  accounts?: unknown[],
+) {
   g.fetch = (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const method = init?.method ?? 'GET'
@@ -49,7 +53,8 @@ function stubFetch(seen: { method: string; path: string; body: unknown }[], mcpS
       ? { content: '# Acme\n' }
       : path.startsWith('/api/orgs/acme/net') ? { hubs: [], identity: null }
         : path === '/api/mcp-servers' ? { servers: mcpServers ?? [], sandbox_mcp: false }
-          : {}
+          : path === '/api/accounts' ? { accounts: accounts ?? [] }
+            : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(payload),
@@ -424,6 +429,108 @@ test('⑨  Hire defaults renders long registered server lists in a scrollable co
     assert.equal(chips.length, 30)
     assert.equal(chips[0]?.textContent?.trim(), 'server-00')
     assert.equal(chips[29]?.textContent?.trim(), 'server-29')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑩  Hire defaults renders account selector with (unbound — machine default) when no accounts are registered', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  stubFetch(seen, ['mcp-a'], [])
+  const { view } = await mountOrg()
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    const sel = view.el.querySelector<HTMLSelectElement>(
+      'select[aria-label="default provider account for new hires"]')
+    assert.ok(sel, 'account selector found')
+    assert.equal(sel.value, '')
+    const opts = [...sel.querySelectorAll('option')]
+    assert.equal(opts.length, 1)
+    assert.equal(opts[0]?.value, '')
+    assert.equal(opts[0]?.textContent?.trim(), '(unbound — machine default)')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑪  Hire defaults exposes live account options, updates selection, and persists in save payload', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  const accounts = [
+    { id: 'acct-claude-primary', provider: 'claude', label: 'Primary Claude', standing: { state: 'healthy' } },
+  ]
+  stubFetch(seen, ['mcp-a'], accounts)
+  const { view, closed } = await mountOrg()
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    const sel = view.el.querySelector<HTMLSelectElement>(
+      'select[aria-label="default provider account for new hires"]')
+    assert.ok(sel, 'account selector found')
+    assert.equal(sel.value, '')
+    const opts = [...sel.querySelectorAll('option')]
+    assert.equal(opts.length, 2)
+    assert.equal(opts[1]?.value, 'acct-claude-primary')
+    assert.match(opts[1]?.textContent ?? '', /Primary Claude\s*\(claude\)/)
+
+    // select the account
+    await setField(sel, 'acct-claude-primary')
+    assert.equal(sel.value, 'acct-claude-primary')
+
+    // save settings
+    seen.length = 0
+    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.trim() === 'save')!
+    await inAct(async () => { save.click(); await flush(12) })
+
+    const defaultsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults')
+    assert.ok(defaultsCall, 'defaults POST called')
+    const defaultsBody = defaultsCall!.body as Record<string, unknown>
+    assert.equal(defaultsBody.default_account, 'acct-claude-primary')
+
+    const settingsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/settings')
+    assert.ok(settingsCall, 'settings POST called')
+    const settingsBody = settingsCall!.body as Record<string, unknown>
+    assert.equal(settingsBody.default_account, 'acct-claude-primary')
+    assert.equal(closed.length, 1)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑫  Hire defaults handles multiple accounts across providers with limited standings and respects tree.default_account', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  const accounts = [
+    { id: 'acct-claude-1', provider: 'claude', label: 'Work Claude', standing: { state: 'healthy' } },
+    { id: 'acct-claude-2', provider: 'claude', label: 'Backup Claude', standing: { state: 'limited' } },
+    { id: 'acct-codex-1', provider: 'openai', label: 'Codex Main', standing: { state: 'healthy' } },
+  ]
+  stubFetch(seen, ['mcp-a'], accounts)
+  const { view } = await mountOrg({ default_account: 'acct-claude-2' })
+  try {
+    await open(view.el, 'Hire defaults')
+    await inAct(async () => { await flush(20) })
+
+    const sel = view.el.querySelector<HTMLSelectElement>(
+      'select[aria-label="default provider account for new hires"]')
+    assert.ok(sel, 'account selector found')
+    // Pre-filled with tree.default_account
+    assert.equal(sel.value, 'acct-claude-2')
+
+    const opts = [...sel.querySelectorAll('option')]
+    assert.equal(opts.length, 4) // unbound + 3 accounts
+    assert.match(opts[2]?.textContent ?? '', /Backup Claude\s*\(claude\)\s*\(limited — will wait\)/)
+    assert.match(opts[3]?.textContent ?? '', /Codex Main\s*\(openai\)/)
+
+    // Select unbound
+    await setField(sel, '')
+    assert.equal(sel.value, '')
+
+    seen.length = 0
+    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.trim() === 'save')!
+    await inAct(async () => { save.click(); await flush(12) })
+
+    const defaultsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults')
+    assert.ok(defaultsCall, 'defaults POST called')
+    const defaultsBody = defaultsCall!.body as Record<string, unknown>
+    assert.equal(defaultsBody.default_account, '')
   } finally { await view.unmount(); delete g.fetch }
 })
 

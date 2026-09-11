@@ -2658,6 +2658,8 @@ export function SettingsPanel({ tree, toast, close }: {
   const setHireVis = set<string>('hire.vis', hireVis)
   const hirePm = val('hire.pm', tree.permission_mode ?? 'acceptEdits')
   const setHirePm = set<string>('hire.pm', hirePm)
+  const hireAccount = val('hire.account', tree.default_account ?? '')
+  const setHireAccount = set<string>('hire.account', hireAccount)
   const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
   const hireDirs = val<DirGrant[]>('hire.dirs', srvDirs)
   const setHireDirs = set<DirGrant[]>('hire.dirs', hireDirs)
@@ -2814,7 +2816,8 @@ export function SettingsPanel({ tree, toast, close }: {
             tools={hireTools} setTools={setHireTools}
             vis={hireVis} setVis={setHireVis}
             pm={hirePm} setPm={setHirePm}
-            dirs={hireDirs} setDirs={setHireDirs} />}
+            dirs={hireDirs} setDirs={setHireDirs}
+            account={hireAccount} setAccount={setHireAccount} />}
         </SettingsTabPanel>
 
         {/* ── Policies (was the advanced modal's "general" tab) ─────────── */}
@@ -2966,7 +2969,8 @@ export function SettingsPanel({ tree, toast, close }: {
                   // when that tab was actually edited — an unchanged
                   // `org_dirs` still makes the server sweep every node.
                   org_dirs: hireEdited ? hireDirs : undefined,
-                  permission_mode: hireEdited ? hirePm : undefined }),
+                  permission_mode: hireEdited ? hirePm : undefined,
+                  default_account: hireEdited ? hireAccount : undefined }),
               // pass the org.md warnings through rather than swallowing them:
               // a save that delivers less than it stored has to SAY so, and
               // this array is already how every other job reaches the toast
@@ -2980,7 +2984,8 @@ export function SettingsPanel({ tree, toast, close }: {
             // it survives the move (see `HireDefaultsTab`).
             const hireJob: Promise<OpResult> = hireEdited
               ? saveHireDefaults(tree.slug, { default_tools: hireTools,
-                                              default_visibility: hireVis })
+                                              default_visibility: hireVis,
+                                              default_account: hireAccount })
               : Promise.resolve({})
             Promise.all([Promise.all(jobs), hireJob]).then(([rs, hire]) => {
               const cleared = rs.flatMap((r) => r.freezes_cleared ?? [])
@@ -2999,6 +3004,7 @@ export function SettingsPanel({ tree, toast, close }: {
                 { label: 'raise ceiling & apply',
                   fn: () => saveHireDefaults(tree.slug,
                     { default_tools: hireTools, default_visibility: hireVis,
+                      default_account: hireAccount,
                       raise_ceiling: true })
                     .then((r3) => toast(r3.warnings?.length ? r3.warnings
                       : ['ceiling raised — defaults applied']))

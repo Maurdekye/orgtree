@@ -1619,6 +1619,7 @@ class Org:
     def set_hire_defaults(self, default_tools: Mapping[str, Any] | None = None,
                           default_visibility: str | None = None,
                           permission_mode: str | None = None,
+                          default_account: str | None = None,
                           raise_ceiling: bool = False) -> dict[str, Any]:
         """The org's agent-hire defaults (the eye's gear). Kiosk VISITORS may
         set these too (user ruling 2026-07-31) — a default is just a pre-filled
@@ -1654,13 +1655,38 @@ class Org:
                 warnings=warnings)
             self.d["permission_mode"] = cast(str, p2)      # pm in ⇒ pm out
             bridged = bridged or b
+        if default_account is not None:
+            acct_val = default_account.strip() if isinstance(default_account, str) else None
+            if acct_val:
+                try:
+                    from . import registry
+                    row = registry.get_account(acct_val)
+                    scope = str(row.get("origin_org") or "")
+                    if scope and scope != self.d.get("slug"):
+                        raise LedgerError(
+                            f"account {row['id']} is an org key restricted to its origin "
+                            f"organization {scope!r}")
+                except LedgerError:
+                    raise
+                except Exception as e:
+                    try:
+                        from .registry import UnknownAccount
+                        if isinstance(e, UnknownAccount):
+                            raise LedgerError(f"no account {acct_val!r} is registered")
+                    except ImportError:
+                        pass
+                self.d["default_account"] = acct_val
+            else:
+                self.d["default_account"] = None
         self._log("set_defaults", USER,
                   {"tools": self.d.get("default_tools"),
                    "visibility": self.d.get("default_visibility"),
-                   "permission_mode": self.d.get("permission_mode")}, warnings)
+                   "permission_mode": self.d.get("permission_mode"),
+                   "default_account": self.d.get("default_account")}, warnings)
         res: dict[str, Any] = {"default_tools": self.d.get("default_tools"),
                                "default_visibility": self.d.get("default_visibility"),
                                "permission_mode": self.d.get("permission_mode"),
+                               "default_account": self.d.get("default_account"),
                                "warnings": warnings}
         if bridged:
             res["bridge"] = {"raise_ceiling": True}
@@ -3003,7 +3029,8 @@ class Org:
              add_dirs: list[Any] | None = None, tools: Mapping[str, Any] | None = None,
              org_visibility: str | None = None, charter: str | None = None,
              external_handles: list[str] | None = None,
-             raise_ceiling: bool = False) -> dict[str, Any]:
+             raise_ceiling: bool = False,
+             account: str | None = None) -> dict[str, Any]:
         """§4.2 + §4.6. `parent` None = top level (actor must be USER). If actor is a
         strict ancestor of parent, credits cascade down the path (forcible hire).
 
@@ -3141,8 +3168,31 @@ class Org:
             "tuple[ToolGrant, list[DirGrant], str, str | None, bool]",
             self._apply_ceiling(tools=tset, dirs=dirs, vis=vis,
                                 raise_ceiling=raise_ceiling, warnings=warnings))
+        # default account: if explicit account given, validate and assign it;
+        # otherwise inherit org default_account if compatible with this tier
+        node_account: str | None = None
+        if account is not None and account.strip():
+            acct_clean = account.strip()
+            try:
+                from . import registry
+                registry.validate_binding(self.d.get("slug", ""), tier, acct_clean)
+            except Exception as e:
+                raise LedgerError(str(e))
+            node_account = acct_clean
+        elif account is None and self.d.get("default_account"):
+            def_acct = str(self.d.get("default_account") or "").strip()
+            if def_acct:
+                try:
+                    from . import registry
+                    registry.validate_binding(self.d.get("slug", ""), tier, def_acct)
+                    node_account = def_acct
+                except Exception:
+                    node_account = None
+
         nid = self._new_node(tier, parent, int(grant), name, dirs, tset, vis,
                              str(charter).strip() if charter else None)
+        if node_account:
+            self.nodes[nid]["account"] = node_account
         if handles:
             self.nodes[nid]["external_handles"] = handles
             stamp_handles(self.nodes[nid], handles)      # D-166
@@ -3168,6 +3218,7 @@ class Org:
                         _hired("peer"))
         self._log("hire", actor, {"node": nid, "parent": parent, "tier": tier,
                                   "grant": int(grant), "charter": gist,
+                                  **({"account": node_account} if node_account else {}),
                                   **({"external_handles": handles} if handles else {})},
                   warnings)
         res: dict[str, Any] = {"node": nid, "warnings": warnings}
@@ -9564,6 +9615,7 @@ class Org:
             "compact_at": self.d.get("compact_at", 0.80),
             "default_tools": self.d.get("default_tools"),
             "default_visibility": self.d.get("default_visibility", "full"),
+            "default_account": self.d.get("default_account"),
             # the mode NEW hires are born with — editable post-creation
             # (D-101); each existing node carries its own in `scope`
             "permission_mode": self.d.get("permission_mode", "acceptEdits"),
