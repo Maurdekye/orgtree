@@ -43,17 +43,34 @@
 //   · NOT stateful across renders. Nothing is cached between passes, so a row
 //     that grows — streaming text, a tool result landing — keeps growing.
 //
-// Ids are compared as opaque strings and never parsed: transcript rows carry
-// the server's `_stable_event_id` (a provider id, or a content hash), live
-// rows carry `live:<boot>:<slug>:<node>:<n>`, transient rows carry a
-// reply_events id. Those are different namespaces on purpose — see the commit
-// message for which overlaps this therefore can and cannot catch.
+// ⚠ DEDUPLICATE ON THE MOST DURABLE ID A ROW HAS, and claim the others
+// (coordinator-astra review, 2026-09-11). A row can arrive under more than one
+// name, and picking the wrong one makes this guard miss the very duplicate it
+// exists for:
+//   · `native_event_id` is the CLI/journal RECORD uuid. It identifies the
+//     EVENT, and it is the same string on a transcript row and on its live
+//     twin. It never changes.
+//   · `event_id` is what reply_events._annotate put on the wire: a snapshot id
+//     hashed over the incarnation, the source AND THE QUOTED TEXT. Two reads of
+//     one row whose text moved on — a stale scrollback copy beside the fresh
+//     one — therefore arrive under DIFFERENT event_ids while their
+//     native_event_id is identical. Deduplicating on event_id alone renders
+//     both, which is exactly the doubled message being reported.
+// So the durable id decides, the reply id is claimed alongside it, and a row
+// with only one of them uses that one.
 
 /** A single render pass's "already shown" set. Make one per render, feed every
  *  message list through it in the order those lists appear on screen. */
 export interface EventDedup {
   /** May a row with this id render? Records the id when it may. */
   keep(id: unknown): boolean
+  /** Record a SECOND identity the row being rendered also owns, so a later
+   *  list cannot draw the same event under that other name. Deliberately
+   *  returns nothing: the answer to "may it render" was already decided by
+   *  the identity it was deduplicated on, and a discarded boolean here reads
+   *  like a forgotten check (coordinator-astra review, 2026-09-11 — where an
+   *  earlier draft really had forgotten one). */
+  claim(id: unknown): void
   /** `rows` with each id rendered once: at its FIRST position in this list,
    *  carrying the content of its LAST copy in this list, and omitted entirely
    *  if an earlier list already drew it. */
@@ -78,6 +95,10 @@ export function eventDedup(): EventDedup {
       if (seen.has(key)) { dropped++; return false }
       seen.add(key)
       return true
+    },
+    claim(id: unknown): void {
+      const key = ident(id)
+      if (key !== null) seen.add(key)
     },
     list<T>(rows: readonly T[], idOf: (row: T) => unknown): T[] {
       // Index the repeats FIRST, so the copy that renders is the freshest

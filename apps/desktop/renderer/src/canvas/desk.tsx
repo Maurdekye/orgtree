@@ -1357,10 +1357,24 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
     (sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
+  // Every reply id the payload carries, mapped to the event it belongs to.
+  // A reply naming the STALE snapshot of a row still has somewhere to go: the
+  // surviving snapshot of that same event is on screen under a different reply
+  // id, and this is what finds it (coordinator-astra review, 2026-09-11 —
+  // deduplicating must not cost a working reply link).
+  const durableOf = new Map<string, string>()
+  for (const m of chat?.messages ?? []) {
+    if (m.event_id && m.native_event_id) durableOf.set(m.event_id, m.native_event_id)
+  }
   const locateReply = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
-    const element = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
-      .find(el => el.dataset.replyEvent === r.eventId)
+    const rows = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
+    const durable = durableOf.get(r.eventId)
+    const element = rows.find(el => el.dataset.replyEvent === r.eventId)
+      ?? (durable
+        ? [...surfaceDocument.querySelectorAll<HTMLElement>('[data-native-event]')]
+          .find(el => el.dataset.nativeEvent === durable)
+        : undefined)
     element?.scrollIntoView?.({ block: 'center' })
   }
   const renderReply = (wire: unknown) => {
@@ -1726,17 +1740,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // Nothing here compares text: two events that say the same words are two
   // events and both render. See events/dedup.ts.
   const dedup = eventDedup()
-  const viewMessages = dedup.list(chat?.messages ?? [], (m) => m.event_id)
-  // THE SHARED DURABLE ID (user ruling 2026-09-11). A transcript row carries
-  // TWO identities: the projection's own `event_id` (a byte offset into the
-  // CLI transcript, which nothing outside that file can compute) and
-  // `native_event_id` — the record uuid the CLI stamped, which the live
-  // emitter now stamps on its row too. Claiming the second one here, after the
-  // transcript is drawn and before the live tail is, is what lets this guard
-  // suppress a live row that is the SAME EVENT as a row already on screen.
-  // The backend's own sweep should have retired it first; this is the backstop
-  // for when it does not, which is the case the user keeps hitting.
-  for (const m of viewMessages) dedup.keep(m.native_event_id)
+  // A transcript row arrives under TWO names and the DURABLE one decides — see
+  // events/dedup.ts. `native_event_id` is the record uuid, identical on every
+  // read of the row and on its live twin; `event_id` is a reply snapshot id
+  // hashed over the row's own quoted text, so two reads of one row whose text
+  // moved on arrive under different ones. Deduplicating on the reply id alone
+  // rendered both (coordinator-astra review, 2026-09-11).
+  const viewMessages = dedup.list(chat?.messages ?? [],
+    (m) => m.native_event_id ?? m.event_id)
+  // …and each surviving row still OWNS its reply id, so nothing below can draw
+  // the same event under that other name either.
+  for (const m of viewMessages) dedup.claim(m.event_id)
   const viewPendNow = dedup.list(pendNow, (m) => m.event_id)
   // a live row is identified by its DURABLE id where it has one — that is
   // the id its transcript twin claimed above — and by its own otherwise
@@ -2380,8 +2394,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div data-transcript-row key={m.event_id ?? m.seq ?? i}
+              <div data-transcript-row key={m.event_id ?? m.native_event_id ?? m.seq ?? i}
                 data-reply-event={m.event_id} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
+                // the durable anchor a reply falls back to when the exact
+                // snapshot it names was deduplicated away — see locateReply
+                data-native-event={m.native_event_id}
                 // FR-20: scroll-to anchors — every user turn is a potential
                 // chip target now that scrolling past one retargets to the
                 // next up the chain, so each keeps its row in the seq→el map
@@ -3060,9 +3077,11 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                             desk runs, on its OWN pass: this is a different
                             conversation (an archived generation's), so it must
                             never share an id set with the desk above it. */}
-                        {eventDedup().list(readChat.messages.slice(-80), (m) => m.event_id)
+                        {eventDedup().list(readChat.messages.slice(-80),
+                          (m) => m.native_event_id ?? m.event_id)
                           .map((m, i) => (
-                            <Msg key={m.event_id ?? i} m={m} slug={slug} nid={b.id} />))}
+                            <Msg key={m.event_id ?? m.native_event_id ?? i}
+                              m={m} slug={slug} nid={b.id} />))}
                       </AgentDirectoryProvider>
                     )
                     : <div className="dim pad">no transcript found</div>}

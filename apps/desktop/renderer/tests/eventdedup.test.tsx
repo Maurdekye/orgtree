@@ -8,26 +8,41 @@
 //     within ONE view, one stable event id renders at most once.
 //
 // Everything here is counted STRUCTURALLY off the mounted desk — the rows
-// carry their identity in `data-reply-event`, so a duplicate is a repeated
-// attribute value, not a guess about what the text looks like.
+// carry their identity in `data-reply-event` and `data-native-event`, so a
+// duplicate is a repeated attribute value, not a guess about the text.
+//
+// ⚠ WHICH ID IS WHICH, because a leg that compares the wrong one proves
+// nothing (this suite has had that defect twice, both times found in review):
+//   · `native_event_id` is the CLI/journal RECORD uuid. It identifies the
+//     EVENT, never changes, and is the SAME string on a transcript row and on
+//     its live twin — the singular durable id the user asked for.
+//   · `event_id` is what reply_events._annotate puts on the wire: a snapshot
+//     id hashed over the incarnation, the source AND THE QUOTED TEXT. Two
+//     reads of one row whose text moved on arrive under DIFFERENT event_ids.
+//     A live row and its durable twin never share one, their quotes differing
+//     because the live copy is the capped one.
+// So fixtures carry realistic `reply_…` event_ids and put the shared uuid
+// where the backend really puts it. §7d is the leg that exists because an
+// earlier draft deduplicated on the reply id alone and rendered both.
 //
 // ⚠ ANTI-VACUITY. A dedup suite passes trivially if its fixtures contain no
 // duplicate to remove, so every suppression leg is paired with proof that the
 // duplicate was really there:
-//   · §7 asserts the STORE holds two rows with one id while the VIEW shows one
-//     — the fixture is the real scrollback path, not a hand-placed pair.
-//   · §2/§3/§6 are the controls in the other direction: identical text under
-//     different ids, and rows with no id at all, must ALL still render. They
-//     fail if the guard ever widens into text matching or treats "no id" as an
-//     identity.
+//   · §7/§7b/§7d assert the STORE holds two rows for one event while the VIEW
+//     shows one — the fixture is the real scrollback path through the real
+//     store, not a hand-placed pair.
+//   · §2/§3/§6/§7e/§11 are the controls in the other direction: identical text
+//     under different ids, rows with no id at all, and distinct durable ids
+//     must ALL still render. They fail if the guard ever widens into text
+//     matching or treats "no id" as an identity.
+//   · §7f fails if deduplicating costs a working reply link.
 //   · §8 fails if the id set is ever shared between views.
 //
-// ⚠ DECLARED INERT REGION. §5 drives a live row that carries a transcript
-// row's event id. No backend path stamps one today — `supervisor.live_row`
-// mints `live:<boot>:<slug>:<node>:<n>` and none of its 16 call sites passes
-// an `event_id` — so that leg exercises the guard's MECHANISM across the
-// stream/history boundary, not a duplicate the current server can produce.
-// Said plainly rather than left to read as coverage it is not.
+// ⚠ DECLARED LIMIT. §5 drives a live row carrying a transcript row's *reply*
+// id, which the wire cannot actually produce (the quote is in that hash). It
+// exercises the guard's mechanism across the stream/history boundary; §10 is
+// the leg for the shape the backend really sends. Said plainly rather than
+// left to read as coverage it is not.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs eventdedup
 
@@ -382,6 +397,131 @@ domTest('§7c across lists the EARLIER source still wins: a truncated live twin 
     assert.equal(says(el, 'the whole durable answer, every word of it'), 1)
     assert.equal(liveIds(el).length, 0, 'the live twin is gone, not promoted')
     assert.equal(says(el, '✂'), 0, 'no truncation marker — the whole text survived')
+  })
+
+domTest('§7d THE REAL WIRE: one event, two reply ids, one native id — one row, the fresh one',
+  async ({ ND, s, sink, mount }) => {
+    // coordinator-astra review 2026-09-11, and the defect that survived my
+    // first two rounds. §7/§7b give both snapshots the SAME event_id, which is
+    // only what the wire carries when the row's TEXT did not move. It usually
+    // does: reply_events._annotate hashes the quoted text INTO event_id, so a
+    // stale scrollback copy and the fresh read of the same row arrive under
+    // DIFFERENT reply ids. Deduplicating on event_id alone renders both — the
+    // doubled message being reported. Their `native_event_id` (the CLI record
+    // uuid) is identical, and that is what has to decide.
+    s.cursorPages = true
+    for (let i = 0; i < 20; i++) {
+      row(s, `row ${i}`, `reply_${i}_v1`, { native_event_id: `uu-${i}` } as never)
+    }
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await advance(100)
+    await inAct(() => { assert.equal(loadOlder(SL, ND, 8), true) })
+    await advance(100)
+    const retained = sink.at(-1)!.chat!.messages.find((m) => m.native_event_id === 'uu-12')!
+    assert.equal(retained.event_id, 'reply_12_v1', 'fixture: the stale snapshot')
+
+    await inAct(async () => {
+      // the row moves on: new text, a tool lands — and because the quote is in
+      // the hash, the projection issues it a NEW reply id
+      const fresh = s.messages.find((m) => m.native_event_id === 'uu-12')!
+      fresh.text = 'row 12, finished and revised'
+      fresh.event_id = 'reply_12_v2'
+      fresh.tools = [{ id: 't-12', name: 'Bash', arg: 'the late tool result',
+        event_id: 'tool-evt-12' }] as never
+      // …and a row lands earlier in history, shifting every later seq by one,
+      // which is what puts the retained copy beside the fresh one
+      for (const m of s.messages) m.seq = (m.seq ?? 0) + 1
+      s.messages.unshift({ role: 'user', text: 'the interleaved steer', seq: 0,
+        ts: new Date(Date.now()).toISOString(), event_id: 'reply_steer',
+        native_event_id: 'uu-steer' } as ChatMessage)
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+
+    const held = sink.at(-1)!.chat!.messages.filter((m) => m.native_event_id === 'uu-12')
+    assert.equal(held.length, 2, 'fixture: the store holds both snapshots')
+    assert.deepEqual(held.map((m) => m.event_id).sort(),
+      ['reply_12_v1', 'reply_12_v2'],
+      'fixture: and they arrive under DIFFERENT reply ids, as the wire does')
+
+    const ids = rowIds(el)
+    assert.deepEqual(dup(ids), [], `no event renders twice (${ids.join(',')})`)
+    assert.equal(ids.filter((id) => id.startsWith('reply_12_')).length, 1,
+      'exactly one row for that event')
+    assert.equal(says(el, 'row 12, finished and revised'), 1, 'and it is the FRESH copy')
+    assert.equal(says(el, 'the late tool result'), 1, 'carrying what landed since')
+    assert.equal(says(el, 'row 12'), 1, 'the stale copy is not also on screen')
+    // the surviving row carries the FRESH reply id, so replying to it targets
+    // the snapshot the server most recently issued
+    const survivor = [...el.querySelectorAll('[data-transcript-row]')]
+      .find((r) => r.getAttribute('data-native-event') === 'uu-12')!
+    assert.ok(survivor, 'and it is anchored by its durable id')
+    assert.equal(survivor.getAttribute('data-reply-event'), 'reply_12_v2')
+    // …still between its neighbours
+    assert.equal(ids.indexOf('reply_12_v2'), ids.indexOf('reply_11_v1') + 1)
+    assert.equal(ids.indexOf('reply_13_v1'), ids.indexOf('reply_12_v2') + 1)
+  })
+
+domTest('§7e distinct native ids are distinct events, however alike they look',
+  async ({ ND, s, sink, mount }) => {
+    // the control for §7d. If the durable rule ever widened — matching on a
+    // prefix, on text, on a missing id — this is what catches it. Same words,
+    // same everything except the identity.
+    row(s, 'identical words', 'reply_a', { native_event_id: 'uu-a' } as never)
+    row(s, 'identical words', 'reply_b', { native_event_id: 'uu-b' } as never)
+    // …and a pair with no durable id at all, which must fall back to the
+    // reply id rather than collapsing into one "unknown"
+    row(s, 'identical words', 'reply_c')
+    row(s, 'identical words', 'reply_d')
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.deepEqual(rowIds(el), ['reply_a', 'reply_b', 'reply_c', 'reply_d'],
+      'four events, four rows')
+    assert.equal(says(el, 'identical words'), 4)
+  })
+
+domTest('§7f a reply naming the snapshot that was deduplicated away still finds its row',
+  async ({ ND, s, sink, mount }) => {
+    // deduplicating must not cost a working reply link (coordinator-astra
+    // review, 2026-09-11). A reply stored against the STALE snapshot's reply
+    // id has no row under that name any more — but the same EVENT is on
+    // screen under the fresh one, and that is where it must go.
+    const located: string[] = []
+    row(s, 'the answer being replied to', 'reply_old',
+      { native_event_id: 'uu-target' } as never)
+    row(s, 'the answer being replied to, revised', 'reply_new',
+      { native_event_id: 'uu-target' } as never)
+    row(s, 'the reply itself', 'reply_child', {
+      native_event_id: 'uu-child',
+      reply_to: { source_event_ref: { org: SL, agent: ND, generation: 0,
+        eventId: 'reply_old' }, quoted_context: 'the answer being replied to' },
+    } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    // the target event renders ONCE, under its fresh reply id
+    const target = [...el.querySelectorAll('[data-transcript-row]')]
+      .filter((r) => r.getAttribute('data-native-event') === 'uu-target')
+    assert.equal(target.length, 1, 'one row for the replied-to event')
+    assert.equal(target[0]!.getAttribute('data-reply-event'), 'reply_new')
+    // the reply chip is OFFERED, because the stale id is still a known source
+    const button = el.querySelector<HTMLButtonElement>('.reply-preview-head button')!
+    assert.ok(button, 'the reply preview is rendered')
+    assert.equal(button.disabled, false,
+      'and it is not greyed out just because its exact snapshot was collapsed')
+    // clicking it lands on the surviving row rather than nowhere
+    const win = el.ownerDocument.defaultView as unknown as
+      { Element: { prototype: { scrollIntoView?: unknown } } }
+    const original = win.Element.prototype.scrollIntoView
+    win.Element.prototype.scrollIntoView = function (this: Element) {
+      located.push(this.getAttribute('data-native-event')
+        ?? this.getAttribute('data-reply-event') ?? '?')
+    }
+    try { await inAct(async () => { button.click() }) }
+    finally { win.Element.prototype.scrollIntoView = original }
+    assert.deepEqual(located, ['uu-target'],
+      'the reply resolved through the durable id to the surviving snapshot')
   })
 
 // ============================================== the shared durable identity
