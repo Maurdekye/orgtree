@@ -16,7 +16,7 @@ await build({
   outfile: output, bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic',
   external: ['react', 'react/jsx-runtime'],
 })
-const { UpdateNotice } = createRequire(import.meta.url)(output)
+const { UpdateNotice, describeUpdateStatus } = createRequire(import.meta.url)(output)
 
 // The hide timer fires a state update outside of any React event handler, so
 // waiting for it must itself be wrapped in act() or React warns on the update.
@@ -40,6 +40,21 @@ async function mount(initial, transientMs, bridge = {}) {
   await act(async () => rootNode.render(React.createElement(UpdateNotice, transientMs === undefined ? undefined : { transientMs })))
   return { listeners, teardown, push: async status => act(async () => { for (const listener of listeners) listener({ type: 'update', data: status }) }) }
 }
+
+test('a check that ran with an update already prepared is reported in the same line as the ready update', () => {
+  // The status does not change state - the same installer is still what will
+  // run - so without this the user presses Check for updates, an update is
+  // already ready, and absolutely nothing on screen moves.
+  assert.equal(describeUpdateStatus({ state: 'pending-idle', version: '2.0.4' }), 'Update ready to install')
+  assert.equal(describeUpdateStatus({ state: 'pending-idle', version: '2.0.4', recheck: 'up-to-date' }),
+    'Update ready to install — no newer release')
+  assert.equal(describeUpdateStatus({ state: 'pending-idle', version: '2.0.4', recheck: 'unavailable' }),
+    'Update ready to install — the update check could not reach the feed')
+  // an unknown value must not reach the user as a dangling dash
+  assert.equal(describeUpdateStatus({ state: 'pending-idle', recheck: 'nonsense' }), 'Update ready to install')
+  // and the note belongs to pending-idle alone
+  assert.equal(describeUpdateStatus({ state: 'up-to-date', recheck: 'up-to-date' }), 'You’re up to date')
+})
 
 test('idle status on mount renders nothing', async () => {
   const { teardown } = await mount({ state: 'idle' })

@@ -10,7 +10,8 @@ const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
-  uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold } = createRequire(import.meta.url)(outfile)
+  uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
+  preparedSurvivesOffer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -98,16 +99,154 @@ test('progress only applies while downloading and carries the known version', as
   assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.0-alpha.6' }, 'downloaded keeps the version already known from the check')
 })
 
-test('a real pending update is never redundantly re-checked, by periodic tick or manual request', async () => {
-  const { controller, reports } = rig({ run: async () => ({ hasUpdate: true, version: '9.9.9' }) })
+// ------------------------------------------------------------------ checking
+// with an update already prepared (user 2026-09-11). Before this, a ready
+// package disabled the tray item AND made the manual check a no-op, so there
+// was no way to pick up a newer release without installing the old one first.
+
+test('the periodic tick still leaves a prepared update alone', async () => {
+  let calls = 0
+  const { controller, reports } = rig({ run: async () => { calls++; return { hasUpdate: true, version: '9.9.9' } } })
   await controller.tick()
   controller.downloaded()
   reports.length = 0
   await controller.tick()
-  assert.deepEqual(reports, [], 'periodic tick must not touch a known-pending download')
+  assert.deepEqual(reports, [], 'the unattended path must not touch a known-pending download')
+  assert.equal(calls, 1, 'and must not reach the feed either')
+})
+
+test('a manual check now RUNS with an update already prepared, and a newer release replaces it', async () => {
+  let calls = 0, answer = { hasUpdate: true, version: '2.0.4' }
+  const { controller, reports } = rig({ run: async () => { calls++; return answer } })
+  await controller.tick()
+  controller.downloaded('2.0.4')
+  assert.equal(calls, 1)
+  assert.equal(controller.preparedVersion(), '2.0.4')
+  reports.length = 0
+  answer = { hasUpdate: true, version: '2.0.5' }
   const status = await controller.check()
-  assert.deepEqual(status, { state: 'pending-idle', version: '9.9.9' })
-  assert.deepEqual(reports, [{ state: 'pending-idle', version: '9.9.9' }], 'manual check reports the existing status instead of re-checking')
+  assert.equal(calls, 2, 'the manual check must reach the feed, not report the prepared update straight back')
+  assert.deepEqual(reports, [{ state: 'checking' }, { state: 'downloading', version: '2.0.5' }])
+  assert.deepEqual(status, { state: 'downloading', version: '2.0.5' })
+  assert.equal(controller.preparedVersion(), undefined,
+    'the prepared package stops counting the moment a replacement starts: electron-updater has already deleted it')
+  controller.downloaded('2.0.5')
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.5' })
+  assert.equal(controller.preparedVersion(), '2.0.5')
+})
+
+test('a check that finds nothing newer keeps the prepared update and still answers the user', async () => {
+  let answer = { hasUpdate: true, version: '2.0.4' }
+  const { controller, reports } = rig({ run: async () => answer })
+  await controller.tick()
+  controller.downloaded('2.0.4')
+  reports.length = 0
+  answer = { hasUpdate: false }
+  const status = await controller.check()
+  assert.deepEqual(status, { state: 'pending-idle', version: '2.0.4', recheck: 'up-to-date' },
+    'the ready update must survive, and the check must still be answered')
+  assert.deepEqual(reports.at(-1), status)
+  assert.equal(updateReplacementInFlight(status), false, 'and it must be installable again straight away')
+})
+
+test('a check that cannot reach the feed keeps the prepared update and still answers the user', async () => {
+  let fail = false
+  const { controller } = rig({ run: async () => { if (fail) throw new Error('offline'); return { hasUpdate: true, version: '2.0.4' } } })
+  await controller.tick()
+  controller.downloaded('2.0.4')
+  fail = true
+  const status = await controller.check()
+  assert.deepEqual(status, { state: 'pending-idle', version: '2.0.4', recheck: 'unavailable' },
+    'losing a ready update to one moment without a network is the worst possible answer to "check again"')
+})
+
+test('the preserved-update path is CONDITIONAL: with nothing prepared the same two answers are unchanged', async () => {
+  const clean = rig({ run: async () => ({ hasUpdate: false }) })
+  assert.deepEqual(await clean.controller.check(), { state: 'up-to-date' })
+  const broken = rig({ run: async () => { throw new Error('offline') } })
+  assert.deepEqual(await broken.controller.check(), { state: 'unavailable' })
+})
+
+test('a preserved check leaves the package still REMEMBERED, so re-offering the same release is not read as a replacement', async () => {
+  let fail = true
+  const { controller } = rig({ run: async () => { if (fail) throw new Error('offline'); return { hasUpdate: false } } })
+  controller.downloaded('2.0.4')
+  assert.deepEqual(await controller.check(), { state: 'pending-idle', version: '2.0.4', recheck: 'unavailable' })
+  assert.equal(controller.preparedVersion(), '2.0.4',
+    'forgetting it here would make the next update-available for 2.0.4 look like a replacement and disable Update now')
+  assert.equal(preparedSurvivesOffer(controller.preparedVersion(), '2.0.4'), true)
+  fail = false
+  assert.deepEqual(await controller.check(), { state: 'pending-idle', version: '2.0.4', recheck: 'up-to-date' },
+    'and the stale failure must not survive the check that succeeded')
+  assert.equal(controller.preparedVersion(), '2.0.4')
+})
+
+test('a download already in progress still refuses a second check', async () => {
+  let calls = 0
+  const { controller, reports } = rig({ run: async () => { calls++; return { hasUpdate: true, version: '2.0.5' } } })
+  await controller.check()
+  assert.deepEqual(controller.current(), { state: 'downloading', version: '2.0.5' })
+  reports.length = 0
+  const status = await controller.check()
+  assert.equal(calls, 1, 'electron-updater would hand back the SAME in-flight download, so a second check can only disturb it')
+  assert.deepEqual(status, { state: 'downloading', version: '2.0.5' })
+  assert.deepEqual(reports, [{ state: 'downloading', version: '2.0.5' }])
+})
+
+test('preparedSurvivesOffer keeps only the exact same release', () => {
+  assert.equal(preparedSurvivesOffer('2.0.4', '2.0.4'), true)
+  assert.equal(preparedSurvivesOffer('2.0.4', '2.0.5'), false)
+  assert.equal(preparedSurvivesOffer('2.0.5', '2.0.4'), false,
+    'an OLDER offer replaces it too: the library deletes its cache on any sha512 difference, not on a version comparison')
+  assert.equal(preparedSurvivesOffer(undefined, '2.0.5'), false, 'not knowing what is prepared is no reason to keep promising it')
+  assert.equal(preparedSurvivesOffer('2.0.4', undefined), false, 'nor is not knowing what is coming')
+  assert.equal(preparedSurvivesOffer(undefined, undefined), false)
+})
+
+test('composed: the prepared package is uninstallable for the whole replacement window, and installable again after', async () => {
+  // The flags here are main/index.ts's own: `downloaded`, set by the
+  // update-downloaded event and cleared both by report() on 'downloading' and
+  // by the update-available guard. The PREDICATE is the real exported one, so
+  // this cannot pass by re-implementing the rule it is checking.
+  let downloaded = false
+  let answer = { hasUpdate: true, version: '2.0.4' }
+  const { controller } = rig({
+    run: async () => answer,
+    report: status => { if (status.state === 'downloading') downloaded = false },
+  })
+  const installable = () => downloaded && !updateReplacementInFlight(controller.current())
+  await controller.tick()
+  downloaded = true; controller.downloaded('2.0.4')
+  assert.equal(installable(), true)
+  answer = { hasUpdate: true, version: '2.0.5' }
+  const check = controller.check()
+  assert.equal(installable(), false, 'a check in flight may delete the package before it answers')
+  // electron-updater emits update-available BEFORE it starts the download that
+  // empties its cache; this is the guard main/index.ts hangs on that event.
+  if (!preparedSurvivesOffer(controller.preparedVersion(), '2.0.5')) downloaded = false
+  await check
+  assert.equal(installable(), false, 'and stays uninstallable for the replacement download')
+  downloaded = true; controller.downloaded('2.0.5')
+  assert.equal(installable(), true, 'the new package is installable once it has actually landed')
+  assert.equal(controller.current().version, '2.0.5')
+})
+
+test('composed: a preserved check leaves the package installable throughout, except while the check itself runs', async () => {
+  let downloaded = true, release
+  const barrier = new Promise(resolve => { release = resolve })
+  const { controller } = rig({
+    run: async () => { await barrier; return { hasUpdate: false } },
+    report: status => { if (status.state === 'downloading') downloaded = false },
+  })
+  controller.downloaded('2.0.4')
+  const installable = () => downloaded && !updateReplacementInFlight(controller.current())
+  assert.equal(installable(), true)
+  const check = controller.check()
+  assert.equal(installable(), false)
+  release()
+  await check
+  assert.equal(installable(), true, 'nothing newer means nothing was deleted')
+  assert.equal(controller.current().recheck, 'up-to-date')
 })
 
 test('concurrent checks coalesce into a single in-flight run', async () => {
@@ -413,6 +552,36 @@ test('tray update controls show progress and allow installation without a render
   assert.equal(items['update-install'].enabled, false)
 })
 
+test('the tray lets a prepared update be re-checked, and refuses to install one that may be being replaced', () => {
+  const pending = { state: 'pending-idle', version: '2.0.4' }
+  const ready = trayUpdateState(pending, true, false)
+  assert.equal(ready.checkEnabled, true, 'a prepared update must no longer disable checking - that was the whole bug')
+  assert.equal(ready.installEnabled, true)
+  const checking = trayUpdateState({ state: 'checking' }, true, false)
+  assert.equal(checking.checkEnabled, false, 'but a check already running still does')
+  assert.equal(checking.installVisible, true, 'the item stays put rather than flickering out of an open menu')
+  assert.equal(checking.installEnabled, false, 'the running check may be deleting the very package this would install')
+  assert.match(checking.label, /Checking/, 'and the status line says what is actually happening')
+  const replacing = trayUpdateState({ state: 'downloading', version: '2.0.5', percent: 12 }, true, false)
+  assert.equal(replacing.installEnabled, false)
+  assert.equal(replacing.checkEnabled, false)
+  assert.match(replacing.label, /2.0.5.*12%/, 'a replacement download reports itself, not "ready to install"')
+  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false).label, /ready to install - no newer release/)
+  assert.match(trayUpdateState({ ...pending, recheck: 'unavailable' }, true, false).label, /could not reach the update feed/)
+  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false, 'use Update now').label, /use Update now/,
+    'a hold still outranks the note from the last check')
+  // applying outranks everything, exactly as before
+  assert.equal(trayUpdateState(pending, true, true).checkEnabled, false)
+  assert.equal(trayUpdateState(pending, true, true).installEnabled, false)
+})
+
+test('updateReplacementInFlight names the two states that can be deleting the prepared package', () => {
+  assert.equal(updateReplacementInFlight({ state: 'checking' }), true)
+  assert.equal(updateReplacementInFlight({ state: 'downloading' }), true)
+  for (const state of ['idle', 'pending-idle', 'up-to-date', 'unavailable', 'failed'])
+    assert.equal(updateReplacementInFlight({ state }), false, `${state} cannot be replacing anything`)
+})
+
 test('tray handles failed, unavailable, current and invalid progress states honestly', () => {
   assert.match(trayUpdateState({ state: 'failed' }, false, false).label, /failed/)
   assert.equal(trayUpdateState({ state: 'failed' }, false, false).checkEnabled, true)
@@ -423,7 +592,9 @@ test('tray handles failed, unavailable, current and invalid progress states hone
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   assert.match(main, /id: 'update-install'[\s\S]*?requestUpdateInstall\(\)/)
   assert.match(main, /id: 'update-check'[\s\S]*?updater.check\(\)/)
-  assert.match(main, /report: status => \{ broadcast\(.*refreshTrayUpdates\(\)/)
+  assert.match(main, /report: status => \{[\s\S]*?broadcast\(\{ type: 'update'[\s\S]*?refreshTrayUpdates\(\)/)
+  // a download - first or replacement - means nothing on disk is installable
+  assert.match(main, /if \(status\.state === 'downloading'\) downloaded = false/)
   assert.match(main, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); return \}/)
 })
 

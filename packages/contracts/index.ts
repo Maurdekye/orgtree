@@ -32,7 +32,12 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'main-window-shown' | 'window-state' | 'open-org'; data: unknown }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
-export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
+/** `recheck` is the outcome of a check that ran WHILE an update was already
+ *  prepared and left it in place: the state stays 'pending-idle' because the
+ *  installer on disk is still what will run, and this is the only way to answer
+ *  the user who just pressed Check for updates. Never set with any other state.
+ *  Mirrors apps/desktop/main/updater.ts, which owns the state machine. */
+export interface UpdateStatus { state: UpdateState; version?: string; percent?: number; recheck?: 'up-to-date' | 'unavailable' }
 
 /** What this installation can actually DO about an update, as opposed to what
  *  it has been asked to do. `unattendedInstall` is false when Orgtree cannot

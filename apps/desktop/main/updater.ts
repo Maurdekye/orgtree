@@ -3,7 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
-export interface UpdateStatus { state: UpdateState; version?: string; percent?: number }
+/** `recheck` is the outcome of a check that ran WHILE an update was already
+ *  prepared and left it in place. The state stays 'pending-idle', because the
+ *  installer sitting on disk is still the thing that will run; the extra field
+ *  is the only way to answer the user who just pressed Check for updates and
+ *  would otherwise see no response at all. Never set with any other state. */
+export interface UpdateStatus { state: UpdateState; version?: string; percent?: number; recheck?: 'up-to-date' | 'unavailable' }
 
 // ------------------------------------------------------------ diagnostics
 // 2.0.3 failed twice and left NOTHING behind: electron-updater's logger
@@ -185,6 +190,15 @@ export function bounded<T>(work: Promise<T>, ms: number): Promise<'ok' | 'timeou
   })
 }
 
+/** Whether a check or a download is in flight, either of which may be REPLACING
+ *  the prepared package at this moment - see preparedSurvivesOffer for what
+ *  electron-updater does to the old one. Nothing may be handed to the installer
+ *  while this is true. One definition, used by the tray, by the main process's
+ *  install guards, and by the tests, so the three cannot drift. */
+export function updateReplacementInFlight(status: UpdateStatus): boolean {
+  return status.state === 'checking' || status.state === 'downloading'
+}
+
 /** Update controls stay in one native menu, so progress also changes while open. */
 export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string) {
   const version = status.version ? ` ${status.version}` : ''
@@ -195,15 +209,47 @@ export function trayUpdateState(status: UpdateStatus, downloaded: boolean, apply
     'up-to-date': 'Orgtree is up to date', unavailable: 'Updates are unavailable',
     failed: 'Update failed - check again',
   }
+  // A check or a download IS the current state even when a package is already
+  // prepared, because a check can REPLACE that package: electron-updater empties
+  // its own pending directory the moment the feed offers a different artifact.
+  // Saying "ready to install" through that window names a file that may already
+  // have been deleted.
+  const busy = updateReplacementInFlight(status)
+  const recheck = status.recheck === 'up-to-date' ? ' - no newer release'
+    : status.recheck === 'unavailable' ? ' - the check could not reach the update feed' : ''
   // A held update is still installable BY HAND - that is the whole point of
   // holding it - so the install item stays enabled and only the status line
   // changes. Applying outranks the hold: it describes work already under way.
-  const ready = downloaded ? (hold ? `Update${version}: ${hold}` : labels['pending-idle']) : labels[status.state]
+  const ready = downloaded && !busy ? (hold ? `Update${version}: ${hold}` : labels['pending-idle'] + recheck) : labels[status.state]
   return {
     label: applying ? 'Installing update...' : ready,
-    installVisible: downloaded, installEnabled: downloaded && !applying,
-    checkEnabled: !applying && !downloaded && status.state !== 'checking' && status.state !== 'downloading',
+    // Visible throughout, so a check does not make the item flicker out of an
+    // open menu and back; enabled only while there is something to install and
+    // nothing in flight that could be replacing it.
+    installVisible: downloaded, installEnabled: downloaded && !applying && !busy,
+    // A prepared update no longer disables checking (user 2026-09-11): being
+    // able to replace it with a newer release is the entire point.
+    checkEnabled: !applying && !busy,
   }
+}
+
+/** Whether an installer already prepared for version `prepared` survives
+ *  electron-updater offering `offered`.
+ *
+ *  It does NOT survive a different version. electron-updater compares the feed's
+ *  sha512 against its cached update-info.json and, when they differ, calls
+ *  emptyDir() on its own pending directory before downloading the replacement
+ *  (DownloadedUpdateHelper.getValidCachedUpdateFile, electron-updater 6.8.9).
+ *  It does not null its `file` pointer at the same time, so if asked to install
+ *  in that window the library hands the installer a path it has just deleted.
+ *  Anything that believes an update is ready must stop believing it at the
+ *  'update-available' event, which AppUpdater emits BEFORE starting that
+ *  download (AppUpdater.doCheckForUpdates).
+ *
+ *  An unknown version on either side counts as a replacement: not knowing what
+ *  is coming is not a reason to keep promising what is already there. */
+export function preparedSurvivesOffer(prepared: string | undefined, offered: string | undefined): boolean {
+  return prepared !== undefined && offered !== undefined && prepared === offered
 }
 
 export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
@@ -388,6 +434,11 @@ interface UpdateOptions {
  *  download/error events are wired in by the caller through run()/progress()/downloaded()/errored(). */
 export class UpdateController {
   private status: UpdateStatus = { state: 'idle' }
+  /** The package already prepared on disk, kept SEPARATELY from the live status
+   *  because a check overwrites that status with 'checking' on its way to an
+   *  answer. Without it, a check that finds nothing newer would leave the user
+   *  looking at "up to date" with an installer sitting there ready to run. */
+  private prepared: UpdateStatus | null = null
   private inFlight: Promise<UpdateStatus> | null = null
   private lastCheckAt: number | null = null
   private consecutiveFailures = 0
@@ -420,11 +471,22 @@ export class UpdateController {
     await this.runCheck()
   }
 
-  /** A user-triggered check. Coalesces with any in-flight check and bypasses backoff, but a
-   *  known-pending update is reported as-is rather than redundantly re-checked. */
+  /** The version of the package already prepared on disk, if one is. Survives a
+   *  check, which the live status does not - `current().version` is undefined
+   *  for the whole of 'checking'. */
+  preparedVersion(): string | undefined { return this.prepared?.version }
+
+  /** A user-triggered check. Coalesces with any in-flight check and bypasses backoff.
+   *
+   *  A PREPARED update no longer refuses one (user 2026-09-11): that left anyone
+   *  holding a ready update with no way to pick up a newer release. A download
+   *  already in progress still refuses, because a second check could not help -
+   *  electron-updater's downloadUpdate() returns the SAME in-flight download
+   *  rather than fetching what the new check found, so the only thing a check
+   *  there can do is disturb the transfer. */
   async check(): Promise<UpdateStatus> {
     if (this.inFlight) return this.inFlight
-    if (this.status.state === 'downloading' || this.status.state === 'pending-idle') {
+    if (this.status.state === 'downloading') {
       this.callbacks.report(this.status)
       return this.status
     }
@@ -441,6 +503,7 @@ export class UpdateController {
   downloaded(version?: string) {
     this.consecutiveFailures = 0
     this.setStatus({ state: 'pending-idle', version: version ?? this.status.version })
+    this.prepared = { ...this.status }
   }
 
   /** Forwards electron-updater's 'error' event. That event ALSO fires for a check-time failure
@@ -481,12 +544,26 @@ export class UpdateController {
         // terminal event already won; overwriting it back to downloading/up-to-
         // date here would regress a real pending-idle/failed result.
         if (this.status.state === 'checking') {
-          this.setStatus(result.hasUpdate ? { state: 'downloading', version: result.version } : { state: 'up-to-date' })
+          if (result.hasUpdate) {
+            // A newer release REPLACES whatever was prepared, and the library
+            // deletes the old package on its way to downloading this one, so
+            // nothing may go on believing an installer is ready.
+            this.prepared = null
+            this.setStatus({ state: 'downloading', version: result.version })
+          } else {
+            // Nothing newer says nothing against the package already on disk:
+            // it stays ready, and stays installable. The check still has to be
+            // ANSWERED, which is what `recheck` is for.
+            this.setStatus(this.prepared ? { ...this.prepared, recheck: 'up-to-date' } : { state: 'up-to-date' })
+          }
         }
       } catch {
         if (this.status.state === 'checking') {
           this.scheduleBackoff()
-          this.setStatus({ state: 'unavailable' })
+          // A check that could not reach the feed likewise says nothing about
+          // the package already on disk. Losing a ready update to a moment of
+          // no network would be the worst possible answer to "check again".
+          this.setStatus(this.prepared ? { ...this.prepared, recheck: 'unavailable' } : { state: 'unavailable' })
         }
       } finally { this.inFlight = null }
       return this.status

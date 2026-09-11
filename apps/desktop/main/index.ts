@@ -13,7 +13,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateWatchdogMs } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, preparedSurvivesOffer, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -292,6 +292,12 @@ else {
     const timer = setTimeout(() => { installErrorWaiter = undefined; resolve(undefined) }, ms)
     installErrorWaiter = error => { clearTimeout(timer); installErrorWaiter = undefined; resolve(error) }
   })
+  /** Whether a check or a download is in flight, either of which can be in the
+   *  middle of REPLACING the prepared package. electron-updater deletes the old
+   *  installer as soon as the feed offers a different artifact, and goes on
+   *  pointing at the deleted path, so a handoff racing a check can hand the
+   *  installer a file that is no longer there. */
+  const updateBusy = () => updateReplacementInFlight(updater.current())
   const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling
     // automatic updates also holds any package that has already downloaded.
@@ -301,6 +307,10 @@ else {
     if (automatic && !preferences.get().automaticUpdates) return
     if (unattended && updateHold) return
     if (updateApplying || quitting) return
+    // Never hand off while the package could be being replaced underneath it.
+    // The idle path reaches here on its own every five seconds, so this is a
+    // real guard and not just backstop for the manual route below.
+    if (updateBusy()) return
     updateApplying = true
     refreshTrayUpdates()
     const version = updater.current().version
@@ -412,6 +422,10 @@ else {
   }
   const requestUpdateInstall = async () => {
     if (!downloaded || !app.isPackaged) throw new Error('No downloaded update is ready to install.')
+    // Refused with a reason the renderer can show, rather than silently: an
+    // explicit Update now that raced a check would shut the engine down and
+    // hand off to a package the check had just deleted.
+    if (updateBusy()) throw new Error('Orgtree is checking for a newer update. Try again in a moment.')
     // An explicit request retires any hold: the user is present, so the
     // administrator approval the automatic path could not obtain can be given.
     updateHold = undefined
@@ -464,7 +478,13 @@ else {
     // rules included) - comparing version strings here would get an older or
     // disallowed release wrong by treating any difference as an update.
     run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
-    report: status => { broadcast({ type: 'update', data: status }); refreshTrayUpdates() },
+    report: status => {
+      // A download is either the first one or a REPLACEMENT for the package
+      // already prepared. Either way nothing is installable until it finishes,
+      // and the old file is already gone.
+      if (status.state === 'downloading') downloaded = false
+      broadcast({ type: 'update', data: status }); refreshTrayUpdates()
+    },
   })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
   // Renderer draft guards must not strand a window after its engine has stopped.
@@ -542,7 +562,9 @@ else {
     })
     handle('desktop:update-status', () => updater.current())
     handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
-    handle('desktop:check-for-updates', () => updater.check())
+    // Refused, not queued, while an application attempt is under way: a check
+    // that found a newer release would delete the very package being installed.
+    handle('desktop:check-for-updates', () => (updateApplying || quitting) ? updater.current() : updater.check())
     // Provider sign-in (D-231): the child spawn lives ONLY in this process —
     // see providerlogin.ts's module docstring for why. `assertNativeSender`
     // (via `handle` above) already keeps this off any surface but the app's
@@ -708,6 +730,22 @@ else {
           updater.downloaded(version)
         })
         autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
+        // A prepared installer does not survive the feed offering a DIFFERENT
+        // release: electron-updater empties its own pending directory before
+        // downloading the replacement, while still pointing at the path it just
+        // deleted. This event fires before that download starts, and it is the
+        // only signal that covers every route into it - the manual check, the
+        // periodic tick, and the engine-issued maintenance check, which calls
+        // the library directly and never touches UpdateController at all.
+        autoUpdater.on('update-available', info => {
+          if (!downloaded) return
+          const offered = info && typeof info === 'object' && typeof (info as { version?: unknown }).version === 'string'
+            ? (info as { version: string }).version : undefined
+          if (preparedSurvivesOffer(updater.preparedVersion(), offered)) return
+          downloaded = false
+          updateLog.record('updater', 'a different release was offered; the prepared installer is being replaced')
+          refreshTrayUpdates()
+        })
       }
       // Awaited deliberately: canInstallUnattended must not answer before the
       // scope is known, and the first refresh must not run before either.

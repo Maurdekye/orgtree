@@ -8,7 +8,14 @@ const LABEL: Record<UpdateStatus['state'], (status: UpdateStatus) => string | nu
   idle: () => null,
   checking: () => 'Checking for updates…',
   downloading: status => status.percent === undefined ? 'Downloading update…' : `Downloading update… ${status.percent}%`,
-  'pending-idle': () => 'Update ready to install',
+  // A check can run with an update already prepared (user 2026-09-11). When it
+  // leaves that update in place the state does not change - the same installer
+  // is still what will run - so the outcome of the check rides along on the
+  // status, and this is where the user actually sees that their press did
+  // something.
+  'pending-idle': status => 'Update ready to install'
+    + (status.recheck === 'up-to-date' ? ' \u2014 no newer release'
+      : status.recheck === 'unavailable' ? ' \u2014 the update check could not reach the feed' : ''),
   'up-to-date': () => 'You’re up to date',
   unavailable: () => 'Update check unavailable',
   failed: () => 'Update download failed',
