@@ -11,7 +11,7 @@ await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: tr
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
   uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
-  preparedSurvivesOffer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
+  compareUpdateVersions, updateOfferIsNewer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
@@ -47,14 +47,19 @@ test('downloaded install uses the real NSIS silent-update command and relaunches
 
 function rig(overrides = {}) {
   const reports = []
+  const downloads = []
   let now = 0
   const controller = new UpdateController({
     run: async () => ({ hasUpdate: false }),
+    // autoDownload is off in the real wiring, so accepting an offer is an
+    // explicit call. Recorded rather than stubbed away: "did it start a
+    // download" is the whole question for a prepared package.
+    download: async () => { downloads.push(controller.current().version ?? null) },
     report: status => reports.push(status),
     now: () => now,
     ...overrides,
   }, overrides.options)
-  return { reports, controller, advance: ms => { now += ms } }
+  return { reports, downloads, controller, advance: ms => { now += ms } }
 }
 
 test('idle status before any check', () => {
@@ -167,18 +172,117 @@ test('the preserved-update path is CONDITIONAL: with nothing prepared the same t
   assert.deepEqual(await broken.controller.check(), { state: 'unavailable' })
 })
 
-test('a preserved check leaves the package still REMEMBERED, so re-offering the same release is not read as a replacement', async () => {
-  let fail = true
-  const { controller } = rig({ run: async () => { if (fail) throw new Error('offline'); return { hasUpdate: false } } })
+test('a preserved check leaves the package still REMEMBERED, so the next offer is still judged against it', async () => {
+  let fail = true, answer = { hasUpdate: false }
+  const { controller, downloads } = rig({ run: async () => { if (fail) throw new Error('offline'); return answer } })
   controller.downloaded('2.0.4')
   assert.deepEqual(await controller.check(), { state: 'pending-idle', version: '2.0.4', recheck: 'unavailable' })
   assert.equal(controller.preparedVersion(), '2.0.4',
-    'forgetting it here would make the next update-available for 2.0.4 look like a replacement and disable Update now')
-  assert.equal(preparedSurvivesOffer(controller.preparedVersion(), '2.0.4'), true)
+    'forgetting it here would make the next offer of 2.0.4 look like a replacement and throw the package away')
   fail = false
+  answer = { hasUpdate: true, version: '2.0.4' }
   assert.deepEqual(await controller.check(), { state: 'pending-idle', version: '2.0.4', recheck: 'up-to-date' },
-    'and the stale failure must not survive the check that succeeded')
+    'the stale failure must not survive the check that succeeded, and 2.0.4 is not newer than 2.0.4')
+  assert.deepEqual(downloads, [], 'and nothing was re-downloaded')
   assert.equal(controller.preparedVersion(), '2.0.4')
+})
+
+// ---- judging the offer against the PREPARED package, not the running app ----
+// electron-updater's own isUpdateAvailable compares the feed against the
+// RUNNING version, so with 2.0.4 prepared on a 2.0.3 install it reports
+// "available" for 2.0.4 itself, and for any rolled-back release above 2.0.3.
+// Accepting either is what makes the library delete the prepared package.
+
+test('the feed re-offering the SAME release as the prepared one is not a replacement', async () => {
+  // hasUpdate is TRUE here, and that is the whole point: this is what the real
+  // library reports when 2.0.4 is prepared, 2.0.4 is offered and 2.0.3 is running.
+  const { controller, downloads, reports } = rig({ run: async () => ({ hasUpdate: true, version: '2.0.4' }) })
+  controller.downloaded('2.0.4')
+  reports.length = 0
+  const status = await controller.check()
+  assert.deepEqual(downloads, [], 'starting a download here is what deletes the package we already have')
+  assert.deepEqual(status, { state: 'pending-idle', version: '2.0.4', recheck: 'up-to-date' })
+  assert.deepEqual(reports, [{ state: 'checking' }, status])
+})
+
+test('a feed rolled BACK below the prepared release does not replace it', async () => {
+  const { controller, downloads } = rig({ run: async () => ({ hasUpdate: true, version: '2.0.4' }) })
+  controller.downloaded('2.0.5')
+  assert.deepEqual(await controller.check(), { state: 'pending-idle', version: '2.0.5', recheck: 'up-to-date' },
+    'a pulled release must not downgrade an update already prepared')
+  assert.deepEqual(downloads, [])
+})
+
+test('a genuinely newer release does replace the prepared one', async () => {
+  const { controller, downloads } = rig({ run: async () => ({ hasUpdate: true, version: '2.0.5' }) })
+  controller.downloaded('2.0.4')
+  assert.deepEqual(await controller.check(), { state: 'downloading', version: '2.0.5' })
+  assert.deepEqual(downloads, ['2.0.5'], 'and the download is started by us, not by autoDownload')
+  assert.equal(controller.preparedVersion(), undefined)
+})
+
+test('prerelease order decides it too, in both directions', async () => {
+  const later = rig({ run: async () => ({ hasUpdate: true, version: '2.1.0-beta.10' }) })
+  later.controller.downloaded('2.1.0-beta.2')
+  assert.equal((await later.controller.check()).state, 'downloading', 'beta.10 is newer than beta.2, not older by string order')
+  assert.deepEqual(later.downloads, ['2.1.0-beta.10'])
+  const earlier = rig({ run: async () => ({ hasUpdate: true, version: '2.1.0-beta.11' }) })
+  earlier.controller.downloaded('2.1.0')
+  assert.equal((await earlier.controller.check()).state, 'pending-idle', 'a prerelease never replaces the finished release')
+  assert.deepEqual(earlier.downloads, [])
+})
+
+test('an unidentified prepared package takes the offer: a known release beats one nobody can name', async () => {
+  const { controller, downloads } = rig({ run: async () => ({ hasUpdate: true, version: '2.0.5' }) })
+  controller.downloaded()                       // the cached-package race leaves no version
+  assert.equal(controller.preparedVersion(), undefined)
+  assert.equal((await controller.check()).state, 'downloading')
+  assert.deepEqual(downloads, ['2.0.5'])
+})
+
+test('with nothing prepared at all, any offer is taken', async () => {
+  const { controller, downloads } = rig({ run: async () => ({ hasUpdate: true, version: '1.0.0' }) })
+  assert.equal((await controller.check()).state, 'downloading')
+  assert.deepEqual(downloads, ['1.0.0'])
+})
+
+test('a download that fails as soon as it starts reports failure and backs off, with nothing left ready', async () => {
+  let checks = 0
+  const { controller, reports, advance } = rig({
+    run: async () => { checks++; return { hasUpdate: true, version: '2.0.5' } },
+    download: async () => { throw new Error('ENOSPC') },
+    options: { periodicMs: 100000, backoffBaseMs: 1000 },
+  })
+  controller.downloaded('2.0.4')
+  await controller.check()
+  await new Promise(resolve => setImmediate(resolve))   // the rejection lands a microtask later
+  assert.deepEqual(controller.current(), { state: 'failed' },
+    'the prepared package is genuinely gone - the library empties its pending directory on the way in')
+  assert.equal(controller.preparedVersion(), undefined)
+  assert.deepEqual(reports.at(-1), { state: 'failed' })
+  assert.equal(checks, 1)
+  advance(999)
+  await controller.tick()
+  assert.equal(checks, 1, 'the failure must back off before the next automatic attempt')
+  advance(2)
+  await controller.tick()
+  assert.equal(checks, 2, 'and try again once the backoff has expired')
+})
+
+test('a download failure reported twice - by the rejection and by the library event - counts once', async () => {
+  let checks = 0
+  const { controller, advance } = rig({
+    run: async () => { checks++; return { hasUpdate: true, version: '2.0.5' } },
+    download: async () => { throw new Error('ENOSPC') },
+    options: { periodicMs: 100000, backoffBaseMs: 1000 },
+  })
+  await controller.check()
+  await new Promise(resolve => setImmediate(resolve))
+  controller.errored()                                   // the same failure arriving on the error event
+  assert.equal(checks, 1)
+  advance(1001)
+  await controller.tick()
+  assert.equal(checks, 2, 'a doubled backoff would still be waiting at 2000ms')
 })
 
 test('a download already in progress still refuses a second check', async () => {
@@ -193,24 +297,56 @@ test('a download already in progress still refuses a second check', async () => 
   assert.deepEqual(reports, [{ state: 'downloading', version: '2.0.5' }])
 })
 
-test('preparedSurvivesOffer keeps only the exact same release', () => {
-  assert.equal(preparedSurvivesOffer('2.0.4', '2.0.4'), true)
-  assert.equal(preparedSurvivesOffer('2.0.4', '2.0.5'), false)
-  assert.equal(preparedSurvivesOffer('2.0.5', '2.0.4'), false,
-    'an OLDER offer replaces it too: the library deletes its cache on any sha512 difference, not on a version comparison')
-  assert.equal(preparedSurvivesOffer(undefined, '2.0.5'), false, 'not knowing what is prepared is no reason to keep promising it')
-  assert.equal(preparedSurvivesOffer('2.0.4', undefined), false, 'nor is not knowing what is coming')
-  assert.equal(preparedSurvivesOffer(undefined, undefined), false)
+test('updateOfferIsNewer takes an offer only when it really is newer than what is prepared', () => {
+  assert.equal(updateOfferIsNewer('2.0.5', '2.0.4'), true)
+  assert.equal(updateOfferIsNewer('2.0.4', '2.0.4'), false, 'the same release is not a replacement')
+  assert.equal(updateOfferIsNewer('2.0.4', '2.0.5'), false, 'and a rolled-back one is not either')
+  assert.equal(updateOfferIsNewer('2.1.0', '2.1.0-beta.11'), true)
+  assert.equal(updateOfferIsNewer('2.1.0-beta.11', '2.1.0'), false)
+  assert.equal(updateOfferIsNewer('2.0.5', undefined), true, 'an unidentified prepared package is worth less than a named release')
+  assert.equal(updateOfferIsNewer(undefined, '2.0.4'), true)
+  assert.equal(updateOfferIsNewer('not-a-version', '2.0.4'), true, 'and an unorderable pair is not a reason to stall for ever')
+})
+
+test('compareUpdateVersions agrees with semver itself on every pair, prereleases included', async () => {
+  // The ORACLE is the same semver electron-updater uses to decide what is
+  // newer (AppUpdater imports it directly). It is a devDependency here and is
+  // deliberately NOT imported by the shipped code - this test is what makes the
+  // hand-written comparison safe to ship without adding a runtime dependency.
+  const semver = createRequire(import.meta.url)('semver')
+  const versions = [
+    '1.0.0', '1.0.1', '1.1.0', '2.0.0', '2.0.3', '2.0.4', '2.0.5', '2.1.0', '10.0.0', '2.10.0', '2.2.0',
+    '2.1.0-alpha', '2.1.0-alpha.1', '2.1.0-alpha.2', '2.1.0-alpha.10', '2.1.0-alpha.beta',
+    '2.1.0-beta', '2.1.0-beta.2', '2.1.0-beta.11', '2.1.0-rc.1', '2.0.0-alpha.6', '2.0.0-alpha.9',
+  ]
+  let compared = 0, disagreements = []
+  for (const a of versions) for (const b of versions) {
+    const mine = compareUpdateVersions(a, b)
+    assert.notEqual(mine, null, `${a} vs ${b} must be orderable`)
+    compared++
+    if (Math.sign(mine) !== Math.sign(semver.compare(a, b))) disagreements.push(`${a} vs ${b}: ${mine} not ${semver.compare(a, b)}`)
+  }
+  assert.deepEqual(disagreements, [])
+  assert.equal(compared, versions.length ** 2)
+  // the oracle must be able to catch a wrong answer, or the loop above proves nothing
+  assert.notEqual(Math.sign(-1), Math.sign(semver.compare('2.1.0-beta.11', '2.1.0-beta.2')),
+    'semver orders beta.11 ABOVE beta.2; a string comparison would not')
+  // build metadata is ignored, and a version this cannot read says so
+  assert.equal(compareUpdateVersions('2.0.4+build.9', '2.0.4'), 0)
+  assert.equal(compareUpdateVersions('v2.0.5', '2.0.4'), 1)
+  assert.equal(compareUpdateVersions('2.0', '2.0.4'), null)
+  assert.equal(compareUpdateVersions('', '2.0.4'), null)
 })
 
 test('composed: the prepared package is uninstallable for the whole replacement window, and installable again after', async () => {
-  // The flags here are main/index.ts's own: `downloaded`, set by the
-  // update-downloaded event and cleared both by report() on 'downloading' and
-  // by the update-available guard. The PREDICATE is the real exported one, so
-  // this cannot pass by re-implementing the rule it is checking.
+  // The flag here is main/index.ts's own `downloaded`: set by the
+  // update-downloaded event, cleared by report() the moment the controller
+  // enters 'downloading' - which is now exactly when the library is told to
+  // start deleting. The PREDICATE is the real exported one, so this cannot
+  // pass by re-implementing the rule it is checking.
   let downloaded = false
   let answer = { hasUpdate: true, version: '2.0.4' }
-  const { controller } = rig({
+  const { controller, downloads } = rig({
     run: async () => answer,
     report: status => { if (status.state === 'downloading') downloaded = false },
   })
@@ -220,11 +356,9 @@ test('composed: the prepared package is uninstallable for the whole replacement 
   assert.equal(installable(), true)
   answer = { hasUpdate: true, version: '2.0.5' }
   const check = controller.check()
-  assert.equal(installable(), false, 'a check in flight may delete the package before it answers')
-  // electron-updater emits update-available BEFORE it starts the download that
-  // empties its cache; this is the guard main/index.ts hangs on that event.
-  if (!preparedSurvivesOffer(controller.preparedVersion(), '2.0.5')) downloaded = false
+  assert.equal(installable(), false, 'a check in flight may accept an offer the moment it answers')
   await check
+  assert.deepEqual(downloads, ['2.0.4', '2.0.5'], 'the first tick took 2.0.4 with nothing prepared; the check took 2.0.5 over it')
   assert.equal(installable(), false, 'and stays uninstallable for the replacement download')
   downloaded = true; controller.downloaded('2.0.5')
   assert.equal(installable(), true, 'the new package is installable once it has actually landed')
@@ -591,7 +725,8 @@ test('tray handles failed, unavailable, current and invalid progress states hone
   assert.match(trayUpdateState({ state: 'downloading', percent: 140 }, false, false).label, /100%/)
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   assert.match(main, /id: 'update-install'[\s\S]*?requestUpdateInstall\(\)/)
-  assert.match(main, /id: 'update-check'[\s\S]*?updater.check\(\)/)
+  assert.match(main, /id: 'update-check'[^}]*?checkForUpdates\(\)/,
+    'the tray item must go through the one guarded entry point, not straight to the controller')
   assert.match(main, /report: status => \{[\s\S]*?broadcast\(\{ type: 'update'[\s\S]*?refreshTrayUpdates\(\)/)
   // a download - first or replacement - means nothing on disk is installable
   assert.match(main, /if \(status\.state === 'downloading'\) downloaded = false/)

@@ -191,7 +191,7 @@ export function bounded<T>(work: Promise<T>, ms: number): Promise<'ok' | 'timeou
 }
 
 /** Whether a check or a download is in flight, either of which may be REPLACING
- *  the prepared package at this moment - see preparedSurvivesOffer for what
+ *  the prepared package at this moment - see updateOfferIsNewer for what
  *  electron-updater does to the old one. Nothing may be handed to the installer
  *  while this is true. One definition, used by the tray, by the main process's
  *  install guards, and by the tests, so the three cannot drift. */
@@ -233,23 +233,65 @@ export function trayUpdateState(status: UpdateStatus, downloaded: boolean, apply
   }
 }
 
-/** Whether an installer already prepared for version `prepared` survives
- *  electron-updater offering `offered`.
+/** Compare two update versions by semantic-version precedence: negative when
+ *  `a` sorts before `b`, positive when after, 0 when equal, and null when
+ *  either is not a version this can order.
  *
- *  It does NOT survive a different version. electron-updater compares the feed's
- *  sha512 against its cached update-info.json and, when they differ, calls
- *  emptyDir() on its own pending directory before downloading the replacement
- *  (DownloadedUpdateHelper.getValidCachedUpdateFile, electron-updater 6.8.9).
- *  It does not null its `file` pointer at the same time, so if asked to install
- *  in that window the library hands the installer a path it has just deleted.
- *  Anything that believes an update is ready must stop believing it at the
- *  'update-available' event, which AppUpdater emits BEFORE starting that
- *  download (AppUpdater.doCheckForUpdates).
+ *  Hand-written rather than taking a dependency on `semver` - which is present
+ *  only as electron-updater's own transitive, dev-flagged package - and CHECKED
+ *  AGAINST semver's compare() over every pair of a table that includes
+ *  prereleases, because that is the ordering electron-updater itself uses
+ *  (AppUpdater imports semver directly). Build metadata is ignored, as the
+ *  specification requires. */
+export function compareUpdateVersions(a: string, b: string): number | null {
+  const read = (value: string) => {
+    const parts = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value.trim())
+    if (!parts) return null
+    return { core: [Number(parts[1]), Number(parts[2]), Number(parts[3])], pre: parts[4] ? parts[4].split('.') : [] }
+  }
+  const left = read(a), right = read(b)
+  if (!left || !right) return null
+  for (let i = 0; i < 3; i++) if (left.core[i]! !== right.core[i]!) return left.core[i]! < right.core[i]! ? -1 : 1
+  // A release outranks every prerelease of the same core version.
+  if (!left.pre.length || !right.pre.length) return left.pre.length === right.pre.length ? 0 : (left.pre.length ? -1 : 1)
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i++) {
+    const x = left.pre[i], y = right.pre[i]
+    if (x === undefined) return -1                              // fewer identifiers sorts lower
+    if (y === undefined) return 1
+    const numericX = /^\d+$/.test(x), numericY = /^\d+$/.test(y)
+    if (numericX && numericY) { if (Number(x) !== Number(y)) return Number(x) < Number(y) ? -1 : 1 }
+    else if (numericX !== numericY) return numericX ? -1 : 1     // numeric identifiers sort below alphanumeric
+    else if (x !== y) return x < y ? -1 : 1
+  }
+  return 0
+}
+
+/** Whether an offered release should REPLACE one already prepared on disk.
  *
- *  An unknown version on either side counts as a replacement: not knowing what
- *  is coming is not a reason to keep promising what is already there. */
-export function preparedSurvivesOffer(prepared: string | undefined, offered: string | undefined): boolean {
-  return prepared !== undefined && offered !== undefined && prepared === offered
+ *  ELECTRON-UPDATER CANNOT ANSWER THIS. Its isUpdateAvailable compares the offer
+ *  against the RUNNING version, so with a package already prepared it answers
+ *  "available" for the identical release, and for one OLDER than the prepared
+ *  package after a rollback. Accepting either answer is what destroys the
+ *  package already on disk: on its way into the download the library empties
+ *  its own pending directory whenever the offered checksum differs from the
+ *  cached one, and within the session that downloaded it, it goes on reporting
+ *  the deleted path as its installerPath. Both behaviours are OBSERVED against
+ *  the installed electron-updater in tests/updater-library.test.mjs, not read
+ *  off its source - including the case that disproves the obvious shortcut,
+ *  where the same version republished with different bytes deletes the cache
+ *  too, so version equality never did prove the file had survived.
+ *
+ *  So the comparison that matters is against what is ALREADY PREPARED, and it
+ *  has to happen before the download - which is why autoDownload is off and the
+ *  download is started by this controller rather than by the library.
+ *
+ *  An unknown or unorderable version on either side takes the offer: what is
+ *  prepared is then unidentified, and a known release is worth more than one
+ *  nobody can name. */
+export function updateOfferIsNewer(offered: string | undefined, prepared: string | undefined): boolean {
+  if (!offered || !prepared) return true
+  const order = compareUpdateVersions(offered, prepared)
+  return order === null ? true : order > 0
 }
 
 export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
@@ -415,8 +457,13 @@ export async function prepareAndHandOff(seams: PreparationSeams): Promise<Prepar
 }
 
 interface UpdateCallbacks {
-  /** Wraps the real updater's checkForUpdates(); autoDownload happens on its own once resolved. */
+  /** Wraps the real updater's checkForUpdates(). It does NOT download: autoDownload
+   *  is off precisely so the offer can be judged against the prepared package
+   *  before the library starts deleting things - see updateOfferIsNewer. */
   run: () => Promise<{ hasUpdate: boolean; version?: string }>
+  /** Starts the download for the offer `run()` just reported, once it has been
+   *  accepted. Wraps electron-updater's downloadUpdate(). */
+  download: () => Promise<void>
   report: (status: UpdateStatus) => void
   now?: () => number
   /** Manual checks remain available when background updates are disabled. */
@@ -471,9 +518,10 @@ export class UpdateController {
     await this.runCheck()
   }
 
-  /** The version of the package already prepared on disk, if one is. Survives a
-   *  check, which the live status does not - `current().version` is undefined
-   *  for the whole of 'checking'. */
+  /** The version of the package already prepared on disk, if one is: the record
+   *  this controller judges the next offer against. Survives a check, which the
+   *  live status does not - `current().version` is undefined for the whole of
+   *  'checking'. Read by the tests; the product reads `current()` instead. */
   preparedVersion(): string | undefined { return this.prepared?.version }
 
   /** A user-triggered check. Coalesces with any in-flight check and bypasses backoff.
@@ -536,24 +584,31 @@ export class UpdateController {
         const result = await this.callbacks.run()
         this.consecutiveFailures = 0
         this.lastCheckAt = this.now()
-        // A fast/cached autoDownload can fire downloaded() (or errored(), once
-        // state reaches 'downloading') BEFORE run()'s own promise settles -
-        // Node dispatches 'update-available' and 'update-downloaded' as separate
-        // synchronous events, and this continuation only resumes on the next
-        // microtask after the first. Once state has moved past 'checking' the
-        // terminal event already won; overwriting it back to downloading/up-to-
-        // date here would regress a real pending-idle/failed result.
+        // If anything has already moved the state off 'checking', that terminal
+        // event won and must not be overwritten back to downloading/up-to-date.
+        // The specific race this was written for - a cached autoDownload firing
+        // update-downloaded before run() settled - can no longer arise now that
+        // autoDownload is off and the download is started below, after this
+        // point. The guard stays because the controller must not assume the
+        // order in which its caller delivers the library's events; the composed
+        // tests drive exactly that order through the seams.
         if (this.status.state === 'checking') {
-          if (result.hasUpdate) {
-            // A newer release REPLACES whatever was prepared, and the library
-            // deletes the old package on its way to downloading this one, so
-            // nothing may go on believing an installer is ready.
+          // hasUpdate only means "newer than the RUNNING version", which with a
+          // package already prepared is true of that very package and of any
+          // rolled-back release below it. Judge the offer against what is
+          // prepared before accepting it; accepting is what deletes it.
+          if (result.hasUpdate && updateOfferIsNewer(result.version, this.prepared?.version)) {
             this.prepared = null
             this.setStatus({ state: 'downloading', version: result.version })
+            // Not awaited: a download outlives the check that found it. Its
+            // failure arrives on the library's own error event, and errored()
+            // is a no-op the second time, so routing a rejection there too
+            // cannot double-count the backoff.
+            void this.callbacks.download().catch(() => this.errored())
           } else {
-            // Nothing newer says nothing against the package already on disk:
-            // it stays ready, and stays installable. The check still has to be
-            // ANSWERED, which is what `recheck` is for.
+            // Nothing newer than what is already on disk. The prepared package
+            // stays ready and installable, and the check is still ANSWERED,
+            // which is what `recheck` is for.
             this.setStatus(this.prepared ? { ...this.prepared, recheck: 'up-to-date' } : { state: 'up-to-date' })
           }
         }

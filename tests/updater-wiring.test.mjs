@@ -37,30 +37,38 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // that is a different, untouched code path and out of scope here.
   assert.match(main, /run: \(\) => app\.isPackaged \? checkForUpdatesViaEvents\(autoUpdater\) : Promise\.resolve\(\{ hasUpdate: false \}\)/)
   assert.match(main, /handle\('desktop:update-status', \(\) => updater\.current\(\)\)/)
-  // Checking stays available with an update ready (user 2026-09-11), but not
-  // while one is being INSTALLED: a check that found a newer release would
-  // delete the package the handoff is in the middle of using.
-  assert.match(main, /handle\('desktop:check-for-updates', \(\) => \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)\)/)
-  assert.doesNotMatch(main, /handle\('desktop:check-for-updates', \(\) => updater\.check\(\)\)/,
-    'an unguarded check can race an install that is already under way')
+  // ---- checking while an installer is prepared (user 2026-09-11) ----
+  // THE DECISION MUST PRECEDE THE DOWNLOAD. electron-updater judges an offer
+  // against the RUNNING version, so with a package prepared it calls the very
+  // same release "available" - and accepting deletes what is on disk, as
+  // tests/updater-library.test.mjs observes against the real library. Left to
+  // autoDownload the deletion happens inside checkForUpdates itself, before any
+  // listener of ours could weigh in, so the download must be ours to start.
+  assert.match(main, /autoUpdater\.autoDownload = false/,
+    'autoDownload starts the transfer inside doCheckForUpdates, which is too early for any decision of ours')
+  assert.match(main, /download: \(\) => autoUpdater\.downloadUpdate\(\)\.then\(\(\) => \{\}\)/)
 
-  // ---- checking while an installer is prepared ----
-  // electron-updater empties its own pending directory as soon as the feed
-  // offers a different artifact, and goes on pointing at the path it deleted
-  // (DownloadedUpdateHelper.getValidCachedUpdateFile). So nothing may be handed
-  // to the installer while a check or a download is in flight, and the belief
-  // that something is ready must end at 'update-available'.
+  // ONE guarded entry point. A second caller reaching updater.check() directly
+  // would reopen the race this closes, so the tray, the renderer IPC and the
+  // engine-issued maintenance flow must all go through the same function.
+  assert.match(main, /const checkForUpdates = async \(\) => \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
+  assert.match(main, /handle\('desktop:check-for-updates', \(\) => checkForUpdates\(\)\)/)
+  assert.match(main, /label: 'Check for updates', click: \(\) => \{ void checkForUpdates\(\)\.catch\(\(\) => \{\}\) \}/)
+  assert.match(main, /check: async \(\) => \{[\s\S]*?const status = await checkForUpdates\(\)/,
+    'the maintenance check must not call the library directly: that route bypassed every guard here')
+  assert.doesNotMatch(main, /const result = await autoUpdater\.checkForUpdates\(\)/,
+    'and it must no longer read the downloadPromise autoDownload used to create for it')
+  const directChecks = main.match(/updater\.check\(\)/g) ?? []
+  assert.equal(directChecks.length, 1, 'updater.check() must be reached through checkForUpdates() and nowhere else')
+
+  // Nothing may be handed to the installer while a check or a download is in
+  // flight; nothing may start a check while an attempt is under way. The two
+  // guards together make the operations exclusive in both directions.
   assert.match(main, /const updateBusy = \(\) => updateReplacementInFlight\(updater\.current\(\)\)/)
   assert.match(main, /if \(updateBusy\(\)\) return\r?\n\s*updateApplying = true/,
     'the idle automatic path reaches applyDownloadedUpdate on its own every five seconds')
   assert.match(main, /if \(updateBusy\(\)\) throw new Error\('Orgtree is checking for a newer update/,
     'an explicit Update now must be refused with a reason the renderer can show, not silently')
-  assert.match(main, /autoUpdater\.on\('update-available', info => \{/)
-  assert.match(main, /if \(preparedSurvivesOffer\(updater\.preparedVersion\(\), offered\)\) return\r?\n\s*downloaded = false/)
-  // the prepared version must come from the controller, which keeps it across a
-  // check; current().version is undefined for the whole of 'checking'
-  assert.doesNotMatch(main, /preparedSurvivesOffer\(updater\.current\(\)\.version/,
-    'current().version is empty while checking, so this guard would fire on every re-check of the same release')
 
   // the real electron-updater events must reach the controller, not bypass it
   // with their own ad-hoc broadcast (that was the pre-refactor shape, and the
@@ -159,6 +167,4 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(main, /stats = await engine\.stats\(\); rebuildTray\(\)\r?\n\s*void updater\.tick\(\)/)
   assert.doesNotMatch(main, /void autoUpdater\.checkForUpdates\(\)\.catch/,
     'the one-shot startup check is superseded by the controller\'s own tick(), which is due immediately on first call')
-
-  assert.match(main, /label: 'Check for updates', click: \(\) => \{ void updater\.check\(\)\.catch\(\(\) => \{\}\) \}/)
 })

@@ -13,7 +13,7 @@ import { assertNativeSender, configureArtifactSession, configureEngineSession, c
 import { detectHarnesses } from './harnesses'
 import { NotificationGate } from './notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, preparedSurvivesOffer, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -197,7 +197,7 @@ else {
       { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
         enabled: canInstallUnattended(),
         click: item => setPreferences({ automaticUpdates: item.checked }) },
-      { id: 'update-check', label: 'Check for updates', click: () => { void updater.check().catch(() => {}) } },
+      { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -298,6 +298,18 @@ else {
    *  pointing at the deleted path, so a handoff racing a check can hand the
    *  installer a file that is no longer there. */
   const updateBusy = () => updateReplacementInFlight(updater.current())
+  /** THE ONE WAY A CHECK IS STARTED. The tray item, the renderer's Settings
+   *  button and the engine-issued maintenance flow all come through here, so
+   *  the refusal below cannot be bypassed by adding another caller. (The
+   *  periodic tick is the fourth route and needs no guard of its own: it
+   *  already returns while anything is prepared or downloading, and an
+   *  application attempt can only begin from a prepared package.)
+   *
+   *  Refused, not queued, while an attempt is under way: a check that accepted
+   *  a newer release would delete the very package being installed. Together
+   *  with `updateBusy` refusing the install while a check is in flight, the two
+   *  operations exclude each other in both directions. */
+  const checkForUpdates = async () => (updateApplying || quitting) ? updater.current() : updater.check()
   const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling
     // automatic updates also holds any package that has already downloaded.
@@ -442,16 +454,21 @@ else {
     // Unattended, though not automatic: nobody is present to approve a UAC
     // prompt, so this must respect the same hold as the idle path.
     apply: () => applyDownloadedUpdate(false, true),
+    // Routed through the SAME guarded lifecycle as every other check rather
+    // than calling the library directly. It used to read the downloadPromise
+    // that autoDownload created for it, which no longer exists now that the
+    // download is started deliberately; going through the controller also
+    // means this path cannot start a check during an install, cannot race a
+    // second check against the first, and leaves the same state behind.
     check: async () => {
       if (!app.isPackaged) return 'unavailable'
       try {
-        const result = await autoUpdater.checkForUpdates()
-        if (!result) return 'unavailable'
-        if (result.downloadPromise) {
-          void result.downloadPromise.catch(() => broadcast({ type: 'maintenance', data: { state: 'unavailable' } }))
-          return 'pending'
-        }
-        return result.updateInfo.version === app.getVersion() ? 'up-to-date' : 'unavailable'
+        const status = await checkForUpdates()
+        // 'pending-idle' is a package ALREADY prepared: maintenance only asks
+        // when there is none, but if one appears it is the same answer -
+        // something is on its way, ask again next tick.
+        if (status.state === 'downloading' || status.state === 'pending-idle') return 'pending'
+        return status.state === 'up-to-date' ? 'up-to-date' : 'unavailable'
       } catch { return 'unavailable' }
     },
     report: state => {
@@ -478,6 +495,11 @@ else {
     // rules included) - comparing version strings here would get an older or
     // disallowed release wrong by treating any difference as an update.
     run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
+    // autoDownload is off, so this is the only thing that starts a transfer -
+    // and therefore the only thing that lets electron-updater delete a package
+    // already prepared. The controller calls it only after judging the offer
+    // against what is prepared.
+    download: () => autoUpdater.downloadUpdate().then(() => {}),
     report: status => {
       // A download is either the first one or a REPLACEMENT for the package
       // already prepared. Either way nothing is installable until it finishes,
@@ -562,9 +584,7 @@ else {
     })
     handle('desktop:update-status', () => updater.current())
     handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
-    // Refused, not queued, while an application attempt is under way: a check
-    // that found a newer release would delete the very package being installed.
-    handle('desktop:check-for-updates', () => (updateApplying || quitting) ? updater.current() : updater.check())
+    handle('desktop:check-for-updates', () => checkForUpdates())
     // Provider sign-in (D-231): the child spawn lives ONLY in this process —
     // see providerlogin.ts's module docstring for why. `assertNativeSender`
     // (via `handle` above) already keeps this off any surface but the app's
@@ -701,6 +721,17 @@ else {
       if (app.isPackaged) {
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
+        // ⚠ THE OFFER MUST BE JUDGED BEFORE ANYTHING IS DELETED. Left on,
+        // electron-updater starts downloading inside doCheckForUpdates itself,
+        // and its first act is to empty its pending directory whenever the
+        // feed's checksum differs from the cached one - so by the time any
+        // listener of ours runs, a package we wanted to keep is already gone.
+        // Its "is there an update" answer compares against the RUNNING version,
+        // which says yes to the identical release and to a rolled-back older
+        // one, so leaving the decision to the library means losing a prepared
+        // update to a release no newer than it. UpdateController judges the
+        // offer and calls downloadUpdate() itself.
+        autoUpdater.autoDownload = false
         // Its own info lines name the installer, its arguments and the exact
         // spawn failure. Previously they went to a console nobody can read.
         autoUpdater.logger = updateLogger(updateLog)
@@ -730,22 +761,6 @@ else {
           updater.downloaded(version)
         })
         autoUpdater.on('download-progress', progress => updater.progress(Math.round(progress.percent)))
-        // A prepared installer does not survive the feed offering a DIFFERENT
-        // release: electron-updater empties its own pending directory before
-        // downloading the replacement, while still pointing at the path it just
-        // deleted. This event fires before that download starts, and it is the
-        // only signal that covers every route into it - the manual check, the
-        // periodic tick, and the engine-issued maintenance check, which calls
-        // the library directly and never touches UpdateController at all.
-        autoUpdater.on('update-available', info => {
-          if (!downloaded) return
-          const offered = info && typeof info === 'object' && typeof (info as { version?: unknown }).version === 'string'
-            ? (info as { version: string }).version : undefined
-          if (preparedSurvivesOffer(updater.preparedVersion(), offered)) return
-          downloaded = false
-          updateLog.record('updater', 'a different release was offered; the prepared installer is being replaced')
-          refreshTrayUpdates()
-        })
       }
       // Awaited deliberately: canInstallUnattended must not answer before the
       // scope is known, and the first refresh must not run before either.
