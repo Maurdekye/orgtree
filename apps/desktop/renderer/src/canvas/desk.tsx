@@ -3,7 +3,8 @@ import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview } from './replypreview'
-import { useContextMenu } from './contextmenu'
+import { copyToClipboard, useContextMenu } from './contextmenu'
+import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
 import { DeskSlot } from './deskhosts'
@@ -1325,12 +1326,30 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
   const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
   const replyMenu = useContextMenu()
-  const openReply = (e: ReplyMouseEvent, row: { event_id?: string }) => {
+  /** `local` is the text of a row that has no durable event id to look up —
+   *  today only an optimistic ghost, whose words exist nowhere but this
+   *  component's state. It is consulted ONLY when the press resolved to the
+   *  row itself rather than to something nested inside it. */
+  const openReply = (e: ReplyMouseEvent, row: { event_id?: string }, local?: string) => {
     const target = (e.target as Element).closest?.<HTMLElement>('[data-reply-event]')
     const exact = target && e.currentTarget.contains(target) ? target : e.currentTarget
     const quote = exact.getAttribute('data-reply-quote') ?? exact.textContent?.trim() ?? ''
     const event_id = exact.hasAttribute('data-reply-event') ? exact.getAttribute('data-reply-event') ?? undefined : row.event_id
     const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id }, quote)
+    // copy-transcript-messages-from-the-context-menu. The text comes from the
+    // ROW MODEL, keyed by the same event id the reply target resolves to — so
+    // right-clicking a thought copies the thought and right-clicking the
+    // message copies the message, exactly as Reply already targets them.
+    //
+    // ⚠ THERE IS NO FALLBACK TO THE DOM, and that is deliberate rather than
+    // unfinished. `data-reply-quote` is capped at 4000 chars server-side, and
+    // on a typed user turn it is the WHOLE ENVELOPE — org state, provider
+    // usage, the charter, every drained mail — of which the desk deliberately
+    // shows only part. Falling back to it would put on the clipboard the very
+    // machine context the transcript hides. A row we cannot name honestly
+    // offers a disabled item instead.
+    const copy = (exact === e.currentTarget ? local : undefined)
+      ?? (event_id ? copyTextOf.get(event_id) : undefined) ?? ''
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {
@@ -1347,7 +1366,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         // time, not definition time, and this only ever runs from a later
         // click — never during the render that defines it.
         requestAnimationFrame(() => taRef.current?.focus())
-      } } }])
+      } } },
+    { label: 'Copy contents', disabled: !copy,
+      title: copy ? 'Copy the full text of this message, including anything folded'
+        : 'This row has no message text to copy',
+      onSelect: () => { void copyToClipboard(exact, copy).then(ok =>
+        toast([ok ? 'copied the message' : 'could not copy — clipboard unavailable'])) } }])
   }
   const sameReplyIdentity = (r: ReplyContext) => r.org === slug && r.agent === node.id && r.generation === (node.generation ?? 0)
   const sourceIds = new Set([
@@ -1367,6 +1391,44 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   })
   const transientThinking = transient.some(r => ['thinking', 'thinking_start', 'thought'].includes(r.kind))
   const transientDraft = transient.some(r => ['draft', 'delta'].includes(r.kind))
+  // copy-transcript-messages-from-the-context-menu: every event id on screen,
+  // mapped to the COMPLETE text of the thing that id names. Built from the
+  // rows already in memory rather than written into the DOM: a second
+  // `data-…` attribute per row would double the per-row text the transcript
+  // already carries for `data-reply-quote`, on every row of every desk.
+  //
+  // The keys are exactly the ids `openReply` can resolve to, so the granularity
+  // of Copy matches the granularity of Reply. Thinking and tool output are
+  // their own entries, never folded into their message's: they are separate
+  // right-click targets, and a Copy on the message that swept up a 4000-char
+  // tool result would be a surprise, not a convenience.
+  const copyTextOf = useMemo(() => {
+    const profile = BASE ? 'public' : 'operator'
+    const out = new Map<string, string>()
+    const put = (id: string | undefined | null, text: string) => {
+      if (id && text) out.set(id, text)
+    }
+    for (const m of chat?.messages ?? []) {
+      put(m.event_id, messageCopyText(m, profile))
+      put(m.thinking_event_id, String(m.thinking ?? ''))
+      for (const t of m.tools ?? []) {
+        if (typeof t === 'string') continue
+        put(t.event_id, toolCallCopyText(t))
+        put(t.result_event_id, toolResultCopyText(t))
+      }
+    }
+    // the live tail and the poll's transient rows: what the desk is streaming
+    // right now is as copyable as what has settled
+    for (const r of live_feed) put(r.event_id, String(r.text ?? ''))
+    for (const r of chat?.transient ?? []) put(r.event_id, String(r.text ?? ''))
+    for (const r of chat?.pending_mail ?? []) put(r.event_id, String(r.body ?? ''))
+    // the streaming reply and thought the convo store holds directly — they
+    // render from `convo`, not from either list above
+    put(convo.draftEventId, String(convo.draft ?? ''))
+    put(convo.thinkingEventId, String(convo.thinking ?? ''))
+    return out
+  }, [chat?.messages, chat?.transient, chat?.pending_mail, live_feed,
+    convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
     (sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
@@ -2557,7 +2619,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
               world={deskRefs.world} onOpen={deskRefs.onOpen}
               replyAvailable={replyAvailable} onLocateReply={locateReply}
-              onContext={e => openReply(e, {})}
+              // a ghost has no durable id (nothing was filed), so its own
+              // text travels with the press — see `openReply`'s `local`
+              onContext={e => openReply(e, {}, p.text)}
               onRestore={p.failed && !text.trim()
                 ? () => { setText(p.text); setReply(p.reply ?? null); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
                 : undefined}
