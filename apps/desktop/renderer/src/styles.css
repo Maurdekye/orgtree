@@ -2358,6 +2358,16 @@ button.cc-name:hover {
   display: flex; gap: 8px; align-items: center; font-size: 10px; flex-wrap: wrap;
   padding: 3px 4px; border-bottom: 1px solid var(--line-soft);
 }
+/* AN IDENTITY IS ONE ITEM, NOT TWO. `AgentName` renders a FRAGMENT by
+   contract — a chip and a name, side by side — and `.tier` is `display:
+   grid`, which is BLOCK-level. Dropped straight into this wrapping row the
+   chip took a line of its own and stranded the name under it (user
+   screenshot 2026-09-11). Same recipe as `.event-actor`, which is why the
+   projected event rows in the same tab never showed it. The row's own
+   flex-wrap still moves the identity whole when the line runs out, so the
+   timestamp, kind and detail beside it keep wrapping as before. */
+.hist-actor { display: inline-flex; align-items: center; gap: 5px; flex: none; white-space: nowrap; }
+.hist-actor .cc-name { flex: none; min-width: 0; white-space: nowrap; }
 .settings .hist-row { font-size: 12px; }
 .filepre {
   font-family: var(--mono); font-size: 10px; white-space: pre-wrap;

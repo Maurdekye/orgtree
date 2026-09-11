@@ -65,4 +65,17 @@ test('history keeps ordinary messages and notices styled with navigable agent se
   legacyJump.click()
   assert.equal(view.el.querySelectorAll('.hist-row button.cc-name-jump').length,1)
   assert.deepEqual(jumped,[actor,actor,actor])
+  // THE IDENTITY IS ONE GROUP. `AgentName` renders a FRAGMENT, so the chip and
+  // the name arrive as two boxes; `.tier` is `display: grid` and takes a whole
+  // line of its own unless something holds them together, which is what the
+  // user photographed (2026-09-11). This is the MARKUP half only — whether
+  // they end up on one LINE is geometry, which jsdom cannot answer and
+  // histident_probe.py measures in a real engine.
+  const group=view.el.querySelector('.hist-row .hist-actor')!
+  assert.ok(group.querySelector('.tier')&&group.querySelector('.cc-name'),
+    'the chip and the name are not inside one holder')
+  const plain=[...view.el.querySelectorAll('.hist-row .hist-actor')]
+    .find(el=>el.textContent==='missing-agent')!
+  assert.equal(plain.querySelector('.tier'),null,
+    'the control row grew a chip, so the check above compares nothing')
 })
