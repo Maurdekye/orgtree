@@ -5610,10 +5610,22 @@ label.set-row { cursor: pointer; }
 
 .usage-acct { display: flex; flex-direction: column; gap: 6px;
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.usage-acct-head { font-size: 13px; display: flex; align-items: center;
+/* ⚠ ONE WRAPPING RULE FOR EVERY CARD (user screenshot 2026-09-11). The
+   identity is the only part that may wrap: it takes the leftover width and
+   breaks inside itself, so a long account label can never push the refresh
+   control out of the row or make the age wrap around underneath it — which
+   is exactly how the primary and a registered account came to sit
+   differently in the same modal. `flex-start` keeps the control at the TOP
+   of a head whose identity ran onto a second line. */
+.usage-acct-head { font-size: 13px; display: flex; align-items: flex-start;
   justify-content: space-between; gap: 8px; }
-.usage-refresh { display: inline-flex; align-items: center; flex-wrap: wrap;
-  justify-content: flex-end; gap: 5px; font-size: 10px; }
+.usage-acct-who { min-width: 0; }
+.usage-refresh { display: flex; flex-direction: column; align-items: flex-end;
+  flex: 0 1 auto; max-width: 50%; text-align: right; gap: 3px; font-size: 10px; }
+/* the button and the age travel together and never split across lines; the
+   refresh failure below them is the one thing here allowed to wrap */
+.usage-refresh-line { display: inline-flex; align-items: center; flex: none;
+  gap: 5px; }
 .usage-refresh-button { border: 0; border-radius: 4px;
   background: transparent; color: var(--dim); padding: 2px 6px;
   cursor: pointer; font: inherit; }

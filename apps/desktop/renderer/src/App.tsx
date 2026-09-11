@@ -25,7 +25,7 @@ import {
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
 } from './api'
-import { fmtClock, fmtFull } from './timefmt'
+import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
@@ -38,7 +38,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
@@ -1599,20 +1599,78 @@ function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => P
   return { value, pending, failure, updatedAt, refresh }
 }
 
+/** How long ago this reading was taken, kept moving.
+ *
+ *  ⚠ AN AGE THAT DOES NOT MOVE IS A CLOCK THAT LIES. A readout only
+ *  re-renders when its poll lands, so without a tick of its own this line
+ *  would sit at "0s" for a whole minute — and a poll that FAILS leaves the
+ *  stamp where it was, which is the moment the reader most needs to watch
+ *  it go stale. */
+function useAge(at: number | null): string {
+  const [, bump] = useState(0)
+  useEffect(() => {
+    if (at === null) return
+    // the BARE timer, not `window.`'s: the suites drive this one (jsdom's
+    // window keeps its own, which a fake clock never reaches, and an age
+    // nothing can advance is an age nothing can check)
+    const timer = setInterval(() => { bump((n) => n + 1) }, 10000)
+    return () => { clearInterval(timer) }
+  }, [at])
+  return at === null ? '' : ago(new Date(at).toISOString())
+}
+
 function UsageRefresh({ provider, state }: { provider: string; state: UsageReadoutState }) {
+  // HOW LONG AGO, not what time it was (user 2026-09-11). "updated 1:02 PM"
+  // leaves the reader to do the subtraction themselves to answer the only
+  // question they have of it — is this number current? The exact instant is
+  // still one hover away.
+  const age = useAge(state.updatedAt)
   return <div className="usage-refresh">
-    <button type="button" className="usage-refresh-button" aria-busy={state.pending}
-      aria-label={`refresh ${provider} usage`}
-      title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
-      onClick={() => { void state.refresh(true) }}>
-      <AutorenewIcon fontSize="inherit" className={state.pending ? 'cc-spin' : undefined} />
-    </button>
-    {state.updatedAt !== null && <span className="usage-updated" aria-live="polite">
-      updated {fmtClock(state.updatedAt)}
-    </span>}
+    <div className="usage-refresh-line">
+      <button type="button" className="usage-refresh-button" aria-busy={state.pending}
+        aria-label={`refresh ${provider} usage`}
+        title={state.pending ? `refreshing ${provider} usage` : `refresh ${provider} usage`}
+        onClick={() => { void state.refresh(true) }}>
+        <AutorenewIcon fontSize="inherit" className={state.pending ? 'cc-spin' : undefined} />
+      </button>
+      {/* ⚠ NOT a live region any more. It was one while it read a clock
+          time, which only ever changed when a refresh actually landed; an
+          age that re-renders itself every few seconds would announce
+          "updated 3m ago" over and over to a screen reader for as long as
+          the modal stays open. The refresh button's own aria-busy is what
+          reports a read in progress. */}
+      {state.updatedAt !== null && <span className="usage-updated"
+        title={`updated ${fmtWhen(state.updatedAt)}`}>
+        updated {age} ago
+      </span>}
+    </div>
     {state.failure && <span className="usage-refresh-error" role="alert">
       refresh failed: {state.failure}
     </span>}
+  </div>
+}
+
+/** ONE head for every card in this modal — a host provider lane and a
+ *  registered account alike.
+ *
+ *  ⚠ EACH CARD USED TO WRITE ITS OWN, and they drifted (user screenshot
+ *  2026-09-11): the primary's heading sat on one row while a registered
+ *  account's label and time wrapped around its refresh button, so two cards
+ *  in the same modal aligned differently. Same markup here means the same
+ *  wrapping rule, and the length of the text is then the only thing that
+ *  can differ between two cards. */
+function UsageAcctHead({ label, parts, provider, state }: {
+  label: string
+  parts: (string | null | undefined)[]
+  provider: string
+  state: UsageReadoutState
+}) {
+  const detail = parts.filter(Boolean).map((part) => ` · ${part}`).join('')
+  return <div className="usage-acct-head">
+    <span className="usage-acct-who"><span className="acct-label">{label}</span>
+      {detail && <span className="dim">{detail}</span>}
+    </span>
+    <UsageRefresh provider={provider} state={state} />
   </div>
 }
 
@@ -1635,13 +1693,8 @@ function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
   const provider = registryProviderName(row.provider)
   const name = row.label || row.id
   return <div className="usage-acct" data-account={row.id}>
-    <div className="usage-acct-head">
-      <span><span className="acct-label">{provider}</span>
-        <span className="dim"> · {name}</span>
-        {row.identity?.email && <span className="dim"> · {row.identity.email}</span>}
-      </span>
-      <UsageRefresh provider={name} state={state} />
-    </div>
+    <UsageAcctHead label={provider} parts={[name, row.identity?.email]}
+      provider={name} state={state} />
     {u
       ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />
         <StandingMarks standing={u.standing} /></>
@@ -1708,9 +1761,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
           {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
-            <div className="usage-acct-head">
-              <span>Claude Code{claude.value?.email && <span className="dim"> · {claude.value.email}</span>}</span>
-              <UsageRefresh provider="Claude" state={claude} /></div>
+            <UsageAcctHead label="Claude Code" parts={[claude.value?.email]}
+              provider="Claude" state={claude} />
             {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
                 only in App settings — shown exactly when the usage fetch
                 came back a real, structured credential rejection (never
@@ -1722,11 +1774,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           {shown.openai && (codex.value || codex.failure || codex.pending) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
-            <div className="usage-acct-head">
-              <span><span className="acct-label">{codex.value?.provider ?? 'Codex'}</span>
-                {codex.value?.label && <span className="dim"> · {codex.value.label}</span>}</span>
-              <UsageRefresh provider="Codex" state={codex} />
-            </div>
+            <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
+              parts={[codex.value?.label]} provider="Codex" state={codex} />
             {codex.value?.reauth_required && <ProviderSignIn provider="codex"
               connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
             {codex.value
@@ -1734,11 +1783,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           {shown.google && (agy.value || agy.failure || agy.pending) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
-            <div className="usage-acct-head">
-              <span><span className="acct-label">{agy.value?.provider ?? 'Antigravity'}</span>
-                {agy.value?.label && <span className="dim"> · {agy.value.label}</span>}</span>
-              <UsageRefresh provider="Antigravity" state={agy} />
-            </div>
+            <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
+              parts={[agy.value?.label]} provider="Antigravity" state={agy} />
             {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
                 visible terminal running the CLI's own interactive entry
                 point rather than the browser/in-app-code flow Claude and
@@ -1752,11 +1798,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           {shown.openrouter && (orr.value || orr.failure || orr.pending) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>
-            <div className="usage-acct-head">
-              <span><span className="acct-label">{orr.value?.provider ?? 'OpenRouter'}</span>
-                {orr.value?.label && <span className="dim"> · {orr.value.label}</span>}</span>
-              <UsageRefresh provider="OpenRouter" state={orr} />
-            </div>
+            <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
+              parts={[orr.value?.label]} provider="OpenRouter" state={orr} />
             {orr.value
               ? <UsageBars u={orr.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
