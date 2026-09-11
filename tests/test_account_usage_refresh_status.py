@@ -156,6 +156,19 @@ class RefreshFailureStatusTests(unittest.TestCase):
         self.assertEqual(out["error"], self.subproxy.SIGNED_OUT_MESSAGE)
         self.assertIn("invalid_grant", out["detail"])
 
+    def test_a_client_level_refusal_is_not_a_sign_in_problem(self):
+        """⚠ root review of 81bc2d1, end to end. `invalid_client` refuses the
+        APPLICATION, not the account — the very same status, the very same
+        route, the very same shape as the `invalid_grant` case above, and it
+        must come out the other way."""
+        for code in (b'invalid_client', b'unauthorized_client'):
+            out = self._usage_when_refresh_fails(
+                self._http(400, b'{"error": "' + code + b'"}'))
+            self.assertNotIn("reauth_required", out, code.decode())
+            self.assertEqual(out["error"], self.subproxy.RECOVERABLE_MESSAGE)
+            # …and the detail still names what actually came back
+            self.assertIn(code.decode(), out["detail"])
+
     def test_a_moved_endpoint_is_not_a_sign_in_problem_either(self):
         out = self._usage_when_refresh_fails(self._http(
             404, b'{"type":"error","error":{"type":"not_found_error"}}'))

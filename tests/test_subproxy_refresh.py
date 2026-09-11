@@ -175,6 +175,28 @@ class ClassificationTests(unittest.TestCase):
         self.assertTrue(subproxy._judged_credential(
             401, '{"type":"error","error":{"type":"authentication_error"}}'))
 
+    def test_client_level_refusals_are_not_the_accounts_fault(self):
+        """⚠ root review of 81bc2d1. RFC 6749 aims `invalid_client` and
+        `unauthorized_client` at the CLIENT — our client_id, the application
+        — not at the account's refresh token. The user's credential can be
+        perfectly good while WE are the thing being refused, so routing these
+        to "sign in again" is the same cannot-help ritual one more time."""
+        for code in ('invalid_client', 'unauthorized_client'):
+            for status in (400, 401, 403):
+                self.assertFalse(
+                    subproxy._judged_credential(status, '{"error":"%s"}' % code),
+                    f'{status} {code} must not read as a rejected credential')
+
+    def test_the_grant_and_client_routes_are_actually_distinguished(self):
+        """POSITIVE CONTROL for the test above, on one line each: the same
+        status, the same shape, the same function — and opposite answers. A
+        classifier that had simply stopped recognising anything would pass
+        the client-refusal test and fail this one."""
+        self.assertTrue(subproxy._judged_credential(
+            400, '{"error":"invalid_grant"}'))
+        self.assertFalse(subproxy._judged_credential(
+            400, '{"error":"invalid_client"}'))
+
     def test_a_bare_403_is_not_proof_of_anything(self):
         """⚠ root review of 2024af5. A status code with nothing in it is an
         UNKNOWN refusal — and an edge in front of the server answers with

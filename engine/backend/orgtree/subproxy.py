@@ -101,9 +101,16 @@ _EDGE_REFUSAL = re.compile(
 #: strict shows "usage unavailable" to someone who is genuinely signed out;
 #: being too loose sends someone who is signed in to a sign-in screen that
 #: cannot help them. The first is a worse readout, the second is the bug.
+#:
+#: ⚠ `invalid_client` AND `unauthorized_client` ARE NOT ON THIS LIST EITHER
+#: (root review of 81bc2d1), and the reason is worth keeping: RFC 6749 aims
+#: both of those at the CLIENT — our `client_id`, the application — and not at
+#: the account's refresh token. The user's credential may be perfectly good
+#: while we are the thing being refused, so "sign in again" is once more a
+#: ritual that cannot help. They stay recoverable, which is what an
+#: application-level refusal honestly is from the account's point of view.
 _CREDENTIAL_REJECTION = re.compile(
-    r"invalid_grant"              # RFC 6749: the refresh token is dead
-    r"|invalid_client|unauthorized_client"
+    r"invalid_grant"              # RFC 6749: the refresh token itself is dead
     r"|authentication_error",     # Anthropic's own
     re.I)
 
