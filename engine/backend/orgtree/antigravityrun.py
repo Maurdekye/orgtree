@@ -225,27 +225,81 @@ def mcp_config(servers: dict[str, Any]) -> dict[str, Any]:
 
 # ── the workspace the CLI discovers ──────────────────────────────────────
 
+# ⚠ NO LITERAL `%` BELOW. The template is rendered with `%`-formatting, so
+# `%(deny)s` is the only per-cent that may appear — hence the string
+# concatenation where an f-string or `%s` would read better.
 _RIGHTS_TEMPLATE: Final = '''"""orgtree's ⚙-rights hook for the Antigravity CLI — written per spawn,
 never edited by hand. A PreToolUse hook: the CLI hands the pending tool
-call on stdin and reads {"decision": ...} from stdout."""
+call on stdin and reads {"decision": ...} from stdout.
+
+⚠ THIS HOOK NEVER GUESSES. It is the only thing between a narrowed seat and
+the `--dangerously-skip-permissions` every orgtree turn runs with, so a
+payload it cannot read, or one carrying no usable tool name, is DENIED with
+the reason — NOT allowed because the name came out empty. "I could not tell"
+is not "allow"."""
 import json
 import sys
 
 DENY = %(deny)s
+#: every place the CLI has been seen to name the pending tool. The FIRST
+#: PRESENT key wins, not the first TRUTHY one: or-chaining let an empty or
+#: non-string value read as "absent" and fall all the way through to allow.
+FIELDS = (("toolCall", "name"), ("tool_name",), ("toolName",))
+REFUSING = " - refusing the call rather than guessing"
+
+
+def clip(value):
+    """A malformed identity goes back to the model in the reason, so it is
+    bounded: the payload is not ours and could be arbitrarily large."""
+    text = repr(value)
+    return text if len(text) <= 120 else text[:117] + "..."
+
+
+def decide(payload):
+    """(decision, reason); reason is "" only when the decision is allow."""
+    if not isinstance(payload, dict):
+        return "deny", ("this agent's permission hook was handed "
+                        + type(payload).__name__ + " where the pending tool "
+                        "call should be, so it cannot tell what this call is"
+                        + REFUSING)
+    for field in FIELDS:
+        doc = payload
+        for key in field[:-1]:
+            doc = doc.get(key) if isinstance(doc, dict) else None
+        if isinstance(doc, dict) and field[-1] in doc:
+            raw = doc[field[-1]]
+            break
+    else:
+        return "deny", ("this agent's permission hook found no tool name in "
+                        "the call it was given, so it cannot tell whether "
+                        "that tool is allowed" + REFUSING)
+    if not isinstance(raw, str) or not raw.strip():
+        return "deny", ("this agent's permission hook was given "
+                        + clip(raw) + " as the tool name, which is not a "
+                        "usable name" + REFUSING)
+    # stripped before the lookup: padding a denied name with whitespace must
+    # not walk past the wall. Real tool names carry none, so this is a no-op
+    # for every call that is not trying something.
+    name = raw.strip()
+    return ("deny", DENY[name]) if name in DENY else ("allow", "")
+
+
 try:
-    payload = json.load(sys.stdin)
-except Exception:                                            # noqa: BLE001
-    payload = {}
-doc = payload if isinstance(payload, dict) else {}
-call = doc.get("toolCall")
-call = call if isinstance(call, dict) else {}
-# `toolCall.name` is the measured envelope; the alternates are read only so
-# that a renamed field DENIES as before instead of failing open silently
-name = str(call.get("name") or doc.get("tool_name")
-           or doc.get("toolName") or "")
-if name in DENY:
-    print(json.dumps({"decision": "deny",
-                      "reason": "orgtree: " + DENY[name]}))
+    # BYTES, decoded as UTF-8 by hand. `json.load(sys.stdin)` would decode
+    # with the console codepage instead, so on a cp1252 box a tool call whose
+    # ARGUMENTS held any non-ASCII text raised UnicodeDecodeError — and this
+    # hook now denies what it cannot read, which would have turned a locale
+    # accident into a blocked tool. JSON is UTF-8 by specification.
+    payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+except Exception as exc:                                     # noqa: BLE001
+    decision = "deny"
+    reason = ("this agent's permission hook could not read the pending tool "
+              "call on stdin (" + type(exc).__name__ + "), so it cannot tell "
+              "whether this tool is allowed" + REFUSING)
+else:
+    decision, reason = decide(payload)
+if decision == "deny":
+    print(json.dumps({"decision": "deny", "reason": "orgtree: " + reason}))
 else:
     print(json.dumps({"decision": "allow"}))
 '''

@@ -74,6 +74,16 @@ def escape_arg(s):
     return "".join(out)
 
 
+def run_hook_raw(command, stdin_bytes, slash_s):
+    """Fire `command` with ARBITRARY bytes on stdin — the shapes json.load
+    never gets to parse."""
+    comspec = os.environ.get("COMSPEC") or "cmd.exe"
+    line = "%s %s%s" % (escape_arg(comspec), "/s /c " if slash_s else "/c ",
+                        escape_arg(command))
+    return subprocess.run(line, input=stdin_bytes,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
 def run_hook(command, payload, slash_s):
     """Fire `command` exactly as the CLI would: cmd.exe, one escaped argv
     element, the pending tool call on stdin. `slash_s` picks the `/s /c`
@@ -236,16 +246,23 @@ class HookCommandTests(unittest.TestCase):
         self.assertEqual(decision_of(proc), "allow",
                          "bash is ON here — denying it would be a false wall")
 
-    def test_unknown_envelope_field_still_denies(self):
-        """The hook reads `toolCall.name`; if the CLI ever renames that field
-        the old script FAILED OPEN — allowed everything, quietly. These
-        alternates make a rename deny as before instead."""
+    def test_renamed_envelope_field_is_still_read_both_ways(self):
+        """`toolCall.name` is the measured envelope; the alternates are what
+        a rename would land on.
+
+        ⚠ THE DENY HALF ALONE PROVES NOTHING NOW. Since the hook fails closed,
+        an envelope it does not recognise is denied anyway — so a test that
+        only checked `run_command -> deny` passed just as happily with the
+        aliases removed (caught by mutant M5). What the aliases actually buy
+        is the ALLOW half: reading the renamed field is the difference between
+        a seat that keeps working and one that denies its own read tools."""
         cwd, _ = self._workspace()
         command = self._command_from_disk(cwd)
-        for payload in ({"tool_name": "run_command"},
-                        {"toolName": "run_command"}):
-            proc = run_hook(command, payload, False)
-            self.assertEqual(decision_of(proc), "deny", payload)
+        for field in ("tool_name", "toolName"):
+            proc = run_hook(command, {field: "run_command"}, False)
+            self.assertEqual(decision_of(proc), "deny", field)
+            proc = run_hook(command, {field: "view_file"}, False)
+            self.assertEqual(decision_of(proc), "allow", field)
 
     # ── the pieces, directly ─────────────────────────────────────────────
 
@@ -278,6 +295,99 @@ class HookCommandTests(unittest.TestCase):
         command = self._command_from_disk(cwd)
         self.assertEqual(command, os.path.abspath(
             os.path.join(cwd, ".agents", "orgtree-rights.cmd")))
+
+    # ── an unreadable call is a DENIED call (coordinator review, 2026-09-11)
+
+    #: every payload that carries no usable tool identity. Each one used to
+    #: come out of the old `or`-chain as name == "" and be ALLOWED.
+    UNREADABLE = (
+        ("empty object", {}),
+        ("toolCall present but empty", {"toolCall": {}}),
+        ("name empty", {"toolCall": {"name": ""}}),
+        ("name whitespace", {"toolCall": {"name": "   "}}),
+        ("name is a number", {"toolCall": {"name": 7}}),
+        ("name is null", {"toolCall": {"name": None}}),
+        ("name is an object", {"toolCall": {"name": {"a": 1}}}),
+        ("name is a list", {"toolCall": {"name": ["run_command"]}}),
+        ("toolCall is a string", {"toolCall": "run_command"}),
+        ("payload is a list", [{"name": "run_command"}]),
+        ("payload is a string", "run_command"),
+        ("payload is null", None),
+        ("payload is a number", 0),
+    )
+
+    def test_unreadable_tool_identity_is_denied_with_a_reason(self):
+        """The fail-open the review caught: anything the hook cannot
+        positively identify as a named tool must be DENIED, because this hook
+        is the only wall in front of --dangerously-skip-permissions."""
+        cwd, _ = self._workspace()
+        command = self._command_from_disk(cwd)
+        for label, payload in self.UNREADABLE:
+            proc = run_hook(command, payload, False)
+            self.assertEqual(proc.returncode, 0, label)
+            body = json.loads(proc.stdout.decode("utf-8", "replace"))
+            self.assertEqual(body["decision"], "deny", label)
+            # "a useful reason", not a bare refusal
+            self.assertTrue(body["reason"].startswith("orgtree: "), label)
+            self.assertIn("permission hook", body["reason"], label)
+            self.assertIn("guessing", body["reason"], label)
+
+    def test_unparseable_stdin_is_denied_with_a_reason(self):
+        """json.load never even returns for these."""
+        cwd, _ = self._workspace()
+        command = self._command_from_disk(cwd)
+        for label, blob in (("empty stdin", b""),
+                            ("not json", b"<html>nope</html>"),
+                            ("truncated json", b'{"toolCall": {"name": '),
+                            ("nul bytes", b"\x00\x01\x02"),
+                            ("bad utf-8", b'{"toolCall": {"name": "\xff\xfe"}}')):
+            for slash_s in (False, True):
+                proc = run_hook_raw(command, blob, slash_s)
+                self.assertEqual(proc.returncode, 0,
+                                 "%s: %s" % (label, proc.stderr[:200]))
+                body = json.loads(proc.stdout.decode("utf-8", "replace"))
+                self.assertEqual(body["decision"], "deny", label)
+                self.assertIn("could not read", body["reason"], label)
+
+    def test_non_ascii_arguments_are_still_read(self):
+        """The other half of reading stdin as bytes: a tool call whose
+        ARGUMENTS carry non-ASCII must still parse, or denying-the-unreadable
+        would block ordinary work on any non-UTF-8 console codepage."""
+        cwd, _ = self._workspace()
+        command = self._command_from_disk(cwd)
+        blob = json.dumps({"toolCall": {"name": "view_file",
+                                        "args": {"q": "café — ünïcode 中文"}}}
+                          ).encode("utf-8")
+        proc = run_hook_raw(command, blob, False)
+        body = json.loads(proc.stdout.decode("utf-8", "replace"))
+        self.assertEqual(body["decision"], "allow")
+        blob = json.dumps({"toolCall": {"name": "run_command",
+                                        "args": {"q": "日本語"}}}
+                          ).encode("utf-8")
+        proc = run_hook_raw(command, blob, False)
+        self.assertEqual(decision_of(proc), "deny")
+
+    def test_denying_the_unreadable_did_not_deny_everything(self):
+        """THE CONTROL ON THE CONTROL. A hook that denies every payload would
+        pass every assertion above and brick the seat — so the allowed tool
+        must still come back allowed, through both envelopes."""
+        cwd, out = self._workspace()
+        command = self._command_from_disk(cwd)
+        self.assertIn("run_command", out["denied"])
+        for slash_s in (False, True):
+            self._assert_allow_and_deny(command, slash_s)
+        for tool in ("view_file", "grep_search", "list_dir", "find_by_name"):
+            proc = run_hook(command, {"toolCall": {"name": tool}}, False)
+            self.assertEqual(decision_of(proc), "allow", tool)
+
+    def test_whitespace_padding_does_not_walk_past_a_denial(self):
+        """`" run_command "` is the same tool; the wall is on the name, not
+        on its spelling."""
+        cwd, _ = self._workspace()
+        command = self._command_from_disk(cwd)
+        for spelling in (" run_command", "run_command ", "\trun_command\n"):
+            proc = run_hook(command, {"toolCall": {"name": spelling}}, False)
+            self.assertEqual(decision_of(proc), "deny", repr(spelling))
 
     # ── never emit an unsafe command (coordinator review, 2026-09-11) ────
 
