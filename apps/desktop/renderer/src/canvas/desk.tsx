@@ -1132,9 +1132,16 @@ export function Activity({ act, dotOnly, tier }: { act?: ActivityInfo; dotOnly?:
 // animation frame, and each open desk re-parsed its full transcript each
 // time. The comparator checks the DATA props only; the callback props close
 // over stable setters, so their per-render identities are ignorable.
-/** A CLI tool_use_id, namespaced so it can share one dedup pass with event ids
- *  without the two spaces ever being compared as if they were one. A live
- *  `tool` row and its durable chip both carry this id unchanged. */
+// TWO ID DOMAINS SHARE ONE DEDUP PASS, so BOTH are tagged — not just one
+// (coordinator-astra review, 2026-09-11). Tagging only tool ids leaves the
+// event domain raw, and event ids are OPAQUE: one that literally reads
+// `tool:abc` would then collide with the tool whose id is `abc` and silently
+// blank a row. Tagging both makes a collision impossible rather than
+// improbable, and costs a string concat per row.
+/** an event identity — a reply snapshot id or a durable record uuid */
+const eventKey = (id: unknown): string | undefined =>
+  typeof id === 'string' && id ? `evt:${id}` : undefined
+/** a CLI tool_use_id — carried unchanged by a live `tool` row and its chip */
 const toolKey = (id: unknown): string | undefined =>
   typeof id === 'string' && id ? `tool:${id}` : undefined
 
@@ -1739,31 +1746,35 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const dedup = eventDedup()
   // the DURABLE id decides — events/dedup.ts says why the reply id cannot
   const viewMessages = dedup.list(chat?.messages ?? [],
-    (m) => m.native_event_id ?? m.event_id)
+    (m) => eventKey(m.native_event_id ?? m.event_id))
   // …and each surviving row OWNS the other names it answers to: its reply id,
   // and the tool_use_id of every chip it carries. A live tool row and its
   // durable chip have always shared that id, but nothing here claimed it, so
   // one the server's sweep missed drew beside its own chip.
   for (const m of viewMessages) {
-    dedup.claim(m.event_id)
+    dedup.claim(eventKey(m.event_id))
+    // a merged thinking row answers to every record it absorbed, not only the
+    // one whose place it kept — see the projection's `native_event_ids`
+    for (const id of m.native_event_ids ?? []) dedup.claim(eventKey(id))
     for (const t of m.tools ?? []) dedup.claim(toolKey(t?.id))
   }
-  const viewPendNow = dedup.list(pendNow, (m) => m.event_id)
+  const viewPendNow = dedup.list(pendNow, (m) => eventKey(m.event_id))
   // a live row answers to its DURABLE id where it has one — the id its
   // transcript twin claimed above — to its tool_use_id when it is a tool row,
   // and to its own otherwise
   const viewLive = dedup.list(live_feed, (r) => r.kind === 'tool'
-    ? toolKey(r.id) ?? r.native_event_id ?? r.event_id
-    : r.native_event_id ?? r.event_id)
-  const viewTransient = dedup.list(transient, (r) => r.event_id)
+    ? toolKey(r.id) ?? eventKey(r.native_event_id ?? r.event_id)
+    : eventKey(r.native_event_id ?? r.event_id))
+  const viewTransient = dedup.list(transient, (r) => eventKey(r.event_id))
   // the standalone thinking/draft marks are the SAME events as their transient
   // rows, drawn when no transient row carries them. `keep` is reached only
   // when the mark would actually render, so a suppressed mark never reserves
   // an id nothing drew.
   const thinkingMark = !transientThinking && thinkSecs !== null && !!chat?.busy
-    && dedup.keep(convo.thinkingEventId)
-  const draftMark = !transientDraft && !!draft && dedup.keep(convo.draftEventId)
-  const viewPendLater = dedup.list(pendLater, (m) => m.event_id)
+    && dedup.keep(eventKey(convo.thinkingEventId))
+  const draftMark = !transientDraft && !!draft
+    && dedup.keep(eventKey(convo.draftEventId))
+  const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
   // optimistic ghosts are deliberately NOT in this pass: they are client-minted
   // and carry no event id at all, so there is nothing here to compare them by.
   useEffect(() => {
@@ -3078,7 +3089,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                             conversation (an archived generation's), so it must
                             never share an id set with the desk above it. */}
                         {eventDedup().list(readChat.messages.slice(-80),
-                          (m) => m.native_event_id ?? m.event_id)
+                          (m) => eventKey(m.native_event_id ?? m.event_id))
                           .map((m, i) => (
                             <Msg key={m.event_id ?? m.native_event_id ?? i}
                               m={m} slug={slug} nid={b.id} />))}

@@ -922,6 +922,11 @@ export interface ChatMessage {
    *  Absent on rows whose source record had no uuid (legacy journals, the
    *  synthetic steered rows), and the dedup guard simply skips those. */
   native_event_id?: string
+  /** every record this row was projected from, primary first — present only
+   *  when read_chat MERGED records into it (consecutive thinking-only records
+   *  of one message). The merged record's body joins the survivor, so its id
+   *  must too, or a live row paired with it could never be retired. */
+  native_event_ids?: string[]
   reply_quote?: string
   thinking_reply_quote?: string
   event_id?: string

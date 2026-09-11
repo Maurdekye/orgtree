@@ -653,6 +653,66 @@ domTest('§12b a tool id never collides with an event id, and an id-less tool ro
       'and a tool row with no id is never collapsed')
   })
 
+domTest('§12c an opaque event id spelling `tool:abc` never collides with tool `abc`',
+  async ({ ND, s, sink, mount }) => {
+    // coordinator-astra review 2026-09-11: tagging ONLY tool ids leaves the
+    // event domain raw, so an event id that literally reads `tool:abc` lands
+    // on the same key as the tool whose id is `abc` and silently blanks a
+    // row. §12b only proved `abc` ≠ `abc`-as-a-tool; this is the collision
+    // that a one-sided prefix actually permits.
+    row(s, 'ran a command', 'reply_row', {
+      native_event_id: 'uu-row',
+      tools: [{ id: 'abc', name: 'Bash', arg: 'npm test', event_id: 'reply_chip' },
+        { id: 'def', name: 'Read', arg: 'src/app.ts', event_id: 'reply_chip2' }],
+    } as never)
+    // an event id whose TEXT is the tagged form of the first tool's id
+    s.live.push({ kind: 'text', text: 'prose that must survive',
+      event_id: 'tool:abc', n: 8 } as never)
+    // …and the same in the durable direction: a transcript row whose DURABLE
+    // id spells the second tool's key must not be blanked by that tool
+    row(s, 'a second message', 'reply_two', { native_event_id: 'tool:def' } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.equal(says(el, 'prose that must survive'), 1,
+      'an event id is not a tool id, however it is spelled')
+    assert.equal(says(el, 'a second message'), 1)
+    assert.equal(says(el, 'npm test'), 1, 'and the chip is still there once')
+    assert.deepEqual(dup(rowIds(el)), [])
+  })
+
+domTest('§13 a merged thinking row answers to every record it absorbed',
+  async ({ ND, s, sink, mount }) => {
+    // read_chat merges consecutive thinking-only records of one message into
+    // the first one's row. The merged record's BODY joins the survivor, so
+    // its identity must too (coordinator-astra review, 2026-09-11) —
+    // otherwise a live thought paired with the absorbed record can never be
+    // retired and sits beside the row that swallowed it.
+    row(s, 'the answer', 'reply_row', {
+      native_event_id: 'uu-think-1',
+      native_event_ids: ['uu-think-1', 'uu-think-2'],
+      thinking: 'first thought\n\nsecond thought',
+    } as never)
+    // two live thoughts, one paired with each constituent
+    s.live.push({ kind: 'thought', text: 'first thought',
+      event_id: 'reply_t1', native_event_id: 'uu-think-1', n: 1 } as never)
+    s.live.push({ kind: 'thought', text: 'second thought',
+      event_id: 'reply_t2', native_event_id: 'uu-think-2', n: 2 } as never)
+    // …and one that belongs to no record at all
+    s.live.push({ kind: 'thought', text: 'still thinking',
+      event_id: 'reply_t3', native_event_id: 'uu-think-9', n: 3 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.equal(sink.at(-1)!.live.length, 3, 'fixture: all three were sent')
+    assert.deepEqual(liveIds(el), ['reply_t3'],
+      'both constituents are claimed; the unrelated one stays')
+    // (a thought renders through ThoughtLine, which collapses its body, so the
+    // row is counted structurally rather than by looking for its words)
+    assert.equal(el.querySelectorAll('.reply-event .msg.assistant.live').length, 1,
+      'exactly one live thought left on screen')
+  })
+
 // ================================================================ per view
 domTest('§8 the id set is per view: two desks on one node each show the row once',
   async ({ ND, s, sink, mount }) => {

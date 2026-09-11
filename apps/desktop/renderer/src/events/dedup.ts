@@ -52,8 +52,10 @@
 //     of one row whose text moved on therefore arrive under DIFFERENT
 //     event_ids while their native_event_id is identical — deduplicating on
 //     event_id alone renders both, which is the doubled message reported.
-//   · a `tool` row answers to the CLI's tool_use_id, namespaced by the caller
-//     so the two id spaces are never compared as if they were one.
+//   · a `tool` row answers to the CLI's tool_use_id, a DIFFERENT id space.
+//     The caller tags BOTH domains before handing an id here — tagging only
+//     one would leave the other raw, and an opaque event id that happened to
+//     read `tool:abc` would then collide with the tool whose id is `abc`.
 // So the durable id decides, the others are claimed alongside it, a row with
 // only one of them uses that one, and every id is an opaque string here —
 // nothing in this file parses one.

@@ -395,5 +395,139 @@ class LiveDurableIdentityTests(unittest.TestCase):
         self.assertEqual(self.live_texts(), ['a reasoning summary'])
 
 
+    # =========================================== thoughts and plans, by id
+    def test_a_thinking_frame_yields_its_id_only_when_it_owns_a_row(self):
+        UU = 'f0000000-0000-4000-8000-0000000000e1'
+        think_only = {'uuid': UU, 'message': {'content': [
+            {'type': 'thinking', 'thinking': 'reasoning', 'signature': 'sig'}]}}
+        self.assertEqual(supervisor._frame_thinking_id(think_only), UU)
+        # a sealed block (no body) still owns its record
+        sealed = {'uuid': UU, 'message': {'content': [
+            {'type': 'thinking', 'thinking': '', 'signature': 'sig'}]}}
+        self.assertEqual(supervisor._frame_thinking_id(sealed), UU)
+        # a tool block alongside is fine — tools pair on tool_use_id
+        with_tool = {'uuid': UU, 'message': {'content': [
+            {'type': 'thinking', 'thinking': 'reasoning', 'signature': 'sig'},
+            {'type': 'tool_use', 'id': 'tu-1', 'name': 'Read'}]}}
+        self.assertEqual(supervisor._frame_thinking_id(with_tool), UU)
+        # ⚠ PROSE IN THE SAME RECORD: read_chat projects ONE row, and that
+        # row is the TEXT row's twin. Handing the same uuid to the thought
+        # would put two live rows under one id and hide one of them.
+        with_text = {'uuid': UU, 'message': {'content': [
+            {'type': 'thinking', 'thinking': 'reasoning', 'signature': 'sig'},
+            {'type': 'text', 'text': 'the answer'}]}}
+        self.assertIsNone(supervisor._frame_thinking_id(with_text))
+        self.assertEqual(supervisor._frame_text_row(with_text)['event_id'], UU,
+                         'the id goes to the text row, which really owns it')
+        # no thinking, no uuid, junk: all decline
+        self.assertIsNone(supervisor._frame_thinking_id(
+            {'uuid': UU, 'message': {'content': [{'type': 'text', 'text': 'x'}]}}))
+        self.assertIsNone(supervisor._frame_thinking_id(
+            {'message': {'content': [{'type': 'thinking', 'thinking': 'r'}]}}))
+        self.assertIsNone(supervisor._frame_thinking_id(
+            {'uuid': '', 'message': {'content': [{'type': 'thinking', 'thinking': 'r'}]}}))
+        self.assertIsNone(supervisor._frame_thinking_id({'uuid': UU}))
+        self.assertIsNone(supervisor._frame_thinking_id(
+            {'uuid': UU, 'message': {'content': [None, 7, 'x']}}))
+
+    def test_merged_thinking_records_keep_every_constituent_identity(self):
+        # THE REAL PROJECTION: two thinking-only records ~1 ms apart sharing
+        # one message.id, which read_chat merges into the first one's row.
+        first = 'f0000000-0000-4000-8000-0000000000e2'
+        second = 'f0000000-0000-4000-8000-0000000000e3'
+        for rid, body in ((first, 'first thought'), (second, 'second thought')):
+            self.journal({'type': 'assistant', 'timestamp': '2026-09-11T07:00:00Z',
+                          'uuid': rid,
+                          'message': {'id': 'msg-shared', 'role': 'assistant',
+                                      'content': [{'type': 'thinking',
+                                                   'thinking': body,
+                                                   'signature': 'sig'}]}})
+        rows = [m for m in self.chat()['messages'] if m.get('thinking')]
+        self.assertEqual(len(rows), 1, 'fixture: the projection really merged them')
+        merged = rows[0]
+        self.assertIn('first thought', merged['thinking'], 'content is not discarded')
+        self.assertIn('second thought', merged['thinking'])
+        self.assertEqual(merged['native_event_id'], first,
+                         'the primary is the record whose place the row kept')
+        self.assertEqual(merged['native_event_ids'], [first, second],
+                         'and every constituent is listed, primary first')
+        # a live thought paired with EITHER record retires against that row
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'thought', 'text': UNRELATED, 'event_id': second})
+        self.assertEqual(self.chat()['live'], [],
+                         'the ABSORBED record still retires its live twin')
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'thought', 'text': UNRELATED, 'event_id': first})
+        self.assertEqual(self.chat()['live'], [])
+        # and an unrelated id still stands — the control
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'thought', 'text': UNRELATED,
+            'event_id': 'f0000000-0000-4000-8000-0000000000ee'})
+        self.assertEqual(self.live_texts(), [UNRELATED])
+
+    def test_a_codex_plan_row_and_its_live_twin_share_one_id(self):
+        rid = 'f0000000-0000-4000-8000-0000000000f1'
+        self.journal({'type': 'codex_plan_updated',
+                      'timestamp': '2026-09-11T07:00:00Z', 'uuid': rid,
+                      'plan': [{'step': 'write it', 'status': 'completed'}],
+                      'explanation': None, 'threadId': 'th-1', 'turnId': 'tu-1'})
+        durable = self.chat()['messages'][-1]
+        self.assertEqual(durable['native_event_id'], rid)
+        self.assertEqual(durable['codexPlan']['steps'],
+                         [{'step': 'write it', 'status': 'completed'}],
+                         'the checklist itself is untouched')
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'plan', 'text': 'checklist updated', 'event_id': rid})
+        self.assertEqual(self.chat()['live'], [],
+                         'retired by the shared id, not by what landed after it')
+
+    def test_a_plan_row_with_an_unpaired_id_still_stands(self):
+        # the control for the plan half of the thought/plan dispatch
+        self.journal({'type': 'codex_plan_updated',
+                      'timestamp': '2026-09-11T07:00:00Z',
+                      'uuid': 'f0000000-0000-4000-8000-0000000000f2',
+                      'plan': [{'step': 'write it', 'status': 'completed'}],
+                      'explanation': None, 'threadId': 'th-1', 'turnId': 'tu-1'})
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'plan', 'text': 'checklist updated',
+            'event_id': 'f0000000-0000-4000-8000-0000000000f9'})
+        self.assertEqual(self.live_texts(), ['checklist updated'])
+
+
+    def test_a_folded_thought_takes_the_first_record_it_was_written_from(self):
+        first = 'f0000000-0000-4000-8000-0000000000e2'
+        second = 'f0000000-0000-4000-8000-0000000000e3'
+        row = supervisor._folded_thought_row(4, 'reasoning', [first, second])
+        self.assertEqual(row, {'kind': 'thought', 'secs': 4,
+                               'text': 'reasoning', 'event_id': first},
+                         'the FIRST record is the one the merged row keeps')
+        # no records: the thought still renders, just unpaired
+        bare = supervisor._folded_thought_row(4, 'reasoning', [])
+        self.assertEqual(bare['text'], 'reasoning', 'content is never dropped')
+        self.assertNotIn('event_id', bare, 'and identity is never guessed')
+        # the cap applies and does not touch the id
+        capped = supervisor._folded_thought_row(1, 'x' * 40, [first], cap=10)
+        self.assertEqual(capped['text'], 'x' * 10)
+        self.assertEqual(capped['event_id'], first)
+
+    def test_paired_plan_rows_cannot_be_given_different_ids(self):
+        snapshot = {'plan': [{'step': 'write it', 'status': 'completed'}],
+                    'explanation': None, 'threadId': 'th-1', 'turnId': 'tu-1'}
+        record, live = supervisor._paired_plan_rows('2026-09-11T07:00:00Z', snapshot)
+        self.assertEqual(record['uuid'], live['event_id'],
+                         'the record and its live twin carry ONE id')
+        from orgtree.desktop_native import UUID
+        self.assertTrue(UUID.fullmatch(record['uuid']), record['uuid'])
+        self.assertEqual(record['type'], 'codex_plan_updated')
+        self.assertEqual(record['plan'], snapshot['plan'],
+                         'the checklist itself is carried through untouched')
+        self.assertEqual(live['plan'], snapshot['plan'])
+        self.assertEqual(live['text'], 'checklist updated',
+                         'and a generic live-tail consumer still gets text')
+        # two calls are two events
+        other, _ = supervisor._paired_plan_rows('2026-09-11T07:00:00Z', snapshot)
+        self.assertNotEqual(record['uuid'], other['uuid'])
+
+
 if __name__ == '__main__':
     unittest.main()

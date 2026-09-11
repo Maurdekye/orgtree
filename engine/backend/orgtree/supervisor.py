@@ -37,7 +37,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -1388,6 +1388,73 @@ def _paired_text_rows(ts: str, mid: str, model: str, body: str, *,
     if len(body) > cap:
         live["truncated"] = True
     return record, live
+
+
+def _folded_thought_row(secs: int, text: str, ids: Sequence[str], *,
+                        cap: int = 6000) -> dict[str, Any]:
+    """The live row a folded thought becomes, under the id of the FIRST
+    thinking record it was written from — or unpaired when it has none.
+
+    First, because `read_chat` merges consecutive thinking-only records of one
+    message into the FIRST one’s row: that is the record whose place the
+    surviving row keeps and whose uuid it carries as its primary. The records
+    absorbed after it are preserved on that row as constituents
+    (`native_event_ids`) and retire a live row just the same, so either end of
+    the merge pairs — but the primary is the one to spend here.
+
+    Built in one place so the fold site cannot bank a thought under an id that
+    belongs to something else."""
+    row: dict[str, Any] = {"kind": "thought", "secs": secs, "text": text[:cap]}
+    if ids:
+        row["event_id"] = ids[0]
+    return row
+
+
+def _paired_plan_rows(ts: str, snapshot: Mapping[str, Any]
+                      ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The journal record for a codex checklist and its live row, carrying ONE
+    durable id — the same shape as `_paired_text_rows`, and for the same
+    reason: built together, they cannot be given different ids.
+
+    `text` rides along on the live row even though the panel reads the
+    structured fields: every other live row carries one (LiveRow.text is not
+    optional on the frontend), so a generic live-tail consumer that has not
+    heard of "plan" yet still gets something legible."""
+    rid = str(uuid.uuid4())
+    record = {"type": "codex_plan_updated", "timestamp": ts,
+              **snapshot, "uuid": rid}
+    live = {"kind": "plan", "text": "checklist updated", "at": ts,
+            **snapshot, "event_id": rid}
+    return record, live
+
+
+def _frame_thinking_id(ev: Mapping[str, Any]) -> str | None:
+    """The record uuid a folded thought may carry — or None, which is safe.
+
+    A live thought is banked by `fold_thought` from deltas it accumulated, so
+    unlike a text row it has no frame of its own to read an id from. The frame
+    that DOES own it is the assistant frame carrying the `thinking` block: the
+    CLI writes that record, and read_chat projects it as the thinking row this
+    thought becomes. Collecting the id there and spending it at the fold is the
+    whole of the pairing.
+
+    ⚠ ONLY FROM A FRAME WITH NO PROSE. When one record carries thinking AND
+    text, read_chat projects a SINGLE row for it — that row is the text row's
+    twin, and its id belongs to the text live row. Handing the same uuid to the
+    thought as well would put two live rows under one id, and the renderer's
+    guard would then hide one of them. A tool block alongside is fine: tools
+    pair on tool_use_id, a different space entirely."""
+    message = ev.get("message")
+    raw = message.get("content") if isinstance(message, Mapping) else None
+    blocks = raw if isinstance(raw, list) else []
+    thinking = any(isinstance(b, Mapping) and b.get("type") == "thinking"
+                   for b in blocks)
+    prose = any(isinstance(b, Mapping) and b.get("type") == "text"
+                and str(b.get("text") or "").strip() for b in blocks)
+    rid = ev.get("uuid")
+    if not thinking or prose or not isinstance(rid, str) or not rid:
+        return None
+    return rid
 
 
 def _frame_text_row(ev: Mapping[str, Any], *,
@@ -12964,14 +13031,10 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             return
         jstate["last_plan"] = snapshot
         ts = now_iso()
-        _journal_records([{"type": "codex_plan_updated", "timestamp": ts,
-                           **snapshot}])
-        # "text" rides along even though the panel reads the structured
-        # fields: every OTHER live row carries it (LiveRow.text is not
-        # optional on the frontend), and a generic live-tail consumer that
-        # has not heard of "plan" yet still gets something legible.
-        _visible_live_row({"kind": "plan", "text": "checklist updated",
-                           "at": ts, **snapshot})
+        # one id on both sides — see `_paired_plan_rows`
+        _plan_record, _plan_live = _paired_plan_rows(ts, snapshot)
+        _journal_records([_plan_record])
+        _visible_live_row(_plan_live)
 
     def _drain_and_maybe_apply(
             new_event: tuple[str, str, dict[str, Any]] | None) -> None:
@@ -15765,6 +15828,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
             last_cache_usage = {}
             dbuf, dlast = "", time.time()   # token-stream delta batcher (~8 Hz)
             think_t0, think_buf = 0.0, ""   # the in-progress thought
+            # record uuids of the thinking frames this thought was written
+            # from, oldest first — spent by `fold_thought`
+            think_ids: list[str] = []
             # concurrently running subagents, for the desk header's task count:
             # a Task/Agent tool_use opens one, its tool_result coming home
             # closes it. Foreground tasks only — a backgrounded agent's
@@ -15813,13 +15879,22 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 """The thinking block ended because output began: bank it as a
                 live row. Server-side because the server sees both the opening
                 and what followed — the client only ever inferred it."""
-                nonlocal think_t0, think_buf
+                nonlocal think_t0, think_buf, think_ids
                 if not think_t0:
+                    # a SEALED think produced no live row, so the ids it
+                    # collected belong to nothing and must not be spent on
+                    # whatever thought comes next
+                    think_ids = []
                     return
                 secs = max(1, round(time.time() - think_t0))
                 text, think_t0, think_buf = think_buf, 0.0, ""
-                live_row(slug, nid, {"kind": "thought", "secs": secs,
-                                     "text": text[:6000]})
+                # the FIRST thinking record of this thought. read_chat merges
+                # consecutive thinking-only records of one message into the
+                # first one's row, so the first id is the one that row keeps
+                # as its primary; the rest are preserved on it as constituents
+                # (see `native_event_ids`) and retire a live row just the same.
+                ids, think_ids = think_ids, []
+                live_row(slug, nid, _folded_thought_row(secs, text, ids))
             timed_out = threading.Event()
             timeout_why = [""]
 
@@ -16342,6 +16417,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # nothing below this line describes the agent: no
                             # live rows, no thought folding, no draft handover
                             continue
+                        # a thinking frame contributes its record id to the
+                        # thought being accumulated; `fold_thought` spends it
+                        _think_id = _frame_thinking_id(ev)
+                        if _think_id and _think_id not in think_ids:
+                            think_ids.append(_think_id)
                         # ONE row for the frame’s prose, joined the way
                         # read_chat joins it and carrying the frame uuid its
                         # transcript twin will carry — see `_frame_text_row`.
@@ -27808,9 +27888,13 @@ def _extend_live_evidence(evidence: dict[str, Any],
     for m in msgs:
         # WHOLE HISTORY, like `tool_ids` and unlike `turn_texts`: a record
         # uuid is globally unique, so a match IS the twin and there is no
-        # false retire to bound the window against.
+        # false retire to bound the window against. A merged thinking row
+        # answers to every record it absorbed, not only its own.
         if m.get("native_event_id"):
             native.add(str(m["native_event_id"]))
+        for extra in m.get("native_event_ids") or []:
+            if extra:
+                native.add(str(extra))
         ts = str(m.get("ts") or "")
         if ts > newest:
             newest = ts
@@ -28502,8 +28586,12 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             # the same way it already reconstructs the last TodoWrite call,
             # no separate store to keep in sync with this one.
             raw_steps = rec.get("plan")
+            # one row per record here, so the record uuid identifies it — the
+            # same id its live `plan` row carries
             append_row({
                 "role": "assistant", "text": "", "ts": rec.get("timestamp"),
+                **({"native_event_id": str(rec["uuid"])}
+                   if rec.get("uuid") else {}),
                 "codexPlan": {
                     "steps": raw_steps if isinstance(raw_steps, list) else [],
                     "explanation": (rec.get("explanation")
@@ -28865,6 +28953,19 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                     x for x in [hit.get("thinking"), mrow.get("thinking")] if x)
                 hit["thinking"] = body[:6000]
                 hit.pop("thinking_sealed", None)
+            # THE MERGED RECORD’S IDENTITY IS NOT DISCARDED (coordinator-astra
+            # review, 2026-09-11). Its BODY already joins into the surviving
+            # row above; its record uuid must too, or a live thought paired
+            # with it could never be retired by anything and would sit beside
+            # the row that absorbed it. `native_event_id` stays the primary —
+            # the first record, which is the row’s own — and every constituent
+            # is listed, primary first, so the row answers to all of them.
+            if mrow.get("native_event_id"):
+                ids = cast("list[str]", hit.setdefault(
+                    "native_event_ids",
+                    [x for x in [hit.get("native_event_id")] if x]))
+                if mrow["native_event_id"] not in ids:
+                    ids.append(str(mrow["native_event_id"]))
             continue
         append_row(mrow)
         if think_only and mid:
