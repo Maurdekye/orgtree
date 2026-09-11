@@ -26,6 +26,7 @@ import {
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
 } from './api'
 import { fmtClock, fmtFull } from './timefmt'
+import { registryPlanName, registryProviderName } from './registrylabels'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -1615,11 +1616,9 @@ function UsageRefresh({ provider, state }: { provider: string; state: UsageReado
   </div>
 }
 
-/** provider display names for registry rows, whose `provider` field is the
- *  backend's lowercase id — same wording the host lanes above use */
-const REGISTRY_PROVIDER_NAME: Record<string, string> = {
-  claude: 'Claude', openai: 'Codex', google: 'Antigravity',
-}
+// provider display names for registry rows live in registrylabels.ts — two
+// maps, because a row's heading names the HARNESS and its plan line names the
+// SUBSCRIPTION, and for Anthropic those are different products.
 
 /** one REGISTERED account's own section of the usage modal (user report
  *  2026-09-10: alpha.10's modal showed only the host lanes, so a secondary
@@ -1633,7 +1632,7 @@ function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
   const state = useUsageReadout(
     (force) => getRegisteredAccountUsage(row.id, force))
   const u = state.value
-  const provider = REGISTRY_PROVIDER_NAME[row.provider] ?? row.provider
+  const provider = registryProviderName(row.provider)
   const name = row.label || row.id
   return <div className="usage-acct" data-account={row.id}>
     <div className="usage-acct-head">
@@ -1644,7 +1643,7 @@ function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
       <UsageRefresh provider={name} state={state} />
     </div>
     {u
-      ? <><UsageBars u={{ ...u, provider }} />
+      ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />
         <StandingMarks standing={u.standing} /></>
       : <div className="dim">usage unavailable until refresh succeeds</div>}
   </div>

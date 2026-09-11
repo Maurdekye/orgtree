@@ -1612,8 +1612,11 @@ export type RegisteredAccountUsage = AccountUsage & {
 
 /** GET /api/accounts/usage[/{account}] — one account's usage standing, the
  *  same normalized bars as UsagePayload plus which row it describes.
- *  `plan` rides only the primary entry (it is read from the host credentials
- *  store, which describes no other account). */
+ *  `plan` is the subscription tier, read from THAT ROW'S OWN credentials
+ *  file. It used to ride only the primary entry, because the sole reader was
+ *  the host-store one — so a second signed-in Claude Code account rendered
+ *  its bars with no tier beside them. Absent still means the provider
+ *  reported none; it is never defaulted. */
 /** one model tier's standing ON ONE ACCOUNT — `available` is "this account
  *  still has capacity for this tier", NOT "this tier runs here" (the panel's
  *  gutter chips answer that, and the two legitimately differ). `pool` names

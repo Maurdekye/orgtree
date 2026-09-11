@@ -4036,6 +4036,15 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
                 out["reauth_evidence"] = evidence
             return out
         out.update(limits.fetch_for_token(token, f"acct:{row['id']}"))
+        # The subscription tier, from THIS row's own credentials file. It is
+        # added here rather than inside `fetch_for_token` on purpose: that
+        # function's cache holds the provider-native readout, one entry per
+        # account, and the tier is a property of the login rather than of the
+        # usage window it caches. Empty means the provider reported none —
+        # omitted, never defaulted, so the panel simply shows no tier line.
+        plan = limits.profile_plan(cred["path"])
+        if plan:
+            out["plan"] = plan
         return out
     # openai profile rows: the ambient-home row serves the rich shared
     # board; any OTHER home gets its OWN app-server read (fetch_for_home:

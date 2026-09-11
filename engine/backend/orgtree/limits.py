@@ -34,6 +34,7 @@ import email.utils as _eut
 import http.client
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -343,9 +344,19 @@ def _normalize(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _plan() -> str:
+def _plan_at(creds_path: str) -> str:
+    """The subscription tier recorded in ONE credentials file, or "" when the
+    file, the field or the value is absent.
+
+    ⚠ "" MEANS UNKNOWN AND MUST STAY EMPTY. The CLI writes
+    `subscriptionType: … ?? null` — a real login can genuinely carry no tier —
+    and the panel hides the line when this is empty. Substituting a default
+    here would print a tier the provider never reported, which is the one
+    thing the readout must not do.
+    """
     try:
-        doc_any: Any = json.load(open(subproxy.CREDS, encoding="utf-8"))
+        with open(creds_path, encoding="utf-8") as fh:
+            doc_any: Any = json.load(fh)
     except (OSError, json.JSONDecodeError):
         return ""
     if not isinstance(doc_any, dict):
@@ -354,6 +365,23 @@ def _plan() -> str:
     if not isinstance(oauth_any, dict):
         return ""
     return str(cast("dict[str, Any]", oauth_any).get("subscriptionType") or "")
+
+
+def _plan() -> str:
+    return _plan_at(subproxy.CREDS)
+
+
+def profile_plan(profile_dir: str) -> str:
+    """The subscription tier of ONE REGISTERED account, from that account's own
+    credentials file — never the ambient one.
+
+    Secondary rows used to carry no tier at all because the only reader was
+    `_plan`, which reads the HOST store; the store describes whoever is signed
+    in ambiently and says nothing about another profile, so a second Claude Code
+    account rendered with its bars and no plan line. This is the same field, read
+    beside the same `subproxy.profile_access_token` already uses for that row.
+    """
+    return _plan_at(os.path.join(profile_dir, ".credentials.json"))
 
 
 def _identity() -> dict[str, str]:
