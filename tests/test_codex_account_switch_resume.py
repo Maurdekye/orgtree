@@ -215,14 +215,26 @@ class CodexAccountSwitchResumeTests(unittest.TestCase):
         # Switch account via supervisor.assign_account:
         self.supervisor.assign_account(slug, "worker", row_b["id"], actor="test-actor")
 
-        # Check lineage reset in store:
+        # Check lineage reset and predecessor bearer in store:
         reloaded = self.store.load_org(slug)
         switched_node = reloaded.node("worker")
         self.assertEqual(switched_node["account"], row_b["id"])
+        self.assertEqual(switched_node["generation"], 2)
+        self.assertEqual(switched_node["predecessor"], "worker@1")
         self.assertIsNone(switched_node.get("codex_thread"))
         self.assertIsNone(switched_node.get("codex_account"))
         self.assertTrue(switched_node.get("session_unrun"))
         self.assertNotEqual(switched_node["session_id"], "tid-a-1")
+
+        # Verify predecessor knowledge bearer preserves Account A session:
+        pred_node = reloaded.node("worker@1")
+        self.assertEqual(pred_node["state"], "archived")
+        self.assertEqual(pred_node["bearer_state"], "knowledge")
+        self.assertEqual(pred_node["session_id"], "tid-a-1")
+        self.assertEqual(pred_node["codex_thread"], "tid-a-1")
+        self.assertEqual(pred_node["codex_account"], row_a["id"])
+        self.assertEqual(pred_node["account"], row_a["id"])
+        self.assertEqual(pred_node["successor"], "worker")
 
         # Run next turn on Account B with pending driver text:
         driver_text = "Pending driver text delivered after account switch"
@@ -326,16 +338,28 @@ class CodexAccountSwitchResumeTests(unittest.TestCase):
         self.assertIn("codex_usage_total", n1)
         self.assertIn("cache_continuity", n1)
 
-        # Assign different account: lineage reset
+        # Assign different account: lineage reset and predecessor bearer
         self.supervisor.assign_account(slug, "worker", row_b["id"], actor="test-actor")
-        n2 = self.store.load_org(slug).node("worker")
+        loaded2 = self.store.load_org(slug)
+        n2 = loaded2.node("worker")
         self.assertEqual(n2["account"], row_b["id"])
+        self.assertEqual(n2["generation"], 2)
+        self.assertEqual(n2["predecessor"], "worker@1")
         self.assertNotEqual(n2["session_id"], "tid-a-1")
         self.assertTrue(n2["session_unrun"])
         self.assertNotIn("codex_thread", n2)
         self.assertNotIn("codex_account", n2)
         self.assertNotIn("codex_usage_total", n2)
         self.assertNotIn("cache_continuity", n2)
+
+        # Predecessor bearer preserved:
+        pred = loaded2.node("worker@1")
+        self.assertEqual(pred["state"], "archived")
+        self.assertEqual(pred["bearer_state"], "knowledge")
+        self.assertEqual(pred["session_id"], "tid-a-1")
+        self.assertEqual(pred["codex_thread"], "tid-a-1")
+        self.assertEqual(pred["codex_account"], row_a["id"])
+        self.assertEqual(pred["account"], row_a["id"])
 
     def test_finish_switch_binding_lineage_reset_behavior(self):
         """finish_switch_binding resets lineage on account change for openai/codex nodes,
@@ -361,15 +385,125 @@ class CodexAccountSwitchResumeTests(unittest.TestCase):
         self.assertEqual(node["codex_thread"], "tid-a-1")
         self.assertEqual(node["codex_account"], row_a["id"])
 
-        # Different account: lineage reset
+        # Different account: lineage reset and predecessor bearer
         self.supervisor.finish_switch_binding(org, slug, "worker", row_b["id"], "test-actor")
         self.assertEqual(node["account"], row_b["id"])
+        self.assertEqual(node["generation"], 2)
+        self.assertEqual(node["predecessor"], "worker@1")
         self.assertNotEqual(node["session_id"], "tid-a-1")
         self.assertTrue(node["session_unrun"])
         self.assertNotIn("codex_thread", node)
         self.assertNotIn("codex_account", node)
         self.assertNotIn("codex_usage_total", node)
         self.assertNotIn("cache_continuity", node)
+
+        # Predecessor bearer preserved:
+        pred = org.node("worker@1")
+        self.assertEqual(pred["state"], "archived")
+        self.assertEqual(pred["bearer_state"], "knowledge")
+        self.assertEqual(pred["session_id"], "tid-a-1")
+        self.assertEqual(pred["codex_thread"], "tid-a-1")
+        self.assertEqual(pred["codex_account"], row_a["id"])
+        self.assertEqual(pred["account"], row_a["id"])
+
+    def test_account_switch_archives_predecessor_and_preserves_consultable_transcript(self):
+        """Proves that switching accounts archives the predecessor session as a
+        knowledge bearer, exports the prior transcript, keeps the prior conversation
+        consultable via supervisor.read_chat on the bearer, and starts a fresh thread
+        on the new account with driver preserved.
+        """
+        row_a = self._row("a")
+        row_b = self._row("b")
+        slug = "org-consultable-transcript"
+        org = self._org(slug, account=row_a["id"])
+
+        # Agent previously ran on Account A:
+        node = org.node("worker")
+        node["session_id"] = "tid-a-1"
+        node["codex_thread"] = "tid-a-1"
+        node["codex_account"] = row_a["id"]
+        node.pop("session_unrun", None)
+        self.store.save_org(org)
+
+        # Write a real prior journal for tid-a-1 in supervisor's journal store:
+        jdir = os.path.join(self.supervisor.journal_store(), "projects", slug)
+        os.makedirs(jdir, exist_ok=True)
+        jfile = os.path.join(jdir, "tid-a-1.jsonl")
+        with open(jfile, "w", encoding="utf-8") as f:
+            f.write('{"type": "user", "timestamp": "2026-09-11T12:00:00Z", '
+                    '"message": {"role": "user", "content": "Initial prompt from user on Account A"}}\n')
+            f.write('{"type": "assistant", "timestamp": "2026-09-11T12:00:05Z", '
+                    '"message": {"role": "assistant", "model": "astra", '
+                    '"content": [{"type": "text", "text": "Response from assistant on Account A"}]}}\n')
+
+        # Switch account to Account B:
+        out = self.supervisor.assign_account(slug, "worker", row_b["id"], actor="operator")
+        self.assertEqual(out.get("bearer"), "worker@1")
+
+        # Reload doc:
+        reloaded = self.store.load_org(slug)
+        succ = reloaded.node("worker")
+        self.assertEqual(succ["account"], row_b["id"])
+        self.assertEqual(succ["generation"], 2)
+        self.assertEqual(succ["predecessor"], "worker@1")
+        self.assertTrue(succ.get("session_unrun"))
+        self.assertIsNone(succ.get("codex_thread"))
+
+        # Predecessor knowledge bearer exists and owns Account A session:
+        self.assertIn("worker@1", reloaded.nodes)
+        pred = reloaded.node("worker@1")
+        self.assertEqual(pred["state"], "archived")
+        self.assertEqual(pred["bearer_state"], "knowledge")
+        self.assertEqual(pred["session_id"], "tid-a-1")
+        self.assertEqual(pred["codex_thread"], "tid-a-1")
+        self.assertEqual(pred["codex_account"], row_a["id"])
+        self.assertEqual(pred["account"], row_a["id"])
+        self.assertEqual(pred["successor"], "worker")
+
+        # Prior transcript remains consultable via supervisor.read_chat on the bearer:
+        bearer_chat = self.supervisor.read_chat(reloaded, "worker@1", hold_back=False)
+        msgs = bearer_chat.get("messages", [])
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0]["role"], "user")
+        self.assertIn("Initial prompt from user on Account A", msgs[0]["text"])
+        self.assertEqual(msgs[1]["role"], "assistant")
+        self.assertIn("Response from assistant on Account A", msgs[1]["text"])
+
+        # Prior transcript was also exported into scratch for the successor:
+        scratch_transcript = os.path.join(self.supervisor.scratch_dir(slug, "worker"), "transcript.jsonl")
+        self.assertTrue(os.path.isfile(scratch_transcript))
+        with open(scratch_transcript, "r", encoding="utf-8") as f:
+            content = f.read()
+            self.assertIn("Initial prompt from user on Account A", content)
+
+        # Next turn runs cleanly on Account B:
+        driver_text = "Followup instructions on Account B"
+        cstat = {"installed": True, "path": "fake-codex", "connected": True, "kind": "managed"}
+        st = self.supervisor.state(slug, "worker")
+        with patch.object(self.providers, "codex_status", return_value=cstat), \
+             patch.object(self.codexrun, "AppServerClient", FakeClient), \
+             patch.object(self.supervisor, "_cache_codex_account_namespace",
+                          side_effect=lambda home=None: (f"ns-{os.path.basename(str(home or ''))}", "subscription")):
+            res, _ = self.supervisor._codex_leg(slug, "worker", reloaded, st, driver_text, [])
+
+        client = next(c for c in FakeClient.instances if any(m in ("thread/start", "thread/resume") for m, _ in c.requests))
+        methods = [req[0] for req in client.requests]
+        self.assertNotIn("thread/resume", methods)
+        self.assertIn("thread/start", methods)
+
+        turn_req = next(r for r in client.requests if r[0] == "turn/start")
+        self.assertEqual(turn_req[1]["threadId"], "tid-b-1")
+        self.assertEqual(turn_req[1]["input"][0]["text"], driver_text)
+
+        # Successor now persisted with fresh thread and Account B:
+        final_org = self.store.load_org(slug)
+        self.assertEqual(final_org.node("worker")["codex_thread"], "tid-b-1")
+        self.assertEqual(final_org.node("worker")["codex_account"], row_b["id"])
+        self.assertEqual(final_org.node("worker")["session_id"], "tid-b-1")
+
+        # Predecessor remains intact with original transcript still consultable:
+        bearer_chat_after = self.supervisor.read_chat(final_org, "worker@1", hold_back=False)
+        self.assertEqual(len(bearer_chat_after.get("messages", [])), 2)
 
 
 if __name__ == "__main__":

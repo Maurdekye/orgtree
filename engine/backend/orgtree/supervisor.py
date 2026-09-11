@@ -11237,16 +11237,25 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
         return
     node = org.node(nid)
     previous = str(node.get("account") or "")
-    node["account"] = account
     if previous != account and (
             providers.provider_of(str(node.get("model") or "")) == "openai"
             or bool(node.get("codex_thread"))):
-        node["session_id"] = str(uuid.uuid4())
-        node["session_unrun"] = True
+        if bool(node.get("codex_thread")) or not node.get("session_unrun"):
+            pred_id, old_sid = org._archive_session_in_place(nid)
+            export_predecessor_transcript(org, nid, old_sid=old_sid, reason="switch_model")
+            org._moot_asks(nid, "the asking session was replaced by a "
+                                "provider account switch — the "
+                                "successor starts fresh and never posed it")
+            org._fold_notices(nid)
+            node = org.node(nid)
+        else:
+            node["session_id"] = str(uuid.uuid4())
+            node["session_unrun"] = True
         node.pop("codex_thread", None)
         node.pop("codex_account", None)
         node.pop("codex_usage_total", None)
         node.pop("cache_continuity", None)
+    node["account"] = account
     org._log("account_assign", actor,
              {"account": account, "previous_account": previous or None,
               "via": "switch_model"}, [])
@@ -11871,17 +11880,27 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             prev_hash, prev_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
             prev_hash, prev_comp = "", None
-        node["account"] = row["id"]
+        pred_id = None
         if previous != row["id"] and (
                 row["provider"] == "openai"
                 or providers.provider_of(tier) == "openai"
                 or bool(node.get("codex_thread"))):
-            node["session_id"] = str(uuid.uuid4())
-            node["session_unrun"] = True
+            if bool(node.get("codex_thread")) or not node.get("session_unrun"):
+                pred_id, old_sid = org._archive_session_in_place(nid)
+                export_predecessor_transcript(org, nid, old_sid=old_sid, reason="account_assign")
+                org._moot_asks(nid, "the asking session was replaced by a "
+                                    "provider account switch — the "
+                                    "successor starts fresh and never posed it")
+                org._fold_notices(nid)
+                node = org.node(nid)
+            else:
+                node["session_id"] = str(uuid.uuid4())
+                node["session_unrun"] = True
             node.pop("codex_thread", None)
             node.pop("codex_account", None)
             node.pop("codex_usage_total", None)
             node.pop("cache_continuity", None)
+        node["account"] = row["id"]
         try:
             next_hash, next_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
@@ -11905,6 +11924,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             "previous_account": previous or None,
             "continuity": continuity,
             "session_boundary": row["provider"] == "openai",
+            **({"bearer": pred_id} if pred_id else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
         if not _caller_owns_save:
