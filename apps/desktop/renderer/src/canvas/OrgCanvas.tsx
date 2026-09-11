@@ -2430,7 +2430,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                        // item 12: the draft's "Prefer reserve" box (luna
                        // only; omitted = the default, reserve first)
                        ...(scope.prefer_reserve === undefined ? {}
-                         : { prefer_reserve: scope.prefer_reserve }) } : {}) })
+                         : { prefer_reserve: scope.prefer_reserve }),
+                       ...(scope.account !== undefined ? { account: scope.account } : {}) } : {}) })
       .then((r) => {
         // the real card replaces the draft IN PLACE — seed its birth position
         // from the draft's spring. Via seedRef, NOT a direct springs.set: the

@@ -846,6 +846,8 @@ export interface DraftScope {
   effort?: string
   /** item 12: a luna draft's pool order; undefined = the app-wide default */
   prefer_reserve?: boolean
+  /** multi-account: explicit account binding for the new hire */
+  account?: string
 }
 export interface Pile {
   key: string

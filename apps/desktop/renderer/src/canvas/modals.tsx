@@ -539,6 +539,7 @@ interface DraftScopeModalProps {
   scope: DraftScope | null
   onSave: (scope: DraftScope) => void
   close: () => void
+  accounts?: { id: string; provider: string; label: string; standing?: { state: string } }[]
 }
 
 /** item 12 — the "Prefer reserve" checkbox (user ruling 2026-09-04: "make
@@ -572,7 +573,7 @@ export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
   )
 }
 
-export function DraftScopeModal({ draft, map, tree, scope, onSave, close }: DraftScopeModalProps) {
+export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts }: DraftScopeModalProps) {
   const parent = draft.parent ? map.get(draft.parent) : null
   const inherited = (): DraftScope => ({
     add_dirs: (parent ? parent.scope?.add_dirs : tree.dirs) ?? [],
@@ -606,6 +607,59 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close }: Draf
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
+  const [acctRows, setAcctRows] = useState<{
+    id: string; provider: string; label: string
+    standing?: { state: string } }[]>(propAccounts ?? [])
+  useEffect(() => {
+    if (propAccounts !== undefined) {
+      setAcctRows(propAccounts)
+    }
+  }, [propAccounts])
+  useEffect(() => {
+    let active = true
+    const slug = tree.slug
+    const fetchAccounts = () => {
+      req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
+        .then((r) => {
+          if (!active) return
+          setAcctRows(Array.isArray(r?.accounts) ? r.accounts : [])
+        })
+        .catch(() => {
+          if (!active) return
+          setAcctRows([])
+        })
+    }
+    if (propAccounts === undefined) {
+      fetchAccounts()
+    }
+    window.addEventListener('focus', fetchAccounts)
+    return () => {
+      active = false
+      window.removeEventListener('focus', fetchAccounts)
+    }
+  }, [tree.slug, propAccounts])
+
+  const targetProvider = providerOf(draft.tier)
+  const defaultAccountMatches = Boolean(
+    tree.default_account &&
+    acctRows.some((r) => r.id === tree.default_account && r.provider === targetProvider)
+  )
+  const [acct, setAcct] = useState<string>(
+    base.account !== undefined
+      ? base.account
+      : (defaultAccountMatches ? (tree.default_account ?? '') : '')
+  )
+  const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
+
+  useEffect(() => {
+    if (!acctTouched && base.account === undefined && tree.default_account) {
+      const match = acctRows.some((r) => r.id === tree.default_account && r.provider === targetProvider)
+      if (match) {
+        setAcct(tree.default_account)
+      }
+    }
+  }, [acctRows, acctTouched, base.account, tree.default_account, targetProvider])
+
   useEffect(() => {
     getMcpServers().then((r) => {
       setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
@@ -687,6 +741,22 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close }: Draf
         {draft.tier === 'luna' && (
           <PreferReserveRow checked={preferReserve} onChange={changePreferReserve} />
         )}
+        <div className="field-label">account</div>
+        <select aria-label="Account" value={acct}
+          onChange={(e) => {
+            setAcct(e.target.value)
+            setAcctTouched(true)
+          }}>
+          <option value="">(unbound — machine default)</option>
+          {acctRows
+            .filter((r) => r.provider === targetProvider)
+            .map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label || r.id}
+                {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
+              </option>
+            ))}
+        </select>
         <div className="hint">
           Grants clamp to what the parent holds (№30) — anything beyond its
           capability is trimmed at hire with a warning.
@@ -696,7 +766,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close }: Draf
             onSave({ add_dirs: dirs, tools, org_visibility: vis,
               ...(effort ? { effort } : {}),
               ...(draft.tier === 'luna' && preferReserveTouched
-                ? { prefer_reserve: preferReserve } : {}) })}>apply</button>
+                ? { prefer_reserve: preferReserve } : {}),
+              ...(acctTouched ? { account: acct } : (acct ? { account: acct } : {})) })}>apply</button>
           <button onClick={close}>cancel</button>
         </div>
     </PinFrame></ModalOverPins>

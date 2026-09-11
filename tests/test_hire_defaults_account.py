@@ -87,6 +87,23 @@ class HireDefaultsAccountTests(unittest.TestCase):
             org.hire(self.ledger.USER, None, "luna", 10, "bad-worker",
                      account=row_claude["id"])
 
+    def test_explicit_empty_account_stays_unbound_despite_default_account(self):
+        row = self._row(provider="claude")
+        org = self.ledger.Org.create("test-org-6")
+        org.set_hire_defaults(default_account=row["id"])
+        hire_res = org.hire(self.ledger.USER, None, "opus", 10, "unbound-worker",
+                            account="")
+        nid = hire_res["node"]
+        self.assertIsNone(org.nodes[nid].get("account"))
+        tree_node = [n for n in org.tree()["roots"] if n["id"] == nid][0]
+        self.assertIsNone(tree_node.get("account"))
+
+    def test_explicit_nonexistent_account_raises_ledger_error(self):
+        org = self.ledger.Org.create("test-org-7")
+        with self.assertRaises(self.ledger.LedgerError):
+            org.hire(self.ledger.USER, None, "opus", 10, "missing-worker",
+                     account="non-existent-account-id")
+
 
 if __name__ == "__main__":
     unittest.main()
