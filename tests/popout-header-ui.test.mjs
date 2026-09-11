@@ -217,3 +217,49 @@ test('a popped-out modal carries window controls in its title bar; an ordinary o
     for (const control of CONTROLS) assert.ok(!labels(s.main).includes(control), `${control} must not also be in the main window`)
   } finally { await s.teardown() }
 })
+
+// The notice a popped-out desk leaves behind is not one size everywhere: on a
+// CANVAS CARD it stands where the desk's counter-scaled body was, so it has to
+// be counter-scaled too or it renders at the camera's scale - 7.5x oversized,
+// with its buttons outside the card (user report 2026-09-11). A `bare` host -
+// a switchboard panel, a pinned window's body - shows the desk at 1:1 and must
+// keep the plain notice.
+//
+// ⚠ WHAT THIS CANNOT SEE: jsdom does no layout, so this proves only that the
+// markup asks for the right treatment. `tools/test-placeholder-scale.mjs`
+// measures the resulting SIZE in a real browser against the pinned-desk
+// placeholder, and is what fails if the stylesheet half goes missing.
+test('a popped-out desk leaves a card-scaled notice on a card and a plain one in a bare host', async () => {
+  const s = stage()
+  try {
+    const map = new Map([[NODE.id, NODE]])
+    await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
+      React.createElement('div', { className: 'sq', id: 'card' },
+        React.createElement(DeskSlot, { ...deskProps, map })),
+      React.createElement('div', { className: 'sq', id: 'bare' },
+        React.createElement(DeskSlot, { ...deskProps, map, bare: true })),
+      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+    // only one slot can host a desk, so the other already says so; the desk
+    // itself is still here, which is what the pop-out below has to change
+    assert.ok(s.main.querySelector('.cc-head-top'),
+      'POSITIVE CONTROL: the real desk is in the main window to start with')
+    assert.equal(s.main.querySelectorAll('.popout-placeholder').length, 1,
+      'and exactly one of the two slots is standing aside for it')
+
+    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    assert.ok(!s.main.querySelector('.cc-head-top'), 'the desk really left the main window')
+    const onCard = s.main.querySelector('#card .popout-placeholder')
+    const inBare = s.main.querySelector('#bare .popout-placeholder')
+    assert.ok(onCard && inBare, 'both hosts show the desk is elsewhere')
+    assert.match(onCard.textContent, /desk is open elsewhere/)
+
+    assert.ok(onCard.classList.contains('desk-elsewhere'),
+      'the card notice asks for the desk-scaled treatment')
+    assert.ok(onCard.closest('.desk-elsewhere-holder'),
+      'and sits in the holder that gives it the desk box and its clip')
+    assert.ok(!inBare.classList.contains('desk-elsewhere'),
+      'a bare host keeps the plain notice')
+    assert.ok(!inBare.closest('.desk-elsewhere-holder'),
+      'and is not boxed into a card interior it does not have')
+  } finally { await s.teardown() }
+})

@@ -5798,7 +5798,10 @@ label.set-row { cursor: pointer; }
   color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: none;
 }
-.pin-holder {
+/* Both holders do one job: stand in the desk's box on a card while the desk
+   itself is somewhere else — pinned to the window, or popped out. Same box,
+   same clip, same fade. */
+.pin-holder, .desk-elsewhere-holder {
   position: absolute; inset: 2px; z-index: 2; overflow: hidden;
   background: var(--panel); border-radius: 1.5px;
   animation: deskfade .28s ease-out;
@@ -5817,6 +5820,33 @@ label.set-row { cursor: pointer; }
 .pin-placeholder-btn {
   margin-top: 24px; padding: 12px 36px; border-radius: 12px; font-size: 40px;
   border: 3px solid var(--accent); color: var(--accent);
+}
+
+/* The popped-out desk's sign, in the desk's place on a card.
+   ⚠ THE COUNTER-SCALE IS THE POINT. A card's desk is authored at 900px and
+   scaled into the 120px interior (.desk-inner); a notice that replaces it
+   and does NOT do the same renders at the CAMERA's scale instead — 7.5x
+   oversized, wrapped, with its buttons outside the card (user report
+   2026-09-11). Unlike .pin-placeholder beside it, this follows --desk-dpi,
+   so the reader's text-size dial moves it with the desk text it replaces.
+   Scoped to .desk-elsewhere because the same .popout-placeholder markup is
+   also the popped-out window's own notice and the .popout-notices HUD, and
+   neither of those is inside a card. */
+.popout-placeholder.desk-elsewhere {
+  position: absolute; inset: 0;
+  flex-direction: column; justify-content: center; text-align: center;
+  color: var(--dim); gap: 28px; padding: 40px; box-sizing: border-box;
+  width: calc(900px / var(--desk-dpi, 1)); height: calc(900px / var(--desk-dpi, 1));
+  transform: scale(calc(0.13333 * var(--desk-dpi, 1))); transform-origin: 0 0;
+  font-size: 40px;
+}
+.popout-placeholder.desk-elsewhere > button {
+  align-self: center; padding: 12px 36px; border-radius: 12px; font-size: 40px;
+  border: 3px solid var(--accent); color: var(--accent);
+  background: none; cursor: pointer; max-width: 100%;
+}
+.popout-placeholder.desk-elsewhere > button:hover {
+  color: var(--ink-strong); border-color: var(--ink-strong);
 }
 
 /* ------------------------------------------------- FR-2: task-progress panel

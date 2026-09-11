@@ -146,10 +146,33 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
   return <DeskMapReady.Provider value={treeSlug === slug}><DeskContext.Provider value={desks}>{children}<HostList desks={desks} map={map} slug={slug} /></DeskContext.Provider></DeskMapReady.Provider>
 }
 
+/**
+ * A notice standing where a desk would be.
+ *
+ * On a CANVAS CARD the desk is counter-scaled into the card's 120px
+ * interior (`.desk-inner`), so a notice that replaces it has to be too, or
+ * it renders at the camera's scale instead — 7.5x too big, wrapped, with its
+ * buttons hanging outside the card. That is the shape the user reported on
+ * 2026-09-11. `.pin-holder` + `.pin-placeholder` have always done this for a
+ * pinned desk; this is the same pair for a popped-out one.
+ *
+ * `bare` is the discriminator and not a guess: it is the same flag that
+ * decides whether the real desk renders counter-scaled (`.desk-inner`) or at
+ * 1:1 (`.desk-bare`), so the notice follows whatever its desk would have
+ * done. The switchboard panels and a pinned window's body are `bare` and
+ * keep the plain inline notice.
+ */
+function InDesksPlace({ bare, children }: { bare?: boolean; children: ReactNode }) {
+  if (bare) return <div className="popout-placeholder">{children}</div>
+  return <div className="desk-elsewhere-holder">
+    <div className="popout-placeholder desk-elsewhere">{children}</div>
+  </div>
+}
+
 export function DeskSlot(props: DeskChatProps) {
   const desks = useContext(DeskContext)
   const mapReady = useContext(DeskMapReady)
-  if (!mapReady) return <div className="popout-placeholder">Loading organization...</div>
+  if (!mapReady) return <InDesksPlace bare={props.bare}>Loading organization...</InDesksPlace>
   if (!desks || isMobile || typeof props.node.generation !== 'number'
     || !Number.isSafeInteger(props.node.generation) || props.node.generation < 0) return <OwnedDeskChat {...props} />
   return <RegisteredSlot desks={desks} props={props} />
@@ -222,11 +245,11 @@ function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }
   const e = desks.entries.get(key)
   const elsewhere = e?.detached || (e && e.last.id !== id)
   return <div className="desk-slot" ref={anchor} data-desk-slot={key}>
-    {elsewhere && <div className="popout-placeholder">
+    {elsewhere && <InDesksPlace bare={props.bare}>
       <span>{props.node.id}'s desk is open elsewhere.</span>
       <button onClick={() => e.show?.()}>Show desk</button>
       {e.detached && <button onClick={() => e.redock?.()}>Return here</button>}
-    </div>}
+    </InDesksPlace>}
   </div>
 }
 function HostList({ desks, map, slug }: { desks: Desks; map: Map<string, CanvasNode>; slug: string }) {
