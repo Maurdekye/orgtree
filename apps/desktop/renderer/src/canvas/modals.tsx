@@ -791,6 +791,11 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // Editable here so the preference is not creation-only; shown only when
   // the (possibly just-picked) tier is luna, saved for any tier so it
   // survives a switch away and back.
+  const accountFallback = val<string>('accountFallback',
+    scope.account_fallback === undefined ? '' : scope.account_fallback ? 'on' : 'off')
+  const fallbackPayload = !('accountFallback' in edit) ? {} : accountFallback === ''
+    ? { clear_account_fallback: true }
+    : { account_fallback: accountFallback === 'on' }
   const preferReserve = val<boolean>('preferReserve',
     scope.prefer_reserve ?? tree.prefer_reserve_default ?? true)
   const preferReserveChanged = val('preferReserveChanged', false)
@@ -870,7 +875,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                 occ: (+accOcc || 50) / 100 },
           model_version: versions.includes(modelVersion)
             ? modelVersion : '',
-          ...reservePayload }))
+          ...reservePayload, ...fallbackPayload }))
       .then((r) => {
         if (r?.bridge?.raise_ceiling) {
           // one-action bridge (ceiling spec §1): same save, flag set
@@ -886,7 +891,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                       occ: (+accOcc || 50) / 100 },
                 model_version: versions.includes(modelVersion)
                   ? modelVersion : '',
-                ...reservePayload,
+                ...reservePayload, ...fallbackPayload,
                 raise_ceiling: true })
               .then((r2) => toast(r2.warnings?.length ? r2.warnings
                 : ['ceiling raised — applied']))
@@ -1301,6 +1306,21 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             </select>
           </>
         )}
+        <div className="field-label">Automatic account fallback</div>
+        <select aria-label="Automatic account fallback" value={accountFallback}
+          disabled={!['claude', 'openai'].includes(providerOf(model))}
+          onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
+          <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+        <div className="hint">After a usage limit, switch to another account with
+          capacity for this lane. Keep the replacement account.
+          {!['claude', 'openai'].includes(providerOf(model))
+            ? ' This provider cannot automatically switch accounts.'
+            : providerOf(model) === 'openai'
+              ? ' Switching accounts starts a new provider cache and a new Codex session.'
+              : ' Switching accounts starts a new provider cache.'}</div>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}
         {/* D-234: the queue is visible where the switch is made, with its one

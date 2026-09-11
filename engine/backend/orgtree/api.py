@@ -2286,6 +2286,7 @@ class Settings(Body):
     # app-wide Luna pool-order default; agents with no individual preference
     # inherit it (deliberately not an org-doc setting)
     prefer_reserve: bool | None = None
+    account_fallback_default: bool | None = None
     auto_resume: bool | None = None         # restart limit-frozen agents at reset+1min
     auto_resume_compact: bool | None = None  # cheap-compact a limit-frozen node
                                              # right before the AUTO resume wakes
@@ -2328,7 +2329,7 @@ _DEFAULTS_BASE = {
     "fable_filter_model": "opus",
     "prefer_reserve": True,
     "cascade_hire": True, "cascade_alloc": True, "auto_resume": False,
-    "auto_resume_compact": False,
+    "auto_resume_compact": False, "account_fallback_default": False,
     # F-06: NOT an org-doc key — popped + translated into the "local" hub
     # entry at creation (orgs_create), shown on the root defaults page
     "net_hub_address": net.DEFAULT_HUB_ADDRESS,
@@ -2394,6 +2395,8 @@ def defaults_set(body: Settings) -> dict[str, Any]:
         d["default_effort"] = body.default_effort
     if body.prefer_reserve is not None:
         d["prefer_reserve"] = bool(body.prefer_reserve)
+    if body.account_fallback_default is not None:
+        d["account_fallback_default"] = bool(body.account_fallback_default)
     if body.auto_resume is not None:
         d["auto_resume"] = bool(body.auto_resume)
     if body.auto_resume_compact is not None:
@@ -2537,6 +2540,8 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
         # deliberately outside the ceiling (user cost-dial ruling): no clamp;
         # "" = CLI default; unset-node efforts inherit this LIVE at turn time
         org.d["default_effort"] = body.default_effort
+    if body.account_fallback_default is not None:
+        org.d["account_fallback_default"] = bool(body.account_fallback_default)
     if body.auto_resume is not None:
         org.d["auto_resume"] = bool(body.auto_resume)
     if body.auto_resume_compact is not None:
@@ -2907,6 +2912,8 @@ class Scope(Body):
     # for any tier so it survives a switch.
     prefer_reserve: bool | None = None
     clear_prefer_reserve: bool = False  # return this node to the app default
+    account_fallback: bool | None = None
+    clear_account_fallback: bool = False  # inherit the org default
     # {enabled?, occ?} per-node cache-protection override; {} clears to inherit
     auto_cheap_compact: dict[str, Any] | None = None
     # post-hire @mcp:<peer> response handles (2026-08-22). REPLACES the node's
@@ -2943,6 +2950,8 @@ def node_scope(slug: str, nid: str, body: Scope,
                                    auto_cheap_compact=body.auto_cheap_compact,
                                    external_handles=body.external_handles,
                                    raise_ceiling=rc,
+                                   account_fallback=body.account_fallback,
+                                   clear_account_fallback=body.clear_account_fallback,
                                    clear_prefer_reserve=body.clear_prefer_reserve,
                                    prefer_reserve=body.prefer_reserve)
         except LedgerError as e:
@@ -6842,7 +6851,7 @@ _NET_ATT_MAX = 25 * 1048576
 # them, so it carries the lot — which is what collapses the five-call wake
 # (rehire, rename, retool, audience grant, message) into one.
 _SEAT_SCOPE_HIRE = ("permission_mode", "effort", "team_charter",
-                    "prefer_reserve")
+                    "prefer_reserve", "account_fallback", "clear_account_fallback")
 _SEAT_SCOPE_REHIRE = _SEAT_SCOPE_HIRE + ("charter", "org_visibility", "tools",
                                          "add_dirs")
 
@@ -8579,7 +8588,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                        charter=a.get("charter"),
                                        team_charter=a.get("team_charter"),
                                        effort=a.get("effort"),
-                                       prefer_reserve=a.get("prefer_reserve"))
+                                       prefer_reserve=a.get("prefer_reserve"),
+                                       account_fallback=a.get("account_fallback"),
+                                       clear_account_fallback=bool(a.get("clear_account_fallback")))
                 if dwarns:
                     result.setdefault("warnings", []).extend(dwarns)
             elif body.tool == "orgtree_retire":
@@ -10078,6 +10089,7 @@ class Op(Body):
     # hire — item 12: a luna's pool order (True = reserve first, the default;
     # False = plan first). Applied WITH the hire like effort; omitted = default.
     prefer_reserve: bool | None = None
+    account_fallback: bool | None = None
     # reallocate. ⚠ FLOAT, not int, and the difference is a user-visible
     # outage: the credit bar rounds its TARGET to a whole number and sends
     # `target - grant`, so against a grant that is fractional for ANY reason
@@ -10417,6 +10429,9 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                 # same atomic application for the pool order (item 12)
                 org.set_scope(body.actor, result["node"],
                               prefer_reserve=body.prefer_reserve)
+            if body.account_fallback is not None:
+                org.set_scope(body.actor, result["node"],
+                              account_fallback=body.account_fallback)
             if body.above is not None:
                 # FR-25 rework (2026-08-19): the splice is atomic with the
                 # hire. Pin the fresh node at the anchor's slot FIRST — they

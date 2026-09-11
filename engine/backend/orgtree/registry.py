@@ -312,6 +312,10 @@ def validate_binding(org_slug: str, tier: str,
             f"account {row['id']} is an org key restricted to its origin "
             f"organization {scope!r} — org {org_slug!r} cannot bind it "
             f"(user ruling: legacy org keys keep their org restriction)")
+    if (row["credential"]["kind"] in ("managed", "imported")
+            and row["provider"] not in PROFILE_VAR):
+        raise BindingRefused(
+            f"{row['provider']} does not support selecting a separate account for a turn")
     node_provider = providers.provider_of(str(tier or ""))
     if node_provider == "openrouter":
         raise BindingRefused(

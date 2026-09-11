@@ -100,3 +100,23 @@ Explicitly superseded from it by later entries: "no repository, implementation o
 ## How to use this file
 
 Add new user decisions at the end of the time-ordered list with their UTC timestamp, then update the scope index so it reflects the newest state. Do not edit the verbatim brief. If a decision here conflicts with `docs/engine-contract.md`, the contract is a technical realization of these decisions and should be corrected to match, not the other way round.
+
+
+## 2026-09-11: opt-in account fallback after usage limits
+
+The operator amended the earlier prohibition on automatic account rollover:
+account fallback is adjustable per agent, inherits an organization default,
+and defaults to OFF. After a successful fallback, KEEP the replacement as the
+agent's saved account; do not automatically return to the original account.
+
+Fallback requires an eligible account with fresh, usable capacity for the same
+provider/model lane. Unknown or stale usage is not proof of capacity. Claude
+and Codex profiles support this check. Antigravity has neither separate profile
+selection for turns nor a usage readout, so its control explains that it is
+unavailable. API-key accounts are not fallback destinations.
+
+The background pass runs independently of auto-resume and the old account's
+reset deadline. It reuses frozen-turn replay and validates settings, account,
+node generation and freeze identity again before saving a switch. Account
+switches are recorded with their cache/session continuity effects. A provider
+cache starts cold; Codex crosses a session boundary.

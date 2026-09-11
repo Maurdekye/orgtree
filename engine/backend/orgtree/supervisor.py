@@ -11483,7 +11483,7 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
 
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
-                   org: Org | None = None) -> dict[str, Any]:
+                   org: Org | None = None, via: str = "manual") -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
@@ -11559,7 +11559,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             "continuity": continuity,
             "session_boundary": row["provider"] == "openai",
         }
-        org._log("account_assign", actor, dict(disclosure), [])
+        org._log("account_assign", actor, {**disclosure, "via": via}, [])
         if not _caller_owns_save:
             store.save_org(org)
     notify(slug, nid, "account")
@@ -21894,11 +21894,9 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
     NOT reproduce is the claude lane's *policy* around that record, all of
     which is claude-specific by construction:
 
-      · `accounts.record_limit` / the failover re-drive. There is ONE signed-in
-        ChatGPT account on this machine and no second codex lane to move to, so
-        marking a lane would record a fact nothing can act on and the re-drive
-        would spawn a turn into the same wall. Deliberately omitted, and said
-        out loud here rather than left looking like an oversight.
+      · the legacy token-roster failover re-drive. Registered Codex profiles
+        now get pool-specific marks for opt-in account fallback; the common
+        background scheduler owns the reassignment and frozen-turn replay.
       · the `api_fallback` billing window. That key buys ANTHROPIC inference;
         it cannot serve a codex turn, so opening a window on a codex wall would
         bill the org for capacity it did not obtain.
@@ -21950,6 +21948,13 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
             fz["provider"] = provider or providers.provider_of(tier)
             fz["account"] = account
             fz["resource_pool"] = resource_pool
+            # Other registered Codex profiles are now opt-in fallback targets.
+            # Preserve the actual pool's wall so a stale healthy board cannot
+            # bounce this agent straight back onto the failed account.
+            if fz["provider"] == "openai":
+                from . import account_fallback
+                account_fallback.record_limit(o2.node(nid), account, resource_pool,
+                                             ts, effective_kind == "observed-deadline")
             fz["error"] = blob[:300]
             if replay:
                 # replay only what the provider actually CONSUMED. Both legs
@@ -22570,7 +22575,8 @@ def resumable(n: NodeDoc) -> bool:
 
 
 def resume_frozen(slug: str, only: Iterable[str] | None = None,
-                  cheap_first: bool = False) -> list[str]:
+                  cheap_first: bool = False, *,
+                  account_fallbacks: dict[str, dict[str, Any]] | None = None) -> list[str]:
     """The ▶ button: un-freeze every usage-limit-frozen agent at once and replay
     the turn(s) the limit interrupted; waiting mailbox mail rides along on the
     turn's own envelope drain. A kiosk SPEND freeze blocks resume until the
@@ -22623,6 +22629,11 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             fz = _resumable(n)
             if fz is None:
                 continue
+            if account_fallbacks is not None:
+                from . import account_fallback
+                plan = account_fallbacks.get(nid)
+                if plan is None or not account_fallback.apply(org, nid, plan):
+                    continue
             _limit_resume = bool(fz.get("limit"))
             _frozen_at = str(fz.get("at") or "")
             _frozen_sid = str(n.get("session_id") or "")
@@ -23128,7 +23139,10 @@ def start_auto_resume_loop() -> None:
             time.sleep(30)
             try:
                 for o in store.list_orgs():
-                    _auto_resume_org(str(o["slug"]))
+                    try:
+                        _auto_resume_org(str(o["slug"]))
+                    except Exception as exc:
+                        print(f"[orgtree] auto-resume org skipped ({type(exc).__name__})", flush=True)
             except Exception:
                 pass    # the timer must survive anything — next tick retries
 
@@ -23137,6 +23151,7 @@ def start_auto_resume_loop() -> None:
 
 def _auto_resume_org(slug: str, now: float | None = None) -> bool:
     """Run one org's real consent -> claim -> resume scheduler path."""
+    from . import account_fallback
     now = time.time() if now is None else now
     with store.DOC_LOCK:
         org = store.load_org(slug)
@@ -23164,6 +23179,17 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
             else:
                 direct.add(nid)
     resumed: list[str] = []
+    # Use the already-loaded snapshot, but read provider boards off DOC_LOCK.
+    # This pass is independent of auto_resume and the old reset horizon.
+    # Its rebind and frozen replay share one save; ordinary resumes below
+    # revalidate the freeze, so a successful fallback cannot replay twice.
+    try:
+        plans = account_fallback.candidates(org)
+        if plans:
+            resumed.extend(resume_frozen(slug, only=plans, cheap_first=arc,
+                                         account_fallbacks=plans))
+    except Exception as exc:  # a failed optional scan must not stop recovery
+        print(f"[orgtree] {slug}: account fallback deferred ({type(exc).__name__})", flush=True)
     try:
         if direct:
             resumed.extend(resume_frozen(slug, only=direct, cheap_first=arc))

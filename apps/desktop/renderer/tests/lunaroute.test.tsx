@@ -341,3 +341,39 @@ test('draft modal: a luna hire stages the box ON by default and applies what was
 // the draft's `USER` import keeps the harness's parent semantics honest for
 // a top-level hire (parent null is the user)
 void USER
+
+
+test('account fallback gear inherits org default, saves OFF and can return to inheritance', async t => {
+  useFakeClock(); installFetch(new FakeServer())
+  const posts = captureBodies()
+  const n = luna()
+  const settings = { ...tree(), account_fallback_default: true }
+  const view = await mountView(<NodeConfig node={n} map={new Map([[n.id, n]])}
+    tree={settings} slug="org" op={op} toast={noop}
+    codexProvider={codexProvider()} close={noop} />, el => el)
+  t.after(async () => { await view.unmount(); realClock() })
+  await flush()
+  const select = view.el.querySelector<HTMLSelectElement>('[aria-label="Automatic account fallback"]')!
+  assert.ok(select)
+  assert.equal(select.value, '')
+  assert.match(select.selectedOptions[0].textContent || '', /Org default \(on\)/)
+  const { act } = await import('react')
+  const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
+  await act(async () => {
+    select.value = 'off'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => { save.click(); await flush() })
+  const off = posts.find(p => /\/scope$/.test(p.url))!
+  assert.equal(off.body.account_fallback, false)
+  assert.equal(off.body.clear_account_fallback, undefined)
+  posts.length = 0
+  await act(async () => {
+    select.value = ''
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => { save.click(); await flush() })
+  const inherited = posts.find(p => /\/scope$/.test(p.url))!
+  assert.equal(inherited.body.clear_account_fallback, true)
+  assert.equal(inherited.body.account_fallback, undefined)
+})

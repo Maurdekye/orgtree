@@ -757,6 +757,7 @@ export interface CanvasScope {
   model_version?: string
   /** item 12: a luna's pool order — reserve first or plan first; absent uses
    *  the app-wide default */
+  account_fallback?: boolean
   prefer_reserve?: boolean
 }
 

@@ -5635,6 +5635,12 @@ class Org:
                 return got
         return self.d["models"].get(tier, tier)
 
+    def account_fallback_for(self, nid: str) -> bool:
+        """An absent individual setting follows the organization live."""
+        value = (self.node(nid).get("scope") or {}).get("account_fallback")
+        return bool(self.d.get("account_fallback_default", False)
+                    if value is None else value)
+
     def set_scope(self, actor: str, nid: str, add_dirs: list[Any] | None = None,
                   tools: Mapping[str, Any] | None = None,
                   org_visibility: str | None = None,
@@ -5644,6 +5650,8 @@ class Org:
                   auto_cheap_compact: Mapping[str, Any] | None = None,
                   external_handles: list[Any] | None = None,
                   raise_ceiling: bool = False,
+                  account_fallback: bool | None = None,
+                  clear_account_fallback: bool = False,
                   clear_prefer_reserve: bool = False,
                   prefer_reserve: bool | None = None) -> dict[str, Any]:
         """Per-node configuration (the ⚙): dir grants with modes, the full tool set
@@ -5677,6 +5685,8 @@ class Org:
                 ("permission_mode", permission_mode), ("effort", effort),
                 ("model_version", model_version),
                 ("auto_cheap_compact", auto_cheap_compact),
+                ("account_fallback", account_fallback),
+                ("clear_account_fallback", True if clear_account_fallback else None),
                 ("prefer_reserve", prefer_reserve),
                 # False is the request-model default (omitted), while True
                 # is an explicit attempt to clear an individual override.
@@ -5946,6 +5956,10 @@ class Org:
                 sc["model_version"] = model_version
             else:
                 sc.pop("model_version", None)   # "" clears ⇒ the tier default
+        if clear_account_fallback:
+            sc.pop("account_fallback", None)
+        elif account_fallback is not None:
+            sc["account_fallback"] = bool(account_fallback)
         if clear_prefer_reserve:
             sc.pop("prefer_reserve", None)
         elif prefer_reserve is not None:
@@ -9608,6 +9622,7 @@ class Org:
             "fable_lock": self.d.get("fable_lock"),
             "spend_frozen": bool(self.d.get("spend_frozen")),
             "storage_blocked": bool(self.d.get("storage_blocked")),
+            "account_fallback_default": bool(self.d.get("account_fallback_default", False)),
             "auto_resume": bool(self.d.get("auto_resume")),
             "auto_resume_compact": bool(self.d.get("auto_resume_compact")),
             # api_fallback (2026-08-17): the option plus the window edge —

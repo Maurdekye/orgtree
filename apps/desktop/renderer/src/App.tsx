@@ -1878,6 +1878,14 @@ function AutonomyTab({ tree, toast, keyDraft, setKeyDraft }: {
           and the manual ▶ that left the chrome keeps a seat here so bulk
           resume still exists. Per-card badges still say who is frozen. */}
       <div className="field-label">Usage-limit freezes</div>
+      <label className="checkline">
+        <input type="checkbox" checked={!!tree.account_fallback_default}
+          onChange={(e) => save({ account_fallback_default: e.target.checked },
+            e.target.checked ? 'account fallback default ON' : 'account fallback default off')} />
+        automatically switch accounts after a usage limit
+      </label>
+      <div className="hint">Default for this org; each agent can override it.
+        Uses another account with capacity for the same lane and keeps that account.</div>
       <label className="checkline"
         title="auto-resume all frozen agents one minute after the reported reset time">
         <input type="checkbox" checked={!!tree.auto_resume}

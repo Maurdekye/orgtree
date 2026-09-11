@@ -1041,6 +1041,10 @@ TOOLS: list[dict[str, Any]] = [
                            "description": "thinking effort for the hire — a "
                                           "cost/quality dial ('' = the CLI "
                                           "default)"},
+                "account_fallback": {"type": "boolean",
+                    "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
+                "clear_account_fallback": {"type": "boolean",
+                    "description": "clear the override and follow the org default again"},
                 "prefer_reserve": {
                     "type": "boolean",
                     "description": "luna only: try OpenAI's reserve capacity "
@@ -1168,6 +1172,10 @@ TOOLS: list[dict[str, Any]] = [
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort for this report "
                                           "('' clears to the CLI default)"},
+                "account_fallback": {"type": "boolean",
+                    "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
+                "clear_account_fallback": {"type": "boolean",
+                    "description": "clear the override and follow the org default again"},
                 "prefer_reserve": {
                     "type": "boolean",
                     "description": "luna only: try OpenAI's reserve capacity "
@@ -1292,6 +1300,10 @@ TOOLS: list[dict[str, Any]] = [
                 "effort": {"type": "string",
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort ('' = CLI default)"},
+                "account_fallback": {"type": "boolean",
+                    "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
+                "clear_account_fallback": {"type": "boolean",
+                    "description": "clear the override and follow the org default again"},
                 "prefer_reserve": {
                     "type": "boolean",
                     "description": "luna only: try OpenAI's reserve capacity "
@@ -1421,6 +1433,10 @@ TOOLS: list[dict[str, Any]] = [
                 "team_charter": {"type": "string",
                                  "description": "standing instruction for the "
                                                 "agent's own team"},
+                "account_fallback": {"type": "boolean",
+                    "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
+                "clear_account_fallback": {"type": "boolean",
+                    "description": "clear the override and follow the org default again"},
                 "prefer_reserve": {"type": "boolean",
                                    "description": "prefer reserve capacity for this seat"},
                 "target": {"type": "string",

@@ -92,6 +92,7 @@ export interface NodeScope {
    *  FIRST (true — the default, and what ABSENT means) or its plan pool
    *  first (false)? The other pool is the fallback either way. Stored for
    *  any tier so it survives a switch; only luna acts on it. */
+  account_fallback?: boolean
   prefer_reserve?: boolean
 }
 
@@ -790,6 +791,7 @@ export interface TreePayload {
   watchdogs?: Watchdog[]
   /** cache-protective compaction; provider/auth expiry is derived server-side */
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
+  account_fallback_default?: boolean
   auto_resume: boolean
   /** cheap-compact a limit-frozen node right before its AUTO resume */
   auto_resume_compact?: boolean
@@ -1834,6 +1836,8 @@ export interface ScopeRequest {
   prefer_reserve?: boolean | null
   /** clear the individual value so this node follows the app-wide default */
   clear_prefer_reserve?: boolean
+  account_fallback?: boolean | null
+  clear_account_fallback?: boolean
   /** per-node cache-protection override; {} clears back to org inherit */
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   raise_ceiling?: boolean
@@ -1841,6 +1845,7 @@ export interface ScopeRequest {
 
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
 export interface SettingsRequest {
+  account_fallback_default?: boolean | null
   org_dirs?: DirGrant[] | null
   max_top_grant?: number | null
   default_top_grant?: number | null

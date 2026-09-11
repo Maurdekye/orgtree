@@ -524,15 +524,15 @@ def fetch(force: bool = False, max_age: float | None = None) -> dict[str, Any]:
 _profile_fetch_locks: dict[str, Any] = {}
 
 
-def fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
+def fetch_for_token(token: str, cache_key: str, *, force: bool = False) -> dict[str, Any]:
     """Single flight per profile across UI refreshes and freeze corrections."""
     with _lock:
         gate = _profile_fetch_locks.setdefault(cache_key, threading.Lock())
     with gate:
-        return _fetch_for_token(token, cache_key)
+        return _fetch_for_token(token, cache_key, force=force)
 
 
-def _fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
+def _fetch_for_token(token: str, cache_key: str, *, force: bool = False) -> dict[str, Any]:
     """Read a profile OAuth token's usage with a per-account cache/cooldown.
 
     This requires the profile scope of a full CLI login; inference-only
@@ -546,7 +546,7 @@ def _fetch_for_token(token: str, cache_key: str) -> dict[str, Any]:
     now = time.time()
     with _lock:
         ent = _key_cache.get(cache_key)
-        if ent and ent.get("data") is not None \
+        if not force and ent and ent.get("data") is not None \
                 and now - float(ent.get("at") or 0) < CACHE_TTL:
             return cast("dict[str, Any]", ent["data"])
     # ⚠ BEFORE the request, not after: an open 429 window means we must not ask

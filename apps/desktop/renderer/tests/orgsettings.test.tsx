@@ -290,12 +290,31 @@ test('legacy excluded fields cannot reintroduce kiosk, disk or fallback controls
       await open(view.el, label)
       const active = view.el.querySelector('[role="tabpanel"]:not([hidden])')!
       assert.ok(active, label + ' panel is visible')
-      assert.doesNotMatch(active.textContent!, /fallback|sandbox|kiosk|virtual disk|permission ceiling|rollback backup/i)
+      assert.doesNotMatch(active.textContent!, /API[- ]key fallback|sandbox|kiosk|virtual disk|permission ceiling|rollback backup/i)
     }
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
     await inAct(async () => { save.click(); await flush(10) })
     const body = seen.find(r => r.path.endsWith('/settings') && r.method === 'POST')!.body as Record<string, unknown>
     assert.equal(body.max_top_grant, 1000, 'ordinary settings still save')
-    assert.equal(Object.keys(body).some(k => /kiosk|sandbox|disk|fallback/.test(k)), false)
+    assert.equal(Object.keys(body).some(k => /kiosk|sandbox|disk|^(?:api_fallback|fable_api_fallback)$/.test(k)), false)
   } finally { await view.unmount(); delete g.fetch }
+})
+
+
+test('account fallback org default starts off and toggles independently of auto-resume', async t => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  const old = g.fetch
+  stubFetch(seen)
+  const { view } = await mountOrg()
+  t.after(async () => { await view.unmount(); g.fetch = old })
+  await open(view.el, 'Autonomy')
+  const label = [...view.el.querySelectorAll('label')].find(x =>
+    x.textContent?.includes('automatically switch accounts after a usage limit'))!
+  assert.ok(label)
+  const box = label.querySelector<HTMLInputElement>('input')!
+  assert.equal(box.checked, false)
+  await inAct(async () => { box.click(); await flush() })
+  const request = seen.find(x => x.method === 'POST' && x.path.endsWith('/settings'))!
+  assert.ok(request)
+  assert.deepEqual(request.body, { account_fallback_default: true })
 })

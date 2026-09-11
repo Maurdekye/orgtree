@@ -57,6 +57,7 @@ class ToolGrant(TypedDict):
 class NodeScope(TypedDict):
     """The per-node ⚙ configuration (set_scope), clamped against the parent
     chain and the kiosk ceiling."""
+    account_fallback: NotRequired[bool]
     permission_mode: str
     add_dirs: list[DirGrant]
     tools: ToolGrant
@@ -809,6 +810,7 @@ class OrgDoc(TypedDict):
                                         # pending = staged shrink, applied when
                                         # the org's container is next down
     storage_warned: NotRequired[bool]
+    account_fallback_default: NotRequired[bool]
     auto_resume: NotRequired[bool]
     auto_resume_last: NotRequired[float]
     # user option 2026-08-17: cheap-compact a limit-frozen node right before

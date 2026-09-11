@@ -75,6 +75,15 @@ Right-click Orgtree's **system-tray icon** to check for updates, see download pr
 
 The tray also provides organization navigation and controls for startup and **Exit on close**. With Exit on close disabled, closing the main window keeps Orgtree available in the background; open it again from the tray.
 
+## Account fallback
+In an org's **Settings > Autonomy**, you can allow agents to switch to another
+account after a usage limit. It is off by default. Each agent's settings can
+follow the org default or override it. A switch keeps the replacement account.
+Only Claude and Codex profiles with verified capacity qualify; Antigravity
+cannot select a separate account for a turn. Switching starts a new provider
+cache, and Codex starts a new session. The existing frozen-turn replay continues
+the interrupted task. Usage checks can refresh a registered profile's sign-in credentials when needed.
+
 ## Coming from V1?
 
 V2 uses its own application data directory. Installing it does not automatically move your V1 organizations or sign you into providers.
