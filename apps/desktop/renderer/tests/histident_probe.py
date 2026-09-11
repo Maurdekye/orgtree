@@ -90,7 +90,9 @@ the long-name row in the dump is what keeps the price visible.
 
 ⚠ NAME THE PRE-FIX COMMIT for `--css`, never `HEAD`. Once this work is
 committed `HEAD` IS the new sheet, the control passes, and the probe then
-reports that it proves nothing. The pre-fix sheet is the one at b200c4b.
+reports that it proves nothing. The pre-fix sheet is the one at 173887b, the
+commit this fix sits directly on top of; measured, it turns the same 12
+oneline checks red that `--unwrap` does.
 
 WHAT NO CONTROL HERE COVERS, said plainly: check 4 (`control`) cannot have
 one. It asserts the page still holds a row with a name and NO chip, and no
