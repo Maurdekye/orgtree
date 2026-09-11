@@ -97,34 +97,76 @@ class LiveDurableIdentityTests(unittest.TestCase):
             'the durable record keeps the WHOLE text')
         self.assertNotIn('truncated', live, 'an uncapped row declares no cut')
 
-    def test_frame_identity_is_taken_only_when_one_text_block_owns_it(self):
-        frame = {'uuid': 'f0000000-0000-4000-8000-000000000001',
-                 'message': {'content': [{'type': 'text', 'text': DURABLE}]}}
-        self.assertEqual(supervisor._frame_text_identity(frame),
-                         {'event_id': 'f0000000-0000-4000-8000-000000000001'})
+    def test_a_frame_becomes_one_text_row_under_its_own_uuid(self):
+        UU = 'f0000000-0000-4000-8000-000000000001'
+        one = {'uuid': UU, 'message': {'content': [{'type': 'text', 'text': DURABLE}]}}
+        self.assertEqual(supervisor._frame_text_row(one),
+                         {'kind': 'text', 'text': DURABLE, 'event_id': UU})
         # a tool_use block alongside changes nothing: tools pair on tool_use_id
-        with_tool = {'uuid': frame['uuid'], 'message': {'content': [
+        with_tool = {'uuid': UU, 'message': {'content': [
             {'type': 'text', 'text': DURABLE},
             {'type': 'tool_use', 'id': 'tu-1', 'name': 'Read'}]}}
-        self.assertEqual(supervisor._frame_text_identity(with_tool),
-                         {'event_id': frame['uuid']})
-        # ⚠ TWO text blocks: giving both live rows one id would make the
-        # renderer's duplicate guard hide a REAL message, so it declines
-        two = {'uuid': frame['uuid'], 'message': {'content': [
-            {'type': 'text', 'text': 'first'}, {'type': 'text', 'text': 'second'}]}}
-        self.assertEqual(supervisor._frame_text_identity(two), {})
-        # no uuid, no id, empty/whitespace text, string content, junk: all decline
-        self.assertEqual(supervisor._frame_text_identity(
-            {'message': {'content': [{'type': 'text', 'text': DURABLE}]}}), {})
-        self.assertEqual(supervisor._frame_text_identity(
-            {'uuid': '', 'message': {'content': [{'type': 'text', 'text': DURABLE}]}}), {})
-        self.assertEqual(supervisor._frame_text_identity(
-            {'uuid': frame['uuid'], 'message': {'content': [{'type': 'text', 'text': '   '}]}}), {})
-        self.assertEqual(supervisor._frame_text_identity(
-            {'uuid': frame['uuid'], 'message': {'content': 'plain string'}}), {})
-        self.assertEqual(supervisor._frame_text_identity({'uuid': frame['uuid']}), {})
-        self.assertEqual(supervisor._frame_text_identity(
-            {'uuid': frame['uuid'], 'message': {'content': [None, 7, 'x']}}), {})
+        self.assertEqual(supervisor._frame_text_row(with_tool)['text'], DURABLE)
+        self.assertEqual(supervisor._frame_text_row(with_tool)['event_id'], UU)
+
+    def test_two_text_blocks_become_ONE_joined_row_keeping_both(self):
+        # ⚠ NOT dropped, and not two rows either (coordinator-astra review,
+        # 2026-09-11). read_chat collects a record's text blocks and projects
+        # '\n\n'.join(texts) as ONE row, so the live side must produce the
+        # same shape or the frame pairs with nothing and both halves render
+        # beside their own twin.
+        UU = 'f0000000-0000-4000-8000-000000000002'
+        two = {'uuid': UU, 'message': {'content': [
+            {'type': 'text', 'text': 'first half'},
+            {'type': 'text', 'text': 'second half'}]}}
+        row = supervisor._frame_text_row(two)
+        self.assertEqual(row['event_id'], UU, 'the whole frame pairs, not none of it')
+        self.assertEqual(row['text'], 'first half\n\nsecond half',
+                         'joined exactly as read_chat joins the durable row')
+        self.assertIn('first half', row['text'])
+        self.assertIn('second half', row['text'])
+        # blank and non-text blocks do not pad the join
+        mixed = {'uuid': UU, 'message': {'content': [
+            {'type': 'text', 'text': 'kept'},
+            {'type': 'text', 'text': '   '},
+            {'type': 'thinking', 'thinking': 'not prose'},
+            {'type': 'text', 'text': 'also kept'}]}}
+        self.assertEqual(supervisor._frame_text_row(mixed)['text'], 'kept\n\nalso kept')
+        # the cap still applies to the JOINED body, and declares the cut
+        long_frame = {'uuid': UU, 'message': {'content': [
+            {'type': 'text', 'text': 'a' * 30}, {'type': 'text', 'text': 'b' * 30}]}}
+        capped = supervisor._frame_text_row(long_frame, cap=10)
+        self.assertEqual(capped['text'], 'a' * 10)
+        self.assertIs(capped['truncated'], True)
+
+    def test_a_frame_with_no_prose_or_no_uuid_pairs_nothing(self):
+        UU = 'f0000000-0000-4000-8000-000000000003'
+        # no text at all: no row
+        self.assertIsNone(supervisor._frame_text_row(
+            {'uuid': UU, 'message': {'content': [
+                {'type': 'tool_use', 'id': 'tu-1', 'name': 'Read'}]}}))
+        self.assertIsNone(supervisor._frame_text_row(
+            {'uuid': UU, 'message': {'content': [{'type': 'text', 'text': '  '}]}}))
+        self.assertIsNone(supervisor._frame_text_row(
+            {'uuid': UU, 'message': {'content': 'plain string'}}))
+        self.assertIsNone(supervisor._frame_text_row({'uuid': UU}))
+        self.assertIsNone(supervisor._frame_text_row(
+            {'uuid': UU, 'message': {'content': [None, 7, 'x']}}))
+        # text but no usable uuid: the row still renders, just unpaired
+        for bad in ({}, {'uuid': ''}, {'uuid': 17}):
+            row = supervisor._frame_text_row(
+                {**bad, 'message': {'content': [{'type': 'text', 'text': DURABLE}]}})
+            self.assertEqual(row['text'], DURABLE, 'content is never dropped')
+            self.assertNotIn('event_id', row, 'and identity is never guessed')
+
+    def test_distinct_frames_keep_distinct_identities(self):
+        # the control for the join: two frames are two events, however alike
+        a = {'uuid': 'f0000000-0000-4000-8000-00000000000a',
+             'message': {'content': [{'type': 'text', 'text': 'same words'}]}}
+        b = {'uuid': 'f0000000-0000-4000-8000-00000000000b',
+             'message': {'content': [{'type': 'text', 'text': 'same words'}]}}
+        self.assertNotEqual(supervisor._frame_text_row(a)['event_id'],
+                            supervisor._frame_text_row(b)['event_id'])
 
     # ============================================ the sweep, by identity
     def test_the_shared_id_retires_a_live_row_no_text_rule_could_match(self):
@@ -277,6 +319,80 @@ class LiveDurableIdentityTests(unittest.TestCase):
         live = self.chat()['live'][-1]
         self.assertEqual(live['native_event_id'], durable['native_event_id'],
                          'ONE id, both sides, as the user asked for')
+
+
+    def test_a_joined_frame_survives_the_handoff_with_both_halves(self):
+        # end to end for the join: the live row carries BOTH halves before the
+        # durable record lands, the durable row carries both after, and the
+        # live copy is retired by the shared id rather than lingering beside
+        # its twin.
+        UU = 'f0000000-0000-4000-8000-0000000000cc'
+        frame = {'uuid': UU, 'message': {'content': [
+            {'type': 'text', 'text': 'first half'},
+            {'type': 'text', 'text': 'second half'}]}}
+        supervisor.live_row(self.slug, 'agent', supervisor._frame_text_row(frame))
+        live = self.chat()['live']
+        self.assertEqual(len(live), 1, 'one row for the frame, not two')
+        self.assertIn('first half', live[0]['text'])
+        self.assertIn('second half', live[0]['text'])
+        self.assertEqual(live[0]['native_event_id'], UU)
+        # the durable record the CLI writes from that same frame
+        self.journal({'type': 'assistant', 'timestamp': '2026-09-11T07:00:00Z',
+                      'uuid': UU,
+                      'message': {'id': 'msg-1', 'role': 'assistant',
+                                  'content': [{'type': 'text', 'text': 'first half'},
+                                              {'type': 'text', 'text': 'second half'}]}})
+        after = self.chat()
+        self.assertEqual(after['live'], [], 'the live copy is retired by the shared id')
+        durable = after['messages'][-1]
+        self.assertIn('first half', durable['text'], 'and nothing was lost')
+        self.assertIn('second half', durable['text'])
+        self.assertEqual(durable['native_event_id'], UU)
+
+    def test_a_second_distinct_frame_is_not_retired_by_the_first(self):
+        # the control: only the frame that owns the id goes
+        first = 'f0000000-0000-4000-8000-0000000000c1'
+        second = 'f0000000-0000-4000-8000-0000000000c2'
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'text', 'text': UNRELATED, 'event_id': first})
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'text', 'text': UNRELATED + ' two', 'event_id': second})
+        self.journal({'type': 'assistant', 'timestamp': '2026-09-11T07:00:00Z',
+                      'uuid': first,
+                      'message': {'id': 'msg-1', 'role': 'assistant',
+                                  'content': [{'type': 'text', 'text': DURABLE}]}})
+        self.assertEqual(self.live_texts(), [UNRELATED + ' two'])
+
+    def test_the_codex_thought_shares_its_record_id_too(self):
+        # this lane owns both sides for reasoning as well, so a thought need
+        # not fall back to the ordering rule
+        rid = 'f0000000-0000-4000-8000-0000000000d1'
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'thought', 'text': 'a reasoning summary', 'event_id': rid})
+        self.assertEqual(self.chat()['live'][0]['native_event_id'], rid)
+        self.journal({'type': 'assistant', 'timestamp': '2026-09-11T07:00:00Z',
+                      'uuid': rid,
+                      'message': {'id': 'think-1', 'role': 'assistant',
+                                  'content': [{'type': 'thinking',
+                                               'thinking': 'a reasoning summary',
+                                               'signature': 'codex'}]}})
+        self.assertEqual(self.chat()['live'], [],
+                         'retired by identity, not by what landed after it')
+
+
+    def test_a_thought_with_an_unpaired_id_still_stands(self):
+        # the control for the thought/plan dispatch: `by_id` is asked for
+        # those kinds now, so it must be able to answer NO as well as yes
+        supervisor.live_row(self.slug, 'agent', {
+            'kind': 'thought', 'text': 'a reasoning summary',
+            'event_id': 'f0000000-0000-4000-8000-0000000000d9'})
+        self.journal({'type': 'assistant', 'timestamp': '2026-09-11T07:00:00Z',
+                      'uuid': 'f0000000-0000-4000-8000-0000000000da',
+                      'message': {'id': 'think-1', 'role': 'assistant',
+                                  'content': [{'type': 'thinking',
+                                               'thinking': 'something else',
+                                               'signature': 'codex'}]}})
+        self.assertEqual(self.live_texts(), ['a reasoning summary'])
 
 
 if __name__ == '__main__':

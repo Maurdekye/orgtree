@@ -12,22 +12,19 @@
 //
 //     within ONE view, one stable event id renders at most once.
 //
-// ⚠ SUPPRESSING A ROW MUST NEVER SUPPRESS ITS CONTENT. That is the whole
-// difficulty, and it decides the two rules below (coordinator-astra review,
-// 2026-09-11: an earlier draft kept the first copy outright, which pinned a
-// STALE scrollback snapshot in front of a fresher same-id row and hid text and
-// tool results that had landed since).
-//
-//   · WITHIN one list, the LAST copy's content renders at the FIRST copy's
-//     POSITION. Two entries for one event in one list are two SNAPSHOTS of one
-//     row — the later one is the newer read (see the scrollback join in
-//     `refreshConvo`, which puts retained rows ahead of the fresh window) — so
-//     the newer content wins, in the place the reader already expects the row.
-//   · ACROSS lists, the earlier list wins OUTRIGHT. Lists are different
-//     SOURCES with a known precedence, not snapshots of each other: the
-//     durable transcript is drawn above the live tail, and the live copy is
-//     the one the server truncates (`LiveRow.truncated`, capped at 2000
-//     chars). Taking the later source there would trade whole text for cut.
+// ⚠ SUPPRESSING A ROW MUST NEVER SUPPRESS ITS CONTENT, which decides two
+// rules (coordinator-astra review, 2026-09-11 — an earlier draft kept the
+// first copy outright and pinned a stale scrollback snapshot ahead of a
+// fresher one):
+//   · WITHIN one list the LAST copy's content renders at the FIRST copy's
+//     POSITION. Two entries in one list are two SNAPSHOTS of one row and the
+//     later one is the newer read (`refreshConvo` joins retained scrollback
+//     ahead of the fresh window), so the newer content wins where the reader
+//     already expects it.
+//   · ACROSS lists the earlier list wins OUTRIGHT. Lists are different
+//     SOURCES with a known precedence: the durable transcript is drawn above
+//     the live tail, whose copy the server truncates, so taking the later
+//     source would trade whole text for cut.
 //
 // What it deliberately is NOT:
 //   · NOT text matching. Two different events that happen to say the same
@@ -48,16 +45,18 @@
 // name, and picking the wrong one makes this guard miss the very duplicate it
 // exists for:
 //   · `native_event_id` is the CLI/journal RECORD uuid. It identifies the
-//     EVENT, and it is the same string on a transcript row and on its live
-//     twin. It never changes.
+//     EVENT, never changes, and is the same string on a transcript row and on
+//     its live twin.
 //   · `event_id` is what reply_events._annotate put on the wire: a snapshot id
-//     hashed over the incarnation, the source AND THE QUOTED TEXT. Two reads of
-//     one row whose text moved on — a stale scrollback copy beside the fresh
-//     one — therefore arrive under DIFFERENT event_ids while their
-//     native_event_id is identical. Deduplicating on event_id alone renders
-//     both, which is exactly the doubled message being reported.
-// So the durable id decides, the reply id is claimed alongside it, and a row
-// with only one of them uses that one.
+//     hashed over the incarnation, the source AND THE QUOTED TEXT. Two reads
+//     of one row whose text moved on therefore arrive under DIFFERENT
+//     event_ids while their native_event_id is identical — deduplicating on
+//     event_id alone renders both, which is the doubled message reported.
+//   · a `tool` row answers to the CLI's tool_use_id, namespaced by the caller
+//     so the two id spaces are never compared as if they were one.
+// So the durable id decides, the others are claimed alongside it, a row with
+// only one of them uses that one, and every id is an opaque string here —
+// nothing in this file parses one.
 
 /** A single render pass's "already shown" set. Make one per render, feed every
  *  message list through it in the order those lists appear on screen. */

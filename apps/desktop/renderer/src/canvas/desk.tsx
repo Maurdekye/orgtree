@@ -1132,6 +1132,12 @@ export function Activity({ act, dotOnly, tier }: { act?: ActivityInfo; dotOnly?:
 // animation frame, and each open desk re-parsed its full transcript each
 // time. The comparator checks the DATA props only; the callback props close
 // over stable setters, so their per-render identities are ignorable.
+/** A CLI tool_use_id, namespaced so it can share one dedup pass with event ids
+ *  without the two spaces ever being compared as if they were one. A live
+ *  `tool` row and its durable chip both carry this id unchanged. */
+const toolKey = (id: unknown): string | undefined =>
+  typeof id === 'string' && id ? `tool:${id}` : undefined
+
 export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
@@ -1722,39 +1728,33 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // would let one window blank a row in the other), and two nodes never see
   // each other's ids at all.
   //
-  // SUPPRESSING A ROW MUST NEVER SUPPRESS ITS CONTENT (coordinator-astra
-  // review, 2026-09-11). Two rules, and the order below matters because it is
-  // what tells them apart — it matches the JSX exactly:
-  //   · WITHIN one list the LAST copy's content renders at the FIRST copy's
-  //     POSITION. Two entries for one event in one list are two SNAPSHOTS of
-  //     one row, and the later one is the newer read — `refreshConvo` joins
-  //     retained scrollback AHEAD of the fresh window, so first-wins would
-  //     pin a stale copy and hide text and tool results that landed since.
-  //   · ACROSS lists the earlier list wins OUTRIGHT: the durable transcript
-  //     is drawn above the live tail and the live copy is the truncated one,
-  //     so taking the later source there would trade whole text for cut.
-  // Nothing is cached between renders either way, so a row that grows keeps
-  // growing — it is the survivor, not the casualty.
+  // The order below matches the JSX exactly, and it is what tells the two
+  // rules apart: within a list the newest snapshot wins, across lists the
+  // earlier source does. Nothing is cached between renders, so a row that
+  // grows keeps growing. The rules and their reasons are in events/dedup.ts.
   //
   // A row with NO id is never collapsed — missing is "unknown", not "same".
   // Nothing here compares text: two events that say the same words are two
   // events and both render. See events/dedup.ts.
   const dedup = eventDedup()
-  // A transcript row arrives under TWO names and the DURABLE one decides — see
-  // events/dedup.ts. `native_event_id` is the record uuid, identical on every
-  // read of the row and on its live twin; `event_id` is a reply snapshot id
-  // hashed over the row's own quoted text, so two reads of one row whose text
-  // moved on arrive under different ones. Deduplicating on the reply id alone
-  // rendered both (coordinator-astra review, 2026-09-11).
+  // the DURABLE id decides — events/dedup.ts says why the reply id cannot
   const viewMessages = dedup.list(chat?.messages ?? [],
     (m) => m.native_event_id ?? m.event_id)
-  // …and each surviving row still OWNS its reply id, so nothing below can draw
-  // the same event under that other name either.
-  for (const m of viewMessages) dedup.claim(m.event_id)
+  // …and each surviving row OWNS the other names it answers to: its reply id,
+  // and the tool_use_id of every chip it carries. A live tool row and its
+  // durable chip have always shared that id, but nothing here claimed it, so
+  // one the server's sweep missed drew beside its own chip.
+  for (const m of viewMessages) {
+    dedup.claim(m.event_id)
+    for (const t of m.tools ?? []) dedup.claim(toolKey(t?.id))
+  }
   const viewPendNow = dedup.list(pendNow, (m) => m.event_id)
-  // a live row is identified by its DURABLE id where it has one — that is
-  // the id its transcript twin claimed above — and by its own otherwise
-  const viewLive = dedup.list(live_feed, (r) => r.native_event_id ?? r.event_id)
+  // a live row answers to its DURABLE id where it has one — the id its
+  // transcript twin claimed above — to its tool_use_id when it is a tool row,
+  // and to its own otherwise
+  const viewLive = dedup.list(live_feed, (r) => r.kind === 'tool'
+    ? toolKey(r.id) ?? r.native_event_id ?? r.event_id
+    : r.native_event_id ?? r.event_id)
   const viewTransient = dedup.list(transient, (r) => r.event_id)
   // the standalone thinking/draft marks are the SAME events as their transient
   // rows, drawn when no transient row carries them. `keep` is reached only

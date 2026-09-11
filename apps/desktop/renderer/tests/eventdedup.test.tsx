@@ -386,8 +386,8 @@ domTest('§7c across lists the EARLIER source still wins: a truncated live twin 
     // the other half of the §7b rule, and its guard against over-correcting:
     // "newest copy wins" is true WITHIN one list (two snapshots of one row),
     // and false ACROSS lists (two sources, one of them deliberately cut).
-    // ⚠ same declared-inert caveat as §5 — no backend path stamps a durable
-    // id on a live row today.
+    // ⚠ same caveat as §5: this pair shares a REPLY id, which the wire cannot
+    // produce. §10 is the leg for the shape the backend really sends.
     row(s, 'the whole durable answer, every word of it', 'e-same')
     s.live.push({ kind: 'text', text: 'the whole durable answ',
       truncated: true, event_id: 'e-same', n: 1 } as never)
@@ -594,6 +594,63 @@ domTest('§11 a durable id never suppresses a DIFFERENT event, and absent ones p
       'and an id-less live row is never collapsed into one')
     assert.equal(says(el, 'second durable, no native id'), 1,
       'a durable row with no native id pairs nothing and still renders')
+  })
+
+// ======================================================= tools, by tool_use_id
+domTest('§12 a live tool row is suppressed by the chip that replaced it',
+  async ({ ND, s, sink, mount }) => {
+    // the one identity this codebase never had to invent: a live `tool` row
+    // and its durable chip have always carried the CLI's tool_use_id. The
+    // server's sweep retires on it — but nothing in the view claimed it, so a
+    // row the sweep missed still drew beside its own chip (coordinator-astra
+    // review, 2026-09-11). It is a DIFFERENT id space from event ids, so it is
+    // namespaced rather than thrown into the same bag.
+    row(s, 'ran a command', 'reply_row', {
+      native_event_id: 'uu-row',
+      tools: [{ id: 'toolu_01', name: 'Bash', arg: 'npm test',
+        event_id: 'reply_chip' }],
+    } as never)
+    s.live.push({ kind: 'tool', id: 'toolu_01', text: 'Bash · npm test',
+      event_id: 'reply_livetool', n: 4 } as never)
+    // …and a tool still running, whose chip has not landed yet
+    s.live.push({ kind: 'tool', id: 'toolu_02', text: 'Read · src/app.ts',
+      event_id: 'reply_livetool2', n: 5 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.equal(sink.at(-1)!.live.length, 2,
+      'fixture: the server sent both live tool rows')
+    assert.deepEqual(liveIds(el), ['reply_livetool2'],
+      'the one with a chip is gone; the one still running stays')
+    assert.equal(says(el, 'npm test'), 1, 'its work is on screen exactly once')
+    assert.equal(says(el, 'src/app.ts'), 1, 'and the running one is not lost')
+  })
+
+domTest('§12b a tool id never collides with an event id, and an id-less tool row stays',
+  async ({ ND, s, sink, mount }) => {
+    // the namespacing control. If tool ids and event ids shared one bag, a
+    // live row whose event id happened to equal some chip's tool id would
+    // vanish — and an id-less tool row would have nothing to be compared by
+    // and must never be collapsed.
+    row(s, 'ran a command', 'reply_row', {
+      native_event_id: 'uu-row',
+      tools: [{ id: 'toolu_01', name: 'Bash', arg: 'npm test',
+        event_id: 'reply_chip' }],
+    } as never)
+    // a TEXT row whose event id is the literal tool id string
+    s.live.push({ kind: 'text', text: 'prose that must survive',
+      event_id: 'toolu_01', n: 6 } as never)
+    // a tool row with no id at all
+    s.live.push({ kind: 'tool', text: 'Grep · unknown call',
+      event_id: 'reply_noid', n: 7 } as never)
+    await refreshConvo(SL, ND)
+    const el = await mount(<><Sink nid={ND} sink={sink} />{deskEl(node(ND))}</>)
+    await flush()
+    assert.deepEqual(liveIds(el), ['toolu_01', 'reply_noid'])
+    assert.equal(says(el, 'prose that must survive'), 1,
+      'a text row is not a tool, whatever its id spells')
+    assert.equal(says(el, 'unknown call'), 1,
+      'and a tool row with no id is never collapsed')
   })
 
 // ================================================================ per view
