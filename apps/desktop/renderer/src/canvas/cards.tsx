@@ -1665,21 +1665,18 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           HEADER carries titled doc badges instead — world-scaled side chips
           blow up) and not on pile fronts (the side is the stack).
           ⚠ AND INERT AT MINI (user 2026-09-11: "dont make any cards in
-          agents when zoomed out clickable"). These were the only cards left
-          OPERABLE inside a far-zoom card — the shortcut row, the badge row
-          and the hire chips are all unmounted at `mini` already, each for the
-          same reason and on this same threshold: a screen-constant control on
-          an ever-smaller card swallows the click that focuses the agent,
-          because `PresentationCard` stops the pointerdown and so starves the
-          drag-end → centerOn path.
-          They stay VISIBLE here rather than going away like those three,
-          because the user asked for them not to be CLICKABLE, not for them to
-          disappear, and a chip you can see is how you know at a glance which
-          agents have presented something. `inert` takes away the button role,
-          the keyboard activation, the tab stop, the context menu and the
-          pointerdown that was doing the swallowing. Interaction returns whole
-          at `norm`. Pinned desks and the open desk are untouched — neither is
-          a far-zoom surface, and neither receives `lod` at all. */}
+          agents when zoomed out clickable"). These were the last CARDS still
+          operable on a far-zoom card; the shortcut row, the badge row and the
+          hire chips are unmounted at `mini` already, on this threshold and
+          for this reason: a screen-constant control on an ever-smaller card
+          swallows the click that focuses the agent, because
+          `PresentationCard` stops the pointerdown and starves the drag-end
+          → centerOn path.
+          They stay VISIBLE rather than going away like those three — the ask
+          was that they not be CLICKABLE — and `inert` removes every route in
+          (see canvas/docs.tsx). Interaction returns whole at `norm`. Pinned
+          desks and the open desk are untouched: neither is a far-zoom
+          surface, and neither receives `lod`. */}
       {!focused && !pile && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
         <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc}
           inert={lod === 'mini'} />

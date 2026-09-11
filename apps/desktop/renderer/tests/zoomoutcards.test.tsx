@@ -25,7 +25,8 @@
 //
 // ⚠ §7 IS NOT OPTIONAL. §1-§6 all describe a chip that does nothing, and
 // every one of them would pass against a chip that does nothing AT ANY ZOOM.
-// §7 is the only test that fails if the inert state leaked into normal zoom.
+// §5b, §7 and §8 are the sections that fail if the inert state leaks into
+// normal zoom — measured, by running that mutation, not assumed.
 //
 // ⚠ WHAT jsdom CANNOT DO. It performs no layout and no hit-testing, so
 // `pointer-events: none` has no effect there: an event dispatched AT the chip
@@ -99,8 +100,8 @@ test('§2 …but it is not a button, not a tab stop, and offers nothing to a '
   const view = await card('mini')
   t.after(() => view.unmount())
   const c = chip(view.el)!
-  // a `disabled` button would still be a button — that is exactly what this
-  // refuses, so the tag itself is the assertion
+  // the tag itself is the assertion: at this zoom the chip is not an action,
+  // so it must not be a control of any kind
   assert.equal(c.tagName, 'SPAN', 'still a button, so still has button semantics')
   assert.equal(c.getAttribute('role'), null)
   assert.equal(c.getAttribute('tabindex'), null, 'a tab stop that does nothing')

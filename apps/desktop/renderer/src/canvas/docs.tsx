@@ -95,21 +95,15 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
   toast?: ToastFn
-  /** SHOWN BUT NOT OPERABLE (user 2026-09-11: "dont make any cards in agents
-   *  when zoomed out clickable"). A far-zoom agent card is a locator, and a
-   *  screen-constant chip on it swallowed the click that focuses the agent:
-   *  this component stops the pointerdown, which starved the drag-end to
-   *  centerOn path.
+  /** SHOWN BUT NOT OPERABLE — why, and at which zoom, is at the DocChips
+   *  call site in canvas/cards.tsx.
    *
-   *  ⚠ IT IS NOT A `disabled` BUTTON. A disabled button is still a button,
-   *  and the several ways an inert control can go on lying about itself are
-   *  exactly what had to go. So the ELEMENT changes: a plain span has no
-   *  button role, no keyboard activation and no tab stop, and with no
-   *  pointerdown handler the press it used to swallow now reaches the card
-   *  underneath. `.doc-chips.inert` adds `pointer-events: none` on top, so
-   *  the gesture never begins here at all. aria-hidden because it is no
-   *  longer an action, and offering a screen reader a control that does
-   *  nothing is the same lie in another modality. */
+   *  A span, not a disabled button: at this zoom the chip is not an action at
+   *  all, so there is nothing to disable and nothing to announce as
+   *  unavailable. It carries no role, is not focusable, has no handlers — so
+   *  the press it used to swallow reaches the card — and is aria-hidden,
+   *  because a mark that means "this agent has presented something" is
+   *  already carried by the agent's own controls at a zoom where they exist. */
   inert?: boolean
 }) {
   // the card's context menu (contextmenu.tsx): the same open the click does,
@@ -190,10 +184,7 @@ export function DocChips({ slug, docs, onOpen, inert = false }: {
   slug: string
   docs: DocMeta[]
   onOpen: (id: string) => void
-  /** far zoom: the chips stay VISIBLE, because seeing at a glance which
-   *  agents have presented something is the whole value of a chip, but
-   *  nothing on them activates. See PresentationCard for why this is not a
-   *  disabled button. */
+  /** far zoom: visible, but nothing on them activates. See PresentationCard. */
   inert?: boolean
 }) {
   return (
