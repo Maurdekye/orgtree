@@ -206,5 +206,68 @@ class SpawnEnvTests(unittest.TestCase):
         self.assertEqual(env[registry.MARKER], row["id"])
 
 
+class AttributionTests(unittest.TestCase):
+    """Stage (c2): served-row classification, spend banking, keepalive TTL
+    and the board lane label. The auto-resume fast-wake branch replicates
+    apikey_route_for (pinned above) over a freeze record and is exercised by
+    the integration pass in stage (h)."""
+
+    def setUp(self):
+        _fresh()
+
+    def test_served_metered_row_answers_rows_only(self):
+        row = _key_row(1)
+        self.assertEqual(supervisor.served_metered_row(row["id"])["id"],
+                         row["id"])
+        sub = _sub_row()
+        self.assertIsNone(supervisor.served_metered_row(sub["id"]))
+        for label in ("", "api-key", "key:unattributed", "no-such-row"):
+            self.assertIsNone(supervisor.served_metered_row(label))
+
+    def test_bank_api_cost_feeds_row_spend(self):
+        row = _key_row(1)
+        org = _org("bank-a")
+        supervisor._bank_api_cost(org, 0.5, served=row["id"])
+        supervisor._bank_api_cost(org, 0.25, served="")        # V1 shape
+        self.assertAlmostEqual(org.d["api_cost_usd"], 0.75)
+        spend = registry.spend_of(registry.get_account(row["id"]))
+        self.assertAlmostEqual(spend["usd_total"], 0.5)
+        self.assertEqual(spend["turns"], 1)
+
+    def test_served_for_banking_reads_captured_attribution(self):
+        row = _key_row(1)
+        st = supervisor.state("bank-b", "root")
+        st["ran_as"] = row["id"]
+        self.assertEqual(supervisor._served_for_banking("bank-b", "root"),
+                         row["id"])
+        st["ran_as"] = "primary"
+        self.assertEqual(supervisor._served_for_banking("bank-b", "root"), "")
+
+    def test_working_cache_interval_keys_off_the_next_lane(self):
+        row = _key_row(1)
+        org = _org("ttl-a")
+        with patch.object(supervisor, "_reported_working", return_value=True):
+            cadence, billed = supervisor._working_cache_interval(org, "root")
+            self.assertFalse(billed)                     # defaults: subscription
+            self.assertEqual(cadence, supervisor.WORKING_CACHE_SUBSCRIPTION_S)
+            org.nodes["root"]["account"] = row["id"]     # bound to a key row
+            cadence, billed = supervisor._working_cache_interval(org, "root")
+            self.assertTrue(billed)
+            self.assertEqual(cadence, supervisor.WORKING_CACHE_API_KEY_S)
+            del org.nodes["root"]["account"]             # unbound, routed lane
+            appsettings.set_subscription_inference_enabled("claude", False)
+            cadence, billed = supervisor._working_cache_interval(org, "root")
+            self.assertTrue(billed)
+            self.assertEqual(cadence, supervisor.WORKING_CACHE_API_KEY_S)
+
+    def test_turn_usage_selection_names_the_account_lane(self):
+        _key_row(1)
+        org = _org("lane-a")
+        appsettings.set_subscription_inference_enabled("claude", False)
+        provider, lane = supervisor._turn_usage_selection(org, "root",
+                                                          time.time())
+        self.assertEqual((provider, lane), ("claude", "account"))
+
+
 if __name__ == "__main__":
     unittest.main()

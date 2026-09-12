@@ -4859,17 +4859,53 @@ def apikey_route_for(tier: str,
     return apikey_lane_row("claude", tier, now)
 
 
-def _bank_api_cost(org: Org, amount: float) -> None:
+def served_metered_row(ran_as: str) -> dict[str, Any] | None:
+    """The apikey-mode registry row `ran_as` names, or None — the new-lane
+    half of `bills_the_key`'s question, answered from the attribution the
+    spawn CAPTURED (the resolved env's marker) rather than from org state,
+    so a toggle flipped mid-turn cannot relabel a running turn."""
+    if not ran_as or ran_as in ("api-key", "key:unattributed"):
+        return None
+    try:
+        row = registry.get_account(ran_as)
+    except registry.UnknownAccount:
+        return None
+    return row if registry.account_mode(row) == "apikey" else None
+
+
+def _bank_api_cost(org: Org, amount: float, served: str = "") -> None:
     """api_fallback split (user feature 2026-08-17): dollars billed while the
     key lane was open accumulate on this org-lifetime counter, surfaced as
     the hover split on the UI cost card. Callers gate on the lane decision
     CAPTURED AT SPAWN (a window expiring mid-turn doesn't rewrite where that
     turn's tokens were billed). Org-level and monotonic on purpose: node
     deletion banks per-node burn into deleted_cost_usd, and this counter
-    must never need the same dance."""
+    must never need the same dance.
+
+    `served` (user redesign 2026-09-12): the registry account id that billed,
+    when the lane was a metered ACCOUNT row — the same dollars then accumulate
+    on that row's machine-wide spend total, the Usage panel's authoritative
+    local metering. add_spend refuses unknown ids and non-apikey rows, so V1
+    org-key turns pass "" and change nothing beyond the org counter."""
     if amount:
         org.d["api_cost_usd"] = round(
             float(org.d.get("api_cost_usd") or 0.0) + amount, 6)
+        if served:
+            try:
+                registry.add_spend(served, amount)
+            except Exception:                                # noqa: BLE001
+                pass      # accounting must never turn a booked turn into a crash
+
+
+def _served_for_banking(slug: str, nid: str) -> str:
+    """The apikey row id the node's LAST spawn actually ran as, or "" — the
+    `served` argument for the cost bankers, read from the same captured
+    attribution every classifier uses."""
+    try:
+        row = served_metered_row(str(state(slug, nid).get("ran_as") or ""))
+    except Exception:                                        # noqa: BLE001
+        return ""
+    return str(row["id"]) if row is not None else ""
 
 
 def _looks_like_usage_limit(blob: str) -> bool:
@@ -7401,6 +7437,12 @@ def _turn_usage_selection(org: Org, nid: str,
     if provider == "google":
         return provider, "account"
     try:
+        # metered ACCOUNT lane (2026-09-12): a spawn the stateless route
+        # would serve from a key row is an ordinary account lane on the
+        # board, never the V1 org-api-key pseudo-lane.
+        if not str(org.node(nid).get("account") or "") \
+                and apikey_route_for(tier, now) is not None:
+            return provider, "account"
         if bills_the_key(org, api_fallback_active(org, now)):
             return provider, "org-api-key"
         resolved = accounts.resolve(tier, now)
@@ -11547,6 +11589,21 @@ def _working_cache_interval(org: Org, nid: str) -> tuple[float, bool] | None:
         return None
     on_fallback = api_fallback_active(org)
     billed_key = bills_the_key(org, on_fallback)
+    if not billed_key:
+        # metered ACCOUNT lane (2026-09-12): a node bound to an apikey row —
+        # or an unbound one the stateless route would serve from one — keeps
+        # its prefix warm at the key lane's own TTL. The NEXT request is the
+        # one being kept warm, so the classifier asks where that will bill.
+        tier = str(n.get("model") or "")
+        bound = str(n.get("account") or "")
+        if bound and not bound.startswith("missing:"):
+            try:
+                billed_key = registry.account_mode(
+                    registry.get_account(bound)) == "apikey"
+            except registry.UnknownAccount:
+                billed_key = False
+        else:
+            billed_key = apikey_route_for(tier) is not None
     return ((WORKING_CACHE_API_KEY_S if billed_key
              else WORKING_CACHE_SUBSCRIPTION_S), billed_key)
 
@@ -11745,6 +11802,12 @@ def _working_cache_read(slug: str, nid: str,
                 on_fallback = api_fallback_active(org)
                 billed_key = bills_the_key(org, on_fallback)
                 env = spawn_env(org, tier=tier, nid=nid)
+                # metered ACCOUNT lane (2026-09-12): the keepalive's own env
+                # says which lane it warms — a key-account read banks to that
+                # row and keeps the key lane's TTL, same as a real turn.
+                _ka_served = served_metered_row(identity_in_env(env))
+                if _ka_served is not None:
+                    billed_key = True
                 # D-218: the keepalive rides the same unbounded deny render
                 # as a real turn, so it parks settings the same way — into
                 # its OWN file, so a racing real spawn never reads its hooks
@@ -11864,7 +11927,9 @@ def _working_cache_read(slug: str, nid: str,
                             n2["cost_usd"] = round(
                                 float(n2.get("cost_usd") or 0.0) + cost, 6)
                             if billed_key:
-                                _bank_api_cost(current, cost)
+                                _bank_api_cost(
+                                    current, cost,
+                                    served=(_ka_served or {}).get("id") or "")
                         # A failed request can still report billable usage;
                         # bank it, but only a successful read earns freshness.
                         # The read warmed this exact prefix only while the node
@@ -11881,7 +11946,9 @@ def _working_cache_read(slug: str, nid: str,
                             float(current.d.get("deleted_cost_usd") or 0.0)
                             + cost, 6)
                         if billed_key:
-                            _bank_api_cost(current, cost)
+                            _bank_api_cost(
+                                current, cost,
+                                served=(_ka_served or {}).get("id") or "")
                         store.save_org(current)
             except LedgerError:
                 print(f"[orgtree] {slug}/{nid}: keepalive finished after org "
@@ -17353,6 +17420,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # `identity_in_env`'s docstring before "simplifying" this to a
             # resolver call.
             st["ran_as"] = identity_in_env(env)
+            # ── the metered ACCOUNT lane (user redesign 2026-09-12): a turn
+            # SERVED by an apikey registry row is key-billed for every
+            # downstream classification, decided from the RESOLVED env's own
+            # attribution — the same captured-at-spawn discipline as the V1
+            # window above. st["on_fallback"] is deliberately NOT set: that
+            # flag is the V1 red border, and a key ACCOUNT is a normal
+            # account mode (the ticket removes the red).
+            if served_metered_row(str(st.get("ran_as") or "")) is not None:
+                billed_key = True
+                billed_on_key = True
             env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid
             env.update(agentauth.child_env(slug, nid))
             env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
@@ -21301,7 +21378,7 @@ def _charge_killed_turn(slug: str, nid: str, out_toks: int,
             if est:
                 n["cost_usd"] = round(float(n.get("cost_usd") or 0.0) + est, 6)
                 if on_key:
-                    _bank_api_cost(o2, est)
+                    _bank_api_cost(o2, est, served=_served_for_banking(slug, nid))
             entry: TurnStat = {"at": now_iso(), "cost": est, "ms": None,
                                "denials": 0, "killed": True, "toks": out_toks}
             if est and not measured:
@@ -21465,7 +21542,7 @@ def _charge_reported_spend(slug: str, nid: str, paid: float,
                 n["cost_usd"] = round(
                     float(n.get("cost_usd") or 0.0) + paid, 6)
                 if on_key:
-                    _bank_api_cost(o2, paid)
+                    _bank_api_cost(o2, paid, served=_served_for_banking(slug, nid))
             ring = n.setdefault("turns", [])
             paid_entry: TurnStat = {"at": now_iso(), "cost": round(paid, 6),
                                     "ms": None, "denials": 0, "killed": True}
@@ -21811,7 +21888,7 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
             if cost:
                 n["cost_usd"] = round(float(n.get("cost_usd") or 0.0) + cost, 6)
                 if on_key:
-                    _bank_api_cost(o2, cost)
+                    _bank_api_cost(o2, cost, served=_served_for_banking(slug, nid))
             _cost_unknown = res.get("_cost_unknown_fields")
             if isinstance(_cost_unknown, list) and _cost_unknown:
                 n["cost_usd_unknown"] = True
@@ -25308,6 +25385,23 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
             # …FOR THIS NODE'S ROUTE. A codex, antigravity or openrouter
             # freeze is a wall on a lane the key cannot serve; it waits for
             # its own reset like any timed freeze (the branches below).
+            ready.add(nid)
+            continue
+        if (fz.get("limit") and not fz.get("on_fallback")
+                and not fz.get("untrusted")
+                and not str(n.get("account") or "")
+                and apikey_route_for(str(n.get("model") or ""), now)
+                    is not None):
+            # metered ACCOUNT lane (user redesign 2026-09-12): an enabled
+            # key account has capacity RIGHT NOW for this unbound claude
+            # node's tier, so a subscription-side wall has nothing to wait
+            # for — the V1 window branch above, statelessly, with no window
+            # to stamp. A wall earned ON one key row cannot re-open here:
+            # that freeze marked its row, and `apikey_route_for` skips
+            # marked rows, so it answers a DIFFERENT enabled row or None.
+            # Non-claude tiers answer None inside the predicate and wait
+            # for their own resets; untrusted stays excluded for the same
+            # reason as every other wake in this pass.
             ready.add(nid)
             continue
         if (fz.get("limit") and fz.get("pool") == "dry"
