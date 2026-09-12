@@ -1962,9 +1962,57 @@ def _summarise_archived(node: dict[str, Any]) -> None:
     node["detail"] = False
 
 
+# ------------------------------------------------- the tree ETag + cache
+# (perf-redesign 2026-09-12, REPORT.md #3.) The full-tree payload is ~1.5 MB
+# at 449 nodes (3.3 KB/node, linear) and was rebuilt and re-shipped for every
+# 6 s heartbeat and every save-burst refetch, per client, even when nothing
+# it renders had moved. The ETag names everything the payload is derived
+# from: the org's save seq (document facts), the supervisor state
+# fingerprint (busy/waiting/responding/… — the volatile fields annotate
+# reads), the host limits board's fetch stamp (freeze re-derivation), the
+# primed-restart record, and a 30 s bucket. The bucket is the honesty
+# clause: a handful of annotate inputs (cache forecasts, MCP counts,
+# warmpool control) are reconciliation fields whose primary update path is
+# their own WS patch frames — the tree fetch has always been their
+# *reconciliation*, and the bucket bounds that reconciliation lag at 30 s
+# instead of forcing a rebuild per poll to track them precisely.
+#
+# One cached body per (slug, public) — the newest build only. Every client
+# polling an unchanged org shares one build and usually just gets a 304.
+_TREE_STALE_BUCKET_S = 30.0
+_tree_cache_lock = threading.Lock()
+_tree_cache: dict[tuple[str, bool], tuple[str, bytes]] = {}
+
+
+def _tree_etag(slug: str) -> str:
+    parts = (store.org_seq(slug),
+             supervisor.tree_state_fingerprint(slug),
+             float(limits._cache.get("at") or 0.0),
+             repr(supervisor.primed_restart()),
+             int(time.time() // _TREE_STALE_BUCKET_S))
+    return '"t' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
+
+
 @app.get("/api/orgs/{slug}")
-def org_tree(slug: str, request: Request) -> dict[str, Any]:
-    return _org_view(slug, request, None)
+def org_tree(slug: str, request: Request) -> Any:
+    from fastapi.responses import Response
+    pub = _public_slug(request) is not None
+    etag = _tree_etag(slug)
+    if request.headers.get("if-none-match") == etag:
+        # nothing the payload derives from has moved — no load, no tree(),
+        # no annotate, no serialize; the client keeps what it has
+        return Response(status_code=304, headers={"ETag": etag})
+    with _tree_cache_lock:
+        hit = _tree_cache.get((slug, pub))
+    if hit is not None and hit[0] == etag:
+        return Response(content=hit[1], media_type="application/json",
+                        headers={"ETag": etag})
+    tree = _org_view(slug, request, None)
+    body = json.dumps(tree, default=str).encode("utf-8")
+    with _tree_cache_lock:
+        _tree_cache[(slug, pub)] = (etag, body)
+    return Response(content=body, media_type="application/json",
+                    headers={"ETag": etag})
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/detail")

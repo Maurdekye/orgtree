@@ -19,7 +19,7 @@ import {
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
-  getProviders, getTree,
+  getProviders, getTree, invalidateTreeCache,
   getUsage, getUsagePeek, killAll, listOrgs,
   markRead, openWs,
   probeHub, putOrgMd,
@@ -677,8 +677,28 @@ export default function App() {
   // not make the render cheap.
   useEffect(() => {
     if (!slug) return
-    const t = setInterval(() => refreshTree(slug), TREE_POLL_MS)
-    return () => clearInterval(t)
+    // hidden windows keep a slower beat (the app lives in the tray, so a
+    // minimized window used to poll at full rate around the clock): the ws
+    // 'changed' handler still refetches at full rate on real changes, so
+    // hidden staleness is bounded to state-only flips between saves — and
+    // the server's ETag makes the hidden beat a 304 in the common case.
+    // Becoming visible refetches immediately rather than waiting a beat.
+    let last = 0
+    const tick = () => {
+      const gap = document.hidden ? TREE_POLL_MS * 5 : TREE_POLL_MS
+      if (Date.now() - last < gap) return
+      last = Date.now()
+      refreshTree(slug)
+    }
+    const t = setInterval(tick, TREE_POLL_MS)
+    const onVisible = () => {
+      if (!document.hidden) { last = Date.now(); refreshTree(slug) }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [slug, refreshTree])
   useEffect(() => {          // the org list/dashboard is LIVE while visible —
     // kiosk spend/storage/caps move under it (agent turns, admin edits)
@@ -744,6 +764,7 @@ export default function App() {
       }
       if (data?.type === 'node_stream') {
         if (data.kind === 'cache_forecast') {
+          invalidateTreeCache(slug)   // a 304 must not revert this patch
           setTree((old) => old ? {
             ...old,
             roots: old.roots.map((n) => patchCacheNode(
@@ -755,6 +776,7 @@ export default function App() {
           // Inventory is a hard-realtime process fact. Apply the websocket
           // payload directly; the next ordinary tree fetch is reconciliation,
           // not the primary update path.
+          invalidateTreeCache(slug)   // a 304 must not revert this patch
           setTree((old) => old ? {
             ...old,
             roots: old.roots.map((n) => patchMcpNode(n, data.node, data)),
@@ -769,6 +791,7 @@ export default function App() {
           return
         }
         if (data.kind === 'mcp_readiness') {
+          invalidateTreeCache(slug)   // a 304 must not revert this patch
           setTree((old) => old ? {
             ...old,
             roots: old.roots.map((n) => patchMcpReadinessNode(

@@ -3228,6 +3228,42 @@ def _limit_cache_claude_state(st: dict[str, Any], tier: str) -> bool:
     return False
 
 
+#: every per-seat runtime field the org_tree payload renders out of `_state`
+#: — the volatile half of the tree ETag (api._tree_etag). A field annotate
+#: reads but this list misses is bounded by the ETag's 30 s staleness bucket,
+#: never wrong forever; a field listed here but no longer rendered just costs
+#: a spare rebuild. Kept beside `working_count` so the next person changing
+#: annotate's state reads has this list in view.
+_TREE_STATE_KEYS = (
+    "busy", "waiting", "responding", "phase", "on_fallback", "ran_as",
+    "proc_warm", "proc_live", "proc_relaunch", "proc_relaunch_reason",
+    "mcp_tool_count", "mcp_tool_provider", "mcp_tool_source",
+    "mcp_tool_reason", "mcp_readiness_waiting", "mcp_readiness_state",
+    "mcp_readiness_reason", "tasks")
+
+
+def tree_state_fingerprint(slug: str) -> str:
+    """A stable digest of the runtime facts the org tree renders for one org.
+
+    Unchanged fingerprint + unchanged `store.org_seq` means the tree payload's
+    volatile fields cannot have moved, which is what lets the endpoint answer
+    304 instead of rebuilding a ~1.5 MB projection per heartbeat
+    (perf-redesign 2026-09-12, REPORT.md #3)."""
+    with _state_lock:
+        rows = []
+        for (s, nid), st in _state.items():
+            if s != slug:
+                continue
+            rt = st.get("codex_route")
+            rows.append((nid,
+                         tuple(repr(st.get(k)) for k in _TREE_STATE_KEYS),
+                         len(st.get("queue") or ()),
+                         ((rt.get("at"), rt.get("outcome"), bool(rt.get("live")))
+                          if isinstance(rt, dict) else None)))
+    rows.sort()
+    return hashlib.sha1(repr(rows).encode()).hexdigest()[:16]
+
+
 def working_count(slug: str) -> int:
     # F-09: how many of this org's agents have a turn RUNNING right now.
     # Reads _state directly — state() setdefault-allocates an entry per lookup,
