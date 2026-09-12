@@ -186,6 +186,22 @@ class FrozenInfo(TypedDict, total=False):
     # the same reason `cause` is one: `_resumable` refuses a record carrying
     # an unknown True key, which would make ▶ skip the node forever.
     provenance: str
+    # THE DEADLINE THIS FREEZE HAS ALREADY BEEN PROMISED (review round 5).
+    # `{ts, src, schedule_kind, provenance, of_ts, of_src}` — written on the
+    # scheduler tick by `supervisor.commit_wake_deadlines` and read by BOTH
+    # surfaces through `supervisor._committed_wake`.
+    #
+    # ⚠ NOT a second deadline competing with `until_ts` — read the note below
+    # about `admit_ts`, which is the mistake this is NOT. It is the MEMORY of
+    # what the one deadline was, and it is consulted only once its own moment
+    # has passed. Without it the ranks are re-derived from live state every
+    # time and a promise silently becomes a later one when its source goes
+    # away: an expiring mark, a pruned registry row, the record's own horizon
+    # elapsing. `of_ts`/`of_src` bind it to the version of the record that
+    # earned it, so rewriting the freeze drops the promise instead of firing
+    # a wake for a wall that no longer exists. ⚠ A DICT, not a bare True —
+    # `_resumable` refuses a record carrying an unknown True key.
+    wake: NotRequired[dict[str, Any]]
     # ⚠ THERE IS NO SEPARATE ADMISSION DEADLINE. An interim version of the
     # wake-estimate fix added `admit_ts` here — the account mark, when it
     # outlived a conclusive 429 — and had `auto_resume_ready` wait for the

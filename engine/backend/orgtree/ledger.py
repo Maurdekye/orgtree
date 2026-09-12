@@ -9618,6 +9618,15 @@ class Org:
                                          # id already projected on the node
                                          # itself for the account tint.
                                          "provenance", "account",
+                                         # review round 5: the deadline this
+                                         # freeze was already PROMISED
+                                         # (`supervisor._committed_wake`). The
+                                         # badge and the wake timer both read
+                                         # it off the record so they cannot
+                                         # disagree once it comes due — which
+                                         # only works if it survives this
+                                         # key-by-key rebuild.
+                                         "wake",
                                          # D-156: WHY, when the answer is not
                                          # "capacity ran out". "auth" = the
                                          # credential was rejected, so the

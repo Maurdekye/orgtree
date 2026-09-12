@@ -559,39 +559,28 @@ def correct_mark(account_id: str, tier: str, expected_until: float | None,
         return True
 
 
-def recorded_mark(account_id: str, tier: str) -> dict[str, Any] | None:
-    """The mark this account carries for `tier`'s pool, WHETHER OR NOT its
-    time has passed — or None when no mark was ever recorded.
+def active_mark(account_id: str, tier: str,
+                now: float | None = None) -> dict[str, Any] | None:
+    """The live mark gating `tier` on this account, or None. Stateless over
+    the durable document by design (N1): the admission gate calls this on
+    every attempt and holds nothing in memory.
 
-    ⚠ THE ELAPSED ONES MATTER (review 2026-09-12, round 4). `active_mark`
-    answers None the moment a mark's time arrives, which is right for an
-    ADMISSION question ("may this attempt go now?") and wrong for a WAKE
-    question ("when is this node due?"): a node parked behind a mark that has
-    since elapsed is due AT THAT TIME, not at whatever longer horizon its own
-    record happens to carry. Reading the row rather than a liveness test is
-    what lets `supervisor.effective_freeze_deadline` keep the time it showed.
-
-    Elapsed marks survive in the document to be read: `_prune` runs only when
-    the row is written again (`record_mark`) or on an explicit
-    `clear_expired`, never on load."""
+    ⚠ LIVE-ONLY, AND THAT IS LOAD-BEARING (review 2026-09-12, round 5). An
+    interim fix had the wake path read ELAPSED marks too, so a deadline the
+    badge had promised survived the mark expiring. It also let an hour-old
+    mark from a PREVIOUS limit window govern a freeze taken minutes ago, and
+    it died the moment `clear_expired` pruned the row. A mark is evidence
+    about NOW; what a freeze was promised belongs to the freeze, and
+    `supervisor.effective_freeze_deadline` keeps it there (`frozen.wake`)."""
+    now = time.time() if now is None else now
     try:
         row = get_account(account_id)
     except UnknownAccount:
         return None
     mark = row["marks"].get(pool_key(tier))
-    return dict(mark) if mark else None
-
-
-def active_mark(account_id: str, tier: str,
-                now: float | None = None) -> dict[str, Any] | None:
-    """The live mark gating `tier` on this account, or None. Stateless over
-    the durable document by design (N1): the admission gate calls this on
-    every attempt and holds nothing in memory."""
-    now = time.time() if now is None else now
-    mark = recorded_mark(account_id, tier)
     if not mark or float(mark.get("until", 0)) <= now:
         return None
-    return mark
+    return dict(mark)
 
 
 def clear_expired(now: float | None = None) -> None:

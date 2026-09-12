@@ -139,8 +139,14 @@ class WaitGateTests(unittest.TestCase):
         self._drive("wg-pass-ok")
         self.assertIsNone(self._frozen("wg-pass-ok"),
                           "the live mark re-froze the wake it was owed")
-        self.assertIsNone(self._admit_once("wg-pass-ok"),
-                          "the pass must be spent, not reusable")
+        # ⚠ AND THE PASS IS STILL THERE, on purpose (round 5). `spend_frozen`
+        # kills this turn inside the slot, before the provider seam — so no
+        # real attempt happened and the pass is still owed one. Spending it
+        # here is the bug this fixture now guards: it would leave the next
+        # admission to meet the same mark with nothing.
+        node = self.store.load_org("wg-pass-ok").node("root")
+        self.assertTrue(self.supervisor._admit_once_valid(node),
+                        "the pass was burned without a provider attempt")
 
     def test_a_pass_from_another_identity_does_not_open_the_gate(self):
         """Round 4: the pass is for the wall it was earned against. Rebind the
@@ -164,8 +170,53 @@ class WaitGateTests(unittest.TestCase):
                 self.assertIsInstance(
                     fz, dict, "the account gate must still have fired")
                 self.assertEqual(fz["reset_src"], "account-mark")
-                self.assertIsNone(self._admit_once(slug),
-                                  "a refused pass must not sit waiting")
+                # Round 5: a refused pass is no longer CLEARED here — the
+                # provider seam owns clearing — and it does not need to be.
+                # It can never validate again, and ADMIT_ONCE_TTL takes it out
+                # of play within two minutes regardless.
+                self.assertFalse(
+                    self.supervisor._admit_once_valid(
+                        self.store.load_org(slug).node("root")),
+                    "a refused pass must never open the gate")
+
+    def test_a_pass_survives_an_abort_before_any_provider_attempt(self):
+        """⚠ ROUND 5. The gate used to CHECK AND CLEAR in one step, so a turn
+        that died between the gate and a real attempt — an interrupted slot,
+        the deployment or storage gates, a halt — burned the pass without ever
+        reaching a provider, and the next admission met the same live mark
+        with nothing to show for it. The promise the user ruled for is ONE
+        REAL ATTEMPT, so the pass is spent at the provider seam instead."""
+        import time as _t
+        from unittest.mock import patch
+        self._pass_fixture("wg-pass-abort",
+                           lambda row: {"at": _t.time(),
+                                        "account": row["id"],
+                                        "model": "opus"})
+
+        class InterruptedSlot:
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                raise RuntimeError("interrupted before any provider attempt")
+
+            def __exit__(self, *a):
+                return False
+
+        with patch.object(self.supervisor, "_InterruptibleTurnSlot",
+                          InterruptedSlot):
+            self._drive("wg-pass-abort")
+        self.assertIsNone(self._frozen("wg-pass-abort"),
+                          "the gate re-froze a node that still holds its pass")
+        node = self.store.load_org("wg-pass-abort").node("root")
+        self.assertTrue(self.supervisor._admit_once_valid(node),
+                        "the pass was burned without a provider attempt")
+        # …and the seam, when a turn does get there, spends it exactly once
+        o = self.store.load_org("wg-pass-abort")
+        self.assertTrue(self.supervisor._spend_admit_once(o, "root"))
+        self.store.save_org(o)
+        self.assertFalse(self.supervisor._spend_admit_once(
+            self.store.load_org("wg-pass-abort"), "root"))
 
     def test_stateless_over_durable_state(self):
         # the wait re-derives from the DOC + registry alone: wipe the

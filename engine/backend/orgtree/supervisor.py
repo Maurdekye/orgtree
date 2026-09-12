@@ -5352,6 +5352,99 @@ def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
     return not _message_is_conclusive(msg_ts, msg_src)
 
 
+def _committed_wake(fz: FrozenInfo) -> dict[str, Any] | None:
+    """THE DEADLINE THIS FREEZE HAS ALREADY BEEN PROMISED, or None.
+
+    Written by `commit_wake_deadlines` on the scheduler's own tick — the one
+    place that both holds the document lock and runs regularly — and read by
+    BOTH surfaces off the same record, so they cannot disagree about it.
+
+    ⚠ IT IS BOUND TO THE VERSION OF THE RECORD THAT EARNED IT. `of_ts`/
+    `of_src` are the record's own `until_ts`/`reset_src` as they stood when
+    the promise was made. A path that rewrites the freeze in place — a new
+    429, a re-park from a mark — changes those, and a promise made about the
+    old record is then silently dropped rather than firing a wake for a wall
+    that no longer exists. (A freeze REPLACED wholesale carries no promise at
+    all: `frozen` is a fresh dict, which is what keeps a previous window's
+    timing from reaching a freeze taken today.)"""
+    got = fz.get("wake")
+    if not isinstance(got, dict):
+        return None
+    try:
+        ts = float(got["ts"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    of_ts = got.get("of_ts")
+    if (of_ts if of_ts is None else float(of_ts)) != fz.get("until_ts"):
+        return None
+    if str(got.get("of_src") or "") != str(fz.get("reset_src") or ""):
+        return None
+    return {"ts": ts, "src": str(got.get("src") or ""),
+            "schedule_kind": str(got.get("schedule_kind") or ""),
+            "provenance": str(got.get("provenance") or "")}
+
+
+def commit_wake_deadlines(org: Org, now: float | None = None) -> bool:
+    """Record, on every frozen node, the deadline it is CURRENTLY promised —
+    so that when the promise comes due it is still there to be honoured.
+    Answers True when anything changed (the caller owns the save).
+
+    ⚠ WHY A WRITER EXISTS AT ALL. The ranks are re-derived from live state on
+    every read, which is what makes the badge follow account changes (round 2)
+    — but it also means the chosen number has no memory. When its source went
+    away (a mark expiring, `clear_expired` pruning the row, the record's own
+    horizon passing) the next read simply picked a DIFFERENT, later source and
+    the wake the node had been promised was never taken (round 5). Re-deriving
+    is right; forgetting is not. This is the one place that remembers.
+
+    Called on the scheduler tick, under `store.DOC_LOCK`, from
+    `_auto_resume_org` — NOT from `auto_resume_ready`, which stays a pure
+    query so that asking "would this node be ready at T?" can never write a
+    T-shaped promise into the document."""
+    now = time.time() if now is None else now
+    changed = False
+    for n in org.nodes.values():
+        fz = _resumable(n)
+        if fz is None or not freeze_waits_on_capacity(fz):
+            # a freeze nothing is waiting on, and the kinds that own their own
+            # clock, have nothing to be promised — and must not accumulate a
+            # field that would outlive the reason for it.
+            if isinstance(n.get("frozen"), dict) and "wake" in n["frozen"]:
+                del n["frozen"]["wake"]
+                changed = True
+            continue
+        tier = str(n.get("model") or "")
+        try:
+            mark = (registry.active_mark(freeze_account_of(fz, n), tier, now)
+                    if freeze_account_of(fz, n) and tier else None)
+        except Exception:                   # noqa: BLE001 — unreadable registry
+            mark = None
+        try:
+            roster = (accounts.resolve(tier, now)
+                      if tier in accounts.TIERS else None)
+        except Exception:                   # noqa: BLE001 — unreadable roster
+            roster = None
+        eff = effective_freeze_deadline(fz, mark, now, roster)
+        if eff is None:
+            # nothing names a time: there is no promise to keep, and a stale
+            # one must not linger to fire later.
+            if "wake" in fz:
+                del fz["wake"]
+                changed = True
+            continue
+        if eff["ts"] <= now and _committed_wake(fz):
+            continue                # already promised and now due — leave it
+        want = {"ts": float(eff["ts"]), "src": eff["src"],
+                "schedule_kind": eff["schedule_kind"],
+                "provenance": eff["provenance"],
+                "of_ts": fz.get("until_ts"),
+                "of_src": str(fz.get("reset_src") or "")}
+        if fz.get("wake") != want:
+            fz["wake"] = want
+            changed = True
+    return changed
+
+
 def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
     """Is this freeze a wait for an ACCOUNT'S CAPACITY — the only kind the
     marks and the roster describe?
@@ -5396,20 +5489,27 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
     is the point. Answers None only when NOTHING can name a time; the
     scheduler then falls to its probe floor and the badge says so.
 
-    ⚠ A STATEMENT ABOUT A WALL KEEPS ITS TIME AFTER THAT TIME PASSES — IT
-    MEANS THE NODE IS DUE (review 2026-09-12, round 4). Ranks 1 and 2 are
-    statements ("the provider said 3:30pm", "this account is marked until
-    3:30pm"); when their moment arrives the wall they described is DOWN, and
-    the caller reads the past time as "wake now". Dropping an elapsed one to
-    the rank below is how a node promised a wake at +30m got silently
-    re-parked on its own record's inherited +2h the second that promise came
-    due: the badge jumped FORWARD and the wake never happened.
+    ⚠ A DEADLINE THIS FREEZE WAS ALREADY PROMISED OUTLIVES THE SOURCE THAT
+    SUPPLIED IT (review 2026-09-12, round 5). `frozen.wake` is that promise —
+    see `_committed_wake` — and once it has ELAPSED it answers ahead of every
+    fallback, because a promise that comes due must FIRE. Three separate
+    reproductions were one missing memory:
 
-    Rank 3 is the exception, and deliberately so: an inherited horizon or a
-    blind probe floor is a GUESS with no wall behind it, and an expired guess
-    says nothing at all. It is live-only, so an elapsed one falls through to
-    the roster and then to "reset time unknown" — the honest answer, and the
-    one the badge already gave.
+      · an inherited +300 that expired was replaced by the roster's +7200,
+        pushing the wake out instead of taking it;
+      · an account mark's +1800, promised to both surfaces, vanished the
+        moment `registry.clear_expired` pruned the elapsed row, and the
+        record's own inherited +7200 took over;
+      · and the interim fix for that — reading elapsed marks — let an
+        HOUR-OLD mark from a previous limit window govern a freeze taken
+        minutes ago and schedule it immediately.
+
+    A live source may still move a promise that has not come due yet: that is
+    round 2's fix (a sibling seat moving the account's mark must reach the
+    badge) and the reason the ranks below are re-read every time rather than
+    frozen at stamp time. The promise is consulted only once its own moment
+    has passed, so both readers read the same number off the same record and
+    cannot disagree about it.
 
     The ranks, in order:
 
@@ -5421,12 +5521,15 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
          make the stated time cosmetic. If the wall really is still up, the
          attempt returns a new 429 and that 429 rewrites this record with its
          own timing — the precedence working, not a hole.
-      2. THE ACCOUNT'S OWN MARK — the number the Usage modal prints. The
-         fallback the precedence allows when the 429 said nothing. Elapsed, it
-         still answers: the wall it described is DOWN, which is a fact about
-         this node's lane that outranks a horizon the record inherited from
-         somewhere else. (Bounded to ±`MAX_HORIZON` so a row nobody has
-         touched in a fortnight cannot speak for a freeze taken today.)
+      1b. THE PROMISE THIS FREEZE ALREADY CARRIES, ONCE IT HAS ELAPSED —
+         `frozen.wake`, above every fallback for the reason just given.
+      2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints. The
+         fallback the precedence allows when the 429 said nothing. LIVE only:
+         a mark is evidence about now, and an elapsed one belongs to a window
+         that has closed, possibly long before this freeze existed.
+      2b. THE PROMISE AGAIN, while it is still to come — below fresh evidence,
+         which may legitimately move a deadline that has not arrived yet, but
+         above the record's own weaker guess below.
       3. ANY OTHER LIVE HORIZON the record carries: an inherited one, the
          blind probe floor. Weak, but a wake is coming and neither surface may
          deny it.
@@ -5461,17 +5564,27 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
         # usage wall: its own deadline or nothing. The marks and the roster
         # describe capacity, and capacity is not what this node is waiting on.
         return _own() if in_range else None
+    promised = _committed_wake(fz)
+    if promised and promised["ts"] <= now:
+        return promised                     # it came due: nothing may extend it
     if mark:
         try:
             m_ts = float(mark["until"])
         except (KeyError, TypeError, ValueError):
             m_ts = 0.0
-        if now - limits.MAX_HORIZON <= m_ts <= now + limits.MAX_HORIZON:
+        if now < m_ts <= now + limits.MAX_HORIZON:
             prov = str(mark.get("provenance") or "")
             return {"ts": m_ts, "src": "account-mark",
                     "schedule_kind": ("observed-deadline" if prov == "observed"
                                       else "probe"),
                     "provenance": prov}
+    if promised and promised["ts"] <= now + limits.MAX_HORIZON:
+        # STILL TO COME, and already shown. Live evidence above may move it —
+        # that is round 2's fix — but the record's own weaker guess below may
+        # not: when the account row behind a promise disappears, falling to an
+        # inherited +2h would jump the badge FORWARD and then back again the
+        # moment the promised time arrived.
+        return promised
     if now < own <= now + limits.MAX_HORIZON:
         return _own()
     if roster and not roster.get("available"):
@@ -5550,15 +5663,12 @@ def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
     return True
 
 
-def _consume_admit_once(slug: str, nid: str, now: float | None = None) -> bool:
-    """Spend the node's gate pass, if it has a live one FOR THIS ATTEMPT.
-    ALWAYS clears it.
+def _admit_once_valid(n: Mapping[str, Any], now: float | None = None) -> bool:
+    """Does this node hold a pass that is good FOR THIS ATTEMPT? Pure — it
+    reads, it never clears. `_spend_admit_once` does the clearing, and only
+    when a provider attempt actually happens.
 
-    Durable (the pass lives on the node document, so it survives the restart
-    between a wake and its turn) and strictly one-shot: this is the only
-    reader, and it removes the field whether or not the pass was still good.
-
-    Three ways a pass is refused, and all three clear it:
+    Three ways a pass is refused:
     · it expired — see `ADMIT_ONCE_TTL`;
     · the node's account or model CHANGED since it was issued, so the wall it
       was earned against is not the wall this attempt faces (round 4);
@@ -5567,25 +5677,35 @@ def _consume_admit_once(slug: str, nid: str, now: float | None = None) -> bool:
       120-second window makes losing one a re-gated admission, not a stuck
       node."""
     now = time.time() if now is None else now
-    spent = False
-    with store.DOC_LOCK:
-        o = store.load_org(slug)
-        if nid in o.nodes:
-            n = o.node(nid)
-            issued = n.pop("admit_once", None)
-            if isinstance(issued, dict):
-                try:
-                    fresh = now - float(issued.get("at") or 0.0) <= ADMIT_ONCE_TTL
-                except (TypeError, ValueError):
-                    fresh = False
-                spent = (fresh
-                         and str(issued.get("account") or "")
-                         == str(n.get("account") or "")
-                         and str(issued.get("model") or "")
-                         == str(n.get("model") or ""))
-            if issued is not None:
-                store.save_org(o)
-    return spent
+    issued = n.get("admit_once")
+    if not isinstance(issued, dict):
+        return False
+    try:
+        if now - float(issued.get("at") or 0.0) > ADMIT_ONCE_TTL:
+            return False
+    except (TypeError, ValueError):
+        return False
+    return (str(issued.get("account") or "") == str(n.get("account") or "")
+            and str(issued.get("model") or "") == str(n.get("model") or ""))
+
+
+def _spend_admit_once(o: Org, nid: str) -> bool:
+    """Clear the node's pass because THE REAL ATTEMPT IS NOW HAPPENING.
+    Answers True when there was one to clear. The caller owns the save.
+
+    ⚠ SPENT AT THE PROVIDER SEAM, NOT AT THE GATE (review 2026-09-12, round
+    5). The gate used to check and clear in one step, so a turn that died
+    between the two — an interrupted slot, a deployment gate, a halt, a
+    storage cap, any of the in-slot refusals — burned the pass without ever
+    reaching a provider. The next admission then met the same live mark with
+    nothing to show for it and re-froze, which is precisely the outcome the
+    pass exists to prevent. The promise the user ruled for is ONE REAL
+    ATTEMPT, so the pass survives until one is actually made; `ADMIT_ONCE_TTL`
+    still bounds a pass whose turn never got there at all."""
+    n = o.node(nid) if nid in o.nodes else None
+    if n is None or n.pop("admit_once", None) is None:
+        return False
+    return True
 
 
 def _record_account_reset(account: str, tier: str, blob: str,
@@ -16121,14 +16241,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # from an older, longer account mark, which makes the shown time
             # cosmetic — the thing the user ruled against.
             #
-            # It is spent HERE and nowhere else, it is one node's, it is good
-            # for one admission, and `_consume_admit_once` clears it even when
-            # it has expired. Every other admission stays gated exactly as
-            # before: no pass, no bypass. The read below is free — `_g_node`
-            # is already loaded — so the lock is taken only for a node that
-            # actually carries one.
-            _g_pass = bool(_g_node.get("admit_once")) and _consume_admit_once(
-                slug, nid)
+            # ⚠ CHECKED here, SPENT at the provider seam (`_spend_admit_once`,
+            # beside the `inflight` stamp). Clearing it here burned the pass on
+            # any turn that died between this gate and a real attempt — an
+            # interrupted slot, a halt, the deployment or storage gates — and
+            # the next admission re-froze on the same mark (round 5). Every
+            # other admission stays gated exactly as before: no pass, no
+            # bypass. The read is free — `_g_node` is already loaded.
+            _g_pass = _admit_once_valid(_g_node)
             # ── state-audit SH-2 (user ruling 2026-09-12): a `missing:`
             # binding is held HERE, as the spawn seam's comment always
             # promised, instead of proceeding to a spawn that raises — one
@@ -16461,6 +16581,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # actually sent (`_cache_inflight_attempt`).
                         inf["cache_attempt"] = cache_attempt
                     o2.node(nid)["inflight"] = inf
+                    # THE PROVIDER SEAM, and so where the one-shot gate pass is
+                    # finally spent (review round 5): the turn is committed and
+                    # about to launch, which is the REAL ATTEMPT the pass was
+                    # owed. Every in-slot refusal above raises before this line,
+                    # leaving the pass intact for the next admission. It rides
+                    # the save below.
+                    _spend_admit_once(o2, nid)
                     # new work begins: a lingering done/blocked chip would lie —
                     # but the history is kept, not erased (gap audit №13)
                     ls = o2.node(nid).pop("last_status", None)
@@ -24456,8 +24583,8 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     # would make exactly the timing-sensitive branches untestable.
     _pool_seen: dict[str, dict[str, Any] | None] = {}
     # …and one registry answer per (account, tier), for the same reason: the
-    # deadline contract needs the account's mark per node, and
-    # `registry.recorded_mark` re-reads and re-parses the whole registry FILE
+    # deadline contract needs the account's live mark per node, and
+    # `registry.active_mark` re-reads and re-parses the whole registry FILE
     # per call. It takes no lock of its own, so there is no inversion with the
     # DOC_LOCK this runs under.
     _mark_seen: dict[tuple[str, str], dict[str, Any] | None] = {}
@@ -24468,12 +24595,7 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         key = (acct, tier)
         if key not in _mark_seen:
             try:
-                # ⚠ RECORDED, not ACTIVE — the same reader the badge uses
-                # (review round 4). An elapsed mark still answers the wake
-                # question, and the two surfaces must be asking one question
-                # of one source. `effective_freeze_deadline` decides what an
-                # elapsed one means; this only fetches it.
-                _mark_seen[key] = registry.recorded_mark(acct, tier)
+                _mark_seen[key] = registry.active_mark(acct, tier, now)
             except Exception:               # noqa: BLE001 — unreadable registry
                 _mark_seen[key] = None
         return _mark_seen[key]
@@ -24832,6 +24954,15 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
         org = store.load_org(slug)
         if org.d.get("spend_frozen"):
             return True
+        # ⚠ BEFORE the readiness query, and it WRITES. Each frozen node records
+        # the deadline it is currently promised, so that when that moment
+        # arrives the promise is still on the record to be honoured — instead
+        # of the next re-derivation quietly picking a later source and the
+        # wake never being taken (review round 5). Runs on every tick whether
+        # or not `auto_resume` is on, because the BADGE reads this too and the
+        # user's rule is that the two agree.
+        if commit_wake_deadlines(org, now):
+            store.save_org(org)
         ready = auto_resume_ready(org, now)
         if not org.d.get("auto_resume"):
             fb = api_fallback_active(org)

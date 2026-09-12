@@ -1813,8 +1813,18 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # silent no-op that looked exactly like a working feature — caught before
     # it shipped only by checking the projection rather than assuming it.
     tier = str(node.get("tier") or "")
-    if tier not in accounts.TIERS:
+    if not tier:
         return
+    # ⚠ NOT `tier not in accounts.TIERS` (review 2026-09-12, round 5). That
+    # test belongs to the ROSTER alone — `accounts.resolve` is the LEGACY
+    # CLAUDE roster and knows only Claude tiers — but it sat here, at the head,
+    # and so skipped the whole re-derivation for every Luna, Codex, Antigravity
+    # and OpenRouter seat. The registry marks THOSE lanes too (it is what the
+    # Usage modal prints for them), and the scheduler has been reading them
+    # through the shared contract since round 3: a bound Luna freeze showed its
+    # own probe +300 on the badge while the timer waited on the account's
+    # +1800. Same disagreement, different provider. The guard now lives on the
+    # rank that actually needs it, below.
     # ⚠ THE FREEZE'S OWN DEADLINE OUTRANKS THE ROSTER, WHATEVER IT SAYS
     # (user ruling 2026-09-07 14:56Z; coordinator decisions 15:03Z and
     # 15:32Z; user ruling 2026-09-12 restating it as MANDATORY precedence).
@@ -1888,13 +1898,19 @@ def _rederive_freeze_reset(node: dict[str, Any],
                 # answers it (review round 4 — the account's wall came down at
                 # the moment it named). `effective_freeze_deadline` owns what
                 # an elapsed one means; this only has to fetch it.
-                cache[_mkey] = registry.recorded_mark(_acct, tier) or {}
+                cache[_mkey] = registry.active_mark(_acct, tier, now) or {}
             except Exception:                                # noqa: BLE001
                 cache[_mkey] = {}                            # unreadable registry
         _mark = cache[_mkey] or None
-    if tier not in cache:
-        cache[tier] = accounts.resolve(tier)
-    _eff = supervisor.effective_freeze_deadline(fz, _mark, now, cache[tier])
+    # ── RANK 4's OWN GUARD. `accounts.resolve` is the legacy CLAUDE roster;
+    # for any other lane there is simply no roster to ask, and the contract is
+    # told so rather than being handed an answer about somebody else's pool.
+    _roster: dict[str, Any] | None = None
+    if tier in accounts.TIERS:
+        if tier not in cache:
+            cache[tier] = accounts.resolve(tier)
+        _roster = cache[tier]
+    _eff = supervisor.effective_freeze_deadline(fz, _mark, now, _roster)
     if _eff and _eff["src"] == "roster":
         # ── RANK 4, with the wording it has always had. The roster's
         # `refresh_at` is a POOL horizon, so the record gains no `reset_src`,
@@ -1918,7 +1934,14 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # wake is unknown must not be captioned with somebody ELSE's capacity:
     # the roster answering "available" says another account could serve a
     # NEW turn, not that this node is about to run. Neutral, and true.
-    fz["until"], fz["until_ts"] = "reset time unknown", None
+    #
+    # ⚠ ROSTER LANES ONLY. This overwrite exists to replace what the LEGACY
+    # CLAUDE ROSTER said; a codex or openrouter lane has no roster to ask and
+    # therefore nothing to correct, so it keeps whatever its own path stamped.
+    # (Its TIMING still comes from the ranks above — that is round 5's
+    # non-Claude fix — and only this last neutral-text branch is scoped.)
+    if tier in accounts.TIERS:
+        fz["until"], fz["until_ts"] = "reset time unknown", None
 
 
 #: §4.8 — ARCHIVED SEATS TRAVEL AS A SUMMARY.

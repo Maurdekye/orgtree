@@ -119,7 +119,7 @@ class WakeEstimateTests(unittest.TestCase):
         # so both are driven.
         self.assertIsNone(accounts.resolve('fable')['refresh_at'],
                           'precondition: the legacy roster holds no fable mark')
-        self.assertIsNotNone(registry.recorded_mark(row['id'], 'fable'),
+        self.assertIsNotNone(registry.active_mark(row['id'], 'fable'),
                              'precondition: the registry holds one')
 
         for roster in (OPEN, {'available': False, 'refresh_at': None}):
@@ -254,10 +254,44 @@ class WakeEstimateTests(unittest.TestCase):
 
     def test_an_unknown_tier_is_left_alone(self):
         """The roster answers for the known claude tiers; a codex/openrouter
-        node is somebody else's lane and keeps what its own path stamped."""
+        node is somebody else's lane and keeps what its own path stamped.
+
+        ⚠ Only the neutral-text branch is scoped this way — that branch exists
+        to replace what the legacy CLAUDE roster said, and a lane with no
+        roster has nothing to correct. Its TIMING is re-derived like everyone
+        else's; see `test_a_non_claude_lane_reads_its_own_account_mark`."""
         fz = self._derive(self._node(
             'gpt-5.6', until='capacity resets soon', until_ts=None))
         self.assertEqual(fz['until'], 'capacity resets soon')
+
+    def test_a_non_claude_lane_reads_its_own_account_mark(self):
+        """⚠ ROUND 5. `tier not in accounts.TIERS` sat at the HEAD of the
+        re-derivation, so every Luna, Codex, Antigravity and OpenRouter seat
+        skipped it entirely — while `auto_resume_ready` had been reading their
+        registry marks through the shared contract since round 3. A bound Luna
+        freeze showed its own probe +300 and woke on the account's +1800: the
+        same disagreement the whole item is about, one provider over.
+
+        The registry marks these lanes and the Usage modal prints them, so the
+        badge must read them too. Only the ROSTER rank is Claude-only."""
+        from orgtree import supervisor
+        acct = registry.create_account(
+            'openai', 't', {'kind': 'managed',
+                            'path': os.path.join(_root.name, 'wake-luna')})
+        mine = time.time() + 1800
+        registry.record_mark(acct['id'], 'luna', until=mine,
+                             provenance='observed')
+        fz = {'limit': True, 'at': 'x', 'account': acct['id'],
+              'provider': supervisor.providers.provider_of('luna'),
+              'until_ts': time.time() + 300, 'reset_src': 'probe'}
+        node = {'tier': 'luna', 'account': acct['id'], 'frozen': dict(fz)}
+        api._rederive_freeze_reset(node, {})
+        self.assertAlmostEqual(node['frozen']['until_ts'], mine, delta=1.0)
+        self.assertEqual(node['frozen']['reset_src'], 'account-mark')
+        # …and the scheduler was already saying exactly this
+        eff = supervisor.effective_freeze_deadline(
+            fz, registry.active_mark(acct['id'], 'luna'), time.time())
+        self.assertAlmostEqual(eff['ts'], mine, delta=1.0)
 
     # ------------------------------------------------------------------ §7
     # NON-FABLE (the pooled tiers) take exactly the same route. The bug was
@@ -470,7 +504,7 @@ class ShownAndScheduledAgreeTests(unittest.TestCase):
         now = time.time()
         fzdoc = org.node(nid)['frozen']
         shown_now = supervisor.effective_freeze_deadline(
-            fzdoc, registry.recorded_mark(acct, 'fable'), now)
+            fzdoc, registry.active_mark(acct, 'fable'), now)
         # the badge renders exactly what the contract said, at this instant
         self.assertEqual(payload_fz.get('until_ts'),
                          shown_now['ts'] if shown_now else None)
@@ -479,7 +513,7 @@ class ShownAndScheduledAgreeTests(unittest.TestCase):
             at = now + off
             with self.subTest(at=off):
                 eff = supervisor.effective_freeze_deadline(
-                    fzdoc, registry.recorded_mark(acct, 'fable'), at)
+                    fzdoc, registry.active_mark(acct, 'fable'), at)
                 ready = nid in supervisor.auto_resume_ready(org, now=at)
                 if eff is None:
                     # ⚠ NOT A FREE PASS (review round 4: this used to just
@@ -683,6 +717,148 @@ class SharedFallbackRanksTests(unittest.TestCase):
                 self.assertEqual(eff['src'] == 'account-mark', governed)
 
 
+class CommittedWakeTests(unittest.TestCase):
+    """ROUND 5 — `frozen.wake`: THE DEADLINE THIS FREEZE WAS ALREADY PROMISED.
+
+    The ranks are re-derived from live state on every read, which is what lets
+    the badge follow account changes (round 2). But the chosen number had no
+    MEMORY, so when its source went away the next read simply picked a
+    different, later one and the wake the node had been promised was never
+    taken. Three reproductions, one missing memory:
+
+      · an inherited +300 that expired was replaced by the roster's +7200;
+      · an account mark's +1800 vanished when `clear_expired` pruned the row,
+        and the record's own inherited +7200 took over;
+      · and reading elapsed marks — the round-4 attempt at the second — let an
+        hour-old mark from a previous window govern a brand-new freeze.
+
+    `supervisor.commit_wake_deadlines` records the promise on the scheduler's
+    own tick; both surfaces read it off the record, so they cannot disagree.
+    """
+
+    def setUp(self):
+        path = registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    _seq = 0
+
+    def _fixture(self, **fz):
+        from orgtree import ledger
+        CommittedWakeTests._seq += 1
+        seq = CommittedWakeTests._seq
+        acct = registry.create_account(
+            'claude', 't', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'wake-c{seq}')})
+        org = ledger.Org.create(f'wake-c{seq}')
+        org.nodes['root'] = {'state': 'live', 'parent': None, 'generation': 1,
+                             'model': 'fable', 'account': acct['id']}
+        org.d['auto_resume_last'] = time.time() - 301
+        org.node('root')['frozen'] = {'limit': True, 'provider': 'claude',
+                                      'at': 'x', 'account': acct['id'], **fz}
+        _SLUGS.append(org.d['slug'])
+        return org, acct['id']
+
+    @staticmethod
+    def _shown(org, cache=None):
+        import copy
+        n = org.node('root')
+        payload = {'tier': n['model'], 'account': n.get('account'),
+                   'frozen': copy.deepcopy(n['frozen'])}
+        api._rederive_freeze_reset(payload, {} if cache is None else cache)
+        return payload['frozen']
+
+    def test_a_promise_outlives_the_pruned_mark_that_made_it(self):
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 7200, reset_src='inherited')
+        registry.record_mark(acct, 'fable', until=now + 1800,
+                             provenance='observed')
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 1800,
+                               delta=2.0)
+        self.assertNotIn('root', supervisor.auto_resume_ready(org, now + 1700))
+        registry.clear_expired(now=now + 1861)
+        self.assertIn('root', supervisor.auto_resume_ready(org, now + 1861),
+                      'pruning the elapsed row took the promise with it')
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 1800,
+                               delta=2.0)
+
+    def test_a_promise_is_not_pushed_out_by_a_weaker_later_source(self):
+        from orgtree import supervisor
+        now = time.time()
+        org, _ = self._fixture(until_ts=now + 300, reset_src='inherited')
+        org.node('root').pop('account', None)
+        org.node('root')['frozen'].pop('account', None)
+        roster = {'fable': marked(now + 7200)}
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertAlmostEqual(self._shown(org, roster)['until_ts'],
+                               now + 300, delta=2.0)
+        self.assertNotIn('root', supervisor.auto_resume_ready(org, now + 200))
+        self.assertIn('root', supervisor.auto_resume_ready(org, now + 361),
+                      'the roster pushed a promise that had come due')
+
+    def test_a_promise_belongs_to_the_record_that_earned_it(self):
+        """`of_ts`/`of_src` bind it: rewrite the freeze — a new 429, a re-park
+        from a mark — and the old promise is dropped rather than firing a wake
+        for a wall that no longer exists."""
+        from orgtree import supervisor
+        now = time.time()
+        org, _ = self._fixture(until_ts=now + 300, reset_src='inherited')
+        supervisor.commit_wake_deadlines(org, now)
+        fz = org.node('root')['frozen']
+        self.assertIsNotNone(supervisor._committed_wake(fz))
+        fz['until_ts'], fz['reset_src'] = now + 9000, 'text'
+        self.assertIsNone(supervisor._committed_wake(fz))
+        self.assertNotIn('root', supervisor.auto_resume_ready(org, now + 361))
+
+    def test_a_fresh_freeze_carries_no_promise(self):
+        """Which is what keeps a previous limit window's timing away from a
+        freeze taken today: `frozen` is replaced wholesale, promise and all."""
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 300, reset_src='probe')
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertIsNotNone(org.node('root')['frozen'].get('wake'))
+        org.node('root')['frozen'] = {'limit': True, 'provider': 'claude',
+                                      'at': 'x', 'account': acct,
+                                      'until_ts': now + 4000,
+                                      'reset_src': 'probe'}
+        self.assertIsNone(
+            supervisor._committed_wake(org.node('root')['frozen']))
+
+    def test_a_freeze_that_waits_on_nothing_carries_no_promise(self):
+        """A connection drop owns its own clock, so it must not accumulate a
+        capacity promise — nor keep one written before it changed kind."""
+        from orgtree import supervisor
+        now = time.time()
+        org, _ = self._fixture(until_ts=now + 300, reset_src='probe')
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertIn('wake', org.node('root')['frozen'])
+        org.node('root')['frozen'] = {'connection': True, 'provider': 'claude',
+                                      'at': 'x', 'until_ts': now + 300,
+                                      'reset_src': 'connection',
+                                      'wake': {'ts': now - 5, 'src': 'probe',
+                                               'of_ts': now + 300,
+                                               'of_src': 'connection'}}
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertNotIn('wake', org.node('root')['frozen'],
+                         'a stale promise must not linger to fire later')
+
+    def test_asking_the_scheduler_a_question_writes_nothing(self):
+        """⚠ `auto_resume_ready` stays PURE. It is asked "would this be ready
+        at T?" with future clocks all over this file; if it committed, a
+        hypothetical T would become a real promise on the document."""
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 300, reset_src='probe')
+        registry.record_mark(acct, 'fable', until=now + 1800,
+                             provenance='observed')
+        for at in (now, now + 1000, now + 99999):
+            supervisor.auto_resume_ready(org, at)
+        self.assertNotIn('wake', org.node('root')['frozen'])
+
+
 class OneShotGateBypassTests(unittest.TestCase):
     """Coordinator decision 2026-09-12, the narrowest path: the wake of a
     conclusive-429 freeze whose stated time has passed gets ONE real provider
@@ -756,15 +932,28 @@ class OneShotGateBypassTests(unittest.TestCase):
         n['admit_once'] = {'at': time.time(), 'account': 'acct-1',
                            'model': 'fable'}
         store.save_org(org)
-        self.assertTrue(supervisor._consume_admit_once(slug, nid))
+        # ROUND 5 SPLIT THE CHECK FROM THE SPEND. The gate validates; the
+        # provider seam spends. A turn that dies in between keeps its pass.
+        self.assertTrue(supervisor._admit_once_valid(store.load_org(slug)
+                                                     .node(nid)))
+        o = store.load_org(slug)
+        self.assertTrue(supervisor._spend_admit_once(o, nid))
+        store.save_org(o)
         self.assertNotIn('admit_once', store.load_org(slug).node(nid))
-        self.assertFalse(supervisor._consume_admit_once(slug, nid))
+        self.assertFalse(supervisor._admit_once_valid(store.load_org(slug)
+                                                      .node(nid)))
+        self.assertFalse(supervisor._spend_admit_once(store.load_org(slug),
+                                                      nid))
 
     def test_a_pass_earned_on_another_identity_is_refused(self):
         """⚠ ROUND 4. A bare timestamp said only WHEN a pass was issued, so a
         fable 429 on one account waved an opus turn on another straight past
-        a live mark that was never that lane's wall. Each case clears the pass
-        as well as refusing it — a refused pass must not sit waiting."""
+        a live mark that was never that lane's wall.
+
+        Round 5 note: refusal no longer CLEARS the field — the provider seam
+        owns clearing now — and it does not need to. A pass naming another
+        identity can never validate again, and `ADMIT_ONCE_TTL` removes it
+        from play within two minutes regardless."""
         from orgtree import supervisor
         from orgtree import ledger
         now = time.time()
@@ -789,9 +978,8 @@ class OneShotGateBypassTests(unittest.TestCase):
                 _SLUGS.append(slug)
                 org.node(nid).update(dict(binding, admit_once=pass_))
                 store.save_org(org)
-                self.assertFalse(supervisor._consume_admit_once(slug, nid))
-                self.assertNotIn('admit_once',
-                                 store.load_org(slug).node(nid))
+                self.assertFalse(supervisor._admit_once_valid(
+                    store.load_org(slug).node(nid)))
 
     def test_an_expired_pass_is_refused_and_cleared(self):
         from orgtree import supervisor
@@ -807,9 +995,9 @@ class OneShotGateBypassTests(unittest.TestCase):
             admit_once={'at': time.time() - supervisor.ADMIT_ONCE_TTL - 30,
                         'account': 'acct-1', 'model': 'fable'})
         store.save_org(org)
-        self.assertFalse(supervisor._consume_admit_once(slug, nid))
-        self.assertNotIn('admit_once', store.load_org(slug).node(nid),
-                         'a stale pass must not sit waiting for a later wake')
+        self.assertFalse(supervisor._admit_once_valid(
+            store.load_org(slug).node(nid)),
+            'a stale pass must not wave an admission through')
 
     def test_a_node_without_a_pass_is_untouched(self):
         from orgtree import supervisor
@@ -821,7 +1009,10 @@ class OneShotGateBypassTests(unittest.TestCase):
         slug = org.d['slug']
         _SLUGS.append(slug)
         store.save_org(org)
-        self.assertFalse(supervisor._consume_admit_once(slug, nid))
+        self.assertFalse(supervisor._admit_once_valid(
+            store.load_org(slug).node(nid)))
+        self.assertFalse(supervisor._spend_admit_once(
+            store.load_org(slug), nid))
 
 
 class BoundAccountMarkTests(unittest.TestCase):
@@ -1049,33 +1240,48 @@ class BoundAccountMarkTests(unittest.TestCase):
                         'until_ts': soon, 'reset_src': 'inherited'}})
         self.assertAlmostEqual(fz['until_ts'], soon, delta=1.0)
 
-    def test_an_elapsed_mark_still_outranks_an_inherited_guess(self):
-        """⚠ REVERSED IN ROUND 4, on purpose. This used to assert that an
-        EXPIRED mark falls through to the record's own live horizon, and that
-        is the boundary review caught: a node shown "+30m" from the mark
-        silently became "+2h" from an inherited guess at the instant the +30m
-        came due, so the wake it was promised never happened and the badge
-        jumped forward.
+    def test_an_elapsed_mark_never_governs_on_its_own(self):
+        """⚠ THE ROUND-4 FIX, REPLACED IN ROUND 5 — and this is now the
+        assertion that stops it coming back.
 
-        A mark is a statement about a WALL, and when its moment arrives the
-        wall is down — the node is DUE, which is the same rule an elapsed 429
-        already gets. An inherited horizon is a guess with no wall behind it
-        and does not outrank the account's own answer."""
+        Round 4 made the wake path read ELAPSED marks, so a deadline the badge
+        had promised survived the mark expiring. It worked for that case and
+        was wrong as a mechanism, three ways review proved: it died the moment
+        `registry.clear_expired` pruned the row; it let an hour-old mark from a
+        PREVIOUS limit window caption a freeze taken minutes ago and schedule
+        it immediately; and no ±horizon bound expresses "this mark and this
+        freeze are about the same wall".
+
+        A mark is evidence about NOW. What a freeze was PROMISED belongs to
+        the freeze — `frozen.wake`, see `CommittedWakeTests` — so an elapsed
+        mark with no promise behind it says nothing at all here."""
         acct = self._account()
-        gone = time.time() - 60
-        self._aged_mark(acct['id'], 'fable', gone)
+        soon = time.time() + 7200
+        self._aged_mark(acct['id'], 'fable', time.time() - 60)
         fz = self._derive(
             {'tier': 'fable', 'account': acct['id'],
              'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
-                        'until_ts': time.time() + 7200,
-                        'reset_src': 'inherited'}})
-        self.assertAlmostEqual(fz['until_ts'], gone, delta=1.0)
-        self.assertEqual(fz['reset_src'], 'account-mark')
+                        'until_ts': soon, 'reset_src': 'inherited'}})
+        self.assertAlmostEqual(fz['until_ts'], soon, delta=1.0)
+        self.assertEqual(fz['reset_src'], 'inherited')
 
-    def test_a_mark_nobody_has_touched_in_a_fortnight_cannot_speak(self):
-        """The elapsed-mark rule is bounded: a row left over from a wall long
-        gone is not a statement about a freeze taken today, and the record's
-        own live horizon answers instead."""
+    def test_a_prior_windows_mark_cannot_caption_a_new_freeze(self):
+        """Review round 5's reproduction, kept as its own case: an hour-old
+        mark and a freeze taken seconds ago are not about the same wall, and
+        reading the old one both mis-captions the badge AND schedules the node
+        immediately."""
+        acct = self._account()
+        mine = time.time() + 300
+        self._aged_mark(acct['id'], 'fable', time.time() - 3600)
+        fz = self._derive(
+            {'tier': 'fable', 'account': acct['id'],
+             'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
+                        'until_ts': mine, 'reset_src': 'probe'}})
+        self.assertAlmostEqual(fz['until_ts'], mine, delta=1.0)
+
+    def test_an_ancient_mark_cannot_speak_either(self):
+        """Same rule as the hour-old row, at the other end of the range: age
+        is not what disqualifies an elapsed mark — being elapsed is."""
         acct = self._account()
         soon = time.time() + 300
         self._aged_mark(acct['id'], 'fable', time.time() - 9 * 86400)
@@ -1092,8 +1298,8 @@ class BoundAccountMarkTests(unittest.TestCase):
         registry.record_mark(acct['id'], 'fable', until=time.time() + 1800,
                              provenance='observed')
         seen = []
-        real = registry.recorded_mark
-        registry.recorded_mark = lambda *a, **k: (seen.append(a[:2])
+        real = registry.active_mark
+        registry.active_mark = lambda *a, **k: (seen.append(a[:2])
                                                 or real(*a, **k))
         try:
             self._derive(
@@ -1102,24 +1308,24 @@ class BoundAccountMarkTests(unittest.TestCase):
                             'until_ts': time.time() + 300,
                             'reset_src': 'probe'}})
         finally:
-            registry.recorded_mark = real
+            registry.active_mark = real
         self.assertEqual(len(seen), 1, 'the mark was never consulted')
 
     def test_the_mark_is_read_once_per_render_not_once_per_node(self):
-        """`recorded_mark` re-reads and re-parses the whole registry FILE per
+        """`active_mark` re-reads and re-parses the whole registry FILE per
         call; the tree endpoint is already on an O(n²) warning."""
         acct = self._account()
         registry.record_mark(acct['id'], 'fable', until=time.time() + 1800,
                              provenance='observed')
         calls = []
-        real = registry.recorded_mark
+        real = registry.active_mark
 
         def counted(*a, **k):
             calls.append(a[:2])
             return real(*a, **k)
 
         cache = {}
-        registry.recorded_mark = counted
+        registry.active_mark = counted
         try:
             for _ in range(5):
                 api._rederive_freeze_reset(
@@ -1128,7 +1334,7 @@ class BoundAccountMarkTests(unittest.TestCase):
                                 'account': acct['id'], 'until_ts': None,
                                 'reset_src': 'probe'}}, cache)
         finally:
-            registry.recorded_mark = real
+            registry.active_mark = real
         self.assertEqual(len(calls), 1, calls)
 
     def test_an_auth_freeze_is_still_untouched(self):
