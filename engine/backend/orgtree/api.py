@@ -1005,6 +1005,11 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
 
     def stream(slug: str, node: str, payload: dict[str, Any]) -> None:
         payload = supervisor.capture_reply_stream(slug, node, payload)
+        if payload.get("kind") in ("cache_forecast", "mcp_tool_count",
+                                   "mcp_readiness"):
+            # these frames patch the rendered tree in place on every client;
+            # the cached body predates them and must not be served again
+            _tree_cache_drop(slug)
         asyncio.run_coroutine_threadsafe(
             hub._send(slug, {"type": "node_stream", "org": slug, "node": node,
                              **payload}), loop)
@@ -1962,9 +1967,97 @@ def _summarise_archived(node: dict[str, Any]) -> None:
     node["detail"] = False
 
 
+# ------------------------------------------------- the tree ETag + cache
+# (perf-redesign 2026-09-12, REPORT.md #3.) The full-tree payload is ~1.5 MB
+# at 449 nodes (3.3 KB/node, linear) and was rebuilt and re-shipped for every
+# 6 s heartbeat and every save-burst refetch, per client, even when nothing
+# it renders had moved. The ETag names everything the payload is derived
+# from: the org's save seq (document facts), the supervisor state
+# fingerprint (busy/waiting/responding/… — the volatile fields annotate
+# reads), the host limits board's fetch stamp (freeze re-derivation), the
+# primed-restart record, and a 30 s bucket. The bucket is the honesty
+# clause: a handful of annotate inputs (cache forecasts, MCP counts,
+# warmpool control) are reconciliation fields whose primary update path is
+# their own WS patch frames — the tree fetch has always been their
+# *reconciliation*, and the bucket bounds that reconciliation lag at 30 s
+# instead of forcing a rebuild per poll to track them precisely.
+#
+# One cached body per (slug, public) — the newest build only. Every client
+# polling an unchanged org shares one build and usually just gets a 304.
+_TREE_STALE_BUCKET_S = 30.0
+_tree_cache_lock = threading.Lock()
+_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any]]] = {}
+#: one build at a time per (slug, public): concurrent misses on the SAME
+#: etag must share one build, not race two (perf-review reproduction #4 —
+#: a barrier probe produced two builds). The dict of locks is tiny and
+#: append-only per org; the whole point of the cache is that builds are
+#: rare, so a queued second builder answering from the first's fill is the
+#: designed common case. The cache stores the BUILT DICT: the expensive
+#: half is the build (load + tree + annotate, ~150 ms at 449 nodes), and
+#: returning a dict keeps the handler's in-process contract — the
+#: archived-summary suite calls the route function directly and reads the
+#: payload as a mapping.
+_tree_build_locks: dict[tuple[str, bool], threading.Lock] = {}
+
+
+def _tree_build_lock(key: tuple[str, bool]) -> threading.Lock:
+    with _tree_cache_lock:
+        lock = _tree_build_locks.get(key)
+        if lock is None:
+            lock = _tree_build_locks[key] = threading.Lock()
+        return lock
+
+
+def _tree_cache_drop(slug: str) -> None:
+    """A ws patch frame (cache forecast, MCP counts) just changed what
+    clients render in place. The cached body predates the patch, so a
+    later fetch must rebuild rather than hand the pre-patch payload back
+    (perf-review round 1: dropping only the CLIENT cache let the next 200
+    serve stale values for up to the bucket)."""
+    with _tree_cache_lock:
+        _tree_cache.pop((slug, True), None)
+        _tree_cache.pop((slug, False), None)
+
+
+def _tree_etag(slug: str) -> str:
+    parts = (store.org_seq(slug),
+             supervisor.tree_state_fingerprint(slug),
+             float(limits._cache.get("at") or 0.0),
+             repr(supervisor.primed_restart()),
+             int(time.time() // _TREE_STALE_BUCKET_S))
+    return '"t' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
+
+
 @app.get("/api/orgs/{slug}")
-def org_tree(slug: str, request: Request) -> dict[str, Any]:
-    return _org_view(slug, request, None)
+def org_tree(slug: str, request: Request,
+             response: Response = None) -> Any:  # type: ignore[assignment]
+    # `response` is FastAPI's header-injection seam on the dict-returning
+    # paths; a DIRECT in-process caller (test_archived_summary drives the
+    # route function itself) omits it and gets the plain payload dict
+    pub = _public_slug(request) is not None
+    etag = _tree_etag(slug)
+    if request.headers.get("if-none-match") == etag:
+        # nothing the payload derives from has moved — no load, no tree(),
+        # no annotate, no serialize; the client keeps what it has
+        return Response(status_code=304, headers={"ETag": etag})
+    if response is not None:
+        response.headers["ETag"] = etag
+    key = (slug, pub)
+    with _tree_cache_lock:
+        hit = _tree_cache.get(key)
+    if hit is not None and hit[0] == etag:
+        return hit[1]
+    with _tree_build_lock(key):
+        # a concurrent miss may have filled the cache while we queued —
+        # answer from its build instead of making a second one
+        with _tree_cache_lock:
+            hit = _tree_cache.get(key)
+        if hit is not None and hit[0] == etag:
+            return hit[1]
+        tree = _org_view(slug, request, None)
+        with _tree_cache_lock:
+            _tree_cache[key] = (etag, tree)
+    return tree
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/detail")

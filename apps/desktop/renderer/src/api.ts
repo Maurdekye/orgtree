@@ -135,8 +135,43 @@ export const createOrg = (
 // §4.8: archived seats arrive without their runtime fields; `hydrateTree`
 // refills them from the payload's own `archived_defaults` before anything
 // downstream sees the tree, so no reader has to know the seat was summarised.
-export const getTree = (slug: string): Promise<TreePayload> =>
-  req<TreePayload>(`/api/orgs/${slug}`).then(hydrateTree)
+//
+// CONDITIONAL since perf-redesign 2026-09-12 (REPORT.md #3): the server
+// stamps the tree with an ETag derived from everything the payload renders,
+// and an unchanged org answers 304 with no body — so the heartbeat costs
+// ~nothing when nothing moved. The 304 path returns the SAME object the
+// last 200 produced, which also lets React's setTree bail out of the
+// re-render entirely (Object.is on the unchanged reference). Bespoke fetch
+// rather than req(): req treats every non-2xx as an error, and 304 is the
+// success case here.
+const treeCache = new Map<string, { etag: string; tree: TreePayload }>()
+/** A ws node_stream patch just edited the RENDERED tree in place (cache
+ *  forecast, MCP counts). The conditional cache must not hand that edit's
+ *  pre-patch snapshot back on the next 304 — drop the entry so the next
+ *  heartbeat does a real fetch (whose payload includes the pushed value). */
+export const invalidateTreeCache = (slug: string): void => { treeCache.delete(slug) }
+export const getTree = (slug: string): Promise<TreePayload> => {
+  const hit = treeCache.get(slug)
+  return fetch(u(`/api/orgs/${slug}`), {
+    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+  }).then((r) => {
+    noteInstance(r)
+    if (r.status === 304 && hit) return hit.tree
+    if (!r.ok) {
+      return r.json().then((b: { detail?: string }) => {
+        throw new Error(b.detail || r.statusText)
+      })
+    }
+    const etag = r.headers.get('ETag')
+    return r.json().then((raw: TreePayload) => {
+      const tree = hydrateTree(raw)
+      if (etag) treeCache.set(slug, { etag, tree })
+      else treeCache.delete(slug)
+      return tree
+    })
+  })
+}
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */
 export const getNodeDetail = (slug: string, id: string): Promise<NodeDetail> =>
