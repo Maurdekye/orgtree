@@ -14621,12 +14621,16 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             # provider answer at all — and the pass exists precisely so that a
             # node owed a real attempt gets one.
             #
-            # `_turn_started` is set immediately before `turn/start` goes on
-            # the wire, so it is the send itself: false means the abort came
-            # first and the pass is still owed; true means the request was
-            # made and whatever comes back — including an immediate rejection
-            # — is the provider answering, which IS the attempt.
-            if getattr(turn, "_turn_started", False):
+            # ⚠ `_turn_sent`, NOT `_turn_started` (review round 12). The
+            # latter is set immediately BEFORE the write, so a broken pipe
+            # left it True with nothing on the wire — review reproduced that
+            # with the real client over a stdin that accepted `thread/start`
+            # and then refused. `_turn_sent` is set only once the bytes are
+            # away: false means the abort came first and the pass is still
+            # owed; true means the request was made and whatever comes back —
+            # including an immediate rejection — is the provider answering,
+            # which IS the attempt.
+            if getattr(turn, "_turn_sent", False):
                 _note_provider_attempt(slug, nid)
         # FR-17: the desk's "is this checklist from the turn that's actually
         # running" question wants the real id, not a timestamp guess — best

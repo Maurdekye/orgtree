@@ -1125,6 +1125,13 @@ class CodexTurn:
         self._token_usage_base: dict[str, Any] | None = (
             dict(usage_baseline) if isinstance(usage_baseline, dict) else None)
         self._turn_started = False
+        #: DID `turn/start` ACTUALLY LEAVE? `_turn_started` above marks that
+        #: this turn reached the send — it gates the token-usage base and must
+        #: keep meaning exactly that — but it is set BEFORE the write, so a
+        #: broken pipe leaves it True with nothing sent. This one is set only
+        #: once the bytes are away, and it is what the supervisor spends a
+        #: node's one-shot attempt pass on (review round 12).
+        self._turn_sent = False
         self.rate_limits: dict[str, Any] | None = None
         #: EVERY rate-limit snapshot this turn saw, keyed by limitId — the
         #: board, not the last card off it. `rate_limits` above stays last-wins
@@ -1363,11 +1370,24 @@ class CodexTurn:
             except Exception:                              # noqa: BLE001
                 pass      # journaling never blocks a turn — see the docstring
         self._turn_started = True
-        turn = self.client.request("turn/start", {
-            "threadId": self.thread_id,
-            "input": user_input,
-            "model": self.model, "effort": self.effort,
-            "cwd": self.cwd, "summary": "none"})
+        try:
+            turn = self.client.request("turn/start", {
+                "threadId": self.thread_id,
+                "input": user_input,
+                "model": self.model, "effort": self.effort,
+                "cwd": self.cwd, "summary": "none"})
+        except (OSError, ValueError, AttributeError):
+            # ⚠ THE TRANSPORT REFUSED THE BYTES — nothing was asked of the
+            # provider, so `_turn_sent` stays False. This is the SAME set
+            # `_send_quiet` calls a dead pipe, reused rather than re-guessed:
+            # `request` does no other IO than that write, so an error of this
+            # class is the write.
+            raise
+        except Exception:
+            # sent, and the answer was a refusal. Still an attempt.
+            self._turn_sent = True
+            raise
+        self._turn_sent = True
         t = turn.get("turn")
         self.turn_id = (str(t["id"]) if isinstance(t, dict) and t.get("id")
                         else str(turn.get("turnId") or "") or None)
