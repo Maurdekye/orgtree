@@ -54,6 +54,17 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.org.work_accept("owner", self.wid)
         self.assertEqual(self.org.work_get("owner", self.wid)["status"], "done")
 
+    def test_w08_execution_only_evidence_remains_compatible(self):
+        # W08 records execution provenance independently of W20's richer
+        # acceptance classification.  Supplying only execution must remain a
+        # valid ordinary evidence row.
+        self.org.work_evidence(
+            "owner", self.wid, "note", "tests/legacy.log",
+            "legacy execution receipt", execution="owner_report")
+        evidence = self.org.work_get("owner", self.wid)["evidence"][-1]
+        self.assertEqual(evidence["execution"], "owner_report")
+        self.assertNotIn("classification", evidence)
+
     def test_crash_is_environment_limited_and_not_a_blocked_control(self):
         self.org.work_check(
             "owner", self.wid, 0, "tests/installer.log",

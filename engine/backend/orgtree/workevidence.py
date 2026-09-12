@@ -187,9 +187,13 @@ def validate_acceptance_evidence(*, classification: Any = None,
     stay together so an expected blocked-request control cannot be confused
     with an application crash.
     """
+    # W08 already permits an execution-only evidence row.  ``execution`` is
+    # therefore not, by itself, W20 metadata: keeping it in this predicate
+    # would make the new classification requirement reject existing callers.
+    # Any other field is an explicit W20 metadata request and must be complete.
     present = any(x is not None for x in (
-        classification, execution, result, artifact, runner, gate,
-        blocked_count, composition))
+        classification, result, artifact, runner, gate, blocked_count,
+        composition))
     if not present:
         return {}
     if classification is None or str(classification).strip() not in ACCEPTANCE_CLASSES:
