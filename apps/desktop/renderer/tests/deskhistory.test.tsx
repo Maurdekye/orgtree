@@ -260,6 +260,67 @@ test('§2 prepending older history keeps the reader on the same message',
     } finally { await d.unmount(); restore() }
   })
 
+test('§2b INTERLEAVING: growth BELOW the reader while a page is pending must '
+  + 'not be mistaken for the prepend', async () => {
+  // Independent review of the first candidate (desk-review, 2026-09-12). The
+  // anchor was gated on "the content got taller", and while an older page is
+  // in flight that is not specific enough: a live row arriving, or an expanded
+  // tool chip, grows the transcript BELOW the reader. That growth consumed the
+  // anchor, shifted the reader toward the newest message by the appended
+  // height, and left the real prepend — when it finally landed — with no
+  // anchor at all. Two wrongs in one: moved when it should not have, and not
+  // moved when it should have.
+  //
+  // Here the two are deliberately INTERLEAVED: request a page, hold it, let a
+  // live row land, then release the page. The reader's own row must sit
+  // exactly where it did throughout.
+  const restore = layout(SHORT)
+  const d = await desk(300)
+  try {
+    // Park JUST OUTSIDE the paging trigger (it fires under 200 on a 400px
+    // desk), then cross into it with the transport held — parking inside it
+    // is impossible, because arriving there pages immediately and the anchor
+    // correctly carries the reader back out again.
+    await d.scrollBy(-10_000)
+    await inAct(async () => { await flush(12) })
+    await d.scrollBy(300 - d.shot().top)
+    await inAct(async () => { await flush(12) })
+    assert.equal(d.atBottom(), false, 'fixture: reading history')
+    assert.equal(d.shot().top, 300, 'fixture: parked outside the paging trigger')
+
+    d.transport.holdAll = true
+    await d.scrollBy(-150)                       // cross in: a page — HELD
+    assert.ok(d.transport.held.length > 0, 'fixture: a page request is in flight')
+    const before = d.shot()
+    /** the message sitting at the reader's top edge, by index from the OLDEST
+     *  rendered row — prepends change this index, so it is re-derived below */
+    const readingRow = before.top / ROW_H
+
+    // …a live message arrives BELOW them while that page is still pending.
+    // releaseLast() lets ONLY this poll through; the page stays in flight.
+    d.server.assistantMsg('a live arrival', { event_id: 'live-1' })
+    await inAct(async () => { void refreshConvo('org', 'writer'); await flush(4) })
+    await inAct(async () => { d.transport.releaseLast(); await flush(12) })
+    const mid = d.shot()
+    assert.ok(mid.height > before.height, 'fixture: the live row grew the transcript')
+    assert.equal(mid.rows, before.rows + 1, 'fixture: exactly one row was APPENDED')
+    assert.equal(mid.top, before.top,
+      'an arriving message moved a history reader toward the newest message: '
+      + `scrollTop ${before.top} -> ${mid.top}`)
+
+    // …and now the older page it actually asked for lands
+    d.transport.holdAll = false
+    await inAct(async () => { d.transport.release(); await flush(12) })
+    const after = d.shot()
+    const prepended = after.rows - mid.rows
+    assert.ok(prepended > 0,
+      `fixture: the older page should have landed (${mid.rows} -> ${after.rows})`)
+    assert.equal(after.top / ROW_H - prepended, readingRow,
+      'the real prepend went unanchored: the reader is no longer on the row '
+      + 'they were reading')
+  } finally { await d.unmount(); restore() }
+})
+
 // ─────────────────────────────────── §3 bottom-following, both directions
 
 test('§3 a reader AT the tail still follows new messages', async () => {

@@ -1315,6 +1315,29 @@ const SENDMODE_MS = 6000
  *  One id can sit on a row AND on something nested in it; the innermost match
  *  is the event that was pressed, which is the same rule `openReply` applies
  *  when it resolves the press in the first place. */
+/** The row the reader is actually looking at, and where it sits relative to
+ *  the scrollport. This — not a distance from the bottom — is what has to be
+ *  held still when the transcript grows, because growth can land ABOVE the
+ *  reader (an older page) and BELOW them (a live row, an expanding tool chip)
+ *  in the very same commit. Distance-from-the-bottom is invariant only for a
+ *  pure prepend; a row's own offset is invariant for both. */
+function readerAnchor(el: HTMLElement): { row: HTMLElement; offset: number } | null {
+  const top = el.scrollTop
+  for (const row of el.querySelectorAll<HTMLElement>('[data-transcript-row]')) {
+    if (row.offsetTop + row.offsetHeight > top) return { row, offset: row.offsetTop - top }
+  }
+  return null
+}
+
+/** the identity of the OLDEST rendered row — the one thing that changes when,
+ *  and only when, an older page is actually prepended. Live rows append,
+ *  expanding content resizes; neither touches this. */
+function oldestRowKey(rows: readonly ChatMessage[]): string | null {
+  const m = rows[0]
+  if (!m) return null
+  return String(m.row_id ?? m.native_event_id ?? m.event_id ?? m.assistant_id ?? m.seq ?? '')
+}
+
 function ctxTargetElement(root: Element | null,
   target: { id?: string; el: Element } | null): Element | null {
   if (!target) return null
@@ -1649,17 +1672,37 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const loadingOlder = convo.loadingOlder
   // distance-from-bottom is invariant when older rows are PREPENDED, so it is
   // the anchor that keeps the reader's place instead of jumping them down
-  // ⚠ AND IT REMEMBERS THE HEIGHT IT WAS TAKEN AT, which is what makes it
-  // survive long enough to be used. A plain number was consumed by the FIRST
-  // render after it was recorded — and that render is almost always the
-  // `loadingOlder: true` state change, which happens while the page is still
-  // in flight and nothing has been prepended yet. The restore computed the
-  // offset the reader was already at, cleared the anchor, and by the time the
-  // rows actually landed there was nothing left to anchor with: the reader was
-  // left wherever the prepend shoved them. Measured in §2: 1600px from the
-  // newest message before the page, 2400px after. Keyed on the height, the
-  // anchor is spent on the render that GROWS the content and no other.
-  const growAnchor = useRef<{ fromBottom: number; height: number } | null>(null)
+  // ⚠ AND IT IS SPENT ON THE PREPEND IT WAS TAKEN FOR, AND NOTHING ELSE.
+  //
+  // Two wrong versions of this preceded the right one, and both are worth
+  // knowing about because they fail in opposite directions.
+  //
+  // A PLAIN NUMBER was consumed by the FIRST render after it was recorded —
+  // and that render is almost always the `loadingOlder: true` state change,
+  // which happens while the page is still in flight and nothing has been
+  // prepended yet. It restored the offset the reader was already at, cleared
+  // itself, and by the time the rows landed there was nothing left: the reader
+  // was left wherever the prepend shoved them (measured: 1600px from the
+  // newest message before the page, 2400px after).
+  //
+  // KEYING IT ON THE HEIGHT fixed that and broke something else, which
+  // independent review caught: while a page is pending, ANY growth looks like
+  // the prepend. A live row arriving or a tool chip expanding — both of which
+  // grow the content BELOW the reader — consumed the anchor, moved them toward
+  // the newest message by the appended height, and left the real prepend
+  // unanchored when it finally landed.
+  //
+  // So the gate is the OLDEST RENDERED ROW's identity, which changes when and
+  // only when an older page is really prepended, and the restore holds the
+  // reader's own row at its own offset rather than a distance from the bottom
+  // — because a single commit can add rows above AND below them, and only the
+  // row-relative measure is invariant under both.
+  const growAnchor = useRef<
+    { row: HTMLElement | null; offset: number; fromBottom: number; oldest: string | null }
+  | null>(null)
+  /** the oldest rendered row of the CURRENT render, for the effect to compare
+   *  against the one the anchor was taken at */
+  const oldestKeyRef = useRef<string | null>(null)
   useLayoutEffect(() => {
     const el = scroller.current
     // ⚠ THE ANCHOR IS RESTORED BEFORE ANYTHING ELSE MEASURES.
@@ -1673,14 +1716,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     // from the newest message before a page settled, 2400px after.
     const anchor = growAnchor.current
     if (!stickRef.current && el && anchor) {
-      if (el.scrollHeight !== anchor.height) {
-        // the prepend landed: the reader's distance from the NEWEST message
-        // is what is invariant when rows are added above them
-        el.scrollTop = el.scrollHeight - anchor.fromBottom
+      if (oldestKeyRef.current !== anchor.oldest) {
+        // THE PREPEND LANDED — the oldest rendered row is not the one it was.
+        // Hold the reader's own row where it was on screen; fall back to the
+        // distance from the bottom only if that row is no longer rendered,
+        // which is the best remaining guess.
+        if (anchor.row && anchor.row.isConnected) {
+          el.scrollTop = anchor.row.offsetTop - anchor.offset
+        } else {
+          el.scrollTop = el.scrollHeight - anchor.fromBottom
+        }
         growAnchor.current = null
       } else if (!loadingOlder) {
-        // the request settled and grew nothing, so this anchor has no page
-        // left to answer for — and an anchor that outlives its page is
+        // the request settled and prepended nothing, so this anchor has no
+        // page left to answer for — and an anchor that outlives its page is
         // exactly the trap described below
         growAnchor.current = null
       }
@@ -1843,8 +1892,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     // …and it is not RECORDED while stuck either, for the same reason it is
     // cleared above: a reader at the tail is pinned there, so the only thing
     // this anchor could ever restore them to is the bottom they never left.
-    growAnchor.current = stickRef.current ? null
-      : { fromBottom: el.scrollHeight - el.scrollTop, height: el.scrollHeight }
+    const at = stickRef.current ? null : readerAnchor(el)
+    growAnchor.current = stickRef.current ? null : {
+      row: at?.row ?? null, offset: at?.offset ?? 0,
+      fromBottom: el.scrollHeight - el.scrollTop,
+      oldest: oldestKeyRef.current,
+    }
     if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)) growAnchor.current = null
   }
 
@@ -2001,6 +2054,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // genuinely left the transcript leaves nothing behind. Skipped while the
   // transcript is empty: a first load and a failed poll both look like "no
   // rows", and neither is the operator collapsing anything.
+  // what the growAnchor gate compares against — see growAnchor's note. Set
+  // during render so the layout effect, which runs after it, reads THIS
+  // render's oldest row while the anchor still holds the one it was taken at.
+  oldestKeyRef.current = oldestRowKey(viewMessages)
   const liveFoldKeys = foldKeysOf(viewMessages, viewLive)
   const pruneFolds = folds.prune
   useEffect(() => {
@@ -2641,10 +2698,25 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               of the top) — this is a status line, not a control. It still
               earns its place: it reserves height so the list does not jump as
               rows prepend, and at the API's window cap it is the ONLY thing
-              that explains why scrolling up stopped producing messages. */}
+              that explains why scrolling up stopped producing messages.
+              ⚠ …EXCEPT WHEN THE LAST REQUEST FAILED, where it has to become a
+              control. Automatic paging has exactly two triggers, and a reader
+              who has just been refused a page sits where NEITHER can fire
+              again: `onScroll` needs a scroll event, and there are none left
+              at scrollTop 0, while `fillViewport` asks only while the rendered
+              rows are shorter than two screens, which a paged-in history never
+              is. Without something to press, "earlier messages" sat above a
+              transcript that would never load another one (user observation
+              2026-09-12: "loading earlier messages itself appears to fail"). */}
           {hasOlder && (
-            <div className={'dim pad loadolder-status' + (loadingOlder ? ' on' : '')}>
+            <div className={'dim pad loadolder-status' + (loadingOlder ? ' on' : '')
+              + (convo.olderError && !loadingOlder ? ' failed' : '')}>
               {loadingOlder ? 'loading earlier messages…'
+                : convo.olderError
+                  ? <button type="button" className="loadolder-retry"
+                      title="the last request for earlier messages failed — try again"
+                      onClick={() => loadOlder()}>
+                      couldn’t load earlier messages — retry</button>
                 : convo.win >= MAX_WINDOW
                   ? `${chat?.messages[0]?.seq ?? 0} earlier messages — beyond the window`
                   : chat?.windowed ? 'earlier messages' : `${chat?.messages[0]?.seq ?? 0} earlier messages`}

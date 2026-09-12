@@ -1480,6 +1480,18 @@ button.cc-name:hover {
   padding: 3px 10px; margin: 2px 0 4px; opacity: .65;
 }
 .loadolder-status.on { opacity: 1; }
+/* …and when the last request FAILED it stops being a status line and becomes
+   the only way back (user observation 2026-09-12). Full opacity because a
+   dimmed failure reads as decoration, and the reader has to notice it: the
+   automatic paging triggers cannot fire again from where they are standing. */
+.loadolder-status.failed { opacity: 1; }
+.loadolder-retry {
+  background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--bad); text-decoration: underline dotted; text-underline-offset: 2px;
+}
+.loadolder-retry:hover, .loadolder-retry:focus-visible {
+  color: var(--ink-strong); text-decoration-style: solid; outline: none;
+}
 .loadolder-end { align-self: center; font-size: 10.5px; }
 /* "jump to bottom" — appears only once the reader has left the sticky zone.
    position:sticky keeps it on the bottom edge of the scrollport without a

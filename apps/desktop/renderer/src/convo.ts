@@ -146,6 +146,20 @@ export interface Convo {
   thinkSecs: number | null
   win: number
   loadingOlder: boolean
+  /** THE LAST REQUEST FOR EARLIER MESSAGES FAILED, and nothing will ask again
+   *  on its own (user observation 2026-09-12: "loading earlier messages itself
+   *  appears to fail").
+   *
+   *  This is not cosmetic, it is the difference between a retryable state and
+   *  a dead end. The desk only asks for a page from its `onScroll` handler —
+   *  and a reader who has reached the top of the loaded window is AT
+   *  scrollTop 0, where wheeling produces no further scroll events at all.
+   *  `fillViewport`, the other caller, asks only while the rendered rows are
+   *  shorter than two screens, which a paged-in history never is. So a failed
+   *  page left the reader at the top of a transcript that plainly has more
+   *  above it, with nothing on screen to say anything went wrong and no
+   *  gesture that could ask again. */
+  olderError: boolean
   paged?: boolean
   /** a fetch has completed at least once — the first load always sticks */
   loaded: boolean
@@ -153,7 +167,8 @@ export interface Convo {
 
 const BLANK: Convo = {
   chat: null, live: [], pending: [], draft: '', thinking: '',
-  thinkSecs: null, win: CHAT_WINDOW, loadingOlder: false, loaded: false,
+  thinkSecs: null, win: CHAT_WINDOW, loadingOlder: false, olderError: false,
+  loaded: false,
 }
 
 interface Entry {
@@ -779,9 +794,22 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     const version = e.ownerVersion
     const conversation = e.s.chat?.conversation_id
     e.pageInFlight = true
-    patchEntry(e, { loadingOlder: true })
+    patchEntry(e, { loadingOlder: true, olderError: false })
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
-      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) return
+      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) {
+        // ⚠ A STALE OR CANCELLED RESPONSE STILL HAS TO END THE FLIGHT.
+        // This branch used to `return` with `pageInFlight` still true, and
+        // every later request begins `if (e.s.loadingOlder || e.pageInFlight)
+        // return false` — so once it was reached, paging was dead for the life
+        // of the entry and the desk sat on "loading earlier messages…"
+        // forever. I could not drive this from outside the store (it needs the
+        // entry to be replaced or re-versioned mid-flight), so it is hardening
+        // rather than a reproduced defect — but a leak that silently disables
+        // the feature is not worth leaving in on the strength of "I could not
+        // get there from here".
+        e.pageInFlight = false
+        return
+      }
       e.pageInFlight = false
       if (!e.subs.size || conversation !== e.s.chat.conversation_id) { e.pendingCollapse = false; e.pendingKeep = undefined; patchEntry(e, { loadingOlder: false }, version); return }
       if (e.pendingCollapse) {
@@ -801,7 +829,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       }
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
-      patchEntry(e, { paged: true, loadingOlder: false,
+      patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
           before: page.before, has_older: page.has_older }) }, version)
     }).catch(() => {
@@ -809,7 +837,10 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) return
       const wanted = e.pendingCollapse
       e.pendingCollapse = false
-      patchEntry(e, { loadingOlder: false, paged: false }, version)
+      e.pendingKeep = undefined
+      // the reader asked for earlier messages and did not get them: say so,
+      // because nothing here will ask again by itself (see `olderError`)
+      patchEntry(e, { loadingOlder: false, paged: false, olderError: true }, version)
       if (wanted) collapseWindow(slug, nid)
       void refreshConvo(slug, nid, { force: true })
     })
