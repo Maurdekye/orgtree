@@ -938,7 +938,8 @@ def compact_fork(argv_head: list[str], *, cwd: str, model: str | None,
                  sandbox: str = "workspace-write",
                  approval_policy: str = "on-request",
                  developer_instructions: str | None = None,
-                 env_extra: dict[str, str] | None = None) -> dict[str, Any]:
+                 env_extra: dict[str, str] | None = None,
+                 on_client: Callable[[AppServerClient], None] | None = None) -> dict[str, Any]:
     """Fork ``thread_id`` and compact the fork with the app-server's native
     lifecycle.  The source thread is never modified, so it remains a usable
     knowledge bearer while the returned thread becomes the live successor.
@@ -950,6 +951,8 @@ def compact_fork(argv_head: list[str], *, cwd: str, model: str | None,
     client = AppServerClient(
         argv_head, codex_home=codex_home, cwd=cwd, env_extra=env_extra)
     try:
+        if on_client is not None:
+            on_client(client)
         client.initialize()
         forked = client.request("thread/fork", {
             "threadId": thread_id,

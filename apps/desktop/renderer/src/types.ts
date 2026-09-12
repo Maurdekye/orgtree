@@ -397,6 +397,8 @@ export interface TreeNode {
   last_approvals?: Denial[]
   turns: TurnStat[]
   frozen: TreeFrozen | null
+  halt?: { phase: 'halting' | 'halted'; requested_at: string; at?: string; by: string } | null
+  halt_queued?: number
   audiences_held: string[]
   bearer_state: BearerState
   generation: number
@@ -2039,6 +2041,8 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
   deferred?: boolean | string
   queued?: number
   frozen?: boolean
+  halted?: boolean
+  halting?: boolean
   compacting?: boolean
   command?: boolean
   immediate?: boolean

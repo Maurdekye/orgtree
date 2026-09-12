@@ -1700,6 +1700,34 @@ TOOLS: list[dict[str, Any]] = [
                         "required": ["node"]},
     },
     {
+        "name": "orgtree_halt",
+        "description": (
+            "Halt a descendant until explicit orgtree_unhalt. Abruptly kills "
+            "its active provider process and waits for the turn to fully end. "
+            "Success (halted=true, settled=true) means no turn can run. A "
+            "halting result means cleanup is still pending, not success. "
+            "Queued and new mail remain durable and unread; messages, "
+            "watchdogs, checkups, restarts, rehire and model/account changes "
+            "cannot wake it. Interrupt is different: orgtree_interrupt keeps "
+            "its immediate boundary semantics and allows pending mail to run. "
+            "Cannot halt yourself, a peer, or a superior."),
+        "inputSchema": {"type": "object",
+                        "properties": {"node": {"type": "string"}},
+                        "required": ["node"]},
+    },
+    {
+        "name": "orgtree_unhalt",
+        "description": (
+            "Explicitly release a descendant's durable halt after its active "
+            "turn has fully ended. Preserved pending work resumes through "
+            "ordinary delivery once; other lifecycle/account holds still "
+            "apply. An idle agent with no waking work stays idle. Repeating "
+            "unhalt does not create another turn."),
+        "inputSchema": {"type": "object",
+                        "properties": {"node": {"type": "string"}},
+                        "required": ["node"]},
+    },
+    {
         "name": "orgtree_reallocate",
         "description": "Move grant credits between one of your reports and its parent: positive delta grants more, negative claws back unused credits.",
         "inputSchema": {"type": "object",

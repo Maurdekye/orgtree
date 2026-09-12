@@ -1498,7 +1498,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           </span>}
         </div>
         <span className="map-name">{node.id}</span>
-        {isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
+        {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
           <MapTurnAge node={node} turn={lastTurn} />
         ) : (
           <LastTurnAge turn={lastTurn} busy={node.busy} variant="map" />
@@ -1575,7 +1575,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <ContextWheel occ={node.occupancy} cw={node.context_window}
             est={node.occupancy_est} compactAt={compactAt} />
           <div className="sq-workstate">
-            {isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
+            {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
             ) : (
               <>

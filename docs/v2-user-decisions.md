@@ -2,6 +2,8 @@
 
 This is the binding record of what the user has decided for Orgtree v2. Entries are in time order and the NEWEST ENTRY WINS wherever two conflict. The original 5 September brief is preserved verbatim in `docs/v2-original-design-brief.md`. It REMAINS THE REFERENCE FOR REQUIREMENTS except where a newer explicit decision below overrides, defers or removes a point; silence here does not waive anything the brief asks for. The scope index below is a summary of the current state, not an exhaustive list of what is retained. `docs/supplied-design-decisions.md` is the coordinator's earlier working record of the same rulings; this file supersedes it as the reference. Transport, startup and credential mechanics are owned by `docs/engine-contract.md`, and the v1 feature inventory by `docs/v1-parity-inventory.md`; this file does not restate them.
 
+**12 September 2026 — durable halt invariant (user, relayed 09:17:46 and 09:18:05 UTC): “A turn cannot run while its agent is halted.”** Halt is separate from interrupt. Interrupt retains its existing message-boundary behavior, including immediate delivery of pending mail. Halt abruptly ends the active turn and prevents every admission and delivery path until explicit unhalt. A successful halt must mean the active turn has fully ended and settled; merely sending a stop signal is insufficient. Queued and new mail must remain durable and unread. Restart, manual drive, direct mail, checkups, watchdogs, provider callbacks and lifecycle changes must not bypass this invariant. Implementation and regression contract: [agent-halt.md](agent-halt.md).
+
 All times are UTC on 7 September 2026 unless stated. The hard stop is 2026-09-08 01:00 UTC (04:00 Israel).
 
 ## Current scope index

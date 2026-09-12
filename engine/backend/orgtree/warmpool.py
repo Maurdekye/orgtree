@@ -499,6 +499,7 @@ _pool: dict[tuple[str, str], WarmProcess] = {}
 # telemetry and exit bookkeeping read this: kill_node/kill_org deliberately
 # do not — a mid-turn process is never disturbed, tracked or not.
 _serving: dict[tuple[str, str], WarmProcess] = {}
+_terminating: dict[tuple[str, str], list[Any]] = {}
 _pool_lock = threading.RLock()
 _spawn_gate = threading.Semaphore(SPAWN_PACE)
 _poke = threading.Event()
@@ -1163,6 +1164,8 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     n = org.nodes.get(nid)
     if not n or n.get("state") != "live":
         return False, "not-live"
+    if n.get("halt"):
+        return False, "halted"
     # A terminally failed process with NO transcript is evidence that this
     # exact launch shape died before delivery.  Do not eagerly reproduce it in
     # the background: the parked copy would be claimed by the next real
@@ -1293,6 +1296,7 @@ def _control_busy_reason(runtime: dict[str, Any]) -> str | None:
 
 def _control_eligibility_text(reason: str) -> str:
     return {
+        "halted": "the agent is halted — unhalt it first",
         "frozen": "the agent is frozen",
         "limit-locked": "the agent is limit-locked",
         "remote-controlled": "the agent is under remote control",
@@ -1632,6 +1636,7 @@ _RELAUNCH_LABELS = {
     "provider-lane": "the agent changed provider lane",
     "sandboxed": "the agent changed to sandboxed execution",
     "preserving-oracle": "the agent changed to a preserving oracle",
+    "halted": "the agent is halted — unhalt it first",
     "frozen": "the agent is frozen",
     "limit-locked": "the agent is limit-locked",
     "remote-controlled": "the agent is under remote control",
@@ -1998,7 +2003,9 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 sup._codex_require_manifest_account_current(
                     manifest, "immediately after prewarm launch")
             except Exception:
+                _begin_teardown(slug, nid, proc)
                 client.close()
+                _end_teardown(slug, nid, proc)
                 raise
             sup._mcp_tool_count_begin(
                 slug, nid, proc, "codex", "mcpServerStatus/list",
@@ -2021,6 +2028,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 # published here is final. Ending first would publish
                 # `loading` for a child about to be destroyed, and nothing
                 # would ever correct it.
+                _begin_teardown(slug, nid, proc)
                 try:
                     sup._wd_kill_tree(proc)
                 except Exception:                   # noqa: BLE001
@@ -2029,6 +2037,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                     except Exception:               # noqa: BLE001
                         pass
                 _reap(proc)
+                _end_teardown(slug, nid, proc)
                 sup._mcp_tool_count_end(slug, nid, proc,
                                         "process setup failed")
                 raise
@@ -2079,6 +2088,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
             # pump, so a failure here leaves the process with no exit observer
             # and this the last word on it. Ending before the kill would
             # publish `loading` for a doomed child forever.
+            _begin_teardown(slug, nid, proc)
             try:
                 sup._wd_kill_tree(proc)
             except Exception:                       # noqa: BLE001
@@ -2087,6 +2097,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 except Exception:                   # noqa: BLE001
                     pass
             _reap(proc)
+            _end_teardown(slug, nid, proc)
             sup._mcp_tool_count_end(slug, nid, proc,
                                     "process setup failed")
             raise
@@ -2153,6 +2164,11 @@ def _codex_prewarm_events(wp: CodexWarmProc) -> Any:
 
 
 def _codex_prewarm_finish(org: Any, nid: str, wp: CodexWarmProc) -> None:
+    from . import halt
+    halt.callback(org.d["slug"], nid)(_codex_prewarm_finish_owned)(org, nid, wp)
+
+
+def _codex_prewarm_finish_owned(org: Any, nid: str, wp: CodexWarmProc) -> None:
     """Complete a parked app-server's LOCAL readiness, then call it warm.
 
     Runs off-keeper after the process is parked (already claimable, so a
@@ -2199,11 +2215,13 @@ def _codex_prewarm_finish(org: Any, nid: str, wp: CodexWarmProc) -> None:
                       session_id=wp.sid, pid=getattr(wp.proc, "pid", None))
         if not ours:
             return          # already reaped/replaced; nothing left to clean
+        _begin_teardown(slug, nid, wp.proc)
         _kill_proc(wp)
         # the pool entry went above, BEFORE the kill, so the wire reader's
         # `on_exit` will find this generation untracked; reap it here so the
         # end below observes the corpse rather than racing the kill
         _reap(wp.proc)
+        _end_teardown(slug, nid, wp.proc)
         _set_proc_warm(slug, nid, False)
         _set_proc_lifecycle(slug, nid, live=False, owner=wp)
         try:
@@ -2264,22 +2282,28 @@ def _codex_prewarm_finish(org: Any, nid: str, wp: CodexWarmProc) -> None:
 
 
 def kill_node(slug: str, nid: str, reason: str,
-              expected: WarmProcess | None = None) -> bool:
+              expected: WarmProcess | None = None, *, force: bool = False) -> bool:
     """Immediate teardown for a node's warm process (retire, dissolve,
     rename — a parked process's cwd would block the scratch move). A CLAIMED
-    process is mid-turn and is NOT touched: the turn owns it, and the keeper
-    handles the aftermath at turn end."""
+    process is mid-turn and is untouched by default. Durable halt alone uses
+    force=True to kill the serving process and waits for the turn's cleanup."""
     with _pool_lock:
-        wp = _pool.get((slug, nid))
-        if wp is None or wp.claimed \
+        wp = _pool.get((slug, nid)) or (_serving.get((slug, nid)) if force else None)
+        if wp is None or (wp.claimed and not force) \
                 or (expected is not None and wp is not expected):
             return False
-        del _pool[(slug, nid)]
+        _begin_teardown(slug, nid, wp.proc)
+        if _pool.get((slug, nid)) is wp:
+            del _pool[(slug, nid)]
+        if force and _serving.get((slug, nid)) is wp:
+            del _serving[(slug, nid)]
     _kill_proc(wp)
     # same reason as `_codex_prewarm_finish`: the pool entry is already gone,
     # so the pump's EOF callback finds this generation untracked and cannot be
     # relied on to close it out. Observe the death here before publishing it.
     _reap(wp.proc)
+    if not _end_teardown(slug, nid, wp.proc):
+        return False  # a failed kill must not erase the remaining process owner
     _set_proc_warm(slug, nid, False)
     _set_proc_lifecycle(slug, nid, live=False, owner=wp)
     try:
@@ -2289,6 +2313,45 @@ def kill_node(slug: str, nid: str, reason: str,
         pass
     _journal_exit_once(wp, reason)
     return True
+
+
+def _begin_teardown(slug: str, nid: str, proc: Any) -> None:
+    with _pool_lock:
+        held = _terminating.setdefault((slug, nid), [])
+        if not any(p is proc for p in held):
+            held.append(proc)
+
+
+def _end_teardown(slug: str, nid: str, proc: Any) -> bool:
+    with _pool_lock:
+        if proc.poll() is None:
+            return False
+        key = (slug, nid)
+        held = [p for p in _terminating.get(key, []) if p is not proc]
+        if held:
+            _terminating[key] = held
+        else:
+            _terminating.pop(key, None)
+        return True
+
+
+def halt_kill(slug: str, nid: str) -> None:
+    from . import supervisor as sup
+    kill_node(slug, nid, "halted", force=True)
+    with _pool_lock:
+        remaining = list(_terminating.get((slug, nid), []))
+    for proc in remaining:
+        sup._wd_kill_tree(proc)
+        _reap(proc)
+        _end_teardown(slug, nid, proc)
+
+
+def halt_settled(slug: str, nid: str) -> bool:
+    """A worker may park between halt's kill pass and its settlement check."""
+    with _pool_lock:
+        return (all(wp is None or not wp.alive()
+                    for wp in (_pool.get((slug, nid)), _serving.get((slug, nid))))
+                and all(p.poll() is not None for p in _terminating.get((slug, nid), [])))
 
 
 def kill_org(slug: str, reason: str) -> None:
@@ -2585,38 +2648,56 @@ def _keeper_pass() -> None:
                               pid=getattr(wp.proc, "pid", None),
                               identity_change=change)
                 kill_node(slug, nid, "identity-changed")
-            with _spawn_gate:
-                if _busy(slug, nid):                 # a turn started meanwhile
-                    continue
-                nwp = _spawn_for(org, nid, "pre-warm" if wp is None
-                                 else "identity-changed")
-            if nwp is None:
-                continue
-            with _pool_lock:
-                if _pool.get((slug, nid)) is None and not _busy(slug, nid):
-                    _pool[(slug, nid)] = nwp
-                    nwp.claimed = False
-                else:
-                    # raced a turn (its park wins) or a parallel spawn: kill
-                    # OUR redundant spawn — the seat keeps warm coverage
-                    # through the winner. Journaled like every other exit;
-                    # an unjournaled kill is an exit with no tripwire on it.
-                    _kill_proc(nwp)
-                    _journal_exit_once(nwp, "superseded")
-                    nwp = None
-            if nwp is not None:
-                _set_proc_lifecycle(slug, nid, live=True, owner=nwp,
-                                    adopt=True)
-                if isinstance(nwp, CodexWarmProc):
-                    # full Codex prewarm: the seat is called warm only after
-                    # the async finisher proves initialize()+MCP readiness
-                    # (or explicit degradation). The process is already
-                    # parked and claimable — a racing turn loses nothing.
-                    threading.Thread(
-                        target=_codex_prewarm_finish, args=(org, nid, nwp),
-                        daemon=True, name=f"codexwarm-{slug}-{nid}").start()
-                else:
-                    _set_proc_warm(slug, nid, True)
+            _prewarm_node(org, nid, "pre-warm" if wp is None else "identity-changed")
+
+
+def _prewarm_node(org: Any, nid: str, why: str) -> None:
+    """Own spawn through parking/reaping so a racing halt waits for it."""
+    from . import halt
+    slug = org.d["slug"]
+
+    @halt.callback(slug, nid)
+    def run() -> None:
+        with halt.slot(slug, nid, _spawn_gate):
+            with store.DOC_LOCK:
+                fresh = store.load_org(slug)
+                if nid not in fresh.nodes or fresh.node(nid).get("halt") or _busy(slug, nid):
+                    return
+            nwp = _spawn_for(fresh, nid, why)
+        if nwp is None:
+            return
+        parked = False
+        try:
+            with store.DOC_LOCK:
+                current = store.load_org(slug)
+                if nid in current.nodes and not current.node(nid).get("halt"):
+                    with _pool_lock:
+                        if _pool.get((slug, nid)) is None and not _busy(slug, nid):
+                            _pool[(slug, nid)] = nwp
+                            nwp.claimed = False
+                            parked = True
+                    if parked:
+                        _set_proc_lifecycle(slug, nid, live=True, owner=nwp, adopt=True)
+                        if isinstance(nwp, CodexWarmProc):
+                            threading.Thread(
+                                target=_codex_prewarm_finish, args=(fresh, nid, nwp),
+                                daemon=True, name=f"codexwarm-{slug}-{nid}").start()
+                        else:
+                            _set_proc_warm(slug, nid, True)
+        finally:
+            if not parked:
+                # Halt or deletion may win while spawn was off-lock. Reap
+                # before releasing ownership, even when the fresh read fails.
+                _begin_teardown(slug, nid, nwp.proc)
+                _kill_proc(nwp)
+                _reap(nwp.proc)
+                _end_teardown(slug, nid, nwp.proc)
+                _journal_exit_once(nwp, "halted" if halt.requested(slug, nid) else "superseded")
+
+    try:
+        run()
+    except halt.Cancelled:
+        pass
 
 
 def _pool_snapshot() -> None:

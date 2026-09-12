@@ -1,4 +1,5 @@
 import { transcriptViewport } from '../transcriptViewport'
+import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
@@ -21,7 +22,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
-  Denial, Readiness, ScratchPayload, TreeFrozen, TurnStat,
+  Denial, Readiness, ScratchPayload, TreeFrozen, TreeNode, TurnStat,
   ToolChip as ToolChipData, ToastFn,
 } from '../types'
 import {
@@ -252,7 +253,9 @@ export function deriveTurnState(node: {
   busy?: boolean
   waiting?: boolean
   phase?: string | null
+  halt?: TreeNode['halt']
 }): AgentTurnState {
+  if (node.halt?.phase === 'halted') return 'idle'
   if (node.phase === 'compacting') return 'compacting'
   if (node.waiting) return 'queued'
   if (node.busy) return 'working'
@@ -296,6 +299,7 @@ export function AgentWorkstate({ node, turn, live = true }: {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   const state = deriveTurnState(node)
+  if (node.halt) return <HaltStatus halt={node.halt} />
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
   if (state === 'working') {
     return (
@@ -361,6 +365,7 @@ export function TrayStatus({ node, turn, live = true }: {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   const state = deriveTurnState(node)
+  if (node.halt) return <HaltStatus halt={node.halt} />
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} variant="tray" />
   if (state === 'working') {
     return (
@@ -429,6 +434,7 @@ export function TrayStatus({ node, turn, live = true }: {
 /** Unified indicator dot for mapMode. */
 export function MapModeIndicator({ node }: { node: CanvasNode }) {
   const state = deriveTurnState(node)
+  if (node.halt) return <HaltStatus halt={node.halt} />
   if (isUsageFrozen(node)) return <FrozenIcon fontSize="inherit" className="tray-frozen" titleAccess="Frozen" />
   if (state === 'working') {
     return (
@@ -460,6 +466,7 @@ export function MapTurnAge({ node, turn }: { node: CanvasNode; turn?: TurnStat |
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   const state = deriveTurnState(node)
+  if (node.halt) return null
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} variant="map" />
   if (state !== 'idle') {
     return (
@@ -1881,7 +1888,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     // then renders from chat.pending_mail (№11); a failed send clears the
     // ghost instead of leaving a dimmed bubble forever
     const ghostId = addPending(slug, node.id, t, sentReply, attached)
-    if (live) markBusy(slug, node.id)
+    if (live && !node.halt) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
     sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined)
@@ -1890,6 +1897,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         // review C3: name every real outcome — "delivering" as the fallback
         // lied for frozen nodes (mail waits durably; nothing delivers now)
         flashMode(r.compacting ? 'compacting — the org way (§8)'
+          : r.deferred === 'halted' ? 'halted — mail stays unread until unhalt'
           : r.command ? 'command sent'
             : r.steering ? 'steering in mid-task'
               : r.frozen ? 'frozen — mail waits for ▶ resume'
@@ -2005,7 +2013,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const turnActive = turnBannerState !== 'idle'
   // Waiting for a slot and compacting are desk activity, but neither proves
   // this CLI is claimed. The process cue lights only for an actual busy turn.
-  const processActive = Boolean(node.busy || chat?.busy)
+  const processActive = node.halt?.phase !== 'halted' && Boolean(node.busy || chat?.busy)
   const bannerDuplicatesStatus = Boolean(!isUsageFrozen(node) && node.last_status
     && node.last_status.status === turnBannerState)
   const processAction = node.proc_control_action
@@ -2230,6 +2238,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         {node.last_status && !bannerDuplicatesStatus &&
           <span className={'statuschip ' + node.last_status.status}
             title={node.last_status.summary}>{isUsageFrozen(node) ? 'Reported ' : ''}{stateLabel(node.last_status.status)}</span>}
+        {node.halt && <HaltStatus halt={node.halt} />}
         {node.frozen &&
           <span className="badge frozen" title={node.frozen.error ?? undefined}>
             <FrozenIcon fontSize="inherit" />{' '}
@@ -2865,6 +2874,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 : `${node.id} thinking effort: back to the org default`]))
               .catch((e: Error) => toast([`error: ${e.message}`]))} />
         )}
+        {!pub && (live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
+          halt={node.halt} toast={toast} />}
         {/* №3: STOP renders only when an interrupt can actually land —
             pressing the one red control must never error. Gate on the CHAT
             payload's responding (refreshed every pulse + 5 s poll): the tree

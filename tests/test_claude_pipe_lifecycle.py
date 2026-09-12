@@ -172,6 +172,46 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assertIsNone(self.st.get("last_error"))
         self.assertFalse(self.st["busy"])
 
+    def test_halt_abruptly_reaps_real_provider_and_preserves_pending_mail(self):
+        # User invariant, docs/v2-user-decisions.md (12 September 2026):
+        # "A turn cannot run while its agent is halted." This is the real
+        # runner and real pipes, not a mocked busy flag or stop receipt.
+        from orgtree import halt
+        self.start("silent")  # never reads graceful interrupt requests
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.post_mail(ledger.USER, self.nid, "must remain unread")
+            store.save_org(org)
+        pending = {"cmd": True, "text": "/context", "view": "/context"}
+        self.st["queue"].append(pending)
+        result = halt.halt(self.slug, self.nid)
+        self.assertTrue(result["halted"])
+        self.assertTrue(result["settled"])
+        self.assert_settled()
+        self.assertFalse(self.st["busy"])
+        self.assertIsNotNone(self.procs[0].poll())
+        self.assertEqual(self.follow, [None], "halt must not hand off queued work")
+        org = store.load_org(self.slug)
+        self.assertEqual(len(org.d["mail"][self.nid]), 1)
+        self.assertEqual(org.node(self.nid)["halt_queue"][0]["text"], "/context")
+        self.assertEqual(sup.send_message(self.slug, self.nid, "wake")["deferred"], "halted")
+
+    def test_interrupt_still_hands_queued_work_to_the_next_boundary(self):
+        self.script.write_text(_CHILD.replace(
+            " for line in sys.stdin:pass\nelse:",
+            " for line in sys.stdin:\n  Path(marker+'.followup').write_text(line)\n  result()\nelse:"),
+            encoding="utf-8")
+        self.start("interrupt")
+        queued = {"cmd": True, "text": "/next"}
+        self.st["queue"].append(queued)
+        result = sup.interrupt_turn(self.slug, self.nid)
+        self.assertTrue(result["interrupted"])
+        self.assert_settled()
+        self.assertEqual(self.follow, [None])
+        self.assertIn("/next", Path(str(self.marker) + ".followup").read_text())
+        self.assertEqual(self.st["queue"], [])
+        self.assertNotIn("halt", store.load_org(self.slug).node(self.nid))
+
     @unittest.skipUnless(os.name == "nt", "the incident used a Windows command wrapper")
     def test_idle_watchdog_ends_launcher_and_child_then_returns_queued_mail(self):
         self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
