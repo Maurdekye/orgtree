@@ -25,7 +25,11 @@ and both surfaces call it:
 `ambient_covered` is the same story for the OTHER half of the modal's
 composition — which rows the host provider lanes already serve — so the board
 and the modal cannot disagree about whether an account is listed twice or not
-at all. `api._ambient_covered` is now a thin delegate to it.
+at all. `api._ambient_covered` is now a thin delegate to it. `host_identities`
+is the third: WHO the host login of each provider lane is, for the surfaces
+that must name `default` and have no row to read it off. It belongs to
+`/api/accounts` and the modal, NOT to the turn envelope — the `allow_fetch`
+promise below is about `view`, and nothing on the cache-only path calls it.
 
 ⚠ `allow_fetch=False` IS A HARD PROMISE, not an optimisation. A turn envelope
 is rendered on every turn of every agent; if it could fetch, the org would
@@ -81,6 +85,39 @@ def ambient_covered(row: dict[str, Any], primary: str,
         return False
     return (os.path.normcase(os.path.normpath(path))
             == os.path.normcase(os.path.normpath(home)))
+
+
+def host_identities() -> dict[str, dict[str, str | None]]:
+    """WHO each provider's HOST login is signed in as — the account every
+    selection surface calls `default` and submits as `provider/primary`.
+
+    ⚠ THE REGISTRY IS NOT WHERE THIS IS KNOWN, and routinely it is where it is
+    NOT (user defect 2026-09-12). A machine login migration has not registered
+    has NO ROW AT ALL, so a surface that reads the address off the ambient row
+    alone says `email unavailable` about the very account the usage modal is
+    naming by address one modal away. This answers that question from the SAME
+    readers those lanes answer it from — `accounts.live_identity` for Claude,
+    `providers._codex_account` for Codex, the last observed Antigravity status
+    — so the account-swap selector, the usage modal and the provider panel
+    cannot disagree once their data has loaded.
+
+    DISPLAY METADATA ONLY. It names no selector and decides no billing: the
+    stored and submitted identity stays `provider/primary`.
+
+    ⚠ NOTHING HERE MAY SPAWN A PROCESS. `/api/accounts` is polled, and its
+    Codex rows already pay `_codex_account` per request, so the Claude and
+    Codex addresses are the same cheap local metadata reads. Antigravity's
+    costs a CLI subprocess to observe FRESH, so this takes only what some
+    other surface has already observed and answers `None` otherwise — an
+    unobserved address stays unknown rather than becoming a guess (N5).
+    """
+    from . import providers                     # noqa: PLC0415 — cycle seam
+    agy = providers.antigravity_cached_status() or {}
+    return {
+        "claude": {"email": accounts.live_identity().get("email") or None},
+        "openai": {"email": providers._codex_account().get("email") or None},  # pyright: ignore[reportPrivateUsage]
+        "google": {"email": cast("str | None", agy.get("email")) or None},
+    }
 
 
 def canonical_name(row: dict[str, Any], primary: str,

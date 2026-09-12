@@ -32,7 +32,7 @@ import { SetBlock, SetGroup, SetRow } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
-import type { AccountChoiceRow } from '../accountidentity'
+import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
 
 export interface ConfirmModalProps {
@@ -341,6 +341,9 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
+  // who `default` IS, straight off the same payload as the rows — the host
+  // login usually has no registry row to carry its address (D-2026-09-12).
+  const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   const [browseProvider, setBrowseProvider] = useState('claude')
   const selectedProvider = accountProvider(account ?? '', acctRows) ?? browseProvider
   useEffect(() => {
@@ -368,14 +371,16 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   useEffect(() => {
     let active = true
     const fetchAccounts = () => {
-      req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
+      req<AccountChoicePayload>(`/api/accounts?org=${slug}`)
         .then((r) => {
           if (!active) return
           setAcctRows(Array.isArray(r?.accounts) ? r.accounts : [])
+          setHostIdentity(r?.host_identity ?? {})
         })
         .catch(() => {
           if (!active) return
           setAcctRows([])
+          setHostIdentity({})
         })
     }
     if (propAccounts === undefined) {
@@ -503,6 +508,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             ))}
           </select>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
+            host={hostIdentity}
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
           {account ? <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>
             : <div className="dim">Uses each hire's default account.</div>}
@@ -615,6 +621,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
+  const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   useEffect(() => {
     if (propAccounts !== undefined) {
       setAcctRows(propAccounts)
@@ -624,14 +631,16 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     let active = true
     const slug = tree.slug
     const fetchAccounts = () => {
-      req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
+      req<AccountChoicePayload>(`/api/accounts?org=${slug}`)
         .then((r) => {
           if (!active) return
           setAcctRows(Array.isArray(r?.accounts) ? r.accounts : [])
+          setHostIdentity(r?.host_identity ?? {})
         })
         .catch(() => {
           if (!active) return
           setAcctRows([])
+          setHostIdentity({})
         })
     }
     if (propAccounts === undefined) {
@@ -757,6 +766,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         )}
         <div className="field-label">account</div>
         <AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount}
+          host={hostIdentity}
           onChange={(value) => {
             setAcct(value)
             setAcctTouched(true)
@@ -1015,6 +1025,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const acct = val('account', node.account ?? '')
   const setAcct = set<string>('account', acct)
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>([])
+  const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -1022,9 +1033,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     }).catch(() => {})
     getChat(slug, node.id, 1).then((c) => setInitInfo(c.init ?? null))
       .catch(() => {})
-    req<{ accounts: typeof acctRows }>(`/api/accounts?org=${slug}`)
-      .then((r) => setAcctRows(Array.isArray(r?.accounts) ? r.accounts : []))
-      .catch(() => setAcctRows([]))
+    req<AccountChoicePayload>(`/api/accounts?org=${slug}`)
+      .then((r) => {
+        setAcctRows(Array.isArray(r?.accounts) ? r.accounts : [])
+        setHostIdentity(r?.host_identity ?? {})
+      })
+      .catch(() => { setAcctRows([]); setHostIdentity({}) })
   }, [slug, node.id])
   // D-196: does this save move the agent to a DIFFERENT PROVIDER? Answered by
   // the shared `providerOf`, never by testing tier membership inline — the
@@ -1492,7 +1506,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               {node.account?.startsWith('missing:') &&
                 <span className="ask-warn"> — PARKED: {node.account}</span>}
             </div>
-            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct} onChange={setAcct} />
+            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
+              host={hostIdentity} onChange={setAcct} />
           </>
         )}
         <div className="field-label">Automatic account fallback</div>

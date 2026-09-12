@@ -1,16 +1,20 @@
 import { useId } from 'react'
 import { accountIdentity, accountValue, providerAccounts } from '../accountidentity'
-import type { AccountChoiceRow } from '../accountidentity'
+import type { AccountChoiceRow, HostIdentity } from '../accountidentity'
 
 /** Account options have identical identities in every selection surface.
  * Empty/inherited values are displayed as primary without changing the
- * caller's saved binding. Only a user action calls onChange. */
-export function AccountSelect({ rows, provider, value, onChange, label = 'Account' }: {
+ * caller's saved binding. Only a user action calls onChange.
+ *
+ * `host` is the account payload's own `host_identity` — how `default` gets
+ * the host login's address on a machine whose primary account has no registry
+ * row. Omitted or unknown, `default` still reads `email unavailable`. */
+export function AccountSelect({ rows, provider, value, onChange, host, label = 'Account' }: {
   rows: AccountChoiceRow[]; provider: string; value: string
-  onChange: (value: string) => void; label?: string
+  onChange: (value: string) => void; host?: HostIdentity; label?: string
 }) {
   const detailId = useId()
-  const choices = providerAccounts(rows, provider)
+  const choices = providerAccounts(rows, provider, host)
   const selected = accountValue(value, rows, provider) || choices[0].value
   const unknown = !choices.some(choice => choice.value === selected)
   const detail = choices.find(choice => choice.value === selected)?.text

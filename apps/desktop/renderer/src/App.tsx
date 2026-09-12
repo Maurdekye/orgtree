@@ -28,6 +28,7 @@ import {
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
+import type { HostIdentity } from './accountidentity'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -1723,10 +1724,14 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // omitting accounts — silence here was the original defect.
   const [registry, setRegistry] = useState<AccountRegistryRow[] | null>(null)
   const [registryError, setRegistryError] = useState('')
+  // the same `host_identity` the account selectors read, off the same payload:
+  // who each provider's `default` login is, when no registry row carries it.
+  const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   useEffect(() => {
     let live = true
     const load = () => getAccountRegistry().then((r) => {
       if (!live) return
+      setHostIdentity(r?.host_identity ?? {})
       if (Array.isArray(r?.accounts)) { setRegistry(r.accounts); setRegistryError('') }
       else setRegistryError('the backend answered without an account list (older backend?)')
     }).catch((e: Error) => { if (live) setRegistryError(e.message) })
@@ -1743,7 +1748,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // A generic label or account digest is never presented as an email.
   const hostEmail = (provider: string, value: AccountUsage | null) =>
     value?.email || (value?.label?.includes('@') ? value.label : undefined)
-      || primaryEmail(registry ?? [], provider)
+      || primaryEmail(registry ?? [], provider, hostIdentity)
   return (
     <PinFrame kind="usage" title="Usage limits" panel="settings usage-modal"
       close={close}>
@@ -1759,7 +1764,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           : <div className="usage-cards">
           {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
             <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
-              claude.value?.email || primaryEmail(registry ?? [], 'claude'), multipleAccounts('claude'))]}
+              claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
+              multipleAccounts('claude'))]}
               provider="Claude" state={claude} />
             {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
                 only in App settings — shown exactly when the usage fetch

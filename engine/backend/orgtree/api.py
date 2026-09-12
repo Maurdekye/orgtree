@@ -4255,7 +4255,15 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
     Each row carries `ambient`: whether its usage is served by the host
     board the usage modal's provider lanes already show (see
     `_ambient_covered`) — the modal lists every OTHER row so no account's
-    standing appears twice and none is silently absent."""
+    standing appears twice and none is silently absent.
+
+    `host_identity` is who each provider's HOST login — the `provider/primary`
+    selector the UI calls `default` — is signed in as, BESIDE the rows rather
+    than inside them: that login frequently has no registry row, and a
+    selector reading the address off the ambient row alone then reported
+    `email unavailable` about an account the usage modal was naming by
+    address (see `accountusage.host_identities`). Display metadata; the
+    selector still submits `provider/primary`."""
     from .registry_migration import observe_ambient
     from . import accountusage
     rows = registry.list_accounts(org)
@@ -4271,7 +4279,8 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
          "ambient": _ambient_covered(r, primary, ambient_paths),
          "bound": bindings.get(r["id"], [])}
         for r in rows],
-        "primary": primary}
+        "primary": primary,
+        "host_identity": accountusage.host_identities()}
 
 
 class AccountCreate(Body):

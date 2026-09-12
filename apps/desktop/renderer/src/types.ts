@@ -1650,6 +1650,12 @@ export interface AccountRegistryRow {
 export interface AccountRegistryPayload {
   accounts: AccountRegistryRow[]
   primary: string
+  /** Who each provider's HOST login — the `provider/primary` selector shown
+   *  as `default` — is signed in as. It rides BESIDE the rows because that
+   *  login often has no registry row at all, and every account surface reads
+   *  its address from here so none of them can disagree. Absent from an older
+   *  backend, which reads as "nothing observed", never as an error. */
+  host_identity?: Record<string, { email?: string | null } | undefined>
 }
 
 /** GET /api/accounts/{id}/usage — a REGISTRY account's own usage: the same
