@@ -137,8 +137,8 @@ ACCOUNT_REBIND_SCHEMA: dict[str, Any] = {
         "REBIND this agent to a different provider account. " + _ACCOUNT_VALUE
         + " Strictly downward: you may rebind a subordinate, never yourself — "
           "an agent's own billing is its superiors' and the user's decision. "
-          "Refused while the agent is mid-turn (a rebind is a session "
-          "boundary, and a live session is never repointed under itself). "
+          "Refused while the agent is mid-turn: the active turn must finish "
+          "before its account changes. "
         + _ACCOUNT_BOUNDARY,
 }
 
@@ -167,7 +167,7 @@ ACCOUNT_STAFF_SCHEMA: dict[str, Any] = {
         "default) it is orgtree_hire's `account`, empty string included for "
         "an explicitly unbound seat; with staff_mode='rehire' it is "
         "orgtree_rehire's, so omitting it restores the agent on the account "
-        "it was archived with. " + _ACCOUNT_VALUE,
+        "it was archived with. " + _ACCOUNT_VALUE + " " + _ACCOUNT_BOUNDARY,
 }
 
 TOOLS: list[dict[str, Any]] = [

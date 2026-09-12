@@ -6890,7 +6890,7 @@ ACCOUNT_LANE_DOCTRINE = (
     "task on a lane, and if you are assigning work to another agent, place "
     "THAT task by the same rule. THE BOARD NAMES EVERY ACCOUNT: one lane per "
     "signed-in account, with an `accounts:` roster line saying which account "
-    "each lane is by the label the user gave it, and one row per usage window "
+    "each lane is by its canonical account name, and one row per usage window "
     "that account has. READ ITS UNCERTAINTY AS UNCERTAINTY: "
     "`unavailable(no-cache)` means nothing has been read for that account "
     "yet, `unavailable(stale)` means the reading is old, and "

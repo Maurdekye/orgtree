@@ -160,13 +160,16 @@ new seat runs on), `orgtree_rehire` (which account an archived agent comes back
 on — omitted, it returns on the one it was archived with), `orgtree_retool`
 (rebind a live report) and `orgtree_staff` (whichever of the two it composed).
 
-The value is the registry account id, which the roster prints as
+The initial patch used the registry account id, which the roster printed as
 `account=<id>`; a lane name, label or email is refused, as is an account whose
 provider does not match the tier's. Every retained rule from 2026-09-11 and
 2026-09-09 still binds: authority is strictly downward and an agent never
 chooses its own billing; there is no automatic movement; a rebind cannot clear a
 binding; and a Codex account change remains a session boundary whose continuity
 effect is disclosed rather than hidden.
+
+The naming and no-clear rule in that initial patch are superseded by the
+primary-selection decision and implementation below.
 
 
 ## 2026-09-12 — Primary account selection and one displayed account name
