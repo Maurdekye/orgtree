@@ -2334,8 +2334,18 @@ button.cc-name:hover {
     10px -10px 0 -1px #1e1e20, 10px -10px 0 0 var(--line-soft),
     15px -15px 0 -1px #1a1a1c, 15px -15px 0 0 var(--line-soft);
 }
-.stackbadge { cursor: pointer; border: 1px solid var(--line); background: var(--input); }
-.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
+.stackbadge { border: 1px solid var(--line); background: var(--input); }
+/* SCOPED TO `button`, like `button.badge.frozen` above. On a zoomed-out card
+   this same chip renders as a span (ActionBadge in canvas/cards.tsx), and an
+   unscoped `cursor: pointer` plus a hover highlight would keep it LOOKING
+   like a control it no longer is. */
+button.stackbadge { cursor: pointer; }
+button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
+/* A badge that is an action only in desk view, standing as a sign. The span
+   carries no handler, so this is belt and braces - but it also makes the
+   press land on the CARD even when a descendant (the icon) is the hit
+   target, which is the whole point: aim anywhere on an agent and focus it. */
+.badge.inert { pointer-events: none; }
 .edge.tether { stroke: #5a5a5c; stroke-dasharray: 2 4; stroke-width: 1.3px; opacity: .8; }
 .sq.locked { filter: saturate(.4); }
 .sq.locked::after {

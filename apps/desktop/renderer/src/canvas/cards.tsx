@@ -1258,6 +1258,60 @@ interface NodeSquareProps {
   onShowPin?: () => void
 }
 
+/**
+ * A badge that is ALSO an action, gated to desk view.
+ *
+ * THE RULE (user 2026-09-12, uploads/image-80.png). Outside desk view a card
+ * is a thing you aim at to OPEN a desk. Its badge row is a row of SIGNS -
+ * lifecycle, provenance, pinned, queued switch, limit, route - and two of
+ * them happened to be buttons: the layers/stack count and the freeze badge
+ * that unsticks the agent. Both cost the operator twice. They fired a
+ * consequential action nobody aimed at, and because a control has to stop
+ * its own pointerdown to survive the viewport's pointer capture, they also
+ * SWALLOWED the press meant to focus the agent - which the user named as the
+ * point of the ticket: "make it easier for the user to click anywhere on an
+ * agent's surface and focus it from a distance".
+ *
+ * NOTHING IS LOST, AND THE DESK IS THE PRECEDENT. The open desk already
+ * draws both of these correctly: its freeze chip is a plain span and the
+ * release is a separate, labelled `unstick` button beside it, and its
+ * lineage control is its own button (desk.tsx). This makes the card agree
+ * with the desk instead of merging a status chip and an action into one.
+ *
+ * A SPAN, NOT A DISABLED BUTTON - the shape `PresentationCard` already uses
+ * for the same job (canvas/docs.tsx): out here it is not an action at all,
+ * so there is nothing to disable and nothing to announce as unavailable, it
+ * takes no tab stop, and it holds no handler, so the press it used to
+ * swallow reaches the card.
+ *
+ * WARNING - AND NOT `aria-hidden`, which is where this departs from the doc
+ * chips. "Has presented a document" is carried by other controls; "this
+ * agent is halted" is carried by nothing else on the card. Hiding it would
+ * take the STATUS from a screen reader while leaving it for everyone else.
+ * The inert form is an ordinary span beside `limit`, `queued` and `remote`,
+ * which are plain spans already.
+ *
+ * WARNING - `deskView` IS THE RULE, NOT A SWITCH. Both call sites below sit
+ * inside `.sq-badges`, which is not drawn in desk view at all, so today it
+ * is false by construction and the inert branch is the only one a card
+ * takes. It is written as the condition anyway so there is ONE place that
+ * says when a badge may act, rather than two hand-inerted buttons that the
+ * next badge action would not know to copy.
+ * Behaviour is measured in tools/test-compact-card-actions.mjs.
+ */
+function ActionBadge({ deskView, className, title, onAct, children }: {
+  deskView: boolean
+  className: string
+  title?: string
+  onAct: () => void
+  children: ReactNode
+}) {
+  if (!deskView) return <span className={className + ' inert'} title={title}>{children}</span>
+  return <button className={className} title={title}
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={(e) => { e.stopPropagation(); onAct() }}>{children}</button>
+}
+
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
@@ -1584,22 +1638,22 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {/* ⭐ clickable (user ruling 2026-08-06): the freeze badge IS the
               per-node unstick — the control lives where the user finds the
               agent, not only in org-level panels */}
+          {/* the per-node unstick (user ruling 2026-08-06) used to ride on
+              this chip. Since 2026-09-12 the chip is a SIGN out here and the
+              release is the desk's own `unstick` button - the title says what
+              is wrong and no longer invites a click a zoomed-out card must
+              not accept. See ActionBadge. */}
           {node.frozen &&
-            <button className="badge frozen"
-              title={(node.frozen.error ? node.frozen.error + ' — ' : '')
-                + (node.frozen.account
+            <ActionBadge deskView={focused} className="badge frozen"
+              title={[node.frozen.error,
+                node.frozen.account
                   ? `account ${node.frozen.account}`
                     + (node.frozen.provenance === 'inferred'
                       ? ' (inferred from its pooled limit, not measured '
                         + 'for this tier)'
                       : '')
-                    + ' — '
-                  : '')
-                + 'click to UNSTICK (user override: releases every lock '
-                + 'and resumes)'}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
+                  : null].filter(Boolean).join(' — ') || undefined}
+              onAct={() => {
                 if (pub) return
                 unstickNode(slug, node.id)
                   .then((r) => toast([r.released?.length
@@ -1609,7 +1663,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                   .catch((e2: Error) => toast([`error: ${e2.message}`]))
               }}><FrozenIcon fontSize="inherit" />{' '}
               {FREEZE_LABEL_SHORT[freezeKind(node.frozen, node.limit_locked) ?? 'limit']}
-              {node.frozen.provenance === 'inferred' ? ' (inferred)' : ''}</button>}
+              {node.frozen.provenance === 'inferred' ? ' (inferred)' : ''}</ActionBadge>}
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">
@@ -1628,10 +1682,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               on the card's second row as on the desk's — same component,
               same backend label, "last: " prefixed when it is not live */}
           <RouteBadge route={node.codex_route} />
+          {/* the lineage opens from the desk's own stack badge; out here the
+              count is a sign. Same reason as the freeze chip above. */}
           {stackN > 0 &&
-            <button className="badge stackbadge"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onLineage() }}><LayersIcon fontSize="inherit" /> {stackN}</button>}
+            <ActionBadge deskView={focused} className="badge stackbadge"
+              onAct={onLineage}><LayersIcon fontSize="inherit" /> {stackN}</ActionBadge>}
         </div>
       )}
       {deskOpen && (
