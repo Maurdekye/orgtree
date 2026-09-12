@@ -44,7 +44,7 @@ export function isolatedRoot(base = os.tmpdir()) {
     throw new Error('Acceptance data must be outside the live v1 tree')
   }
   const root = fs.mkdtempSync(path.join(canonicalBase, 'orgtree-v2-acceptance-'))
-  for (const name of ['data', 'profile', 'project', 'inherited-v1']) fs.mkdirSync(path.join(root, name))
+  for (const name of ['data', 'profile', 'project', 'inherited-v1', 'home']) fs.mkdirSync(path.join(root, name))
   return root
 }
 
@@ -74,18 +74,23 @@ function main() {
     return
   }
   const root = isolatedRoot()
+  // Onboarding populates user charter documents. Give the child process its
+  // own home as well as its own store/profile, before importing any engine code.
+  let acceptanceHome = path.join(root, 'home')
   if (process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') {
     const fixture = path.join(root, 'v2-import-fixture-source')
     const seed = spawnSync(python, [path.join(here, 'seed_import_fixture.py'), target, fixture], { cwd: target, encoding: 'utf8', windowsHide: true })
     if (seed.status !== 0) throw new Error('Isolated import seed failed')
     fs.copyFileSync(path.join(fixture, 'manifest.json'), path.join(root, 'import-manifest.json'))
+    acceptanceHome = JSON.parse(fs.readFileSync(path.join(root, 'import-manifest.json'), 'utf8')).home
   }
   const manifest = runtimeManifest(target, packaged)
   fs.writeFileSync(path.join(root, 'runtime-manifest.json'), JSON.stringify(manifest, null, 2))
   const source = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8', windowsHide: true })
   const buildInfoFile = path.join(packaged ? path.join(packaged, 'resources') : path.join(target, 'dist'), 'build-info.json')
   const buildInfo = fs.existsSync(buildInfoFile) ? JSON.parse(fs.readFileSync(buildInfoFile, 'utf8')) : null
-  const env = { ...process.env, ORGTREE_ACCEPTANCE_ROOT: root, ORGTREE_ACCEPTANCE_APP: target,
+  const env = { ...process.env, HOME: acceptanceHome, USERPROFILE: acceptanceHome,
+    ORGTREE_ACCEPTANCE_ROOT: root, ORGTREE_ACCEPTANCE_APP: target,
     ORGTREE_DATA: path.join(root, 'inherited-v1'), ORGTREE_V2_DATA: path.join(root, 'data'),
     ORGTREE_V2_PROFILE: path.join(root, 'profile'), ORGTREE_V2_PYTHON: python,
     ORGTREE_V2_PORT: '0', ORGTREE_NET_HUB_ADDRESS: 'http://127.0.0.1:9' }
@@ -110,7 +115,7 @@ function main() {
     })
     phases.push(phaseResult(phase, report, result, survivors))
     if (survivors.length) break
-    if (result.error || !report.ready || result.status !== 0) break
+    if (result.error || !report.ready || report.status !== 'PASS' || result.status !== 0) break
   }
   const runtimeUnchanged = runtimeManifest(target, packaged).digest === manifest.digest
   const status = phases.length === 2 && phases.every(p => p.status === 'PASS') && runtimeUnchanged ? 'PASS' : 'FAIL'

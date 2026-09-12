@@ -1,5 +1,22 @@
 # Orgtree v2 integrated acceptance
 
+## Current first-run acceptance driver (2026-09-12)
+
+The application driver uses the real New organization form on the setup card.
+Creating the first organization must also persist `onboarded` and populate the
+charter documents before the test proceeds. Restart verifies the saved flag,
+organization and selected route without creating a replacement. The previous
+lowercase home action and already configured home path remain covered by
+`node --test tests/acceptance/organization-flow.test.mjs`.
+
+Each run now isolates the child process's home as well as its data and desktop
+profile, so setup writes its charter documents inside the disposable run root.
+The import fixture retains its own home inside that same root. With
+`ORGTREE_ACCEPTANCE_FAULT=onboarding` or `org-create`, the driver cancels only the
+matching loopback POST and must report FAIL at the organization/setup gate.
+These are deliberate negative controls, never successful release evidence.
+An initial failure stops before restart to avoid cascading reports.
+
 Updated 2026-09-08 00:47 UTC. This is an independent evidence record, not a declaration of MVP completion. Later dated results supersede historical findings below. Binding scope is `v2-user-decisions.md` (newest decision wins), the retained requirements in `v2-original-design-brief.md`, and `v1-parity-inventory.md`. Technical wiring is described in `engine-contract.md`.
 
 ## Evidence levels and commands

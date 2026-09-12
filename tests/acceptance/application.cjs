@@ -13,6 +13,9 @@ const resources = packaged ? path.join(packaged, 'resources') : target
 const appPath = packaged ? path.join(resources, 'app.asar') : target
 const loginCalls = []
 const phase = process.env.ORGTREE_ACCEPTANCE_PHASE
+const fault = process.env.ORGTREE_ACCEPTANCE_FAULT || null
+assert.ok([null, 'onboarding', 'org-create'].includes(fault), 'Unknown acceptance fault')
+let faultBlockedRequests = 0, organizationFlow = null
 const visualFixture = process.env.ORGTREE_ACCEPTANCE_VISUAL_FIXTURE === '1'
 assert.ok(['initial', 'restart'].includes(phase))
 const data = fs.realpathSync.native(path.join(root, 'data'))
@@ -20,6 +23,11 @@ const data = fs.realpathSync.native(path.join(root, 'data'))
 // it for its child. Point even this inherited selector at a fresh empty fixture.
 assert.equal(fs.realpathSync.native(process.env.ORGTREE_DATA), fs.realpathSync.native(path.join(root, 'inherited-v1')))
 assert.equal(fs.realpathSync.native(process.env.ORGTREE_V2_DATA), data)
+const acceptanceHome = process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1'
+  ? JSON.parse(fs.readFileSync(path.join(root, 'import-manifest.json'), 'utf8')).home : path.join(root, 'home')
+assert.ok(path.relative(root, acceptanceHome) && !path.relative(root, acceptanceHome).startsWith('..') && !path.isAbsolute(path.relative(root, acceptanceHome)), 'Acceptance home must be inside its disposable root')
+assert.equal(fs.realpathSync.native(process.env.USERPROFILE), fs.realpathSync.native(acceptanceHome))
+assert.equal(fs.realpathSync.native(process.env.HOME), fs.realpathSync.native(acceptanceHome))
 app.setPath('userData', path.join(root, 'profile'))
 app.setAppPath(appPath)
 if (packaged) {
@@ -105,10 +113,11 @@ dialog.showMessageBox = async (...args) => {
   return { response: 0, checkboxChecked: false }
 }
 async function check(name, action) {
-  try { await action(); rows.push({ name, status: 'PASS' }) }
+  try { await action(); rows.push({ name, status: 'PASS' }); return true }
   catch (error) {
     fs.appendFileSync(path.join(root, 'private-errors.log'), name + '\n' + error.stack + '\n')
     rows.push({ name, status: 'FAIL', reason: error instanceof assert.AssertionError ? error.message : 'Runtime operation failed (' + error.name + ')' })
+    return false
   }
 }
 function finish() {
@@ -116,7 +125,7 @@ function finish() {
   finishing = true
   clearTimeout(deadline)
   const status = ready && rows.length > 0 && rows.every(r => r.status === 'PASS') ? 'PASS' : 'FAIL'
-  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, screenshots, rendererTiming, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
+  fs.writeFileSync(path.join(root, phase + '.json'), JSON.stringify({ status, ready, checks: rows, diagnostics, screenshots, rendererTiming, organizationFlow, fault, faultBlockedRequests, childPids: children.map(c => c.pid).filter(Boolean) }, null, 2))
   app.quit()
   const cleanup = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -173,8 +182,8 @@ app.on('browser-window-created', (_event, main) => {
         restoredOrg = await evaluate(`document.querySelector('header.orgbar h2')?.textContent`)
         assert.equal(await waitFor(`document.querySelector('header.orgbar button.iconbtn')`), true)
         await evaluate(`document.querySelector('header.orgbar button.iconbtn').click(); true`)
-        assert.equal(await waitFor(`[...document.querySelectorAll('button.home')].some(e => e.textContent.includes('all organizations'))`), true)
-        await evaluate(`[...document.querySelectorAll('button.home')].find(e => e.textContent.includes('all organizations')).click(); true`)
+        assert.equal(await waitFor(`[...document.querySelectorAll('button.home')].some(e => /all organizations/i.test(e.textContent))`), true)
+        await evaluate(`[...document.querySelectorAll('button.home')].find(e => /all organizations/i.test(e.textContent)).click(); true`)
       }
       assert.equal(await waitFor(`document.querySelector('.welcome') && document.querySelector('.window-controls')`), true,
         'Positive control: the actual home page and native controls must be mounted')
@@ -211,12 +220,32 @@ app.on('browser-window-created', (_event, main) => {
       const response = await fetch(origin + '/api/orgs', { signal: AbortSignal.timeout(5000) })
       assert.ok([401, 403].includes(response.status), 'Unauthenticated engine request must be denied')
     })
-    await check('organization-create-ui-and-restart-persistence', async () => {
+    if (!await check('organization-create-ui-and-restart-persistence', async () => {
+      const flow = require('./organization_flow.cjs')
+      const stateFile = path.join(root, 'organization-flow.json')
       if (phase === 'initial') {
-        assert.equal(await evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.includes('new organization'));if(!b)return false;b.click();return true})()`), true)
-        assert.equal(await waitFor(`document.querySelector('input[placeholder="organization name"]')`), true)
-        await evaluate(`(()=>{const i=document.querySelector('input[placeholder="organization name"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'Acceptance Runtime');i.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
-        await evaluate(`document.querySelector('input[placeholder="organization name"]').form.requestSubmit();true`)
+        const charterState = await evaluate(`fetch('/api/charters').then(r => r.json())`)
+        const expectedCharters = path.join(acceptanceHome, '.orgtree/charters')
+        assert.equal(path.resolve(charterState.user_dir), expectedCharters,
+          'Setup charter writes must target the disposable acceptance home')
+        if (fault) {
+          const route = fault === 'onboarding' ? '/api/charters/populate' : '/api/orgs'
+          main.webContents.session.webRequest.onBeforeRequest({ urls: [origin + route] }, (details, done) => {
+            const block = details.method === 'POST' && new URL(details.url).pathname === route
+            if (block) faultBlockedRequests++
+            done({ cancel: block })
+          })
+        }
+        organizationFlow = await flow.createOrganization({ evaluate, waitFor,
+          name: 'Acceptance Runtime', slug: 'acceptance-runtime' })
+        fs.writeFileSync(stateFile, JSON.stringify(organizationFlow))
+        if (organizationFlow.firstRun) {
+          const charters = await evaluate(`fetch('/api/charters').then(r => r.json())`)
+          assert.equal(path.resolve(charters.user_dir), expectedCharters)
+          assert.ok(charters.charters.some(c => c.source === 'user'), 'Setup must populate the actual charter documents')
+        }
+      } else {
+        organizationFlow = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
       }
       if (phase === 'restart' && process.env.ORGTREE_ACCEPTANCE_IMPORT_FIXTURE === '1') {
         assert.equal(await waitFor(`document.querySelector('header.orgbar h2')?.textContent==='Import Demo'`),true,'Last selected imported organization is restored')
@@ -224,11 +253,9 @@ app.on('browser-window-created', (_event, main) => {
         assert.equal(await waitFor(`[...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`),true)
         await evaluate(`[...document.querySelectorAll('.org')].find(e=>e.textContent.includes('Acceptance Runtime')).click();true`)
       }
-      const visibleIdentity = `document.querySelector('header.orgbar h2')?.textContent === 'Acceptance Runtime' || [...document.querySelectorAll('.org')].some(e=>e.textContent.includes('Acceptance Runtime'))`
-      assert.equal(await waitFor(visibleIdentity), true, 'Created organization must appear in active header or restored home list')
+      await flow.verifyOrganization({ evaluate, waitFor, ...organizationFlow })
       rendererTiming.populatedOrg = await evaluate('performance.now()')
-      assert.equal(await evaluate(`fetch('/api/orgs/acceptance-runtime').then(r=>r.status)`), 200)
-    })
+    })) { finish(); return }
     await check('selected-organization-route-retains-api-and-native-authority', async () => {
       if (phase === 'restart' && !await evaluate(`location.pathname === '/o/acceptance-runtime'`)) await evaluate(`[...document.querySelectorAll('.org')].find(e=>e.textContent.includes('Acceptance Runtime')).click();true`)
       assert.equal(await waitFor(`location.pathname === '/o/acceptance-runtime'`), true)

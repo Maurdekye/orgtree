@@ -23,7 +23,7 @@ test('each acceptance run gets fresh real data/profile/project directories outsi
   assert.notEqual(first, second)
   for (const root of [first, second]) {
     assert.equal(fs.realpathSync.native(root), root)
-    for (const name of ['data', 'profile', 'project']) assert.deepEqual(fs.readdirSync(path.join(root, name)), [])
+    for (const name of ['data', 'profile', 'project', 'home']) assert.deepEqual(fs.readdirSync(path.join(root, name)), [])
   }
 })
 
