@@ -1,10 +1,26 @@
 # No task operation in customInit: mode and final directory are not selected.
+# ORGTREE_DEV_CHANNEL (defined by installer-dev.nsh for `npm run package:dev`)
+# builds the same installer for the side-by-side development identity, with the
+# all-users scope refused outright: that scope is where the published install's
+# boot-engine task and HKLM uninstall entry live, and a development build must
+# not be able to touch either.
 !include "StrFunc.nsh"
 !include "getProcessInfo.nsh"
 Var pid
 !ifndef BUILD_UNINSTALLER
   ${StrTrimNewLines}
 !endif
+
+# Testable on its own (tools/test-dev-installer-guard.mjs drives it through a
+# compiled fixture): quits with exit code 2 whenever the all-users mode was
+# selected, before any section that could touch machine state runs.
+!macro orgtreeDevScopeGuard
+  ${if} $installMode == "all"
+    MessageBox MB_OK|MB_ICONSTOP "Orgtree Dev is a local development build and installs per-user only.$\r$\nRun Setup again and choose to install it only for yourself." /SD IDOK
+    SetErrorLevel 2
+    Quit
+  ${endif}
+!macroend
 
 !macro BootHelpers
   InitPluginsDir
@@ -23,7 +39,10 @@ Var pid
   ${endif}
 !macroend
 !macro preInit
+  # Dev channel: no boot task will ever be registered, so the operator-SID
+  # probe below has nothing to feed and is skipped.
   !ifndef BUILD_UNINSTALLER
+  !ifndef ORGTREE_DEV_CHANNEL
     ${if} ${UAC_IsInnerInstance}
       !insertmacro UAC_AsUser_GetGlobalVar $BootOperatorSid
     ${else}
@@ -36,6 +55,7 @@ Var pid
         StrCpy $BootOperatorSid ""
       ${endif}
     ${endif}
+  !endif
   !endif
 !macroend
 !macro customInit
@@ -68,6 +88,14 @@ Var pid
     Var BootOperatorSid
     # Sections execute in declaration order, before bundled uninstall/copy.
     # Unlike a page hook, this also runs during silent installations.
+    !ifdef ORGTREE_DEV_CHANNEL
+      # Declared before the boot preflight so it executes first: a dev install
+      # that somehow selected the all-users scope ends here, before anything
+      # elevates or touches the scheduled task.
+      Section "-Orgtree dev channel scope guard"
+        !insertmacro orgtreeDevScopeGuard
+      SectionEnd
+    !endif
     Section "-Orgtree boot preflight"
       ${if} $installMode == "all"
         ${ifNot} ${UAC_IsAdmin}

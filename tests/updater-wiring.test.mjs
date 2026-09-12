@@ -35,7 +35,16 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // Note: the SEPARATE, pre-existing MaintenanceController `check` callback below
   // still does its own version comparison for the engine-issued-maintenance flow -
   // that is a different, untouched code path and out of scope here.
-  assert.match(main, /run: \(\) => app\.isPackaged \? checkForUpdatesViaEvents\(autoUpdater\) : Promise\.resolve\(\{ hasUpdate: false \}\)/)
+  // ...and gated on updatesSupported, not app.isPackaged: a packaged
+  // DEV-CHANNEL install (docs/dev-builds.md) has no feed and must not touch
+  // the library, the release's install scope, or its registry.
+  assert.match(main, /run: \(\) => updatesSupported \? checkForUpdatesViaEvents\(autoUpdater\) : Promise\.resolve\(\{ hasUpdate: false \}\)/)
+  assert.match(main, /if \(process\.platform !== 'win32' \|\| !updatesSupported\) return resolve\(\)/,
+    'a build without update support must never probe the uninstall registry scope')
+  assert.match(main, /\r?\n      if \(updatesSupported\) \{\r?\n        autoUpdater\.autoInstallOnAppQuit = false/,
+    'the electron-updater listeners exist only where updates are supported')
+  assert.doesNotMatch(main, /app\.isPackaged \? checkForUpdatesViaEvents/,
+    'no update path may gate on app.isPackaged alone any more')
   assert.match(main, /handle\('desktop:update-status', \(\) => updater\.current\(\)\)/)
   // ---- checking while an installer is prepared (user 2026-09-11) ----
   // THE DECISION MUST PRECEDE THE DOWNLOAD. electron-updater judges an offer
@@ -51,7 +60,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // ONE guarded entry point. A second caller reaching updater.check() directly
   // would reopen the race this closes, so the tray, the renderer IPC and the
   // engine-issued maintenance flow must all go through the same function.
-  assert.match(main, /const checkForUpdates = async \(\) => \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
+  assert.match(main, /const checkForUpdates = async \(\) => !updatesSupported \? \{ state: 'unavailable' \} as UpdateStatus\r?\n\s*: \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
   assert.match(main, /handle\('desktop:check-for-updates', \(\) => checkForUpdates\(\)\)/)
   assert.match(main, /label: 'Check for updates', click: \(\) => \{ void checkForUpdates\(\)\.catch\(\(\) => \{\}\) \}/)
   assert.match(main, /check: async \(\) => \{[\s\S]*?const status = await checkForUpdates\(\)/,

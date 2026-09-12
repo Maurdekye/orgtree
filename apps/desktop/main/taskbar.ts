@@ -5,9 +5,9 @@ export function appUserModelId(packaged: boolean): string {
 }
 
 export function configureTaskbar(window: BrowserWindow, executable: string, icon: string,
-                                 appId = appUserModelId(true)): void {
+                                 appId = appUserModelId(true), displayName = 'Orgtree'): void {
   window.setAppDetails({
     appId, appIconPath: icon, appIconIndex: 0,
-    relaunchCommand: `"${executable}"`, relaunchDisplayName: 'Orgtree',
+    relaunchCommand: `"${executable}"`, relaunchDisplayName: displayName,
   })
 }

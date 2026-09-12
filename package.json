@@ -14,6 +14,7 @@
     "dev": "npm run build && electron .",
     "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",
     "package:win": "npm run build && node tools/package-preflight.mjs && electron-builder --win nsis",
+    "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
     "runtime:provision": "python tools/provision-runtime.py"
   },

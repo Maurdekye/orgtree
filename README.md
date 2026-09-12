@@ -124,7 +124,7 @@ npm test
 node apps/desktop/renderer/tests/run.mjs
 ```
 
-Use a fresh, separate data directory for backend tests and development scripts, selected **before importing storage modules**. See [development storage](docs/v2-development-storage.md). Build a Windows installer with `npm run package:win`; packaging also checks the bundled runtime and build provenance.
+Use a fresh, separate data directory for backend tests and development scripts, selected **before importing storage modules**. See [development storage](docs/v2-development-storage.md). Build a Windows installer with `npm run package:win`; packaging also checks the bundled runtime and build provenance. To install an in-development build locally without publishing anything, use `npm run package:dev` — see [local development builds](docs/dev-builds.md), including how to return to a published build.
 
 Additional technical notes: [engine boundary](docs/engine-contract.md), [onboarding and charter presets](docs/v2-onboarding.md), [themes](docs/v2-visual-themes.md), and [history retention](docs/v2-history-retention.md). Dated design and acceptance documents record earlier development stages; consult the [release notes](https://github.com/Maurdekye/orgtree/releases) for published changes.
 

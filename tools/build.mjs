@@ -33,5 +33,9 @@ try {
 const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
   'engine/launch.py', 'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json']
+// Every build starts as the release channel; `npm run package:dev` rewrites
+// this file with channel 'dev' and a commit-stamped version before packing.
+// Rebuilding always resets it, so a development stamp cannot leak forward into
+// a release package — and the release preflight refuses it if one ever does.
 fs.writeFileSync('dist/build-info.json', JSON.stringify({ version: JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
-  commit, dirty, builtAt: new Date().toISOString(), sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')
+  channel: 'release', commit, dirty, builtAt: new Date().toISOString(), sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')

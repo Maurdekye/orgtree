@@ -7,26 +7,36 @@ import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
-import { appUserModelId, configureTaskbar } from './taskbar'
+import { configureTaskbar } from './taskbar'
+import { desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry } from './windows'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications } from './notifications'
 import { MaintenanceController } from './maintenance'
 import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
-import type { InstallableUpdater } from './updater'
+import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 
-// The build's appId, which is what electron-builder derives its uninstall
-// registry key from. Kept beside setName so the two are read together.
-const appId = 'com.maurdekye.orgtree'
-app.setName('Orgtree v2')
-// Development notifications must not register Electron against the installed app.
-app.setAppUserModelId(appUserModelId(app.isPackaged))
+// Who this process is — installed release, installed DEV-channel build (see
+// docs/dev-builds.md), or unpackaged development — is decided in one place
+// from the channel packaging recorded beside the app. A dev-channel install
+// carries its own appId (and so its own uninstall registry key), its own name
+// (and so its own userData/data directory and single-instance lock) and its
+// own shell identity: it runs side by side with an installed release and can
+// touch none of its state.
+const identity = desktopIdentity(app.isPackaged, app.isPackaged ? readBuildChannel(path.join(process.resourcesPath, 'build-info.json')) : 'release')
+const appId = identity.appId
+app.setName(identity.name)
+app.setAppUserModelId(identity.appUserModelId)
+// Updates exist only for the packaged release channel: a dev-channel install
+// ships no feed, and everything update-shaped gates on this rather than on
+// app.isPackaged so it can never probe the release's install scope either.
+const updatesSupported = identity.updatesSupported
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 const single = app.requestSingleInstanceLock()
@@ -74,7 +84,7 @@ else {
   // Explorer's taskbar group reads shell properties separately from WM_SETICON.
   // Use a real unpacked file and explicit relaunch identity for every window.
   app.on('browser-window-created', (_event, window) => {
-    if (process.platform === 'win32' && app.isPackaged) configureTaskbar(window, process.execPath, iconPath)
+    if (process.platform === 'win32' && app.isPackaged) configureTaskbar(window, process.execPath, iconPath, identity.appUserModelId, identity.displayName)
   })
   const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
     grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
@@ -189,7 +199,11 @@ else {
     if (trayMenuOpen) { refreshTrayUpdates(); return }
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
-    trayMenu = Menu.buildFromTemplate([
+    // Without update support (dev-channel install, unpackaged development)
+    // the four update rows would only mislead: their ids are absent, which
+    // refreshTrayUpdates already tolerates, and one honest line takes their
+    // place. Not "up to date" - a build with no feed cannot claim that.
+    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
       { id: 'update-status', label: 'Updates have not been checked', enabled: false },
       { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
         click: () => { void requestUpdateInstall().catch(error => {
@@ -200,6 +214,9 @@ else {
         enabled: canInstallUnattended(),
         click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+    ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    trayMenu = Menu.buildFromTemplate([
+      ...updateRows,
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -266,7 +283,7 @@ else {
    *  an all-users installation, HKCU for a per-user one. Read once at startup,
    *  bounded, read-only; failure leaves the answer unknown rather than wrong. */
   const readInstallScope = () => new Promise<void>(resolve => {
-    if (process.platform !== 'win32' || !app.isPackaged) return resolve()
+    if (process.platform !== 'win32' || !updatesSupported) return resolve()
     const key = `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${uninstallRegistryGuid(appId)}`
     execFile('reg', ['query', key], { timeout: 4000, windowsHide: true }, (error, stdout) => {
       if (!error && /InstallLocation|UninstallString|DisplayName/i.test(stdout)) installedForAllUsers = true
@@ -319,7 +336,11 @@ else {
    *  a newer release would delete the very package being installed. Together
    *  with `updateBusy` refusing the install while a check is in flight, the two
    *  operations exclude each other in both directions. */
-  const checkForUpdates = async () => (updateApplying || quitting) ? updater.current() : updater.check()
+  // Without update support there is nothing to ask: answered 'unavailable'
+  // without disturbing the controller, so Settings' button gets an honest
+  // response instead of an "up to date" no feed could have established.
+  const checkForUpdates = async () => !updatesSupported ? { state: 'unavailable' } as UpdateStatus
+    : (updateApplying || quitting) ? updater.current() : updater.check()
   const applyDownloadedUpdate = async (automatic = false, unattended = automatic) => {
     // Once shutdown begins, finish installing. Before that boundary, disabling
     // automatic updates also holds any package that has already downloaded.
@@ -443,7 +464,7 @@ else {
     }
   }
   const requestUpdateInstall = async () => {
-    if (!downloaded || !app.isPackaged) throw new Error('No downloaded update is ready to install.')
+    if (!downloaded || !updatesSupported) throw new Error('No downloaded update is ready to install.')
     // Refused with a reason the renderer can show, rather than silently: an
     // explicit Update now that raced a check would shut the engine down and
     // hand off to a package the check had just deleted.
@@ -471,7 +492,7 @@ else {
     // means this path cannot start a check during an install, cannot race a
     // second check against the first, and leaves the same state behind.
     check: async () => {
-      if (!app.isPackaged) return 'unavailable'
+      if (!updatesSupported) return 'unavailable'
       try {
         const status = await checkForUpdates()
         // 'pending-idle' is a package ALREADY prepared: maintenance only asks
@@ -499,12 +520,12 @@ else {
   // schedule and surfaced directly to the header/Settings - not gated on
   // any engine-issued request.
   const updater = new UpdateController({
-    automaticEnabled: () => preferences.get().automaticUpdates,
+    automaticEnabled: () => updatesSupported && preferences.get().automaticUpdates,
     // electron-updater's own update-available/update-not-available events are the
     // authoritative "is this actually newer" answer (channel/prerelease/downgrade
     // rules included) - comparing version strings here would get an older or
     // disallowed release wrong by treating any difference as an update.
-    run: () => app.isPackaged ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
+    run: () => updatesSupported ? checkForUpdatesViaEvents(autoUpdater) : Promise.resolve({ hasUpdate: false }),
     // autoDownload is off, so this is the only thing that starts a transfer -
     // and therefore the only thing that lets electron-updater delete a package
     // already prepared. The controller calls it only after judging the offer
@@ -753,7 +774,7 @@ else {
       // it, so wiring the listeners or reading the install scope after that
       // leaves a window in which a download completes with no listener attached
       // and an attempt runs before it is known whether a hold applies.
-      if (app.isPackaged) {
+      if (updatesSupported) {
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
         // ⚠ THE OFFER MUST BE JUDGED BEFORE ANYTHING IS DELETED. Left on,
