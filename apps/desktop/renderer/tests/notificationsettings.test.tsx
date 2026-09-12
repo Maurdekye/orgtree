@@ -24,6 +24,12 @@ function geometry(el: HTMLElement, rect = { left: 10, top: 10, right: 300, botto
   el.getBoundingClientRect = () => rect as DOMRect
   el.getClientRects = () => [rect] as unknown as DOMRectList
 }
+/** jsdom's own `hasFocus()` is always false, so the window the user is IN is
+ *  something a test states. Per the 2026-09-12 ruling that is the difference
+ *  between a card that has reached them and one that merely exists on screen. */
+function focused(doc: Document, value: boolean) {
+  Object.defineProperty(doc, 'hasFocus', { configurable: true, value: () => value })
+}
 
 test('seven native settings use exact defaults, save separately and accept broadcasts over stale load', async () => {
   let resolve!: (value: unknown) => void, event!: (e: { type: string; data: unknown }) => void
@@ -55,10 +61,18 @@ test('exact question visibility follows clipping, hidden pages, resolution and a
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
   const v = await mountView(<div className="clip"><AskCard ask={ask} slug="one" toast={() => {}} /></div>, el => el)
   const popout = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true })
+  focused(document, true)
   try {
     const card = v.el.querySelector<HTMLElement>('.askcard')!, clip = card.parentElement!
     geometry(card)
     assert.equal(questionVisible('one', ask.id), true)
+    // TOAST UNLESS FOCUSED (user ruling 2026-09-12). A window the user is not
+    // in has shown them nothing, second monitor or not.
+    focused(document, false)
+    assert.equal(questionVisible('one', ask.id), false,
+      'a card on screen in an UNFOCUSED window has reached nobody and must still toast')
+    focused(document, true)
+    assert.equal(questionVisible('one', ask.id), true, 'and counts again once they are back in it')
     assert.equal(questionVisible('two', ask.id), false)
     assert.equal(questionVisible('one', 'another-question'), false)
     clip.style.overflowX = 'hidden'; clip.style.overflowY = 'hidden'
@@ -70,7 +84,10 @@ test('exact question visibility follows clipping, hidden pages, resolution and a
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     assert.equal(questionVisible('one', ask.id), false)
     popout.window.document.body.appendChild(popout.window.document.adoptNode(card))
-    assert.equal(questionVisible('one', ask.id), true, 'visible popout counts even with hidden main window')
+    focused(popout.window.document as unknown as Document, false)
+    assert.equal(questionVisible('one', ask.id), false, 'an unfocused popout is no more delivered than an unfocused main window')
+    focused(popout.window.document as unknown as Document, true)
+    assert.equal(questionVisible('one', ask.id), true, 'the FOCUSED popout counts even with a hidden main window')
     clip.appendChild(document.adoptNode(card))
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     await v.render(<AskCard ask={{ ...ask, status: 'answered' }} slug="one" toast={() => {}} />)
@@ -95,6 +112,7 @@ test('category switches, visible questions, new documents and stale clicks share
   function View({ card = true }: { card?: boolean }) { useNativeNotifications(n => opened.push(n)); return card ? <AskCard ask={ask} slug="one" toast={() => {}} /> : null }
   const v = await mountView(<View />, el => el)
   const row = (kind: NativeNotice['kind'], id: string = kind): NativeNotice => ({ id, kind, org: 'one', title: kind, body: 'detail', agent: 'agent', generation: 2, source_id: kind === 'question' ? ask.id : id })
+  focused(document, true)
   try {
     geometry(v.el.querySelector<HTMLElement>('.askcard')!)
     await settle()

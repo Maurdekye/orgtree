@@ -2177,6 +2177,22 @@ button.cc-name:hover {
 .ask-bell .eye-count, .doc-bell .eye-count, .docket-bell .eye-count {
   position: absolute; top: -4px; right: -6px;
 }
+/* THE STANDING DOT (user ruling 2026-09-12) — a small bright mark saying
+   "something is still waiting on you", on the toolbar icon that corresponds
+   to it: the inbox bell for an unanswered question or urgent mail, the docket
+   button for a flagged ticket. It reads the SAME cross-organization aggregate
+   as the Windows taskbar pulse, so the two cannot disagree, and it stays put
+   until nothing qualifying remains anywhere.
+   It sits at the BOTTOM-LEFT so it never collides with `.eye-count`, which
+   owns the top-right corner of these same buttons, and it is a separate mark
+   from the `glow` above: the glow is the open organization's own attention,
+   the dot is everything waiting. */
+.ask-bell .attn-dot, .docket-bell .attn-dot {
+  position: absolute; bottom: -1px; left: -1px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel-2), 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
+}
 .ask-bell.glow, .docket-bell.glow {
   color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));

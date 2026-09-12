@@ -6,6 +6,7 @@ import type { NativeNotice } from './desktop'
 import type { NotificationIdentity } from '../../../../packages/contracts'
 import { notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
 import { questionVisible } from './notification-visibility'
+import { pendingAttention, publishPending, summarizePending } from './pending-attention'
 
 const KEY = 'orgtree-native-notices-v1'
 const DOCUMENT_BASELINE = 'orgtree-native-documents-observed-v1'
@@ -78,7 +79,9 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
   const bridge = desktop()
   useEffect(() => {
     if (!bridge?.notify) return
-    let alive = true, running = false, dirty = false, click = 0
+    // A reloaded renderer starts with an empty aggregate that may match what it
+    // is about to read, so the first pass always reports, even unchanged.
+    let alive = true, running = false, dirty = false, click = 0, attentionSent = false
     let prefs = notificationPreferences(), prefsReady = !bridge.getPreferences, prefsRevision = 0, loadingPrefs = false
     let documentsObserved = false
     try { documentsObserved = localStorage.getItem(DOCUMENT_BASELINE) === 'true' } catch { /* memory baseline */ }
@@ -117,6 +120,18 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
           if (defer()) continue
           const keys = active && new Set(active.map(identity))
           const candidates = [...notices.values()].filter(n => !keys || keys.has(identity(n)))
+          // BOTH STANDING INDICATORS (user ruling 2026-09-12) — the taskbar
+          // pulse and the toolbar dot — read this one aggregate, so resolving
+          // one request cannot clear either while another still waits. It is
+          // the whole projection, NOT the preference-filtered dispatch list:
+          // muting a category for the operating system does not mean the work
+          // stopped waiting. An unchanged aggregate is not sent, so a poll
+          // that finds the same items cannot restart the pulse.
+          if (publishPending(summarizePending(candidates)) || !attentionSent) {
+            attentionSent = true
+            await bridge.setPendingAttention?.(pendingAttention().ids)
+            if (!alive) return
+          }
           // A card already on screen has reached the user. Remember it until
           // it resolves, so closing the desk cannot create a late interruption.
           // New-document alerts start after a first inventory, avoiding an old

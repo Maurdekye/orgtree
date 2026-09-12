@@ -23,6 +23,7 @@
 // look up and for the "who is asking" header — never to answer directly.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { usePendingAttention } from '../pending-attention'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -343,13 +344,23 @@ export function DocketToolbarButton({ summary, onClick }: {
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
+  // The standing dot (user ruling 2026-09-12) reads the cross-organization
+  // aggregate the taskbar pulse reads, so a ticket waiting in ANOTHER
+  // organization still shows here. The glow above stays what it always was:
+  // the OPEN organization's own attention count.
+  // The dot is aria-hidden, so the title carries the same claim in words —
+  // see AskBell for why an icon-only indicator has to say itself twice.
+  const pending = usePendingAttention()
+  const waiting = pending.docket > 0
   return (
     <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}
-      title={hasAttn
+      title={(hasAttn
         ? `work docket — ${attention} item(s) need attention`
-        : 'work docket'}
+        : 'work docket')
+        + (waiting ? ` — ${pending.docket} ticket(s) still waiting on you` : '')}
       onClick={onClick}>
       <DocketIcon fontSize="inherit" />
+      {waiting && <i className="attn-dot" aria-hidden="true" />}
       {count > 0 && (
         <b className={'eye-count' + (hasAttn ? ' docket-attn asks' : '')}>
           {count}</b>

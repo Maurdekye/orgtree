@@ -14,6 +14,7 @@ import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry } from './windows'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
+import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
@@ -116,6 +117,9 @@ else {
     data => new Notification({ title: data.title, body: data.body }),
     data => { show(); broadcast({ type: 'notification-click', data }) },
     () => anyOrgtreeWindowFocused(BrowserWindow.getAllWindows()))
+  // The taskbar's own attention behaviour, driven by the same cross-org
+  // projection as the in-app dot so the two indicators cannot disagree.
+  const taskbarAttention = new TaskbarAttention(() => main)
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
@@ -645,6 +649,7 @@ else {
       return notifications.notify(value, preferences.get())
     })
     handle('desktop:sync-notifications', value => notifications.sync(value))
+    handle('desktop:pending-attention', value => { taskbarAttention.set(attentionIdentities(value)) })
     handle('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
@@ -761,6 +766,9 @@ else {
       main.on('restore', publishWindowState)
       main.on('show', publishWindowState)
       main.on('hide', publishWindowState)
+      // Windows cancels a taskbar flash on activation; tell the controller so
+      // a later arrival can pulse again without the poll restarting this one.
+      main.on('focus', () => taskbarAttention.focused())
       configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
       main.webContents.on('did-create-window', child => {
         child.setIcon(runtimeIcon())

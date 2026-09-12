@@ -16,11 +16,20 @@ export function useQuestionVisibility(org: string, id: string) {
   }, [org, id])
 }
 
+/** TOAST UNLESS FOCUSED (user ruling 2026-09-12). A question card only counts
+ *  as having reached the user when it is on screen in the Orgtree window they
+ *  are ACTUALLY IN. Merely being visible is not enough: a window left open on
+ *  a second monitor, or sitting behind the editor they are working in, shows
+ *  the card to nobody, and treating that as delivered silences the alert for
+ *  good. `hasFocus()` is per-document, so an adopted popout answers for
+ *  itself; an environment that cannot answer at all is read as not focused,
+ *  which errs toward notifying. */
 export function questionVisible(org: string, id: string): boolean {
   return [...cards].some(element => {
     if (!element.isConnected || element.dataset.questionOrg !== org || element.dataset.questionId !== id) return false
     const doc = element.ownerDocument, view = doc.defaultView
     if (!view || doc.visibilityState !== 'visible' || !element.getClientRects().length) return false
+    if (typeof doc.hasFocus !== 'function' || !doc.hasFocus()) return false
     const rect = element.getBoundingClientRect()
     let left = Math.max(0, rect.left), top = Math.max(0, rect.top)
     let right = Math.min(view.innerWidth, rect.right), bottom = Math.min(view.innerHeight, rect.bottom)

@@ -1,5 +1,6 @@
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
+import { usePendingAttention } from './pending-attention'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import type { NativeDesktop } from './desktop'
@@ -320,11 +321,22 @@ export function AskBell({ tree, onOpen }: {
   onOpen: () => void
 }) {
   const pip = attentionPip(tree)
+  // The standing dot (user ruling 2026-09-12): an unanswered question or a
+  // piece of urgent mail anywhere, in ANY organization. The badge and glow
+  // above remain the open organization's own counts.
+  // The dot itself is aria-hidden — a coloured mark says nothing to a reader
+  // that cannot see it — so the SAME claim is spelled out in the title, which
+  // is this icon-only button's accessible name. Otherwise the dot would be a
+  // signal only sighted users get.
+  const pending = usePendingAttention()
+  const waiting = pending.mail > 0
   return (
     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
-      title={pip?.title ?? 'your inbox'}
+      title={(pip?.title ?? 'your inbox')
+        + (waiting ? ` — ${pending.mail} request(s) still waiting on you` : '')}
       onClick={onOpen}>
       <MailIcon fontSize="inherit" />
+      {waiting && <i className="attn-dot" aria-hidden="true" />}
       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
         {pip.count}</b>}
     </button>

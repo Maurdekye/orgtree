@@ -106,6 +106,10 @@ export interface DesktopBridge {
   notify(notification: DesktopNotification): Promise<boolean>
   /** Close native alerts whose attention item no longer exists. */
   syncNotifications?(active: NotificationIdentity[]): Promise<void>
+  /** Everything still waiting on the user, across organizations, as opaque
+   *  identities. The taskbar pulses for a new arrival and stops when the list
+   *  empties; an unchanged list is not an event. */
+  setPendingAttention?(ids: string[]): Promise<void>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>

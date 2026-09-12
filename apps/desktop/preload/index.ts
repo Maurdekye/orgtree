@@ -22,6 +22,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getHarnesses: () => ipcRenderer.invoke('desktop:harnesses'),
     notify: notification => ipcRenderer.invoke('desktop:notify', notification),
     syncNotifications: active => ipcRenderer.invoke('desktop:sync-notifications', active),
+    setPendingAttention: ids => ipcRenderer.invoke('desktop:pending-attention', ids),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     openCharterFolder: () => ipcRenderer.invoke('desktop:open-charter-folder'),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
