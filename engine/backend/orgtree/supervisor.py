@@ -11184,7 +11184,10 @@ def _working_lifecycle_keeper_pass(
 
 
 def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
-    """Reassign stale docket items whose owner generation is gone.
+    """Reassign stale docket items whose OWNER is gone — deleted, retired, or
+    an id re-minted by a later hire. An owner that merely advanced generation
+    (compaction, session replacement) keeps its items; see
+    `ledger._work_identity_state`.
     The ledger transition and assignment mail are committed under DOC_LOCK;
     wake nudges happen only after save, so a recipient never starts before the
     new owner is durable.  A missing top-level leaves the item untouched.

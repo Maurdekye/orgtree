@@ -10608,18 +10608,73 @@ class Org:
                        "outcomes": outcomes}, [])
         return moved
 
-    def _work_owner_state(self, it: WorkItem) -> tuple[bool, str | None]:
-        o = it.get("owner")
-        if not isinstance(o, dict):
+    def _work_identity_state(self, a: Any) -> tuple[bool, str | None]:
+        """Is this stored actor reference still THE SAME LOGICAL AGENT, and
+        what became of it — the ONE durable-identity boundary the docket asks,
+        shared by the owner projection and the stale-owner reconciler so the
+        two can never disagree about who an item belongs to.
+
+        ⚠ A GENERATION ADVANCE IS NOT A CHANGE OF AGENT (user bug 2026-09-12:
+        `perf-pass` cheap-compacted and its performance umbrella plus six child
+        tickets were reassigned to the coordinator). Every advance path —
+        `_replace_session_in_place` (cheap_compact and a cross-provider
+        `switch_model`), `compact_split`, `record_cli_compaction`, `reseed` —
+        keeps the SAME node id and archives the old session beside it as
+        `nid@gen`. "Everything about the SEAT survives — id, parent, scope,
+        charter, grant, team, mailbox"; the docket assignment is a seat fact
+        and survives with them. `_work_next_recipient` has said exactly this
+        since it was written ("a compaction or rehire replaces the agent, not
+        the assignment"); this predicate used to compare generations for
+        EQUALITY and so contradicted it, which is what made an advance read as
+        an abandoned owner.
+
+        ⚠ BUT THE COMPARISON IS DIRECTIONAL, NOT ABSENT. `delete` (user only)
+        drops a node and its whole lineage stack out of the table without
+        touching the docket, so the freed id can be re-minted by a later hire
+        — at generation 0. An item still naming the old agent must NOT re-bind
+        to that namesake, which is the same re-bind hazard `delete` already
+        sweeps asks, credit requests, scope requests and watchdogs for. A node
+        generation BELOW the stored one is therefore a replaced identity, not a
+        continuation, and reads stale exactly as it did before.
+
+        States, unchanged on the wire: 'live' | 'retired' | 'missing' |
+        'generation moved' (now reached only by that backwards case) | None for
+        a non-node actor such as the user, which owns nothing reconcilable."""
+        if not isinstance(a, dict):
             return False, None
-        n = self.nodes.get(str(o.get("node")))
+        n = self.nodes.get(str(cast("dict[str, Any]", a).get("node")))
         if n is None:
             return False, "missing"
         if n.get("state") != "live":
             return False, "retired"
-        if int(n.get("generation") or 0) != int(o.get("generation") or 0):
+        if int(n.get("generation") or 0) < int(
+                cast("dict[str, Any]", a).get("generation") or 0):
             return False, "generation moved"
         return True, "live"
+
+    def _work_owner_state(self, it: WorkItem) -> tuple[bool, str | None]:
+        return self._work_identity_state(it.get("owner"))
+
+    def _work_actor_view(self, a: Any) -> Any:
+        """A stored actor reference projected onto the generation the node is
+        AT NOW. Derived on read and never written back, like `status_at` and
+        `reply_recipients` beside it: the stored number records the generation
+        that was assigned, and rewriting it during a read would stamp a durable
+        ownership edit onto the item every time somebody looked at it.
+
+        A reference that is not continuous (missing, retired, or a re-minted
+        namesake) is served VERBATIM — projecting it would claim a live
+        generation for an identity that no longer holds the item, and
+        `owner_current`/`owner_state` beside it already say so."""
+        current, _state = self._work_identity_state(a)
+        if not current:
+            return a
+        ref = cast("dict[str, Any]", a)
+        gen = int((self.nodes.get(str(ref.get("node"))) or {}).get(
+            "generation") or 0)
+        if gen == int(ref.get("generation") or 0):
+            return a
+        return {**ref, "generation": gen}
 
     def _work_node_reply_state(self, nid: str) -> str:
         """One of 'live' | 'retired' | 'missing' — the SAME convention
@@ -10762,6 +10817,17 @@ class Org:
             "blocked_reason": self._work_blocked_reason(it),
             "waiting_reason": it.get("waiting_reason"),
             "dropped_reason": it.get("dropped_reason"),
+            # ⚠ THE TWO LIVE POINTERS, PROJECTED ONTO THE CURRENT GENERATION
+            # (user bug 2026-09-12). `owner` and `reviewer` say who holds the
+            # item and who owes the review NOW, so after its holder compacts
+            # they must name that holder's current generation — an item that
+            # kept serving the archived one read as belonging to a session
+            # nobody can wake. `created_by` and `last_updater` are deliberately
+            # NOT projected: those are history, and history names the
+            # generation that actually did the thing. Never written back —
+            # see `_work_actor_view`.
+            "owner": self._work_actor_view(it.get("owner")),
+            "reviewer": self._work_actor_view(it.get("reviewer")),
             "participants": list(it.get("participants") or []),
             # who a reply may be addressed to (user 2026-09-06): owner first,
             # then participants, each with a server-derived node state
@@ -10869,16 +10935,20 @@ class Org:
         at all: a review nobody is doing and nobody is asked about. The owner
         is asked to name another instead.
 
-        ⚠ Ownership and reviewership both ignore GENERATION: a compaction or
-        rehire replaces the agent, not the assignment. Being RETIRED is a
-        different thing from a moved generation and is the only state checked
-        here. `reviewer` is codex-sandbox's field and may be absent on items
-        written before it exists; absent reads exactly like null.
+        ⚠ Ownership and reviewership both ignore a generation ADVANCE: a
+        compaction or rehire replaces the agent, not the assignment. Being
+        RETIRED is a different thing from a moved generation. Since 2026-09-12
+        the question is asked through `_work_identity_state`, the one
+        durable-identity boundary — same answer as the hand-rolled liveness
+        check for every real reviewer, and additionally stale for a reference
+        the id was re-minted out from under (delete, then a namesake hire).
+        `reviewer` is codex-sandbox's field and may be absent on items written
+        before it exists; absent reads exactly like null.
         """
         owner = self._work_actor_node(it.get("owner"))
         if it.get("status") == "review":
             rv = self._work_actor_node(it.get("reviewer"))
-            if rv and (self.nodes.get(rv) or {}).get("state") != "live":
+            if rv and not self._work_identity_state(it.get("reviewer"))[0]:
                 return owner, "stale_reviewer"
             if rv:
                 return rv, "reviewer"
@@ -11816,7 +11886,14 @@ class Org:
     def work_reassign_abandoned(self, now_ts: float | None = None,
                                 threshold_s: float | None = None
                                 ) -> list[dict[str, Any]]:
-        """Reassign stale nonterminal work whose owner generation is gone."""
+        """Reassign stale nonterminal work whose OWNER is gone — the node was
+        deleted, retired/dissolved, or its id was re-minted by a later hire.
+
+        ⚠ NOT work whose owner merely COMPACTED (user bug 2026-09-12). The
+        staleness question is `_work_identity_state`'s alone, and a generation
+        advance on the same live node is the same agent, so nothing here fires
+        for it: no reassignment, no assignment-history row, no status change
+        and no mail claiming the item moved."""
         self._work_require_current_identity()
         now_ts = _time.time() if now_ts is None else now_ts
         threshold = (self.WORK_ABANDONED_AFTER_S
