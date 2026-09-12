@@ -1,12 +1,13 @@
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
 import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/contrast-theme'
 import { isAgentColorSource } from '../../../packages/contracts/agent-colors'
+import { DEFAULT_NOTIFICATIONS, NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { isAppPath } from '../../../packages/contracts/ui-route'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -31,7 +32,7 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val
     } else {
-      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded'].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
+      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded'] = val
     }
   }

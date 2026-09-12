@@ -14,11 +14,30 @@ async function load(name) {
 }
 const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses'), { NotificationGate } = await load('notifications')
 
+const defaults = { notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
+
+test('notification preferences migrate safely and every independent choice survives restart', () => {
+  const file = path.join(temp, 'notifications.json')
+  fs.writeFileSync(file, JSON.stringify({ routineNotifications: true, visualTheme: 'codex' }))
+  const prefs = new Preferences(file)
+  for (const [key, value] of Object.entries(defaults)) assert.equal(prefs.get()[key], key === 'notifyAllMail' ? true : value)
+  for (const [key, value] of Object.entries(defaults)) {
+    prefs.set({ [key]: !value })
+    assert.equal(new Preferences(file).get()[key], !value)
+    const bytes = fs.readFileSync(file, 'utf8')
+    assert.throws(() => prefs.set({ [key]: 'true' }), /Invalid/)
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes)
+  }
+  prefs.set({ notifyAllMail: false })
+  assert.equal(new Preferences(file).get().notifyAllMail, false, 'explicit off wins over legacy opt-in')
+  assert.equal(new Preferences(file).get().visualTheme, 'codex')
+})
+
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
+  assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
+  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
   assert.equal(new Preferences(file).get().onboarded, true)
@@ -69,12 +88,12 @@ test('harness detection has positive fixture and never executes it', () => {
 
 test('native notification defaults are attention-only, with validated identity dedup', () => {
   const gate = new NotificationGate(), base = { id: 'n1', org: 'org', title: 'Title', body: 'Body', kind: 'routine' }
-  assert.equal(gate.take(base, false), null)
-  assert.ok(gate.take(base, true))
-  assert.equal(gate.take(base, true), null)
-  assert.ok(gate.take({ ...base, org: 'other' }, true), 'same local id in another org is distinct')
-  for (const kind of ['question', 'urgent-mail', 'work-attention']) assert.ok(gate.take({ ...base, id: kind, kind }, false))
-  for (const patch of [{ kind: 'arbitrary' }, { icon: 'file:///private' }, { body: 'x'.repeat(2001) }]) assert.throws(() => gate.take({ ...base, ...patch }, true))
+  assert.equal(gate.take(base, defaults), null)
+  assert.ok(gate.take(base, { ...defaults, notifyAllMail: true }))
+  assert.equal(gate.take(base, { ...defaults, notifyAllMail: true }), null)
+  assert.ok(gate.take({ ...base, org: 'other' }, { ...defaults, notifyAllMail: true }), 'same local id in another org is distinct')
+  for (const kind of ['question', 'urgent-mail', 'work-attention']) assert.ok(gate.take({ ...base, id: kind, kind }, defaults))
+  for (const patch of [{ kind: 'arbitrary' }, { icon: 'file:///private' }, { body: 'x'.repeat(2001) }]) assert.throws(() => gate.take({ ...base, ...patch }, defaults))
 })
 
 
@@ -92,7 +111,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
+    assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
   }
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {

@@ -13,8 +13,9 @@ export type EngineStatus =
 import type { VisualTheme } from './visual-theme'
 import type { ContrastTheme } from './contrast-theme'
 import type { AgentColorSource } from './agent-colors'
+import type { NotificationPreferences } from './notifications'
 
-export interface DesktopPreferences {
+export interface DesktopPreferences extends NotificationPreferences {
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource
@@ -30,7 +31,8 @@ export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
   /** The inbox row's source ID; the notification ID is an opaque dedup key. */
   source_id?: string
-  kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine'
+  generation?: number
+  kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine' | 'document' | 'agent-frozen'
 }
 export interface NotificationIdentity { id: string; org: string }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }

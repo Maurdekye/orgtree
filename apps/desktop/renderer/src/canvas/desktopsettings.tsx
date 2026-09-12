@@ -4,6 +4,7 @@ import type { NativePreferences } from '../desktop'
 import type { UpdateCapability, UpdateStatus } from '../../../../../packages/contracts'
 import { describeUpdateStatus } from '../update-notice'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
+import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
 
 export function DesktopSettings() {
   const bridge = desktop()
@@ -15,8 +16,8 @@ export function DesktopSettings() {
   const [capability, setCapability] = useState<UpdateCapability | null>(null)
   useEffect(() => {
     if (!bridge) return
-    let alive = true
-    bridge.getPreferences().then(p => { if (alive) setPrefs(p) })
+    let alive = true, changed = false
+    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
       .catch((e: Error) => { if (alive) setError(e.message) })
     if (bridge.getUpdateStatus) void bridge.getUpdateStatus().then(s => { if (alive) setUpdateStatus(s) }).catch(() => {})
     // Where this copy is installed cannot change while it runs, so this is
@@ -24,7 +25,7 @@ export function DesktopSettings() {
     if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
     const unsubscribe = bridge.onEvent(e => {
       if (!alive) return
-      if (e.type === 'preferences') setPrefs(e.data as NativePreferences)
+      if (e.type === 'preferences') { changed = true; setPrefs(e.data as NativePreferences) }
       else if (e.type === 'update') setUpdateStatus(e.data as UpdateStatus)
     })
     return () => { alive = false; unsubscribe() }
@@ -40,7 +41,7 @@ export function DesktopSettings() {
     setChecking(true)
     bridge.checkForUpdates().then(setUpdateStatus).finally(() => setChecking(false))
   }
-  return <SetGroup title="Desktop">
+  return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
     <SetToggle label="start at login" checked={prefs?.startAtLogin ?? true}
       disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
@@ -48,9 +49,6 @@ export function DesktopSettings() {
     <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />
-    <SetToggle label="notify about routine activity" checked={prefs?.routineNotifications ?? false}
-      disabled={!prefs || busy} onChange={routineNotifications => put({ routineNotifications })}
-      hint="Questions, urgent mail and work needing attention notify by default." />
     {/* Disabled where it cannot do anything: if Orgtree cannot write to its own
       * program directory, the installer needs an approval nobody is present to
       * give, so no update will ever install unattended and the switch is just
@@ -69,4 +67,10 @@ export function DesktopSettings() {
       </button>
     </SetRow>
   </SetGroup>
+  <SetGroup title="Notifications">
+    {NOTIFICATION_OPTIONS.map(({ key, label }) => <SetToggle key={key} label={label}
+      checked={notificationPreferences(prefs ?? {})[key]} disabled={!prefs || busy}
+      onChange={value => put({ [key]: value })}
+      hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
+  </SetGroup></>
 }

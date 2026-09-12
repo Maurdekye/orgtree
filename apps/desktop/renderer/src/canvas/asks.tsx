@@ -21,6 +21,7 @@ import { answerAsk, creditDecide, resolveBatch } from '../api'
 import { CreditBar } from './cards'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
+import { useQuestionVisibility } from '../notification-visibility'
 
 const OTHER = '\0other'          // sentinel — no label can collide with it
 
@@ -142,6 +143,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   segments: { seat: number; grant: number }[]
   pxc?: number
 }) {
+  const visibilityRef = useQuestionVisibility(slug, ask.id)
   const tabs: AskTab[] = (ask.tabs ?? []).map((t) => ({
     ...t, options: (t.options ?? []).map((o) =>
       typeof o === 'string' ? { label: o } : o) }))
@@ -244,7 +246,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     }
   }
   return (
-    <div className="askcard" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}>
       <AskHead
         label={`${tabs.length} request${tabs.length === 1 ? '' : 's'}`}
         node={ask.node} busy={busy}
@@ -428,6 +430,7 @@ const tabValue = (q: AskQuestion, d: TabDraft): string | string[] => {
 function QuestionAsk({ ask, slug, toast }: {
   ask: AskInfo; slug: string; toast: ToastFn
 }) {
+  const visibilityRef = useQuestionVisibility(slug, ask.id)
   // tolerate a stale backend payload with no `questions` — degrade to the
   // top-level mirror of tab 0
   const qs: AskQuestion[] = (ask.questions?.length ? ask.questions
@@ -492,7 +495,7 @@ function QuestionAsk({ ask, slug, toast }: {
     }
   }
   return (
-    <div className="askcard" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard" tabIndex={-1} onKeyDown={onKey}>
       <AskHead
         label={batch ? `${qs.length} questions` : (q.header || 'Question')}
         node={ask.node} busy={busy}
@@ -567,6 +570,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   segments: { seat: number; grant: number }[]
   pxc?: number
 }) {
+  const visibilityRef = useQuestionVisibility(slug, ask.id)
   const oldG = ask.old ?? 0
   const askedG = ask.new ?? oldG
   const [g, setG] = useState(askedG)          // the staged offer
@@ -622,7 +626,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
   return (
-    <div className="askcard credit" tabIndex={-1} onKeyDown={onKey}>
+    <div ref={visibilityRef} className="askcard credit" tabIndex={-1} onKeyDown={onKey}>
       <AskHead label="Credit request" node={ask.node} busy={busy}
         closeTitle="deny the request" onClose={() => decide('deny')} />
       {/* EVERYTHING sits beside the bar (user ruling 2026-08-05) — the bar

@@ -1018,6 +1018,9 @@ class Org:
                     m["from"] = SYSTEM if m["from"] == "system" else USER
             self.d["_actors_typed"] = True
 
+        from .notification_state import reconcile_attention
+        reconcile_attention(self.d, initialize_only=True)
+
     # ---------------------------------------------------------------- factory
     @staticmethod
     def create(name: str, dirs: list[str] | None = None,

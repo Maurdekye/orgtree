@@ -455,6 +455,7 @@ export default function App() {
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
+  const [galleryJump, setGalleryJump] = useState<{ id: string; seq: number } | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs
   // to, so this is handed DOWN to it rather than re-decided here. One-shot,
@@ -554,7 +555,12 @@ export default function App() {
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
-    if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
+    if (nativeTarget.kind === 'document' && nativeTarget.source_id) {
+      setGalleryJump(jumpTo(nativeTarget.source_id)); setShowGallery(true); raisePinnedModal('gallery', slug)
+    } else if (nativeTarget.kind === 'agent-frozen') {
+      const agent = nativeTarget.agent && flatNodes(tree).get(nativeTarget.agent)
+      if (agent && (agent.generation ?? 0) === nativeTarget.generation) setFocusAgent(agent.id)
+    } else if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
     else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
@@ -1284,6 +1290,7 @@ export default function App() {
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
+          jumpTo={galleryJump} onJumpHandled={() => setGalleryJump(null)}
           onOpenDocument={id => {closeIfCentred('gallery', () => setShowGallery(false), slug); setDocJump(id)}}
           onFocusAgent={(id) => {
             closeIfCentred('gallery', () => setShowGallery(false), slug)

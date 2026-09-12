@@ -664,6 +664,8 @@ class WorkItem(TypedDict):
     reviewer: NotRequired[WorkActor | None]
     manual_attention: dict[str, Any] | None   # {reason, at, by, set_rev} — set_rev is the dismiss CAS stamp
     manual_attention_rev: int       # monotonic; every (re)set of the flag mints the next set_rev
+    notification_attention_active: NotRequired[bool]
+    notification_attention_epoch: NotRequired[int]  # only an effective false-to-true edge increments this
     dismissals: list[dict[str, Any]]          # {at, by: "user", set_rev, reason} — every user dismissal, kept
     archived_at: str | None         # instant of the physical move into work_items_archive
     acceptance: list[WorkAcceptance]
