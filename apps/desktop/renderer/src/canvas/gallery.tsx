@@ -116,7 +116,14 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const menu = useContextMenu()
   const rowMenu = (e: ReactMouseEvent<HTMLElement>, r: DocRow) =>
     presentationMenu(e.currentTarget, slug, r, {
-      open: () => openDocument(r.id),
+      // ⚠ ONE ENTRY, TWO EFFECTS — so it TOGGLES. The label below already said
+      // Close on the open row while the action was a plain `openDocument`,
+      // which re-selected the row it was already on: no state change, so the
+      // menu shut and the document stayed open (user report 2026-09-12). The
+      // agent-scoped gallery below has always toggled; this is the same rule.
+      // Selecting `null` is exactly how the pane empties — Close is a
+      // deselection, never a dismissal, so no card is deleted by it.
+      open: () => setSelId((id) => id === r.id ? null : r.id),
       openLabel: r.id === selId ? 'Close' : 'Open',
       toast,
       dismiss: () => dismissDoc(slug, r.id, r.title, toast,

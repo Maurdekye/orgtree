@@ -42,7 +42,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
 import { InboxView, MailList } from '../src/canvas/mail'
 import { PresentationCard, presentationMenu } from '../src/canvas/docs'
-import { AgentGalleryView } from '../src/canvas/gallery'
+import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { DocketModal } from '../src/canvas/docket'
 import { PinFrame, MODAL_PINS_KEY } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
@@ -569,6 +569,64 @@ uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE;
   const del = calls.find((c) => c.method === 'DELETE')
   assert.ok(del, 'the existing dismiss path: DELETE /documents/d1')
   assert.match(del!.url, /\/documents\/d1$/)
+})
+
+uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else — '
+  + 'the other rows keep their state, no card is deleted, the panel stays up', async (t) => {
+  // The entry that says Close must DO the close. It said Close and left the
+  // document open (user report 2026-09-12): the label flipped on selection but
+  // the action re-selected the row it was already on, so the menu shut and
+  // nothing moved. Both halves are pinned here — the label AND the effect.
+  const calls: { method: string; url: string }[] = []
+  const had = (globalThis as { fetch?: typeof fetch }).fetch
+  const docs = [
+    { id: 'd1', node: 'me', title: 'First plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd2', node: 'you', title: 'Second plan', at: '2026-09-07T09:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+  ]
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const path = String(url)
+    calls.push({ method, url: path })
+    const one = path.match(/\/documents\/([^/?]+)$/)
+    const body = method !== 'GET' ? {}
+      : one ? { ...docs.find((d) => d.id === one[1]!), body: `the body of ${one[1]}` }
+        : { documents: docs, total: docs.length }
+    return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
+      json: () => Promise.resolve(body) })
+  }) as unknown as typeof fetch
+  t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  let closedPanel = 0
+  const v = await mountView(
+    <DocGalleryModal slug="org" toast={noop} close={() => { closedPanel += 1 }} />, (h) => h)
+  t.after(() => v.unmount())
+  await flush(); await advance(200, 16); await flush()
+  const rows = () => [...v.el.querySelectorAll('.doc-gallery-row')] as HTMLElement[]
+  assert.equal(rows().length, 2, 'positive control: both rows rendered')
+  const pane = () => v.el.querySelector('.mailer-read')!.textContent ?? ''
+
+  await rightClick(rows()[0]!)
+  assert.equal(labels()[0], 'Open', 'an unselected row offers Open')
+  await pick('Open')
+  await flush(3)
+  assert.ok(rows()[0]!.classList.contains('on'), 'Open selected the row')
+
+  // the second row is NOT swept along: it is still its own unselected self
+  await rightClick(rows()[1]!)
+  assert.equal(labels()[0], 'Open', 'the row that is not open still says Open')
+  await key(document.body, 'Escape')
+
+  await rightClick(rows()[0]!)
+  assert.equal(labels()[0], 'Close', 'the open row offers Close')
+  await pick('Close')
+  await flush(3)
+  assert.ok(!rows()[0]!.classList.contains('on'), 'Close deselected the open document')
+  assert.match(pane(), /select a document to read it/,
+    'and the reading pane went back to its empty state')
+  assert.equal(rows().length, 2, 'both cards are still listed — Close is not Dismiss')
+  assert.ok(!rows()[1]!.classList.contains('on'), 'the other document was not opened by it')
+  assert.equal(calls.find((c) => c.method === 'DELETE'), undefined,
+    'Close deletes nothing — the card survives')
+  assert.equal(closedPanel, 0, 'and the gallery itself stayed open')
 })
 
 // --- the ticket row ---
