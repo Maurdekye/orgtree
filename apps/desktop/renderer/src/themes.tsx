@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { desktop } from './desktop'
 import { getProviders } from './api'
 import { SetGroup, SetRow } from './canvas/settingskit'
+import { ContrastSetting } from './contrast'
 import { isVisualTheme, isCustomTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
@@ -208,5 +209,6 @@ export function ThemeSetting() {
       <span>{customColor}</span>
     </SetRow>}
     {error && <p role="alert">Could not save theme: {error}</p>}
+    <ContrastSetting />
   </SetGroup>
 }

@@ -15,6 +15,28 @@
   --dim: #9d9d9d;
   --line: #3c3c3c;
   --line-soft: #2b2b2b;
+  --line-hover: #4a4a4a;
+  --scrollbar: #424242;
+  --scrollbar-hover: #4f4f4f;
+  --canvas-dot: #343434;
+  --peer-edge: #3e3e42;
+  --tether-edge: #5a5a5c;
+  --bearer-panel: #262628;
+  --bearer-line: #3a3a3c;
+  --bearer-top: #4a4a4c;
+  --pile-1: #232325;
+  --pile-2: #1e1e20;
+  --pile-3: #1a1a1c;
+  --pile-crowd-1: #26262c;
+  --pile-crowd-2: #212127;
+  --pile-crowd-3: #1c1c22;
+  --oracle-panel: #232328;
+  --oracle-line: #4a4a55;
+  --tip-panel: #111;
+  --tip-fill: #67c3d8;
+  --tip-seat: #a5f3fc;
+  --draft-stripe: #27272a;
+  --danger-ink: #ffb59c;
   --accent: #d97757;        /* Claude default accent; explicit themes override it */
   --prov-claude: #d97757;   /* explicit destination theme inside other desks */
   --aud-user: var(--accent);      /* direct line to the user — relationship color,
@@ -64,6 +86,89 @@
   --sans: 'Segoe UI', 'SF Pro Text', system-ui, sans-serif;
 }
 
+/* Contrast changes surfaces and their text independently of the accent.
+   Charcoal is the original :root palette, including installations with no
+   saved contrast preference. Root classes also reach existing popouts. */
+:root.contrast-light {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --side: #eceff3;
+  --panel: #ffffff;
+  --panel-2: #e8ebef;
+  --input: #ffffff;
+  --ink: #2d333b;
+  --ink-strong: #161b22;
+  --dim: #57606a;
+  --line: #c5ccd4;
+  --line-soft: #dce1e7;
+  --shadow: 0 2px 8px rgba(0, 0, 0, .14);
+}
+:root.contrast-solarized-light {
+  color-scheme: light;
+  --bg: #fdf6e3;
+  --side: #eee8d5;
+  --panel: #fffbef;
+  --panel-2: #e9e2cb;
+  --input: #fffbef;
+  --ink: #455c64;
+  --ink-strong: #073642;
+  --dim: #52656b;
+  --line: #c8c2ae;
+  --line-soft: #ded8c3;
+  --shadow: 0 2px 8px rgba(7, 54, 66, .16);
+}
+:root.contrast-obsidian-black {
+  color-scheme: dark;
+  --bg: #000000;
+  --side: #080808;
+  --panel: #101010;
+  --panel-2: #191919;
+  --input: #171717;
+  --ink: #d6d6d6;
+  --ink-strong: #f3f3f3;
+  --dim: #a8a8a8;
+  --line: #303030;
+  --line-soft: #202020;
+}
+:root:is(.contrast-light, .contrast-solarized-light, .contrast-obsidian-black) {
+  --line-hover: color-mix(in srgb, var(--line) 65%, var(--ink));
+  --scrollbar: color-mix(in srgb, var(--line) 65%, var(--dim));
+  --scrollbar-hover: var(--dim);
+  --canvas-dot: var(--line-soft);
+  --peer-edge: var(--line);
+  --tether-edge: var(--dim);
+  --bearer-panel: var(--panel-2);
+  --bearer-line: var(--line);
+  --bearer-top: var(--line-hover);
+  --pile-1: color-mix(in srgb, var(--panel) 75%, var(--side));
+  --pile-2: color-mix(in srgb, var(--panel) 50%, var(--side));
+  --pile-3: var(--side);
+  --pile-crowd-1: var(--pile-1);
+  --pile-crowd-2: var(--pile-2);
+  --pile-crowd-3: var(--pile-3);
+  --oracle-panel: var(--panel-2);
+  --oracle-line: var(--line-hover);
+  --tip-panel: var(--panel);
+  --draft-stripe: var(--panel-2);
+}
+/* Status text retains its hue with darker ink on the two light surfaces.
+   Provider/tier identities keep their colors; tier labels have a dark backing
+   so even the pale Astra and Flash labels remain legible. */
+:root:is(.contrast-light, .contrast-solarized-light) {
+  --ok: #23722d;
+  --bad: #bf2929;
+  --warn: #805b0b;
+  --work: #23679e;
+  --review: #815379;
+  --backlog: #326b66;
+  --deploy-ready: #6350a8;
+  --ice: #326b82;
+  --tip-fill: #176377;
+  --tip-seat: #155e75;
+  --danger-ink: #af3320;
+}
+:root:is(.contrast-light, .contrast-solarized-light) :is(.tier, .chip.agents) { background: #313131; color: #cccccc; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -73,8 +178,8 @@ body {
 ::selection { background: var(--accent-soft); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 .app { display: flex; min-height: 100vh; }
@@ -311,7 +416,7 @@ main {
    moving object. */
 .canvas-bg {
   position: absolute; inset: 0; pointer-events: none;
-  background-image: radial-gradient(circle, #343434 var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
+  background-image: radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
   background-size: 28px 28px;
 }
 .space {
@@ -326,7 +431,7 @@ main {
 .edge.faded { opacity: .3; stroke-dasharray: 4 4; }
 .edge.draftedge { stroke: var(--accent); stroke-dasharray: 5 4; opacity: .6; }
 /* coworkers: the lateral peer channel between adjacent siblings */
-.edge.peer { stroke: #3e3e42; stroke-dasharray: 2 6; stroke-width: 1.2px; opacity: .65; }
+.edge.peer { stroke: var(--peer-edge); stroke-dasharray: 2 6; stroke-width: 1.2px; opacity: .65; }
 /* audience: an emphasized direct line BYPASSING the tree (bright = user's ear).
    Agent-granted lines are STEEL, not blue — the old #56aef0 was byte-identical
    to the sonnet tier hue, so "sonnet agent" and "holds an audience" collided */
@@ -550,7 +655,7 @@ button.badge.audience-fold.alert {
   position: absolute; top: -5px; right: 0; background: var(--accent);
   color: #fff; border-radius: 8px; font-size: 9.5px; padding: 0 4px; font-weight: 700;
 }
-.sq:hover { border-color: #4a4a4a; }
+.sq:hover { border-color: var(--line-hover); }
 .sq.archived { opacity: .5; }
 .sq.unrecoverable { border-color: var(--bad); opacity: .8; }
 .sq.busy { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -1707,12 +1812,12 @@ button.cc-name:hover {
    live bearer against archived bearer — is the test of this rule, and
    tests/bearercard_probe.py measures it in a real browser. */
 .sq.bearer:not(.live) {
-  background: #262628; border-color: #3a3a3c; border-top-color: #4a4a4c;
+  background: var(--bearer-panel); border-color: var(--bearer-line); border-top-color: var(--bearer-top);
   opacity: .7;
 }
 .sq.bearer:not(.live) .name { color: var(--dim); }
 /* lifecycle wash beats the mini tier tint */
-.sq.mini.bearer:not(.live) { background: #262628; }
+.sq.mini.bearer:not(.live) { background: var(--bearer-panel); }
 .sq.mini.bearer:not(.live) .sq-title .name { color: var(--dim); }
 /* permission border: dashed = cannot edit files (read-only agent); the tier
    edge stays solid — dashing it too read as noise, not as a channel */
@@ -2269,9 +2374,9 @@ button.cc-name:hover {
   padding: 0; border-radius: 8px; border: 1px solid var(--line-soft);
   transition: transform .18s ease;
 }
-.pile-layer.l1 { background: #232325; transform: translate(5px, -5px); }
-.pile-layer.l2 { background: #1e1e20; transform: translate(10px, -10px); }
-.pile-layer.l3 { background: #1a1a1c; transform: translate(15px, -15px); }
+.pile-layer.l1 { background: var(--pile-1); transform: translate(5px, -5px); }
+.pile-layer.l2 { background: var(--pile-2); transform: translate(10px, -10px); }
+.pile-layer.l3 { background: var(--pile-3); transform: translate(15px, -15px); }
 .pile-stack:hover .pile-layer.l1 { transform: translate(9px, -9px); }
 .pile-stack:hover .pile-layer.l2 { transform: translate(18px, -18px); }
 .pile-stack:hover .pile-layer.l3 { transform: translate(27px, -27px); }
@@ -2288,9 +2393,9 @@ button.cc-name:hover {
 .pile-stack.crowd .pile-layer {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft));
 }
-.pile-stack.crowd .pile-layer.l1 { background: #26262c; }
-.pile-stack.crowd .pile-layer.l2 { background: #212127; }
-.pile-stack.crowd .pile-layer.l3 { background: #1c1c22; }
+.pile-stack.crowd .pile-layer.l1 { background: var(--pile-crowd-1); }
+.pile-stack.crowd .pile-layer.l2 { background: var(--pile-crowd-2); }
+.pile-stack.crowd .pile-layer.l3 { background: var(--pile-crowd-3); }
 .pile-stack.crowd .pile-count {
   color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
@@ -2324,18 +2429,18 @@ button.cc-name:hover {
    audience is held. One channel never silently suppresses another. */
 .sq.stack1 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft);
 }
 .sq.stack2 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft),
-    10px -10px 0 -1px #1e1e20, 10px -10px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft),
+    10px -10px 0 -1px var(--pile-2), 10px -10px 0 0 var(--line-soft);
 }
 .sq.stack3 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft),
-    10px -10px 0 -1px #1e1e20, 10px -10px 0 0 var(--line-soft),
-    15px -15px 0 -1px #1a1a1c, 15px -15px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft),
+    10px -10px 0 -1px var(--pile-2), 10px -10px 0 0 var(--line-soft),
+    15px -15px 0 -1px var(--pile-3), 15px -15px 0 0 var(--line-soft);
 }
 .stackbadge { border: 1px solid var(--line); background: var(--input); }
 /* SCOPED TO `button`, like `button.badge.frozen` above. On a zoomed-out card
@@ -2349,7 +2454,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
    press land on the CARD even when a descendant (the icon) is the hit
    target, which is the whole point: aim anywhere on an agent and focus it. */
 .badge.inert { pointer-events: none; }
-.edge.tether { stroke: #5a5a5c; stroke-dasharray: 2 4; stroke-width: 1.3px; opacity: .8; }
+.edge.tether { stroke: var(--tether-edge); stroke-dasharray: 2 4; stroke-width: 1.3px; opacity: .8; }
 .sq.locked { filter: saturate(.4); }
 .sq.locked::after {
   content: none;   /* the lock is a badge icon now (MUI icons — user ruling) */
@@ -2368,7 +2473,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   color: var(--dim); font-size: 11px; font-style: italic; margin-top: 3px;
 }
 .msg.live.tools { align-self: flex-start; background: none; border: none; color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 1px 4px; }
-.msg.oracle { border-color: #4a4a55; background: #232328; }
+.msg.oracle { border-color: var(--oracle-line); background: var(--oracle-panel); }
 
 /* desk tabs, history, files */
 .desk-tabs { margin-left: 6px; display: flex; gap: 2px; }
@@ -2846,7 +2951,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   transform: scale(var(--invz, 1)); transform-origin: bottom right;
   white-space: nowrap; font-size: 10px; line-height: 1.5; font-family: var(--mono);
   text-align: right;
-  background: #111; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--tip-panel); border: 1px solid var(--line); border-radius: 4px;
   padding: 3px 8px; color: var(--ink); opacity: 0; pointer-events: none;
   transition: opacity .12s; box-shadow: var(--shadow);
 }
@@ -2857,8 +2962,8 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
    for grant/alloc/circulation, the seat block's darker blue, the empty
    section's grey for free */
 /* tip colors mirror the swapped bar layers: seat brightest, alloc darker */
-.cbar-tip b.n-fill { color: #67c3d8; }
-.cbar-tip b.n-seat { color: #a5f3fc; }
+.cbar-tip b.n-fill { color: var(--tip-fill); }
+.cbar-tip b.n-seat { color: var(--tip-seat); }
 .cbar-tip b.n-free { color: #7f7f7f; }
 .cbar-tip .dim { color: var(--dim); }
 /* the hovered card (and its tip) must clear a neighbouring open desk (z 5) */
@@ -2869,7 +2974,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   cursor: default; border: 1px dashed var(--accent);
   box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 25%, transparent);
   background: repeating-linear-gradient(135deg,
-    var(--panel) 0, var(--panel) 9px, #27272a 9px, #27272a 10px);
+    var(--panel) 0, var(--panel) 9px, var(--draft-stripe) 9px, var(--draft-stripe) 10px);
 }
 /* floats ABOVE the box (user ruling) — frees a row inside the card */
 .draft-tag {
@@ -3817,7 +3922,7 @@ button {
   border: 1px solid var(--line); background: var(--input); color: var(--ink);
   cursor: pointer; transition: background .12s, border-color .12s;
 }
-button:hover { background: var(--panel-2); border-color: #4a4a4a; }
+button:hover { background: var(--panel-2); border-color: var(--line-hover); }
 button.primary {
   background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
   font-weight: 600;
@@ -6291,7 +6396,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   background: var(--bg, #171717); color: var(--ink); font-size: 12px;
 }
-.popout-error { color: #ffb59c; }
+.popout-error { color: var(--danger-ink); }
 .popout-restart { border: 1px solid #a9803b; flex-wrap: wrap; }
 .popout-document { margin: 0; overflow: hidden; }
 .popout-mount, .popout-mount > .movable-surface,
@@ -6415,7 +6520,7 @@ html.mobile .popout-button { display: none; }
   background: var(--panel-2); color: var(--ink-strong); outline: none;
 }
 .ctxmenu-item:disabled { color: var(--dim); cursor: default; background: none; }
-.ctxmenu-item.danger { color: #ffb59c; }
+.ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
 .ctxmenu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 /* the card's "Hire a subordinate…" entry reveals the existing bottom hire

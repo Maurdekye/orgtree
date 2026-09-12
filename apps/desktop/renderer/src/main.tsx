@@ -11,8 +11,10 @@ import { installFreezeLog } from './freezelog'
 import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
 import './styles.css'
 import { startThemeSync } from './themes'
+import { startContrastSync } from './contrast'
 
 startThemeSync()
+startContrastSync()
 
 flushPendingReports()
 

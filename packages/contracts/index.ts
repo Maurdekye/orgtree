@@ -11,9 +11,11 @@ export type EngineStatus =
   | { state: 'ready' }
   | { state: 'unavailable' | 'stopped'; message: string }
 import type { VisualTheme } from './visual-theme'
+import type { ContrastTheme } from './contrast-theme'
 
 export interface DesktopPreferences {
   visualTheme: VisualTheme
+  contrastTheme: ContrastTheme
   /** True when the user chose a theme; absent means use the detected default. */
   visualThemeExplicit?: boolean
   exitOnClose: boolean

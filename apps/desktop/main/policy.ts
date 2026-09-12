@@ -1,10 +1,11 @@
 import { isVisualTheme } from '../../../packages/contracts/visual-theme'
+import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/contrast-theme'
 import { isAppPath } from '../../../packages/contracts/ui-route'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -19,6 +20,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     if (key === 'visualTheme') {
       if (!isVisualTheme(val)) throw new Error('Invalid visual theme')
       result.visualTheme = val
+    } else if (key === 'contrastTheme') {
+      if (!isContrastTheme(val)) throw new Error('Invalid contrast theme')
+      result.contrastTheme = val
     } else if (key === 'visualThemeExplicit') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val
