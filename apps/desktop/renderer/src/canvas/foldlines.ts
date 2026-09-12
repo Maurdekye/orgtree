@@ -40,6 +40,15 @@ export interface FoldMeasure {
 
 export const NO_FOLD: FoldMeasure = { limit: null, lines: 0 }
 
+/** Whether two measurements say the same thing.
+ *
+ *  `foldAt` builds a fresh object every call, so storing its result always
+ *  looked like a state change to React and forced a render for an answer that
+ *  had not moved. Callers compare instead of assigning blindly. */
+export function sameFold(a: FoldMeasure, b: FoldMeasure): boolean {
+  return a.limit === b.limit && a.lines === b.lines
+}
+
 /** Measure `body` and, if it runs past `maxLines`, say where to clip it. */
 export function foldAt(body: HTMLElement, maxLines: number): FoldMeasure {
   const box = body.getBoundingClientRect()
