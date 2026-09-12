@@ -3953,6 +3953,24 @@ def rename_node(slug: str, nid: str, new_name: str,
                 os.rename(oldp, newp)
                 moved.append((oldp, newp))
             store.save_org(org)
+            # Git worktree registrations live in the machine registry, not in
+            # the org ledger. Repair only paths contained by this agent's
+            # moved checkout root; similarly named siblings and unrelated
+            # repositories are deliberately untouched. No old-path alias is
+            # created, so a stale reference cannot silently revive old work.
+            try:
+                from . import gitworkspace
+                repaired_worktrees = gitworkspace.repair_registered_worktrees(
+                    slug, old_dir, new_dir)
+            except Exception as repair_error:
+                # The identity rename is already durable. Keep the rename
+                # visible and report the registry repair failure so the host
+                # operator can repair it explicitly rather than hiding it.
+                repaired_worktrees = []
+                new_slug_probe.setdefault("warnings", []).append(
+                    f"registered worktree paths were not repaired: {repair_error}")
+            if repaired_worktrees:
+                new_slug_probe["worktrees"] = repaired_worktrees
             if aside_notes:
                 new_slug_probe.setdefault("warnings", []).extend(aside_notes)
         except Exception:

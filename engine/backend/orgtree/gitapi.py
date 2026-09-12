@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import os
 import time
 from typing import Any, Iterator
 
@@ -59,6 +60,41 @@ class ActionBody(BaseModel):
     worktree: str | None = None
 
 
+class SetupBody(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    package_manager: str | None = Field(default=None, max_length=32)
+    dependency_source: str | None = Field(default=None, max_length=4096)
+    apply: bool = False
+
+
+class CleanupBody(BaseModel):
+    root: str = Field(min_length=1, max_length=4096)
+    candidates: list[str] = Field(min_length=1, max_length=200)
+    preview: dict[str, Any] | None = None
+    confirm: bool = False
+
+
+def _worktree_maps(slug: str, repo: dict[str, Any]) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Build display-only owner/reference facts from explicit registrations."""
+    owners: dict[str, str] = {}
+    for owner, paths in (repo.get("worktree_agents") or {}).items():
+        values = [paths] if isinstance(paths, str) else paths
+        if not isinstance(values, list):
+            continue
+        for path in values:
+            if isinstance(path, str):
+                owners[path] = str(owner)
+    facts = gw.org_facts(slug)
+    links = gw.associations(slug, repo, facts)
+    active: dict[str, list[str]] = {}
+    for branch, items in links.items():
+        refs = [item["ref"] for item in items
+                if item.get("status") not in ("done", "dropped", "superseded")]
+        if refs:
+            active[branch] = refs
+    return owners, active
+
+
 @router.get("/repositories")
 def repositories(slug: str) -> dict[str, Any]:
     with errors():
@@ -109,6 +145,81 @@ def select(slug: str, rid: str) -> dict[str, bool]:
 def observation(slug: str, rid: str) -> dict[str, Any]:
     with errors():
         return gw.observation(slug, rid)
+
+
+@router.get("/{rid}/inventory")
+def inventory(slug: str, rid: str, query: str | None = None,
+              limit: int = 60) -> dict[str, Any]:
+    with errors():
+        repo = gw.repository(slug, rid)
+        owners, active = _worktree_maps(slug, repo)
+        return gw.worktree_inventory(repo, owners=owners, active_refs=active,
+                                     query=query, limit=limit)
+
+
+@router.post("/{rid}/setup")
+def setup(slug: str, rid: str, body: SetupBody) -> dict[str, Any]:
+    with errors():
+        return gw.worktree_setup(gw.repository(slug, rid), body.path,
+                                 package_manager=body.package_manager,
+                                 dependency_source=body.dependency_source,
+                                 apply=body.apply)
+
+
+@router.post("/{rid}/cleanup-preview")
+def cleanup_preview(slug: str, rid: str, body: CleanupBody) -> dict[str, Any]:
+    with errors():
+        repo = gw.repository(slug, rid)
+        owners, active = _worktree_maps(slug, repo)
+        all_worktrees = gw.worktrees(repo)
+        root = os.path.normcase(os.path.abspath(body.root))
+        row = next((w for w in all_worktrees
+                    if os.path.normcase(os.path.abspath(w.get("path", ""))) == root), None)
+        if not row:
+            raise gw.GitError("Cleanup root is not a registered Git worktree", status=404)
+        state = gw.changes(repo, row) if not row.get("bare") else {"state": "bare"}
+        protected = gw.worktree_protected(
+            state, active=bool(active.get(row.get("branch") or "")))
+        owned: list[str] = []
+        for paths in (repo.get("worktree_agents") or {}).values():
+            values = [paths] if isinstance(paths, str) else paths
+            if isinstance(values, list):
+                owned.extend(p for p in values if isinstance(p, str))
+        return gw.preview_worktree_cleanup(body.root, body.candidates, owned=owned,
+                                           protected=protected)
+
+
+@router.post("/{rid}/cleanup-unlink")
+def cleanup_unlink(slug: str, rid: str, body: CleanupBody) -> dict[str, Any]:
+    with errors():
+        if body.preview is None:
+            raise gw.GitError("Provide the cleanup preview before unlinking")
+        # Validate the root and protection state again at the mutation boundary.
+        repo = gw.repository(slug, rid)
+        row = next((w for w in gw.worktrees(repo)
+                    if os.path.normcase(os.path.abspath(w.get("path", ""))) ==
+                    os.path.normcase(os.path.abspath(body.root))), None)
+        if not row:
+            raise gw.GitError("Cleanup root is not a registered Git worktree", status=404)
+        state = gw.changes(repo, row) if not row.get("bare") else {"state": "bare"}
+        _, active = _worktree_maps(slug, repo)
+        if gw.worktree_protected(state, active=bool(active.get(row.get("branch") or ""))):
+            raise gw.GitError("Cleanup is blocked because the worktree changed or is dirty")
+        preview_root = os.path.normcase(os.path.abspath(str(body.preview.get("root") or "")))
+        if preview_root != os.path.normcase(os.path.abspath(body.root)):
+            raise gw.GitError("Cleanup preview belongs to another worktree")
+        paths = [entry.get("path") for entry in body.preview.get("targets", [])
+                 if isinstance(entry, dict) and isinstance(entry.get("path"), str)]
+        owned: list[str] = []
+        for values in (repo.get("worktree_agents") or {}).values():
+            values = [values] if isinstance(values, str) else values
+            if isinstance(values, list):
+                owned.extend(p for p in values if isinstance(p, str))
+        # Recompute the authorization at the mutation boundary. A submitted
+        # preview is evidence of intent, not permission to unlink an entry
+        # that became ordinary, moved outside the root, or changed ownership.
+        fresh = gw.preview_worktree_cleanup(body.root, paths, owned=owned)
+        return gw.unlink_validated_reparse_point(fresh, confirm=body.confirm)
 
 
 @router.get("/{rid}/settings")

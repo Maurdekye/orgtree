@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import subprocess
 import threading
 import time
 from typing import Any
@@ -31,6 +32,7 @@ PAGE_SIZE = 120
 MAX_LANES = 40
 MAX_FILES = 2000
 OID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+REPARSE_ATTRIBUTE = 0x400
 
 
 class GitError(ValueError):
@@ -221,6 +223,279 @@ def worktrees(repo: dict[str, Any]) -> list[dict[str, Any]]:
         elif key in ("detached", "bare", "locked", "prunable"):
             row[key] = value or True
     return result
+
+
+def _reparse(path: str) -> bool:
+    """Read link metadata without following the directory entry."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return os.path.islink(path) or bool(getattr(info, "st_file_attributes", 0) & REPARSE_ATTRIBUTE)
+
+
+def _reparse_identity(path: str) -> tuple[str, int | None] | None:
+    """Return link kind and Windows reparse tag without following the entry."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    kind = ("symlink" if os.path.islink(path) else
+            "reparse" if getattr(info, "st_file_attributes", 0) & REPARSE_ATTRIBUTE else "file")
+    return kind, getattr(info, "st_reparse_tag", None)
+
+
+def _entry_kind(path: str) -> str:
+    """Classify a directory entry using lstat only."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return "missing"
+    if os.path.islink(path):
+        return "symlink"
+    if getattr(info, "st_file_attributes", 0) & REPARSE_ATTRIBUTE:
+        return "reparse"
+    if stat.S_ISDIR(info.st_mode):
+        return "directory"
+    return "file"
+
+
+def _lexically_contained(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((os.path.normcase(os.path.abspath(path)),
+                                   os.path.normcase(os.path.abspath(root)))) == os.path.normcase(os.path.abspath(root))
+    except ValueError:
+        return False
+
+
+def worktree_inventory(repo: dict[str, Any], *, owners: dict[str, str] | None = None,
+                       active_refs: dict[str, list[str]] | None = None,
+                       query: str | None = None, limit: int = 60) -> dict[str, Any]:
+    """Return a compact checkout inventory with explicit omission totals.
+
+    Ownership and active references are application facts, not Git facts, so
+    they are accepted only from the caller's registered maps. This helper does
+    not infer an owner from a path and never hides a dirty checkout.
+    """
+    if limit < 1:
+        raise GitError("Inventory limit must be positive")
+    owners = owners or {}
+    active_refs = active_refs or {}
+    rows = worktrees(repo)
+    visible: list[dict[str, Any]] = []
+    hidden = 0
+    for row in rows:
+        path = row.get("path", "")
+        branch = row.get("branch")
+        refs_for_branch = list(active_refs.get(branch or "", []))
+        dirty, unmerged, readable = False, False, True
+        if not row.get("bare"):
+            state = changes(repo, row)
+            dirty = state.get("state") == "dirty" or state.get("state") == "unavailable"
+            unmerged = bool(state.get("conflicted") or state.get("operations"))
+            readable = state.get("state") != "unavailable"
+        owner = owners.get(path) or owners.get(os.path.normcase(os.path.abspath(path)))
+        item = {"repository": repo["id"], "path": path, "branch": branch,
+                "owner": owner, "dirty": dirty, "unmerged": unmerged,
+                "active_references": refs_for_branch, "active": bool(refs_for_branch),
+                "readable": readable, "bare": bool(row.get("bare")),
+                "locked": bool(row.get("locked")), "prunable": bool(row.get("prunable"))}
+        if query and query.casefold() not in json.dumps(item, sort_keys=True).casefold():
+            hidden += 1
+            continue
+        visible.append(item)
+    omitted = max(0, len(visible) - limit)
+    return {"repository": repo["id"], "worktrees": visible[:limit],
+            "total": len(rows), "visible": len(visible), "hidden": hidden,
+            "omitted": omitted, "complete": omitted == 0,
+            "dirty": sum(bool(r["dirty"]) for r in visible),
+            "unmerged": sum(bool(r["unmerged"]) for r in visible),
+            "active": sum(bool(r["active"]) for r in visible)}
+
+
+def worktree_setup(repo: dict[str, Any], path: str, *, package_manager: str | None = None,
+                   dependency_source: str | None = None, apply: bool = False) -> dict[str, Any]:
+    """Return an explicit dependency setup plan for a registered checkout."""
+    path = os.path.normcase(os.path.abspath(path))
+    if _entry_kind(path) != "directory":
+        raise GitError("Fresh worktree setup requires a real directory")
+    info = identify(path)
+    if info["common"] != repo["common"]:
+        raise GitError("Worktree belongs to another repository")
+    lockfile = next((name for name in ("package-lock.json", "npm-shrinkwrap.json",
+                                       "yarn.lock", "pnpm-lock.yaml")
+                     if os.path.isfile(os.path.join(path, name))), None)
+    package_json = os.path.isfile(os.path.join(path, "package.json"))
+    manager = package_manager or ("npm" if package_json else None)
+    if manager not in {None, "npm", "yarn", "pnpm"}:
+        raise GitError("Unsupported package manager")
+    dependency_link = None
+    if dependency_source:
+        source = os.path.normcase(os.path.abspath(dependency_source))
+        destination = os.path.join(path, "node_modules")
+        if _entry_kind(source) != "directory":
+            raise GitError("Dependency source must be a real directory")
+        kind = _reparse_identity(destination)
+        if kind is not None:
+            raise GitError("node_modules is already a link; refusing to replace it")
+        if _entry_kind(destination) == "directory":
+            raise GitError("node_modules directory already exists; refusing to replace it")
+        dependency_link = {"source": source, "destination": destination,
+                           "command": ["cmd", "/c", "mklink", "/J", destination, source],
+                           "applied": False}
+        if apply:
+            if os.name != "nt":
+                raise GitError("Junction setup is supported on Windows only")
+            result = subprocess.run(dependency_link["command"], check=False,
+                                    capture_output=True, text=True)
+            if result.returncode != 0 or not _reparse(destination):
+                raise GitError(result.stderr.strip() or
+                               "Dependency junction was not created; refusing to continue")
+            dependency_link["applied"] = True
+    command = None
+    if package_json and manager == "npm":
+        command = [manager, "ci"] if lockfile else [manager, "install"]
+    elif package_json and manager == "yarn":
+        command = [manager, "install", "--frozen-lockfile"] if lockfile else [manager, "install"]
+    elif package_json and manager == "pnpm":
+        command = [manager, "install", "--frozen-lockfile"] if lockfile else [manager, "install"]
+    answer = {"worktree": path, "package_manager": manager, "lockfile": lockfile,
+            "command": command, "ready": bool(command), "git_metadata_write": False,
+            "note": "Execute explicitly after review; setup never writes repository metadata."}
+    if dependency_link is not None:
+        answer["dependency_link"] = dependency_link
+    return answer
+
+
+def worktree_protected(state: dict[str, Any], *, active: bool = False) -> bool:
+    """Whether cleanup must preserve this checkout at this instant."""
+    return bool(active or state.get("count") or state.get("conflicted") or
+                state.get("operations") or state.get("state") == "unavailable")
+
+
+def preview_worktree_cleanup(root: str, candidates: list[str], *, owned: list[str] | None = None,
+                             protected: bool = False) -> dict[str, Any]:
+    """Preview exact entries that may be unlinked, without traversing targets."""
+    root = os.path.normcase(os.path.abspath(root))
+    owned_set = {os.path.normcase(os.path.abspath(p)) for p in (owned or [])}
+    targets = []
+    for candidate in candidates:
+        path = os.path.normcase(os.path.abspath(candidate if os.path.isabs(candidate)
+                                                else os.path.join(root, candidate)))
+        entry = {"path": path, "action": "preserve", "reason": "unknown reparse point"}
+        if protected:
+            entry["reason"] = "worktree is dirty, unmerged, or actively referenced"
+        elif not _lexically_contained(path, root):
+            entry["reason"] = "outside cleanup root"
+        elif path not in owned_set:
+            entry["reason"] = "not a registered owned link"
+        elif not _reparse(path):
+            entry["reason"] = "not a junction or reparse point"
+        else:
+            entry["action"] = "unlink"
+            entry["reason"] = "validated owned link"
+            entry["owned"] = True
+            entry["kind"] = "symlink" if os.path.islink(path) else "reparse"
+            entry["identity"] = _reparse_identity(path)
+            try:
+                entry["target"] = os.readlink(path)
+            except OSError:
+                entry["action"] = "preserve"
+                entry["reason"] = "reparse target could not be validated"
+                entry["target"] = None
+        targets.append(entry)
+    return {"root": root, "targets": targets,
+            "unlinkable": sum(t["action"] == "unlink" for t in targets),
+            "preserved": sum(t["action"] != "unlink" for t in targets),
+            "retirement_authorized": False, "applied": False}
+
+
+def unlink_validated_reparse_point(preview: dict[str, Any], *, confirm: bool = False) -> dict[str, Any]:
+    """Unlink only the link itself after an explicit preview confirmation."""
+    if not confirm:
+        raise GitError("Cleanup requires explicit confirmation after preview")
+    result = deepcopy(preview)
+    removed: list[str] = []
+    for entry in result.get("targets", []):
+        path = entry.get("path")
+        if (entry.get("action") != "unlink" or entry.get("owned") is not True
+                or not isinstance(path, str)):
+            continue
+        expected_identity = entry.get("identity")
+        identity_changed = ("identity" in entry and
+                            (not isinstance(expected_identity, (list, tuple)) or
+                             _reparse_identity(path) != tuple(expected_identity)))
+        if (not _reparse(path) or
+                ("kind" in entry and entry.get("kind") !=
+                 ("symlink" if os.path.islink(path) else "reparse")) or
+                identity_changed):
+            entry["action"], entry["reason"] = "preserve", "changed since preview"
+            continue
+        try:
+            current_target = os.readlink(path)
+        except OSError:
+            current_target = None
+        if entry.get("target") is None or current_target != entry.get("target"):
+            entry["action"], entry["reason"] = "preserve", "link target changed since preview"
+            continue
+        try:
+            os.unlink(path)
+        except (IsADirectoryError, PermissionError):
+            # Directory junctions on Windows use rmdir. lstat is retained so
+            # this fallback never tests or follows the link target.
+            try:
+                info = os.lstat(path)
+            except OSError:
+                entry["action"], entry["reason"] = "preserve", "changed since preview"
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                entry["action"], entry["reason"] = "preserve", "unlink refused"
+                continue
+            os.rmdir(path)
+        removed.append(path)
+        entry["action"] = "unlinked"
+    result["removed"], result["applied"] = removed, True
+    return result
+
+
+def repair_registered_worktree_refs(registry: dict[str, Any], old_root: str,
+                                    new_root: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Repair registered paths under a renamed root; never add an alias."""
+    old = os.path.normcase(os.path.abspath(old_root))
+    new = os.path.normcase(os.path.abspath(new_root))
+    updated = deepcopy(registry)
+    moved: list[dict[str, str]] = []
+    for repo in updated.get("repositories", {}).values():
+        agents = repo.get("worktree_agents") if isinstance(repo, dict) else None
+        if not isinstance(agents, dict):
+            continue
+        for agent, paths in list(agents.items()):
+            values = [paths] if isinstance(paths, str) else paths
+            if not isinstance(values, list):
+                continue
+            repaired = []
+            for value in values:
+                if not isinstance(value, str):
+                    repaired.append(value)
+                    continue
+                candidate = os.path.normcase(os.path.abspath(value))
+                if candidate == old or _lexically_contained(candidate, old):
+                    replacement = os.path.join(new, candidate[len(old):].lstrip("\\/"))
+                    repaired.append(replacement)
+                    moved.append({"agent": str(agent), "old": value, "new": replacement})
+                else:
+                    repaired.append(value)
+            agents[agent] = repaired
+    return updated, moved
+
+
+def repair_registered_worktrees(slug: str, old_root: str, new_root: str) -> list[dict[str, str]]:
+    """Persist contained registry repairs for an agent rename."""
+    current = settings.load()
+    updated, moved = repair_registered_worktree_refs(current, old_root, new_root)
+    if moved:
+        settings.change(lambda doc: doc.clear() or doc.update(updated))
+    return moved
 
 
 def _numstat(raw: bytes) -> dict[str, Any]:
