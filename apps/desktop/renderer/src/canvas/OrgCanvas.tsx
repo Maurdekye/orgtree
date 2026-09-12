@@ -1,4 +1,4 @@
-import { adoptPinLayer, usePinSurfaces } from './pinspace'
+import { adoptPinLayer, usePinSurfaces, pinSnapId } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
@@ -43,6 +43,7 @@ import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
@@ -1403,6 +1404,49 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return val
   }, [])
 
+  // WHERE THE CANVAS'S OWN CONTROLS ANCHOR (user 2026-09-12, opt-in and off
+  // by default). `regionOf` is already this app's answer to "what is left of
+  // the canvas once pins and desks have taken their bite" - the camera, the
+  // switchboard fit and the zoom origin all read it - so this reuses it
+  // rather than deriving a second, quietly different rectangle.
+  //
+  // The dependencies ARE the region's own inputs: the measured viewport (a
+  // ResizeObserver on the element, so app layout changes count too) and the
+  // pinned windows and modal surfaces. That is what keeps the controls
+  // following a pin as it is dragged, and `regionOf`'s cache means a repeat
+  // call inside one glide costs nothing.
+  const anchorPref = useCanvasAnchor()
+  // ⚠ NOT `regionOf`, AND THE DIFFERENCE IS DELIBERATE (perf-review, 2026-09-12).
+  // `regionOf` feeds the CAMERA, and it reads persisted pin geometry, which is
+  // committed at pointer-up. That is right for a camera: it must not chase a
+  // window the user is still dragging. It is wrong here, because these
+  // controls are being placed relative to what the user can SEE right now —
+  // with the persisted rect, dragging a desk from 400 to 600 wide left the
+  // controls anchored at the old edge until the gesture ended.
+  //
+  // So: the same `clearRegion`, over the LIVE registry instead. `PinWindow`
+  // publishes its clamped rect through `usePinSurface(slug, pin.id, rect,
+  // false)` on every move, and modals publish theirs with `modal: true`; both
+  // bound the canvas, so both are obstacles here.
+  //
+  // ⚠ AND NEVER BOTH COPIES OF ONE WINDOW. A persisted pin is only added when
+  // its window has not registered a live rect yet — the first paint, before
+  // any surface has mounted — because counting a desk twice at two different
+  // sizes would carve the canvas up with a rectangle that is not on screen.
+  const anchorObstacles = useMemo(() => {
+    if (isMobile) return []
+    const live = modalSurfaces.filter(p => p.org === slug)
+    const registered = new Set(live.filter(p => !p.modal).map(p => pinSnapId(p)))
+    return [...live.map(p => p.rect),
+      ...pins.filter(p => !registered.has(p.id)).map(p => p.rect)]
+  }, [pins, modalSurfaces, slug])
+  const freeAnchor = useMemo(() => {
+    if (!anchorPref.enabled || isMobile) return null
+    if (!(viewportSize.w > 0 && viewportSize.h > 0)) return null
+    const box = { x: 0, y: 0, w: viewportSize.w, h: viewportSize.h }
+    return freeInsets(clearRegion(box, anchorObstacles), { w: viewportSize.w, h: viewportSize.h })
+  }, [anchorPref.enabled, viewportSize, anchorObstacles])
+
   // the HUD ± buttons zoom about the FREE CANVAS CENTER — when pinned windows
   // bound the usable canvas, anchor on the center of the available bounded
   // rectangle (clearRegion), falling back to the whole viewport center when
@@ -2623,7 +2667,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [tree])
 
   return (
-    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
+    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       // api_fallback (user feature 2026-08-19): the office border goes red
       // while the org's own API key is the lane being billed. Whole-canvas,

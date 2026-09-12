@@ -1080,8 +1080,17 @@ button.badge.audience-fold.alert {
 
 .zoomhud {
   /* bottom-LEFT beside the agents tray (user spec): every zoom target in
-     one stack — switchboard · full view · + · − */
-  position: absolute; left: 10px; bottom: 10px; display: flex;
+     one stack — switchboard · full view · + · −
+     ⚠ THE OFFSETS LIVE HERE AND ONLY HERE. `--free-*` is the inset of the
+     rectangle pins leave free, set by OrgCanvas only when the user turns the
+     bounded-anchor preference on (canvas/canvasanchor.tsx). Unset it is 0px,
+     so `calc(0px + 10px)` is exactly the 10px this always was — which is what
+     makes the preference's OFF state provably unchanged rather than
+     re-derived. */
+  position: absolute;
+  left: calc(var(--free-left, 0px) + 10px);
+  bottom: calc(var(--free-bottom, 0px) + 10px);
+  display: flex;
   flex-direction: column; gap: 4px; z-index: 7;
 }
 .zoomhud button {
@@ -4433,7 +4442,14 @@ svg.MuiSvgIcon-root {
      max-height: 100% below is bound by the real canvas, not a guessed vh
      fraction; justify-content keeps the toggle button pinned to the same
      bottom-left spot it always occupied, tray growing upward from it */
-  position: absolute; left: 48px; top: 10px; bottom: 10px; z-index: 7;
+  /* `--free-*`: see the note on .zoomhud above. Keeping top AND bottom bound
+     to the free rectangle is what preserves this wrap's definite height when
+     the preference is on — the tray still grows upward from its toggle, now
+     within the usable canvas instead of the whole one. */
+  position: absolute; z-index: 7;
+  left: calc(var(--free-left, 0px) + 48px);
+  top: calc(var(--free-top, 0px) + 10px);
+  bottom: calc(var(--free-bottom, 0px) + 10px);
   display: flex; flex-direction: column; justify-content: flex-end;
   align-items: flex-start; gap: 6px;
   /* ⚠ THE WRAP IS A LAYOUT BOX, NOT A HIT TARGET (user report 2026-08-29:
