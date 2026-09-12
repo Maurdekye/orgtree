@@ -24,12 +24,11 @@ original = launch.load_app
 
 def seeded():
     result = original()
-    from orgtree import store, supervisor, providers, warmpool, antigravity_limits
+    from orgtree import store, supervisor, providers, warmpool
     from orgtree.ledger import USER
     assert Path(store.DATA_ROOT).resolve() == DATA and result[3] != 7360
     providers.antigravity_status = lambda **kw: {'available': False, 'installed': False}
     providers.codex_status = lambda **kw: {'available': False, 'installed': False}
-    antigravity_limits.note_boot = lambda: None
     supervisor.start_usage_warm_loop = lambda: None
     supervisor.start_cred_watcher = lambda: None
     warmpool.start_warm_pool = lambda: None

@@ -973,14 +973,6 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
               f"bindings already written are preserved and reused when it "
               f"reruns at next startup with the flag set")
         raise
-    # Mark that THIS process began watching the Antigravity lane. Without it
-    # the window record cannot tell "orgtree was down, a wall may have passed
-    # unseen" from "nothing happened", and every reconstructed window would
-    # claim a coverage it never had. On its own thread because the marker
-    # first asks whether this machine even has the CLI, and that answer costs
-    # a subprocess on a cold cache: it must not sit in front of the warm pool.
-    threading.Thread(target=antigravity_limits.note_boot,
-                     name="agy-boot-mark", daemon=True).start()
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     try:
@@ -3447,21 +3439,15 @@ def codex_usage_peek() -> dict[str, Any]:
 
 
 @app.get("/api/antigravity/usage")
-def antigravity_usage() -> dict[str, Any]:
-    """The Antigravity account's standing for the header modal — OBSERVED,
-    never fetched. The CLI exposes no usage readout in print mode (measured;
-    see `antigravity_limits`), so this reads the last wall a turn hit and
-    the reset parsed from it. Synchronous: no process, no network.
+async def antigravity_usage(force: bool = False) -> dict[str, Any]:
+    """The signed-in Antigravity account's real quota windows.
 
-    It also carries `usage_estimate`: what the RECORDED intervals support,
-    which is a different question from the standing (an interval is measured
-    after its wall has lifted, and with none running from an observed reset to
-    a later wall it refuses to give a number at all). Attached here rather
-    than inside `fetch` so the standing stays the standing; it reads local
-    journal files only."""
-    data = antigravity_limits.fetch()
-    data["usage_estimate"] = antigravity_limits.standing_estimate()
-    return data
+    The local CLI owns its credentials and exposes ``/usage`` as a structured,
+    zero-token print-mode command. The subprocess is blocking, so keep it off
+    the event loop just like the Codex app-server read.
+    """
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(antigravity_limits.fetch, force)
 
 
 @app.get("/api/antigravity/usage/peek")

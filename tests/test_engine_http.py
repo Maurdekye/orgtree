@@ -17,12 +17,11 @@ import json, launch
 original = launch.load_app
 def seeded():
     result = original()
-    from orgtree import store, agentauth, supervisor, providers, warmpool, antigravity_limits
+    from orgtree import store, agentauth, supervisor, providers, warmpool
     # External CLI discovery/turn processes are outside this HTTP-auth test.
     # Keep the real startup, routes, persistence and MCP transport untouched.
     providers.antigravity_status = lambda **kw: {'available':False, 'installed':False}
     providers.codex_status = lambda **kw: {'available':False, 'installed':False}
-    antigravity_limits.note_boot = lambda: None
     supervisor.start_usage_warm_loop = lambda: None
     supervisor.start_cred_watcher = lambda: None
     warmpool.start_warm_pool = lambda: None

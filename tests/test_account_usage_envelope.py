@@ -315,12 +315,12 @@ class AccountUsageEnvelope(unittest.TestCase):
 
     # ── §6 "can't" and "didn't" still do not look alike ───────────────────
     def test_s6_unsupported_and_never_read_are_different_rows(self):
-        # control: green before and after — the antigravity host lane has
-        # always said `unsupported`, and this pins that the new unavailable
-        # branches did not flatten it into the generic no-cache reason.
+        # The ambient Antigravity lane has a real /usage reader, so before its
+        # first warm pass it says no-cache. A redirected Antigravity profile
+        # still lacks a CLI profile selector and remains unsupported.
         self.account('google', 'AG Account')
         text = self.board()
-        self.assertRegex(text, r'google/primary \|.*unavailable\(unsupported\).*unsupported')
+        self.assertRegex(text, r'google/primary \|.*unavailable\(no-cache\).*unavailable')
         self.assertRegex(text, r'google-1 \|.*unavailable\(unsupported\).*unsupported')
         self.assertRegex(text, r'claude/primary\* \|.*unavailable\(no-cache\).*unavailable')
 

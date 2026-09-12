@@ -607,7 +607,7 @@ def failure_block(now: float | None = None) -> str:
         _line("codex", "account", "usage",
               "unavailable(telemetry-error)", "-", "-", "-", "unavailable"),
         _line("antigravity", "account", "usage",
-              "unavailable(unsupported)", "-", "-", "-", "unsupported"),
+              "unavailable(telemetry-error)", "-", "-", "-", "unavailable"),
     ]
     return (f"{OPEN} — current as of {_iso(now)}; dynamic/cache-only]\n"
             "account | window | used | amount | reset (countdown) | "
@@ -711,24 +711,13 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
                                "unavailable(telemetry-error)", "-", "-", "-",
                                "unavailable", selected=selected_provider == "openai")))
 
-        # The Antigravity lane has no readout to cache: its evidence is the
-        # last wall a turn hit — 100%, reset parsed from the CLI's own
-        # message — standing until that reset passes or a turn succeeds.
-        # With nothing observed the explicit unsupported row stands, byte-
-        # identical to before, so a machine that never hit a wall sees no
-        # D-223 re-send.
+        # Antigravity's real /usage board is warmed off the turn path. This
+        # formatter remains cache-only, exactly like the other provider rows.
         try:
             agy = antigravity_limits.snapshot(now)
-            if agy.get("available") and not agy.get("unsupported"):
-                rows += _cached_rows(
-                    agy, "antigravity", "account", now,
-                    selected_provider == "google", frozen, freeze_reset)
-            else:
-                rows.append(((2, "account", 99, "", 0),
-                             _line("antigravity", "account", "usage",
-                                   "unavailable(unsupported)", "-", "-", "-",
-                                   "unsupported",
-                                   selected=selected_provider == "google")))
+            rows += _cached_rows(
+                agy, "antigravity", "account", now,
+                selected_provider == "google", frozen, freeze_reset)
         except Exception:  # noqa: BLE001
             rows.append(((2, "account", 99, "", 0),
                          _line("antigravity", "account", "usage",

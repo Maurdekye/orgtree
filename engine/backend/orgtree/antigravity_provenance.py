@@ -82,7 +82,7 @@ WIRE_TAIL = b"\n"
 WIRE_TYPE = {14: "user_input", 15: "agent_response", 132: "tool", 101: "system_message"}
 #: the stored status of a tool step the CLI reported as ERROR on the wire
 TOOL_FAILED = 7
-#: bounds for the durable outcome record (mirrors windows.ndjson's discipline)
+#: bounds for the durable outcome record
 MAX_RECORDS = 400
 MAX_RECORD_BYTES = 262144
 _record_lock = threading.Lock()

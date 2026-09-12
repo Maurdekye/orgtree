@@ -5533,6 +5533,9 @@ def start_usage_warm_loop() -> None:
                     boards = _warm_registered_usage()
                     if limits.available():
                         limits.fetch(force=True)
+                    agy = antigravity_limits.fetch(force=True)
+                    if agy.get("available"):
+                        boards.append(agy)
             except Exception as e:                            # noqa: BLE001
                 print(f"[orgtree] usage warm-up failed: {e}")
             now = time.time()
@@ -15468,11 +15471,10 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         # ends on. `antigravity_limits` parses that into the machine reset
         # the freeze thaws on (source "provider", exactly like codex's
         # resetsAt — no more 5-minute probe floor for a wall that names its
-        # reset) and records the wall as the account's standing for the
-        # usage board, the header modal and the glow, since the CLI has no
-        # readout to fetch one from. Parsed from the UNTRUNCATED reason: the
-        # duration is the last thing said, and the 200-character operator
-        # cut could lose it on a longer wording.
+        # reset). This immediate turn evidence is independent of the cached
+        # /usage board. Parse the UNTRUNCATED reason: the duration is the last
+        # thing said, and the 200-character operator cut could lose it on a
+        # longer wording.
         blob = detail or tail
         walled = _looks_like_usage_limit(blob)
         reset_ts: float | None = None
@@ -15538,11 +15540,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
             schedule_kind=("observed-deadline" if reset_ts else "probe"),
             provider="google", account=antigravity_limits.ACCOUNT,
             resource_pool=tier)
-    if status == antigravityrun.STATUS_COMPLETED:
-        # D-209's standing fold, this lane's shape: the wire carries no
-        # window telemetry, so a completed turn IS the observation — the
-        # account is not walled, and any wall on record is down
-        antigravity_limits.observe_clear()
     tu = res_raw.get("token_usage")
     # The step lifecycle already journaled the conversation in real time,
     # each text step in its chronological place with its own id (D4). Retain

@@ -5906,11 +5906,6 @@ label.set-row { cursor: pointer; }
 .usage-refresh-button:disabled { cursor: wait; opacity: .7; }
 .usage-updated { color: var(--dim); white-space: nowrap; }
 .usage-refresh-error { color: var(--warn, #e5c07b); }
-/* the Antigravity estimate rides UNDER its bars as text, never as a bar of its
-   own: it has no denominator and a bar would invent one */
-.agy-est { font-size: 12px; line-height: 1.45; }
-.agy-est-n { font-variant-numeric: tabular-nums; }
-.agy-est-why { font-size: 11px; opacity: 0.8; }
 /* stacked standing/limit notes inside a usage section (e.g. Fable + pooled limits)
    read as one compact group rather than scattering across paragraph-sized gaps */
 .standing-marks { display: flex; flex-direction: column; gap: 2px; }
