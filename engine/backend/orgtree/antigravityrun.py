@@ -833,11 +833,52 @@ class AntigravityTurn:
             self.status = STATUS_INTERRUPTED
             self.stop_reason = "interrupted"
         elif result is None:
-            self.status = STATUS_FAILED
-            self.stop_reason = (
-                f"the CLI exited rc={self.proc.returncode} without a result"
-                if deadline is None or time.time() < deadline
-                else "turn timeout")
+            # The `result` envelope is the CLI's own summary of the turn, and
+            # it used to be the ONLY thing this branch looked at — so a run
+            # that streamed a complete response and exited cleanly was booked
+            # as a FAILURE whenever that one last line went missing. Measured
+            # live (user screenshot 2026-09-12, a Flash seat): the desk showed
+            # the agent's own closing line, "breadcrumbs.md updated.", and
+            # then "turn failed: the Antigravity CLI reported an error — the
+            # CLI exited rc=0 without a result" landed on top of it. The work
+            # had happened and was already paid for; only the envelope was
+            # lost. `_commit_unfinished_text` runs BEFORE the supervisor's
+            # status check, which is why the user watches a real answer be
+            # overwritten by a terminal error rather than simply not get one.
+            #
+            # Three facts TOGETHER say the turn finished and only its envelope
+            # was lost. All three are required:
+            #   · rc == 0 — the CLI CHOSE to stop. A crash, a kill or a
+            #     ceiling did not stop it.
+            #   · the reader reached EOF — we read everything the process ever
+            #     wrote, so "no result event" is an OBSERVATION and not a race
+            #     against a pipe that was still draining (the same drain
+            #     signal `provenance` above already trusts; `wait` only
+            #     attempts a bounded 5s join, so this is not a given).
+            #   · a completed response exists — streamed text, or a DONE
+            #     agent_response step that priced usage. Work is not only
+            #     text: a turn that spent its request on tools and had
+            #     nothing to say still ran.
+            # Missing ANY of them, this stays the failure it always was. A run
+            # that produced nothing at all still says so, which keeps the
+            # genuinely-empty exit (and the empty-SUCCESS shape the header
+            # warns about) visible instead of silently accepted.
+            drained = self._reader is not None and not self._reader.is_alive()
+            if (not timed_out and drained and self.proc.returncode == 0
+                    and (text.strip() or usage_seen)):
+                self.status = STATUS_COMPLETED
+                # NOT "end_turn": the TURN is complete but the WIRE was not,
+                # and flattening the two would erase the only trace that a
+                # CLI generation stopped sending results. Nothing compares
+                # this string; it is read by humans and by the turn log.
+                self.stop_reason = ("end_turn — the CLI sent no result event, "
+                                    "completed on the streamed response")
+            else:
+                self.status = STATUS_FAILED
+                self.stop_reason = (
+                    f"the CLI exited rc={self.proc.returncode} without a result"
+                    if deadline is None or time.time() < deadline
+                    else "turn timeout")
         else:
             rstatus = str(result.get("status") or "")
             if rstatus == "SUCCESS" or provenance is not None:
