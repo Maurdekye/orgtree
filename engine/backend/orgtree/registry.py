@@ -17,6 +17,23 @@ per account, machine-global, every provider together:
                     legacy key rows (compatibility only — new setup never
                     mints these). NEVER key material: token_ref is the legacy
                     store's row id, the path is a directory name.
+  · mode          — "apikey" for a metered API-key account (user redesign
+                    2026-09-12), absent for subscription rows. Stored, not
+                    inferred, same rule as `harness`. A claude apikey row's
+                    credential is {kind: apikey, token_ref} into the machine
+                    token store; an openai one is an ordinary managed
+                    CODEX_HOME whose auth.json is codex's own key-auth form.
+                    Google is refused — no API-key login exists (measured
+                    1.1.24).
+  · enabled       — apikey rows only, default true: a disabled key account is
+                    skipped by fallback routing and by the fallback toggle's
+                    visibility rule; explicit operator binding is not gated
+                    here.
+  · spend         — apikey rows: {usd_total, turns, since, updated_at}, the
+                    authoritative LOCAL metering (user decision 2026-09-12:
+                    harness-reported per-turn cost, machine-wide, in USD — no
+                    provider billing calls; an inference key cannot read
+                    billing, the D-147 class).
   · marks         — [pool] = {until, window, observed_at, provenance}: this
                     account's capacity for that pool is used up until `until`.
                     `provenance` is observed|inferred and every consumer that
@@ -44,6 +61,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import tempfile
 import threading
@@ -63,7 +81,7 @@ PROVIDERS = ("claude", "openai", "google")
 #: the row (not derived) so the axis survives a future divergence.
 DEFAULT_HARNESS = {"claude": "claude-code", "openai": "codex-cli",
                    "google": "agy"}
-CREDENTIAL_KINDS = ("imported", "managed", "token")
+CREDENTIAL_KINDS = ("imported", "managed", "token", "apikey")
 AUTH_STATES = ("authenticated", "unauthenticated", "unobserved")
 PROVENANCE = ("observed", "inferred")
 
@@ -156,13 +174,14 @@ def _validate_credential(credential: Any) -> dict[str, Any]:
         return out
     ref = credential.get("token_ref")
     if not ref or not isinstance(ref, str):
-        raise ValueError("a token credential needs the legacy store row id")
-    return {"kind": "token", "token_ref": ref}
+        raise ValueError(f"a {kind} credential needs its token-store row id")
+    return {"kind": kind, "token_ref": ref}
 
 
 def create_account(provider: str, label: str, credential: dict[str, Any], *,
                    harness: str | None = None, origin_org: str | None = None,
-                   registered_from: str = "") -> dict[str, Any]:
+                   registered_from: str = "",
+                   mode: str = "subscription") -> dict[str, Any]:
     """Mint a row. Ids and tint ordinals are counters that only go up, so
     neither is ever reused — removal repaints and re-identifies nobody."""
     if provider not in PROVIDERS:
@@ -172,6 +191,28 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
     credential = _validate_credential(credential)
     if credential.get("default_config") and provider != "claude":
         raise ValueError("default config selector is Claude-only")
+    if mode not in ("subscription", "apikey"):
+        raise ValueError(f"unknown account mode {mode!r}")
+    if mode == "apikey":
+        # The decided provider/kind matrix (user 2026-09-12): a claude key is
+        # injected from the token store; an openai key is a codex-native
+        # managed home; google has no API-key login at all (measured 1.1.24).
+        if provider == "claude":
+            if credential["kind"] != "apikey":
+                raise ValueError(
+                    "a claude API-key account keeps its key in the machine "
+                    "token store — credential kind must be 'apikey'")
+        elif provider == "openai":
+            if credential["kind"] != "managed":
+                raise ValueError(
+                    "an openai API-key account is a managed CODEX_HOME whose "
+                    "auth.json holds the key (codex's own key-auth form) — "
+                    "credential kind must be 'managed'")
+        else:
+            raise ValueError(f"{provider} has no API-key login")
+    elif credential["kind"] == "apikey":
+        raise ValueError("an 'apikey' credential is only valid on an "
+                         "API-key-mode account (mode='apikey')")
     with _lock:
         doc = load(strict=True)
         n = int(doc["id_counters"].get(provider, 0)) + 1
@@ -196,6 +237,9 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
         }
         if origin_org:
             row["origin_org"] = str(origin_org)
+        if mode == "apikey":
+            row["mode"] = "apikey"
+            row["enabled"] = True
         doc["accounts"].append(row)
         save(doc)
         return dict(row)
@@ -274,6 +318,94 @@ def standing_of(row: dict[str, Any],
     return {"auth": row.get("auth", "unobserved"),
             "state": "limited" if marks else "ready",
             "marks": marks}
+
+
+# ----------------------------------------------------- API-key account state
+def account_mode(row: dict[str, Any]) -> str:
+    """"apikey" for a metered key account, else "subscription". A field read,
+    never an inference — absent (every pre-redesign row) is subscription."""
+    return "apikey" if str(row.get("mode") or "") == "apikey" else "subscription"
+
+
+def is_enabled(row: dict[str, Any]) -> bool:
+    """Whether automatic routing may CHOOSE this row. Subscription rows carry
+    no enable concept and always answer True; a disabled apikey row is skipped
+    by fallback routing and by the fallback toggle's visibility rule. Explicit
+    operator binding is deliberately not gated here."""
+    return account_mode(row) != "apikey" or bool(row.get("enabled", True))
+
+
+def set_enabled(account_id: str, enabled: bool) -> None:
+    """Flip an API-key account's routing eligibility. Refused for subscription
+    rows rather than invented for them: an enable bit that gates nothing would
+    render as a control and lie."""
+    with _lock:
+        doc = load(strict=True)
+        row = get_account(account_id, doc)
+        if account_mode(row) != "apikey":
+            raise ValueError(
+                f"account {row['id']} is not an API-key account — only "
+                f"metered key accounts have an enabled switch")
+        row["enabled"] = bool(enabled)
+        save(doc)
+
+
+def spend_of(row: dict[str, Any]) -> dict[str, Any]:
+    """The row's accumulated local metering, zeros when it never spent. USD
+    because that is the unit the harness reports (user decision 2026-09-12:
+    local metering IS the authoritative total — no provider billing calls)."""
+    s = row.get("spend")
+    s = s if isinstance(s, dict) else {}
+
+    def _f(key: str) -> float:
+        # tolerate a hand-edited file: junk reads as zero, never raises
+        try:
+            return float(s.get(key) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return {"usd_total": _f("usd_total"), "turns": int(_f("turns")),
+            "since": s.get("since"), "updated_at": s.get("updated_at")}
+
+
+def add_spend(account_id: str, usd: float, *,
+              now: float | None = None) -> bool:
+    """Accumulate one turn's harness-reported cost onto an API-key account.
+
+    The identity domain is registry ids, exactly as `record_mark`: an unknown
+    id is a LOGGED no-op — a stale attribution must not resurrect or invent a
+    row. A non-finite or negative delta is refused (the ledger reports an
+    unknown cost as absent, never negative); zero still counts the turn,
+    because "how many turns has this key served" is part of what the panel
+    answers."""
+    try:
+        usd = float(usd)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(usd) or usd < 0:
+        return False
+    now = time.time() if now is None else now
+    with _lock:
+        doc = load(strict=True)
+        try:
+            row = get_account(account_id, doc)
+        except UnknownAccount:
+            _log.warning(
+                "discarding spend for unknown account %r — unknown ids never "
+                "mint rows", account_id)
+            return False
+        if account_mode(row) != "apikey":
+            _log.warning(
+                "discarding spend for non-apikey account %r — only metered "
+                "key accounts accumulate spend", account_id)
+            return False
+        cur = spend_of(row)
+        row["spend"] = {"usd_total": cur["usd_total"] + usd,
+                        "turns": cur["turns"] + 1,
+                        "since": cur["since"] or now,
+                        "updated_at": now}
+        save(doc)
+        return True
 
 
 # --------------------------------------------------------- binding validator
@@ -406,6 +538,26 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
             env["USERPROFILE"] = home
         else:
             env[var] = cred["path"]
+    elif kind == "apikey":
+        # The metered key lane (user redesign 2026-09-12): the same variable
+        # the V1 org key billed, now attributed to a real row via the marker.
+        # Openai apikey rows are managed homes and take the branch above;
+        # reaching here on any non-claude provider means a row this injector
+        # has no lane for, and it fails loudly rather than half-binding.
+        if secret_resolver is None:
+            raise RuntimeError(
+                f"API-key account {row['id']} needs a secret resolver")
+        if row["provider"] != "claude":
+            raise RuntimeError(
+                f"no spawn key lane exists for provider {row['provider']!r} "
+                f"(account {row['id']})")
+        secret = secret_resolver(cred["token_ref"])
+        if not secret:
+            raise RuntimeError(
+                f"API-key account {row['id']}: credential "
+                f"{cred['token_ref']!r} did not resolve — refusing a "
+                f"half-bound spawn")
+        env["ANTHROPIC_API_KEY"] = secret
     else:
         if secret_resolver is None:
             raise RuntimeError(
@@ -445,6 +597,13 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
                                     for k in ("HOME", "USERPROFILE"))):
                 return f"account-env-mismatch:{marker}"
         elif not var or env.get(var) != cred["path"]:
+            return f"account-env-mismatch:{marker}"
+        return None
+    if cred["kind"] == "apikey":
+        # Verified by LANE PRESENCE, the org-api-key rationale exactly: value
+        # verification would mean comparing secrets the registry never holds,
+        # so the pair check is that the metered lane is populated at all.
+        if not env.get("ANTHROPIC_API_KEY"):
             return f"account-env-mismatch:{marker}"
         return None
     # TOKEN rows carry the same hazard (Opus S3 finding: an exempted kind

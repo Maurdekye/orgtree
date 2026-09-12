@@ -271,6 +271,15 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
     out: dict[str, Any] = {"account": row["id"],
                            "provider": row["provider"],
                            "standing": standing}
+    if registry.account_mode(row) == "apikey":
+        # A metered key has no subscription windows; the panel's answer for
+        # it is the authoritative LOCAL spend total in USD (user decision
+        # 2026-09-12). Early and for BOTH providers on purpose: nothing on
+        # this branch may fetch or read a credential on either path.
+        out.update(available=True, mode="apikey", currency="USD",
+                   spend=registry.spend_of(row),
+                   enabled=registry.is_enabled(row))
+        return out
     if row["provider"] == "google":
         return _google_view(row, out, allow_fetch=allow_fetch, now=now)
     if cred["kind"] == "token":
