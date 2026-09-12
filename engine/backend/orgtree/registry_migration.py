@@ -349,3 +349,162 @@ def run_migration(org_docs: list[dict[str, Any]],
         report["inert"] = True
         report["reason"] = "no ambient logins, keys, org keys or nodes found"
     return report
+
+
+# ── the V2 API-key ACCOUNT cutover (user redesign 2026-09-12) ───────────────
+APIKEY_CUTOVER_REPORT = "apikey-cutover-report.json"
+
+
+def apikey_cutover_done() -> bool:
+    return bool(registry.load().get("apikey_cutover_at"))
+
+
+def run_apikey_cutover() -> dict[str, Any] | None:
+    """Every V1 org key becomes an ordinary org-scoped API-key ACCOUNT, and
+    the org documents drop the V1 fields — the migration half of "completely
+    replace the V1 path; do not retain competing systems".
+
+    Unconditional at startup (no env gate: the code that served org.d
+    api_key is gone, so an unmigrated key is a stranded key), idempotent
+    (marker in the registry document; a partial failure leaves the marker
+    unset and the next boot finishes the remainder), and it NEVER raises —
+    the app must come up; failures are printed and land in the report.
+
+      · a row {kind: token, token_ref: org-api-key:<slug>} whose org still
+        holds its key is REWRITTEN IN PLACE — same id, so existing node
+        bindings survive — to {kind: apikey, token_ref} with the secret
+        moved into the machine token store, store-first;
+      · an org holding a key with NO row (the S2 "held" api_fallback case)
+        mints a fresh org-scoped apikey row. Its nodes are NOT bound to it
+        (a spare never was the lane) and the machine fallback toggle stays
+        OFF — the ticket's default — with the org named in
+        `fallback_was_on` so the operator can re-enable deliberately;
+      · an orphaned org-key row (org gone, or loaded and keyless) is marked
+        unauthenticated and reported: its secret no longer exists anywhere,
+        which is a fact to surface, not a repair to invent;
+      · every non-sandboxed org drops api_key / api_fallback /
+        fable_api_fallback / api_fallback_until / api_fallback_since.
+        Sandboxed orgs are skipped whole, like the S2 cutover — their
+        container auth is its own world, and the desktop build forbids
+        creating them at all."""
+    from . import apikey_accounts, store, tokens
+    if apikey_cutover_done():
+        return None
+    report: dict[str, Any] = {"converted_rows": {}, "minted_rows": {},
+                              "fallback_was_on": [], "orphaned_rows": [],
+                              "cleaned_orgs": [], "skipped_sandboxed": [],
+                              "errors": {}}
+    with store.DOC_LOCK:
+        try:
+            doc = registry.load(strict=True)
+        except registry.RegistryUnreadable as e:
+            print(f"[orgtree] apikey cutover held: {e}")
+            return None
+        by_slug: dict[str, str] = {}
+        for row in doc["accounts"]:
+            cred = row.get("credential") or {}
+            ref = str(cred.get("token_ref") or "")
+            if cred.get("kind") == "token" and ref.startswith("org-api-key:"):
+                by_slug[ref.split(":", 1)[1]] = str(row["id"])
+        try:
+            names = sorted(os.listdir(store._orgs_dir()))
+        except OSError as e:
+            print(f"[orgtree] apikey cutover held: orgs dir unreadable: {e}")
+            return None
+        slugs: list[str] = []
+        seen: set[str] = set()
+        for f in names:
+            slug = f[:-5] if f.endswith(".json") else (
+                f[:-3] if f.endswith(".db") else "")
+            if slug and slug not in seen and not f.endswith(".premigration"):
+                seen.add(slug)
+                slugs.append(slug)
+        clean = True
+        loaded: set[str] = set()
+        for slug in slugs:
+            try:
+                org = store.load_org(slug)
+            except Exception as e:                           # noqa: BLE001
+                report["errors"][slug] = f"{type(e).__name__}: {e}"
+                clean = False
+                continue
+            if _sandboxed(org.d):
+                report["skipped_sandboxed"].append(slug)
+                continue
+            loaded.add(slug)
+            d = org.d
+            key = str(d.get("api_key") or "")
+            if key:
+                kid = apikey_accounts._key_row_id(key)
+                tokens.put(kid, key)          # durable before anything else
+                rid = by_slug.get(slug)
+                try:
+                    if rid:
+                        d2 = registry.load(strict=True)
+                        for row in d2["accounts"]:
+                            if row["id"] == rid:
+                                row["credential"] = {"kind": "apikey",
+                                                     "token_ref": kid}
+                                row["mode"] = "apikey"
+                                row.setdefault("enabled", True)
+                        registry.save(d2)
+                        report["converted_rows"][slug] = rid
+                    else:
+                        row = registry.create_account(
+                            "claude", f"org key ({slug})",
+                            {"kind": "apikey", "token_ref": kid},
+                            origin_org=slug, mode="apikey",
+                            registered_from="migration:apikey-cutover")
+                        report["minted_rows"][slug] = row["id"]
+                except Exception as e:                       # noqa: BLE001
+                    # the org keeps its fields; the next boot retries it
+                    report["errors"][slug] = f"{type(e).__name__}: {e}"
+                    clean = False
+                    continue
+                if d.get("api_fallback"):
+                    report["fallback_was_on"].append(slug)
+            changed = False
+            for field in ("api_key", "api_fallback", "fable_api_fallback",
+                          "api_fallback_until", "api_fallback_since"):
+                if field in d:
+                    d.pop(field, None)
+                    changed = True
+            if changed:
+                try:
+                    store.save_org(org)
+                    report["cleaned_orgs"].append(slug)
+                except Exception as e:                       # noqa: BLE001
+                    report["errors"][slug] = f"{type(e).__name__}: {e}"
+                    clean = False
+        for slug, rid in by_slug.items():
+            if slug in report["converted_rows"] or slug in report["errors"]:
+                continue
+            if slug in loaded or slug not in seen:
+                # loaded-and-keyless, or the org file is gone: the secret
+                # this row pointed at no longer exists anywhere
+                try:
+                    registry.set_auth(rid, "unauthenticated")
+                except Exception:                            # noqa: BLE001
+                    pass
+                report["orphaned_rows"].append(rid)
+        if clean:
+            try:
+                d3 = registry.load(strict=True)
+                d3["apikey_cutover_at"] = time.time()
+                registry.save(d3)
+            except Exception as e:                           # noqa: BLE001
+                print(f"[orgtree] apikey cutover: marker write failed: {e}")
+    try:
+        import json as _json
+        with open(os.path.join(store.DATA_ROOT, APIKEY_CUTOVER_REPORT),
+                  "w", encoding="utf-8") as f:
+            _json.dump(report, f, indent=1)
+    except OSError:
+        pass
+    print(f"[orgtree] apikey cutover: "
+          f"converted={len(report['converted_rows'])} "
+          f"minted={len(report['minted_rows'])} "
+          f"orphaned={len(report['orphaned_rows'])} "
+          f"fallback_was_on={report['fallback_was_on']} "
+          f"errors={len(report['errors'])}")
+    return report

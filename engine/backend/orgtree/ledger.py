@@ -635,14 +635,12 @@ class Org:
             self.d["fable_filter_policy"] = "halt"  # content-filter flags (user spec)
         if "fable_filter_model" not in self.d or self.d.get("fable_filter_model") == "fable":
             self.d["fable_filter_model"] = "opus"
-        # add-only migration (D-084 style): existing orgs reach the new toggle
-        # off, same as a brand-new one — never silently on for an old org
-        self.d.setdefault("fable_api_fallback", False)
-        if not self.d.get("api_fallback") and self.d.get("fable_api_fallback"):
-            # the general lane went away (settings, or an old doc from before
-            # the coupling was enforced) — an orphaned fable-only toggle would
-            # look live but do nothing, which is worse than silently off
-            self.d["fable_api_fallback"] = False
+        # V1 org-key fields are RETIRED (user redesign 2026-09-12): API keys
+        # are registry ACCOUNTS now, their consent machine-level. No default
+        # is seeded and no heal runs here — the startup cutover
+        # (registry_migration.run_apikey_cutover) is what moves a stored key
+        # into the account registry and pops the org's V1 fields, and it
+        # needs to READ them first, so the load path leaves them untouched.
         # org-wide agent defaults for hires that don't state them (user hires):
         # every capability enabled — all switches + all MCP servers + full org
         # visibility + the org's folders (user ruling)
@@ -1094,8 +1092,6 @@ class Org:
             "fable_limit_policy": "halt",         # halt | opus | dissolve (user ruling)
             "fable_filter_policy": "halt",        # halt | opus | auto-autopsy — filter flags (user spec)
             "fable_filter_model": "opus",         # model tier when policy == auto-autopsy
-            "fable_api_fallback": False,          # user feature 2026-08-23 (needs
-                                                  # api_fallback + api_key too)
             "nodes": {},
             "audiences": [],          # §7.3 — [{grantee, grantor, granted_at, reason}]
             # (a "chain_notices" key was seeded here and READ BY NOTHING. §7.4
