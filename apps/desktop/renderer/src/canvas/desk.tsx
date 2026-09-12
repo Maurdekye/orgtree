@@ -2296,6 +2296,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         <span className="spacer" aria-hidden="true" />
         <span className="cc-head-right">
           <span className="cc-actions">
+            {!pub && (live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
+              halt={node.halt} toast={toast} />}
             {live && !liveKids &&
               <button className="danger" onClick={() => setAsking('retire')}>
                 retire · {fmtCredits(node.seat! + node.grant!)}</button>}
@@ -2993,8 +2995,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 : `${node.id} thinking effort: back to the org default`]))
               .catch((e: Error) => toast([`error: ${e.message}`]))} />
         )}
-        {!pub && (live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
-          halt={node.halt} toast={toast} />}
         {/* №3: STOP renders only when an interrupt can actually land —
             pressing the one red control must never error. Gate on the CHAT
             payload's responding (refreshed every pulse + 5 s poll): the tree

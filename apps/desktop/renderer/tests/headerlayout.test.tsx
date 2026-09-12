@@ -83,7 +83,8 @@ test('desk header has bounded controls and a separate wrapping metadata row', as
   assert.deepEqual([...right.children].map((el) => el.classList[0]), [
     'cc-actions', 'cc-tabs', 'cc-icon',
   ], 'right action group changed order')
-  assert.equal(right.querySelectorAll('.cc-actions button').length, 1)
+  assert.deepEqual([...right.querySelectorAll('.cc-actions button')].map(el => el.textContent),
+    ['Halt', 'retire · 5'])
   // chat · history · files · inbox · progress (FR-2, 2026-09-04)
   assert.equal(top.querySelectorAll('.cc-tabs button').length, 6)
   for (const sel of [

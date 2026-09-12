@@ -31,7 +31,8 @@ export function HaltControl({ slug, nid, halt, toast }: {
     } catch (e) { toast([`error: ${(e as Error).message}`]) }
     finally { setPending(false) }
   }
-  return <button className="halt-control" disabled={pending} onClick={act}
+  return <button className={'halt-control' + (phase === 'halted' ? '' : ' danger')}
+    disabled={pending} onClick={act}
     title={phase === 'halted' ? 'Allow pending work to resume'
       : phase === 'halting' ? 'Check that the active turn has fully ended'
       : 'Abruptly end this turn and block every wake until explicit unhalt'}>
