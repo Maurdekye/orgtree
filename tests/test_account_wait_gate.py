@@ -247,6 +247,55 @@ class WaitGateTests(unittest.TestCase):
             self.supervisor._admit_once_valid(node),
             "the pass was spent on a turn that never reached a provider")
 
+    def test_the_pass_is_spent_on_a_non_claude_leg_too(self):
+        """⚠ ROUND 7. The spend sat on the CLAUDE spawn, which the codex and
+        antigravity legs never reach — so their passes were never consumed at
+        all and stayed spendable for the rest of the TTL. It now sits on the
+        seam every provider shares, immediately before the dispatch.
+
+        The codex leg is stubbed to return a completed result, and Popen is
+        stubbed to raise, so no provider process can start."""
+        import time as _t
+        from unittest.mock import patch
+        from engine.backend.orgtree import providers
+        tier = sorted(providers.CODEX_TIERS)[0]
+        row = self.registry.create_account(
+            "openai", "c",
+            {"kind": "managed", "path": os.path.join(self.root, "wg-codex")})
+        org = self.ledger.Org.create("wg-codex")
+        # a PROPERLY FORMED node: a hand-built dict lacks `created` and the
+        # envelope builder raises long before the seam, which would make this
+        # pass for the wrong reason.
+        nid = org._new_node(tier, None, 0, "root", [],
+                            {"bash": False, "web": False, "edit": False,
+                             "subagents": False, "mcp": []}, "full", "c")
+        org.node(nid)["account"] = row["id"]
+        org.node(nid)["admit_once"] = {"at": _t.time(), "account": row["id"],
+                                       "model": tier}
+        self.store.save_org(org)
+        self.registry.record_mark(row["id"], tier, until=_t.time() + 7200,
+                                  provenance="observed")
+        reached = []
+
+        def _leg(*a, **kw):
+            reached.append(True)
+            return ({"text": "ok", "ok": True}, None)
+
+        def _no_launch(*a, **kw):
+            raise RuntimeError("no process may launch in this test")
+
+        with patch.object(self.supervisor, "_codex_leg", _leg), \
+                patch.object(self.supervisor.subprocess, "Popen", _no_launch):
+            try:
+                self.supervisor._run_one_turn("wg-codex", nid, "hello")
+            except Exception:
+                pass
+        self.assertTrue(reached, "the codex leg was never reached — this test "
+                                "would pass for the wrong reason")
+        self.assertIsNone(
+            self.store.load_org("wg-codex").node(nid).get("admit_once"),
+            "the pass survived a real provider attempt on a non-Claude leg")
+
     def test_stateless_over_durable_state(self):
         # the wait re-derives from the DOC + registry alone: wipe the
         # per-process runtime state (the restart-shaped in-memory loss) and

@@ -928,11 +928,24 @@ class CommittedWakeTests(unittest.TestCase):
                                delta=2.0)
         self.assertIn('root', supervisor.auto_resume_ready(org, now + 371))
 
-    def test_an_earlier_source_still_pulls_a_promise_in(self):
-        """The other half of the round-6 rule, and why it is "earlier only"
-        rather than "never": waking a node SOONER than it was told breaks no
-        promise, and both readers see the same live source at the same
-        instant, so they move together."""
+    def test_an_earlier_source_does_not_move_a_promise_either(self):
+        """⚠ REVISED IN ROUND 7, and this is now the assertion that keeps it
+        revised. Round 6 let a NEARER live source pull a committed promise in,
+        on the reasoning that waking sooner breaks no promise. Review showed
+        it is the same publication hole in the other direction, and worse:
+
+          · a nearer mark published on the badge could expire before the next
+            tick could record it, so the following tick restored the old
+            deadline and the wake that had been shown never came;
+          · and because "nearer wins" is a comparison, a TRANSIENT REGISTRY
+            READ FAILURE — or a pruned mark — demoted a committed observed
+            +30m to the record's own probe +5m and woke the node early. A
+            weaker guess replacing a stronger answer on the strength of an IO
+            error.
+
+        The user's ruling settles it: honour the time already shown. Nothing
+        moves a promise once chosen; the adaptation happens after the node
+        wakes, attempts, and is re-frozen with newer timing."""
         from orgtree import supervisor
         now = time.time()
         org, acct = self._fixture(until_ts=now + 7200, reset_src='inherited')
@@ -941,11 +954,34 @@ class CommittedWakeTests(unittest.TestCase):
                                now + 7200, delta=2.0)
         registry.record_mark(acct, 'fable', until=now + 900,
                              provenance='observed')
-        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 900,
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 7200,
                                delta=2.0)
         supervisor.commit_wake_deadlines(org, now)
         self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
-                               now + 900, delta=2.0)
+                               now + 7200, delta=2.0)
+
+    def test_an_unreadable_registry_cannot_demote_a_promise(self):
+        """Round 7's sharpest case: the deadline must not depend on whether an
+        IO call happened to succeed."""
+        from unittest.mock import patch
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 300, reset_src='probe')
+        registry.record_mark(acct, 'fable', until=now + 1800,
+                             provenance='observed')
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 1800, delta=2.0)
+        with patch.object(registry, 'active_mark',
+                          side_effect=OSError('transient read failure')):
+            self.assertAlmostEqual(self._shown(org)['until_ts'], now + 1800,
+                                   delta=2.0)
+            self.assertNotIn('root',
+                             supervisor.auto_resume_ready(org, now + 400))
+        # …and neither does pruning the row the promise came from
+        registry.clear_expired(now=now + 1861)
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 1800,
+                               delta=2.0)
 
     def test_asking_the_scheduler_a_question_writes_nothing(self):
         """⚠ `auto_resume_ready` stays PURE. It is asked "would this be ready
@@ -996,22 +1032,40 @@ class OneShotGateBypassTests(unittest.TestCase):
                         account='acct-froze-on'), now))
         self.assertEqual(n['admit_once']['account'], 'acct-froze-on')
 
+    def test_any_honoured_time_that_came_due_earns_it(self):
+        """⚠ WIDENED BY THE USER'S RULING (2026-09-12, via the coordinator):
+        "honor the wake time already shown. At that time allow one real
+        provider attempt; if it is still limited, re-freeze and then
+        adopt/show the later reset estimate."
+
+        Round 3 gave the pass only to a text/provider deadline, which left the
+        ruling's own subject unprotected: a node woken at a time it had been
+        SHOWN from any other rank was re-frozen on the spot by a later account
+        mark and never reached a provider, so that shown time was cosmetic —
+        the exact thing the user ruled against. What buys the pass is the
+        deadline this freeze was honoured at, whatever rank chose it."""
+        from orgtree import supervisor
+        now = time.time()
+        for src in ('probe', 'inherited', 'account-mark', 'usage:session'):
+            with self.subTest(src=src):
+                n = {'account': 'acct-1', 'model': 'fable'}
+                self.assertTrue(supervisor._issue_admit_once(
+                    n, self._fz(until_ts=now - 60, reset_src=src), now))
+                self.assertEqual(n['admit_once']['account'], 'acct-1')
+
     def test_nothing_else_earns_it(self):
-        """Every clause is load-bearing: the limit kind, a provider-stated
-        source, and a deadline that has actually passed."""
+        """Every remaining clause is load-bearing: the limit kind, a deadline
+        the RECORD names, and one that has actually passed."""
         from orgtree import supervisor
         now = time.time()
         for fz in (
                 # a wall still standing — not the wake it is owed
                 self._fz(until_ts=now + 600, reset_src='text'),
                 self._fz(until_ts=now + 600, reset_src='provider'),
-                # the fallback sources have no standing over the gate
-                self._fz(until_ts=now - 60, reset_src='probe'),
-                self._fz(until_ts=now - 60, reset_src='inherited'),
-                self._fz(until_ts=now - 60, reset_src='account-mark'),
-                self._fz(until_ts=now - 60, reset_src='usage:session'),
+                self._fz(until_ts=now + 600, reset_src='probe'),
                 # no time at all, and not a usage-limit freeze
                 self._fz(until_ts=None, reset_src='text'),
+                self._fz(until_ts=None, reset_src='probe'),
                 {'connection': True, 'until_ts': now - 60,
                  'reset_src': 'text', 'at': 'x'}):
             with self.subTest(src=fz.get('reset_src'),

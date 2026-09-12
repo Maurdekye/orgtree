@@ -5524,8 +5524,9 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
          attempt returns a new 429 and that 429 rewrites this record with its
          own timing — the precedence working, not a hole.
       1b. THE PROMISE THIS FREEZE ALREADY CARRIES — `frozen.wake`. Once
-         chosen it IS the deadline, whether or not it has elapsed; the ranks
-         below may only pull it EARLIER (round 6).
+         chosen it IS the deadline, elapsed or not, and NOTHING below moves it
+         in either direction (user ruling: honour the time already shown).
+         The ranks below are how a promise is CHOSEN, not how it is revised.
       2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints. The
          fallback the precedence allows when the 429 said nothing. LIVE only:
          a mark is evidence about now, and an elapsed one belongs to a window
@@ -5601,25 +5602,29 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
                         "provenance": ""}
     promised = _committed_wake(fz)
     if promised:
-        # ⚠ ONCE CHOSEN, A PROMISE IS THE DEADLINE — a live source may pull it
-        # EARLIER but never push it out (review round 6, case B). Letting fresh
-        # evidence move it later made the two readers disagree ACROSS the
-        # elapsed boundary and nowhere else: a promise of +300 lost to a newly
-        # arrived mark of +7200 while it was still to come, then beat that same
-        # mark the moment it came due — so the badge read +2h at one instant
-        # and +5m at the next, and the node woke on the +5m. The winner may not
-        # depend on which side of the deadline the clock is on.
+        # ⚠ HONOUR THE WAKE TIME ALREADY SHOWN (USER RULING 2026-09-12, via
+        # the coordinator): "honor the wake time already shown. At that time
+        # allow one real provider attempt; if it is still limited, re-freeze
+        # and then adopt/show the later reset estimate."
         #
-        # Pulling IN is safe and stays useful: it only ever wakes the node
-        # sooner than it was told, and both readers see the same live source at
-        # the same instant, so they move together. (The cost, stated plainly:
-        # a mark that moves LATER no longer updates the badge. The node wakes
-        # at the promised time, the pre-slot gate re-parks it on the newer mark
-        # and stamps a fresh record, and the badge shows that — one spent
-        # admission, in public, which is the trade round 3 already made for an
-        # elapsed 429.)
-        if fallback and fallback["ts"] < promised["ts"]:
-            return fallback
+        # So once chosen, the promise IS the deadline — live or elapsed —
+        # until something rewrites the record. Nothing here may move it, in
+        # EITHER direction, and both of round 7's reproductions were attempts
+        # to move it:
+        #
+        #   · an interim version let a nearer fallback pull it in, which meant
+        #     an unreadable registry (a transient OSError) or a pruned mark
+        #     silently demoted a committed observed +30m to the record's own
+        #     probe +5m and woke the node early — a weaker guess replacing a
+        #     stronger answer on the strength of an IO failure;
+        #   · and the same rule published a fresh, nearer mark of +10s on the
+        #     badge that expired before the next tick could record it, so the
+        #     following tick restored +2h and the +10s wake never came.
+        #
+        # The adaptation that rule was protecting is not lost, it is just
+        # deferred to where the user put it: the node wakes at the time it was
+        # shown, gets its one real attempt, and a wall still standing
+        # re-freezes it with the newer timing — which IS then displayed.
         return promised
     return fallback
 
@@ -5653,13 +5658,26 @@ def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
     the stated time the node must get a REAL PROVIDER ATTEMPT, not a wake that
     the account gate immediately converts back into a freeze.
 
-    ⚠ NARROW ON PURPOSE, and every clause is load-bearing:
-    · a usage-LIMIT freeze, because that is the kind a 429 writes;
-    · `reset_src` in text/provider, so ONLY a deadline the provider itself
-      stated buys the pass — a mark, a usage readout, an inherited horizon or
-      a probe floor is the fallback and has no standing to override the gate;
-    · the stated time has actually PASSED, so this is the wall expiring and
-      not an early manual ▶ through a wall still standing.
+    ⚠ WIDENED BY THE USER'S 2026-09-12 RULING, and only that far: "honor the
+    wake time already shown. At that time allow one real provider attempt; if
+    it is still limited, re-freeze and then adopt/show the later reset
+    estimate." The pass used to require `reset_src` in text/provider, so a
+    node woken at a deadline it had been SHOWN from any other source was
+    re-frozen on the spot by a later account mark and never reached a
+    provider — the shown time was cosmetic for exactly the fallback ranks the
+    ruling is about. What buys the pass is now THE DEADLINE THIS FREEZE WAS
+    HONOURED AT, whatever rank chose it, which is what
+    `effective_freeze_deadline` answers from the record alone.
+
+    Every remaining clause is load-bearing:
+    · a usage-LIMIT freeze, because that is the kind this is about — a
+      connection drop, an auth refusal or a node that was never frozen is
+      admitted exactly as before;
+    · a deadline that is the RECORD'S OWN — rank 1 or the committed promise,
+      read with no live mark or roster, so a time nobody ever showed this
+      node cannot buy an admission;
+    · and that time has actually PASSED, so this is the wall expiring and not
+      an early manual ▶ through a wall still standing.
 
     Everything else — a connection freeze, an auth freeze, a probe wake, a
     node that was never frozen — is admitted exactly as before. The pass is
@@ -5674,9 +5692,10 @@ def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
     it was issued against, and the gate spends it only on that pair."""
     if not fz.get("limit"):
         return False
-    if not _message_is_conclusive(fz.get("until_ts"), str(fz.get("reset_src") or "")):
-        return False
-    if now < float(cast(float, fz["until_ts"])):
+    # record-local on purpose: no mark, no roster. The question is "what was
+    # this node told?", and only the record can answer that.
+    shown = effective_freeze_deadline(fz, None, now)
+    if not shown or now < float(shown["ts"]):
         return False
     n["admit_once"] = {"at": now,
                        "account": freeze_account_of(fz, n),
@@ -16691,6 +16710,30 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # frozen node across providers must not let it survive a Codex or
             # Antigravity turn and attach to some unrelated future Claude result.
             _limit_cache_claude_state(st, _turn_tier)
+            if _g_pass:
+                # ⚠ THE ONE-SHOT PASS IS SPENT HERE, AND HERE IS THE SEAM
+                # EVERY PROVIDER SHARES (review round 7). Two earlier
+                # placements were both wrong for the same reason — they were
+                # not where the attempt begins:
+                #   · the GATE, which burned it on any turn that died before a
+                #     provider (round 5);
+                #   · the `inflight` stamp, which the whole prompt assembly
+                #     still runs after (round 6);
+                #   · and then the Claude spawn, which the codex and
+                #     antigravity legs below never reach — so THEIR passes
+                #     were never consumed at all and stayed spendable for the
+                #     rest of the TTL (round 7, reproduced at runtime).
+                # The next statement dispatches to a provider leg, whichever
+                # it is. Everything that can still refuse this turn has run.
+                #
+                # Its own lock, and only for a node that actually holds a
+                # pass: this is the rare wake at a deadline that has come due,
+                # not the ordinary turn.
+                with store.DOC_LOCK:
+                    _o_pass = store.load_org(slug)
+                    if _spend_admit_once(_o_pass, nid):
+                        store.save_org(_o_pass)
+                _g_pass = False
             if _turn_tier in providers.CODEX_TIERS:
                 # THE PROVIDER SEAM (FR-15 M1b): a codex tier takes its own
                 # leg here — after the provider-neutral prologue above, before
@@ -16832,24 +16875,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
             if turn_hash is not None:
                 wp_turn, _adm_reason = warmpool.claim_snapshot(
                     slug, nid, turn_hash, turn_components)
-            if _g_pass:
-                # ⚠ THE PROVIDER SEAM, AND IT IS HERE — the last statement
-                # before the process is claimed or spawned (review round 6).
-                # The `inflight` stamp looked like the commitment point and is
-                # not: `_envelope_state_block` and the whole prompt assembly
-                # still run after it and can raise, which would burn the pass
-                # on a turn that never reached a provider — the very thing
-                # round 5 moved it out of the gate to prevent. Everything that
-                # can still refuse this turn has now run.
-                #
-                # Its own lock, and only for a node that actually holds a pass:
-                # this is the rare wake at a conclusive 429's own stated time,
-                # not the ordinary turn.
-                with store.DOC_LOCK:
-                    _o_pass = store.load_org(slug)
-                    if _spend_admit_once(_o_pass, nid):
-                        store.save_org(_o_pass)
-                _g_pass = False
             _spawn_t0 = time.monotonic()
             if wp_turn is not None:
                 proc = wp_turn.proc
