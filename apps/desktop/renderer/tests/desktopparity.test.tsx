@@ -47,7 +47,7 @@ test('new organization keeps folder and hub controls without execution isolation
     const advanced = view.el.querySelector<HTMLButtonElement>('.disclosure')!
     await inAct(async () => { advanced.click(); await flush(10) })
     assert.match(document.body.textContent!, /grant existing folders/)
-    assert.match(document.body.textContent!, /mailserver/)
+    assert.match(document.body.textContent!, /Mailserver/)
     for (const tab of [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')]) {
       await inAct(() => { tab.click() })
       assert.doesNotMatch(document.body.textContent!, /publicly shareable|Docker container|permission ceiling|virtual disk|disk size|sandbox/i)
