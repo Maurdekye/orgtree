@@ -63,6 +63,9 @@ test('dev packaging config shares no identity with the release config', () => {
   assert.equal('publish' in config, false)
   assert.equal(config.win && 'publish' in config.win, false)
   assert.equal(config.extraMetadata.version, version)
+  // A dev build has no native production deps; the rebuild step is what
+  // stripped shared dev-only packages when run through a worktree junction.
+  assert.equal(config.npmRebuild, false)
   // The rest of packaging behavior is inherited, not forked.
   assert.deepEqual(config.files, pkg.build.files)
   assert.deepEqual(config.extraResources, pkg.build.extraResources)

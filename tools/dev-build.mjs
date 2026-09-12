@@ -54,6 +54,12 @@ export function devPackagingConfig(build, version) {
   // electron-builder stamps this version into the packed package.json, so the
   // running app reports it via app.getVersion().
   config.extraMetadata = { ...config.extraMetadata, version }
+  // No production dependency here is native, so @electron/rebuild has nothing
+  // to do — and running it from a worktree whose node_modules is a junction
+  // resolved its workspaceRoot to the SHARED checkout and stripped dev-only
+  // transitive packages (jsdom's cssstyle chain) out from under every other
+  // consumer. Measured on 2026-09-12; off for the dev channel outright.
+  config.npmRebuild = false
   const overlaps = [
     [config.appId === build.appId, 'appId'],
     [config.productName === (build.productName ?? ''), 'productName'],
