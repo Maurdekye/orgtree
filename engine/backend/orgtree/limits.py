@@ -776,6 +776,45 @@ def snapshot(now: float | None = None) -> dict[str, Any]:
     return data
 
 
+def snapshot_for_key(cache_key: str, now: float | None = None) -> dict[str, Any]:
+    """The SAME cache-only shape as :func:`snapshot`, for one registered
+    account's own readout — the per-account entries `fetch_for_token` writes
+    under ``acct:<row id>``.
+
+    The turn envelope needs every signed-in account's standing (user ruling
+    2026-09-12), and a secondary Claude profile's standing lives here rather
+    than in the host `_cache`. Cache-only by construction: this reads the
+    entry `fetch_for_token` left behind and never causes one to be made, so a
+    board rendered on every turn of every agent cannot become one upstream
+    request per agent per turn.
+
+    An account nobody has fetched yet answers `available: False` with no
+    observation — the honest "never reported", distinct from `stale`.
+    """
+    now = time.time() if now is None else now
+    with _lock:
+        ent = _key_cache.get(str(cache_key or "")) or {}
+        raw = cast("dict[str, Any] | None", ent.get("data"))
+        observed = float(cast(float, ent.get("at") or 0.0))
+        if raw is None:
+            return {"available": False, "limits": [], "observed_at": None,
+                    "age": None, "stale": False}
+        data = dict(raw)
+        data["limits"] = [dict(x) for x in cast("list[Any]", raw.get("limits") or [])
+                          if isinstance(x, dict)]
+    age = max(0.0, now - observed) if observed > 0 else None
+    seen = None
+    if observed > 0:
+        try:
+            seen = (_dt.datetime.fromtimestamp(observed, _dt.timezone.utc)
+                    .isoformat().replace("+00:00", "Z"))
+        except (OverflowError, OSError, ValueError):
+            pass
+    data.update(observed_at=seen, age=age,
+                stale=bool(age is not None and age > MAX_EVIDENCE_AGE))
+    return data
+
+
 def invalidate() -> None:
     """Drop the cache. Tests only: a caller that just learned the standing
     changed wants `fetch(max_age=REREAD_MAX_AGE)`, which re-reads without

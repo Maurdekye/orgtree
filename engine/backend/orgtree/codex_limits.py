@@ -555,6 +555,42 @@ def snapshot(now: float | None = None) -> dict[str, Any]:
     return data
 
 
+def snapshot_for_key(cache_key: str, now: float | None = None) -> dict[str, Any]:
+    """The SAME cache-only shape as :func:`snapshot`, for one REDIRECTED codex
+    profile's own board — the entries `fetch_for_home` writes under
+    ``acct:<row id>``.
+
+    The turn envelope must show every signed-in account (user ruling
+    2026-09-12), and a second Codex home's board lives here rather than in the
+    ambient `_cache`. Cache-only by construction: `fetch_for_home` starts a
+    short-lived app-server process, and starting one per agent per turn is
+    exactly what this function exists to avoid — it reads what a modal refresh
+    already left behind, or reports nothing.
+
+    `complete` is False here. The completeness stamp is the ambient cache's
+    own record of a whole-board read; a redirected home's entry carries no
+    such stamp, and inventing one would let `codex_route` treat an absent
+    reserve bucket as evidence that the account has no reserve grant.
+    """
+    now = time.time() if now is None else now
+    with _lock:
+        ent = _home_cache.get(str(cache_key or "")) or {}
+        raw = ent.get("data")
+        observed = float(ent.get("at") or 0.0)
+        if not isinstance(raw, dict):
+            return {"available": False, "provider": "Codex", "limits": [],
+                    "observed_at": None, "age": None, "stale": False,
+                    "complete": False, "complete_age": None, "account": None}
+        data = dict(raw)
+        data["limits"] = [dict(x) for x in raw.get("limits") or []
+                          if isinstance(x, dict)]
+    age = max(0.0, now - observed) if observed > 0 else None
+    data.update(provider="Codex", observed_at=_iso(observed), age=age,
+                stale=bool(age is not None and age > MAX_EVIDENCE_AGE),
+                complete=False, complete_age=None)
+    return data
+
+
 #: The reserve pool's window is named after the MODEL, not after a limit id.
 #: Measured 2026-09-03T00:03Z on the reporting machine, while the account's
 #: own plan window sat spent at 100%:

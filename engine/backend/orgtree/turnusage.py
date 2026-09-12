@@ -11,17 +11,32 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+import re
 import threading
 import time
 from typing import Any, Final, cast
 
-from . import accounts, antigravity_limits, codex_limits, limits
+from . import (accountusage, accounts, antigravity_limits, codex_limits,
+               limits)
 from .ledger import Org
 
 OPEN: Final = "[PROVIDER USAGE"
 CLOSE: Final = "[END PROVIDER USAGE]"
 
-_PROVIDER_ORDER: Final = {"claude": 0, "codex": 1, "antigravity": 2}
+#: Registry provider ids → the board's own provider names. The registry names
+#: the VENDOR (`openai`, `google`); the board names the HARNESS the agent
+#: actually runs on (`codex`, `antigravity`), which is the word every other
+#: instruction to an agent uses.
+_REGISTRY_PROVIDER: Final = {"claude": "claude", "openai": "codex",
+                             "google": "antigravity"}
+
+_PROVIDER_ORDER: Final = {"claude": 0, "codex": 1, "antigravity": 2,
+                          "openrouter": 3}
+#: The lane each provider's AMBIENT sign-in wears — the host board the usage
+#: modal draws at the top of that provider's group. Registered accounts sort
+#: after it, never before, whatever they happen to be called.
+_HOST_LANE: Final = {"claude": "primary", "codex": "account",
+                     "antigravity": "account", "openrouter": "key"}
 _WINDOW_ORDER: Final = {
     "session": 0,
     "weekly_all": 1,
@@ -122,6 +137,33 @@ def _window(limit: dict[str, Any]) -> str:
     return kind
 
 
+#: What may appear in an `amount` cell. A provider's own label, reduced to
+#: digits, currency and a handful of words — never a raw provider string.
+_AMOUNT_SAFE: Final = re.compile(r"[^0-9A-Za-z$€£¥.,/+\- ]")
+
+
+def _amount(limit: dict[str, Any], pct: float | None) -> str:
+    """The `amount` cell — populated for an UNCAPPED window only.
+
+    ⚠ THE MODAL'S OWN RULE, and the reason this column exists at all.
+    `percent: null` is a real state (OpenRouter reports it for an uncapped
+    key): UsageBars draws no bar and lets the label carry the dollar figure,
+    because a bar reading 0% would claim nothing has been spent. A board that
+    showed `unavailable` there would make the same false claim in words. So
+    when there IS a percentage the cell stays `-` exactly as before — every
+    pre-existing row is byte-identical — and when there is not, the provider's
+    own figure stands in, sanitized and capped.
+    """
+    if pct is not None:
+        return "-"
+    raw = str(limit.get("label") or "").strip()
+    if not raw:
+        return "-"
+    cleaned = _AMOUNT_SAFE.sub("", raw).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)[:32].strip()
+    return cleaned or "-"
+
+
 def _seen(snapshot: dict[str, Any], now: float) -> tuple[str, bool]:
     observed = _epoch(snapshot.get("observed_at"))
     age_raw = snapshot.get("age")
@@ -196,6 +238,13 @@ def _row_order(item: tuple[tuple[Any, ...], str]) -> tuple[Any, ...]:
     provider_rank = int(cast(int, key[0]))
     lane = str(key[1])
     lane_rank = 0
+    # every provider's AMBIENT lane leads its group (user ruling 2026-09-12:
+    # the board now carries registered accounts too, and a registered Codex
+    # account called "alpha" must not sort above the host `account` lane the
+    # way plain lexical order would put it)
+    if lane != _HOST_LANE.get(
+            next((p for p, r in _PROVIDER_ORDER.items() if r == provider_rank), "")):
+        lane_rank = 50
     if provider_rank == _PROVIDER_ORDER["claude"]:
         if lane == "primary":
             lane_rank = 0
@@ -222,22 +271,33 @@ def _cached_rows(snapshot: dict[str, Any], provider: str, lane: str,
                     if isinstance(x, dict)]
                    if isinstance(raw_limits, list) else [])
     if not snapshot.get("available") or not limits_list:
-        reason = ("unavailable(stale)" if stale else
-                  "unavailable(no-cache)")
-        state = "frozen" if selected and frozen else (
-            "stale" if stale else "unavailable")
+        # ⚠ "CAN'T" AND "DIDN'T" MUST NOT LOOK ALIKE — the same distinction the
+        # modal's UsageBars draws (a settled `unsupported` reads as a note, an
+        # error as a condition that might clear). A board that rendered an
+        # account with no usage SURFACE identically to one nobody has read yet
+        # would have an agent waiting for a number that is never coming.
+        if snapshot.get("unsupported"):
+            reason, state = "unavailable(unsupported)", "unsupported"
+        elif stale:
+            reason, state = "unavailable(stale)", "stale"
+        elif snapshot.get("error"):
+            reason, state = "unavailable(error)", "unavailable"
+        else:
+            reason, state = "unavailable(no-cache)", "unavailable"
+        if selected and frozen:
+            state = "frozen"
         line = _line(provider, lane, "usage", reason, "-",
                      _reset_cell(freeze_reset, now) if frozen else "-",
                      observed, state, selected=selected)
         return [((_PROVIDER_ORDER[provider], lane, 99, "", 0), line)]
 
-    normalized: list[tuple[str, float | None, str, str, bool]] = []
+    normalized: list[tuple[str, float | None, str, str, bool, str]] = []
     for limit in limits_list:
         window = _window(limit)
         pct, shown = _percent(limit.get("percent"))
         reset = _reset_cell(limit.get("resets_at"), now)
         normalized.append((window, pct, shown, reset,
-                           bool(limit.get("is_active"))))
+                           bool(limit.get("is_active")), _amount(limit, pct)))
     normalized.sort(key=lambda row: (
         _WINDOW_ORDER.get(row[0].split(":", 1)[0], 98), row[0],
         row[3], -1.0 if row[1] is None else row[1], row[4]))
@@ -251,7 +311,7 @@ def _cached_rows(snapshot: dict[str, Any], provider: str, lane: str,
     normalized = list(dict.fromkeys(normalized))
     counts: dict[str, int] = {}
     out: list[tuple[tuple[Any, ...], str]] = []
-    for window, pct, shown, reset, active in normalized:
+    for window, pct, shown, reset, active, amount in normalized:
         counts[window] = counts.get(window, 0) + 1
         display = window if counts[window] == 1 else f"{window}#{counts[window]}"
         if selected and frozen:
@@ -267,13 +327,18 @@ def _cached_rows(snapshot: dict[str, Any], provider: str, lane: str,
         key = (_PROVIDER_ORDER[provider], lane,
                _WINDOW_ORDER.get(base, 98), display,
                -1.0 if pct is None else pct)
-        out.append((key, _line(provider, lane, display, shown, "-", reset,
+        out.append((key, _line(provider, lane, display, shown, amount, reset,
                                observed, state, selected=selected)))
     return out
 
 
 def _fallback_rows(now: float, selected_lane: str,
-                   frozen: bool, freeze_reset: Any) -> list[tuple[tuple[Any, ...], str]]:
+                   frozen: bool, freeze_reset: Any,
+                   rendered: set[str] | None = None,
+                   ) -> list[tuple[tuple[Any, ...], str]]:
+    """`rendered` (out-param): the `accounts.json` key ids this call put on the
+    board, so the registered-account pass below does not list the same key a
+    second time under its registry row."""
     try:
         doc = accounts.load()
     except Exception:  # noqa: BLE001 - one telemetry source cannot block a turn
@@ -288,6 +353,8 @@ def _fallback_rows(now: float, selected_lane: str,
             continue
         account = str(raw.get("id") or "")
         lane = f"fallback-{ordinal}"
+        if rendered is not None and account:
+            rendered.add(account)
         liveness = accounts.key_liveness(doc, account)
         try:
             standings = accounts.tier_standing(doc, account, now)
@@ -321,6 +388,129 @@ def _fallback_rows(now: float, selected_lane: str,
                 selected=selected)
             rows.append(((0, lane, 10, window, 0), line))
     return rows
+
+
+#: A lane name an agent can quote back: lowercase, dashed, bounded.
+_LANE_SAFE: Final = re.compile(r"[^a-z0-9]+")
+#: The roster's own line. Prefixed, so it can never be mistaken for a usage
+#: row (which every reader identifies by its pipe count) and can be found
+#: without parsing the board.
+ROSTER: Final = "accounts:"
+
+
+def _lane_of(identity: dict[str, str], taken: set[str]) -> str:
+    """This account's lane name — stable, unique, and free of credentials.
+
+    The user-chosen LABEL first, because that is what they named the account
+    in the panel and what they will use when they tell an agent which account
+    to run on. A label that slugifies to nothing, or that another account
+    already took, falls back to the registry row id (`claude-2`), which is an
+    opaque counter and not a secret.
+    """
+    slug = _LANE_SAFE.sub("-", identity.get("label", "").lower()).strip("-")[:24]
+    rid = _LANE_SAFE.sub("-", identity.get("id", "").lower()).strip("-")[:24]
+    for candidate in (slug, rid):
+        if candidate and candidate not in taken:
+            taken.add(candidate)
+            return candidate
+    n = 2
+    while f"{rid or 'account'}-{n}" in taken:
+        n += 1
+    taken.add(f"{rid or 'account'}-{n}")
+    return f"{rid or 'account'}-{n}"
+
+
+def _mark_rows(provider: str, lane: str, standing: Any, now: float,
+               ) -> list[tuple[tuple[Any, ...], str]]:
+    """This account's ACTIVE marks, one row per pool — the same lines the
+    modal's `StandingMarks` draws under a card, provenance and all.
+
+    A mark is orgtree's own record that a pool refused this account until a
+    named instant. It is not a percentage and never becomes one: an INFERRED
+    mark says so in its state, because presenting an inference as a
+    measurement is the one thing `registry.standing_of` exists to prevent.
+    """
+    marks = standing.get("marks") if isinstance(standing, dict) else None
+    rows: list[tuple[tuple[Any, ...], str]] = []
+    for pool, mark in sorted((marks or {}).items()):
+        if not isinstance(mark, dict):
+            continue
+        pool_name = _LANE_SAFE.sub("-", str(pool).lower()).strip("-")[:24]
+        window = f"mark:{pool_name or 'pool'}"
+        inferred = str(mark.get("provenance") or "") == "inferred"
+        rows.append((
+            (_PROVIDER_ORDER[provider], lane, 97, window, 0),
+            _line(provider, lane, window, "unavailable(marked)", "-",
+                  _reset_cell(mark.get("until"), now), f"{_iso(now)} (live)",
+                  "limit-active(inferred)" if inferred else "limit-active")))
+    return rows
+
+
+def _registered_rows(org: Org, now: float, seen_token_refs: set[str],
+                     taken_lanes: set[str], roster: list[str],
+                     ) -> list[tuple[tuple[Any, ...], str]]:
+    """Every REGISTERED account beyond the host lanes above (user ruling
+    2026-09-12: "i want you to be able to see the same information i see in
+    the current usage modal").
+
+    The rows come from `accountusage.registered_views`, which is the SAME
+    resolver `/api/accounts/{id}/usage` serves the modal from — called here
+    with `allow_fetch=False`, so a board rendered on every turn of every agent
+    spends no upstream request and opens no credentials file.
+
+    ⚠ DEDUPED AGAINST THE LEGACY FALLBACK KEYS. A `claude setup-token` key is
+    both an `accounts.json` key (rendered above as `fallback-N`, with the tier
+    standing that is the only thing such a key can report) and a registry
+    token row. Listing it twice would have an agent believe this machine holds
+    two accounts where it holds one — the exact confusion the modal's
+    `ambient` filter exists to prevent on its own surface.
+    """
+    rows: list[tuple[tuple[Any, ...], str]] = []
+    try:
+        views = accountusage.registered_views(
+            allow_fetch=False, now=now, org=str(org.d.get("slug") or "") or None)
+    except Exception:                                          # noqa: BLE001
+        return [((0, "accounts", 99, "", 0),
+                 _line("claude", "accounts", "usage",
+                       "unavailable(telemetry-error)", "-", "-", "-",
+                       "unavailable"))]
+    for entry in views:
+        identity = entry.get("row") or {}
+        usage = entry.get("usage") or {}
+        provider = _REGISTRY_PROVIDER.get(str(identity.get("provider") or ""))
+        if provider is None:
+            continue
+        row_obj = usage.get("account")
+        if isinstance(row_obj, str) and row_obj in seen_token_refs:
+            continue
+        lane = _lane_of(identity, taken_lanes)
+        roster.append(_roster_entry(provider, lane, identity))
+        rows += _cached_rows(usage, provider, lane, now, False, False)
+        rows += _mark_rows(provider, lane, usage.get("standing"), now)
+    return rows
+
+
+def _roster_entry(provider: str, lane: str, identity: dict[str, str]) -> str:
+    """One account's line in the roster — who this lane actually is.
+
+    ⚠ THIS IS THE ONE PLACE ACCOUNT IDENTITY ENTERS THE BOARD, and it is here
+    because the user asked for it by name. The rows above are deliberately
+    anonymous columns of numbers; without a roster, two accounts of the same
+    provider are two lane names an agent cannot connect to anything the user
+    would recognise. Label, the email the registry already observed, and the
+    auth state — never a credential path, a token ref or key material.
+    """
+    bits = [f"{provider}/{lane}"]
+    label = identity.get("label") or ""
+    if label and label != lane:
+        bits.append(f'"{label}"')
+    email = identity.get("email") or ""
+    if email:
+        bits.append(f"<{email}>")
+    auth = identity.get("auth") or ""
+    if auth and auth != "authenticated":
+        bits.append(f"auth={auth}")
+    return " ".join(bits)
 
 
 def _cells(line: str) -> list[str]:
@@ -483,8 +673,9 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
                                selected=(selected_provider == "claude"
                                          and selected_lane == "primary"))))
 
+        legacy_keys: set[str] = set()
         rows += _fallback_rows(now, selected_lane if selected_provider == "claude" else "",
-                               frozen, freeze_reset)
+                               frozen, freeze_reset, legacy_keys)
 
         if bool(org.d.get("api_key")) or (
                 selected_provider == "claude" and selected_lane == "org-api-key"):
@@ -536,13 +727,50 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
                                "unavailable",
                                selected=selected_provider == "google")))
 
+        # ── THE OPENROUTER KEY (user ruling 2026-09-12) ───────────────────
+        # The modal has shown this lane since OpenRouter landed; the board
+        # never did, so an agent could not see a balance the user could. It
+        # is a PREPAID CREDIT BALANCE, not a rolling window — an uncapped key
+        # reports `percent: null` and carries its dollar figure in the label,
+        # which is what the `amount` column is for. Rendered only when a key
+        # is actually stored: `snapshot` says `available: False` otherwise,
+        # and a machine with no OpenRouter gets no OpenRouter row at all
+        # rather than a permanent "unavailable" advertisement for it (the
+        # same rule D-202 settled for the modal's Codex section).
+        try:
+            from . import openrouter_limits         # noqa: PLC0415 — one lane
+            orr = openrouter_limits.snapshot(now)
+            if orr.get("available"):
+                rows += _cached_rows(orr, "openrouter", "key", now,
+                                     False, False)
+        except Exception:                                      # noqa: BLE001
+            pass                      # one absent lane never fails the board
+
+        # ── EVERY OTHER REGISTERED ACCOUNT (user ruling 2026-09-12) ───────
+        # The host lanes above are this machine's ambient sign-ins. Anything
+        # else the user has registered — a second Claude profile, a second
+        # Codex home, a registered Antigravity account — was invisible here
+        # while being fully visible in their own Usage modal. The same
+        # resolver the modal reads now fills the gap, cache-only.
+        taken_lanes = {"primary", "account", "org-api-key", "fallbacks",
+                       *(f"fallback-{i}" for i in range(1, 21))}
+        roster: list[str] = []
+        rows += _registered_rows(org, now, legacy_keys, taken_lanes, roster)
+
         rows.sort(key=_row_order)
         lines = [line for _key, line in rows]
+        # the roster is NOT a usage row and must never read as one: no pipes,
+        # its own prefix, and it is keyed into `material_key` separately so a
+        # renamed or re-identified account still re-sends the board
+        roster_line = (f"{ROSTER} " + " · ".join(roster) + "\n") if roster else ""
         key = material_key(lines)
+        if roster:
+            key = f"{ROSTER}{' · '.join(roster)}\n{key}"
         return ((f"{OPEN} — current as of {_iso(now)}; "
                  f"dynamic/cache-only]\n"
-                 "provider/lane | window | used | amount | reset (countdown) | "
-                 "observed (age,freshness) | state\n"
+                 + roster_line
+                 + "provider/lane | window | used | amount | reset (countdown) | "
+                   "observed (age,freshness) | state\n"
                  + "\n".join(lines)
                  + "\n* selected for this turn; - = not authoritatively "
                    "reported.\n"

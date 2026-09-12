@@ -4018,22 +4018,16 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
 def _ambient_covered(row: dict[str, Any], primary: str,
                      ambient_paths: dict[str, str | None]) -> bool:
     """Whether this row's usage is ALREADY the host board a provider lane of
-    the usage modal serves — decided the same way `accounts_usage` routes,
-    so the two surfaces cannot disagree: the claude row the `primary` alias
-    names answers with `limits.fetch()` (the Claude Code lane), and an
-    imported/managed row whose profile directory IS the ambient home answers
-    with that provider's ambient board. Everything else has its own lane."""
-    if row["provider"] == "claude":
-        return row["id"] == primary
-    cred = row.get("credential") or {}
-    if cred.get("kind") not in ("imported", "managed"):
-        return False
-    home = ambient_paths.get(row["provider"])
-    path = cred.get("path")
-    if not home or not path:
-        return False
-    return (os.path.normcase(os.path.normpath(path))
-            == os.path.normcase(os.path.normpath(home)))
+    the usage modal serves.
+
+    ⚠ THE RULE MOVED, DELIBERATELY (user ruling 2026-09-12). It now lives in
+    `accountusage.ambient_covered`, because the AGENT TURN ENVELOPE has to ask
+    the same question the modal asks — "is this account already on the board?"
+    — and two copies of that answer would drift into an account appearing
+    twice on one surface and not at all on the other. This stays as the name
+    the modal's list endpoint already calls."""
+    from . import accountusage
+    return accountusage.ambient_covered(row, primary, ambient_paths)
 
 
 def _account_display_identity(row: dict[str, Any]) -> dict[str, Any]:
@@ -4179,76 +4173,22 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     unsupported — no usage surface exists to read, and no environment
     selector is invented. Token rows: legacy key rows answer from local
     routing state; an org-key row bills an API key and has no subscription
-    windows."""
-    from . import codex_limits, subproxy
-    from .registry_migration import observe_ambient
+    windows.
+
+    ⚠ THE RESOLUTION ITSELF MOVED (user ruling 2026-09-12): it is
+    `accountusage.view`, which the AGENT TURN ENVELOPE also calls — with
+    `allow_fetch=False`, so the board an agent reads every turn spends no
+    upstream request. One resolver, two callers, and no second interpretation
+    of the same caches for the two surfaces to disagree over."""
+    from . import accountusage
     try:
         row = registry.get_account(account_id)
     except registry.UnknownAccount:
         raise HTTPException(404, f"no account {account_id!r}")
-    standing = registry.standing_of(row)
-    cred = row["credential"]
-    out: dict[str, Any] = {"account": account_id,
-                           "provider": row["provider"],
-                           "standing": standing}
-    if row["provider"] == "google":
-        out.update(available=False, unsupported=True,
-                   error="Antigravity exposes no usage surface")
-        return out
-    if cred["kind"] == "token":
-        if str(cred.get("token_ref", "")).startswith("org-api-key:"):
-            out.update(available=False,
-                       error="API-key billing — no subscription windows")
-        else:
-            out.update(accounts.account_usage(cred["token_ref"]))
-        return out
-    if row["provider"] == "claude":
-        if registry.resolve_alias("primary") == row["id"]:
-            out.update(limits.fetch())
-            return out
-        try:
-            token = subproxy.profile_access_token(cred["path"])
-        except RuntimeError as e:
-            # ⚠ THE ROW SAYS `authenticated` BECAUSE A DIRECTORY HOLDS AN
-            # ACCOUNT UUID — a fact about a FILE, which stays true long after
-            # the login behind it stops working, and which a failure here is
-            # not automatically entitled to contradict. So report what was
-            # actually observed: a plain sentence the user can act on, the
-            # technical line beside it for diagnosis, and a sign-in prompt
-            # ONLY when something genuinely judged the credential. An edge
-            # 403 or a moved endpoint is NOT that — and it was precisely that
-            # failure, dressed up as a login problem, that had this account
-            # being sent after a sign-in it never needed.
-            out.update(available=False,
-                       error=getattr(e, "user_message",
-                                     subproxy.RECOVERABLE_MESSAGE),
-                       detail=str(e))
-            evidence = getattr(e, "evidence", None)
-            if evidence:
-                out["reauth_required"] = True
-                out["reauth_evidence"] = evidence
-            return out
-        out.update(limits.fetch_for_token(token, f"acct:{row['id']}"))
-        # The subscription tier, from THIS row's own credentials file. It is
-        # added here rather than inside `fetch_for_token` on purpose: that
-        # function's cache holds the provider-native readout, one entry per
-        # account, and the tier is a property of the login rather than of the
-        # usage window it caches. Empty means the provider reported none —
-        # omitted, never defaulted, so the panel simply shows no tier line.
-        plan = limits.profile_plan(cred["path"])
-        if plan:
-            out["plan"] = plan
-        return out
-    # openai profile rows: the ambient-home row serves the rich shared
-    # board; any OTHER home gets its OWN app-server read (fetch_for_home:
-    # isolated cache, pinned home, closed client, its own account digest)
-    ambient = observe_ambient().get("openai")
-    if ambient and os.path.normcase(os.path.normpath(cred["path"])) \
-            == os.path.normcase(os.path.normpath(ambient)):
-        out.update(codex_limits.fetch())
-        return out
-    out.update(codex_limits.fetch_for_home(cred["path"],
-                                           f"acct:{row['id']}"))
+    out = accountusage.view(row, allow_fetch=True)
+    # the alias the caller asked by, never the resolved row id — an existing
+    # client that asked for `primary` must keep reading its own key back
+    out["account"] = account_id
     return out
 
 

@@ -6857,6 +6857,93 @@ DOCKET_DOCTRINE = (
     "capacity is ending. ")
 
 
+#: HOW TO SPREAD WORK ACROSS SIGNED-IN ACCOUNTS (user requirement 2026-09-12).
+#: Verbatim ask: "tell [them] to appropriately load-balance among the available
+#: accounts when multiple are signed in at once, taking into account remaining
+#: usage and time until refresh to assign tasks on the correct account lane …
+#: make sure agents also know the individual rules for how each lane works".
+#:
+#: WHY THIS IS DOCTRINE AND NOT TELEMETRY. The per-account numbers already
+#: reach every agent, every turn, in the dynamic `[PROVIDER USAGE]` board
+#: (`turnusage.board`, carried on the user envelope). What was missing is the
+#: RULE for reading them — which account a task belongs on. A rule is stable
+#: identity, so it rides `identity_prompt`: one string, rendered into the
+#: claude identity file, the codex AGENTS.md and the antigravity developer
+#: instructions alike, so every lane is told the same thing. Nothing here may
+#: become a formatting field: no account name, no percentage, no reset stamp,
+#: or this block becomes telemetry and rewrites the cached prefix every turn.
+#:
+#: ⚠ GUIDANCE, NOT ROUTING. This changes what agents are TOLD; it changes no
+#: routing decision. Account binding (`bind_node`), the fallback order
+#: (`account_fallback`), the codex reserve route (`codex_route.decide`) and
+#: the cache-continuity rules are untouched, and the closing paragraph says so
+#: out loud so an agent does not read this as licence to re-bind a live seat.
+#: ⚠ test_mcptool's recital pin matches tool verbs as SUBSTRINGS: keep the
+#: bare words m-o-v-e (so also "remove"), r-e-n-a-m-e and s-w-a-p out of this
+#: text, and keep retire/rehire/dissolve/reallocate out of it entirely.
+ACCOUNT_LANE_DOCTRINE = (
+    "BALANCING SIGNED-IN ACCOUNTS (user requirement 2026-09-12). When a "
+    "provider has more than one account signed in at once, spread work across "
+    "them instead of draining one and then falling back. The live [PROVIDER "
+    "USAGE] block at the top of your turn gives you, per account and per "
+    "window, how much is used and when it resets — read it before you place a "
+    "task on a lane, and if you are assigning work to another agent, place "
+    "THAT task by the same rule. THE BOARD NAMES EVERY ACCOUNT: one lane per "
+    "signed-in account, with an `accounts:` roster line saying which account "
+    "each lane is by the label the user gave it, and one row per usage window "
+    "that account has. READ ITS UNCERTAINTY AS UNCERTAINTY: "
+    "`unavailable(no-cache)` means nothing has been read for that account "
+    "yet, `unavailable(stale)` means the reading is old, and "
+    "`unavailable(unsupported)` means that lane publishes no usage at all. "
+    "None of those is zero and none of them is room — never invent a number "
+    "the board did not give you, and say plainly that a reading is missing "
+    "rather than planning as though it were empty. Two rules, in this order. "
+    "(1) WHEN EVERY "
+    "ACCOUNT OF THAT PROVIDER IS FAR FROM ITS RESET, prefer the account with "
+    "the LOWER usage — the one with more remaining capacity. (2) WHEN ONE "
+    "ACCOUNT RESETS SOONER THAN ANOTHER, spend that sooner-resetting account's "
+    "capacity FIRST and leave the later-resetting account alone until the "
+    "first is used up or has reset: capacity that is about to refresh anyway "
+    "is the capacity you can afford to spend, and the account whose reset is "
+    "distant is the one worth preserving. "
+    "AND KNOW WHAT EACH LANE ACTUALLY SPENDS — 'usage' is not one number. "
+    "CLAUDE: a Fable model spends BOTH the standard weekly limit AND the "
+    "separate Fable weekly limit, while the lower Claude tiers — Opus, Sonnet, "
+    "Haiku — spend only the standard weekly limit. So a Fable turn costs twice "
+    "over, and an exhausted Fable weekly limit can sit beside a standard "
+    "weekly limit that still has room. "
+    "CODEX: Luna accumulates only in the gpt-reserve limit and does not touch "
+    "the normal weekly limit at all until reserve is completely full. There "
+    "are exactly two exceptions — the user has turned the reserve preference "
+    "off for that agent, or the gpt-reserve lane is unavailable — and in "
+    "either of those Luna spends the normal weekly limit instead. "
+    "NEVER START A MODEL ON AN ACCOUNT WHERE A WINDOW IT SPENDS IS AT 100% "
+    "(user rule 2026-09-12). That is a hard ineligibility, not a preference: "
+    "no astra on a Codex account whose weekly window is full, no fable on a "
+    "Claude account whose Fable weekly window is full. AND IT IS PER ACCOUNT, "
+    "NOT PER MODEL — the user's words: \"don't hire a model on a specific "
+    "account when [an] allowance it consumes on that account is at 100%, but "
+    "if that allowance is available elsewhere, then you can still hire it\". "
+    "So discard only the exhausted account-and-model pair, then judge the "
+    "same model on every other compatible account, and conclude the model is "
+    "unavailable only once every one of them is ineligible or unreadable. "
+    "Per account, by the accounting above: Fable needs BOTH that account's "
+    "standard Claude weekly window and its Fable weekly window under 100%; "
+    "Opus and the lower Claude tiers ignore the Fable-only window and need "
+    "only that account's standard weekly window; Astra and the ordinary Codex "
+    "tiers need that Codex account's standard weekly window; Luna stays "
+    "eligible on an account whose standard weekly window is full for as long "
+    "as that account's gpt-reserve still has room, and is judged on the "
+    "standard weekly window instead when reserve is disabled, unavailable, or "
+    "itself at 100%. "
+    "THIS IS HOW TO CHOOSE AMONG ACCOUNTS YOU MAY ALREADY USE. It does not "
+    "override an agent's account binding, the automatic fallback order when a "
+    "lane is exhausted, or the cache-continuity rules above: switching a "
+    "running agent's account is still a new cache namespace, so balance at the "
+    "point where work is PLACED rather than by flipping a live seat back and "
+    "forth. ")
+
+
 def identity_prompt(org: Org, nid: str, include_archived: bool = False) -> str:
     """№29: the STABLE identity — who this agent is, who it answers to, what it
     may touch, and how the tools work. Regenerated every turn, but by design it
@@ -7175,6 +7262,11 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False) -> str:
         # every existing managed system prompt once, then these bytes stay
         # fixed across turns and across provider lanes.
         + f"\n{cachecontinuity.CACHE_CONTINUITY_BLOCK}\n"
+        # Directly under the cache doctrine, and deliberately so: the account
+        # rule ENDS by pointing at it ("switching a running agent's account is
+        # still a new cache namespace"), so the two paragraphs must be read
+        # together. Same stability contract — fixed bytes, no telemetry.
+        + f"\n{ACCOUNT_LANE_DOCTRINE}\n"
         # D-181: `Credits:`, the fable note and the open-ask line used to sit
         # here. They are live org state and now ride `org_state_block`.
         f"{dir_line}{skills_line}{tool_line}{handles_line}"
