@@ -75,8 +75,10 @@ const PANE_STATE_WHY: Record<DocRow['node_state'], string | null> =
 const isHired = (r: DocRow) => r.node_state === 'live'
 
 export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
-  refs, onOpenDocument }: {
+  refs, onOpenDocument, jumpTo, onJumpHandled }: {
   slug: string
+  jumpTo?: { id: string; seq: number } | null
+  onJumpHandled?: () => void
   onOpenDocument?: (id: string) => void
   toast: ToastFn
   close: () => void
@@ -90,7 +92,11 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
 }) {
   const [pageOffset, setPageOffset] = useState(0)
   useEffect(() => setPageOffset(0), [slug])
-  const data = usePolled(() => getDocuments(slug, pageOffset), [slug, pageOffset])
+  const listing = usePolled(() => getDocuments(slug, pageOffset, '', jumpTo?.id).then(
+    data => ({ data, error: '', org: slug, seq: jumpTo?.seq }),
+    error => ({ data: null, error: String(error.message), org: slug, seq: jumpTo?.seq }),
+  ), [slug, pageOffset, jumpTo?.id, jumpTo?.seq])
+  const data = listing?.org === slug ? listing.data : null
   const all = useMemo(() => data?.documents?.filter(r => !r.evicted), [data])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
@@ -110,6 +116,17 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // selection is BY ID, not index — the list repolls, and the filter above
   // narrows it, so an index would silently address a different document
   const [selId, setSelId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!jumpTo || listing?.org !== slug || listing.seq !== jumpTo.seq) return
+    if (listing.error) { toast([listing.error]); onJumpHandled?.(); return }
+    if (!jumpTo || data?.located !== jumpTo.id) return
+    const row = data.documents.find(r => r.id === jumpTo.id && !r.evicted)
+    if (!row) return
+    setPageOffset(data.offset ?? 0)
+    setShowRetired(on => on || !isHired(row))
+    setSelId(row.id)
+    onJumpHandled?.()
+  }, [data, listing, slug, jumpTo, onJumpHandled, toast])
   // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): open/close is the
   // row's own select; dismiss is the pane's dismiss (same `dismissDoc`, same
   // toast, same deselect); copy/download come from the shared builder

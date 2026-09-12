@@ -5020,7 +5020,7 @@ def remote_control(slug: str, nid: str, body: RemoteControl,
 
 
 @app.get("/api/orgs/{slug}/documents")
-def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "") -> dict[str, Any]:
+def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "", locate: str = "") -> dict[str, Any]:
     """FR-03 gallery: every presented document in the org, newest first.
     Reads `documents` directly (not the tree walk) so a retired, rehired or
     deleted presenter still has its cards. Evicted bodies surface as rows
@@ -5038,7 +5038,13 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "")
             d["ref"] = refs.doc(slug, str(d["id"]))
     offset = max(0, offset)
     limit = max(1, min(limit, 100))
+    if locate:
+        index = next((i for i, row in enumerate(gallery) if row.get('id') == locate and not row.get('evicted')), None)
+        if index is None:
+            raise HTTPException(404, 'The presented document is no longer available.')
+        offset = index // limit * limit
     return {"documents": gallery[offset:offset + limit], "total": len(gallery),
+            "offset": offset, "located": locate,
             "next_offset": offset + limit if offset + limit < len(gallery) else None}
 
 

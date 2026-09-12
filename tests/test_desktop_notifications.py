@@ -11,7 +11,7 @@ for key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'): os.envi
 from engine.launch import load_app
 app,*_ = load_app()
 from orgtree import store, desktop_notifications
-from orgtree.ledger import USER
+from orgtree.ledger import USER, Org
 
 _orgs = []
 def fixture_org(slug):
@@ -98,5 +98,94 @@ class NotificationsTests(unittest.TestCase):
         identities = {(r['org'], r['id']) for r in page['notices']+more['notices']}
         self.assertEqual(len(identities), page['total'])
         self.assertEqual(identities, {(r['org'], r['id']) for r in page['active']})
+
+    def test_z_attention_is_an_effective_edge_across_rewrites_and_question_handoffs(self):
+        org = fixture_org('attention-edges')
+        item = {'slug': 'choose', 'title': 'Choose', 'owner': {'node': 'agent'},
+                'manual_attention': {'set_rev': 7, 'reason': 'First'}}
+        org.d['work_items'] = [item]
+        store.save_org(org)
+        def work():
+            return [r for r in desktop_notifications.notices(limit=1000)['notices']
+                    if r['org'] == 'attention-edges' and r['kind'] == 'work-attention']
+        initial = work()[0]['id']
+        # Loading a pre-feature record must capture its old epoch BEFORE the
+        # first write rewrites the manual flag's independent dismissal stamp.
+        item.pop('notification_attention_active')
+        item.pop('notification_attention_epoch')
+        org = Org(org.d)
+        item['manual_attention'] = {'set_rev': 8, 'reason': 'Rewritten'}
+        store.save_org(org)
+        self.assertEqual(work()[0]['id'], initial)
+        self.assertEqual(work()[0]['body'], 'Rewritten')
+        org.d['asks'] = [{'id': 'attached', 'node': 'agent', 'status': 'open',
+                         'questions': [{'question': 'Which?', 'work_item': 'choose'}]}]
+        store.save_org(org)
+        item['manual_attention'] = None
+        store.save_org(org)
+        self.assertEqual(work()[0]['id'], initial, 'attached question keeps effective attention set')
+        org.d['asks'][0]['status'] = 'withdrawn'
+        store.save_org(org)
+        self.assertEqual(work(), [])
+        # Reassert without any notification read between the two writes.
+        item['manual_attention'] = {'set_rev': 9, 'reason': 'New decision'}
+        store.save_org(org)
+        self.assertNotEqual(work()[0]['id'], initial)
+        final_id = work()[0]['id']
+        restored = store.load_org('attention-edges')
+        store.save_org(restored)
+        self.assertEqual(work()[0]['id'], final_id)
+
+    def test_z_document_identity_and_exact_gallery_page_survive_replacement_and_retirement(self):
+        org = fixture_org('presentations')
+        org.d['documents'] = [{'id': f'd{i}', 'node': 'agent', 'title': f'Plan {i}',
+                              'at': f'2026-09-12T00:{i // 60:02}:{i % 60:02}Z', 'body': 'Plan body'} for i in range(105)]
+        store.save_org(org)
+        def document():
+            return next(r for r in desktop_notifications.notices(limit=1000)['notices']
+                        if r['org'] == 'presentations' and r.get('source_id') == 'd0')
+        initial = document()['id']
+        org.d['documents'][0]['title'] = 'Revised plan'
+        org.nodes['agent']['state'] = 'archived'
+        store.save_org(org)
+        self.assertEqual(document()['id'], initial, 'updating one document is not a new presentation')
+        client = TestClient(app)
+        headers = {'X-Orgtree-Desktop-Token': 'operator'}
+        page = client.get('/api/orgs/presentations/documents?locate=d0', headers=headers).json()
+        self.assertEqual(page['offset'], 100)
+        self.assertEqual(page['located'], 'd0')
+        self.assertTrue(any(r['id'] == 'd0' and r['node_state'] == 'archived' for r in page['documents']))
+        org.d['documents'] = org.d['documents'][1:]
+        store.save_org(org)
+        self.assertEqual(client.get('/api/orgs/presentations/documents?locate=d0', headers=headers).status_code, 404)
+        self.assertNotIn(initial, [r['id'] for r in desktop_notifications.notices(limit=1000)['notices']])
+
+    def test_z_frozen_identity_changes_on_refreeze_or_generation_and_retires_cleanly(self):
+        org = fixture_org('freeze-edges')
+        node = org.nodes['agent']
+        node['generation'] = 3
+        node['frozen'] = {'at': '2026-09-12T10:00:00Z'}
+        store.save_org(org)
+        def frozen():
+            return [r for r in desktop_notifications.notices(limit=1000)['notices']
+                    if r['org'] == 'freeze-edges' and r['kind'] == 'agent-frozen']
+        initial = frozen()[0]
+        self.assertEqual((initial['agent'], initial['generation']), ('agent', 3))
+        node['frozen']['until'] = 'tomorrow'
+        store.save_org(org)
+        self.assertEqual(frozen()[0]['id'], initial['id'])
+        node['frozen'] = None
+        store.save_org(org)
+        self.assertEqual(frozen(), [])
+        node['frozen'] = {'at': '2026-09-12T11:00:00Z'}
+        store.save_org(org)
+        self.assertNotEqual(frozen()[0]['id'], initial['id'])
+        second = frozen()[0]['id']
+        node['generation'] = 4
+        store.save_org(org)
+        self.assertNotEqual(frozen()[0]['id'], second)
+        node['state'] = 'archived'
+        store.save_org(org)
+        self.assertEqual(frozen(), [])
 
 if __name__ == '__main__': unittest.main()

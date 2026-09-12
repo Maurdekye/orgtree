@@ -305,8 +305,9 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
  *  that glows for attention; the user widened WHAT counts for it (urgent mail
  *  joined open asks) without touching that. It is no longer sole: on
  *  2026-09-11 the user asked for the `Update now` button to glow as well
- *  while a downloaded update waits. Two authorised signals, both meaning
- *  "something is waiting on you", both saying it in the same words — the
+ *  while a downloaded update waits, and on 2026-09-12 for the header Docket
+ *  button to glow when items need attention. Authorised signals, each meaning
+ *  "something is waiting on you", all saying it in the same words — the
  *  `glow` class over the `askbell` keyframes. Nothing else may start
  *  glowing without the user asking for it. */
 export function AskBell({ tree, onOpen }: {
@@ -455,6 +456,7 @@ export default function App() {
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
+  const [galleryJump, setGalleryJump] = useState<{ id: string; seq: number } | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs
   // to, so this is handed DOWN to it rather than re-decided here. One-shot,
@@ -554,7 +556,12 @@ export default function App() {
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
-    if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
+    if (nativeTarget.kind === 'document' && nativeTarget.source_id) {
+      setGalleryJump(jumpTo(nativeTarget.source_id)); setShowGallery(true); raisePinnedModal('gallery', slug)
+    } else if (nativeTarget.kind === 'agent-frozen') {
+      const agent = nativeTarget.agent && flatNodes(tree).get(nativeTarget.agent)
+      if (agent && (agent.generation ?? 0) === nativeTarget.generation) setFocusAgent(agent.id)
+    } else if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
     else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
@@ -1137,12 +1144,15 @@ export default function App() {
                   setInboxJump(null)
                   toggleSurface('inbox', showInbox, setShowInbox)
                 }} />
-                {/* the presented-document gallery sits BESIDE the inbox (user
-                    ruling 2026-09-03: "place it next to the mail icon"). They
-                    are the same kind of thing — a standing pile of what agents
-                    sent you, read in the same list-plus-pane panel — so they
-                    read as one pair of mailbox controls rather than two
-                    unrelated buttons. */}
+                {/* the work docket sits beside the inbox (swapped with presented documents
+                    per user ruling 2026-09-12, so required attention is adjacent to mail).
+                    Badge counts ride the tree poll: glowing and pulsating when items need
+                    attention, else muted active count (zero hidden). */}
+                <DocketToolbarButton
+                  summary={tree.work_items_summary}
+                  onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
+                {/* the presented-document gallery sits beside the docket — same
+                    standing pile family read in a list-plus-pane panel. */}
                 {(() => {
                   // the corner count is the mail bell's own badge (.eye-count
                   // in a position:relative button), carrying the number of
@@ -1150,8 +1160,9 @@ export default function App() {
                   // the panel shows with "show retired agents" unticked. It
                   // never wears the `.asks` pulse: nothing here is waiting on
                   // an answer. Glowing is reserved for a control the user has
-                  // asked to be pulled to — the ask bell, and (2026-09-11)
-                  // the update-ready button — and this is not one.
+                  // asked to be pulled to — the ask bell, the docket bell (when
+                  // items need attention), and (2026-09-11) the update-ready
+                  // button — and this is not one.
                   const docs = activeDocCount(tree.roots)
                   return (
                     <button className="iconbtn doc-bell"
@@ -1164,14 +1175,6 @@ export default function App() {
                     </button>
                   )
                 })()}
-                {/* the work docket sits beside the gallery — same "standing
-                    pile, read in a list+pane panel" family. Badge counts ride
-                    the tree poll (docket-final-spec.md — no separate timer):
-                    orange = items needing attention, else muted active count
-                    (zero hidden). */}
-                <DocketToolbarButton
-                  summary={tree.work_items_summary}
-                  onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
                 <button className="iconbtn barmore mob-only" title="more"
                   onClick={() => setBarMore((v) => !v)}>⋯</button>
                 {/* host subscription usage (the Claude Code /usage bars) —
@@ -1314,6 +1317,7 @@ export default function App() {
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
+          jumpTo={galleryJump} onJumpHandled={() => setGalleryJump(null)}
           onOpenDocument={id => {closeIfCentred('gallery', () => setShowGallery(false), slug); setDocJump(id)}}
           onFocusAgent={(id) => {
             closeIfCentred('gallery', () => setShowGallery(false), slug)

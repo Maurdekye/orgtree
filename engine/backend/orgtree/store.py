@@ -3535,6 +3535,8 @@ def save_org(org: Org) -> None:
     way the save IS the change: `REVISION`, `on_save` and `save_hooks` fire
     exactly as they always have."""
     _assert_synced_data_root()
+    from .notification_state import reconcile_attention
+    reconcile_attention(org.d)
     global REVISION
     if STORE_BACKEND == "sqlite":
         _save_sqlite(org)

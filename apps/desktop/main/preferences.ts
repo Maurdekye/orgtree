@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PREFERENCES, preferencesPatch } from './policy'
 import type { DesktopPreferences } from '../../../packages/contracts/index'
+import { notificationPreferences } from '../../../packages/contracts/notifications'
 
 export class Preferences {
   private value: DesktopPreferences
@@ -15,7 +16,7 @@ export class Preferences {
         // A stored theme without provenance predates the marker and is an explicit user choice.
         patch.visualThemeExplicit = true
       }
-      this.value = { ...this.value, ...patch }
+      this.value = { ...this.value, ...patch, ...notificationPreferences(patch) }
     } catch { /* Missing/corrupt settings use documented defaults. */ }
   }
   get(): DesktopPreferences { return { ...this.value } }

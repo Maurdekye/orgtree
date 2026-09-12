@@ -1057,8 +1057,11 @@ uiTest('§20 production DocketToolbarButton displays orange attention count or m
   let clicked = false
   // Attention case
   const view1 = await mountView(<DocketToolbarButton summary={{ attention: 3, active: 5 }} onClick={() => { clicked = true }} />, (e) => e)
+  const btn1 = view1.el.querySelector('button.docket-bell') as HTMLButtonElement
+  assert.ok(btn1.classList.contains('glow'), 'docket button glows when attention > 0')
   const badge1 = view1.el.querySelector('.eye-count')!
   assert.ok(badge1.classList.contains('docket-attn'), 'orange styling applied when attention > 0')
+  assert.ok(badge1.classList.contains('asks'), 'pulsing asks class applied when attention > 0')
   assert.equal(badge1.textContent?.trim(), '3')
   await inAct(() => (view1.el.querySelector('button') as HTMLButtonElement).click())
   assert.ok(clicked, 'click triggers onClick')
@@ -1066,8 +1069,11 @@ uiTest('§20 production DocketToolbarButton displays orange attention count or m
 
   // Quiet case
   const view2 = await mountView(<DocketToolbarButton summary={{ attention: 0, active: 7 }} />, (e) => e)
+  const btn2 = view2.el.querySelector('button.docket-bell') as HTMLButtonElement
+  assert.ok(!btn2.classList.contains('glow'), 'docket button does not glow when attention is 0')
   const badge2 = view2.el.querySelector('.eye-count')!
   assert.ok(!badge2.classList.contains('docket-attn'), 'no orange class when attention is 0')
+  assert.ok(!badge2.classList.contains('asks'), 'no pulsing asks class when attention is 0')
   assert.equal(badge2.textContent?.trim(), '7', 'shows active count when attention is 0')
   await view2.unmount()
 

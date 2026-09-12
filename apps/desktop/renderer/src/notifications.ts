@@ -4,8 +4,11 @@ import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
 import type { NativeNotice } from './desktop'
 import type { NotificationIdentity } from '../../../../packages/contracts'
+import { notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
+import { questionVisible } from './notification-visibility'
 
 const KEY = 'orgtree-native-notices-v1'
+const DOCUMENT_BASELINE = 'orgtree-native-documents-observed-v1'
 const seen = new Set<string>()
 const inFlight = new Set<string>()
 function identity(n: NotificationIdentity) { return JSON.stringify([n.org, n.id]) }
@@ -76,8 +79,23 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
   useEffect(() => {
     if (!bridge?.notify) return
     let alive = true, running = false, dirty = false, click = 0
+    let prefs = notificationPreferences(), prefsReady = !bridge.getPreferences, prefsRevision = 0, loadingPrefs = false
+    let documentsObserved = false
+    try { documentsObserved = localStorage.getItem(DOCUMENT_BASELINE) === 'true' } catch { /* memory baseline */ }
+    async function loadPrefs() {
+      if (!bridge?.getPreferences || loadingPrefs || !alive) return
+      loadingPrefs = true
+      const revision = prefsRevision
+      try {
+        const value = await bridge.getPreferences()
+        if (!alive || revision !== prefsRevision) return
+        prefs = notificationPreferences(value); prefsReady = true; void poll(true)
+      } catch { /* retry on the next native tick; do not guess disabled choices */ }
+      finally { loadingPrefs = false }
+    }
     const poll = async (mutation = false) => {
       if (!alive) return
+      if (!prefsReady) { void loadPrefs(); return }
       if (running) { dirty ||= mutation; return }
       running = true
       try {
@@ -87,20 +105,43 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
           if (!alive) return
           if (dirty) continue
           const keys = active && new Set(active.map(identity))
+          const candidates = [...notices.values()].filter(n => !keys || keys.has(identity(n)))
+          // A card already on screen has reached the user. Remember it until
+          // it resolves, so closing the desk cannot create a late interruption.
+          // New-document alerts start after a first inventory, avoiding an old
+          // document flood on installation or when enabling the category.
+          readHistory()
+          const visible = new Set(candidates.filter(n => n.kind === 'question'
+            && questionVisible(n.org, n.source_id ?? n.id)).map(identity))
+          for (const n of candidates) if (visible.has(identity(n)) ||
+            (n.kind === 'document' && (!documentsObserved || !prefs.notifyDocuments))) seen.add(identity(n))
+          documentsObserved = true
+          try { localStorage.setItem(DOCUMENT_BASELINE, 'true') } catch { /* optional history */ }
+          saveHistory()
+          const eligible = candidates.filter(n => notificationEnabled(n.kind, prefs) && !visible.has(identity(n)))
           if (active) {
-            await bridge.syncNotifications?.(active)
+            await bridge.syncNotifications?.(eligible.map(({ org, id }) => ({ org, id })))
             if (!alive) return
             if (dirty) continue
             retainHistory(keys!)
           }
-          await Promise.all([...notices.values()]
-            .filter(n => !keys || keys.has(identity(n))).map(n => notifyOnce(n)))
+          await Promise.all(eligible.map(n => {
+            // Recheck at dispatch: the card can mount while IPC sync awaits.
+            if (n.kind === 'question' && questionVisible(n.org, n.source_id ?? n.id)) {
+              seen.add(identity(n)); saveHistory(); return false
+            }
+            return notifyOnce(n)
+          }))
         } while (alive && dirty)
       } catch { /* the next poll retries; no user action is lost */ }
       finally { running = false }
     }
     void poll()
     const offNative = bridge.onEvent(event => {
+      if (event.type === 'preferences') {
+        prefsRevision++; prefs = notificationPreferences(event.data as Parameters<typeof notificationPreferences>[0]); prefsReady = true
+        void poll(true); return
+      }
       if (event.type === 'notification-poll') { void poll(); return }
       if (event.type !== 'notification-click') return
       const n = event.data as NativeNotice
@@ -111,7 +152,8 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
       void readNotices().then(({ notices, active }) => {
         if (!alive || click !== request) return
         const current = notices.get(identity(n))
-        if (current && (!active || active.some(a => identity(a) === identity(n)))) target.current(current)
+        if (current && notificationEnabled(current.kind, prefs)
+          && (!active || active.some(a => identity(a) === identity(n)))) target.current(current)
       }).catch(() => { /* the main window is still shown if the engine is down */ })
     })
     // Compatibility with shells predating the native poll/cleanup contract.

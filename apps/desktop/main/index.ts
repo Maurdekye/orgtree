@@ -12,7 +12,8 @@ import { desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry } from './windows'
 import { detectHarnesses } from './harnesses'
-import { NativeNotifications } from './notifications'
+import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
+import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
@@ -112,7 +113,8 @@ else {
   }
   const notifications = new NativeNotifications(
     data => new Notification({ title: data.title, body: data.body }),
-    data => { show(); broadcast({ type: 'notification-click', data }) })
+    data => { show(); broadcast({ type: 'notification-click', data }) },
+    () => anyOrgtreeWindowFocused(BrowserWindow.getAllWindows()))
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
@@ -179,6 +181,7 @@ else {
     // ephemeral value so a newly explicit choice is reflected immediately.
     effectiveTheme = undefined
     const next = preferences.set(patch); loginPreference(); rebuildTray()
+    notifications.configure(next)
     broadcast({ type: 'preferences', data: next }); return next
   }
   const setEffectiveTheme = (value: unknown) => {
@@ -225,7 +228,8 @@ else {
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
-      { label: 'Routine mail and completion notifications', type: 'checkbox', checked: prefs.routineNotifications, click: item => setPreferences({ routineNotifications: item.checked }) },
+      { label: 'Notifications', submenu: NOTIFICATION_OPTIONS.map(({ key, label }) => ({ label, type: 'checkbox' as const,
+        checked: prefs[key], click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })) },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
       { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
     ])
@@ -633,7 +637,7 @@ else {
     handle('desktop:harnesses', () => detectHarnesses())
     handle('desktop:notify', value => {
       if (!Notification.isSupported()) return false
-      return notifications.notify(value, preferences.get().routineNotifications)
+      return notifications.notify(value, preferences.get())
     })
     handle('desktop:sync-notifications', value => notifications.sync(value))
     handle('desktop:open-harness', id => {
