@@ -7,8 +7,13 @@
 !include "StrFunc.nsh"
 !include "getProcessInfo.nsh"
 Var pid
+# The dev channel compiles out the preInit SID probe — this instantiation's
+# only caller — and NSIS treats the resulting unreferenced function as an
+# error, so the instantiation goes with it.
 !ifndef BUILD_UNINSTALLER
+!ifndef ORGTREE_DEV_CHANNEL
   ${StrTrimNewLines}
+!endif
 !endif
 
 # Testable on its own (tools/test-dev-installer-guard.mjs drives it through a
