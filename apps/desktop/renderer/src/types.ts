@@ -1995,12 +1995,21 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
 /** Who did something to a work item: a node at a generation. The user is the
  *  literal string "user" wherever an actor is accepted.
  *
- *  The last two fields are written ONLY onto a HOLDER reference — `owner` and
+ *  The last two fields are WRITTEN only onto a HOLDER reference — `owner` and
  *  `reviewer`, the two that say who has the item NOW and so have to keep
- *  resolving to a live agent (backend `ledger._work_holder`). `created_by`,
- *  `last_updater`, history rows and delivery claims record who acted THEN and
- *  carry neither. Both are also absent on every reference written before
- *  2026-09-12, so treat absence as "not known", never as false.
+ *  resolving to a live agent (backend `ledger._work_holder`). The authored
+ *  actor fields — `created_by`, `last_updater`, the `by` of a `WorkItem`
+ *  history row (typed `unknown[]` here) and a delivery stage's `claimed_by` —
+ *  name who acted THEN and never carry either.
+ *
+ *  A history row's `from`/`to` are the exception: an assign or reviewer row
+ *  records the holder references themselves, so those slots are SNAPSHOTS of
+ *  this shape and may carry `born`, and `from` may carry `deleted` when that
+ *  holder had already been invalidated before the handover. They are history,
+ *  not live pointers — never resolve one against the current agent list.
+ *
+ *  Both fields are also absent on every reference written before 2026-09-12,
+ *  so treat absence as "not known", never as false.
  *
  *  Nothing in the UI needs to read either one: `owner_current` and
  *  `owner_state` on the item already carry the conclusion the backend draws

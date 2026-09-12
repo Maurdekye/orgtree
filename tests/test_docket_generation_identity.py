@@ -413,6 +413,45 @@ class PreservedStaleAndAssignmentBehaviourTests(unittest.TestCase):
                 # because it is a different object now, not because nothing ran
                 self.assertTrue(it[mode]["deleted"], mode)
 
+    def test_which_actor_fields_carry_the_holder_marks(self):
+        """Pins what the WorkActor docs in schema.py and types.ts claim, so
+        the wording cannot drift from the writers (state-review 2026-09-12: an
+        earlier draft said history rows carry neither, which was too broad).
+
+        AUTHORED actor fields never carry them. A history row's `from`/`to`
+        DO, because an assign or reviewer row records the holder references
+        themselves — those slots are snapshots of the same shape."""
+        org = fixture()
+        slug = make_item(org, "perf-pass", "Which fields carry what")
+        org.work_update("perf-pass", slug, ["d"], ["r"], status="review",
+                        reviewer="review-sub")
+        org.delete(USER, "perf-pass")           # marks the CURRENT owner ref
+        org.work_assign(USER, slug, "peer-agent")   # …which becomes a `from`
+        it = stored(org, slug)
+
+        marks = ("born", "deleted")
+        # authored: who acted THEN, never re-resolved
+        for field in ("created_by", "last_updater"):
+            a = it.get(field)
+            if isinstance(a, dict):
+                for m in marks:
+                    self.assertNotIn(m, a, f"{field}.{m}")
+        for h in it["history"]:
+            if isinstance(h.get("by"), dict):
+                for m in marks:
+                    self.assertNotIn(m, h["by"], f"history.by.{m}")
+
+        # holder snapshots: the same shape, frozen
+        rows = {h["op"]: h for h in it["history"] if h["op"] in ("assign", "reviewer")}
+        self.assertIn("born", rows["reviewer"]["to"])
+        self.assertIn("born", rows["assign"]["to"])
+        self.assertIn("born", rows["assign"]["from"])
+        # …and a `from` whose holder was invalidated before the handover
+        self.assertTrue(rows["assign"]["from"]["deleted"])
+        # the live holder is the plain marked shape
+        self.assertIn("born", it["owner"])
+        self.assertNotIn("deleted", it["owner"])
+
     def test_deletion_does_not_edit_authored_history_in_the_archive(self):
         org = fixture()
         slug = make_item(org, "perf-pass", "Closed, then history checked")

@@ -600,14 +600,24 @@ class WorkActor(TypedDict):
     that acted even after the seat is a different session. The user is the
     literal string "user" wherever a WorkActor is accepted.
 
-    The last two fields are carried ONLY by a HOLDER reference — `owner` and
+    The last two fields are WRITTEN only onto a HOLDER reference — `owner` and
     `reviewer`, the two that say who has the item NOW and so have to keep
-    resolving to a live agent (`ledger._work_holder`). `created_by`,
-    `last_updater`, history rows and delivery claims record who acted THEN,
-    are never re-resolved, and carry neither. Both are absent on every
-    reference written before 2026-09-12; `ledger._work_identity_state` falls
-    back to comparing generations when they are, and treats that absence as
-    no evidence rather than as a negative."""
+    resolving to a live agent (`ledger._work_holder`). The AUTHORED actor
+    fields — `created_by`, `last_updater`, `history[].by` and
+    `WorkStage.claimed_by` — name who acted THEN, are never re-resolved, and
+    never carry either.
+
+    ⚠ BUT `history[].from` AND `history[].to` DO. An `assign` or `reviewer`
+    row records the holder references themselves, so those two slots are
+    SNAPSHOTS of this shape and carry whatever the holder carried at the time:
+    `born` on any of them, and `deleted` on a `from` whose holder had already
+    been invalidated by a node `delete` before the handover. Read them as the
+    history they are — a snapshot is not a live pointer, and nothing resolves
+    one against the node table.
+
+    Both fields are absent on every reference written before 2026-09-12;
+    `ledger._work_identity_state` falls back to comparing generations when they
+    are, and treats that absence as no evidence rather than as a negative."""
     node: str
     generation: int
     #: the holder's own mint id (NodeDoc.seat_id), which is what makes the
