@@ -93,6 +93,7 @@ from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
                providers, restart_wake, sandbox, store, subproxy, supervisor, warmpool)
+from . import statepreview
 from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
 
@@ -7705,6 +7706,7 @@ _ARG_STRS = ("node", "to", "from", "target", "grantee", "parent", "new_parent",
              "name", "tier", "kind", "body", "action", "status", "summary",
              "reason", "charter", "team_charter", "org_visibility", "effort",
              "path",
+             "operation",
              # D-160: the one-call hire's own text arguments. `permission_mode`
              # joins them at the same time — it has always been text-only, and
              # retool simply never had it normalised, so a container landed in
@@ -7835,6 +7837,38 @@ def _arg_flag(a: dict[str, Any], key: str) -> bool:
     if isinstance(v, str):
         return v.strip().lower() not in ("", "false", "0", "no", "null", "none")
     return bool(v)
+
+
+_AGENT_PREVIEW_OPS = frozenset({
+    "reallocate", "move", "move_batch", "swap", "swap_seats",
+    "self_subjugate", "subjugate", "retool", "set_scope", "retire",
+    "dissolve", "revoke_dir", "switch_model", "audience",
+})
+
+
+def _agent_capability_payload(org: Org, actor: str) -> dict[str, Any]:
+    """Describe the authenticated MCP dispatch surface, not ledger internals."""
+    from . import mcptool
+
+    names = [str(t["name"]) for t in mcptool.available_tools()
+             if str(t.get("name") or "").startswith("orgtree_")]
+    # These are intentionally visible asymmetries.  They are not added to the
+    # agent list: an operator can rescind/delete/reseed, while the agent MCP
+    # surface can perform seat exchange and atomic move batches.
+    return {
+        "actor": actor,
+        "surface": "agent",
+        "operations": names,
+        "operator_only": ["rescind", "delete", "reseed"],
+        "agent_only": ["orgtree_swap", "orgtree_self_subjugate",
+                        "orgtree_move_batch"],
+        "scope": {
+            "org_visibility": (org.node(actor).get("scope") or {}).get(
+                "org_visibility", "team"),
+            "permission_mode": (org.node(actor).get("scope") or {}).get(
+                "permission_mode", "acceptEdits"),
+        },
+    }
 
 
 # the @net: attachment cap — same value as the user-upload per-file cap
@@ -8956,6 +8990,43 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
             raise HTTPException(422, 'Desktop maintenance waits for idle; force is unavailable')
         return _forced_self_restart(body, a)
+    if body.tool in ("orgtree_state_inspect", "orgtree_capabilities",
+                     "orgtree_preview"):
+        # These diagnostics deliberately share the authenticated agent gateway
+        # with every other MCP call.  They never save the loaded document and
+        # never call a supervisor/provider side-effect path.
+        try:
+            org = store.load_org(body.org)
+            org.node(body.node)
+            org._require_live(body.node)
+            if body.tool == "orgtree_state_inspect":
+                raw_nodes = a.get("nodes")
+                if raw_nodes is None and a.get("node"):
+                    raw_nodes = [a.get("node")]
+                if raw_nodes is not None and not isinstance(raw_nodes, list):
+                    raise LedgerError("nodes must be a list of node ids")
+                return statepreview.inspect_state(
+                    org, body.node,
+                    [str(x) for x in (raw_nodes or [])],
+                    include_archived=_arg_flag(a, "include_archived"))
+            if body.tool == "orgtree_capabilities":
+                return _agent_capability_payload(org, body.node)
+            operation = str(a.get("operation") or "").removeprefix("orgtree_")
+            if operation not in _AGENT_PREVIEW_OPS:
+                raise LedgerError(
+                    f"preview operation {a.get('operation')!r} is not an "
+                    "agent-dispatchable transition")
+            raw_preview_args = a.get("args") or {}
+            if not isinstance(raw_preview_args, dict):
+                raise LedgerError("preview args must be an object")
+            preview_args = _norm_args(cast(dict[str, Any], raw_preview_args))
+            # A nested target is still the ordinary ledger call's target; the
+            # shadow ledger repeats its authority and live-state checks.
+            return statepreview.preview(
+                org, body.node, operation, preview_args,
+                include_archived=bool(a.get("include_archived", True)))
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
     if body.tool in ("orgtree_read_transcript", "orgtree_read_scratch",
                      "orgtree_chart", "orgtree_send_file",
                      "orgtree_list_tiers"):
@@ -11263,6 +11334,9 @@ def org_events(slug: str, request: Request, since: int = 0,
 # ----------------------------------------------------------------------- ops
 class Op(Body):
     op: str                       # hire|retire|rehire|dissolve|reallocate|promote|demote|revoke_dir
+    # W19: validate and simulate this normal operator operation without saving.
+    # The operator surface intentionally keeps its existing topology boundary.
+    preview: bool = False
     actor: str = USER
     node: str | None = None       # target node (all but hire)
     parent: str | None = None     # hire target parent (None = top level)
@@ -11519,6 +11593,31 @@ def provider_hire_gate(
 @app.post("/api/orgs/{slug}/ops")
 def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
+    if body.preview:
+        # Preview is an operator-authenticated variant of the existing ops
+        # surface, not a new unauthenticated REST route.  It loads once and
+        # never calls the interrupt, supervisor, or save paths below.
+        operator_preview_ops = frozenset({
+            "retire", "rescind", "delete", "dissolve", "reallocate",
+            "switch_model", "promote", "demote", "move", "reseed",
+            "revoke_dir",
+        })
+        if body.op not in operator_preview_ops:
+            raise HTTPException(
+                422, f"preview does not support operator operation {body.op!r}")
+        try:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                actor = USER if pub else body.actor
+                if actor != USER:
+                    org.node(actor)
+                    org._require_live(actor)
+                args = body.model_dump(exclude={"op", "actor", "preview"},
+                                       exclude_none=True)
+                return statepreview.preview(
+                    org, actor, body.op, args, include_archived=True)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
     # Visitor delete is deliberately OPEN (user ruling 2026-08-01, twice
     # confirmed): visitors act as @user for everything inside the ceiling,
     # permanent deletion included — the ceiling is the only wall, and a

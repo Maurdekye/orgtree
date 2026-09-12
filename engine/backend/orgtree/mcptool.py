@@ -1941,6 +1941,49 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "orgtree_state_inspect",
+        "description": (
+            "Read-only structural state inspection. Returns only the nodes and "
+            "transition axes within your authorized organization visibility; "
+            "it never returns prompts, transcripts, mail, credentials, or "
+            "session contents. Pass node(s) to narrow the inspection and "
+            "include_archived=true to include archived structural rows."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "nodes": {"type": "array", "items": {"type": "string"}},
+                "node": {"type": "string"},
+                "include_archived": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "name": "orgtree_capabilities",
+        "description": (
+            "Report the operations this authenticated actor can dispatch. "
+            "The result reflects the actor's agent/operator surface and does "
+            "not create an operator door for agent-only topology operations."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "orgtree_preview",
+        "description": (
+            "Dry-run one normal ledger operation against an isolated copy. "
+            "The same actor authority checks and transition rules apply; the "
+            "response contains bounded before/after state, diff, and warnings "
+            "and changes no store, files, mail, credits, processes, or "
+            "external services."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string"},
+                "args": {"type": "object"},
+                "include_archived": {"type": "boolean"},
+            },
+            "required": ["operation"],
+        },
+    },
+    {
         "name": "orgtree_read_transcript",
         "description": ("Read a report's conversation transcript (read access is "
                         "strictly DOWNWARD: yourself and your descendants only — you "
