@@ -131,13 +131,70 @@ export function popupSize(source?: { w: number; h: number } | null,
   }
 }
 
-export function popupFeatures(key: string, source?: { w: number; h: number } | null) {
+/** Where a first-time popout opens, in screen coordinates.
+ *
+ *  THE PIN RULE, APPLIED TO A NATIVE WINDOW. A fresh pin is placed over the
+ *  box the surface already occupied - "so the window appears exactly where
+ *  the user was already looking" (`measureRect` in canvas/modalpin.tsx) - and
+ *  then clamped into the box that has to contain it. Here the surface's box
+ *  is in the OWNER WINDOW's client coordinates, the containing box is the
+ *  screen, and the two are bridged by the owner window's own origin.
+ *
+ *  CENTRED ON THE SOURCE, not aligned to its corner: the window is a
+ *  different size from the panel (the aspect is kept, the area is not), so
+ *  matching top-left corners would drift further the more the shapes differ.
+ *  Centres do not drift.
+ *
+ *  ⚠ THE MULTI-MONITOR GUARD IS THE WHOLE REASON THIS CAN RETURN NULL. A
+ *  renderer only ever sees ONE screen through `screen.avail*` - the one the
+ *  browser calls primary - so clamping a window that belongs to a main
+ *  window on a second monitor would yank it onto the first. When the owner's
+ *  own origin is not inside the screen box we are told about, that box is
+ *  describing a different monitor and is not ours to clamp against: we
+ *  return no position at all and let the platform place the window beside
+ *  its parent, exactly as it did before any of this existed.
+ */
+export function popupPlacement(
+  source: { x: number; y: number; w: number; h: number } | null | undefined,
+  size: { width: number; height: number },
+  owner?: { screenX: number; screenY: number } | null,
+  screenBox?: { left: number; top: number; width: number; height: number } | null,
+): { left: number; top: number } | null {
+  if (!source || !owner) return null
+  if (![source.x, source.y, source.w, source.h, owner.screenX, owner.screenY].every(Number.isFinite)) return null
+  const centreX = owner.screenX + source.x + source.w / 2
+  const centreY = owner.screenY + source.y + source.h / 2
+  let left = centreX - size.width / 2
+  let top = centreY - size.height / 2
+  // `availLeft`/`availTop` are real in Chromium and absent from the DOM lib's
+  // `Screen`; on a single-monitor setup they are 0, which is why the fallback
+  // is not a guess.
+  const avail = typeof screen === 'undefined' ? null
+    : screen as Screen & { availLeft?: number; availTop?: number }
+  const box = screenBox ?? (avail ? {
+    left: avail.availLeft ?? 0, top: avail.availTop ?? 0,
+    width: avail.availWidth, height: avail.availHeight,
+  } : null)
+  if (box && box.width > 0 && box.height > 0) {
+    const ownerInside = owner.screenX >= box.left && owner.screenX < box.left + box.width
+      && owner.screenY >= box.top && owner.screenY < box.top + box.height
+    if (!ownerInside) return null
+    left = Math.min(Math.max(left, box.left), box.left + box.width - size.width)
+    top = Math.min(Math.max(top, box.top), box.top + box.height - size.height)
+  }
+  return { left: Math.round(left), top: Math.round(top) }
+}
+
+export function popupFeatures(key: string,
+  source?: { x: number; y: number; w: number; h: number } | null,
+  owner?: { screenX: number; screenY: number } | null) {
   // A window that has been opened before keeps the size and place the user
   // left it at; matching the source surface is only for the FIRST opening.
   const rect = savedWindows().find(r => r.key === key)?.rect
   if (rect) return `popup,left=${Math.round(rect.x)},top=${Math.round(rect.y)},width=${Math.round(rect.width)},height=${Math.round(rect.height)}`
   const size = popupSize(source)
-  return `popup,width=${size.width},height=${size.height}`
+  const at = popupPlacement(source, size, owner)
+  return `popup,${at ? `left=${at.left},top=${at.top},` : ''}width=${size.width},height=${size.height}`
 }
 export function savedDeskIdentities(org: string): [string, string, number][] {
   return restoredWindows(org).flatMap(r => {

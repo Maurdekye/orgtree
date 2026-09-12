@@ -495,7 +495,7 @@ export function PinFrame(props: PinFrameProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
   return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}
-    sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { w: r.width, h: r.height } : null }}>
+    sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null }}>
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 

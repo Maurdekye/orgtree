@@ -28,7 +28,7 @@ import assert from 'node:assert/strict'
 import type { ReactNode } from 'react'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned, PinFrame } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
-import { POPUP_DEFAULT, popupFeatures, popupSize, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { POPUP_DEFAULT, popupFeatures, popupPlacement, popupSize, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 
 const noop = () => {}
 const AREA = POPUP_DEFAULT.width * POPUP_DEFAULT.height
@@ -218,4 +218,107 @@ test('§7 a PINNED surface pops out at the box the user dragged it to', async (t
     `a 960x320 pinned window must pop out 3:1, got ${width}x${height}`)
   assert.notEqual(width, POPUP_DEFAULT.width,
     'and must not have fallen back to the fixed default')
+})
+
+// ----------------------------------------------------------------- WHERE
+// A first popout should also open WHERE the surface was, not wherever the
+// platform felt like cascading it. Same rule a fresh pin uses - take the box
+// the surface already occupied, then clamp it into the box that has to
+// contain it - with the owner window's own origin bridging client
+// coordinates to the screen.
+
+const SCREEN = { left: 0, top: 0, width: 1920, height: 1080 }
+const OWNER = { screenX: 100, screenY: 60 }
+
+test('§8 the window opens centred on the surface it came from', () => {
+  // a 400x300 panel at (200,150) in a window whose origin is (100,60):
+  // its centre on screen is (100+200+200, 60+150+150) = (500, 360)
+  const size = { width: 600, height: 400 }
+  const at = popupPlacement({ x: 200, y: 150, w: 400, h: 300 }, size, OWNER, SCREEN)
+  assert.ok(at, 'a placement should have been computed')
+  assert.equal(at!.left + size.width / 2, 500, 'the window centre must sit on the source centre (x)')
+  assert.equal(at!.top + size.height / 2, 360, 'the window centre must sit on the source centre (y)')
+})
+
+test('§9 …but always fully on the screen', () => {
+  const size = { width: 600, height: 400 }
+  // a panel hard against the bottom-right of a window placed near the edge
+  const at = popupPlacement({ x: 1700, y: 1000, w: 200, h: 60 }, size,
+    { screenX: 100, screenY: 60 }, SCREEN)
+  assert.ok(at, 'a placement should have been computed')
+  assert.ok(at!.left >= SCREEN.left && at!.left + size.width <= SCREEN.left + SCREEN.width,
+    `the window must fit horizontally (left ${at!.left}, width ${size.width})`)
+  assert.ok(at!.top >= SCREEN.top && at!.top + size.height <= SCREEN.top + SCREEN.height,
+    `the window must fit vertically (top ${at!.top}, height ${size.height})`)
+  // POSITIVE CONTROL: the clamp is what moved it, not a constant
+  const inner = popupPlacement({ x: 400, y: 300, w: 200, h: 60 }, size, OWNER, SCREEN)
+  assert.notEqual(inner!.left, at!.left, 'a panel that needs no clamping lands somewhere else')
+})
+
+test('§10 a main window on another monitor is left to the platform', () => {
+  // ⚠ THE REGRESSION THIS EXISTS TO PREVENT. A renderer sees ONE screen box,
+  // the one the browser calls primary. If the main window is on a second
+  // monitor, clamping into that box would drag the popout onto the first -
+  // worse than the cascading placement this replaces. So: no position.
+  const offscreen = popupPlacement({ x: 200, y: 150, w: 400, h: 300 },
+    { width: 600, height: 400 }, { screenX: 2600, screenY: 200 }, SCREEN)
+  assert.equal(offscreen, null, 'a popout from another monitor must not be placed at all')
+  // POSITIVE CONTROL: the same call with the owner INSIDE that screen is
+  // placed, so it is the guard that refused and not the arithmetic failing.
+  assert.ok(popupPlacement({ x: 200, y: 150, w: 400, h: 300 },
+    { width: 600, height: 400 }, OWNER, SCREEN), 'an owner on this screen is still placed')
+
+  // ⚠ AND WHEN THE SCREEN IS UNKNOWABLE, PLACING IS STILL SAFE. With no
+  // usable screen box there is no clamp, and what is left is a pure offset
+  // from the parent window's own origin - which is correct on whatever
+  // monitor that parent is on. Only the CLAMP can drag a window across
+  // monitors, so only the clamp is guarded.
+  const blind = popupPlacement({ x: 200, y: 150, w: 400, h: 300 },
+    { width: 600, height: 400 }, { screenX: 2600, screenY: 200 },
+    { left: 0, top: 0, width: 0, height: 0 })
+  assert.ok(blind, 'with no screen to clamp into, the offset from the parent still stands')
+  assert.equal(blind.left + 300, 2600 + 200 + 200, 'and it is exactly that offset')
+})
+
+test('§11 no source, or no owner, means no position', () => {
+  const size = { width: 600, height: 400 }
+  assert.equal(popupPlacement(null, size, OWNER, SCREEN), null)
+  assert.equal(popupPlacement({ x: 0, y: 0, w: 10, h: 10 }, size, null, SCREEN), null)
+  assert.equal(popupPlacement({ x: NaN, y: 0, w: 10, h: 10 }, size, OWNER, SCREEN), null)
+})
+
+test('§12 the real panel box reaches the opener as a PLACE, not just a shape', async (t) => {
+  const tail: { unmount: () => Promise<void> }[] = []
+  const realOpen = window.open
+  const asked: string[] = []
+  window.open = ((_url?: unknown, _name?: unknown, features?: unknown) => {
+    asked.push(String(features ?? '')); return null
+  }) as typeof window.open
+  t.after(async () => {
+    window.open = realOpen
+    for (const x of tail.reverse()) await x.unmount()
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  })
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+
+  const { panel } = await mountPanel({ w: 600, h: 400 }, tail)
+  // put the panel somewhere specific; jsdom's window origin is 0,0 so the
+  // screen coordinates are the client ones
+  panel.getBoundingClientRect = () => ({ x: 300, y: 200, left: 300, top: 200,
+    width: 600, height: 400, right: 900, bottom: 600, toJSON() {} }) as DOMRect
+  asked.length = 0
+  const popout = document.querySelector('[aria-label="Open in new window"]') as HTMLElement | null
+  assert.ok(popout, 'the panel must offer a pop-out control')
+  await inAct(() => { popout.click() })
+  await flush()
+  assert.equal(asked.length, 1, 'exactly one window should have been asked for')
+  const left = Number(/left=(-?\d+)/.exec(asked[0]!)?.[1])
+  const top = Number(/top=(-?\d+)/.exec(asked[0]!)?.[1])
+  const width = Number(/width=(\d+)/.exec(asked[0]!)?.[1])
+  const height = Number(/height=(\d+)/.exec(asked[0]!)?.[1])
+  assert.ok(Number.isFinite(left) && Number.isFinite(top),
+    `the features must carry a position: ${asked[0]}`)
+  // the panel's centre is (600, 400); the window's centre must be there too
+  assert.ok(Math.abs(left + width / 2 - 600) <= 1, `window centre x ${left + width / 2} should be 600`)
+  assert.ok(Math.abs(top + height / 2 - 400) <= 1, `window centre y ${top + height / 2} should be 400`)
 })
