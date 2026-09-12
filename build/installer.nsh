@@ -90,17 +90,20 @@ Var pid
 !macroend
 !macro customHeader
   !ifndef BUILD_UNINSTALLER
-    Var BootOperatorSid
     # Sections execute in declaration order, before bundled uninstall/copy.
     # Unlike a page hook, this also runs during silent installations.
     !ifdef ORGTREE_DEV_CHANNEL
-      # Declared before the boot preflight so it executes first: a dev install
+      # The dev channel COMPILES the boot machinery out rather than gating it
+      # at run time: the guard makes the all-users mode unreachable, and NSIS
+      # treats the then-unreferenced Var/StrFunc pieces as fatal warnings.
+      # Declared before everything else so it executes first: a dev install
       # that somehow selected the all-users scope ends here, before anything
       # elevates or touches the scheduled task.
       Section "-Orgtree dev channel scope guard"
         !insertmacro orgtreeDevScopeGuard
       SectionEnd
-    !endif
+    !else
+    Var BootOperatorSid
     Section "-Orgtree boot preflight"
       ${if} $installMode == "all"
         ${ifNot} ${UAC_IsAdmin}
@@ -116,6 +119,7 @@ Var pid
         !insertmacro BootResult
       ${endif}
     SectionEnd
+    !endif
   !endif
 !macroend
 # Default all-users check can kill every process under INSTDIR. Our preflight
@@ -127,13 +131,22 @@ Var pid
   ${endif}
 !macroend
 !macro customInstall
+  !ifndef ORGTREE_DEV_CHANNEL
   ${if} $installMode == "all"
     !insertmacro BootHelpers
     nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Register -InstallMode all -InstallDir "$INSTDIR"'
     !insertmacro BootResult
   ${endif}
+  !endif
 !macroend
 !macro customUnInstall
+  !ifdef ORGTREE_DEV_CHANNEL
+    # A dev build can only ever have installed per-user (the guard refuses the
+    # other mode), so only the per-user running-app check applies here.
+    ${if} $installMode == "CurrentUser"
+      Call un.checkAppRunning
+    ${endif}
+  !else
   ${if} $installMode == "all"
     !insertmacro BootHelpers
     ${if} ${isUpdated}
@@ -148,4 +161,5 @@ Var pid
     # Silent un.onInit runs before initMultiUser. Check here with known mode.
     Call un.checkAppRunning
   ${endif}
+  !endif
 !macroend
