@@ -83,9 +83,11 @@ the probe's assertions. A nonzero exit is a failure even if stdout says PASS,
 and a zero exit is not proof when the probe reports an unexecuted or inert case.
 The receipt keeps command, exit code, stdout, stderr, and result class together.
 
-The JSON recipe lists installer, real-provider, and full-sweep checks that are
-skipped or unexecuted in the focused run. Do not silently turn any of those into
-PASS; run them separately with their own explicit authorization and receipt.
+The JSON recipe lists installer, real-provider, full-sweep, and taskbar-native
+checks that are skipped or unexecuted in the focused run. Do not silently turn
+any of those into PASS; run them separately with their own explicit
+authorization and receipt. The taskbar probe was attempted but did not start:
+the shared Electron install raced another process while creating `locales`.
 
 ## Handoff metadata
 

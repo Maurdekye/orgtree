@@ -1,7 +1,7 @@
 {
   "schema": "orgtree.verification-recipes/v1",
   "generated_at": "2026-09-13",
-  "candidate": "72a94d3bec7d4aa9f08767c8bdff06fb17e770d4",
+  "candidate": "8e4f2cdd39023f76c0a66250ee17d71da99bc5b2",
   "owner": "notify-review",
   "handoff": {
     "purpose": "Successor and reviewer entry point for reproducible checks",
@@ -53,6 +53,7 @@
   "skipped": [
     { "area": "installer", "status": "skipped", "reason": "not part of the focused recipe; requires a freshly built installer and isolated installation authorization" },
     { "area": "real provider turn", "status": "skipped", "reason": "requires explicit external authorization; no receipt is implied by omission" },
-    { "area": "full renderer sweep", "status": "unexecuted", "reason": "use bounded batches; the canonical focused commands above are the reproducible smoke check" }
+    { "area": "full renderer sweep", "status": "unexecuted", "reason": "use bounded batches; the canonical focused commands above are the reproducible smoke check" },
+    { "area": "taskbar native probe", "status": "unexecuted", "reason": "Electron dependency installation raced with another process and failed before the probe started; node_modules was not repaired or mutated" }
   ]
 }
