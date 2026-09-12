@@ -11433,6 +11433,27 @@ UNFROZEN_BY_SWITCH_TEXT: Final = (
     "mail above and continue.")
 
 
+ACCOUNT_UNPARK_TEXT: Final = (
+    "(orgtree) You were parked with no registered account for your provider "
+    "— an account has now been assigned to you, so you can run again. Handle "
+    "any mail above and continue.")
+
+
+def drive_account_unpark(slug: str, nid: str) -> None:
+    """state-audit SH-2 / state-review 2026-09-12: wake a node whose account
+    park (`cause == "account"`) an assignment just cleared. ONE sender for
+    BOTH doors — the operator endpoint and the agent tool — because the
+    agent path calls `assign_account` with a caller-owned save, so
+    `assign_account` cannot drive under that lock; it returns `unparked` in
+    the disclosure and every door drives here after its own save. Off-lock;
+    a busy node's carrier just queues. Never raises."""
+    try:
+        send_message(slug, nid, ACCOUNT_UNPARK_TEXT)
+    except Exception:                                        # noqa: BLE001
+        print(f"[orgtree] {slug}/{nid}: account-unpark wake failed — the "
+              f"node is unparked and any later mail drives it")
+
+
 def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
     """Wake every node whose provider freeze a crossing just cleared. Must be
     called OFF DOC_LOCK (send_message loads the org itself). Safe on a busy
@@ -12154,20 +12175,16 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             store.save_org(org)
     if notify_change:
         notify(slug, nid, "account")
+    # state-audit SH-2 (state-review fix 2026-09-12): the park is gone and the
+    # node can finally run — wake it. When THIS call owned the save (the
+    # operator door), drive now. When the CALLER owns the save (the agent-tool
+    # dispatch, org=), the doc has not landed yet, so DO NOT drive here — the
+    # `unparked` flag in the disclosure tells that door to call
+    # `drive_account_unpark` after IT saves. The earlier code drove in neither
+    # of those cases for the caller-owned path, so an agent-initiated
+    # assignment left the node unparked-but-idle (state-review finding 1).
     if unparked and not _caller_owns_save:
-        # state-audit SH-2: the park is gone and the node can finally run —
-        # wake it with the accurate reason. Skipped when the caller owns the
-        # save (its doc lands later; the disclosure's `unparked` tells that
-        # door what happened, and the node wakes on its next mail).
-        try:
-            send_message(
-                slug, nid,
-                "(orgtree) You were parked with no registered account for "
-                "your provider — an account has now been assigned to you, "
-                "so you can run again. Handle any mail above and continue.")
-        except Exception:                                    # noqa: BLE001
-            print(f"[orgtree] {slug}/{nid}: unpark wake failed — the node "
-                  f"is unparked and any later mail drives it")
+        drive_account_unpark(slug, nid)
     return disclosure
 
 
@@ -19103,11 +19120,17 @@ def _run_one_turn_recorded(slug: str, nid: str,
             try:
                 with store.DOC_LOCK:
                     _bo = store.load_org(slug)
+                    _bn = _bo.node(nid) if nid in _bo.nodes else None
                     _belt_owned = bool(
-                        nid not in _bo.nodes
-                        or _bo.node(nid).get("frozen")
-                        or _bo.node(nid).get("limit_locked")
-                        or _bo.node(nid)["state"] != "live")
+                        _bn is None
+                        or _bn.get("frozen")
+                        or _bn.get("limit_locked")
+                        or _bn.get("remote_controlled")
+                        or _bn["state"] != "live"
+                        # org-wide holds own their nodes too (a spend/storage
+                        # freeze stops every turn deliberately)
+                        or _bo.d.get("spend_frozen")
+                        or _bo.d.get("storage_frozen"))
             except Exception:                                # noqa: BLE001
                 _belt_owned = True
             if not _belt_owned:
@@ -24009,7 +24032,7 @@ def _invariant_sweep_org(slug: str) -> None:
     from .ledger import _PROVIDER_SCOPED_FREEZE_FLAGS
     known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
     announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
-    rc_cleared: list[str] = []
+    rc_cleared: list[tuple[str, bool, str | None]] = []   # nid, had_mail, sid
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
@@ -24039,18 +24062,27 @@ def _invariant_sweep_org(slug: str) -> None:
                             f"anything else. The flag has been quarantined so "
                             f"it can be resumed again; check it and ▶ resume "
                             f"it (or unstick it) if the work should continue."))
-                # dead remote-control driver
+                # dead remote-control driver — cleared ONLY on a DECISIVE
+                # death signal (state-review 2026-09-12): _wd_proc_alive==False
+                # also covers access-denied/uncertain on Windows, and clearing
+                # on that would detach a LIVE user session. _pid_provably_dead
+                # answers True only for a real 'no such process'.
                 rc = n.get("remote_controlled")
                 if isinstance(rc, dict):
                     pid = rc.get("pid")
                     if isinstance(pid, int) and pid > 0 \
-                            and not _wd_proc_alive(f"pid:{pid}"):
+                            and _pid_provably_dead(pid):
+                        # capture the waiting-mail state so the node can be
+                        # driven after the lock, exactly as remote_control_stop
+                        # does — clearing the flag without that left queued
+                        # mail undelivered (state-review finding 3)
+                        had_mail = bool((org.d.get("mail") or {}).get(nid))
                         n.pop("remote_controlled", None)
                         changed = True
-                        rc_cleared.append(nid)
+                        rc_cleared.append((nid, had_mail, n.get("session_id")))
                         print(f"[orgtree] {slug}/{nid}: cleared a "
                               f"remote-control flag whose driver (pid {pid}) "
-                              f"is gone — the node is live again")
+                              f"is provably gone — the node is live again")
                 # live node under a non-live parent (detection only)
                 if sup and sup in org.nodes \
                         and org.nodes[sup]["state"] != "live":
@@ -24069,6 +24101,25 @@ def _invariant_sweep_org(slug: str) -> None:
         print(f"[orgtree] {slug}: invariant sweep skipped "
               f"({type(exc).__name__})", flush=True)
         return
+    for _rnid, _had_mail, _sid in rc_cleared:
+        # mirror remote_control_stop: the FR-01 flag is the one writer that
+        # fills a node's current session from outside the turn path, so spend
+        # its never-run pardon here too, then deliver any mail that queued
+        # while the (now-dead) driver held the session.
+        try:
+            spend_unrun_pardon(slug, _rnid, _sid)
+        except Exception:                                    # noqa: BLE001
+            pass
+        if _had_mail:
+            try:
+                send_message(
+                    slug, _rnid,
+                    "(orgtree) Remote control ended (its driver process is "
+                    "gone) — mail queued while the user drove your session "
+                    "directly is above; catch up and continue.",
+                    mail_ping=True)
+            except Exception:                                # noqa: BLE001
+                print(f"[orgtree] {slug}/{_rnid}: post-remote drive failed")
     if rc_cleared:
         try:
             remote_reap(slug)
@@ -26702,6 +26753,47 @@ def _wd_proc_alive(target: str) -> bool:
         return True
     except OSError:
         return False
+
+
+def _pid_provably_dead(pid: int) -> bool:
+    """DECISIVELY dead, never merely 'could not confirm alive' (state-review
+    2026-09-12). `_wd_proc_alive` returns False for BOTH a gone process and an
+    unopenable one — on Windows `OpenProcess` returns 0 for a nonexistent pid
+    AND for access-denied, and clearing a remote-control flag on the second is
+    how a LIVE user session gets detached. This asks the OS for the specific
+    'no such process' signal and answers True only for that; any uncertainty
+    (permission, an error we cannot classify) returns False, so the flag is
+    left for the restart sweep to clear rather than pulled out from under a
+    live driver."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            # 87 ERROR_INVALID_PARAMETER = no such pid (dead). 5
+            # ERROR_ACCESS_DENIED = it EXISTS but we may not open it (alive
+            # or uncertain). Anything else: do not guess.
+            return k32.GetLastError() == 87
+        try:
+            code = wintypes.DWORD()
+            if k32.GetExitCodeProcess(h, ctypes.byref(code)):
+                return code.value != 259               # not STILL_ACTIVE
+            return False
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+        return False                                   # signal delivered: alive
+    except ProcessLookupError:
+        return True                                    # ESRCH: decisively gone
+    except PermissionError:
+        return False                                   # EPERM: exists, no perm
+    except OSError:
+        return False                                   # unclassified: do not guess
 
 
 _WD_BASH_TTL = 300.0

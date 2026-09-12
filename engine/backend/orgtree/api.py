@@ -8233,6 +8233,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
     account_notify: str | None = None
+    account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -8784,6 +8785,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     result = supervisor.assign_account(
                         body.org, target, str(a.get("account") or ""),
                         actor=body.node, org=org)
+                    # SH-2 (state-review fix): this caller owns the save, so
+                    # assign_account did NOT drive the unpark wake — do it
+                    # after the save below on the flag it returned.
+                    if result.get("unparked"):
+                        account_unpark = target
                 except (RuntimeError, ValueError) as e:
                     raise HTTPException(422, str(e))
             elif body.tool == "orgtree_retool":
@@ -9110,6 +9116,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 result["account"] = disclosure["account"]
                 result["account_binding"] = disclosure
                 account_notify = target
+                if disclosure.get("unparked"):      # SH-2, see above
+                    account_unpark = target
         except LedgerError as e:
             # D-160: everything inside this block is discarded with the
             # unsaved doc, so "refused" normally means "nothing happened".
@@ -9138,6 +9146,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                opreceipts.seq(cast("dict[str, Any]", org.d)))
     if account_notify is not None:
         supervisor.notify(body.org, account_notify, "account")
+    if account_unpark is not None:
+        # SH-2: the assignment cleared this node's account park; the doc is
+        # saved now, so wake it (ONE sender shared with the operator door)
+        supervisor.drive_account_unpark(body.org, account_unpark)
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [
@@ -10689,6 +10701,18 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
             _hire_dirs = body.add_dirs
             _hire_tools = body.tools
             _hire_vis = body.org_visibility
+            # state-review 2026-09-12: a draft that staged scope for an
+            # above-hire has it REPLACED by the anchor's below; insert_parent
+            # then compares the (already anchor-scoped) seat against the
+            # anchor and finds no difference, so its raises/removed warning
+            # never fires and the caller was told nothing. Name the dropped
+            # fields explicitly here so the disclosure survives (the agent
+            # door refuses these outright; the operator UI sends them, so it
+            # is told rather than refused).
+            _above_dropped = ([f for f in ("add_dirs", "tools",
+                                           "org_visibility", "permission_mode")
+                               if getattr(body, f, None) is not None]
+                              if body.above is not None else [])
             if body.above is not None:
                 if org.node(body.above)["parent"] != body.parent:
                     raise LedgerError(
@@ -10740,6 +10764,18 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                 result["spliced"] = body.above
                 result["warnings"] = [*result.get("warnings", []),
                                       *_ins.get("warnings", [])]
+                if _above_dropped:
+                    # state-review: the disclosure insert_parent could not make
+                    # (the seat already held the anchor's scope by the time it
+                    # ran). Say what the caller asked for and did not get.
+                    result.setdefault("warnings", []).append(
+                        f"insert-superior seats the new agent in "
+                        f"{body.above!r}'s position, so it holds that seat's "
+                        f"folders, tools, visibility and permission mode — "
+                        f"the {', '.join(_above_dropped)} you specified "
+                        f"{'was' if len(_above_dropped) == 1 else 'were'} NOT "
+                        f"applied. Retool it if it should hold less.")
+                    result["scope_from_anchor"] = body.above
         # body.node is Optional on the wire (hire has none); the target ops
         # take str because Org.node(None) already raises LedgerError → 422,
         # hence the arg-type ignores below rather than a behavior-changing check

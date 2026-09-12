@@ -209,5 +209,87 @@ class StrandingNoticeTests(unittest.TestCase):
         self.assertFalse(org.d.get("notices", {}).get(payer))
 
 
+class AccountUnparkTests(unittest.TestCase):
+    """SH-2 (state-review fix 1): assigning an account clears the park and the
+    caller-owned path learns it must drive via the `unparked` disclosure."""
+
+    def _parked(self, slug):
+        s, nid = _fresh(slug, model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(s)
+            org.node(nid)["account"] = "missing:claude"
+            org.node(nid)["frozen"] = {"limit": True, "cause": "account",
+                                       "provider": "claude", "until_ts": None,
+                                       "until": "no account", "at": "x"}
+            store.save_org(org)
+        return s, nid
+
+    def test_operator_assign_clears_park_and_reports_unparked(self):
+        slug, nid = self._parked("unpark-op")
+        out = supervisor.assign_account(slug, nid, "primary", actor="USER")
+        self.assertTrue(out.get("unparked"))
+        self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+
+    def test_caller_owned_assign_reports_unparked_for_the_door_to_drive(self):
+        slug, nid = self._parked("unpark-agent")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            out = supervisor.assign_account(slug, nid, "primary",
+                                            actor="USER", org=org)
+            store.save_org(org)
+        # the disclosure is how the caller-owned door (agent dispatch) knows
+        # to call drive_account_unpark after ITS save — the regression was a
+        # cleared park with no wake because the flag was ignored
+        self.assertTrue(out.get("unparked"))
+        self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+
+
+class ProvenDeathTests(unittest.TestCase):
+    """state-review fix 2: only a DECISIVE 'no such process' clears a flag."""
+
+    def test_live_pid_is_not_proven_dead(self):
+        self.assertFalse(supervisor._pid_provably_dead(os.getpid()))
+
+    def test_exited_pid_is_proven_dead(self):
+        import subprocess
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        self.assertTrue(supervisor._pid_provably_dead(p.pid))
+
+    def test_nonpositive_pid_is_never_dead(self):
+        self.assertFalse(supervisor._pid_provably_dead(0))
+
+
+class DeadRemoteRecoveryTests(unittest.TestCase):
+    """state-review fix 3: a provably-dead remote flag is cleared AND its
+    waiting mail is delivered; a live driver is left alone."""
+
+    def test_dead_driver_flag_cleared(self):
+        import subprocess
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        slug, nid = _fresh("rc-dead", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["remote_controlled"] = {"at": "x", "pid": p.pid}
+            org.d.setdefault("mail", {})[nid] = [
+                {"id": "m1", "from": "USER", "kind": "message",
+                 "body": "waited", "at": "x"}]
+            store.save_org(org)
+        supervisor._invariant_sweep_org(slug)
+        self.assertIsNone(
+            store.load_org(slug).node(nid).get("remote_controlled"))
+
+    def test_live_driver_flag_is_left_alone(self):
+        slug, nid = _fresh("rc-live", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["remote_controlled"] = {"at": "x", "pid": os.getpid()}
+            store.save_org(org)
+        supervisor._invariant_sweep_org(slug)
+        self.assertIsNotNone(
+            store.load_org(slug).node(nid).get("remote_controlled"))
+
+
 if __name__ == "__main__":
     unittest.main()
