@@ -1986,13 +1986,17 @@ def _summarise_archived(node: dict[str, Any]) -> None:
 # polling an unchanged org shares one build and usually just gets a 304.
 _TREE_STALE_BUCKET_S = 30.0
 _tree_cache_lock = threading.Lock()
-_tree_cache: dict[tuple[str, bool], tuple[str, bytes]] = {}
+_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any]]] = {}
 #: one build at a time per (slug, public): concurrent misses on the SAME
 #: etag must share one build, not race two (perf-review reproduction #4 —
 #: a barrier probe produced two builds). The dict of locks is tiny and
 #: append-only per org; the whole point of the cache is that builds are
 #: rare, so a queued second builder answering from the first's fill is the
-#: designed common case.
+#: designed common case. The cache stores the BUILT DICT: the expensive
+#: half is the build (load + tree + annotate, ~150 ms at 449 nodes), and
+#: returning a dict keeps the handler's in-process contract — the
+#: archived-summary suite calls the route function directly and reads the
+#: payload as a mapping.
 _tree_build_locks: dict[tuple[str, bool], threading.Lock] = {}
 
 
@@ -2025,34 +2029,35 @@ def _tree_etag(slug: str) -> str:
 
 
 @app.get("/api/orgs/{slug}")
-def org_tree(slug: str, request: Request) -> Any:
-    from fastapi.responses import Response
+def org_tree(slug: str, request: Request,
+             response: Response = None) -> Any:  # type: ignore[assignment]
+    # `response` is FastAPI's header-injection seam on the dict-returning
+    # paths; a DIRECT in-process caller (test_archived_summary drives the
+    # route function itself) omits it and gets the plain payload dict
     pub = _public_slug(request) is not None
     etag = _tree_etag(slug)
     if request.headers.get("if-none-match") == etag:
         # nothing the payload derives from has moved — no load, no tree(),
         # no annotate, no serialize; the client keeps what it has
         return Response(status_code=304, headers={"ETag": etag})
+    if response is not None:
+        response.headers["ETag"] = etag
     key = (slug, pub)
     with _tree_cache_lock:
         hit = _tree_cache.get(key)
     if hit is not None and hit[0] == etag:
-        return Response(content=hit[1], media_type="application/json",
-                        headers={"ETag": etag})
+        return hit[1]
     with _tree_build_lock(key):
         # a concurrent miss may have filled the cache while we queued —
         # answer from its build instead of making a second one
         with _tree_cache_lock:
             hit = _tree_cache.get(key)
         if hit is not None and hit[0] == etag:
-            return Response(content=hit[1], media_type="application/json",
-                            headers={"ETag": etag})
+            return hit[1]
         tree = _org_view(slug, request, None)
-        body = json.dumps(tree, default=str).encode("utf-8")
         with _tree_cache_lock:
-            _tree_cache[key] = (etag, body)
-    return Response(content=body, media_type="application/json",
-                    headers={"ETag": etag})
+            _tree_cache[key] = (etag, tree)
+    return tree
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/detail")
