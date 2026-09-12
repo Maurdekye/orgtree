@@ -6,6 +6,7 @@ import path from 'node:path'
 import { DeskChat } from '../src/canvas/desk'
 import { ReplyPreview, ReplySourceProvider } from '../src/canvas/replypreview'
 import { indexReplySources, ReplySourceContent } from '../src/canvas/replysource'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { draftKey } from '../src/draftstore'
 import { replyWire, storeReply } from '../src/eventReply'
@@ -195,4 +196,65 @@ test('rich previews are bounded in both directions with images and long code kep
   assert.match(css, /\.reply-preview\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/)
   assert.match(css, /\.reply-preview-content pre\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/)
   assert.match(css, /\.reply-preview-content img\s*\{[^}]*max-width:\s*100%;[^}]*max-height:\s*7rem;/)
+})
+
+test('nested preview names and titles keep copy menus while text selection and links keep native menus', async () => {
+  const savedClip = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const writes: string[] = [], feedback: string[][] = []
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    writeText: async (text: string) => { writes.push(text) },
+  } })
+  window.getSelection()?.removeAllRanges()
+  const sources = indexReplySources({ messages: [{ role: 'assistant', event_id: 'source',
+    text: '@agent:org/writer and @item:org/fix-title\n\n[External link](https://example.invalid)' }] })
+  let parentMenus = 0
+  const title = '  Exact “title” & punctuation  '
+  const view = await mountView(<ObjectMenuBoundary toast={lines => feedback.push(lines ?? [])}>
+    <div onContextMenu={() => { parentMenus++ }}>
+      <ReplySourceProvider value={reply => <ReplySourceContent source={sources.get(reply.eventId)!}
+        slug="org" nid="writer" profile="operator" refs={{ world: { org: 'org',
+          agents: new Map([['writer', 'writer']]), items: new Map([['fix-title', 'fix-title']]),
+          itemTitles: new Map([['fix-title', title]]) }, onOpen: () => assert.fail('copy navigated') }} />}>
+        <ReplyPreview reply={target('source')} available onLocate={() => assert.fail('copy located the source')} />
+      </ReplySourceProvider>
+    </div>
+  </ObjectMenuBoundary>, el => el)
+  const context = async (element: Element) => {
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
+    await inAct(() => { element.dispatchEvent(event) })
+    await flush(2)
+    return event.defaultPrevented
+  }
+  try {
+    for (const [selector, label] of [
+      ['[data-copy-agent-name]', 'Copy agent name'], ['[data-copy-ticket-title]', 'Copy ticket title'],
+    ]) {
+      const object = view.el.querySelector('.reply-preview-content ' + selector)!
+      assert.ok(object)
+      assert.equal(await context(object), true)
+      const choices = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+      const copy = choices.filter(choice => choice.textContent === label)
+      assert.equal(copy.length, 1)
+      assert.equal(choices.some(choice => choice.textContent === 'Reply'), false)
+      await inAct(() => { copy[0]!.click() })
+      await flush(2)
+    }
+    assert.deepEqual(writes, ['writer', title])
+    assert.deepEqual(feedback, [['copied agent name'], ['copied ticket title']])
+    const name = view.el.querySelector('.reply-preview-content [data-copy-agent-name]')!
+    const range = document.createRange(); range.selectNodeContents(name)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    assert.equal(window.getSelection()!.isCollapsed, false, 'fixture creates a live text selection')
+    assert.equal(await context(name), false, 'selected text keeps the browser menu')
+    window.getSelection()!.removeAllRanges()
+    assert.equal(await context(view.el.querySelector('a[href="https://example.invalid"]')!), false)
+    assert.equal(await context(view.el.querySelector('.reply-preview-content')!), false)
+    assert.equal(document.querySelectorAll('.ctxmenu').length, 0)
+    assert.equal(parentMenus, 0, 'a quoted source never opens the containing message menu')
+  } finally {
+    await view.unmount(); window.getSelection()?.removeAllRanges()
+    if (savedClip) Object.defineProperty(navigator, 'clipboard', savedClip)
+    else delete (navigator as unknown as { clipboard?: unknown }).clipboard
+  }
 })

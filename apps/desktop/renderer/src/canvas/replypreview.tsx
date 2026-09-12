@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
 import type { ReplyContext } from '../eventReply'
+import { ObjectMenuBoundary } from './contextmenu'
 
 /** The loaded conversation resolves exact reply snapshots, never text or a
  * newer revision of the same assistant message. Other surfaces keep quotes. */
@@ -24,8 +25,8 @@ export function ReplyPreview({ reply, available, onLocate, onRemove }: {
       </button>
       {onRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
     </div>
-    {source ? <div className="reply-preview-content" role="region" aria-label="Referenced event" tabIndex={0}
-      onContextMenu={e => e.stopPropagation()}>{source}</div>
+    {source ? <ObjectMenuBoundary className="reply-preview-content" role="region" aria-label="Referenced event" tabIndex={0}
+      onContextMenu={e => e.stopPropagation()}>{source}</ObjectMenuBoundary>
       : <blockquote>{reply.quote || '(event without visible text)'}</blockquote>}
     {!available && <span className="dim">{source ? 'Original event is not visible in this conversation.'
       : 'Original event unavailable here; quoted context is retained.'}</span>}
