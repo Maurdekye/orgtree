@@ -10529,10 +10529,13 @@ def _idle_docket_reminder_pass(
     wake_fn = wake or (lambda slug, nid, text: send_message(
         slug, nid, text, mail_ping=True, idle_only=True,
         ping_reason="reminder"))
-    for row in store.list_orgs():
+    for row in store.cached_list():
         slug = row["slug"]
         try:
-            org = store.load_org(slug)
+            # read-only sweep over the shared snapshot (REPORT.md #7); every
+            # wake/reserve path revalidates and writes through its own
+            # DOC_LOCK load, exactly as before
+            org = store.cached_org(slug)
         except LedgerError:
             continue
         for nid in sorted(org.nodes):
@@ -10981,10 +10984,13 @@ def _working_checkup_pass(
     wake_fn = wake or (lambda slug, nid, text: send_message(
         slug, nid, text, mail_ping=True, idle_only=True,
         ping_reason="checkup"))
-    for row in store.list_orgs():
+    for row in store.cached_list():
         slug = row["slug"]
         try:
-            org = store.load_org(slug)
+            # read-only sweep over the shared snapshot (REPORT.md #7); every
+            # wake/reserve path revalidates and writes through its own
+            # DOC_LOCK load, exactly as before
+            org = store.cached_org(slug)
         except LedgerError:
             continue
         for nid in sorted(org.nodes):
@@ -11033,10 +11039,13 @@ def _working_cache_keeper_pass(
     if checkups:
         return
     now = time.time() if now is None else now
-    for row in store.list_orgs():
+    for row in store.cached_list():
         slug = row["slug"]
         try:
-            org = store.load_org(slug)
+            # read-only sweep over the shared snapshot (REPORT.md #7); every
+            # wake/reserve path revalidates and writes through its own
+            # DOC_LOCK load, exactly as before
+            org = store.cached_org(slug)
         except LedgerError:
             continue
         for nid in sorted(org.nodes):
@@ -22987,12 +22996,14 @@ def start_storage_watchdog() -> None:
         while True:
             time.sleep(20)
             try:
-                for o in store.list_orgs():
+                for o in store.cached_list():
                     slug = o["slug"]
                     with _state_lock:
                         busy = any(k[0] == slug and v.get("busy")
                                    for k, v in _state.items())
-                    org = store.load_org(slug)
+                    # read-only pre-checks on the shared snapshot; the real
+                    # storage_check does its own loading and saving
+                    org = store.cached_org(slug)
                     # blocked orgs stay on the 20 s cadence even when idle —
                     # a storage-frozen org runs no turns, so this loop IS its
                     # auto-unblock path once usage drops
@@ -23748,9 +23759,22 @@ def start_auto_resume_loop() -> None:
         while True:
             time.sleep(30)
             try:
-                for o in store.list_orgs():
+                for o in store.cached_list():
+                    slug = str(o["slug"])
                     try:
-                        _auto_resume_org(str(o["slug"]))
+                        # cheap read-only gate on the shared snapshot: an org
+                        # with no freeze anywhere and no spend freeze is a
+                        # provable no-op for this scheduler, and taking
+                        # DOC_LOCK + a fresh load every 30 s per org to
+                        # discover that was most of this loop's cost
+                        # (REPORT.md #7). Any freeze lands via a save, which
+                        # bumps the seq and refreshes the snapshot.
+                        snap = store.cached_org(slug)
+                        if (not snap.d.get("spend_frozen")
+                                and not any(n.get("frozen")
+                                            for n in snap.nodes.values())):
+                            continue
+                        _auto_resume_org(slug)
                     except Exception as exc:
                         print(f"[orgtree] auto-resume org skipped ({type(exc).__name__})", flush=True)
             except Exception:
@@ -27479,10 +27503,15 @@ def _wd_cmd_submit(slug: str, w: dict[str, Any], org: Org,
 
 
 def _wd_tick() -> None:
-    for o in store.list_orgs():
+    # shared snapshots (REPORT.md #7): this tick ran list_orgs + a second
+    # full load PER ORG every 5 s — even with zero dogs anywhere — and was
+    # the fastest of the six loops re-parsing the unchanged root. The org
+    # here is READ-ONLY; every state change below goes through its own
+    # DOC_LOCK load (_wd_pause, _wd_mark_check's block, the stream exits).
+    for o in store.cached_list():
         slug = str(o["slug"])
         try:
-            org = store.load_org(slug)
+            org = store.cached_org(slug)
         except LedgerError:
             continue
         dogs = cast("list[dict[str, Any]]",
@@ -27540,7 +27569,7 @@ def _wd_tick() -> None:
     for key in live_keys:
         slug, wid = key
         try:
-            org = store.load_org(slug)
+            org = store.cached_org(slug)
             w = org._watchdog(wid)
             if w.get("state") == "armed":
                 continue

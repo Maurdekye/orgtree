@@ -218,7 +218,10 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
         # counting every node ever hired (archived seats included) made the
         # tray disagree with every other surface.
         total = 0
-        for row in store.list_orgs():
+        # cached_list: this 5 s poll re-parsed every org's whole node table
+        # just to sum live counts (REPORT.md #7); the shared snapshot answers
+        # from memory while nothing changed
+        for row in store.cached_list():
             total += int(row.get("live") or 0)
         with supervisor._state_lock:
             states = list(supervisor._state.values())
