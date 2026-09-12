@@ -30,10 +30,17 @@ export function useNodeDetail<T extends Summarisable>(
   const summary = isSummary(node)
   const [got, setGot] = useState<NodeDetail | null>(null)
   const [error, setError] = useState<Error | null>(null)
-  // the generation is in the key because rehiring mints a new one, and a
-  // charter cached from the seat's previous life is stale in a way that looks
-  // perfectly correct on screen
-  const stamp = `${slug} ${node.id} ${node.generation} ${summary}`
+  // ⚠ `detail_rev` IS IN THE STAMP, not just in the cache key, and that is
+  // what makes a REMOTE edit reach a panel that is already open. The cache key
+  // alone only helps the next caller; a mounted consumer would sit on the
+  // detail it fetched once and never ask again. With the revision here, the
+  // tree refresh that carries a new one re-runs this effect, and the panel
+  // updates in place — it keeps showing what it has while the new answer is in
+  // flight rather than dropping back through the gate. (The generation is here
+  // for the same reason at a coarser grain: rehiring mints a new one, and a
+  // charter cached from the seat's previous life looks perfectly correct.)
+  const stamp = JSON.stringify(
+    [slug, node.id, node.generation ?? null, node.detail_rev ?? null, summary])
   useEffect(() => {
     setError(null)
     if (!summary) { setGot(null); return }

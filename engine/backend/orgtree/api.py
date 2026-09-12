@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
 import importlib.util
 import ipaddress
 import json
@@ -1853,12 +1854,14 @@ def _rederive_freeze_reset(node: dict[str, Any],
 # one is a constant — it has no turn and no process — and they cost 330 KB of
 # this payload IN KEY NAMES ALONE (`"mcp_readiness_waiting":false,` is 33
 # bytes, times 242). They are omitted from the wire and the client refills the
-# same constants (`hydrateArchived` in tree.ts). The engine also stops CALLING
+# same constants (`hydrateTree` in archived.ts). The engine also stops CALLING
 # the supervisor for them, which is the larger half of the saving.
 #
 # `_ARCHIVED_DETAIL_FIELDS` are real per-seat data that only a seat someone has
-# OPENED needs: its full charter, scope, lineage, turn history. They are
-# omitted here and served by `GET /api/orgs/{slug}/nodes/{nid}/detail`.
+# OPENED needs: its full charter, scope, lineage. They are omitted here and
+# served by `GET /api/orgs/{slug}/nodes/{nid}/detail`, which also answers with
+# the `detail_rev` the summary carried, so a client can cache the answer
+# against something that actually invalidates.
 #
 # ⚠ THE TRAY IS NOT A DETAIL VIEW AND MUST NOT FETCH. `OrgCanvas`'s row for an
 # archived seat renders `last_status`, `prev_status`, the LAST turn and the
@@ -1886,10 +1889,42 @@ _ARCHIVED_RUNTIME_DEFAULTS: dict[str, Any] = {
     "mcp_readiness_reason": None,
 }
 _ARCHIVED_RUNTIME_FIELDS: tuple[str, ...] = tuple(_ARCHIVED_RUNTIME_DEFAULTS)
+# ⚠ WHAT IS *NOT* HERE IS AS DELIBERATE AS WHAT IS. `documents` and `session_id`
+# were both on this list and came back off it, because the saving did not pay
+# for the breakage. MEASURED 2026-09-12 on the operator's org (241 archived
+# seats, 1,209,690 archived bytes): `documents` is 4,756 bytes and `session_id`
+# is 9,310 — together 1.2% of it — while between them they feed the card's
+# presentation button, its doc chips, the gallery's fallback rows and the
+# canvas's session-identity map, none of which can wait for a fetch. The money
+# is in `charter` (319,721), `scope` (81,576), `team_charter` (57,752) and
+# `lineage` (22,347); those stay off, and the SUMMARY-TIME decisions that read
+# them are answered by the markers below instead.
 _ARCHIVED_DETAIL_FIELDS: tuple[str, ...] = (
-    "charter", "team_charter", "scope", "lineage", "session_id",
-    "last_denials", "last_approvals", "documents",
+    "charter", "team_charter", "scope", "lineage",
+    "last_denials", "last_approvals",
 )
+
+
+def _archived_detail_rev(node: dict[str, Any]) -> str:
+    """A token that moves exactly when this seat's omitted detail moves.
+
+    The client caches a fetched detail, and the cache has to be keyed on
+    something that invalidates it. Id and generation are not enough: NEITHER
+    moves when an archived agent's charter or scope is edited from another
+    window, or retooled by an agent — the tree refreshes, the summary is
+    byte-identical, and an open panel goes on showing what it cached.
+
+    So the token is a hash of the values themselves. A counter would have to be
+    bumped by every writer, and the writer that forgets to is precisely the bug
+    this exists to stop; a hash cannot drift from the data because it IS the
+    data. `default=str` keeps it total over anything the projection can hold.
+
+    ⚠ Computed from the same projection on both paths — `annotate` writes none
+    of these fields — so the summary's token and the detail response's token
+    agree for an unchanged seat, which is what makes a miss mean something."""
+    payload = json.dumps([node.get(k) for k in _ARCHIVED_DETAIL_FIELDS],
+                         sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.blake2b(payload.encode(), digest_size=8).hexdigest()
 
 
 def _summarise_archived(node: dict[str, Any]) -> None:
@@ -1905,6 +1940,19 @@ def _summarise_archived(node: dict[str, Any]) -> None:
     # the tray reads `turns[turns.length - 1]`; the desk's five come with detail
     turns = node.get("turns")
     node["turns"] = list(turns)[-1:] if isinstance(turns, list) else []
+    # ⚠ MARKERS ARE DERIVED HERE, BEFORE THE POP, FROM THE VALUES BEING DROPPED.
+    # A card is drawn straight from the tree entry — it cannot await a fetch to
+    # decide whether to offer a menu entry or wear a border — so every
+    # SUMMARY-TIME decision that reads a dropped field needs its answer to ride
+    # the summary. Each of these replaces exactly one such decision:
+    #   lineage_count  the "Show lineage" entry and the card's stacked-card look
+    #   read_only      the dashed `ro-agent` border
+    # A dropped field that grows a new summary-time reader needs a marker here;
+    # `test_archived_summary` is what catches the one that does not get it.
+    node["detail_rev"] = _archived_detail_rev(node)
+    node["lineage_count"] = len(node.get("lineage") or [])
+    node["read_only"] = (
+        ((node.get("scope") or {}).get("tools") or {}).get("edit") is False)
     # ⚠ BOTH lists are popped, not just the detail one. Most runtime fields are
     # simply never added for an archived seat (`annotate` returns before them),
     # but `Org.tree()` sets a few of them itself — `cache_forecast` is the one
@@ -2236,6 +2284,13 @@ def _org_view(slug: str, request: Request,
             raise HTTPException(404, f"no such node: {detail_node!r}")
         found["children"] = []
         annotate(found, full=True)
+        # §4.8: the token the summary carried, recomputed from the whole node
+        # the caller is being handed. It is what the client keys its cache on,
+        # so it has to come back with the answer — and only for an ARCHIVED
+        # seat, because a live node's detail IS its tree entry and
+        # `test_archived_summary` holds the two to being byte-identical.
+        if found["state"] == "archived":
+            found["detail_rev"] = _archived_detail_rev(found)
         if profile is not None:
             profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
         if _public_slug(request):

@@ -74,6 +74,13 @@ class ArchivedSummaryTests(unittest.TestCase):
         n['last_status'] = {'status': 'done', 'summary': 'finished the thing'}
         n['prev_status'] = {'status': 'working', 'summary': 'was doing it'}
         n['team_charter'] = 'the team standing order'
+        # a presented document, so the card's presentation controls have
+        # something to be gated on — they read `documents` AS THE CARD RENDERS.
+        # Appended to the doc rather than presented through `present_document`,
+        # which gates on a user audience this fixture's seats do not hold.
+        o.d.setdefault('documents', []).append(
+            {'id': 'doc1', 'node': 'gone', 'title': 'a paper',
+             'at': '2026-01-09T00:00:00Z', 'body': 'the body of the paper'})
         o.retire(USER, 'kid')
         o.retire(USER, 'gone')
         store.save_org(o)
@@ -99,9 +106,12 @@ class ArchivedSummaryTests(unittest.TestCase):
         self.assertEqual(live['state'], 'live')
         self.assertEqual(arch['state'], 'archived')
         detail = api.org_node_detail(self.slug, 'gone', _Req())
-        # `charter_line` and `detail` are the summary's own markers; `children`
-        # is deliberately absent from a detail answer
-        reachable = (set(arch) | set(detail)) - {'charter_line', 'detail'}
+        # the summary's own markers stand for fields rather than being them,
+        # so they are not allowed to satisfy this identity; `children` is
+        # deliberately absent from a detail answer
+        reachable = (set(arch) | set(detail)) - {
+            'charter_line', 'detail', 'lineage_count', 'read_only',
+            'detail_rev'}
         expected = set(live)
         self.assertEqual(
             expected - reachable, set(),
@@ -117,8 +127,11 @@ class ArchivedSummaryTests(unittest.TestCase):
 
     def test_a_live_node_is_untouched(self):
         live = self.nodes(self.tree())['boss']
-        self.assertNotIn('detail', live)
-        self.assertNotIn('charter_line', live)
+        for marker in ('detail', 'charter_line', 'lineage_count', 'read_only',
+                       'detail_rev'):
+            self.assertNotIn(marker, live,
+                             f'{marker} is a SUMMARY marker and has no business '
+                             f'on a live seat, which carries the real fields')
         for f in api._ARCHIVED_RUNTIME_FIELDS + api._ARCHIVED_DETAIL_FIELDS:
             if f == 'last_approvals':
                 # conditionally present by design: `Org.tree()` omits it
@@ -221,6 +234,130 @@ class ArchivedSummaryTests(unittest.TestCase):
         import json
         tree = self.tree()
         self.assertLess(len(json.dumps(tree['archived_defaults'])), 900)
+
+    # -- what a CARD decides while it is being drawn ------------------------
+    #
+    # Review finding, 2026-09-12. The first cut of §4.8 sent `documents` and
+    # `lineage` to the detail endpoint, and a retired agent's card quietly lost
+    # its "Open presentations" entry, its presentation button, its doc chips,
+    # its "Show lineage" entry and its stacked-card look — because `NodeSquare`
+    # renders straight off the tree entry and cannot await a fetch. Every test
+    # above passed, because they all asked whether the FIELD was recoverable
+    # and none asked what was already reading it. These do.
+
+    def test_the_fields_a_card_reads_directly_stay_on_the_summary(self):
+        """`documents` and `session_id` came back OFF the omitted list. They
+        feed the card's presentation controls, the gallery's fallback rows and
+        the canvas's session-identity map, none of which can wait for a fetch,
+        and together they were 14,024 of 1,214,593 archived bytes on the
+        operator's org — 1.15%. The saving never justified the breakage."""
+        arch = self.nodes(self.tree())['gone']
+        for f in ('documents', 'documents_count', 'session_id'):
+            self.assertIn(f, arch,
+                          f'{f} is read while a card renders and cannot be '
+                          f'fetched on demand')
+        # and they are real values, not empty husks left by a reducer
+        self.assertEqual(arch['documents_count'], 1)
+        self.assertEqual([d['title'] for d in arch['documents']], ['a paper'])
+
+    def test_lineage_count_is_the_lineage_it_stands_in_for(self):
+        """The card offers "Show lineage" and wears `stack1/2/3` off this
+        number. It has to equal what counting the real generations would give,
+        or the card and the panel behind it disagree."""
+        o = store.load_org(self.slug)
+        # a predecessor chain is what `lineage_stack` walks; compaction mints
+        # one, and poking the doc is how the rest of this file builds fixtures
+        o.nodes['gone']['predecessor'] = 'kid'
+        store.save_org(o)
+        arch = self.nodes(self.tree())['gone']
+        detail = api.org_node_detail(self.slug, 'gone', _Req())
+        self.assertEqual(arch['lineage_count'], len(detail['lineage']))
+        self.assertEqual(arch['lineage_count'], 1,
+                         'positive control: a seat with no predecessor would '
+                         'pass the equality above with two zeroes')
+        self.assertNotIn('lineage', arch)
+
+    def test_read_only_is_the_scope_it_stands_in_for(self):
+        """`scope.tools.edit is False` is the card's dashed `ro-agent` border
+        (styles.css). `scope` is 81 KB of the payload and stays omitted, so the
+        one bit the card needs travels on its own."""
+        o = store.load_org(self.slug)
+        o.hire(USER, 'boss', 'haiku', 0, 'ro', charter='a read-only seat',
+               tools={'edit': False}, add_dirs=[], org_visibility='full')
+        store.save_org(o)
+        o = store.load_org(self.slug)
+        o.retire(USER, 'ro')
+        store.save_org(o)
+        ns = self.nodes(self.tree())
+        self.assertIs(ns['ro']['read_only'], True)
+        self.assertIs(ns['gone']['read_only'], False,
+                      'positive control: a seat that CAN edit must read False, '
+                      'or the marker is just a constant')
+        detail = api.org_node_detail(self.slug, 'ro', _Req())
+        self.assertIs(detail['scope']['tools']['edit'], False)
+        self.assertNotIn('scope', ns['ro'])
+
+    # -- the detail cache has to be invalidatable --------------------------
+    #
+    # Review finding, 2026-09-12. The client cached a fetched detail under
+    # slug/id/generation and dropped it only after ITS OWN non-GET. Neither
+    # part moves when another window — or an agent's retool — edits an
+    # archived seat: the tree refreshes, the summary is identical, and an open
+    # panel goes on showing the charter it cached. `detail_rev` is the token
+    # that moves, and these say what it is allowed to move for.
+
+    def test_detail_rev_is_the_same_token_on_both_answers(self):
+        arch = self.nodes(self.tree())['gone']
+        detail = api.org_node_detail(self.slug, 'gone', _Req())
+        self.assertTrue(arch['detail_rev'])
+        self.assertEqual(arch['detail_rev'], detail['detail_rev'],
+                         'the summary promises a revision and the detail answer '
+                         'has to agree, or a client can never confirm a hit')
+
+    def test_detail_rev_is_stable_while_the_seat_is(self):
+        """Positive control for the two tests below: a token that changed on
+        every build would pass them and defeat the cache entirely."""
+        first = self.nodes(self.tree())['gone']['detail_rev']
+        second = self.nodes(self.tree())['gone']['detail_rev']
+        self.assertEqual(first, second)
+
+    def test_detail_rev_moves_when_an_omitted_field_changes(self):
+        before = self.nodes(self.tree())['gone']['detail_rev']
+        o = store.load_org(self.slug)
+        o.nodes['gone']['charter'] = 'edited from another window entirely'
+        store.save_org(o)
+        after = self.nodes(self.tree())['gone']
+        self.assertNotEqual(before, after['detail_rev'])
+        # and the new charter really is what a fetch would now return
+        self.assertEqual(api.org_node_detail(self.slug, 'gone', _Req())['charter'],
+                         'edited from another window entirely')
+
+    def test_detail_rev_ignores_what_the_summary_already_carries(self):
+        """It covers the OMITTED fields, not the document. A seat whose
+        `last_status` changed needs no refetch — that value rode the summary —
+        and moving the token for it would throw away a good cache entry on
+        every status write, which is most of what a busy org does."""
+        before = self.nodes(self.tree())['gone']['detail_rev']
+        o = store.load_org(self.slug)
+        o.nodes['gone']['last_status'] = {'status': 'done', 'summary': 'moved on'}
+        store.save_org(o)
+        after = self.nodes(self.tree())['gone']
+        self.assertEqual(after['last_status']['summary'], 'moved on')
+        self.assertEqual(before, after['detail_rev'])
+
+    def test_detail_rev_covers_every_field_it_is_responsible_for(self):
+        """The load-bearing one. A field on the omitted list that the token
+        does not hash is a field that can be edited remotely without the cache
+        ever noticing — the exact bug this was added for. Asserted over the
+        list itself, so adding a field to it cannot quietly skip this."""
+        base = {f: None for f in api._ARCHIVED_DETAIL_FIELDS}
+        base_rev = api._archived_detail_rev(base)
+        for f in api._ARCHIVED_DETAIL_FIELDS:
+            moved = dict(base, **{f: 'something else entirely'})
+            self.assertNotEqual(
+                api._archived_detail_rev(moved), base_rev,
+                f'{f} is omitted from the payload but not hashed into '
+                f'detail_rev — a remote edit to it would never invalidate')
 
     # -- the point of the whole exercise -----------------------------------
     def test_the_summary_is_substantially_smaller(self):

@@ -318,16 +318,29 @@ export interface TreeNode {
   /** §4.8 — `false` means this is an ARCHIVED seat's SUMMARY: its
    *  supervisor-derived runtime fields were refilled from the payload's
    *  `archived_defaults` (api.ts `getTree` → `hydrateTree`), and its per-seat
-   *  detail — full `charter`, `scope`, `lineage`, `session_id`, the whole
-   *  `turns` history, `documents`, `last_denials`, `last_approvals` — is
-   *  absent until `useNodeDetail` fetches it.
+   *  detail — full `charter`, `team_charter`, `scope`, `lineage`, the whole
+   *  `turns` history, `last_denials`, `last_approvals` — is absent until
+   *  `useNodeDetail` fetches it.
    *  ABSENT on every live seat and on anything an older engine sent, both of
    *  which are complete. A panel that dereferences one of those fields must go
-   *  through `useNodeDetail`/`NodeDetailGate` first. */
+   *  through `useNodeDetail`/`NodeDetailGate` first — and a CARD, which cannot
+   *  await a fetch, must read one of the three summary markers below instead. */
   detail?: boolean
   /** §4.8 — the first line of the charter, which is all the tray tooltip uses.
-   *  Only on a summary; the whole charter comes with the detail fetch. */
+   *  Only on a summary; the whole charter comes with the detail fetch.
+   *  Read it through `charterLine`, never raw. */
   charter_line?: string | null
+  /** §4.8 — `lineage.length` for a seat whose `lineage` was omitted. The card
+   *  offers "Show lineage" and wears its stacked look off this count, neither
+   *  of which can wait for a fetch. Read it through `lineageCount`. */
+  lineage_count?: number
+  /** §4.8 — `scope.tools.edit === false` for a seat whose `scope` was omitted:
+   *  the dashed `ro-agent` border. Read it through `readOnlyAgent`. */
+  read_only?: boolean
+  /** §4.8 — the backend's hash of the fields it omitted. The detail cache is
+   *  keyed on it, so an edit made in ANOTHER window moves it on the next tree
+   *  payload and the cached detail is dropped. Absent on a live seat. */
+  detail_rev?: string | null
   id: string
   title: string
   tier: string

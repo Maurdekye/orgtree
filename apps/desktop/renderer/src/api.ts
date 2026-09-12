@@ -104,10 +104,13 @@ export const req = <T,>(path: string, init?: RequestInit,
     // makes wakes every mounted polled surface — centrally, so no call site
     // has to remember a refetch and none can be forgotten
     if ((init?.method ?? 'GET') !== 'GET') {
-      // §4.8: any mutation can change a seat's charter, scope or turn history,
-      // and the detail cache is keyed on generation — which an EDIT does not
-      // bump. Dropping the whole cache here costs at most one refetch, and
-      // only when an archived card is actually open.
+      // §4.8: any mutation can change a seat's charter or scope, so drop what
+      // we cached for it. This is the LOCAL half and it is a fast path, not
+      // the guarantee: it fires immediately, ahead of the refresh that would
+      // carry the seat's new `detail_rev`, and it costs at most one refetch —
+      // only when an archived card is actually open. The guarantee is the
+      // revision itself, which is the only thing that can see a write made in
+      // ANOTHER window or by an agent, where this tab issues no request at all.
       forgetNodeDetail()
       bumpLive()
     }

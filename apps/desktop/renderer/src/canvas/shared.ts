@@ -682,6 +682,17 @@ export interface CanvasNode {
   bearer_state?: TreeNode['bearer_state']
   generation?: number
   lineage?: TreeNode['lineage']
+  /** §4.8 — the ARCHIVED-SUMMARY surface. A card reaches the canvas by
+   *  spreading its tree entry, so these ride along; they are declared here so
+   *  the type says what a card can actually read. `lineage_count` and
+   *  `read_only` stand in for `lineage` and `scope` on a seat whose detail was
+   *  omitted — go through `lineageCount`/`readOnlyAgent`, never these directly
+   *  — and `detail_rev` is what keys the detail cache. */
+  detail?: boolean
+  charter_line?: string | null
+  lineage_count?: number
+  read_only?: boolean
+  detail_rev?: string | null
   busy?: boolean
   /** D-201 warm-process cache state. Synthetic canvas cards never have one. */
   proc_warm?: boolean

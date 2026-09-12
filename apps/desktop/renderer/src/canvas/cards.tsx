@@ -9,6 +9,11 @@ import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { audienceAction, dissolveAll, getCharters, unstickNode } from '../api'
+// §4.8 — a card is drawn straight from its tree entry and cannot await a
+// fetch, so anything it decides about an ARCHIVED seat reads the summary
+// marker when the full field is not there. Never dereference `lineage` or
+// `scope` here directly.
+import { lineageCount, readOnlyAgent } from '../archived'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
@@ -1301,7 +1306,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     if (onOpenAgentGallery && (node.documents?.length ?? 0) > 0) {
       entries.push({ label: 'Open presentations', onSelect: () => onOpenAgentGallery(node.id) })
     }
-    if ((node.lineage ?? []).length > 0) entries.push({ label: 'Show lineage', onSelect: () => onLineage() })
+    if (lineageCount(node) > 0) entries.push({ label: 'Show lineage', onSelect: () => onLineage() })
     entries.push({ label: 'Settings', onSelect: () => onConfig() })
     if (onPin && !pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => onPin() })
     if (pinned && onShowPin) entries.push({ label: 'Show pinned window', onSelect: () => onShowPin() })
@@ -1350,7 +1355,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (node.bearer_state) cls.push('bearer')
   if (node.limit_locked) cls.push('locked')
   if (node.frozen) cls.push('frozen')
-  if (node.scope?.tools?.edit === false) cls.push('ro-agent')
+  if (readOnlyAgent(node)) cls.push('ro-agent')
   // aura semantics reworked (user ruling 2026-08-04): the bright terracotta
   // glow now means ONE thing — this agent needs the user's attention (an open
   // ask). Holding a user audience is a capability, not an emergency: it wears
@@ -1361,7 +1366,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (node.audiences_held?.length) cls.push('aud')
   if (pinned) cls.push('pinned')
   if (hireReveal) cls.push('hire-reveal')
-  const stackN = (node.lineage ?? []).length
+  const stackN = lineageCount(node)
   if (!focused && stackN) cls.push('stack' + Math.min(stackN, 3))
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
     setExpandedHireEdge((open) => open === which ? null : which)
