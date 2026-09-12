@@ -2271,8 +2271,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const [recordQuery, setRecordQuery] = useState('')
   const recordFull = recordQuery.trim() !== ''
   const events = usePolled(
-    () => (folder === 'record'
-      ? getEvents(slug, recordFull ? undefined : 300).then((r) => r.events)
+    () => (folder === 'record' ? getEvents(slug, recordFull ? undefined : 300).then((r) => r.events)
       : Promise.resolve(null)), [folder, slug, recordFull])
   const userAud = aud?.audiences?.filter((a) => a.grantor === USER) ?? []
   const userReqs = (aud?.requests?.filter((r) => r.target === USER && r.currently_at === USER) ?? []) as UserAudReq[]
