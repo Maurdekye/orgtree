@@ -3087,6 +3087,13 @@ def cached_org(slug: str) -> Org:
         with _doc_cache_lock:
             _doc_cache.pop(slug, None)
         raise
+    # the mark first-use helpers honor (perf-review round 2): the
+    # incarnation minters used to memoize their freshly-minted ids onto
+    # whatever org they were handed — correct for a request-private load,
+    # a contract violation on this shared one. A marked org is never
+    # stamped; the mint's own save bumps the seq, so the next cached_org
+    # call reloads and the fresh snapshot carries the minted value anyway.
+    org._shared_snapshot = True   # type: ignore[attr-defined]
     if org_seq(slug) == seq:
         # unchanged across our read — cache under the seq we started from;
         # a save that landed mid-load just costs one more load next call

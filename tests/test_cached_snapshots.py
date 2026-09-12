@@ -45,6 +45,28 @@ class CachedSnapshots(unittest.TestCase):
         for slug, row in want.items():
             self.assertEqual(got[slug], row)
 
+    def test_shared_snapshot_never_stamped_by_incarnation_mints(self):
+        # perf-review round 2: the incarnation minters memoized their ids
+        # onto whatever org they were handed — on the SHARED snapshot that
+        # violated the read-only contract. A marked org is never stamped;
+        # the mint persists through its own fresh load and the seq bump
+        # delivers it to the next cached_org() instead.
+        from orgtree import transcript_records
+        org = store.create_org('Markorg')
+        org.d['slug'] = 'markorg'
+        org.hire(ledger.USER, None, 'haiku', 0, 'alpha')
+        store.save_org(org)
+        shared = store.cached_org('markorg')
+        self.assertTrue(getattr(shared, '_shared_snapshot', False))
+        value = transcript_records.incarnation(shared, 'alpha')
+        self.assertTrue(value)
+        self.assertNotIn('transcript_incarnation', shared.nodes['alpha'])
+        self.assertNotIn('reply_incarnation', shared.nodes['alpha'])
+        fresh = store.cached_org('markorg')      # the mint's save bumped seq
+        self.assertIsNot(fresh, shared)
+        self.assertEqual(fresh.nodes['alpha'].get('transcript_incarnation'),
+                         value)
+
     def test_deleted_org_leaves_no_snapshot(self):
         org = store.create_org('Goneorg')
         org.d['slug'] = 'goneorg'
