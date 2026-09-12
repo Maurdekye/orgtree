@@ -2508,7 +2508,7 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             kill_node(slug, nid, "disabled")
         return
     if slugs is None:
-        orgs = store.list_orgs()
+        orgs = store.cached_list()
         known = {o["slug"] for o in orgs}
         # a DELETED org never appears in the loop below — its parked
         # processes would otherwise be orphans no pass ever visits
@@ -2521,7 +2521,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
         targets = sorted(slugs)
     for slug in targets:
         try:
-            org = store.load_org(slug)
+            # the shared save-seq snapshot (REPORT.md #7): a keeper pass is
+            # a READ — eligibility, identity hashing, live sets. A scoped
+            # pass follows a save, whose seq bump makes this a fresh load
+            # anyway; the periodic full pass stops re-parsing unchanged orgs
+            org = store.cached_org(slug)
         except Exception:                           # noqa: BLE001
             if slugs is not None:
                 # scoped poke for an org that no longer loads — deleted or
@@ -2664,9 +2668,9 @@ def _pool_snapshot() -> None:
                    for wp in _serving.values() if wp.alive()]
     entries = parked + serving
     elig_total = 0
-    for o in store.list_orgs():
+    for o in store.cached_list():
         try:
-            org = store.load_org(o["slug"])
+            org = store.cached_org(o["slug"])
         except Exception:                            # noqa: BLE001
             continue
         for nid, n in org.nodes.items():
