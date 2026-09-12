@@ -6,6 +6,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
@@ -1298,6 +1299,34 @@ export function SpendBadge({ node }: { node: SpendNode }) {
 // that has already been answered
 const SENDMODE_MS = 6000
 
+/** Where the event a context menu was raised on is RIGHT NOW.
+ *
+ *  The transcript re-projects itself constantly, and a row that is re-keyed by
+ *  an arriving update is a NEW element with the same event on it. So the event
+ *  id is the identity and the element is only ever a cache: if the remembered
+ *  one is still in the document and still carries that id, it is the answer;
+ *  otherwise the id is looked up again in what is on screen now.
+ *
+ *  A row with NO durable event id (an optimistic ghost, the desk's error line)
+ *  can only be named by its element, and is dropped once that element goes —
+ *  there is nothing else it could honestly resolve to.
+ *
+ *  One id can sit on a row AND on something nested in it; the innermost match
+ *  is the event that was pressed, which is the same rule `openReply` applies
+ *  when it resolves the press in the first place. */
+function ctxTargetElement(root: Element | null,
+  target: { id?: string; el: Element } | null): Element | null {
+  if (!target) return null
+  const cached = target.el
+  if (!target.id) return cached.isConnected ? cached : null
+  if (cached.isConnected && cached.getAttribute('data-reply-event') === target.id) return cached
+  if (!root) return null
+  const matches = [...root.querySelectorAll('[data-reply-event]')]
+    .filter((el) => el.getAttribute('data-reply-event') === target.id)
+  return matches.find((el) => !matches.some((o) => o !== el && el.contains(o)))
+    ?? matches[0] ?? null
+}
+
 function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
@@ -1335,6 +1364,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
   const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
   const replyMenu = useContextMenu()
+  // every fold this desk's transcript draws, held above the rows (foldstate.tsx)
+  const folds = useFoldState()
+  /** THE EVENT THE CONTEXT MENU WAS RAISED ON (user spec 2026-09-12: the
+   *  right-clicked event stays visibly highlighted for the whole life of its
+   *  menu). Recorded as an event ID, not as the element: the element is
+   *  replaced whenever its row is re-keyed by an arriving update, and a
+   *  highlight pinned to a detached node would simply disappear. The element
+   *  is kept only as the fallback for a row with no durable id — an
+   *  optimistic ghost, the desk's error line — where there is nothing else to
+   *  name it by. A ref rather than state: `replyMenu.open` re-renders this
+   *  component anyway, and `replyMenu.isOpen` is what says whether it is
+   *  still live. */
+  const ctxTarget = useRef<{ id?: string; el: Element } | null>(null)
+  const ctxMarked = useRef<Element | null>(null)
   /** `local` is the text of a row that has no durable event id to look up —
    *  today only an optimistic ghost, whose words exist nowhere but this
    *  component's state. It is consulted ONLY when the press resolved to the
@@ -1359,6 +1402,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     // offers a disabled item instead.
     const copy = (exact === e.currentTarget ? local : undefined)
       ?? (event_id ? copyTextOf.get(event_id) : undefined) ?? ''
+    // the highlight target, recorded before the menu opens — `open` may still
+    // decline (an editable field, a live selection, a row with no entries),
+    // and the effect below only marks anything while the menu is actually up
+    ctxTarget.current = { id: event_id, el: exact }
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {
@@ -1568,10 +1615,27 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     stickRef.current = v
     setShowJump((s) => (s === !v ? s : !v))   // only re-render on a real flip
   }
+  // ⚠ THE AUTOSCROLL IS HELD WHILE A CONTEXT MENU IS OPEN ON THIS DESK.
+  // (user spec 2026-09-12: a menu raised on a transcript event must survive
+  // the events that keep arriving behind it.) A menu is positioned in viewport
+  // coordinates and closes itself when a scroll moves what it is anchored to —
+  // correctly, since otherwise it would sit pointing at empty space. But every
+  // arriving event runs `pin()` on a desk the reader is sitting at the bottom
+  // of, and that scroll moves the very row the menu was raised from: the menu
+  // dismissed itself on the next event, every time. Holding the pin is the
+  // honest half of the fix — nothing should yank the transcript out from under
+  // an operator who is acting on one specific event. The effect below releases
+  // it: when the menu closes, a reader who was stuck at the bottom is taken
+  // there, so nothing is silently left behind.
+  const menuOpenRef = useRef(false)
+  menuOpenRef.current = replyMenu.isOpen
   const pin = () => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el && !menuOpenRef.current) el.scrollTop = el.scrollHeight
   }
+  useEffect(() => {
+    if (!replyMenu.isOpen && stickRef.current) pin()
+  }, [replyMenu.isOpen])   // eslint-disable-line react-hooks/exhaustive-deps
   // AFTER the DOM commit, before paint: a bare requestAnimationFrame scheduled
   // during an event handler can fire BEFORE React commits the new rows, so it
   // read the OLD scrollHeight and landed short — that was the "gets left
@@ -1858,6 +1922,42 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
   // optimistic ghosts are deliberately NOT in this pass: they are client-minted
   // and carry no event id at all, so there is nothing here to compare them by.
+  // ── WHAT THE OPERATOR HAS OPENED ───────────────────────────────────────
+  // (user bug 2026-09-12: an expanded message collapsed itself when the next
+  // event arrived.) The open/closed flag of every fold on this desk lives
+  // HERE, above the rows, keyed by the folded part's own durable id — a row
+  // that gets re-keyed mid-stream and remounts therefore keeps its folds.
+  // canvas/foldstate.tsx carries the whole argument.
+  //
+  // Pruned against what this render actually drew, so a message that has
+  // genuinely left the transcript leaves nothing behind. Skipped while the
+  // transcript is empty: a first load and a failed poll both look like "no
+  // rows", and neither is the operator collapsing anything.
+  const liveFoldKeys = foldKeysOf(viewMessages, viewLive)
+  const pruneFolds = folds.prune
+  useEffect(() => {
+    if (viewMessages.length || viewLive.length) pruneFolds(liveFoldKeys)
+  })
+  // ── THE RIGHT-CLICKED EVENT STAYS LIT ──────────────────────────────────
+  // No dependency list on purpose: this runs after EVERY render, because a
+  // render is exactly when the element carrying the event may have been
+  // replaced. It re-finds the event by its id and moves the mark — and the
+  // menu's own anchor — onto whatever element carries it now, so a row
+  // re-keyed by an arriving update neither loses the highlight nor leaves the
+  // menu anchored to a detached node (which the menu's scroll rule reads as
+  // "unanswerable" and closes on). Cheap when no menu is open: the mark is
+  // removed from one remembered element and nothing is searched.
+  useEffect(() => {
+    const want = replyMenu.isOpen
+      ? ctxTargetElement(scroller.current, ctxTarget.current) : null
+    const had = ctxMarked.current
+    if (had && had !== want) had.classList.remove('ctx-target')
+    if (want) {
+      want.classList.add('ctx-target')
+      replyMenu.reanchor(want)
+    }
+    ctxMarked.current = want
+  })
   useEffect(() => {
     if (!convo.loaded) void refreshConvo(slug, node.id)
   }, [slug, node.id, convo.loaded])
@@ -2135,6 +2235,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   }, [sameReplyIdentity, replySources, slug, node.id, deskRefs])
   const content = (
     <AgentDirectoryProvider value={agentDir}>
+    <FoldProvider value={folds.store}>
     <ReplySourceProvider value={resolveReplySource}>
       <div className="cc-head">
         <div className="cc-head-top">
@@ -2546,7 +2647,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             <div key={f.event_id ?? f.n ?? 'f' + i} className="reply-event" data-reply-event={f.event_id} data-reply-quote={f.text} onContextMenu={e => openReply(e, f)}>
             {f.kind === 'thought'
               ? <div key={f.n ?? 'f' + i} className="msg assistant live">
-                  <ThoughtLine text={f.text} secs={f.secs} /></div>
+                  <ThoughtLine text={f.text} secs={f.secs}
+                    foldKey={thoughtFoldKey(f.event_id)} /></div>
               : f.kind === 'tool'
                 ? <div key={f.n ?? 'f' + i} className="msg live tools"><DotIcon fontSize="inherit" className="tooldot" /> {f.text}</div>
                 : f.kind === 'steered'
@@ -2890,6 +2992,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
       </div>
     </ReplySourceProvider>
+    </FoldProvider>
     </AgentDirectoryProvider>
   )
   // bare: the switchboard hosts many chats inside ONE counter-scaled surface —
@@ -3386,7 +3489,10 @@ interface ToolChipProps {
 }
 
 function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipProps) {
-  const [open, setOpen] = useState(false)
+  // the fold lives in the DESK, keyed by this chip's tool_use_id — see
+  // canvas/foldstate.tsx for why a component-local `useState` could not
+  // survive the row being re-keyed mid-stream
+  const [open, toggleOpen] = useFold(toolFoldKey(t))
   const expandable = Boolean(t.result || t.diff || t.images)
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
     doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
@@ -3426,7 +3532,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
   return (
     <div className={'tools tchip' + (t.error ? ' terr' : '')}>
       <span data-reply-event={t.event_id ?? ''} data-reply-quote={String(t.reply_quote ?? `${t.name} ${t.arg ?? ''}`)} className={'tline' + (expandable ? ' click' : '')}
-        onClick={expandable ? () => setOpen((o) => !o) : undefined}
+        onClick={expandable ? toggleOpen : undefined}
         title={expandable ? (open ? 'collapse' : 'expand') : undefined}>
         <DotIcon fontSize="inherit" className="tooldot" />
         {' '}{shortTool(t.name)}
@@ -3511,7 +3617,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '')}>
       {(m.thinking || m.thinking_sealed) &&
         <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
-          sealed={m.thinking_sealed} /></div>}
+          sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
       {(m.tools ?? []).map((t, i) => (typeof t === 'string'
@@ -3540,9 +3646,9 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   )
 })
 
-function ThoughtLine({ text, secs, sealed }:
-{ text?: string; secs?: number; sealed?: boolean }) {
-  const [open, setOpen] = useState(false)
+function ThoughtLine({ text, secs, sealed, foldKey }:
+{ text?: string; secs?: number; sealed?: boolean; foldKey?: string }) {
+  const [open, toggleOpen] = useFold(foldKey)
   const dur = secs ? `${secs}s` : 'a moment'
   if (sealed || !text) {
     return (
@@ -3556,7 +3662,7 @@ function ThoughtLine({ text, secs, sealed }:
   }
   return (
     <div className="thoughtwrap">
-      <button className="thoughtline" onClick={() => setOpen((o) => !o)}
+      <button className="thoughtline" onClick={toggleOpen}
         title={open ? 'collapse' : 'read the thought process'}>
         <PsychologyIcon fontSize="inherit" />
         {' '}thought for {dur} {open ? '▾' : '▸'}
@@ -3569,7 +3675,7 @@ function ThoughtLine({ text, secs, sealed }:
 // №5: the compaction boundary carries its summary behind a click — never a
 // 20 KB bubble in the user's voice
 function SysLine({ m }: { m: ChatMessage }) {
-  const [open, setOpen] = useState(false)
+  const [open, toggleOpen] = useFold(sysFoldKey(m))
   // slash-command output (/context…): the output IS the point — an always-
   // visible markdown block, fixed from the flash-then-vanish live-only bug
   if (m.cmd_out) {
@@ -3581,7 +3687,7 @@ function SysLine({ m }: { m: ChatMessage }) {
   }
   return (
     <div className={'msg sys' + (m.summary ? ' click' : '')}
-      onClick={m.summary ? () => setOpen((o) => !o) : undefined}
+      onClick={m.summary ? toggleOpen : undefined}
       title={m.summary ? (open ? 'collapse' : 'read the compaction summary') : undefined}>
       {m.text}{m.summary && !open ? ' · summary ▶' : ''}
       {open && m.summary && <CopyablePre><pre className="filepre">{m.summary}</pre></CopyablePre>}

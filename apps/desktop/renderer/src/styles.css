@@ -6535,6 +6535,18 @@ html.mobile .popout-button { display: none; }
 .ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
 .ctxmenu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+/* THE EVENT THE MENU IS ABOUT (user spec 2026-09-12). A right-click aims at
+   one event, and the menu that follows says nothing about which one — with a
+   transcript still moving underneath, "Reply" and "Copy contents" were an act
+   of faith. This marks the exact event for as long as its menu is up, and the
+   desk clears it when the menu closes. A tint and an edge only: no layout
+   property, because this lands on transcript rows whose height is already
+   being measured by the sticky-bottom scroller. */
+.ctx-target {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 5px;
+}
 /* the card's "Hire a subordinate…" entry reveals the existing bottom hire
    chips the way a hover at the bottom edge does (cards.tsx: hireReveal) —
    the tier choice and its gating stay in SpawnChips */
