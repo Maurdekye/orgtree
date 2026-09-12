@@ -333,6 +333,27 @@ function patch(k: string, p: Partial<Convo>): void {
   patchEntry(entry(k), p)
 }
 
+/** The reader LEFT HISTORY — back at the live tail (re-stuck scroll, the
+ *  jump-to-bottom button) or the last view unmounting. The expanded window
+ *  belongs to the history visit that asked for it: without this, one deep
+ *  scroll left every later 2.5 s poll re-projecting and re-shipping
+ *  thousands of rows for as long as the entry lived (perf-redesign
+ *  2026-09-12, REPORT.md #10; perf-review round 2 pinned the mounted case).
+ *  The next fetch returns to the small tail; scrolling up again pages the
+ *  history back in exactly like a cold visit. */
+export function collapseWindow(slug: string, nid: string): void {
+  const e = M.get(key(slug, nid))
+  if (!e || e.s.loadingOlder || e.pageInFlight) return
+  if (e.s.win <= CHAT_WINDOW && !e.s.paged) return
+  patchEntry(e, {
+    win: CHAT_WINDOW, paged: false,
+    ...(e.s.chat ? { chat: { ...e.s.chat,
+      messages: e.s.chat.messages.slice(-CHAT_WINDOW), before: undefined } } : {}),
+  })
+  e.dirty = true
+  void refreshConvo(slug, nid, { force: true })
+}
+
 // ------------------------------------------------------------------ the hook
 export function useConvo(slug: string, nid: string): Convo {
   const k = key(slug, nid)
