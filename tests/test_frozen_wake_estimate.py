@@ -35,6 +35,7 @@ import tempfile
 import time
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _root = tempfile.TemporaryDirectory(prefix='v2-wake-estimate-')
@@ -342,10 +343,11 @@ class WakeEstimateTests(unittest.TestCase):
         self.assertAlmostEqual(_write_then_render(node)['until_ts'], mine,
                                delta=1.0)
         self.assertEqual(node['frozen']['reset_src'], 'account-mark')
-        # …and the scheduler reads that same recorded promise, not the mark
-        eff = supervisor.effective_freeze_deadline(node['frozen'], None,
-                                                   time.time())
-        self.assertAlmostEqual(eff['ts'], mine, delta=1.0)
+        # …and the scheduler reads that same promise off the RECORD. (Not off
+        # `node['frozen']`: the render rewrites the payload's own until_ts and
+        # reset_src to what it displayed, which is fine for a payload copy but
+        # no longer matches the promise's `of_*` binding.)
+        self.assertAlmostEqual(node['frozen']['wake']['ts'], mine, delta=1.0)
 
     # ------------------------------------------------------------------ §7
     # NON-FABLE (the pooled tiers) take exactly the same route. The bug was
@@ -778,7 +780,7 @@ class SharedFallbackRanksTests(unittest.TestCase):
                 # be moved onto the account's mark.
                 eff = supervisor.effective_freeze_deadline(
                     dict(fz, at='x', until_ts=now - 1, reset_src='inherited'),
-                    mark, now)
+                    mark, now, include_sources=True)
                 self.assertEqual(eff['src'] == 'account-mark', governed)
 
 
@@ -920,14 +922,20 @@ class CommittedWakeTests(unittest.TestCase):
         and promised the roster's +2h instead. The wake the user had already
         been shown was quietly postponed by two hours.
 
-        The record's own horizon now answers whether or not it has elapsed, so
-        the pre-tick read and the first tick agree by construction."""
+        Round 10 closed it from the other end as well: a record is PROMISED
+        before anything can read it, and a reader answers from that promise
+        rather than re-deriving. So the +10s is on the record from the write,
+        the badge shows it, and the tick after it elapses keeps it."""
         from orgtree import supervisor
         now = time.time()
         org, _ = self._fixture(until_ts=now + 10, reset_src='inherited')
         org.node('root').pop('account', None)
         org.node('root')['frozen'].pop('account', None)
         roster = {'fable': marked(now + 7200)}
+        with patch.object(accounts, 'resolve', return_value=marked(now + 7200)):
+            supervisor.commit_node_wake(org.node('root'), now)   # the write
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 10, delta=2.0)
         self.assertAlmostEqual(self._shown(org, roster)['until_ts'],
                                now + 10, delta=2.0)
         supervisor.commit_wake_deadlines(org, now + 31)
@@ -1087,8 +1095,13 @@ class OneShotGateBypassTests(unittest.TestCase):
         for src in ('probe', 'inherited', 'account-mark', 'usage:session'):
             with self.subTest(src=src):
                 n = {'account': 'acct-1', 'model': 'fable'}
-                self.assertTrue(supervisor._issue_admit_once(
-                    n, self._fz(until_ts=now - 60, reset_src=src), now))
+                fz = self._fz(until_ts=now - 60, reset_src=src)
+                # every real record carries one by the time it can be woken:
+                # the pre-save hook promises a freeze before anything reads it
+                fz['wake'] = {'ts': now - 60, 'src': src, 'schedule_kind': '',
+                              'provenance': '', 'of_ts': now - 60,
+                              'of_src': src}
+                self.assertTrue(supervisor._issue_admit_once(n, fz, now))
                 self.assertEqual(n['admit_once']['account'], 'acct-1')
 
     def test_nothing_else_earns_it(self):

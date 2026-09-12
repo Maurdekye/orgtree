@@ -5451,7 +5451,8 @@ def commit_node_wake(n: NodeDoc, now: float | None = None) -> bool:
                   if tier in accounts.TIERS else None)
     except Exception:                       # noqa: BLE001 — unreadable roster
         roster = None
-    eff = effective_freeze_deadline(fz, mark, now, roster)
+    eff = effective_freeze_deadline(fz, mark, now, roster,
+                                    include_sources=True)
     if eff is None:
         return False            # nothing names a time; nothing to promise yet
     fz["wake"] = {"ts": float(eff["ts"]), "src": eff["src"],
@@ -5501,6 +5502,7 @@ def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
 def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
                               now: float | None = None,
                               roster: Mapping[str, Any] | None = None,
+                              *, include_sources: bool = False,
                               ) -> dict[str, Any] | None:
     """THE deadline a usage-limit freeze has — the one the badge shows AND the
     one the wake timer uses. There is only ever one number (USER RULING
@@ -5571,13 +5573,16 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
          chosen it IS the deadline, elapsed or not, and NOTHING below moves it
          in either direction (user ruling: honour the time already shown).
          The ranks below are how a promise is CHOSEN, not how it is revised.
-      2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints. The
-         fallback the precedence allows when the 429 said nothing. LIVE only:
-         a mark is evidence about now, and an elapsed one belongs to a window
-         that has closed, possibly long before this freeze existed.
-      3. ANY OTHER HORIZON the record carries, LIVE OR ELAPSED: an inherited
+      2. ANY OTHER HORIZON THE RECORD CARRIES, LIVE OR ELAPSED: an inherited
          one, the blind probe floor. Weak, but it is a statement about THIS
-         freeze, a wake is coming, and neither surface may deny it.
+         freeze that both surfaces can already SEE, so nothing below may move
+         it (round 10).
+      3. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints, and
+         the answer to the bug this item opened with: a seat frozen with
+         nothing usable on its record while the registry knew the wall. It
+         fills a SILENCE, never overrules a statement. LIVE only: a mark is
+         evidence about now, and an elapsed one belongs to a window that has
+         closed, possibly long before this freeze existed.
       4. THE ROSTER — `accounts.resolve` for the tier, when it reports the
          pool unavailable. ⚠ SHARED, not display-only (round 4): while this
          rank lived in `api._rederive_freeze_reset` alone, a node with no time
@@ -5609,7 +5614,32 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
         # usage wall: its own deadline or nothing. The marks and the roster
         # describe capacity, and capacity is not what this node is waiting on.
         return _own() if in_range else None
-    # ── THE FALLBACKS, in their own order, read from LIVE state.
+    promised = _committed_wake(fz)
+    if promised:
+        # ⚠ HONOUR THE WAKE TIME ALREADY SHOWN (USER RULING 2026-09-12, via
+        # the coordinator): "honor the wake time already shown. At that time
+        # allow one real provider attempt; if it is still limited, re-freeze
+        # and then adopt/show the later reset estimate." Once chosen it IS the
+        # deadline, elapsed or not, until something rewrites the record.
+        return promised
+    # ── THE SOURCES A PROMISE IS CHOSEN FROM. ⚠ ONLY THE WRITER LOOKS BELOW
+    # (review round 10). A reader answers from rank 1 and the promise and then
+    # stops, because everything past this point is a deadline nothing has
+    # committed to yet — and review's last case was exactly that: a record
+    # persisted before promises existed, carrying `probe +5m`, was DISPLAYED
+    # as +5m, and the first commit then applied the mandatory precedence and
+    # wrote the account's +2h over it. A time published, then moved.
+    #
+    # Inverting the precedence to protect it would have been the wrong fix.
+    # "The specific 429 first; authoritative usage data only when that response
+    # is inconclusive" is the user's own ordering, and a probe floor is not the
+    # 429's contents — so the mark keeps its place, and the badge instead says
+    # the reset is unknown until a promise exists. Which is true: nothing has
+    # decided yet. Every record written since the pre-save hook is promised
+    # before any reader can see it; only one that predates it has that gap, and
+    # only until the next tick.
+    if not include_sources:
+        return None
     fallback: dict[str, Any] | None = None
     if mark:
         try:
@@ -5624,12 +5654,11 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
                         "provenance": prov}
     if fallback is None and in_range:
         # ⚠ LIVE *OR* ELAPSED (review round 6, case A). Live-only left a hole
-        # exactly one deadline wide: a freeze carrying `inherited +10s` showed
-        # +10s, and the first tick after it elapsed found nothing at this rank
-        # and promised the ROSTER'S +2h instead — postponing a wake that had
-        # already been published. A record's own horizon is a statement about
-        # this freeze; when its moment passes the node is due, and a pool-wide
-        # horizon is not entitled to overrule that.
+        # exactly one deadline wide: a freeze carrying `inherited +10s` was
+        # promised +10s, and once that elapsed this rank went silent and the
+        # ROSTER'S +2h was chosen instead — postponing a wake already
+        # published. A record's own horizon is a statement about THIS freeze;
+        # when its moment passes the node is due.
         fallback = _own()
     if fallback is None and roster and not roster.get("available"):
         try:
@@ -5644,32 +5673,6 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
             # kind onto a number the record does not own.
             fallback = {"ts": r_ts, "src": "roster", "schedule_kind": "",
                         "provenance": ""}
-    promised = _committed_wake(fz)
-    if promised:
-        # ⚠ HONOUR THE WAKE TIME ALREADY SHOWN (USER RULING 2026-09-12, via
-        # the coordinator): "honor the wake time already shown. At that time
-        # allow one real provider attempt; if it is still limited, re-freeze
-        # and then adopt/show the later reset estimate."
-        #
-        # So once chosen, the promise IS the deadline — live or elapsed —
-        # until something rewrites the record. Nothing here may move it, in
-        # EITHER direction, and both of round 7's reproductions were attempts
-        # to move it:
-        #
-        #   · an interim version let a nearer fallback pull it in, which meant
-        #     an unreadable registry (a transient OSError) or a pruned mark
-        #     silently demoted a committed observed +30m to the record's own
-        #     probe +5m and woke the node early — a weaker guess replacing a
-        #     stronger answer on the strength of an IO failure;
-        #   · and the same rule published a fresh, nearer mark of +10s on the
-        #     badge that expired before the next tick could record it, so the
-        #     following tick restored +2h and the +10s wake never came.
-        #
-        # The adaptation that rule was protecting is not lost, it is just
-        # deferred to where the user put it: the node wakes at the time it was
-        # shown, gets its one real attempt, and a wall still standing
-        # re-freezes it with the newer timing — which IS then displayed.
-        return promised
     return fallback
 
 
@@ -14597,8 +14600,17 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # wire: that is where this turn's user row becomes durable, and it is
         # the only point early enough (THE ORDERING BARRIER, above).
         halt.check(slug, nid)
-        tid = turn.start(text, _codex_image_inputs(images or []),
-                         on_thread=_open_journal)
+        try:
+            tid = turn.start(text, _codex_image_inputs(images or []),
+                             on_thread=_open_journal)
+        finally:
+            # ⚠ IN THE `finally`, BECAUSE START IS THE SEND (review round 10).
+            # `turn/start` goes on the wire inside this call, and the provider
+            # can reject it immediately — which raises from here and left the
+            # one-shot pass unspent when it was consumed further down, beside
+            # `turn.wait`. An immediate rejection IS the provider answering,
+            # so it is the attempt the pass was owed.
+            _note_provider_attempt(slug, nid)
         # FR-17: the desk's "is this checklist from the turn that's actually
         # running" question wants the real id, not a timestamp guess — best
         # effort, in-memory (st resets on restart, same as every other
@@ -14884,9 +14896,6 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             target=_steer_pump, daemon=True,
             name=f"codexsteer-{slug}-{nid}")
         steer_thread.start()
-        # the request is with the provider: this IS the attempt the one-shot
-        # pass was owed, whatever the answer turns out to be (round 9).
-        _note_provider_attempt(slug, nid)
         res_raw = turn.wait(timeout=TURN_TIMEOUT,
                             close_client=wp_turn is None)
     finally:
@@ -15896,7 +15905,10 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         halt.check(slug, nid)
         with _state_lock:
             st["antigravity_turn"] = turn
-        cid = turn.start(text + _antigravity_image_note(images or []))
+        try:
+            cid = turn.start(text + _antigravity_image_note(images or []))
+        finally:
+            _note_provider_attempt(slug, nid)    # the send — same as codex
         # the prompt is on the wire: the agent holds this turn's input, so
         # the journaled batch is delivered (the codex C1 proof transposed)
         _confirm_delivered(slug, nid, toks)
@@ -15971,7 +15983,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         steer_thread = threading.Thread(target=_steer_pump, daemon=True,
                                         name=f"agysteer-{slug}-{nid}")
         steer_thread.start()
-        _note_provider_attempt(slug, nid)    # same rule as the codex leg
         res_raw = turn.wait(timeout=TURN_TIMEOUT)
     finally:
         # NESTED, and the sweep is the inner `finally`: every statement below
