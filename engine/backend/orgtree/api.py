@@ -3907,7 +3907,7 @@ def _providers_payload(force: bool = False,
     live = accounts.live_identity()
     claude_force = force and (force_provider is None or force_provider == "claude")
     inst = supervisor.claude_install_state(force=claude_force)
-    return providers.providers_payload({
+    payload = providers.providers_payload({
         "installed": bool(inst["installed"]),
         "path": inst["path"],
         "source": inst["source"],
@@ -3915,6 +3915,12 @@ def _providers_payload(force: bool = False,
         "connected": bool(inst["installed"] and live.get("uuid")),
         "email": live.get("email") or None,
     }, force=force, force_provider=force_provider)
+    # The two machine-wide per-provider lane choices (user redesign
+    # 2026-09-12) ride the same document every settings read AND preference
+    # write returns, so the panel and a toggle response cannot disagree.
+    payload["apikey_fallback"] = appsettings.apikey_fallback_choices()
+    payload["subscription_inference"] = appsettings.subscription_inference_choices()
+    return payload
 
 
 _TIER_DISCOVERY_FIELDS = (
@@ -4070,6 +4076,43 @@ async def provider_preference(
     try:
         await run_in_threadpool(
             appsettings.set_provider_enabled, provider_id, body.enabled)
+    except (appsettings.AppSettingsUnreadable, OSError) as e:
+        raise HTTPException(500, str(e)) from e
+    return await run_in_threadpool(_providers_payload)
+
+
+@app.put("/api/providers/{provider_id}/apikey-fallback")
+async def provider_apikey_fallback(provider_id: str,
+                                   body: ProviderPreference) -> dict[str, Any]:
+    """The machine-wide API-key fallback consent for one provider (user
+    decision 2026-09-12: machine-level, per provider — orgs inherit it).
+    Default OFF; an explicit true lets routing spend ENABLED key accounts
+    once every applicable subscription limit is exhausted."""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        await run_in_threadpool(
+            appsettings.set_apikey_fallback_enabled, provider_id, body.enabled)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except (appsettings.AppSettingsUnreadable, OSError) as e:
+        raise HTTPException(500, str(e)) from e
+    return await run_in_threadpool(_providers_payload)
+
+
+@app.put("/api/providers/{provider_id}/subscription-inference")
+async def provider_subscription_inference(provider_id: str,
+                                          body: ProviderPreference) -> dict[str, Any]:
+    """The machine-wide subscription-inference switch for one provider (user
+    decision 2026-09-12): when disabled, that provider's signed-in
+    subscription accounts serve nothing; its enabled API-key accounts remain
+    usable — deliberate API-key-only operation."""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        await run_in_threadpool(
+            appsettings.set_subscription_inference_enabled,
+            provider_id, body.enabled)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
     return await run_in_threadpool(_providers_payload)
@@ -4358,9 +4401,11 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
 
 class AccountCreate(Body):
     provider: str
-    kind: str                     # imported | managed
+    kind: str                     # imported | managed | apikey
     path: str | None = None      # imported: the existing profile directory
     label: str | None = None
+    key: str | None = None       # apikey: the pasted key (write-only, never
+                                 # echoed, stored per apikey_accounts rules)
 
 
 @app.post("/api/accounts")
@@ -4368,7 +4413,30 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
     """Register an account (design D4): IMPORTED points at an existing
     profile directory; MANAGED mints a fresh one under the engine data root.
     No credential passes through here — sign-in happens through the
-    harness's own flow (providerlogin) against the row's directory."""
+    harness's own flow (providerlogin) against the row's directory. The one
+    exception is APIKEY (user redesign 2026-09-12): a pasted key IS the
+    credential, taken write-only here — same door the org key and the
+    OpenRouter key always used — and handed straight to apikey_accounts,
+    which stores it under the token-store/key-home rules and never lets it
+    into the registry document."""
+    if body.kind == "apikey":
+        from . import apikey_accounts
+        try:
+            row, created = apikey_accounts.register(
+                body.provider, str(body.key or ""),
+                label=str(body.label or ""))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        name = registry.account_name(row)
+        # state-audit SH-2, same as the profile path below: a new account can
+        # serve nodes parked on a missing:<provider> binding — announce, and
+        # never auto-bind.
+        try:
+            supervisor.announce_missing_rebind_candidates(body.provider, name)
+        except Exception:                                    # noqa: BLE001
+            pass
+        return {**row, "created": created, "name": name, "label": name,
+                "standing": registry.standing_of(row)}
     if body.kind == "imported":
         path = str(body.path or "")
         if not path or not os.path.isdir(path):
@@ -4383,9 +4451,9 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
         os.makedirs(base, exist_ok=True)
         path = create_profile(base, body.provider)
     else:
-        raise HTTPException(422, "kind must be imported|managed — token "
-                                 "rows are compatibility only and are never "
-                                 "minted by setup (Q1 ruling)")
+        raise HTTPException(422, "kind must be imported|managed|apikey — "
+                                 "token rows are compatibility only and are "
+                                 "never minted by setup (Q1 ruling)")
     credential = {"kind": body.kind, "path": path}
     if body.kind == "imported" and body.provider == "claude":
         from .registry_migration import _claude_default_config
@@ -4496,16 +4564,46 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
 async def accounts_remove(account_id: str) -> dict[str, Any]:
     """Remove a registry row. REFUSED while any node is bound to it (design
     D5): explicit reassignment first — a removal that silently unbinds
-    agents would be the automatic movement the rules forbid."""
+    agents would be the automatic movement the rules forbid. An apikey row's
+    secret material goes with it (token-store entry / minted key home): an
+    API key is re-pastable from the provider console, so disposal is safe
+    where a setup-token's never was."""
     bound = _account_bindings().get(account_id, [])
     if bound:
         names = ", ".join(f"{b['org']}/{b['node']}" for b in bound[:8])
         raise HTTPException(
             422, f"account {account_id} has {len(bound)} bound agent(s) "
                  f"({names}) — reassign them explicitly first")
+    try:
+        row = registry.get_account(account_id)
+    except registry.UnknownAccount:
+        raise HTTPException(404, f"no account {account_id!r}")
     if not registry.remove_account(account_id):
         raise HTTPException(404, f"no account {account_id!r}")
+    from . import apikey_accounts
+    apikey_accounts.forget_credentials(row)
     return {"removed": account_id}
+
+
+class AccountEnabled(Body):
+    enabled: bool
+
+
+@app.post("/api/accounts/{account_id}/enabled")
+async def accounts_enabled(account_id: str,
+                           body: AccountEnabled) -> dict[str, Any]:
+    """Flip an API-key account's routing eligibility (user redesign
+    2026-09-12). Subscription rows are refused — they have no enable
+    concept; disabled key rows are skipped by fallback routing while
+    explicit operator binding stays allowed."""
+    try:
+        registry.set_enabled(account_id, body.enabled)
+    except registry.UnknownAccount:
+        raise HTTPException(404, f"no account {account_id!r}")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    row = registry.get_account(account_id)
+    return {"account": row["id"], "enabled": registry.is_enabled(row)}
 
 
 class AccountAssign(Body):

@@ -32,6 +32,14 @@ FILE_NAME: Final = "app-settings.json"
 #: switch as the CLI providers; its key lives in openrouter.py's own state
 #: file, never here
 PROVIDERS: Final = frozenset({"claude", "openai", "google", "openrouter"})
+#: the metered API-key lanes (user redesign 2026-09-12): the providers whose
+#: accounts can be pasted API keys. Google is absent on purpose — no API-key
+#: login exists for it (measured 1.1.24).
+APIKEY_PROVIDERS: Final = frozenset({"claude", "openai"})
+#: the subscription-inference switch covers every CLI provider with a
+#: subscription login to disable; openrouter is a bearer-key lane and has
+#: no subscription half.
+SUBSCRIPTION_PROVIDERS: Final = frozenset({"claude", "openai", "google"})
 _LOCK = threading.RLock()
 
 
@@ -45,7 +53,8 @@ def path() -> str:
 
 
 def _blank() -> dict[str, Any]:
-    return {"version": VERSION, "providers": {}, "runtime": {}}
+    return {"version": VERSION, "providers": {}, "runtime": {},
+            "apikey_fallback": {}, "subscription_inference": {}}
 
 
 def load(*, strict: bool = False) -> dict[str, Any]:
@@ -78,6 +87,9 @@ def load(*, strict: bool = False) -> dict[str, Any]:
         doc["providers"] = raw if isinstance(raw, dict) else {}
         runtime = doc.get("runtime")
         doc["runtime"] = runtime if isinstance(runtime, dict) else {}
+        for field in ("apikey_fallback", "subscription_inference"):
+            section = doc.get(field)
+            doc[field] = section if isinstance(section, dict) else {}
         return doc
 
 
@@ -92,6 +104,71 @@ def provider_choices() -> dict[str, bool]:
     raw = load().get("providers")
     prefs = raw if isinstance(raw, dict) else {}
     return {provider: prefs.get(provider) is not False for provider in PROVIDERS}
+
+
+def apikey_fallback_enabled(provider: str) -> bool:
+    """The machine-wide API-key fallback consent for one provider — may
+    routing spend this provider's ENABLED key accounts once every applicable
+    subscription limit is exhausted? DEFAULT OFF (ticket requirement): only
+    an explicit saved true routes anything to a metered key, so an install
+    upgrade can never start billing a key on the absence of a record."""
+    raw = load().get("apikey_fallback")
+    return isinstance(raw, dict) and raw.get(provider) is True
+
+
+def apikey_fallback_choices() -> dict[str, bool]:
+    """Every API-key-capable provider's fallback consent, defaults applied."""
+    raw = load().get("apikey_fallback")
+    prefs = raw if isinstance(raw, dict) else {}
+    return {p: prefs.get(p) is True for p in sorted(APIKEY_PROVIDERS)}
+
+
+def subscription_inference_enabled(provider: str) -> bool:
+    """Whether this provider's signed-in subscription accounts may serve
+    turns at all. Only an explicit false disables — missing keeps every
+    existing install routing subscriptions exactly as before."""
+    raw = load().get("subscription_inference")
+    return not (isinstance(raw, dict) and raw.get(provider) is False)
+
+
+def subscription_inference_choices() -> dict[str, bool]:
+    """Every subscription provider's inference choice, defaults applied."""
+    raw = load().get("subscription_inference")
+    prefs = raw if isinstance(raw, dict) else {}
+    return {p: prefs.get(p) is not False
+            for p in sorted(SUBSCRIPTION_PROVIDERS)}
+
+
+def set_apikey_fallback_enabled(provider: str, enabled: bool) -> None:
+    """Persist one provider's machine-wide API-key fallback consent."""
+    if provider not in APIKEY_PROVIDERS:
+        raise ValueError(
+            f"{provider!r} has no API-key account lane — the fallback "
+            f"switch exists for {', '.join(sorted(APIKEY_PROVIDERS))}")
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("apikey_fallback")
+        prefs: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        prefs[provider] = bool(enabled)
+        doc["apikey_fallback"] = prefs
+        doc["version"] = VERSION
+        _save(doc)
+
+
+def set_subscription_inference_enabled(provider: str, enabled: bool) -> None:
+    """Persist one provider's machine-wide subscription-inference choice."""
+    if provider not in SUBSCRIPTION_PROVIDERS:
+        raise ValueError(
+            f"{provider!r} has no subscription lane to disable — the switch "
+            f"exists for {', '.join(sorted(SUBSCRIPTION_PROVIDERS))}")
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("subscription_inference")
+        prefs: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        prefs[provider] = bool(enabled)
+        doc["subscription_inference"] = prefs
+        doc["version"] = VERSION
+        _save(doc)
 
 
 def working_checkups_enabled() -> bool:
