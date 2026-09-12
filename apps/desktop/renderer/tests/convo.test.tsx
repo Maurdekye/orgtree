@@ -928,9 +928,8 @@ convoTest('§5.1b resetConvos releases a delayed history page for a remount',
 
     await d.unmount()
     await inAct(() => { resetConvos() })
-    // Simulate the old request being abandoned by a reconnect. It never
-    // settles, so only resetConvos can release its page latch.
-    transport.held.length = 0
+    // Keep the old response held while the remounted view starts a new page;
+    // its eventual callback must not clear the new request's latch.
     transport.holdAll = false
     const remounted = await desk()
     await advance(3000)
@@ -938,8 +937,17 @@ convoTest('§5.1b resetConvos releases a delayed history page for a remount',
     assert.equal(remounted.now().loadingOlder, false,
       'an abandoned old page did not mark the fresh tail as loading')
 
+    transport.holdAll = true
     await inAct(() => { assert.equal(loadOlder(SL, ND, 8), true,
       'the reset did not leave history paging wedged') })
+    await flush(10)
+    assert.equal(remounted.now().loadingOlder, true, 'new history page is in flight')
+    transport.release(1) // resolve the stale page first
+    await flush(10)
+    assert.equal(remounted.now().loadingOlder, true,
+      'stale page cleanup did not clear the new page latch')
+    transport.holdAll = false
+    transport.release() // resolve the current page
     await flush(10)
     assert.equal(remounted.now().loadingOlder, false, 'the new page settled')
     assert.equal(remounted.now().chat?.messages.some((row) => row.text === 'history 0'), true,

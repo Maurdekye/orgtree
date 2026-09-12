@@ -176,6 +176,9 @@ interface Entry {
   assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
   pageInFlight?: boolean
+  /** identity of the current older-page request; stale callbacks may not
+   * clear a newer request's latch after a reset/remount. */
+  pageSerial: number
   /** the reader left history while a page/grow request was in flight — the
    * intent survives the flight and runs at its settle points, and the
    * settling older-page response is DISCARDED rather than allowed to
@@ -339,7 +342,7 @@ function entry(k: string): Entry {
           textSeen: 0, epochBoot: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
           poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
-          installed: 0, dirty: false }
+          installed: 0, dirty: false, pageSerial: 0 }
     M.set(k, e)
   }
   return e
@@ -810,9 +813,11 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   if (before && !viewport) {
     const version = e.ownerVersion
     const conversation = e.s.chat?.conversation_id
+    const pageSerial = ++e.pageSerial
     e.pageInFlight = true
     patchEntry(e, { loadingOlder: true, olderError: false })
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
+      const currentPage = e.pageSerial === pageSerial
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) {
         // ⚠ A STALE OR CANCELLED RESPONSE STILL HAS TO END THE FLIGHT.
         // This branch used to `return` with `pageInFlight` still true, and
@@ -827,17 +832,18 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         // ⚠ AND `loadingOlder` IS HALF OF THAT GATE. Clearing only
         // `pageInFlight` left the other half set, so paging stayed refused and
         // the desk still read "loading earlier messages…" forever — the same
-        // wedge, one field along (desk-review, second pass). Patched WITHOUT a
-        // version guard on purpose: this branch is reached precisely because
-        // the version moved on, and the stuck flag belongs to the entry, not
-        // to the request that set it.
+        // wedge, one field along (desk-review, second pass). The pageSerial
+        // guard below keeps cleanup tied to the request that owns the latch:
+        // a stale callback may clean up its own abandoned flight, but never a
+        // newer page started after reset/remount.
+        if (!currentPage) return
         e.pageInFlight = false
         e.pendingCollapse = false
         e.pendingKeep = undefined
         patchEntry(e, { loadingOlder: false })
         return
       }
-      e.pageInFlight = false
+      if (currentPage) e.pageInFlight = false
       if (!e.subs.size || conversation !== e.s.chat.conversation_id) { e.pendingCollapse = false; e.pendingKeep = undefined; patchEntry(e, { loadingOlder: false }, version); return }
       if (e.pendingCollapse) {
         // the reader left history while this page was in flight: DISCARD
@@ -882,12 +888,14 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
           before: page.before, has_older: page.has_older }) }, version)
     }).catch(() => {
-      e.pageInFlight = false
+      const currentPage = e.pageSerial === pageSerial
+      if (currentPage) e.pageInFlight = false
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) {
         // the same wedge as the success path's stale branch: `loadingOlder` is
         // the OTHER half of the request guard, and a surviving entry — the one
         // a rename just re-versioned and moved — keeps it stuck true, refusing
         // every later page and sitting on "loading earlier messages…"
+        if (!currentPage) return
         e.pendingCollapse = false
         e.pendingKeep = undefined
         patchEntry(e, { loadingOlder: false })
@@ -1245,6 +1253,7 @@ export function resetConvos(): void {
     // the new one or leave its history-flight latch set forever.
     e.ownerVersion++
     e.requestSerial++
+    e.pageSerial++
     e.pageInFlight = false
     e.pendingCollapse = false
     e.pendingKeep = undefined
