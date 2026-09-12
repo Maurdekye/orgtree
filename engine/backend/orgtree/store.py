@@ -2933,6 +2933,145 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
 
+# ------------------------------------------------- bounded log tail readers
+# (perf-redesign 2026-09-12, REPORT.md #4/#5/#6.) Three polled endpoints used
+# to MATERIALIZE entire unbounded logs per request — the whole 19k-row events
+# section (357 ms measured), every owner's mail archive (9.9 MB), the full
+# notice log — to serve a bounded slice. These readers answer the same
+# questions straight from the row tables, in the read_user_inbox mold: a
+# short read transaction, no Org, no lazy materialization. Every one of them
+# returns None when the cheap path does not apply (JSON backend, or a legacy
+# section stored as a doc blob) and the CALLER falls back to the load path —
+# behavior first, speed second.
+
+
+def _bounded_read(slug: str, body: Callable[[sqlite3.Connection], Any]) -> Any:
+    """One short read transaction against the org's database, or None when
+    this root is not on the SQLite backend (caller falls back to load_org)."""
+    if STORE_BACKEND != "sqlite":
+        return None
+    slug = _safe_slug(slug)
+    _ensure_migrated(slug)
+    if not os.path.exists(_db_path(slug)):
+        raise LedgerError(f"no such org: {slug!r}")
+    with _POOL.acquire(slug) as conn:
+        conn.execute("BEGIN")
+        try:
+            if _meta_get(conn, "schema_version") is None:
+                raise LedgerError(
+                    f"{_db_path(slug)!r} is not an intact orgtree database "
+                    "(no schema_version row)")
+            return body(conn)
+        finally:
+            with contextlib.suppress(Exception):
+                conn.execute("COMMIT")
+
+
+def node_row_exists(slug: str, nid: str) -> bool | None:
+    """Does this node id (lineage ids included — they are real rows) exist?
+    None = no cheap answer on this backend; caller loads instead."""
+    def body(conn: sqlite3.Connection) -> bool | None:
+        if conn.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
+            # `nodes` stored as a blob empties the row table (see _write_doc)
+            # — the rows cannot answer; let the caller load instead
+            return None
+        return bool(conn.execute("SELECT 1 FROM nodes WHERE id=?",
+                                 (nid,)).fetchone())
+    return _bounded_read(slug, body)
+
+
+def read_events_page(slug: str, since: int = 0, last: int | None = None
+                     ) -> tuple[int, list[Any]] | None:
+    """(total, rows) for the events endpoint: `events[since:]`, or the newest
+    `last` rows when given. None = fall back to materializing (JSON backend
+    or an `events` doc blob)."""
+    def body(conn: sqlite3.Connection) -> tuple[int, list[Any]] | None:
+        if conn.execute("SELECT 1 FROM doc WHERE key='events'").fetchone():
+            return None                      # legacy blob shape — let load win
+        total = cast(int, conn.execute(
+            "SELECT COUNT(*) FROM log_l WHERE sect='events'").fetchone()[0])
+        if last is not None:
+            rows = conn.execute(
+                "SELECT val FROM log_l WHERE sect='events' "
+                "ORDER BY seq DESC LIMIT ?", (max(0, last),)).fetchall()
+            return total, [json.loads(cast(str, r[0])) for r in reversed(rows)]
+        rows = conn.execute(
+            "SELECT val FROM log_l WHERE sect='events' "
+            "ORDER BY seq LIMIT -1 OFFSET ?", (max(0, since),)).fetchall()
+        return total, [json.loads(cast(str, r[0])) for r in rows]
+    return _bounded_read(slug, body)
+
+
+def read_node_history_rows(slug: str, nid: str, cap: int
+                           ) -> tuple[list[Any], list[Any]] | None:
+    """The newest `cap` event rows touching one node, plus its newest `cap`
+    notice rows, both oldest-first — the exact inputs /nodes/{nid}/history
+    projects. The five-field OR mirrors the handler's `touches` test; JSON1
+    runs it inside SQLite instead of parsing 19k rows in Python. Per-source
+    tails are by insertion order (seq), which is also how the merged view has
+    always effectively been ordered — both logs append at event time.
+    None = fall back (JSON backend or blob-shaped section)."""
+    def body(conn: sqlite3.Connection) -> tuple[list[Any], list[Any]] | None:
+        if conn.execute("SELECT 1 FROM doc WHERE key IN "
+                        "('events','notice_log') LIMIT 1").fetchone():
+            return None
+        ev = conn.execute(
+            "SELECT val FROM log_l WHERE sect='events' AND ("
+            "json_extract(val,'$.detail.node')=? OR "
+            "json_extract(val,'$.detail.to')=? OR "
+            "json_extract(val,'$.actor')=? OR "
+            "json_extract(val,'$.detail.grantee')=? OR "
+            "json_extract(val,'$.detail.from')=?) "
+            "ORDER BY seq DESC LIMIT ?",
+            (nid, nid, nid, nid, nid, cap)).fetchall()
+        nl = conn.execute(
+            "SELECT val FROM log_l WHERE sect='notice_log' AND "
+            "json_extract(val,'$.node')=? ORDER BY seq DESC LIMIT ?",
+            (nid, cap)).fetchall()
+        return ([json.loads(cast(str, r[0])) for r in reversed(ev)],
+                [json.loads(cast(str, r[0])) for r in reversed(nl)])
+    return _bounded_read(slug, body)
+
+
+def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
+                    ) -> tuple[list[Any], list[Any]] | None:
+    """(delivered_tail, sent_tail) for one node's inbox view, without
+    materializing any owner's archive. `delivered` is the node's OWN mail_log
+    tail (`keep + slack` rows, the slack absorbing rows the handler will drop
+    as still-pending duplicates); `sent` mirrors the newest rows FROM this
+    node out of every recipient's archive plus the user logs — each row
+    carrying its holder under `to`, exactly as the handler built it from the
+    full scan. None = fall back."""
+    def body(conn: sqlite3.Connection) -> tuple[list[Any], list[Any]] | None:
+        if conn.execute("SELECT 1 FROM doc WHERE key IN "
+                        "('mail_log','user_mail_log') LIMIT 1").fetchone():
+            return None
+        delivered = [json.loads(cast(str, r[0])) for r in reversed(conn.execute(
+            "SELECT val FROM log_d WHERE sect='mail_log' AND owner=? "
+            "ORDER BY seq DESC LIMIT ?", (nid, keep + slack)).fetchall())]
+        sent: list[Any] = []
+        for owner, raw in reversed(conn.execute(
+                "SELECT owner, val FROM log_d WHERE sect='mail_log' AND "
+                "json_extract(val,'$.from')=? ORDER BY seq DESC LIMIT ?",
+                (nid, keep + slack)).fetchall()):
+            sent.append({**json.loads(cast(str, raw)), "to": cast(str, owner)})
+        for sect in ("user_inbox",):
+            row = conn.execute("SELECT val FROM doc WHERE key=?",
+                               (sect,)).fetchone()
+            if row is not None:
+                for m in json.loads(cast(str, row[0])) or []:
+                    if isinstance(m, dict) and m.get("from") == nid:
+                        sent.append({**m, "to": "@user"})   # ledger.USER
+        for raw, in reversed(conn.execute(
+                "SELECT val FROM log_l WHERE sect='user_mail_log' AND "
+                "json_extract(val,'$.from')=? ORDER BY seq DESC LIMIT ?",
+                (nid, keep + slack)).fetchall()):
+            sent.append({**json.loads(cast(str, raw)), "to": "@user"})
+        sent.sort(key=lambda m: m.get("at") or "")
+        return delivered, sent[-(keep + slack):]
+    return _bounded_read(slug, body)
+
+
 def log_append(d: dict[str, Any], sect: str, row: Any) -> None:
     """Append one row to an append-only log section of an org document.
 

@@ -6563,38 +6563,57 @@ def crash_reports_list(request: Request, org: str | None = None,
 def node_history(slug: str, nid: str, request: Request,
                  last: int = 80) -> dict[str, Any]:
     """Message history with attribution + delivered notices + ops touching the node."""
+    cap = max(1, min(last, 1000)) if last else 1000
+    # the bounded reader answers from the row tables (JSON1 filter, seq-tail)
+    # — the whole event log used to be materialized per poll here (~400 ms
+    # with its load at 19k rows, measured; REPORT.md #5). The legacy load
+    # path below remains for the JSON backend and blob-shaped sections.
+    rows = None
     try:
-        org = store.load_org(slug)
-        org.node(nid)
+        exists = store.node_row_exists(slug, nid)
+        if exists is False:
+            raise HTTPException(404, f"no such node: {nid!r}")
+        if exists:
+            rows = store.read_node_history_rows(slug, nid, cap)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    if rows is None:
+        try:
+            org = store.load_org(slug)
+            org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        ev_rows = [ev for ev in org.d.get("events", [])
+                   if (lambda det: det.get("node") == nid or det.get("to") == nid
+                       or ev.get("actor") == nid or det.get("grantee") == nid
+                       or det.get("from") == nid)(ev.get("detail", {}))]
+        notice_rows = [n for n in org.d.get("notice_log", [])
+                       if n["node"] == nid]
+    else:
+        ev_rows, notice_rows = rows
     items: list[dict[str, Any]] = []
-    for ev in org.d.get("events", []):
+    for ev in ev_rows:
         det: dict[str, Any] = ev.get("detail", {})
-        touches = (det.get("node") == nid or det.get("to") == nid
-                   or ev.get("actor") == nid or det.get("grantee") == nid
-                   or det.get("from") == nid)
-        if touches:
-            # №10: keep warning LISTS too — the scalar filter silently dropped
-            # the §4.6 cascade warnings from the only log that had them
-            items.append({"at": ev["at"], "kind": ev["op"], "actor": ev["actor"],
-                          "detail": {k: (v if isinstance(v, (str, int, float))
-                                         else [str(x) for x in cast("list[Any]", v)])
-                                     for k, v in det.items()
-                                     if isinstance(v, (str, int, float, list))},
-                          "warnings": [str(w) for w
-                                       in cast("list[Any]", ev.get("warnings") or [])]})
+        # №10: keep warning LISTS too — the scalar filter silently dropped
+        # the §4.6 cascade warnings from the only log that had them
+        items.append({"at": ev["at"], "kind": ev["op"], "actor": ev["actor"],
+                      "detail": {k: (v if isinstance(v, (str, int, float))
+                                     else [str(x) for x in cast("list[Any]", v)])
+                                 for k, v in det.items()
+                                 if isinstance(v, (str, int, float, list))},
+                      "warnings": [str(w) for w
+                                   in cast("list[Any]", ev.get("warnings") or [])]})
     _pub = _public_slug(request) is not None
-    for n in org.d.get("notice_log", []):
-        if n["node"] == nid:
-            row = _row_out(n, public=_pub)
-            items.append({"at": n["at"], "kind": "notice", "actor": "system",
-                          "detail": {"text": n["text"]},
-                          **{k: row[k] for k in ("ev", "ev_public", "ev_raw", "ev_error")
-                             if k in row}})
+    for n in notice_rows:
+        row = _row_out(n, public=_pub)
+        items.append({"at": n["at"], "kind": "notice", "actor": "system",
+                      "detail": {"text": n["text"]},
+                      **{k: row[k] for k in ("ev", "ev_public", "ev_raw", "ev_error")
+                         if k in row}})
     items.sort(key=lambda x: x["at"])
     # clamped like /chat's `last`: `?last=0` is `items[-0:]`, i.e. the WHOLE
-    # log — the one value of `last` that means "no limit"
+    # log — the one value of `last` that means "no limit" (bounded now by the
+    # reader's own 1000-row per-source tail)
     out = items[-max(1, min(last, 1000)):]
     if _public_slug(request):
         out = _scrub_events(out)     # e.g. revoke_dir carries the host path
@@ -10289,9 +10308,17 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     """The node's OWN mailbox (user ruling: separate from the events/history
     view): mail still waiting for its next turn, plus recently delivered mail
     with full bodies (the event log keeps only a gist)."""
+    # tails first (no Org, no archive materialization): this endpoint used to
+    # preload EVERY owner's mail_log and scan the whole org archive (9.9 MB /
+    # 156 ms at the live root, growing forever) to mirror one node's Sent
+    # folder (REPORT.md #6). The org itself is still loaded — eager sections
+    # only — for the waiting box and the delivery journal.
+    tails = None
     try:
-        org = store.load_org_snapshot(
-            slug, ("mail_log", "user_mail_log"))
+        tails = store.read_mail_tails(slug, nid, keep=50)
+        org = (store.load_org_snapshot(slug, ())
+               if tails is not None
+               else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
@@ -10299,17 +10326,22 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
                      + list((org.d.get("mail") or {}).get(nid, [])),
                      key=lambda m: m.get("at") or "")
     keys = {(m["at"], m["from"], m["body"]) for m in waiting}
-    delivered = [m for m in (org.d.get("mail_log") or {}).get(nid, [])
-                 if (m["at"], m["from"], m["body"]) not in keys]
-    # the node's Sent folder, mirrored from the recipients' archives
-    sent: list[dict[str, Any]] = []
-    logs: dict[str, list[MailEntry]] = org.d.get("mail_log") or {}
-    for to, lst in logs.items():
-        sent += [{**m, "to": to} for m in lst if m["from"] == nid]
-    for m in org.d.get("user_inbox", []) + org.d.get("user_mail_log", []):
-        if m["from"] == nid:
-            sent.append({**m, "to": USER})
-    sent.sort(key=lambda m: m["at"])
+    if tails is not None:
+        delivered_src, sent = tails
+        delivered = [m for m in delivered_src
+                     if (m["at"], m["from"], m["body"]) not in keys]
+    else:
+        delivered = [m for m in (org.d.get("mail_log") or {}).get(nid, [])
+                     if (m["at"], m["from"], m["body"]) not in keys]
+        # the node's Sent folder, mirrored from the recipients' archives
+        sent = []
+        logs: dict[str, list[MailEntry]] = org.d.get("mail_log") or {}
+        for to, lst in logs.items():
+            sent += [{**m, "to": to} for m in lst if m["from"] == nid]
+        for m in org.d.get("user_inbox", []) + org.d.get("user_mail_log", []):
+            if m["from"] == nid:
+                sent.append({**m, "to": USER})
+        sent.sort(key=lambda m: m["at"])
     # ⚠ `sent` IS MIRRORED FROM THE RECIPIENTS' ARCHIVES, so each row lives in
     # the RECIPIENT's box, not this node's — a reference built from `nid` here
     # would name a mail that is not there. Each sent row carries its own `to`,
@@ -10322,15 +10354,28 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
 
 
 @app.get("/api/orgs/{slug}/events")
-def org_events(slug: str, request: Request, since: int = 0) -> dict[str, Any]:
+def org_events(slug: str, request: Request, since: int = 0,
+               last: int | None = None) -> dict[str, Any]:
+    """`since` slices forward from an index (the historical contract);
+    `last` asks for just the newest N — the record tab's shape, which used
+    to arrive by materializing and shipping the whole log (19k rows, 357 ms
+    server-side, measured; REPORT.md #4). The bounded reader serves both
+    straight from the row table; `offset` names the first returned row's
+    index so a pager can walk further back."""
     try:
-        events = store.load_org(slug).d["events"]
+        page = store.read_events_page(slug, since=since, last=last)
+        if page is None:                    # JSON backend / legacy blob shape
+            events = store.load_org(slug).d["events"]
+            total = len(events)
+            out = (list(events[max(0, total - last):]) if last is not None
+                   else list(events[since:]))
+        else:
+            total, out = page
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    out = list(events[since:])
     if _public_slug(request):
         out = _scrub_events(out)     # host paths ride event details/warnings
-    return {"total": len(events), "events": out}
+    return {"total": total, "events": out, "offset": total - len(out)}
 
 
 # ----------------------------------------------------------------------- ops
