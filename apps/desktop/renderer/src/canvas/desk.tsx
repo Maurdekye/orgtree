@@ -44,7 +44,8 @@ import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
-  addPending, bindPendingMail, failPending, CHAT_WINDOW, dismissPending, dropPending,
+  addPending, bindPendingMail, failPending, CHAT_WINDOW, collapseWindow,
+  dismissPending, dropPending,
   loadOlder as storeLoadOlder, markBusy, markGhostCommand,
   MAX_WINDOW, refreshConvo, useConvo,
 } from '../convo'
@@ -1589,7 +1590,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
-  const toBottom = () => { setStuck(true); pin() }
+  const toBottom = () => {
+    setStuck(true); pin()
+    // jumping to the tail LEAVES history — the expanded poll window goes
+    // back to the small tail with it (perf-review round 2)
+    collapseWindow(slug, node.id)
+  }
   // Only explicit canonical actors establish authorship; legacy text stays readable.
   const userTurns = useMemo(() => {
     const out: { seq: number, label: string }[] = []
@@ -2438,7 +2444,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             </button>)}
         <div className="msgs" ref={attachScroller}
           onScroll={(e) => {
+            const wasStuck = stickRef.current
             setStuck(nearBottom())
+            // scrolling BACK DOWN to the tail leaves history: the expanded
+            // window collapses so the poll returns to the small tail
+            // (perf-review round 2 — the mounted-desk case)
+            if (!wasStuck && stickRef.current) collapseWindow(slug, node.id)
             calcPin()
             // within a screen of the top: page in the previous window
             if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
