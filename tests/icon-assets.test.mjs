@@ -81,6 +81,8 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /app\.isPackaged\s*\?\s*path\.join\(process\.resourcesPath, 'runtime-icons'\)/)
   assert.match(main, /path\.join\(app\.getAppPath\(\), 'apps\/desktop\/assets'\)/)
   assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
+  assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, iconPath, identity\.appUserModelId, identity\.displayName\)/,
+    'every Windows channel must set explicit shell icon metadata')
   assert.match(main, /new Tray\(runtimeIcon\(\)\)/)
   assert.match(main, /engine\.status\.state === 'ready'/)
   assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)

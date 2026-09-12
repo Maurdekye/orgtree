@@ -87,7 +87,11 @@ else {
   // Explorer's taskbar group reads shell properties separately from WM_SETICON.
   // Use a real unpacked file and explicit relaunch identity for every window.
   app.on('browser-window-created', (_event, window) => {
-    if (process.platform === 'win32' && app.isPackaged) configureTaskbar(window, process.execPath, iconPath, identity.appUserModelId, identity.displayName)
+    // Development has a real source-tree .ico and its own AppUserModelID too;
+    // leaving it to Electron's default identity makes Windows show the generic
+    // Electron/document icon. Keep release and development shell metadata on
+    // the same path while retaining their distinct identities.
+    if (process.platform === 'win32') configureTaskbar(window, process.execPath, iconPath, identity.appUserModelId, identity.displayName)
   })
   const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
     grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
