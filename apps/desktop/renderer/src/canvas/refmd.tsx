@@ -45,8 +45,6 @@ const OUT = 'data-ref-outcome'
 const MEN = 'data-ref-mention'
 /** every rendered fact about one chip, for the cheap exit (`chipSig`) */
 const SIG = 'data-ref-sig'
-/** what the LAST pass was able to look for, on the host (`mentionScan`) */
-const SCAN = 'data-ref-scan'
 
 /** the word on an unavailable chip. Kept beside the React renderer's copy in
  *  reflinks.tsx and pinned against it by a check, because two renderings of
@@ -163,29 +161,45 @@ Map<string, MentionRef> | null {
  *  reviewing 704d946: two names, one in the index, and adding the second
  *  changed nothing on screen.)
  *
- *  So the host also records the NAME SET the last pass scanned for. It is a
- *  fingerprint rather than the index itself for a reason that matters as much
- *  as the bug: the docket rebuilds its index from a re-fetched list every
- *  poll, so a new Map with identical contents arrives every few seconds.
- *  Comparing by reference would rebuild every chip on every poll and drop the
- *  reader's text selection each time — trading a missed link for a worse
- *  fault. Contents decide; order does not, because insertion order follows
- *  the fetch. */
-function mentionScan(items: Map<string, MentionRef> | null, live: boolean): string {
-  if (!items) return ''
-  // two order-independent accumulators: a sum alone collides on a swapped
-  // pair of names, and a missed rebuild is precisely the bug being fixed
-  let sum = 0
-  let mix = 0
-  for (const name of items.keys()) {
-    let h = 0
-    for (let i = 0; i < name.length; i += 1) {
-      h = (Math.imul(h, 31) + name.charCodeAt(i)) | 0
-    }
-    sum = (sum + h) | 0
-    mix ^= Math.imul(h, 0x9e3779b1)
-  }
-  return `${items.size}.${sum >>> 0}.${mix >>> 0}.${live ? '1' : '0'}`
+ *  So each host also records the NAME SET the last pass scanned for, and the
+ *  exit requires that to match too.
+ *
+ *  ⚠ THE COMPARISON IS EXACT, NOT A FINGERPRINT, and the first attempt at
+ *  this got it wrong. A hash of the names is by construction lossy, and the
+ *  loss lands exactly where the bug does — on a set that CHANGED while
+ *  hashing the same, whereupon the exit fires and the new name never links.
+ *  It is not theoretical: `an-ticket` and `c0-ticket` are both ordinary
+ *  slugs and collide under a polynomial hash (97·31+110 = 99·31+48), so
+ *  swapping one for the other left the fingerprint identical (account-pro's
+ *  fourth probe on 075a63f). No second accumulator saves it either when both
+ *  are fed the same per-name hash. Set membership cannot collide, costs the
+ *  same O(n) walk, and allocates nothing per pass.
+ *
+ *  ⚠ AND IT IS THE CONTENTS, NOT THE MAP. The docket rebuilds its index from
+ *  a re-fetched list every poll, so a new Map with identical contents arrives
+ *  every few seconds. Comparing by reference would rebuild every chip on
+ *  every poll and drop the reader's text selection each time — trading a
+ *  missed link for a worse fault. Order does not count either, because
+ *  insertion order only follows the fetch.
+ *
+ *  Kept beside the host rather than on it: the set is unbounded in the number
+ *  of docket items, and a multi-kilobyte attribute on a rendered description
+ *  is a poor place for a cache. Absence can only cost one extra rebuild, so
+ *  the record failing to be there is always safe. */
+const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; live: boolean }>()
+
+function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
+  live: boolean): boolean {
+  const prev = SCANNED.get(host)
+  if (!prev || prev.live !== live) return false
+  if (prev.names.size !== (items ? items.size : 0)) return false
+  if (items) for (const name of items.keys()) if (!prev.names.has(name)) return false
+  return true
+}
+
+function rememberScan(host: HTMLElement, items: Map<string, MentionRef> | null,
+  live: boolean): void {
+  SCANNED.set(host, { names: new Set(items ? items.keys() : []), live })
 }
 
 /** everything one mention chip renders, for the cheap exit — the mirror of
@@ -234,7 +248,7 @@ export function unlinkifyRefs(host: HTMLElement): number {
   }
   if (chips.length) host.normalize()
   // the host no longer claims to have scanned for anything
-  host.removeAttribute(SCAN)
+  SCANNED.delete(host)
   return chips.length
 }
 
@@ -251,7 +265,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   clickable = true, mentions?: MentionWorld | null): number {
   const doc = host.ownerDocument
   const items = itemsOf(mentions)
-  const scan = mentionScan(items, !!mentions?.onPick)
+  const live = !!mentions?.onPick
   const existing = injected(host)
   if (existing.length) {
     // ⚠ THE CHEAP EXIT, AND THE ONLY ONE. Every chip still says what it would
@@ -259,15 +273,15 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     // them → touch nothing. A pass that rebuilt regardless would drop the
     // reader's selection on every poll that changed nothing; a pass that
     // trusted the chips alone would never notice a name entering the index
-    // (see `mentionScan`).
-    const same = host.getAttribute(SCAN) === scan && existing.every((el) => {
+    // (see `SCANNED`).
+    const same = sameScan(host, items, live) && existing.every((el) => {
       const name = el.getAttribute(MEN)
       if (name !== null) {
         // a bare name is judged against the index the caller holds NOW: an
         // item that has gone, or a surface that lost its handler, must stop
         // being a control rather than keep a chip nothing stands behind
         const ref = items?.get(name)
-        return !!ref && el.getAttribute(SIG) === mentionSig(ref, !!mentions?.onPick)
+        return !!ref && el.getAttribute(SIG) === mentionSig(ref, live)
       }
       const parsed = parseRef(el.getAttribute(TOK) ?? '')
       if (!parsed) return false
@@ -331,7 +345,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   // found none" is the fact the next pass needs; without it a host with no
   // chips would be indistinguishable from one never scanned, and the exit
   // above would have nothing to compare when chips do appear.
-  host.setAttribute(SCAN, scan)
+  rememberScan(host, items, live)
   return count
 }
 

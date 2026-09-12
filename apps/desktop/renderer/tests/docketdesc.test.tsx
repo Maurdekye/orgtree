@@ -429,16 +429,25 @@ test('§7b the same names arriving in a fresh index rebuild nothing', async () =
   const onPick = () => {}
   assert.equal(linkifyRefs(host, WORLD, true, { index: mk(), onPick }), 2)
   const before = [...host.querySelectorAll('.docket-ref')]
+  // ⚠ IDENTITY, ELEMENT BY ELEMENT — never `deepEqual` on DOM nodes, which
+  // can never fail (deepdom.test §1 guards the whole directory against it).
+  // Rebuilt chips would be equal in every field and still be new objects, so
+  // identity is the only comparison that says what this test means.
+  const sameNodes = () => {
+    const now = [...host.querySelectorAll('.docket-ref')]
+    return now.length === before.length && now.every((el, i) => el === before[i])
+  }
   // a DIFFERENT Map with the same contents — "nothing needed doing" is -1,
   // and the very same elements are still on screen
   assert.equal(linkifyRefs(host, WORLD, true, { index: mk(), onPick }), -1)
-  assert.deepEqual([...host.querySelectorAll('.docket-ref')], before)
+  assert.equal(sameNodes(), true, 'an identical index replaced the chips')
   // insertion order is the fetch's, not a fact about the index
   const reversed = buildMentionIndex([
     { slug: 'beta-ticket', title: 'B' } as WorkItem,
     { slug: 'alpha-ticket', title: 'A' } as WorkItem,
   ])
   assert.equal(linkifyRefs(host, WORLD, true, { index: reversed, onPick }), -1)
+  assert.equal(sameNodes(), true, 'a reordered index replaced the chips')
 })
 
 test('§7c a bare host with no index scans, records, and then notices one arriving', () => {
@@ -454,4 +463,52 @@ test('§7c a bare host with no index scans, records, and then notices one arrivi
   ])
   assert.equal(linkifyRefs(host, WORLD, true, { index: two, onPick }), 2)
   assert.equal(host.querySelectorAll('.docket-ref').length, 2)
+})
+
+test('§7d two DIFFERENT name sets are never mistaken for each other', () => {
+  // ⚠ THE SECOND account-pro FINDING, on 075a63f. The first fix compared a
+  // HASH of the name set, which is lossy by construction — and the loss lands
+  // exactly on the bug: a set that changed while hashing the same fires the
+  // exit and the new name never links. `an-ticket` and `c0-ticket` are both
+  // ordinary slugs and collide under a polynomial hash (97*31+110 ===
+  // 99*31+48), so swapping one for the other was invisible. Set membership
+  // cannot collide; this pins that it is membership being compared.
+  const host = document.createElement('div')
+  host.innerHTML = '<p>Follow alpha-ticket and c0-ticket.</p>'
+  const onPick = () => {}
+  const item = (slug: string) => ({ slug, title: slug.toUpperCase() } as WorkItem)
+  // the unmentioned third name is the one that changes; alpha's chip is
+  // identical either way, so nothing else in the exit can notice
+  const before = buildMentionIndex([item('alpha-ticket'), item('an-ticket')])
+  const after = buildMentionIndex([item('alpha-ticket'), item('c0-ticket')])
+
+  assert.equal(linkifyRefs(host, WORLD, true, { index: before, onPick }), 1)
+  assert.equal(host.querySelectorAll('.docket-ref').length, 1)
+  assert.equal(linkifyRefs(host, WORLD, true, { index: after, onPick }), 2)
+  const names = [...host.querySelectorAll('.docket-ref')].map(e => e.textContent)
+  assert.deepEqual(names, ['alpha-ticket', 'c0-ticket'],
+    'a colliding name swap left the prose undecorated')
+})
+
+test('§7e a same-size swap in either direction is seen, and identity is not', () => {
+  // the general shape of §7d: equal sizes, one name exchanged. Also pins that
+  // the record is per-HOST, so one description learning a name says nothing
+  // about another.
+  const onPick = () => {}
+  const item = (slug: string) => ({ slug, title: slug } as WorkItem)
+  const mk = (second: string) =>
+    buildMentionIndex([item('alpha-ticket'), item(second)])
+
+  const a = document.createElement('div')
+  a.innerHTML = '<p>Follow alpha-ticket and beta-ticket.</p>'
+  assert.equal(linkifyRefs(a, WORLD, true, { index: mk('gamma-ticket'), onPick }), 1)
+  assert.equal(linkifyRefs(a, WORLD, true, { index: mk('beta-ticket'), onPick }), 2)
+  // and back again — the name that left gives its word up
+  assert.equal(linkifyRefs(a, WORLD, true, { index: mk('gamma-ticket'), onPick }), 1)
+
+  const b = document.createElement('div')
+  b.innerHTML = '<p>Follow alpha-ticket and beta-ticket.</p>'
+  // a host that has never been scanned does its own full walk regardless of
+  // what any other host was told
+  assert.equal(linkifyRefs(b, WORLD, true, { index: mk('beta-ticket'), onPick }), 2)
 })
