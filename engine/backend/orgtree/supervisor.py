@@ -5404,47 +5404,80 @@ def commit_wake_deadlines(org: Org, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     changed = False
     for n in org.nodes.values():
-        fz = _resumable(n)
-        if fz is None or not freeze_waits_on_capacity(fz):
-            # a freeze nothing is waiting on, and the kinds that own their own
-            # clock, have nothing to be promised — and must not accumulate a
-            # field that would outlive the reason for it.
-            if isinstance(n.get("frozen"), dict) and "wake" in n["frozen"]:
-                del n["frozen"]["wake"]
-                changed = True
-            continue
-        tier = str(n.get("model") or "")
-        try:
-            mark = (registry.active_mark(freeze_account_of(fz, n), tier, now)
-                    if freeze_account_of(fz, n) and tier else None)
-        except Exception:                   # noqa: BLE001 — unreadable registry
-            mark = None
-        try:
-            roster = (accounts.resolve(tier, now)
-                      if tier in accounts.TIERS else None)
-        except Exception:                   # noqa: BLE001 — unreadable roster
-            roster = None
-        eff = effective_freeze_deadline(fz, mark, now, roster)
-        if eff is None:
-            # nothing names a time: there is no promise to keep, and a stale
-            # one must not linger to fire later.
-            if "wake" in fz:
-                del fz["wake"]
-                changed = True
-            continue
-        # `effective_freeze_deadline` already decides whether an existing
-        # promise stands or a live source pulled it in, so writing whatever it
-        # answers is exactly right: an unchanged promise compares equal and
-        # costs no write.
-        want = {"ts": float(eff["ts"]), "src": eff["src"],
-                "schedule_kind": eff["schedule_kind"],
-                "provenance": eff["provenance"],
-                "of_ts": fz.get("until_ts"),
-                "of_src": str(fz.get("reset_src") or "")}
-        if fz.get("wake") != want:
-            fz["wake"] = want
+        if commit_node_wake(n, now):
             changed = True
     return changed
+
+
+def commit_node_wake(n: NodeDoc, now: float | None = None) -> bool:
+    """Record ONE node's promised wake. True when the document changed.
+
+    ⚠ CALLED WHERE A FREEZE IS WRITTEN, not only on the tick (review round 8).
+    The badge is rendered from a read-only snapshot and cannot write, so
+    anything it publishes that the next tick does not reproduce is a wake the
+    user was shown and never got. Review reproduced exactly that: a freeze with
+    its own `probe +2h` and a live account mark of `+10s` displayed the +10s,
+    and the first tick 31 seconds later found the mark expired and recorded the
+    +2h instead. Stamping when the freeze is WRITTEN closes the window rather
+    than narrowing it — by the time anything can read the record, the promise
+    it will be held to is already on it.
+
+    The tick still calls this for every node, which backfills records written
+    before this existed and any path that forgets to."""
+    now = time.time() if now is None else now
+    fz = _resumable(n)
+    if fz is None or not freeze_waits_on_capacity(fz):
+        # a freeze nothing is waiting on, and the kinds that own their own
+        # clock, have nothing to be promised — and must not accumulate a
+        # field that would outlive the reason for it.
+        if isinstance(n.get("frozen"), dict) and "wake" in n["frozen"]:
+            del n["frozen"]["wake"]
+            return True
+        return False
+    if _committed_wake(fz):
+        # already promised, and a promise is never revised (user ruling). This
+        # short-circuit is also what keeps the cost at zero in the steady
+        # state: no registry read, no roster read, for a node already bound.
+        return False
+    tier = str(n.get("model") or "")
+    acct = freeze_account_of(fz, n)
+    try:
+        mark = (registry.active_mark(acct, tier, now)
+                if acct and tier else None)
+    except Exception:                       # noqa: BLE001 — unreadable registry
+        mark = None
+    try:
+        roster = (accounts.resolve(tier, now)
+                  if tier in accounts.TIERS else None)
+    except Exception:                       # noqa: BLE001 — unreadable roster
+        roster = None
+    eff = effective_freeze_deadline(fz, mark, now, roster)
+    if eff is None:
+        return False            # nothing names a time; nothing to promise yet
+    fz["wake"] = {"ts": float(eff["ts"]), "src": eff["src"],
+                  "schedule_kind": eff["schedule_kind"],
+                  "provenance": eff["provenance"],
+                  "of_ts": fz.get("until_ts"),
+                  "of_src": str(fz.get("reset_src") or "")}
+    return True
+
+
+def _stamp_wakes_on_save(org: Org) -> None:
+    """Pre-save hook: every frozen node carries its promised wake before the
+    document is written, so no reader can ever see a freeze that has not yet
+    been told what it is waiting for.
+
+    ⚠ THIS IS WHY IT IS A HOOK AND NOT A CALL AT THE FREEZE SITES. There are
+    six places that write a capacity freeze and nothing stops a seventh being
+    added; a rule enforced at one choke point cannot be forgotten by the next
+    one. Cheap by construction: `commit_node_wake` returns immediately for a
+    node that is not frozen or already promised, so the steady state is a
+    dict lookup per node and no IO at all."""
+    for n in org.nodes.values():
+        commit_node_wake(n)
+
+
+store.pre_save_hooks.append(_stamp_wakes_on_save)
 
 
 def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
@@ -5690,7 +5723,13 @@ def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
     account B — a different lane's live mark waved through on the strength of
     a wall that was never that lane's. It carries the account and the model
     it was issued against, and the gate spends it only on that pair."""
-    if not fz.get("limit"):
+    if not freeze_waits_on_capacity(fz):
+        # ⚠ `limit` ALONE IS NOT THE TEST (review round 8). A connection freeze
+        # and an auth/balance refusal both carry `limit` in shape, and for them
+        # `effective_freeze_deadline` answers with the record's own clock — so
+        # an elapsed probe floor on one of those bought a pass through the
+        # account gate. Nothing about a dropped socket or a rejected credential
+        # is a usage wall expiring, which is the only thing this pass is for.
         return False
     # record-local on purpose: no mark, no roster. The question is "what was
     # this node told?", and only the record can answer that.
@@ -16710,30 +16749,37 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # frozen node across providers must not let it survive a Codex or
             # Antigravity turn and attach to some unrelated future Claude result.
             _limit_cache_claude_state(st, _turn_tier)
-            if _g_pass:
-                # ⚠ THE ONE-SHOT PASS IS SPENT HERE, AND HERE IS THE SEAM
-                # EVERY PROVIDER SHARES (review round 7). Two earlier
-                # placements were both wrong for the same reason — they were
-                # not where the attempt begins:
-                #   · the GATE, which burned it on any turn that died before a
-                #     provider (round 5);
-                #   · the `inflight` stamp, which the whole prompt assembly
-                #     still runs after (round 6);
-                #   · and then the Claude spawn, which the codex and
-                #     antigravity legs below never reach — so THEIR passes
-                #     were never consumed at all and stayed spendable for the
-                #     rest of the TTL (round 7, reproduced at runtime).
-                # The next statement dispatches to a provider leg, whichever
-                # it is. Everything that can still refuse this turn has run.
-                #
-                # Its own lock, and only for a node that actually holds a
-                # pass: this is the rare wake at a deadline that has come due,
-                # not the ordinary turn.
+
+            def _spend_pass_now() -> None:
+                """Spend the one-shot pass, AFTER this leg has actually
+                reached its provider.
+
+                ⚠ FOURTH PLACEMENT, AND THE REASON IT MOVED EACH TIME IS THE
+                SAME ONE: "the attempt" is not where it looks like it is.
+                  · the GATE burned it on turns that died early (round 5);
+                  · the `inflight` stamp has the whole prompt assembly after
+                    it (round 6);
+                  · the CLAUDE spawn is never reached by the codex and
+                    antigravity legs, so their passes were never spent at all
+                    (round 7);
+                  · and the shared dispatch is still BEFORE provider-specific
+                    preparation — `sbx.ensure_container` raising "Docker
+                    unavailable" burned it with zero provider launches
+                    (round 8).
+                Each leg calls this once its own prep has succeeded and the
+                provider has been contacted. ⚠ ERR LATE, NEVER EARLY: a pass
+                spent too soon costs the node the real attempt the user ruled
+                it is owed, while one spent too late merely stays valid for
+                the remainder of its two-minute life."""
+                nonlocal _g_pass
+                if not _g_pass:
+                    return
+                _g_pass = False
                 with store.DOC_LOCK:
                     _o_pass = store.load_org(slug)
                     if _spend_admit_once(_o_pass, nid):
                         store.save_org(_o_pass)
-                _g_pass = False
+
             if _turn_tier in providers.CODEX_TIERS:
                 # THE PROVIDER SEAM (FR-15 M1b): a codex tier takes its own
                 # leg here — after the provider-neutral prologue above, before
@@ -16743,6 +16789,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     slug, nid, org, st, text, toks, turn_images, turn_view,
                     view_spans=view_spans, view_segments=view_segments,
                     startup_manifest=cache_codex_manifest, trec=_trec)
+                # the leg RETURNED, so its own preparation succeeded and the
+                # provider was reached; a failure in that prep raises past
+                # this line and leaves the pass for the next admission.
+                _spend_pass_now()
                 if res.get("_codex_account_ambiguous"):
                     # The provider turn is real, but no local observation can
                     # authoritatively attach it to either side of a login
@@ -16770,6 +16820,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 res, agy_occ = _antigravity_leg(
                     slug, nid, org, st, text, toks, turn_images, turn_view,
                     view_spans=view_spans, view_segments=view_segments, trec=_trec)
+                _spend_pass_now()           # same rule as the codex leg above
                 if _trec is not None:
                     _trec.dispose("interrupted" if str(res.get("status") or "")
                                   == "interrupted" else "completed")
@@ -16878,6 +16929,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             _spawn_t0 = time.monotonic()
             if wp_turn is not None:
                 proc = wp_turn.proc
+                _spend_pass_now()     # a warm process claimed: also the attempt
                 warm_cost_base = wp_turn.cost_base
                 warm_out_base = wp_turn.out_base
                 warmpool.journal_admit(
@@ -16894,6 +16946,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                    if os.name == "nt" else 0))
                 cold_stderr = warmpool.ColdStderr(proc, slug, nid, sid)
                 _leash(proc)              # dies with the backend (№29)
+                _spend_pass_now()         # the process exists: this IS the attempt
                 warmpool.journal_admit(
                     slug, nid, sid, "cold", _adm_reason, turn_hash or "",
                     None, int((time.monotonic() - _spawn_t0) * 1000),

@@ -3390,6 +3390,17 @@ on_save: Callable[[str], None] = lambda slug: None   # no-op until wired
 # for it). First user: the supervisor's FR-01 remote-control reaper — any doc
 # mutation that removes a controlled seat must take its server with it.
 save_hooks: list[Callable[[str], None]] = []
+#: …and the same idea one step EARLIER: listeners that may still touch the
+#: document, run just before it is written. `save_hooks` fire after the bytes
+#: are on disk and so cannot affect them.
+#:
+#: ⚠ A PRE-SAVE HOOK MUST NOT SAVE — it is already inside the write. It takes
+#: the `Org` and mutates in place; anything it changes rides the save that
+#: invoked it. Registered at import time by the module that owns the rule.
+#: First user: the supervisor stamping a frozen node's promised wake, so the
+#: deadline a badge will publish is on the record BEFORE any reader — the
+#: badge renders from a read-only snapshot and cannot record what it shows.
+pre_save_hooks: list[Callable[[Org], None]] = []
 
 # ------------------------------------------------- per-org change sequence
 # A PROCESS-LOCAL monotonic counter per org, bumped by every committed save
@@ -3537,6 +3548,13 @@ def save_org(org: Org) -> None:
     _assert_synced_data_root()
     from .notification_state import reconcile_attention
     reconcile_attention(org.d)
+    for _h in list(pre_save_hooks):
+        # never let a listener fail the write — the caller's change matters
+        # more than the derived field a hook wanted to add.
+        try:
+            _h(org)
+        except Exception:                                    # noqa: BLE001
+            pass
     global REVISION
     if STORE_BACKEND == "sqlite":
         _save_sqlite(org)
