@@ -1573,6 +1573,40 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   )
 }
 
+/** The latest integration verdict and review packet are deliberately shown
+ * separately from status/acceptance: approving a candidate does not complete
+ * the docket item, and a packet belongs only to the current review cycle. */
+function DocketReviewState({ item }: { item: WorkItem }) {
+  const verdict = item.candidate_verdict
+  const packet = item.review_packet
+  if (!verdict && !packet) return null
+  const candidate = verdict?.candidate ?? packet?.candidate
+  const evidence = verdict?.evidence ?? packet?.evidence ?? []
+  const note = verdict?.note ?? packet?.note
+  return (
+    <div className="docket-review-box">
+      <div className="docket-list-heading dim">INTEGRATION REVIEW</div>
+      {verdict && (
+        <div className="docket-review-verdict">
+          <span className={'docket-status status-' + verdict.decision}>
+            {verdict.decision === 'approve' ? 'Candidate approved' : 'Changes requested'}
+          </span>
+          {' · next: '}
+          <span>{typeof verdict.next_actor === 'string'
+            ? verdict.next_actor : verdict.next_actor?.node}</span>
+        </div>
+      )}
+      {candidate && <div className="docket-review-candidate"><code>{candidate}</code></div>}
+      {note && <div className="docket-review-note">{note}</div>}
+      {evidence.length > 0 && (
+        <ul className="docket-review-evidence">
+          {evidence.map((ev, i) => <li key={i}><code>{ev.ref}</code>{ev.note ? ` · ${ev.note}` : ''}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 
 /** W08 — VERIFICATION: what was checked, what it proved, and what review
  *  decided. Three things the pane could not show before, each of which was
@@ -1945,6 +1979,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
               </div>}
         </div>
       )}
+      <DocketReviewState item={item} />
       <DocketList heading="DONE SO FAR" items={item.done_so_far} mark="done"
         refIndex={refIndex} onGoToItem={onGoToItem} onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />

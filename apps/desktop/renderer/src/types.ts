@@ -2319,6 +2319,27 @@ export interface WorkItem {
   attachments?: WorkItemAttachment[]
   delivery: Record<string, unknown> | null
   accepted: { at: string; by: string; note?: string } | null
+  /** Nonterminal exact-candidate review, distinct from accepted completion. */
+  candidate_verdict?: {
+    candidate: string
+    decision: 'approve' | 'changes'
+    evidence: { kind: string; ref: string; note?: string }[]
+    note?: string | null
+    next_actor: WorkActor | 'user'
+    by: WorkActor | 'user'
+    at: string
+  } | null
+  candidate_verdicts?: unknown[]
+  /** Packet supplied atomically with the review transition. */
+  review_packet?: {
+    candidate?: string | null
+    evidence: { kind: string; ref: string; note?: string }[]
+    note?: string | null
+    next_actor?: WorkActor | 'user'
+    by?: WorkActor | 'user'
+    at?: string
+  } | null
+  review_packets?: unknown[]
   superseded_by: string | null
   superseded_by_visible?: boolean | null
   history: unknown[]

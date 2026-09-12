@@ -560,7 +560,10 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "action": {"type": "string",
                            "enum": ["list", "get", "create", "update", "assign",
-                                    "review", "participants", "evidence",
+                           "review", "verdict", "candidate_verdict",
+                           "integration_verdict", "review_verdict",
+                           "review_grant", "review_grants",
+                           "participants", "evidence",
                                     "decision",
                                     "receipt", "rangediff", "receipts",
                                     "artifact", "artifact_read", "grant",
@@ -579,6 +582,13 @@ TOOLS: list[dict[str, Any]] = [
                 "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
                 "decision": {"type": "string", "enum": ["approve", "changes"],
                              "description": "review: approve completes the item; changes returns it to its owner as in_progress (put what you want changed in `note`)"},
+                "candidate": {"type": "string", "description": "verdict: exact lowercase Git candidate SHA (7-40 characters); each candidate receives its own nonterminal verdict"},
+                "candidate_sha": {"type": "string", "description": "verdict: alias for candidate"},
+                "next_actor": {"type": "string", "description": "verdict: existing item holder who acts next; defaults to the owner"},
+                "verdict": {"type": "string", "enum": ["approve", "changes"], "description": "verdict: alias for decision"},
+                "review_candidate": {"type": "string", "description": "update: exact lowercase Git SHA included in the atomic review packet"},
+                "review_note": {"type": "string", "description": "update entering review: review packet prose stored with the transition" + _NOCAP},
+                "review_evidence": {"type": "array", "items": {"type": "object"}, "description": "update entering review: evidence refs stored atomically with review_note"},
                 "participants": {"type": "array", "items": {"type": "string"},
                                  "description": "create: collaborator node ids"},
                 "add": {"type": "array", "items": {"type": "string"}, "description": "participants: node ids to add"},
@@ -1335,6 +1345,9 @@ TOOLS: list[dict[str, Any]] = [
                         "work_item and no kickoff the hire is already running "
                         "on its assignment. Use orgtree_staff instead when the "
                         "item does not exist yet"},
+                "review_items": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "hire: review item slugs granted to this seat before kickoff; the group is atomic"},
             },
             # add_dirs / tools / org_visibility are deliberately NOT here:
             # they are REQUIRED in subordinate mode and FORBIDDEN in
@@ -1587,6 +1600,9 @@ TOOLS: list[dict[str, Any]] = [
                         "agent in this same call — assignment is OWNERSHIP, "
                         "and the notification wakes it, so a rehire that "
                         "carries one needs no kickoff to start"},
+                "review_items": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "rehire: review item slugs granted to this seat before kickoff; the group is atomic"},
             },
             "required": ["node"]},
     },
@@ -1708,6 +1724,8 @@ TOOLS: list[dict[str, Any]] = [
                                           "decision", "status"],
                                  "description": "kind of the kickoff mail "
                                                 "(default 'request')"},
+                "review_items": {"type": "array", "items": {"type": "string"},
+                                 "description": "hire/rehire: review item slugs granted before kickoff"},
             },
             "required": [],
         },

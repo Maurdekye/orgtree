@@ -826,6 +826,12 @@ class WorkItem(TypedDict):
     scope_seq: NotRequired[int]     # monotonic; mints the next row's `seq`
     delivery: dict[str, WorkStage | None] | None   # keys = workitems.STAGES
     accepted: dict[str, Any] | None  # {at, by, note, via} — completion record: work_accept, a reviewer approval, or a done set through work_update (any collaborator, user 2026-09-10)
+    # Nonterminal review state is separate from accepted completion. A
+    # reviewer may approve an exact candidate while integration is pending.
+    candidate_verdict: NotRequired[dict[str, Any] | None]
+    candidate_verdicts: NotRequired[list[dict[str, Any]]]
+    review_packet: NotRequired[dict[str, Any] | None]
+    review_packets: NotRequired[list[dict[str, Any]]]
     history: list[dict[str, Any]]   # {at, by, field, from, to}; oldest fold into ONE {kind: "folded", ...} row past the cap
     superseded_by: str | None
 

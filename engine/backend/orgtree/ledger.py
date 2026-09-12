@@ -11026,7 +11026,8 @@ class Org:
                 "owner", "reviewer", "created_by", "at", "updated_at", "done_so_far",
                 "working_on_next", "docket_at", "last_updater",
                 "manual_attention", "acceptance", "evidence",
-                "accepted")},
+                "accepted", "candidate_verdict", "candidate_verdicts",
+                "review_packet", "review_packets")},
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
@@ -11823,7 +11824,9 @@ class Org:
             "acceptance": acc, "dependencies": deps, "evidence": [],
             "delivery": ({s: None for s in workitems.STAGES}
                          if kind == "code" else None),
-            "accepted": None, "history": [], "superseded_by": None,
+            "accepted": None, "candidate_verdict": None,
+            "candidate_verdicts": [], "review_packet": None,
+            "review_packets": [], "history": [], "superseded_by": None,
             # resolved BEFORE the item is appended, so a bad parent refuses
             # the creation outright instead of leaving a stranded item behind
             "parent": (self._work_parent_check(actor, None, str(parent))
@@ -11956,7 +11959,10 @@ class Org:
                     objective_append: str | None = None,
                     keep_done: bool = False, keep_next: bool = False,
                     done_append: Any = None, next_append: Any = None,
-                    attention_amend: bool = False) -> dict[str, Any]:
+                    attention_amend: bool = False,
+                    review_note: str | None = None,
+                    review_evidence: Any = None,
+                    review_candidate: Any = None) -> dict[str, Any]:
         """THE docket status update. Always carries both lists (either may be
         empty, not both — Astra ruling 2026-09-05, no status-only bypass),
         moves `docket_at` and `last_updater`, and restates the manual flag:
@@ -12206,6 +12212,34 @@ class Org:
                     f"NOTHING WAS WRITTEN")
         _eff = status if status is not None else (
             "in_progress" if reopen else str(it.get("status") or ""))
+        # A review packet is part of the same atomic transition as entering
+        # review. Validate every field before the first item mutation; the
+        # reviewer notification below must never describe a packet that was
+        # only partly accepted.
+        review_packet_data: dict[str, Any] | None = None
+        if (review_note is not None or review_evidence is not None
+                or review_candidate is not None):
+            if _eff != "review":
+                raise LedgerError(
+                    "review_note, review_evidence and review_candidate are "
+                    "only valid on an item at status review")
+            packet_note = (_prose(review_note) if review_note is not None
+                           else None)
+            packet_evidence = self._work_verdict_evidence(review_evidence)
+            packet_candidate: str | None = None
+            if review_candidate is not None:
+                from . import workitems
+                try:
+                    packet_candidate = workitems.validate_sha(review_candidate)
+                except workitems.ShaError as e:
+                    raise LedgerError(str(e)) from None
+            if not packet_note and not packet_evidence and not packet_candidate:
+                raise LedgerError("review packet needs candidate, evidence or note")
+            review_packet_data = {
+                "candidate": packet_candidate,
+                "evidence": packet_evidence,
+                "note": packet_note,
+            }
         _fl = self.WORK_STATE_INFO.get(_eff)
         if _fl:
             _v = _state_supplied.get(_fl)
@@ -12288,9 +12322,17 @@ class Org:
                              **({"atomic_completion": True}
                                 if reopened_terminal else {}),
                              "accepted_was": it.get("accepted"),
+                             "candidate_verdict_was": it.get("candidate_verdict"),
+                             "review_packet_was": it.get("review_packet"),
                              "dropped_reason_was": it.get("dropped_reason"),
                              "superseded_by_was": it.get("superseded_by")})
             it["accepted"] = None
+            # The exact integration candidate no longer describes reopened
+            # work. Keep it in candidate_verdicts/history, but remove the
+            # current pointer so an old approval cannot be mistaken for the
+            # reopened candidate.
+            it["candidate_verdict"] = None
+            it["review_packet"] = None
             it["superseded_by"] = None
             if reopened_terminal:
                 # the overturned outcome's REASON goes with the outcome — a
@@ -12387,6 +12429,20 @@ class Org:
                                     "chars_to": len(after)}
         it["done_so_far"] = done
         it["working_on_next"] = nxt
+        if review_packet_data is not None:
+            packet = dict(review_packet_data)
+            packet["by"] = self._work_actor(actor)
+            packet["at"] = now()
+            # The incoming reviewer is the next actor when one is supplied;
+            # otherwise retain the already appointed reviewer.  The owner is
+            # the honest fallback for a packet on an unassigned transition.
+            packet["next_actor"] = self._work_actor(
+                str(reviewer or self._work_actor_node(it.get("reviewer"))
+                    or self._work_actor_node(it.get("owner")) or actor))
+            it["review_packet"] = packet
+            cast("list[dict[str, Any]]",
+                 it.setdefault("review_packets", [])).append(dict(packet))
+            changes["review_packet"] = packet
         # the manual flag is restated by every update
         prev = it.get("manual_attention")
         if attention_amend and prev:
@@ -12636,11 +12692,31 @@ class Org:
         # above you to check your work is the ordinary review in this org, and
         # a rule that refused it would leave the common case unreachable
         # (flagged to Astra as the one place this is wider than "subtree").
+        previous = self._work_actor_node(it.get("reviewer"))
+        same_review_cycle = (want == previous and any(
+            str(h.get("op") or "") == "review_changes"
+            for h in (it.get("history") or [])))
+        participant_review = want in {str(p) for p in
+                                      (it.get("participants") or [])}
         if actor != USER and want != actor and not self.is_ancestor(actor, want) \
-                and str(self.node(actor).get("parent") or "") != want:
+                and str(self.node(actor).get("parent") or "") != want \
+                and not ((same_review_cycle or participant_review) and actor ==
+                         self._work_actor_node(it.get("owner"))):
             raise LedgerError(
                 f"you may ask yourself, an agent in your subtree, or your own "
                 f"superior to review this — {want!r} is none of those")
+        if same_review_cycle or participant_review:
+            live, reason = self._work_identity_state(it.get("reviewer"))
+            # For a newly named participant the current holder is `want`, not
+            # the previous reviewer reference.
+            if participant_review and want != previous:
+                live, reason = self._work_identity_state(
+                    {"node": want, "generation":
+                     self.node(want).get("generation")})
+            if not live:
+                raise LedgerError(
+                    f"the reviewer {want!r} is not live "
+                    f"({reason}); name a currently authorized reviewer")
         return want
 
     def _work_assign_dest_check(self, actor: str, own: str) -> None:
@@ -13709,6 +13785,157 @@ class Org:
     # reviewer role really carries is the ANSWER TO "who acts next" — while an
     # item is under review the next action is the reviewer's, and when changes
     # are requested it hands straight back to the owner.
+    def work_review_grant(self, actor: str, reviewer: str,
+                          items: Any) -> dict[str, Any]:
+        """Atomically give one live reviewer scoped access to review items."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        rid = str(reviewer or "").strip()
+        if not rid:
+            raise LedgerError("review grant needs a reviewer")
+        self._require_live(rid)
+        raw_items = items
+        if isinstance(raw_items, list) and all(isinstance(x, str)
+                                                for x in raw_items):
+            raw_items = [{"slug": x} for x in raw_items]
+        batch = self._work_batch_arg(raw_items, "items")
+        checked: list[tuple[WorkItem, str | None]] = []
+        seen: set[str] = set()
+        for n, el in enumerate(batch):
+            item_name = str(el.get("slug") or el.get("item") or "").strip()
+            if not item_name:
+                raise LedgerError(f"review grant items[{n}] needs `slug`")
+            if item_name in seen:
+                raise LedgerError(f"review grant names {item_name!r} twice")
+            seen.add(item_name)
+            it, _ = self._work_get_for(actor, item_name)
+            if not self._work_can_manage(actor, it):
+                raise LedgerError(f"review grant for {item_name} is not owner-managed")
+            if self._work_status(it) != "review":
+                raise LedgerError(f"review grant needs {item_name} at status review")
+            owner = self._work_actor_node(it.get("owner"))
+            if rid == owner:
+                raise LedgerError("the owner cannot review its own work")
+            prior = self._work_actor_node(it.get("reviewer"))
+            participants = [str(p) for p in (it.get("participants") or [])]
+            if (rid != prior and rid not in participants and actor != USER
+                    and not self.is_ancestor(actor, rid)):
+                raise LedgerError(f"reviewer {rid!r} is not an existing participant or previous reviewer")
+            checked.append((it, prior))
+        granted: list[str] = []
+        for it, prior in checked:
+            it["reviewer"] = cast(WorkActor, self._work_holder(rid))
+            self._work_hist(it, actor, "review_grant",
+                            {"from": prior, "to": it["reviewer"]})
+            granted.append(str(it["slug"]))
+        return {"reviewer": rid, "granted": granted, "count": len(granted)}
+
+    @staticmethod
+    def _work_verdict_evidence(raw: Any) -> list[dict[str, Any]]:
+        """Validate candidate-verdict evidence without touching an item."""
+        if raw is None:
+            return []
+        vals = [raw] if isinstance(raw, str) else raw
+        if not isinstance(vals, list):
+            raise LedgerError("verdict evidence must be a list of refs")
+        out: list[dict[str, Any]] = []
+        for n, value in enumerate(cast("list[Any]", vals)):
+            if isinstance(value, dict):
+                ref, note = value.get("ref"), value.get("note")
+                kind = str(value.get("kind") or "note")
+            else:
+                ref, note, kind = value, None, "note"
+            try:
+                bounded_ref = workfields.bounded("ref", ref)
+            except workfields.FieldLimitError as e:
+                raise LedgerError(f"{e} (evidence[{n}])") from None
+            if not bounded_ref:
+                raise LedgerError(f"verdict evidence[{n}] needs a ref")
+            if kind not in Org.WORK_EVIDENCE_KINDS:
+                raise LedgerError(f"verdict evidence[{n}] has invalid kind {kind!r}")
+            out.append({"kind": kind, "ref": bounded_ref,
+                        **({"note": _prose(note)} if note else {})})
+        return out
+
+    def work_candidate_verdict(self, actor: str, wid: str,
+                               candidate: Any = None, decision: str = "",
+                               evidence: Any = None,
+                               note: str | None = None,
+                               next_actor: str | None = None,
+                               items: Any = None) -> dict[str, Any]:
+        """Record nonterminal approve/changes for an exact candidate."""
+        from . import workitems
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        if items is None:
+            raw_items = [{"slug": wid, "candidate": candidate,
+                          "decision": decision, "evidence": evidence,
+                          "note": note, "next_actor": next_actor}]
+        else:
+            if any(v is not None for v in (candidate, evidence, note,
+                                            next_actor)) or str(decision or ""):
+                raise LedgerError("pass either one verdict or `items`, not both")
+            raw_items = self._work_batch_arg(items, "items")
+        prepared: list[tuple[WorkItem, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for n, el in enumerate(raw_items):
+            item_name = str(el.get("slug") or el.get("item") or "").strip()
+            if not item_name:
+                raise LedgerError(f"verdict items[{n}] needs `slug`")
+            if item_name in seen:
+                raise LedgerError(f"verdict names {item_name!r} twice")
+            seen.add(item_name)
+            it, _ = self._work_get_for(actor, item_name)
+            if not self._work_can_accept(actor, it):
+                raise LedgerError(f"candidate verdict for {item_name} is unauthorized")
+            dec = str(el.get("decision") or "").strip().lower()
+            if dec not in ("approve", "changes"):
+                raise LedgerError("verdict decision must be approve|changes")
+            try:
+                sha = workitems.validate_sha(el.get("candidate") or
+                                             el.get("candidate_sha") or
+                                             el.get("sha"))
+            except workitems.ShaError as e:
+                raise LedgerError(str(e)) from None
+            ev = self._work_verdict_evidence(el.get("evidence"))
+            next_name = str(el.get("next_actor") or "").strip()
+            if not next_name:
+                next_name = self._work_actor_node(it.get("owner")) or actor
+            allowed = {self._work_actor_node(it.get("owner")),
+                       self._work_actor_node(it.get("reviewer")),
+                       *[str(p) for p in (it.get("participants") or [])]}
+            if next_name not in allowed and next_name != USER:
+                raise LedgerError(f"next_actor {next_name!r} is not a holder of {item_name}")
+            if next_name != USER:
+                self._require_live(next_name)
+            prepared.append((it, {"candidate": sha, "decision": dec,
+                                  "evidence": ev,
+                                  "note": (_prose(el.get("note"))
+                                           if el.get("note") else None),
+                                  "next_actor": self._work_actor(next_name),
+                                  "by": self._work_actor(actor), "at": now()}))
+        for it, verdict in prepared:
+            history = cast("list[dict[str, Any]]",
+                           it.setdefault("candidate_verdicts", []))
+            history.append(verdict)
+            it["candidate_verdict"] = verdict
+            self._work_hist(it, actor, "candidate_verdict",
+                            {"candidate": verdict["candidate"],
+                             "decision": verdict["decision"],
+                             "next_actor": verdict["next_actor"]})
+        if items is not None:
+            return {"verdicts": [str(it["slug"]) for it, _ in prepared],
+                    "count": len(prepared)}
+        it, verdict = prepared[0]
+        return {"verdict": str(it["slug"]), "candidate": verdict["candidate"],
+                "decision": verdict["decision"], "next_actor": verdict["next_actor"],
+                "rev": it["rev"], "status": self._work_status(it)}
+
+    # Explicit aliases keep the backend vocabulary readable to callers that
+    # describe this as an integration or review verdict.
+    work_integration_verdict = work_candidate_verdict
+    work_review_verdict = work_candidate_verdict
+
     def work_review_decide(self, actor: str, wid: str, decision: str,
                            note: str | None = None) -> dict[str, Any]:
         """The named reviewer's verdict: `approve` (→ done) or `changes`
@@ -13779,8 +14006,15 @@ class Org:
         # — the mail was cut too, and an agent that lost its review notes had
         # to read `mail_log` out of the sqlite file to get them back. The mail
         # still shows an excerpt, but it SAYS so and names this record.
+        packet_was = it.get("review_packet")
+        if packet_was is not None:
+            # A sendback ends this review cycle. Keep the complete packet in
+            # review_packets/history, but do not expose it as next-cycle work.
+            it["review_packet"] = None
         self._work_hist(it, actor, "review_changes",
-                        {"from": frm, "note": (_prose(note) if note else None)})
+                        {"from": frm, "note": (_prose(note) if note else None),
+                         **({"review_packet_was": packet_was}
+                            if packet_was is not None else {})})
         it["docket_at"] = now()
         self._log("work_review", actor, {"item": wid, "decision": dec}, [])
         return {"reviewed": wid, "decision": "changes", "rev": it["rev"],

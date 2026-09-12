@@ -3514,11 +3514,17 @@ main.solo { width: 100%; }
 }
 .docket-list-items.mark-done li::before { content: '✓'; color: var(--ok); }
 .docket-list-items.mark-next li::before { content: '→'; color: var(--work); }
-.docket-attention-box, .docket-question-box {
+.docket-attention-box, .docket-question-box, .docket-review-box {
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
 }
+.docket-review-verdict { margin: 4px 0; }
+.docket-review-candidate code, .docket-review-evidence code {
+  font-family: var(--mono); overflow-wrap: anywhere;
+}
+.docket-review-note { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.docket-review-evidence { margin: 5px 0 0; padding-left: 20px; }
 /* keep the line breaks the agent wrote into the attention reason */
 .docket-attention-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .docket-question-head { color: var(--agent-accent-text, var(--accent)); font-weight: 700; font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }

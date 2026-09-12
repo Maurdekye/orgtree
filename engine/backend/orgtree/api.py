@@ -6599,12 +6599,26 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             # there is no transient assign-to-author in between.
             owner=_s("owner"),
             # named by the update that ENTERS review, and required there
-            reviewer=_s("reviewer"))
+            reviewer=_s("reviewer"),
+            review_note=_s("review_note"),
+            review_evidence=a.get("review_evidence"),
+            review_candidate=(a.get("review_candidate")
+                              or a.get("candidate")))
     if act == "assign":
         return org.work_assign(nid, wid, str(a.get("owner") or ""))
     if act == "review":
         return org.work_review_decide(nid, wid, str(a.get("decision") or ""),
                                       _s("note"))
+    if act in ("verdict", "candidate_verdict", "integration_verdict",
+               "review_verdict"):
+        return org.work_candidate_verdict(
+            nid, wid, a.get("candidate") or a.get("candidate_sha") or a.get("sha"),
+            str(a.get("decision") or a.get("verdict") or ""),
+            evidence=a.get("evidence"), note=_s("note"),
+            next_actor=_s("next_actor"), items=a.get("items"))
+    if act in ("review_grant", "review_grants"):
+        return org.work_review_grant(nid, _s("reviewer") or "",
+                                     a.get("items"))
     if act == "participants":
         return org.work_participants(nid, wid, add=_work_list_arg(a, "add"),
                                      remove=_work_list_arg(a, "remove"))
@@ -7714,6 +7728,8 @@ _ARG_STRS = ("node", "to", "from", "target", "grantee", "parent", "new_parent",
              # `audiences` is deliberately ABSENT: it is a list (see
              # _seat_finish, which type-checks it itself).
              "permission_mode", "kickoff", "kickoff_kind",
+             "candidate", "candidate_sha", "review_candidate", "review_note",
+             "next_actor", "verdict", "reviewer",
              # D-224's topology verbs. `moves` is deliberately ABSENT for the
              # same reason as `audiences` — it is a list, and the move branch
              # type-checks it itself.
@@ -7997,6 +8013,15 @@ def _seat_finish(org: Org, slug: str, actor: str, nid: str, a: dict[str, Any],
     # RUNNING — and one that carries both still runs exactly ONE first turn,
     # because `seat_drive` is a flag and the tail below appends the seat once.
     wi = a.get("work_item")
+    # W01 reviewer onboarding: all scoped review items are granted before the
+    # optional kickoff can wake the new seat.  The ledger validates the whole
+    # group before writing any reviewer field.
+    review_items = a.get("review_items")
+    if review_items is not None:
+        ritems = review_items if isinstance(review_items, list) else [review_items]
+        gres = org.work_review_grant(actor, nid, ritems)
+        result["review_items"] = gres.get("granted", [])
+        applied.append(f"review_items:{len(result['review_items'])}")
     if wi is not None and str(wi).strip():
         _work_identity_ready(org, slug)
         ares = org.work_assign(actor, str(wi).strip(), nid)

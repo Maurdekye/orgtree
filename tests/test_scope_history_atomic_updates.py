@@ -85,7 +85,7 @@ def fixture(acceptance=None):
     global _n
     _n += 1
     org = ledger.Org.create(f"sc-{_n}")
-    for nid in ("owner-a", "peer-b"):
+    for nid in ("owner-a", "peer-b", "outsider-c"):
         org.hire(USER, None, "haiku", 0, nid)
     org.work_create("owner-a", "Scope fixture", objective=OBJ_1,
                     acceptance=(acceptance if acceptance is not None else
@@ -956,8 +956,9 @@ class AtomicReopen(unittest.TestCase):
         org, wid = self.closed()
         before = snapshot(item(org, wid))
         with self.assertRaises(LedgerError):
-            # peer-b is neither owner-a's subtree nor its superior
-            upd(org, wid, reopen=True, status="review", reviewer="peer-b")
+            # outsider-c is neither an existing participant nor owner-a's
+            # subtree/superior; W01 intentionally allows the participant peer.
+            upd(org, wid, reopen=True, status="review", reviewer="outsider-c")
         self.assertEqual(snapshot(item(org, wid)), before)
 
     def test_a_reviewer_that_does_not_exist_is_refused_before_anything(self):
@@ -1226,7 +1227,7 @@ class EveryRefusalIsByteIdentical(unittest.TestCase):
              {"status": "blocked", "blocked_reason": "  "}),
             ("review with no reviewer", {"status": "review"}),
             ("reviewer who may not be named",
-             {"status": "review", "reviewer": "peer-b"}),
+             {"status": "review", "reviewer": "outsider-c"}),
             ("reviewer that does not exist",
              {"status": "review", "reviewer": "nobody-here"}),
             ("self review", {"status": "review", "reviewer": "owner-a"}),
@@ -1289,7 +1290,7 @@ class EveryRefusalIsByteIdentical(unittest.TestCase):
             ("reopen to review, no reviewer",
              {"reopen": True, "status": "review"}),
             ("reopen to review, unnameable reviewer",
-             {"reopen": True, "status": "review", "reviewer": "peer-b"}),
+             {"reopen": True, "status": "review", "reviewer": "outsider-c"}),
             ("reopen to superseded", {"reopen": True, "status": "superseded"}),
             ("reopen with an over-length entry",
              {"reopen": True, "status": "done",
