@@ -21,7 +21,10 @@ def capture(slug, nid, *, beginning=False, backfill=False):
     from . import store, supervisor as sup, transcript_records as records
     from .chat_window import source_key
     from .desktop_import import imported_history_path
-    org = store.load_org(slug)
+    # read-only resolution (session id, transcript paths) off the shared
+    # snapshot: this runs every second for every busy node plus 8 backfill
+    # slices, and each call re-parsed the whole document (REPORT.md #7)
+    org = store.cached_org(slug)
     node = org.node(nid)
     if not node.get('session_id'):
         return
@@ -76,8 +79,11 @@ def start():
         while True:
             try:
                 if not queue:
-                    for row in store.list_orgs():
-                        org = store.load_org(row['slug'])
+                    # queue rebuild used to be a full root parse each time it
+                    # drained (~once a minute at 449 nodes, every few seconds
+                    # on small fleets) — the shared snapshot answers it free
+                    for row in store.cached_list():
+                        org = store.cached_org(row['slug'])
                         queue.extend((row['slug'], nid) for nid in org.nodes)
                 with sup._state_lock:
                     active = [key for key, state in sup._state.items() if state.get('busy')]

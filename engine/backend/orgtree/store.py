@@ -3210,6 +3210,70 @@ def org_seq(slug: str) -> int:
 def _bump_org_seq(slug: str) -> None:
     with _org_seq_lock:
         _org_seq[slug] = _org_seq.get(slug, 0) + 1
+    with _doc_cache_lock:
+        _doc_cache.pop(slug, None)
+
+
+# --------------------------------------------- shared read-only snapshots
+# (perf-redesign 2026-09-12, REPORT.md #7.) Six background loops — the
+# watchdog tick (5 s), the Electron status poll (5 s), transcript capture
+# (1 s), the storage watchdog (20 s), the working-cache keeper's stages
+# (20 s) and auto-resume (30 s) — each re-listed and re-parsed the whole
+# data root on their own clocks, idle or not: about one full-root parse per
+# second at 449 nodes, linear in fleet size, all to re-derive facts that
+# had not changed. `org_seq` already knows whether they changed.
+#
+# ⚠ READ-ONLY BY CONTRACT. The returned Org is SHARED across every loop in
+# the process: never mutate it, never save it, never hand it to anything
+# that will. Write passes keep their own fresh `load_org` under DOC_LOCK —
+# the cycle rule (№22 / the DOC_LOCK comment above) is untouched. Lazy
+# sections materialize onto the shared instance if touched; the loops this
+# exists for read only eager fields (nodes, watchdogs, kiosk, workspace).
+_doc_cache_lock = threading.Lock()
+_doc_cache: dict[str, tuple[int, "Org"]] = {}
+
+
+def cached_org(slug: str) -> Org:
+    """The org as of its last save, shared and read-only. A dict lookup
+    while `org_seq` is unchanged; one real load when it moved."""
+    seq = org_seq(slug)
+    with _doc_cache_lock:
+        hit = _doc_cache.get(slug)
+    if hit is not None and hit[0] == seq:
+        return hit[1]
+    try:
+        org = load_org(slug)
+    except Exception:
+        with _doc_cache_lock:
+            _doc_cache.pop(slug, None)
+        raise
+    if org_seq(slug) == seq:
+        # unchanged across our read — cache under the seq we started from;
+        # a save that landed mid-load just costs one more load next call
+        with _doc_cache_lock:
+            _doc_cache[slug] = (seq, org)
+    return org
+
+
+def cached_list() -> list[dict[str, Any]]:
+    """`list_orgs()` for the background loops: same summary rows, answered
+    from the shared snapshots. The dir listing itself is the only per-call
+    filesystem work; nothing is parsed unless its org actually changed.
+    Unlike `_scan_orgs` this never migrates stray JSON documents inline —
+    the loops have no business migrating; the API listing still does."""
+    if STORE_BACKEND != "sqlite":
+        return list_orgs()
+    out: list[dict[str, Any]] = []
+    for f in sorted(os.listdir(_orgs_dir())):
+        if not f.endswith(".db"):
+            continue
+        slug = f[:-3]
+        try:
+            _safe_slug(slug)
+            out.append(_summary_row(slug, cached_org(slug).d))
+        except (LedgerError, sqlite3.Error, ValueError, OSError):
+            continue
+    return out
 
 
 def _save_json(org: Org) -> None:
