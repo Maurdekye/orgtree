@@ -53,7 +53,7 @@ _UNIT: Final = {"d": 86400.0, "h": 3600.0, "m": 60.0, "s": 1.0}
 
 _lock = threading.Lock()
 _fetch_lock = threading.Lock()
-_cache: dict[str, Any] = {"at": 0.0, "data": None}
+_cache: dict[str, Any] = {"at": 0.0, "data": None, "account": None}
 
 
 def reset_in_seconds(text: str) -> float | None:
@@ -134,6 +134,30 @@ def _supports_usage(version: object) -> bool:
     if not match:
         return False
     return tuple(int(part) for part in match.groups()) >= MIN_USAGE_VERSION
+
+
+def _account_key(status: dict[str, Any]) -> str | None:
+    """Stable identity for cache isolation; never display or persist it."""
+    email = status.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return None
+    kind = str(status.get("kind") or "oauth").strip().casefold()
+    return f"{kind}:{email.strip().casefold()}"
+
+
+def _clear_unlocked() -> None:
+    _cache.update(at=0.0, data=None, account=None)
+
+
+def _reconcile_unlocked(account: str | None) -> dict[str, Any] | None:
+    """Return cached data only when it belongs to this exact account."""
+    cached = _cache.get("data")
+    if isinstance(cached, dict) and _cache.get("account") == account \
+            and account is not None:
+        return cached
+    if cached is not None:
+        _clear_unlocked()
+    return None
 
 
 def _read_only(result: dict[str, Any]) -> bool:
@@ -246,13 +270,11 @@ def _run_usage(exe: str) -> dict[str, Any]:
     return _decode(result.stdout)
 
 
-def _account(data: dict[str, Any], status: dict[str, Any] | None = None
-             ) -> dict[str, Any]:
-    current = providers.antigravity_status() if status is None else status
+def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
     return {
         "account": ACCOUNT,
-        "label": current.get("email") or "signed-in account",
-        "email": current.get("email") or None,
+        "label": status.get("email") or "signed-in account",
+        "email": status.get("email") or None,
         "provider": PROVIDER,
         **data,
     }
@@ -261,17 +283,22 @@ def _account(data: dict[str, Any], status: dict[str, Any] | None = None
 def fetch(force: bool = False) -> dict[str, Any]:
     """Fetch the ambient signed-in account's real usage board."""
     now = time.time()
+    status = providers.antigravity_status(force=force)
+    account = _account_key(status)
     with _lock:
-        cached = _cache.get("data")
+        cached = _reconcile_unlocked(account)
         if (not force and isinstance(cached, dict)
                 and now - float(_cache.get("at") or 0) <= CACHE_TTL):
-            return _account(dict(cached))
+            return _account(dict(cached), status)
 
-    status = providers.antigravity_status(force=force)
     if not status.get("installed"):
+        with _lock:
+            _clear_unlocked()
         return _account({"available": False,
                          "error": "Antigravity CLI is not installed"}, status)
     if not status.get("connected"):
+        with _lock:
+            _clear_unlocked()
         return _account({
             "available": False,
             "error": "Antigravity CLI is not signed in",
@@ -279,6 +306,8 @@ def fetch(force: bool = False) -> dict[str, Any]:
             "reauth_evidence": "not_connected",
         }, status)
     if not _supports_usage(status.get("version")):
+        with _lock:
+            _clear_unlocked()
         return _account({
             "available": False,
             "unsupported": True,
@@ -289,7 +318,7 @@ def fetch(force: bool = False) -> dict[str, Any]:
     with _fetch_lock:
         now = time.time()
         with _lock:
-            cached = _cache.get("data")
+            cached = _reconcile_unlocked(account)
             if (not force and isinstance(cached, dict)
                     and now - float(_cache.get("at") or 0) <= CACHE_TTL):
                 return _account(dict(cached), status)
@@ -303,12 +332,22 @@ def fetch(force: bool = False) -> dict[str, Any]:
             data = _normalize(raw, observed)
             if not data["available"]:
                 data["error"] = "Antigravity reported no usage-limit windows"
+            after = providers.antigravity_status(force=True)
+            after_account = _account_key(after)
+            if after_account is None or after_account != account:
+                with _lock:
+                    _clear_unlocked()
+                return _account({
+                    "available": False,
+                    "error": ("Antigravity account changed during the usage "
+                              "read; the result was not cached"),
+                }, after)
             with _lock:
-                _cache.update(at=observed, data=data)
-            return _account(dict(data), status)
+                _cache.update(at=observed, data=data, account=account)
+            return _account(dict(data), after)
         except Exception as error:  # noqa: BLE001 - provider failures degrade the panel
             with _lock:
-                stale = _cache.get("data")
+                stale = _reconcile_unlocked(account)
             message = f"Antigravity usage refresh failed: {error}"
             if isinstance(stale, dict):
                 return _account({**stale, "error": message}, status)
@@ -358,4 +397,4 @@ def observe_wall(message: str, *, tier: str = "",
 def invalidate() -> None:
     """Clear cached usage evidence; the next modal/warm pass re-fetches it."""
     with _lock:
-        _cache.update(at=0.0, data=None)
+        _clear_unlocked()

@@ -49,6 +49,7 @@ _SAFE_MODELS: Final = {
     "fable", "opus", "sonnet", "haiku",
     "gpt-reserve", "sol", "terra", "luna", "flash", "pro",
 }
+_SAFE_GROUP: Final = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 
 
 def _iso(epoch: float) -> str:
@@ -128,12 +129,20 @@ def _percent(value: Any) -> tuple[float | None, str]:
     return number, shown + "%"
 
 
-def _window(limit: dict[str, Any]) -> str:
+def _window(limit: dict[str, Any], provider: str = "") -> str:
     raw = str(limit.get("kind") or "")
     kind = raw if raw in _WINDOW_ORDER else "provider_window"
     model = str(limit.get("model") or "").strip().lower()
     if model in _SAFE_MODELS:
         return f"{kind}:{model}"
+    # Antigravity publishes independent model-family buckets that may have
+    # identical percentages and reset times. Their stable bucket ids are the
+    # only safe identity left after provider labels are excluded from the
+    # prompt. Preserve a tightly bounded identifier so D-223's value dedupe
+    # cannot collapse two real quotas into one.
+    group = str(limit.get("group") or "").strip().lower()
+    if provider == "antigravity" and _SAFE_GROUP.fullmatch(group):
+        return f"{kind}:{group}"
     return kind
 
 
@@ -294,7 +303,7 @@ def _cached_rows(snapshot: dict[str, Any], provider: str, lane: str,
 
     normalized: list[tuple[str, float | None, str, str, bool, str]] = []
     for limit in limits_list:
-        window = _window(limit)
+        window = _window(limit, provider)
         pct, shown = _percent(limit.get("percent"))
         reset = _reset_cell(limit.get("resets_at"), now)
         normalized.append((window, pct, shown, reset,

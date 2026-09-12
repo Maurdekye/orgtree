@@ -43,10 +43,11 @@ from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
 from . import halt
-from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_limits, events,
-               codex_route, deployment, envelope, failfix, handoff, imgblock,
-               limits, localtime, net, openrouter, opreceipts, providers,
-               registry, sandbox as sbx, store,
+from . import (accounts, agentauth, antigravity_limits, appsettings,
+               cachecontinuity, clipin, codex_limits, events, codex_route,
+               deployment, envelope, failfix, handoff, imgblock, limits,
+               localtime, net, openrouter, opreceipts, providers, registry,
+               sandbox as sbx, store,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
