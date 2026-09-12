@@ -1628,7 +1628,8 @@ export interface AccountStanding {
  *  home) — the modal renders every row where it is false, so each registered
  *  account's standing appears exactly once. */
 export interface AccountRegistryRow {
-  /** Canonical displayed value accepted by every account selector. */
+  /** Compatibility API field: managed ID or provider/primary. The UI derives
+   * identity from id/ambient and email, never from a mutable name or label. */
   name?: string
   id: string
   provider: string
@@ -1686,6 +1687,8 @@ export interface TierStanding {
 export interface AccountUsage {
   account: string
   label: string
+  /** Observed login email. Older host payloads carried this in label. */
+  email?: string | null
   /** Present for a non-Claude provider section in the combined usage modal. */
   provider?: string
   available: boolean

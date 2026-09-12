@@ -84,7 +84,10 @@ def ambient_covered(row: dict[str, Any], primary: str,
 
 def canonical_name(row: dict[str, Any], primary: str,
                    ambient_paths: dict[str, str | None]) -> str:
-    """One displayed, selectable name. Mutable labels never choose billing."""
+    """Canonical API selector; UI primary is `default`, managed is this ID.
+
+    Legacy name/label fields never choose billing or change public identity.
+    """
     return (registry.primary_name(row["provider"])
             if ambient_covered(row, primary, ambient_paths) else str(row["id"]))
 
@@ -209,11 +212,11 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
 
 
 # ------------------------------------------------------------- board ordering
-def _row_rank(row: dict[str, Any]) -> tuple[int, str, str]:
-    """Provider order, then label, then id — deterministic for a board whose
-    byte-stability decides whether a turn re-sends it."""
+def _row_rank(row: dict[str, Any]) -> tuple[int, str]:
+    """Provider order, then immutable ID; ignored legacy labels cannot reorder
+    a board whose byte-stability decides whether a turn re-sends it."""
     return (PROVIDER_ORDER.get(str(row.get("provider") or ""), 90),
-            str(row.get("label") or ""), str(row.get("id") or ""))
+            str(row.get("id") or ""))
 
 
 def identity_of(row: dict[str, Any]) -> dict[str, str]:

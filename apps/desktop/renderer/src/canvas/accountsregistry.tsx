@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
 import { accountTint } from '../accounttint'
+import { accountDisplayId, accountIdentity } from '../accountidentity'
 import { THEMES } from '../themes'
 import { pickFolder } from '../picker'
 import { ProviderSignIn } from './accounts'
@@ -49,7 +50,7 @@ export function AccountRegistrySection({ provider, registry, toast }: {
     setBusy(row.id)
     try {
       const result = await req<{ auth: string }>(`/api/accounts/${row.id}/identity`)
-      toast([`${row.name || row.id}: ${result.auth}`])
+      toast([`${accountIdentity(accountDisplayId(row), row.identity?.email)}: ${result.auth}`])
       await registry.reload()
     } catch (e) { toast([e instanceof Error ? e.message : 'Could not refresh account']) }
     finally { setBusy(null) }
@@ -67,8 +68,7 @@ export function AccountRegistrySection({ provider, registry, toast }: {
       return <div key={row.id} className="account-row">
         <div className="account-identity">
           <span className="account-swatch" aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
-          <strong>{row.name || row.id}</strong>
-          <span className="dim">{row.identity.email || row.identity.account_digest || 'No identity yet'}</span>
+          <strong>{accountIdentity(accountDisplayId(row), row.identity?.email)}</strong>
           <span className="dim">{row.standing.auth === 'authenticated' ? 'Signed in' : row.standing.auth === 'unauthenticated' ? 'Sign-in required' : 'Sign-in not verified'}</span>
         </div>
         <div className="account-management">

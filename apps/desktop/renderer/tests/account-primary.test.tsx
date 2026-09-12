@@ -39,12 +39,21 @@ test(`operator selects primary ${registered ? 'from a secondary' : 'with an empt
     const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
     assert.ok(select)
     const primary = [...select.options].find(o => o.value === 'claude/primary')
-    assert.equal(primary?.textContent, primary?.value)
+    assert.equal(primary?.textContent, 'default · email unavailable')
     if (registered) assert.equal(select.value, 'claude-4')
     assert.ok(!select.textContent?.includes('old alias'))
     await inAct(async () => {
-      select.value = primary!.value
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      if (registered) {
+        assert.equal(select.disabled, false)
+        select.value = primary!.value
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      } else {
+        assert.equal(select.disabled, true)
+        const repair = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+          .find(b => b.textContent === 'Use default · email unavailable')!
+        assert.ok(repair, 'missing binding has an explicit recovery action')
+        repair.click()
+      }
     })
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
       .find(b => b.textContent?.trim() === 'save')!

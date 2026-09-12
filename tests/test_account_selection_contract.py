@@ -187,7 +187,7 @@ class AccountSelectionContract(unittest.TestCase):
                 text = schema_of(tool)['account']['description']
                 self.assertIn('account=', text)
                 self.assertIn('[PROVIDER USAGE]', text)
-                self.assertIn('canonical account name', text)
+                self.assertIn('immutable managed account ID', text)
                 self.assertIn('primary', text)
 
     def test_s1c_the_tool_cards_say_the_capability_exists(self):

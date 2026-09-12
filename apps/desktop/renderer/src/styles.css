@@ -6664,6 +6664,12 @@ html.mobile .popout-button { display: none; }
 .provider-accounts:empty{display:none}
 .account-row{padding:12px 0;border-top:1px solid var(--line)}
 .account-identity,.account-management{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.account-identity strong{min-width:0;max-width:100%;overflow-wrap:anywhere}
+/* Native options retain the full identity; the selected identity also wraps
+   below the compact control, including on touch where title is unavailable. */
+.account-choice{display:flex;flex-direction:column;gap:4px;width:min(30rem,100%);min-width:0;margin:6px 0}
+.account-choice select{width:100%;min-width:0;text-overflow:ellipsis}
+.account-choice-identity{overflow-wrap:anywhere;min-width:0}
 .account-management{margin-top:8px}
 .account-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
 .account-note{margin-top:8px}

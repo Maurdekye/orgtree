@@ -4205,6 +4205,10 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     # the alias the caller asked by, never the resolved row id — an existing
     # client that asked for `primary` must keep reading its own key back
     out["account"] = account_id
+    # Keep public identity independent of provider-native/legacy labels.
+    # `account` above retains the requested alias for old clients.
+    name = registry.account_name(row)
+    out.update(name=name, label=name)
     return out
 
 

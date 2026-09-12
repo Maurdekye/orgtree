@@ -90,11 +90,13 @@ TOOLS_SCHEMA: dict[str, Any] = {
 # it which account had capacity, and nothing told it how to place work there.
 # Exposing the field is the whole difference between guidance and an action.
 #
-# One public name is shown by the UI and board and accepted by every
-# selector. Keep this definition shared so a tool cannot teach a second name.
+# Managed IDs are shared by the UI and board. Primary's UI-only `default`
+# token is explained here so every selector teaches the same accepted value.
 _ACCOUNT_VALUE: str = (
-    "Pass the canonical account name shown in the UI and the `account=` "
-    "roster of [PROVIDER USAGE], for example `claude-4` or `openai/primary`. "
+    "Pass the immutable managed account ID or the provider/primary selector "
+    "from the `account=` roster of [PROVIDER USAGE], for example `claude-4` "
+    "or `openai/primary`. The UI shows `account-id · email`; its primary "
+    "display token `default` means provider/primary, never a new stored ID. "
     "The same value works on hire, rehire, retool and staff. `primary` is "
     "shorthand for the target tier's ambient account and clears an existing "
     "secondary binding. Qualified primary names must match the target "

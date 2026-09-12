@@ -178,18 +178,14 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
         doc["id_counters"][provider] = n
         t = int(doc["tint_counters"].get(provider, 0)) + 1
         doc["tint_counters"][provider] = t
-        # Display names are reusable; identity and tint counters are not.
-        # Choose under the same lock as insertion so concurrent creates cannot
-        # choose the same available name. Never renumber surviving accounts.
-        used_labels = {str(r.get("label", "")) for r in doc["accounts"]}
-        display_n = 0
-        while f"{provider}-{display_n}" in used_labels:
-            display_n += 1
+        # The immutable ID is the public name. Retain label only as ignored
+        # legacy storage for old registries/clients; never allocate a second
+        # sequence of display names or renumber surviving accounts.
         row = {
             "id": f"{provider}-{n}",
             "provider": provider,
             "harness": harness or DEFAULT_HARNESS[provider],
-            "label": str(label or f"{provider}-{display_n}"),
+            "label": str(label or f"{provider}-{n}"),
             "credential": credential,
             "identity": {},
             "auth": "unobserved",

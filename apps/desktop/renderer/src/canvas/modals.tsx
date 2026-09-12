@@ -30,6 +30,10 @@ import { ProcessLifecycleMark } from './desk'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { SetBlock, SetGroup, SetRow } from './settingskit'
 import { fmtStamp } from '../timefmt'
+import { AccountSelect } from './accountselect'
+import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
+import type { AccountChoiceRow } from '../accountidentity'
+import { registryProviderName } from '../registrylabels'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -277,7 +281,7 @@ interface HireDefaultsTabProps {
   servers?: string[]
   account?: string
   setAccount?: (v: string) => void
-  accounts?: { id: string; provider: string; label: string; name?: string; ambient?: boolean; standing?: { state: string } }[]
+  accounts?: AccountChoiceRow[]
 }
 
 /** the org's folder holdings as the server reports them, workspace excluded
@@ -336,9 +340,9 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   const [servers, setServers] = useState<string[]>(propServers ?? [])
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
-  const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string; name?: string; ambient?: boolean
-    standing?: { state: string } }[]>(propAccounts ?? [])
+  const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
+  const [browseProvider, setBrowseProvider] = useState('claude')
+  const selectedProvider = accountProvider(account ?? '', acctRows) ?? browseProvider
   useEffect(() => {
     if (propAccounts !== undefined) {
       setAcctRows(propAccounts)
@@ -487,23 +491,22 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
           </select>
         </SetRow>}
-        {!pub && <SetRow label="provider account for NEW agents"
+        {!pub && <SetBlock label="provider account for NEW agents"
           hint="existing agents keep theirs — change those in the agent's own ⚙">
-          <select value={acctRows.find((r) => r.id === account)?.name ?? account ?? ''}
-            aria-label="default provider account for new hires"
-            onChange={(e) => setAccount?.(e.target.value)}>
-            <option value="">(machine default)</option>
+          <select aria-label="Provider for default account" value={selectedProvider}
+            onChange={(e) => {
+              setBrowseProvider(e.target.value)
+              setAccount?.(primaryAccount(e.target.value))
+            }}>
             {['claude', 'openai', 'google'].map((provider) => (
-              <option key={provider} value={`${provider}/primary`}>{provider}/primary</option>
-            ))}
-            {acctRows.filter((r) => !r.ambient).map((r) => (
-              <option key={r.id} value={r.name || r.id}>
-                {r.name || r.id}{r.provider ? ` (${r.provider})` : ''}
-                {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
-              </option>
+              <option key={provider} value={provider}>{registryProviderName(provider)}</option>
             ))}
           </select>
-        </SetRow>}
+          <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
+            label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
+          {account ? <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>
+            : <div className="dim">Uses each hire's default account.</div>}
+        </SetBlock>}
       </SetGroup>
 
       {/* the ⚙ panel's own danger row. It is not a hire default, but that
@@ -543,7 +546,7 @@ interface DraftScopeModalProps {
   scope: DraftScope | null
   onSave: (scope: DraftScope) => void
   close: () => void
-  accounts?: { id: string; provider: string; label: string; name?: string; ambient?: boolean; standing?: { state: string } }[]
+  accounts?: AccountChoiceRow[]
 }
 
 /** item 12 — the "Prefer reserve" checkbox (user ruling 2026-09-04: "make
@@ -611,9 +614,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
-  const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string; name?: string; ambient?: boolean
-    standing?: { state: string } }[]>(propAccounts ?? [])
+  const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
   useEffect(() => {
     if (propAccounts !== undefined) {
       setAcctRows(propAccounts)
@@ -644,11 +645,11 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   }, [tree.slug, propAccounts])
 
   const targetProvider = providerOf(draft.tier)
-  const primaryAccount = `${targetProvider}/primary`
-  const orgAccount = tree.default_account === 'primary' ? primaryAccount : tree.default_account
+  const primaryValue = primaryAccount(targetProvider)
+  const orgAccount = tree.default_account === 'primary' ? primaryValue : tree.default_account
   const defaultAccountMatches = Boolean(
-    orgAccount && (orgAccount === primaryAccount ||
-      acctRows.some((r) => (r.id === orgAccount || r.name === orgAccount) && r.provider === targetProvider))
+    orgAccount && (orgAccount === primaryValue ||
+      acctRows.some((r) => r.id === orgAccount && r.provider === targetProvider))
   )
   const [acct, setAcct] = useState<string>(
     base.account !== undefined
@@ -656,7 +657,16 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
       : (defaultAccountMatches ? (orgAccount ?? '') : '')
   )
   const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
-  const selectedAccount = acctRows.find((r) => r.id === acct)?.name ?? acct
+  const selectedProvider = accountProvider(acct, acctRows)
+  const selectedAccount = selectedProvider && selectedProvider !== targetProvider
+    ? primaryValue : accountValue(acct, acctRows, targetProvider)
+  const previousProvider = useRef(targetProvider)
+  useEffect(() => {
+    if (previousProvider.current !== targetProvider) {
+      previousProvider.current = targetProvider
+      setAcct(defaultAccountMatches ? (orgAccount ?? '') : acct ? primaryValue : '')
+    }
+  }, [targetProvider, defaultAccountMatches, orgAccount, primaryValue, acct])
 
   useEffect(() => {
     if (!acctTouched && base.account === undefined) {
@@ -746,22 +756,14 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <PreferReserveRow checked={preferReserve} onChange={changePreferReserve} />
         )}
         <div className="field-label">account</div>
-        <select aria-label="Account" value={selectedAccount}
-          onChange={(e) => {
-            setAcct(e.target.value)
+        <AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount}
+          onChange={(value) => {
+            setAcct(value)
             setAcctTouched(true)
-          }}>
-          <option value="">(machine default)</option>
-          <option value={`${targetProvider}/primary`}>{targetProvider}/primary</option>
-          {acctRows
-            .filter((r) => !r.ambient && r.provider === targetProvider)
-            .map((r) => (
-              <option key={r.id} value={r.name || r.id}>
-                {r.name || r.id}
-                {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
-              </option>
-            ))}
-        </select>
+          }} />
+        {selectedAccount && <button type="button" onClick={() => {
+          setAcct(''); setAcctTouched(true)
+        }}>Use machine default</button>}
         <div className="hint">
           Grants clamp to what the parent holds (№30) — anything beyond its
           capability is trimmed at hire with a warning.
@@ -1010,10 +1012,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // multi-account (D5): the node's binding — chosen WITH a cross-provider
   // switch (atomic, backend-required) or reassigned on its own; disclosure
   // (billing/standing) surfaces in the toast at the point of action
-  const [acct, setAcct] = useState(node.account ?? '')
-  const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string; name?: string; ambient?: boolean
-    standing: { state: string } }[]>([])
+  const acct = val('account', node.account ?? '')
+  const setAcct = set<string>('account', acct)
+  const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>([])
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -1367,7 +1368,13 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             select can never lose its own value and silently switch the model
             on save (and so the panel never lies about what this agent is). */}
         <select className="model-switch" aria-label="model tier"
-          value={model} onChange={(e) => setModel(e.target.value)}>
+          value={model} onChange={(e) => {
+            const next = e.target.value
+            if (providerOf(next) !== providerOf(model)) setAcct(
+              acct && ['claude', 'openai', 'google'].includes(providerOf(next))
+                ? primaryAccount(providerOf(next)) : '')
+            setModel(next)
+          }}>
           {([['Claude', TIERS], ['Codex', CODEX_TIERS],
              ['Antigravity', ANTIGRAVITY_TIERS],
              // the OpenRouter favorites, from the registry the payload fills
@@ -1485,17 +1492,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               {node.account?.startsWith('missing:') &&
                 <span className="ask-warn"> — PARKED: {node.account}</span>}
             </div>
-            <select aria-label="Account" value={acctRows.find(r => r.id === acct)?.name || acct}
-              onChange={(e) => setAcct(e.target.value)}>
-              <option value="">(keep current)</option>
-              <option value={`${providerOf(model)}/primary`}>{providerOf(model)}/primary</option>
-              {acctRows
-                .filter((r) => !r.ambient && r.provider === providerOf(model))
-                .map((r) => <option key={r.id} value={r.name || r.id}>
-                  {r.name || r.id}
-                  {r.standing.state === 'limited' ? ' (limited — will wait)' : ''}
-                </option>)}
-            </select>
+            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct} onChange={setAcct} />
           </>
         )}
         <div className="field-label">Automatic account fallback</div>

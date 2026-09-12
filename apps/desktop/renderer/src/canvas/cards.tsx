@@ -1569,7 +1569,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="queued-mark" title={queuedSwitchTitle(node)}>
               →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-          <span className="name" title={node.account ? `${node.id}: account ${node.account_label || node.account}` : node.id}>{node.id}</span>
+          <span className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}

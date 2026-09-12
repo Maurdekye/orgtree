@@ -109,7 +109,7 @@ test('refresh queries stable account id but reports its displayed label', async 
   const { calls, notices } = await setup(t, [{ ...account('claude-4'), label: 'claude-0' }])
   await inAct(async () => { button(lane('claude'), 'refresh').click(); await flush() })
   assert.ok(calls.some(c => c.url === '/api/accounts/claude-4/identity'))
-  assert.deepEqual(notices, [['claude-4: unauthenticated']])
+  assert.deepEqual(notices, [['claude-4 · claude-4@example.test: unauthenticated']])
 })
 
  test('an unreadable account registry stays visible as an error and retry restores the provider rows', async t => {

@@ -41,7 +41,7 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
     assert.match(text, /Usage limits/)
     assert.doesNotMatch(text, /usage limits/)
     assert.match(text, /Claude Code/)
-    assert.match(text, /Codex · openai\/primary · codex@example\.test/)
+    assert.match(text, /Codex · codex@example\.test/)
     assert.match(text, /Codex Pro Lite/)
     assert.match(text, /GPT-Spark · 5 hours/)
     assert.match(text, /82%/)

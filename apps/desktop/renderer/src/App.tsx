@@ -27,6 +27,7 @@ import {
 } from './api'
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
+import { primaryEmail, usageIdentity } from './accountidentity'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -1707,15 +1708,14 @@ function UsageAcctHead({ label, parts, provider, state }: {
  *  plus the row's own label and identity so accounts never blur together.
  *  Each section is one account's independent read; nothing is summed
  *  across accounts. */
-function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
+function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; multiple: boolean }) {
   const state = useUsageReadout(
     (force) => getRegisteredAccountUsage(row.id, force))
   const u = state.value
   const provider = registryProviderName(row.provider)
-  const name = row.name || row.id
   return <div className="usage-acct" data-account={row.id}>
-    <UsageAcctHead label={provider} parts={[name, row.identity?.email]}
-      provider={name} state={state} />
+    <UsageAcctHead label={provider} parts={[usageIdentity(row.id, row.identity?.email, multiple)]}
+      provider={row.id} state={state} />
     {u
       ? <><UsageBars u={{ ...u, provider: registryPlanName(row.provider) }} />
         <StandingMarks standing={u.standing} /></>
@@ -1768,6 +1768,15 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     return () => { live = false; window.clearInterval(timer) }
   }, [])
   const registered = (registry ?? []).filter((r) => !r.ambient)
+  const multipleAccounts = (provider: string) =>
+    registered.filter(r => r.provider === provider).length
+      + (shown[provider as keyof typeof shown]
+        || registry?.some(r => r.provider === provider && r.ambient) ? 1 : 0) > 1
+  // Old Codex/Antigravity payloads put the observed email in `label`.
+  // A generic label or account digest is never presented as an email.
+  const hostEmail = (provider: string, value: AccountUsage | null) =>
+    value?.email || (value?.label?.includes('@') ? value.label : undefined)
+      || primaryEmail(registry ?? [], provider)
   return (
     <PinFrame kind="usage" title="Usage limits" panel="settings usage-modal"
       close={close}>
@@ -1782,7 +1791,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
           {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
-            <UsageAcctHead label="Claude Code" parts={["claude/primary", claude.value?.email]}
+            <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
+              claude.value?.email || primaryEmail(registry ?? [], 'claude'), multipleAccounts('claude'))]}
               provider="Claude" state={claude} />
             {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
                 only in App settings — shown exactly when the usage fetch
@@ -1796,7 +1806,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           </div>}
           {shown.openai && (codex.value || codex.failure || codex.pending) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
             <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
-              parts={["openai/primary", codex.value?.label]} provider="Codex" state={codex} />
+              parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
+              provider="Codex" state={codex} />
             {codex.value?.reauth_required && <ProviderSignIn provider="codex"
               connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
             {codex.value
@@ -1805,7 +1816,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           </div>}
           {shown.google && (agy.value || agy.failure || agy.pending) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
             <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
-              parts={["google/primary", agy.value?.label]} provider="Antigravity" state={agy} />
+              parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
+              provider="Antigravity" state={agy} />
             {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
                 visible terminal running the CLI's own interactive entry
                 point rather than the browser/in-app-code flow Claude and
@@ -1825,7 +1837,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
               ? <UsageBars u={orr.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
-          {registered.map((r) => <RegisteredAccountSection key={r.id} row={r} />)}
+          {registered.map((r) => <RegisteredAccountSection key={r.id} row={r} multiple={multipleAccounts(r.provider)} />)}
           {registryError && !registry && <div className="dim">
             registered accounts unavailable: {registryError}</div>}
           </div>}

@@ -209,6 +209,33 @@ are disclosed in the result/audit, with a safe summary retained in operation
 receipts. An account switch is a new cache namespace; publishing the updated
 managed instructions and tool definitions also changes their cached prefix.
 
+## 2026-09-12 — Account IDs, emails and the primary display exception
+
+The subsequent account-display decision supersedes the display naming above:
+managed accounts are identified by their exact immutable internal ID everywhere,
+with no separate mutable name. Account choices show `account-id · email`; the
+primary account's visible token is exactly `default`. Usage shows that full
+identity when the provider has multiple accounts and email alone when it has
+one. Missing email is shown as `email unavailable`, never an inferred address.
+
+Each account dropdown remains visible but is disabled when its selected
+provider has only one account choice. Provider changes recompute its options,
+selected value and disabled state. Hire Defaults separates the provider choice
+from the account choice so the same rule applies there. Explicit machine-default
+reset and missing-binding recovery actions retain the old binding semantics.
+
+This changes presentation, not canonical IDs or authentication. The primary
+option still submits `claude/primary`, `openai/primary` or `google/primary`;
+agents use those existing values or contextual `primary`. Managed options,
+agent instructions, usage rosters and receipts use immutable IDs. Historical
+`label`/`name` data remains stored for compatibility but cannot determine public
+identity, roster order or billing. No migration rewrites existing IDs, credential
+references, bindings, primary markers or session lineage. Newly allocated rows
+default their compatibility label to their ID instead of allocating another
+display-name sequence. Updating the managed instructions and tool descriptions
+changes the startup prefix when that update is delivered; the display change
+itself does not reset any account or session.
+
 ## 12 September 2026 — agent state-machine audit decisions
 
 Decided by the user on the state-audit report (presented document, 2026-09-12
