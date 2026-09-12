@@ -8,6 +8,10 @@ import { useNativeNotifications } from '../src/notifications'
 import { bumpLive } from '../src/livebus'
 import type { DesktopNotice } from '../src/notifications'
 import { NativeNotifications } from '../../main/notifications'
+import { JSDOM } from 'jsdom'
+import { AskCard } from '../src/canvas/asks'
+import { questionVisible } from '../src/notification-visibility'
+import type { AskInfo } from '../src/types'
 
 // exactly what is on the user's disk right now
 const LIVE_PREFS = {
@@ -195,4 +199,101 @@ test('REPRO: a work-attention row in the live projection reaches the OS', async 
     title: 'Some ticket', body: 'Confirm the edge case I chose.', agent: 'owner' }])
   console.log('attention probe delivered ->', shown)
   assert.deepEqual(shown, ['work-attention:work-cold'])
+})
+
+// ── THE CROSS-WINDOW CASE ────────────────────────────────────────────────────
+// Raised in independent review by notify-review, and it is a fair question:
+// the renderer now refuses to let an UNFOCUSED card suppress its own question,
+// but the main process still applies `notifyWhileFocused`, so with the main
+// window focused and the card sitting on a second monitor nothing toasts.
+//
+// That is not the defect this branch fixes, and the difference is the whole
+// point. The visibility bug DISCARDED the alert: it wrote the notice into
+// `seen` in localStorage and no later poll would ever raise it again. The
+// focus preference DEFERS it — `notify()` returns before `gate.take`, so
+// nothing is marked seen, and the moment the user leaves Orgtree the next
+// ordinary poll delivers it. One loses the request; the other holds it until
+// the user is somewhere it can be seen, which is what they asked the
+// preference for.
+//
+// Whether the question focus rule should ALSO override an explicitly chosen
+// `notifyWhileFocused` is a product decision the ticket does not settle, and
+// it is with the user. This test pins what the code does today either way, so
+// a change to that answer has to come with a deliberate edit here.
+const crossAsk = { id: 'q-cross', node: 'agent', kind: 'question', status: 'open',
+  question: 'Which lane should this run on?' } as AskInfo
+function geometry(el: HTMLElement) {
+  const rect = { left: 10, top: 10, right: 300, bottom: 200, width: 290, height: 190 }
+  el.getBoundingClientRect = () => rect as DOMRect
+  el.getClientRects = () => [rect] as unknown as DOMRectList
+}
+function stateFocus(doc: Document, value: boolean) {
+  Object.defineProperty(doc, 'hasFocus', { configurable: true, value: () => value })
+}
+
+test('CROSS-WINDOW: a card on a second monitor never silences its question, and the focus preference defers the alert rather than losing it', async () => {
+  localStorage.clear(); useFakeClock()
+  const original = globalThis.fetch
+  const shown: string[] = []
+  let appFocused = true                      // the user is in the MAIN window
+  const native = new NativeNotifications(
+    (data: DesktopNotice) => {
+      const listeners: Record<string, (() => void)[]> = {}
+      return {
+        on(event: string, fn: () => void) { (listeners[event] ??= []).push(fn) },
+        show() { shown.push(`${data.kind}:${data.id}`); for (const fn of listeners.show ?? []) fn() },
+        close() {},
+      }
+    },
+    () => {},
+    () => appFocused)
+  let emit: (event: { type: string; data: unknown }) => void = () => {}
+  const rows = projection([{ id: 'ask-cross', org: 'orgtree', kind: 'question', source_id: 'q-cross',
+    title: 'Question from a peer', body: 'Which lane should this run on?' }])
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
+    getPreferences: async () => ({ ...LIVE_PREFS }),
+    notify: (n: unknown) => native.notify(n, LIVE_PREFS),
+    syncNotifications: async (active: unknown) => native.sync(active),
+    onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
+  } })
+  globalThis.fetch = async () => ({ ok: true, headers: new Headers(), json: async () => ({
+    notices: rows, total: rows.length, truncated: false,
+    active: rows.map(({ org, id }) => ({ org, id })),
+  }) }) as unknown as Response
+  function View() {
+    useNativeNotifications(() => {})
+    return <AskCard ask={crossAsk} slug="orgtree" toast={() => {}} />
+  }
+  const v = await mountView(<View />, el => el)
+  const popout = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true })
+  try {
+    const card = v.el.querySelector<HTMLElement>('.askcard')!
+    const home = card.parentElement!     // React owns this node; put it back before unmount
+    geometry(card)
+    stateFocus(document, true)
+    // the card is moved to the popout on the second monitor, which is open and
+    // uncovered but is NOT the window the user is typing in
+    popout.window.document.body.appendChild(popout.window.document.adoptNode(card))
+    geometry(card)
+    stateFocus(popout.window.document as unknown as Document, false)
+    assert.equal(questionVisible('orgtree', 'q-cross'), false,
+      'a card in a window the user is not in has reached nobody, so it must not suppress anything')
+
+    await inAct(async () => { await flush(20) })
+    await inAct(async () => { emit({ type: 'notification-poll', data: null }); await flush(20) })
+    assert.deepEqual(shown, [],
+      'the user is inside Orgtree and chose notifyWhileFocused=false, so nothing interrupts them there')
+
+    // THE POINT: the request was not consumed. Leaving Orgtree delivers it on
+    // the very next ordinary poll — no restart, no new event, nothing lost.
+    appFocused = false
+    await inAct(async () => { emit({ type: 'notification-poll', data: null }); await flush(20) })
+    assert.deepEqual(shown, ['question:ask-cross'],
+      'the focus preference defers the alert; the visibility bug this branch fixes DISCARDED it')
+    home.appendChild(document.adoptNode(card))
+  } finally {
+    await v.unmount(); globalThis.fetch = original
+    Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true })
+    realClock()
+  }
 })
