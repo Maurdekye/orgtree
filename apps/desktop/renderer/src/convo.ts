@@ -1239,9 +1239,19 @@ export function resetConvos(): void {
     e.inflightAt = 0
     e.fetchedAt = 0
     e.installed = 0
+    // Invalidate every callback that belongs to the conversation being
+    // discarded.  A reset is used for org switches and reconnect/remount
+    // recovery; a page response from the old snapshot must not install into
+    // the new one or leave its history-flight latch set forever.
+    e.ownerVersion++
+    e.requestSerial++
+    e.pageInFlight = false
+    e.pendingCollapse = false
+    e.pendingKeep = undefined
     e.dirty = false
     e.assistantRows.clear()
     e.assistantNative.clear()
+    e.committedRows.clear()
     e.s = BLANK
     e.subs.forEach((cb) => cb())
   })

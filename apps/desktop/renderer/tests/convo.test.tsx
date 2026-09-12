@@ -909,6 +909,43 @@ convoTest('§5.1 resetConvos leaves a still-mounted view polling',
     assert.equal(d.now().chat?.messages.length, 2, 'and converged on the server again')
   })
 
+convoTest('§5.1b resetConvos releases a delayed history page for a remount',
+  async ({ SL, ND, s, desk }) => {
+    // A reconnect/org reset can arrive while the reader is paging. The old
+    // response belongs to the discarded snapshot and must neither repopulate
+    // it nor leave pageInFlight/loadingOlder blocking the next visit.
+    s.cursorPages = true
+    for (let i = 0; i < 16; i++) s.assistantMsg(`history ${i}`)
+    const d = await desk()
+    await advance(3000)
+    assert.equal(d.now().chat?.messages.length, CHAT_WINDOW)
+
+    const transport = installFetch(s)
+    transport.holdAll = true
+    await inAct(() => { assert.equal(loadOlder(SL, ND, 8), true) })
+    await flush()
+    assert.equal(d.now().loadingOlder, true, 'fixture: history page is in flight')
+
+    await d.unmount()
+    await inAct(() => { resetConvos() })
+    // Simulate the old request being abandoned by a reconnect. It never
+    // settles, so only resetConvos can release its page latch.
+    transport.held.length = 0
+    transport.holdAll = false
+    const remounted = await desk()
+    await advance(3000)
+    assert.equal(remounted.now().loaded, true, 'remount/reload fetched a fresh tail')
+    assert.equal(remounted.now().loadingOlder, false,
+      'an abandoned old page did not mark the fresh tail as loading')
+
+    await inAct(() => { assert.equal(loadOlder(SL, ND, 8), true,
+      'the reset did not leave history paging wedged') })
+    await flush(10)
+    assert.equal(remounted.now().loadingOlder, false, 'the new page settled')
+    assert.equal(remounted.now().chat?.messages.some((row) => row.text === 'history 0'), true,
+      'older history remains available after reset')
+  })
+
 convoTest('§5.2 a delayed pre-rename response cannot overwrite the renamed or reused Entry',
   async ({ SL, ND, s, desk, deskFor }) => {
     // First load a real current snapshot into A. The held response below is a
