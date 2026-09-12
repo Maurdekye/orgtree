@@ -3163,9 +3163,12 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
     if kind not in {'draft', 'delta', 'thinking', 'thinking_start', 'thought', 'starting', 'error'}:
         return payload
     from . import reply_events
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        reply_events.incarnation(org,nid)
+    # identity() is save-seq-cached: after the first delta of a session this
+    # is a dict lookup — no DOC_LOCK, no document load. The old form here
+    # (DOC_LOCK + load_org per delta, 67 ms at 449 nodes) was the app's
+    # single largest turn-time cost and saturated the lock at 4 concurrent
+    # streams (REPORT.md #1).
+    scope, generation = reply_events.identity(slug, nid)
     st = state(slug, nid)
     group = 'draft' if kind in {'draft', 'delta'} else 'thinking' if kind in {'thinking','thinking_start','thought'} else kind
     epoch = draft_epoch(slug, nid)
@@ -3179,7 +3182,8 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
         if kind in {'delta', 'thinking'}:
             text = str(previous.get('text') or '') + text
         text = text[-4000:]
-        eid = reply_events.remember(org, nid, f'{epoch}:{group}', kind, text)
+        eid = reply_events.remember_ident(slug, nid, scope, generation,
+                                          f'{epoch}:{group}', kind, text)
         rows[group] = {'kind':kind, 'role':'system' if kind in {'starting','error'} else 'assistant',
                        'text':text, 'event_id':eid}
     return {**payload, 'event_id':eid, 'reply_quote':text}
@@ -16233,6 +16237,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             turn_out = 0        # cumulative output tokens (killed-turn accounting)
             last_cache_usage = {}
             dbuf, dlast = "", time.time()   # token-stream delta batcher (~8 Hz)
+            tdbuf, tdlast = "", time.time()  # thinking-delta batcher, same floor
             think_t0, think_buf = 0.0, ""   # the in-progress thought
             # record uuids of the thinking frames this thought was written
             # from, oldest first — spent by `fold_thought`
@@ -16285,13 +16290,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 """The thinking block ended because output began: bank it as a
                 live row. Server-side because the server sees both the opening
                 and what followed — the client only ever inferred it."""
-                nonlocal think_t0, think_buf, think_ids
+                nonlocal think_t0, think_buf, think_ids, tdbuf
                 if not think_t0:
                     # a SEALED think produced no live row, so the ids it
                     # collected belong to nothing and must not be spent on
                     # whatever thought comes next
                     think_ids = []
                     return
+                if tdbuf:
+                    # the ribbon's unflushed tail — send it before the folded
+                    # row supersedes the transient, or the last words of a
+                    # thought never reach the live view
+                    stream(slug, nid, {"kind": "thinking", "text": tdbuf[:2000]})
+                    tdbuf = ""
                 secs = max(1, round(time.time() - think_t0))
                 text, think_t0, think_buf = think_buf, 0.0, ""
                 # the FIRST thinking record of this thought. read_chat merges
@@ -16543,11 +16554,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 dbuf, dlast = "", time.time()
                         elif d.get("type") == "thinking_delta" and d.get("thinking"):
                             # №18 (live-only, never persisted): a dimmed
-                            # italic ribbon above the growing draft
+                            # italic ribbon above the growing draft.
+                            # Batched to the same ~8 Hz / 400-char floor as
+                            # text deltas: these used to stream one ws frame
+                            # AND one capture per provider delta, which made
+                            # a thinking-heavy turn the fastest caller of
+                            # capture_reply_stream in the app (REPORT.md #1).
                             think_t0 = think_t0 or time.time()
                             think_buf = (think_buf + d["thinking"])[-24000:]
-                            stream(slug, nid, {"kind": "thinking",
-                                               "text": d["thinking"][:400]})
+                            tdbuf += d["thinking"]
+                            if len(tdbuf) >= 400 or time.time() - tdlast >= 0.12:
+                                stream(slug, nid, {"kind": "thinking",
+                                                   "text": tdbuf[:2000]})
+                                tdbuf, tdlast = "", time.time()
                         continue
                     if (ev.get("type") == "system"
                             and ev.get("subtype") == "local_command"):
@@ -16721,6 +16740,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         sub = ev.get("parent_tool_use_id")
                         if not sub:
                             dbuf = ""   # the full message supersedes the draft
+                            tdbuf = ""  # …and the folded thought its ribbon
                             # PROOF OF LIFE, for _died_in_flight. Top-level
                             # only — and that is not a limitation: the model
                             # has to emit the Task tool call before a subagent
