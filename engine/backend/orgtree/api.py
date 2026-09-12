@@ -2008,6 +2008,14 @@ def _tree_build_lock(key: tuple[str, bool]) -> threading.Lock:
         return lock
 
 
+#: bumped by every patch-frame drop, and PART OF THE VALIDATOR (perf-review
+#: round 2): a drop that leaves the ETag unchanged still answers 304 to a
+#: client holding the pre-patch tag — a reconnecting client that missed the
+#: ws frame would stay stale for the whole bucket. With the revision inside
+#: the tag, a drop retires every outstanding tag at once.
+_tree_inval_rev: dict[str, int] = {}
+
+
 def _tree_cache_drop(slug: str) -> None:
     """A ws patch frame (cache forecast, MCP counts) just changed what
     clients render in place. The cached body predates the patch, so a
@@ -2015,15 +2023,19 @@ def _tree_cache_drop(slug: str) -> None:
     (perf-review round 1: dropping only the CLIENT cache let the next 200
     serve stale values for up to the bucket)."""
     with _tree_cache_lock:
+        _tree_inval_rev[slug] = _tree_inval_rev.get(slug, 0) + 1
         _tree_cache.pop((slug, True), None)
         _tree_cache.pop((slug, False), None)
 
 
 def _tree_etag(slug: str) -> str:
+    with _tree_cache_lock:
+        inval = _tree_inval_rev.get(slug, 0)
     parts = (store.org_seq(slug),
              supervisor.tree_state_fingerprint(slug),
              float(limits._cache.get("at") or 0.0),
              repr(supervisor.primed_restart()),
+             inval,
              int(time.time() // _TREE_STALE_BUCKET_S))
     return '"t' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
 
@@ -2052,11 +2064,19 @@ def org_tree(slug: str, request: Request,
         # answer from its build instead of making a second one
         with _tree_cache_lock:
             hit = _tree_cache.get(key)
+            rev_before = _tree_inval_rev.get(slug, 0)
         if hit is not None and hit[0] == etag:
             return hit[1]
         tree = _org_view(slug, request, None)
         with _tree_cache_lock:
-            _tree_cache[key] = (etag, tree)
+            if _tree_inval_rev.get(slug, 0) == rev_before:
+                # GUARDED PUBLICATION (perf-review round 2): a patch frame
+                # that landed DURING this build already dropped the cache —
+                # publishing our pre-patch build would silently undo that
+                # drop. The build still answers THIS request (its etag is
+                # already retired by the rev bump, so no one can 304 onto
+                # it); it just never enters the cache.
+                _tree_cache[key] = (etag, tree)
     return tree
 
 
