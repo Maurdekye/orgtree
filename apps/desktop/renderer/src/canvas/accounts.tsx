@@ -114,7 +114,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   // no standing to show, which would otherwise render as a blank modal.
   if (u.unsupported) {
     return <div className="acct-unsupported">{u.error
-      ?? 'usage limits are not available for this kind of key'}</div>
+      ?? 'usage is not available for this kind of key'}</div>
   }
   if (!u.available) {
     return <div className="dim">{u.error ?? 'usage unavailable'}</div>

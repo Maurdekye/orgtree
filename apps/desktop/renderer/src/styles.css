@@ -3145,7 +3145,13 @@ main.solo { width: 100%; }
   /* no horizontal scrollbar, ever — wide children shrink or ellipsize */
   overflow-x: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 22px 26px; display: flex; flex-direction: column; gap: 14px;
+  /* ⚠ THE PADDING IS PUBLISHED, not just applied. The window title bar
+     (`.modalpin-bar.on` / `.detached`) is a child of this panel and has to
+     cancel exactly this padding to sit flush at the window's edge; a custom
+     property inherits down to it, so the two cannot drift apart the way two
+     hand-copied numbers can. */
+  --panel-pad-y: 22px; --panel-pad-x: 26px;
+  padding: var(--panel-pad-y) var(--panel-pad-x); display: flex; flex-direction: column; gap: 14px;
   box-shadow: var(--shadow);
   font-size: 14.5px;   /* screen-space panel — never inherits desk world-sizing */
   line-height: 1.55;
@@ -4532,7 +4538,9 @@ svg.MuiSvgIcon-root {
 /* Whole agents list surface: PinFrame supplies the shared pin/popout chrome. */
 .tray-panel {
   display: flex; flex-direction: column; min-width: 200px; max-width: 280px;
-  max-height: calc(100vh - 40px); padding: 4px;
+  /* published for the title bar inside it — see `.settings` */
+  --panel-pad-y: 4px; --panel-pad-x: 4px;
+  max-height: calc(100vh - 40px); padding: var(--panel-pad-y) var(--panel-pad-x);
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   box-shadow: var(--shadow);
 }
@@ -4562,7 +4570,10 @@ svg.MuiSvgIcon-root {
    of this. */
 .tray-wrap .surface-inline { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
 .surface-inline > .tray-panel { min-height: 0; max-height: 100%; }
-.tray-panel > .modalpin-bar:not(.on) { margin: 0 0 3px; }
+/* `:not(.detached)` as well as `:not(.on)`: in a window of its own the bar is
+   that window's title bar and keeps the flush-to-the-edge geometry every
+   other surface's title bar has. */
+.tray-panel > .modalpin-bar:not(.on):not(.detached) { margin: 0 0 3px; }
 .tray-row {
   display: flex; align-items: center; gap: 8px;
   padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;
@@ -6262,7 +6273,9 @@ label.set-row { cursor: pointer; }
   /* the centred box's caps are for a centred box; a window is sized by its
      inline rect and its own min floor (PIN_MIN_W/H, shared with agent pins) */
   max-width: none; max-height: none; min-width: 320px; min-height: 240px;
-  padding: 8px 10px; gap: 10px; border-radius: 6px;
+  /* published for the title bar inside it — see `.settings` */
+  --panel-pad-y: 8px; --panel-pad-x: 10px;
+  padding: var(--panel-pad-y) var(--panel-pad-x); gap: 10px; border-radius: 6px;
   box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
     0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
@@ -6278,20 +6291,39 @@ label.set-row { cursor: pointer; }
   margin: -14px -14px -14px auto; font-size: 15px;
   user-select: none; -webkit-user-select: none;
 }
-.modalpin-bar.on {
-  /* sticky, not fixed-in-flow: `.settings` is the scroll container, and a
+/* THE TITLE BAR OF A WINDOW — pinned to the main window (`.on`) or popped out
+   into a frameless one of its own (`.detached`). The same bar in both, because
+   it is the same thing in both: the surface's name at the left, its controls
+   at the right, and everything between them a handle to move the window by.
+   ⚠ DETACHED USED TO HAVE NO HANDLE AT ALL. Unpinned, `.modalpin-bar` is
+   `margin-left: auto` — a button cluster in the panel's top-right padding. In
+   a real popped-out window at 750×720 that measured 46px wide with every
+   pixel of it an excluded control (`-webkit-app-region: no-drag`), so the
+   window could not be moved, while a popped-out desk's 884px header moved its
+   window fine. Full width is the fix; the drag region itself was already
+   right (see `.popout-mount` below). */
+.modalpin-bar.on, .modalpin-bar.detached {
+  /* sticky, not fixed-in-flow: the panel is the scroll container, and a
      title bar that scrolled away would take the window's drag handle with it */
-  /* ⚠ top: -8px, NOT 0. A sticky element's offset is measured from the
-     scroll container's CONTENT box, so `top: 0` parks the bar 8px (this
-     panel's padding) below the window's edge as soon as it scrolls —
-     measured in Edge, 63px against a window at 54px. -8px cancels the
-     padding, the same distance the negative margin above already takes
-     out of its resting position. */
-  position: sticky; top: -8px; z-index: 6; margin: -8px -10px 0;
+  /* ⚠ top: NOT 0. A sticky element's offset is measured from the scroll
+     container's CONTENT box, so `top: 0` parks the bar the panel's own
+     padding below the window's edge as soon as it scrolls — measured in Edge,
+     63px against a window at 54px. Cancelling the padding is the same
+     distance the negative margin below takes out of its resting position, and
+     both read it from the panel itself (`--panel-pad-*`) rather than
+     repeating a number that can drift. */
+  position: sticky; top: calc(-1 * var(--panel-pad-y, 8px)); z-index: 6;
+  margin: calc(-1 * var(--panel-pad-y, 8px)) calc(-1 * var(--panel-pad-x, 10px)) 0;
   padding: 0 4px 0 8px; height: 26px; font-size: 13px;
   background: var(--panel-2, var(--panel));
-  border-bottom: 1px solid var(--line); cursor: grab; touch-action: none;
+  border-bottom: 1px solid var(--line);
 }
+/* the pinned window is moved by THIS document's pointer handlers, so it says
+   so with the cursor and takes the gesture off the browser's touch scrolling.
+   A detached window is moved by the native drag region instead: no pointer
+   handler runs, and `touch-action` there would only fight the panel's own
+   scrolling. */
+.modalpin-bar.on { cursor: grab; touch-action: none; }
 .modalpin-bar.on:active { cursor: grabbing; }
 /* Pinned surfaces can overlap the frameless app header. Keep the whole
    surface out of Electron's native drag region so pointer gestures reach
@@ -6327,16 +6359,19 @@ label.set-row { cursor: pointer; }
 .modalpin-rs.sw { bottom: -16px; left: -16px; cursor: nesw-resize; }
 .modalpin-rs.nw { top: -16px; left: -16px; cursor: nwse-resize; }
 .modalpin-rs.se { bottom: -16px; right: -16px; cursor: nwse-resize; }
-/* ONE TITLE, NOT TWO (Astra 2026-09-06). A pinned window names itself in its
-   title bar, and every one of these panels also opens with its own <h3> saying
-   the same words — so pinned, the panel's own title heading stands down.
+/* ONE TITLE, NOT TWO (Astra 2026-09-06). A window names itself in its title
+   bar, and every one of these panels also opens with its own <h3> saying the
+   same words — so in a window, the panel's own title heading stands down.
+   ⚠ BOTH WINDOW MODES, not just pinned: `.modalpin-detached` is the same
+   panel popped out into a frameless window of its own, where the bar is now
+   that window's title bar and carries the name for it.
    ⚠ `> h3:first-of-type`, NOT `h3`: this must hit the SURFACE'S OWN title and
    nothing else. A descendant h3 inside the panel's content is somebody else's
    heading and stays exactly where it is.
    ⚠ The semantics do not vanish with it — `.modalpin-name` in the title bar
    carries role="heading" aria-level="3" in this mode, so the window still has
    exactly one heading, in both the picture and the accessibility tree. */
-.modalpin-win > h3:first-of-type { display: none; }
+:is(.modalpin-win, .modalpin-detached) > h3:first-of-type { display: none; }
 /* ⚠ THAT RULE IS A CHILD COMBINATOR AND THREE SURFACES KEEP THEIR TITLE ONE
    LEVEL DEEPER, inside a header ROW that also carries controls — so it never
    reached them and they said their name twice while pinned (browser-measured
@@ -6346,18 +6381,18 @@ label.set-row { cursor: pointer; }
    ⚠ EACH OWNING HEADER IS LISTED EXPLICITLY. NOT `.modalpin-win h3`, which
    would take every heading in the panel's content with it — a descendant
    heading belongs to somebody else and stays (Astra 2026-09-06). */
-.modalpin-win > .gallery-head > h3,
-.modalpin-win > .doc-reader-head > .doc-reader-title { display: none; }
+:is(.modalpin-win, .modalpin-detached) > .gallery-head > h3,
+:is(.modalpin-win, .modalpin-detached) > .doc-reader-head > .doc-reader-title { display: none; }
 /* the gallery's header row is `space-between` over exactly two children, so
    with the heading gone its show-retired checkbox would slide to the LEFT.
    The user asked for that control at the far right (2026-09-05, confirmed by
    a measurement) — this is what keeps it there. The docket's own row holds its
    controls right with an explicit `.spacer`, so it needs nothing here. */
-.modalpin-win.gallery-modal > .gallery-head { justify-content: flex-end; }
+:is(.modalpin-win, .modalpin-detached).gallery-modal > .gallery-head { justify-content: flex-end; }
 /* the reader's "· node · time" trails its title, so its leading separator is
    part of the title and goes with it; the node and the time are not a title
    and stay. */
-.modalpin-win > .doc-reader-head > .doc-reader-meta > .doc-reader-sep {
+:is(.modalpin-win, .modalpin-detached) > .doc-reader-head > .doc-reader-meta > .doc-reader-sep {
   display: none;
 }
 /* the explanatory line some panels used to keep INSIDE that h3 (the default
@@ -6368,7 +6403,7 @@ label.set-row { cursor: pointer; }
 /* the agent config panel's lifecycle mark moved out of its h3 with the rest of
    this text; it keeps the spacing it had in there (`.settings h3 .proc-mark`) */
 .modalpin-subtitle .proc-mark { margin: 0 4px; }
-.modalpin-win > .modalpin-subtitle:first-child { margin-top: 2px; }
+:is(.modalpin-win, .modalpin-detached) > .modalpin-subtitle:first-child { margin-top: 2px; }
 /* a dialog raised from inside a pinned window, portaled to <body> by
    ModalOverPins. Centred it must sit ABOVE the pinned band (21-29) — a dialog
    that opened BEHIND the window that raised it is the same defect as a dialog
@@ -6389,12 +6424,12 @@ html.mobile .modalpin-bar { display: none; }
 /* ...and with no bar there is no other title, so the panel's own heading must
    not be hidden either. (Belt and braces: `modalPinsAvailable` already stops
    `.modalpin-win` appearing there.) */
-html.mobile .modalpin-win > h3:first-of-type,
-html.mobile .modalpin-win > .gallery-head > h3,
-html.mobile .modalpin-win > .doc-reader-head > .doc-reader-title,
-html.mobile .modalpin-win > .doc-reader-head > .doc-reader-meta
+html.mobile :is(.modalpin-win, .modalpin-detached) > h3:first-of-type,
+html.mobile :is(.modalpin-win, .modalpin-detached) > .gallery-head > h3,
+html.mobile :is(.modalpin-win, .modalpin-detached) > .doc-reader-head > .doc-reader-title,
+html.mobile :is(.modalpin-win, .modalpin-detached) > .doc-reader-head > .doc-reader-meta
   > .doc-reader-sep { display: revert; }
-html.mobile .modalpin-win.gallery-modal > .gallery-head {
+html.mobile :is(.modalpin-win, .modalpin-detached).gallery-modal > .gallery-head {
   justify-content: space-between;
 }
 

@@ -417,8 +417,8 @@ test('§5 the usage modal drops the Codex block on a Codex-less machine',
   async () => {
     const text = await usageModal({ providers: [
       ON('claude'), ABSENT('openai'), ABSENT('google')] })
-    assert.ok(text.includes('Usage limits'))
-    assert.ok(!text.includes('usage limits'))
+    assert.ok(text.includes('Usage'))
+    assert.ok(!text.includes('Usage limits'), 'the surface is called "Usage" (user, 2026-09-12)')
     assert.ok(text.includes('Claude Code'), 'Claude bars still render')
     assert.ok(!text.includes('Codex'),
       'a "Codex" heading over "not installed" is an advertisement, not a bar')
@@ -433,15 +433,15 @@ test('§5 …and keeps it when Codex is installed', async () => {
 
 test('§5 usageTitle names only the providers present', () => {
   assert.equal(usageTitle(ALL_PRESENT),
-    'usage limits — Claude, Codex and Antigravity')
+    'usage — Claude, Codex and Antigravity')
   assert.equal(usageTitle({ claude: true, openai: false, google: false, openrouter: false }),
-    'usage limits — Claude')
+    'usage — Claude')
   assert.equal(usageTitle({ claude: false, openai: true, google: false, openrouter: false }),
-    'usage limits — Codex')
+    'usage — Codex')
   // no dangling "— " when neither is present
   assert.equal(usageTitle({ claude: false, openai: false, google: false, openrouter: false }),
-    'usage limits')
+    'usage')
   // Antigravity now has the same real usage surface as the other two lanes.
   assert.equal(usageTitle({ claude: true, openai: false, google: true, openrouter: false }),
-    'usage limits — Claude and Antigravity')
+    'usage — Claude and Antigravity')
 })

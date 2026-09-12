@@ -672,7 +672,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
       {/* ⚠ SAME ELEMENT, SAME CHILDREN, IN BOTH MODES — see the header. Only
           the class list and the inline rect change, so React keeps the whole
           subtree mounted across a pin, an unpin, a drag and a resize. */}
-      <div ref={panelRef} role={dialogLabel ? (inPlace ? "region" : "dialog") : undefined} aria-label={dialogLabel} className={panel + (pinned ? ' modalpin-win' : '')}
+      <div ref={panelRef} role={dialogLabel ? (inPlace ? "region" : "dialog") : undefined} aria-label={dialogLabel}
+        className={panel + (pinned ? ' modalpin-win' : '') + (detached ? ' modalpin-detached' : '')}
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
@@ -682,10 +683,21 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
         onClickCapture={pinned ? e => {
           if (!contextMenuBelongsTo(e.target, e.currentTarget)) raisePinnedModal(kind, orgScope)
         } : undefined}>
-        <div className={'modalpin-bar' + (pinned ? ' on' : '')} data-copy-agent-name={restore?.agent}
+        {/* ⚠ DETACHED, THIS BAR IS THE WINDOW'S ONLY TITLE BAR. A popped-out
+            surface has no native frame, so `.popout-mount` puts this bar into
+            the native move gesture — but an UNPINNED bar is `margin-left:
+            auto`, a button cluster tucked into the panel's top-right padding.
+            Measured in a real popped-out window at 750×720 it was 46px wide
+            with every pixel of it an excluded control, which is exactly why a
+            popped-out modal could not be moved at all while a popped-out
+            desk (an 884px header) moved fine. Detached it takes the title bar
+            a pinned window already has: the surface's name, the full width,
+            and the panel's own duplicate heading stood down. */}
+        <div className={'modalpin-bar' + (pinned ? ' on' : '') + (detached ? ' detached' : '')}
+          data-copy-agent-name={restore?.agent}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'
-            : undefined}
+            : detached ? 'drag to move this window' : undefined}
           onPointerDown={pinned && rect
             ? (e) => begin(e, { kind: 'move', sx: e.clientX, sy: e.clientY, o: rect })
             : undefined}
@@ -695,11 +707,13 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           onLostPointerCapture={pinned ? cancel : undefined}
           onContextMenu={(e) => menu.open(e, barMenu)}>
           {menu.node}
-          {pinned && <>
-            <PushPinIcon fontSize="inherit" className="modalpin-glyph" />
-            {/* ⚠ THIS IS THE SURFACE'S HEADING WHILE PINNED, not decoration.
-                The panel's own <h3> is hidden by CSS in this mode (one title,
-                not two — Astra 2026-09-06), so if this span carried no
+          {/* the push-pin says PINNED, so it belongs to that mode alone; a
+              detached window is not pinned to anything. */}
+          {pinned && <PushPinIcon fontSize="inherit" className="modalpin-glyph" />}
+          {(pinned || detached) && <>
+            {/* ⚠ THIS IS THE SURFACE'S HEADING IN BOTH WINDOW MODES, not
+                decoration. The panel's own <h3> is hidden by CSS in both (one
+                title, not two — Astra 2026-09-06), so if this span carried no
                 semantics the window would have no heading at all for a screen
                 reader. `aria-level` 3 is the level the hidden h3 had. */}
             <span className="modalpin-name" role="heading" aria-level={3}>

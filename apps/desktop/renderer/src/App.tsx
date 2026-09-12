@@ -174,18 +174,22 @@ export const patchMcpReadinessNode = (
  *  which is a Codex mention on a machine that has never had Codex. Name the
  *  shown subset of subscription providers that expose real usage bars.
  *
- *  Falls back to the bare "usage limits" rather than an empty tail if neither
- *  is present — a state that only arises with Claude itself missing, where
- *  the button is nearly moot anyway and a dangling "usage limits — " would be
- *  the more visible defect. */
+ *  Falls back to the bare "usage" rather than an empty tail if neither is
+ *  present — a state that only arises with Claude itself missing, where the
+ *  button is nearly moot anyway and a dangling "usage — " would be the more
+ *  visible defect.
+ *
+ *  ⚠ THE SURFACE IS CALLED "Usage" (user, 2026-09-12), not "Usage limits":
+ *  this button, the window's title bar and the panel's own heading all say
+ *  the one word. The limits are what it SHOWS, not what it is. */
 export const usageTitle = (pres: ProviderPresence): string => {
   const names = [pres.claude && 'Claude', pres.openai && 'Codex',
     pres.google && 'Antigravity']
     .filter((s): s is string => !!s)
-  if (!names.length) return 'usage limits'
+  if (!names.length) return 'usage'
   const label = names.length === 1 ? names[0]
     : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
-  return `usage limits — ${label}`
+  return `usage — ${label}`
 }
 
 /** The activity chip is scoped to the current tree, but its tooltip answers
@@ -1750,9 +1754,9 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
     value?.email || (value?.label?.includes('@') ? value.label : undefined)
       || primaryEmail(registry ?? [], provider, hostIdentity)
   return (
-    <PinFrame kind="usage" title="Usage limits" panel="settings usage-modal"
+    <PinFrame kind="usage" title="Usage" panel="settings usage-modal"
       close={close}>
-        <h3><DataUsageIcon fontSize="inherit" /> Usage limits</h3>
+        <h3><DataUsageIcon fontSize="inherit" /> Usage</h3>
         {/* the codex half only counts toward "still loading" while it is a
             half this machine has — otherwise a Codex-less box would skip the
             spinner and show a blank modal until the Claude bars land */}

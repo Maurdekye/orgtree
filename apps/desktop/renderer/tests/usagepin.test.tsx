@@ -1,4 +1,4 @@
-// usagepin.test.tsx — the Usage-limits modal's pin/popout eligibility is
+// usagepin.test.tsx — the Usage modal's pin/popout eligibility is
 // CONTEXT-SENSITIVE (user correction 2026-09-10 14:19): it is the same modal
 // everywhere, but with an org open it pins and pops out like any org
 // surface, saved independently per org; at home (no org) only pin/popout
@@ -29,8 +29,8 @@ async function mountUsage(org: string | null, tail: { unmount: () => Promise<voi
   })
   const node: ReactNode = (
     <CurrentOrg.Provider value={org}>
-      <PinFrame kind="usage" title="Usage limits" panel="settings usage-modal" close={noop}>
-        <h3>Usage limits</h3>
+      <PinFrame kind="usage" title="Usage" panel="settings usage-modal" close={noop}>
+        <h3>Usage</h3>
       </PinFrame>
     </CurrentOrg.Provider>
   )
@@ -77,14 +77,14 @@ rig('with an org open, usage pins like any org surface — and per THAT org', as
   assert.equal(isModalPinned('usage', 'alpha'), true, 'pinned under the open org')
   assert.equal(isModalPinned('usage', 'beta'), false, 'not under another org')
   assert.equal(isModalPinned('usage', null), false, 'and not under the old global scope')
-  assert.equal(q('.modalpin-name')?.textContent, 'Usage limits')
-  assert.notEqual(q('.modalpin-name')?.textContent, 'usage limits')
+  assert.equal(q('.modalpin-name')?.textContent, 'Usage')
+  assert.notEqual(q('.modalpin-name')?.textContent, 'usage')
 })
 
 rig('at home the same modal opens but offers neither pin nor popout', async ({ mount }) => {
   const { el, q } = await mount(null)
-  assert.match(el.textContent ?? '', /Usage limits/, 'the modal itself renders')
-  assert.doesNotMatch(el.textContent ?? '', /usage limits/, 'the label must not have a lowercase u')
+  assert.match(el.textContent ?? '', /Usage/, 'the modal itself renders')
+  assert.doesNotMatch(el.textContent ?? '', /usage/, 'the label must not have a lowercase u')
   assert.equal(q(PIN), null, 'no pin control without an org')
   assert.equal(q('button[title="Open in new window"]'), null, 'no popout either')
 })
@@ -100,7 +100,10 @@ rig('each org keeps its own saved pin — a pin in alpha does not follow into be
   assert.equal(isModalPinned('usage', 'beta'), false)
 })
 
-test('UsageModal renders user-facing label "Usage limits" in both pinned title and unpinned heading', async (t: TestContext) => {
+// ⚠ THE SURFACE IS CALLED "Usage" (user, 2026-09-12), one word: the limits
+// are what it shows, not what it is. The lowercase guard below is the older
+// ruling and still holds — the label is capitalized wherever it is a name.
+test('UsageModal renders user-facing label "Usage" in both pinned title and unpinned heading', async (t: TestContext) => {
   useFakeClock()
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
   t.after(() => {
@@ -134,8 +137,9 @@ test('UsageModal renders user-facing label "Usage limits" in both pinned title a
     // 1. Unpinned heading:
     const h3 = v.el.querySelector('h3')
     assert.ok(h3, 'h3 heading exists')
-    assert.match(h3.textContent ?? '', /Usage limits/)
-    assert.doesNotMatch(h3.textContent ?? '', /usage limits/)
+    assert.match(h3.textContent ?? '', /Usage/)
+    assert.doesNotMatch(h3.textContent ?? '', /usage/)
+    assert.doesNotMatch(h3.textContent ?? '', /limits/, 'and it is no longer called "Usage limits"')
 
     // 2. Pin the modal:
     const pinBtn = v.el.querySelector(PIN)
@@ -148,8 +152,8 @@ test('UsageModal renders user-facing label "Usage limits" in both pinned title a
 
     const pinnedHeading = q('.modalpin-name')
     assert.ok(pinnedHeading, 'pinned heading element exists')
-    assert.equal(pinnedHeading.textContent, 'Usage limits')
-    assert.notEqual(pinnedHeading.textContent, 'usage limits')
+    assert.equal(pinnedHeading.textContent, 'Usage')
+    assert.notEqual(pinnedHeading.textContent, 'usage')
 
     await v.unmount()
     canvases.forEach(el => el.remove())

@@ -168,7 +168,7 @@ const barOf = (sel: string) => {
  *  and the class their panel carries */
 const ORG_SURFACES = [
   { name: 'Work docket', kind: 'docket', open: 'work docket', sel: '.docket-modal' },
-  { name: 'Usage limits', kind: 'usage', open: 'usage limits', sel: '.usage-modal' },
+  { name: 'Usage', kind: 'usage', open: 'usage', sel: '.usage-modal' },
   { name: 'Presented documents', kind: 'gallery', open: 'presented documents', sel: '.gallery-modal' },
   { name: 'Your inbox', kind: 'inbox', open: 'your inbox', sel: '.settings.wide' },
   { name: 'Org settings', kind: 'org-settings', open: 'Settings', sel: '.settings' },
@@ -226,7 +226,7 @@ test('§3 closing one panel leaves every other open panel alone', async (t) => {
   const a = await app(t)
   await a.enter('alpha')
   await a.press('work docket')
-  await a.press('usage limits')
+  await a.press('usage')
   await a.press('presented documents')
   const up = () => [!!panelBy('.docket-modal'), !!panelBy('.usage-modal'), !!panelBy('.gallery-modal')]
   assert.deepEqual(up(), [true, true, true], 'POSITIVE CONTROL: all three are open')
@@ -318,7 +318,7 @@ test('§5 Close belongs to ONE scope: closing Usage at home leaves the '
   + "organization's pinned Usage exactly as it was", async (t) => {
   const a = await app(t)
   await a.enter('alpha')
-  await a.press('usage limits')
+  await a.press('usage')
   const pinBtn = [...panelBy('.usage-modal')!.querySelectorAll('button')]
     .find((b) => (b.getAttribute('aria-label') ?? '').startsWith('pin this')) as HTMLElement
   await inAct(() => { pinBtn.click() }); await a.settle()
@@ -327,7 +327,7 @@ test('§5 Close belongs to ONE scope: closing Usage at home leaves the '
   // home, through the drawer — the same route a user takes
   await inAct(() => { document.querySelector<HTMLElement>('button.iconbtn')!.click() }); await a.settle()
   await inAct(() => { document.querySelector<HTMLElement>('button.home')!.click() }); await a.settle()
-  await a.press('usage limits')
+  await a.press('usage')
   assert.ok(panelBy('.usage-modal'), 'POSITIVE CONTROL: home opens its own Usage')
   await rightClick(barOf('.usage-modal'))
   await pick('Close')
@@ -344,7 +344,7 @@ test('§6 a surface that cannot be pinned offers Close ALONE — with no '
   + 'separator rule above it', async (t) => {
   const a = await app(t)
   // at home there is no org to pin to, so Usage is the non-pinnable case
-  await a.press('usage limits')
+  await a.press('usage')
   assert.ok(panelBy('.usage-modal'), 'POSITIVE CONTROL: Usage opens at home')
   await rightClick(barOf('.usage-modal'))
   assert.deepEqual(labels(), ['Close'], 'no pin and no popout without an org')

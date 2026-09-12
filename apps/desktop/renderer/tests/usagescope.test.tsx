@@ -98,7 +98,7 @@ async function app(t: { after: (fn: () => void | Promise<void>) => void }) {
     press,
     usage,
     enter: (org: string) => press(org, `the "${org}" row in the org list`, document),
-    toggleUsage: () => press('usage limits', 'the header usage button', document),
+    toggleUsage: () => press('usage', 'the header usage button', document),
     /** How a reader closes a CENTRED panel: press the backdrop it sits in.
      *  ⚠ Not the header button again - for an unpinned modal
      *  `modalToggleAction` always answers "open", so that button cannot

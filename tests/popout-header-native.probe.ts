@@ -44,8 +44,16 @@ const DESK_HEADER = `
   </span>
 </div></div>`
 
+// ⚠ THE PANEL AROUND IT IS PART OF THE FIXTURE. A popped-out modal's bar is
+// `.modalpin-bar.detached` inside `.settings.modalpin-detached`, and its
+// width comes from cancelling that panel's padding — measure the bar without
+// the panel and the geometry means nothing. An earlier version of this file
+// wrote the bar on its own WITH a title in it, which is how a real popped-out
+// modal came to have a 46px title bar with every pixel excluded (user report
+// 2026-09-12) while this probe stayed green.
 const MODAL_BAR = `
-<div class="modalpin-bar">
+<div class="overlay overlay-detached"><div class="settings modalpin-detached">
+<div class="modalpin-bar detached">
   <span class="modalpin-name" role="heading" aria-level="3">title</span>
   <span class="spacer"></span>
   <button class="modalpin-btn" id="m-button">pin</button>
@@ -54,7 +62,9 @@ const MODAL_BAR = `
     <button class="window-control" id="m-max">+</button>
     <button class="window-control close" id="m-control">x</button>
   </span>
-</div>`
+</div>
+<h3 id="m-own-title">title</h3>
+</div></div>`
 
 const DRAG = ['.cc-head-top', '.cc-head-top .tier', '.cc-head-top .cc-name', '.cc-head-top .spacer',
   '.modalpin-bar', '.modalpin-bar .modalpin-name', '.modalpin-bar .spacer']
@@ -74,6 +84,10 @@ const boxes = (window: BrowserWindow, selectors: string[]) => window.webContents
     const r = el.getBoundingClientRect()
     return [s, { top: Math.round(r.top), right: Math.round(r.right), height: Math.round(r.height), width: Math.round(r.width) }]
   }))`) as Promise<Record<string, { top: number; right: number; height: number; width: number } | null>>
+
+const display = (window: BrowserWindow, selector: string) => window.webContents.executeJavaScript(
+  `(() => { const el = document.querySelector(${JSON.stringify(selector)})
+     return el ? getComputedStyle(el).display : 'MISSING' })()`) as Promise<string>
 
 const padding = (window: BrowserWindow, selector: string) => window.webContents.executeJavaScript(
   `(() => { const el = document.querySelector(${JSON.stringify(selector)})
@@ -145,6 +159,13 @@ async function main() {
     assert.equal(broken[selector], 'no-drag', `${selector} is excluded by .window-control in its own right`)
   }
 
+  // ---- a popped-out DESK's header is a HANDLE, not a corner cluster
+  const content = child.getContentBounds()
+  const deskBar = (await boxes(child, ['.cc-head-top']))['.cc-head-top']!
+  assert.ok(deskBar.width >= content.width - 40,
+    `the desk header must span the window to be grabbable (${deskBar.width} of ${content.width})`)
+  assert.ok(deskBar.top <= 12, `and sit at the top of it (${deskBar.top})`)
+
   // ---- narrow: the rest of the header wraps, the controls do not
   await write(child, 'popout-document', 'popout-mount', DESK_HEADER + MODAL_BAR)
   child.setContentSize(380, 600)
@@ -163,13 +184,51 @@ async function main() {
   assert.ok(controls.height <= narrow['#d-min']!.height + 2, 'the group is one row high, not two')
   // the modal bar is a single nowrap cluster: same guarantee, reached differently
   const bar = narrow['.modalpin-bar']!, barControls = narrow['#m-controls']!
-  assert.ok(Math.abs(barControls.right - bar.right) <= 2, "the modal bar's controls sit at its right edge")
+  // ⚠ 6, NOT 2: a detached bar is a title bar with the same `padding: 0 4px`
+  // the pinned one has, so its controls sit just inside its edge rather than
+  // flush with it. The claim is unchanged — they are at the RIGHT end of the
+  // bar, not carried anywhere else.
+  assert.ok(Math.abs(barControls.right - bar.right) <= 6,
+    `the modal bar's controls sit at its right edge (${barControls.right} vs ${bar.right})`)
   assert.equal(narrow['#m-control']!.top, narrow['#m-min']!.top, 'and in one row')
 
   // ---- a popped-out DESK gets room off the glass; nothing else does
   assert.equal(await padding(child, '.popout-mount'), '8px', 'a popped-out desk needs a little room inside a frameless window')
+  // back to a normal window before measuring a title bar against it: the
+  // section above left this one at 380px on purpose
+  child.setContentSize(900, 600)
+  await new Promise(resolve => setTimeout(resolve, 200))
   await write(child, 'popout-document', 'popout-mount', MODAL_BAR)
   assert.equal(await padding(child, '.popout-mount'), '0px', 'a popped-out modal keeps its own panel padding and gains none here')
+
+  // ---- ...and a popped-out MODAL's title bar spans its window too. THE
+  // REPORTED DEFECT (2026-09-12): unpinned, `.modalpin-bar` is
+  // `margin-left: auto`, so a popped-out modal's title bar was a ~46px
+  // cluster of excluded controls in the top-right corner and the window could
+  // not be moved at all. `.detached` is what makes it a title bar.
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const modalBox = (await boxes(child, ['.modalpin-bar']))['.modalpin-bar']!
+  const modalRoom = await child.webContents.executeJavaScript('({ width: innerWidth, height: innerHeight })') as { width: number; height: number }
+  assert.ok(modalBox.width >= modalRoom.width - 40,
+    `the modal title bar must span the window (${modalBox.width} of ${modalRoom.width})`)
+  assert.ok(modalBox.top <= 12, `and sit at the top of it (${modalBox.top})`)
+  // it is the window's ONE title: the panel's own heading stands down
+  assert.equal(await display(child, '#m-own-title'), 'none',
+    'a popped-out panel must not say its name twice')
+  // THE CONTROL FOR BOTH, and they are two separate classes: the BAR's
+  // `.detached` is what makes it a title bar, and the PANEL's
+  // `.modalpin-detached` is what stands its own heading down.
+  await child.webContents.executeJavaScript(
+    `document.querySelector('.modalpin-bar').classList.remove('detached'); true`)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  const cluster = (await boxes(child, ['.modalpin-bar']))['.modalpin-bar']!
+  assert.ok(cluster.width < modalRoom.width / 2,
+    `MUTATION: without .detached the bar must collapse to a corner cluster (${cluster.width})`)
+  await child.webContents.executeJavaScript(
+    `document.querySelector('.settings').classList.remove('modalpin-detached'); true`)
+  assert.notEqual(await display(child, '#m-own-title'), 'none',
+    'MUTATION: without .modalpin-detached the panel takes its own heading back')
+  await write(child, 'popout-document', 'popout-mount', MODAL_BAR)
 
   // ---- and the same headers anywhere else are untouched
   const inCanvas = new BrowserWindow({ show: false, frame: false, width: 800, height: 600 })
@@ -187,7 +246,7 @@ async function main() {
   assert.ok(canvasBoxes['.cc-head-top']!.width >= 790, 'an in-canvas header reserves no room for controls it does not have')
   inCanvas.destroy()
 
-  return 'PASS popout is frameless; its header drags; its controls stay clickable, one row and right-aligned when narrow; only a popped-out desk gains padding; ordinary surfaces are untouched'
+  return 'PASS popout is frameless; its header drags, spans the window and is its one title; its controls stay clickable, one row and right-aligned when narrow; only a popped-out desk gains padding; ordinary surfaces are untouched'
 }
 
 /** Never outlive the assertions: app.exit(), not app.quit(), so no lingering
