@@ -87,7 +87,17 @@ def _ident_forget(slug=None):
 def identity(slug, nid):
     """(scope, generation) without DOC_LOCK and — once cached — without a
     document load. Raises LedgerError if the node does not exist, exactly as
-    the load-based path did."""
+    the load-based path did.
+
+    ⚠ SCOPE AND GENERATION COME FROM ONE READ (perf-review round 2). The
+    first draft read generation off the object it loaded BEFORE the mint;
+    `incarnation` copies only the incarnation fields back onto that object,
+    so a save that advanced the generation between our load and the mint
+    left us caching the OLD generation under the CURRENT seq — a stale
+    label no later seq check could ever catch. After a mint, everything is
+    re-resolved from a fresh load, and the seq the cache entry is stored
+    under is read BEFORE that load, so any save landing mid-read fails the
+    final unchanged-guard and simply costs one more load next call."""
     key = (slug, nid)
     seq = store.org_seq(slug)
     with _ident_lock:
@@ -98,12 +108,13 @@ def identity(slug, nid):
     if not (org.d.get('reply_incarnation')
             and org.node(nid).get('reply_incarnation')):
         incarnation(org, nid)           # mints under DOC_LOCK and saves
-        seq = store.org_seq(slug)       # the mint's save bumped it
+        seq = store.org_seq(slug)       # the mint's save bumped it…
+        org = store.load_org(slug)      # …and ONLY a fresh read is coherent
     scope = org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
     generation = int(org.node(nid).get('generation') or 0)
     if store.org_seq(slug) == seq:
-        # unchanged across our read — safe to remember under that seq. A save
-        # that landed mid-read just costs one more load on the next call.
+        # unchanged across our read — scope and generation describe the
+        # document as of `seq`, so the entry is safe to remember under it
         with _ident_lock:
             _ident_cache[key] = (seq, scope, generation)
     return scope, generation
