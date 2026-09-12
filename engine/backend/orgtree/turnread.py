@@ -111,6 +111,19 @@ FIELDS: dict[str, dict[str, FieldSpec]] = {
     "spawn": {"warm": B, "spawn_ms": I},
     "init": {"tools_n": I, "mcp_n": I, "mcp_failed_n": I,
              "mode": S(PERMISSION_MODES)},
+    # THE SEND ITSELF, and it is not `delivered` (PR20/PR21). A review could
+    # not tell a launch from a result from a return, because the record had a
+    # word for the launch, a word for the answer, and nothing at all for the
+    # write in between — so the MCP surface gate, `halt.check` and a failing
+    # write all left records shaped exactly like "sent, and never answered".
+    # Emitted ONLY on the far side of a successful stdin write+flush;
+    # `resent` marks the one re-send the runner is allowed (a warm process
+    # that died between the claim's liveness check and the first write, which
+    # consumed nothing).
+    "sent": {"resent": B},
+    # …and this is the START ACKNOWLEDGEMENT, not the send: it fires on the
+    # first stdout event the CLI cannot emit without having read stdin. A
+    # rejection never produces one, which is what makes its absence evidence.
     "delivered": {},
     "first_output": {"thinking": B},
     "assistant": {"text_n": I, "tool_n": I, "thinking": B, "synthetic": B,

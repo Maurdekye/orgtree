@@ -46,7 +46,7 @@ from . import halt
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, events, codex_route,
                deployment, envelope, failfix, handoff, imgblock, limits,
-               localtime, net, openrouter, opreceipts, providers, registry,
+               liveness, localtime, net, openrouter, opreceipts, providers, registry,
                sandbox as sbx, store,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
@@ -17412,6 +17412,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     halt.check(slug, nid)
                     proc.stdin.write(_user_event(text, turn_images))   # pyright: ignore[reportOptionalMemberAccess]
                     proc.stdin.flush()                # pyright: ignore[reportOptionalMemberAccess]
+                    # THE SEND, recorded here and nowhere earlier (PR20/PR21).
+                    # Every line above this one can still refuse the turn —
+                    # the MCP surface gate, `halt.check`, the write itself —
+                    # and a record that named the launch "attempt" could not
+                    # be told apart from one where the model simply never
+                    # answered. Past this point the bytes are in the pipe.
+                    turnlog.emit(_trec, "sent", resent=False)
                 except (OSError, ValueError):
                     if wp_turn is None:
                         raise
@@ -17458,6 +17465,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     halt.check(slug, nid)
                     proc.stdin.write(_user_event(text, turn_images))   # pyright: ignore[reportOptionalMemberAccess]
                     proc.stdin.flush()                # pyright: ignore[reportOptionalMemberAccess]
+                    # the one re-send this runner permits, named as such: the
+                    # warm process died before it read anything, so this is a
+                    # second send of the SAME turn, not a second attempt
+                    turnlog.emit(_trec, "sent", resent=True)
                 if wp_turn is not None:
                     # D-201: open the pump's delivery gate only NOW — no line
                     # emitted before this write can reach the loop below, so
@@ -27793,36 +27804,20 @@ _wd_cmd_inflight: set[tuple[str, str]] = set()   # one in-flight check per dog
 
 
 def _wd_proc_alive(target: str) -> bool:
-    """process-kind liveness — `pid:N` (stdlib, both platforms) or `port:N`
-    (a loopback connect)."""
-    m = re.fullmatch(r"(pid|port):(\d+)", target)
-    if not m:
-        return False
-    num = int(m.group(2))
-    if m.group(1) == "port":
-        s = socket.socket()
-        s.settimeout(2)
-        try:
-            s.connect(("127.0.0.1", num))
-            return True
-        except OSError:
-            return False
-        finally:
-            s.close()
-    if os.name == "nt":
-        import ctypes
-        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, num)
-        if not h:
-            return False
-        code = ctypes.c_ulong()
-        ok = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
-        ctypes.windll.kernel32.CloseHandle(h)
-        return bool(ok) and code.value == 259          # STILL_ACTIVE
-    try:
-        os.kill(num, 0)
-        return True
-    except OSError:
-        return False
+    """process-kind liveness as a BOOLEAN — `pid:N` or `port:N`.
+
+    ⚠ READ `liveness.observe` INSTEAD unless you genuinely only care whether
+    the thing answered. This is the narrow question "was there a positive
+    sign of life", and its False therefore means "not confirmed alive" —
+    which is NOT "confirmed dead", however much a caller would like it to be.
+    Collapsing those two is what made an access-denied probe announce a death
+    (statereview-04); `_wd_check_poll` now reads the tri-state directly and
+    this remains only for callers that want the positive signal alone.
+
+    Derived from the same probe rather than repeating it, so the boolean and
+    the tri-state cannot drift into two different answers about one pid.
+    """
+    return liveness.alive(liveness.observe(target))
 
 
 def _pid_provably_dead(pid: int) -> bool:
@@ -28900,11 +28895,24 @@ def _wd_check_poll(slug: str, w: dict[str, Any],
         return lines, hw, (f"({tgt} is {size} bytes; +{grew} new byte(s) this "
                            f"check, {len(lines)} matched)")
     if kind == "process":
-        up = _wd_proc_alive(tgt)
+        obs = liveness.observe(tgt)
         was_up = hw.get("up")
+        hw["observed"] = obs                    # provenance, for the reader
+        if obs["state"] == "unknown":
+            # ⚠ A CHECK THAT COULD NOT SEE IS NOT A CHECK THAT SAW NOTHING
+            # (statereview-04). This used to read False and become
+            # "(pid:N is DOWN)" plus a DOWN edge — a death announced from a
+            # permission error, which on a remote-control session is what
+            # authorized detaching a LIVE driver. So: the last KNOWN state
+            # stands, no edge fires, and `quiet` is NOT advanced, because it
+            # is the only input to `wd_subject_lost` and uncertainty must not
+            # accumulate into a confident "this subject is gone".
+            return [], hw, (f"({tgt} could not be determined — {obs['reason']}; "
+                            f"this is not evidence that it stopped)")
+        up = obs["state"] == "alive"
         hw["up"] = up
         _wd_note_life(hw, up)
-        seen = f"({tgt} is {'UP' if up else 'DOWN'})"
+        seen = f"({tgt} is {'UP' if up else 'DOWN'}; {obs['reason']})"
         if was_up is True and not up:           # the DOWN edge, only
             return [f"{tgt} went DOWN"], hw, seen
         # a target that has been DOWN since the dog was armed will never show
