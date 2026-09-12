@@ -3055,41 +3055,66 @@ def read_node_history_rows(slug: str, nid: str, cap: int
 
 
 def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
-                    ) -> tuple[list[Any], list[Any]] | None:
-    """(delivered_tail, sent_tail) for one node's inbox view, without
-    materializing any owner's archive. `delivered` is the node's OWN mail_log
-    tail (`keep + slack` rows, the slack absorbing rows the handler will drop
-    as still-pending duplicates); `sent` mirrors the newest rows FROM this
-    node out of every recipient's archive plus the user logs — each row
-    carrying its holder under `to`, exactly as the handler built it from the
-    full scan. None = fall back."""
-    def body(conn: sqlite3.Connection) -> tuple[list[Any], list[Any]] | None:
+                    ) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
+    """(box, delivering, delivered_tail, sent_tail) for one node's inbox
+    view, ALL FROM ONE READ TRANSACTION, without materializing any owner's
+    archive.
+
+    One transaction is the contract, not a nicety (perf-review round 2,
+    probe-reproduced): reading the pending box in an earlier snapshot than
+    the archive tail let a post_mail that landed between them show its mail
+    as DELIVERED while the pending list said empty — a state the original
+    single-snapshot load could never produce. The waiting side (`box` +
+    `delivering`, both eager doc keys) therefore rides the same BEGIN as
+    the tails, and the handler overlays them onto its Org before deriving
+    anything.
+
+    `delivered` is the node's OWN mail_log tail, sized past every possible
+    still-pending duplicate: keep + slack + the box/journal rows counted
+    INSIDE this same transaction. `sent` mirrors the newest rows FROM this
+    node across every recipient's archive plus the user logs — per-source
+    tails by `$.at` (the merged sort key; a seq tail keeps the wrong end
+    when insertion and timestamp order disagree — same round-2 finding as
+    history). None = fall back."""
+    def body(conn: sqlite3.Connection
+             ) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
                         "('mail_log','user_mail_log') LIMIT 1").fetchone():
             return None
+        def doc_map(key: str) -> dict[str, Any]:
+            row = conn.execute("SELECT val FROM doc WHERE key=?",
+                               (key,)).fetchone()
+            v = json.loads(cast(str, row[0])) if row is not None else {}
+            return v if isinstance(v, dict) else {}
+        box = list(doc_map("mail").get(nid) or [])
+        delivering = list(doc_map("delivering").get(nid) or [])
+        pending_est = len(box) + sum(len(b.get("mail") or [])
+                                     for b in delivering if isinstance(b, dict))
+        cap = keep + slack + pending_est
         delivered = [json.loads(cast(str, r[0])) for r in reversed(conn.execute(
             "SELECT val FROM log_d WHERE sect='mail_log' AND owner=? "
-            "ORDER BY seq DESC LIMIT ?", (nid, keep + slack)).fetchall())]
+            "ORDER BY seq DESC LIMIT ?", (nid, cap)).fetchall())]
         sent: list[Any] = []
         for owner, raw in reversed(conn.execute(
                 "SELECT owner, val FROM log_d WHERE sect='mail_log' AND "
-                "json_extract(val,'$.from')=? ORDER BY seq DESC LIMIT ?",
-                (nid, keep + slack)).fetchall()):
+                "json_extract(val,'$.from')=? "
+                "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+                "LIMIT ?", (nid, cap)).fetchall()):
             sent.append({**json.loads(cast(str, raw)), "to": cast(str, owner)})
-        for sect in ("user_inbox",):
-            row = conn.execute("SELECT val FROM doc WHERE key=?",
-                               (sect,)).fetchone()
-            if row is not None:
-                for m in json.loads(cast(str, row[0])) or []:
-                    if isinstance(m, dict) and m.get("from") == nid:
-                        sent.append({**m, "to": "@user"})   # ledger.USER
+        row = conn.execute("SELECT val FROM doc WHERE key='user_inbox'"
+                           ).fetchone()
+        if row is not None:
+            for m in json.loads(cast(str, row[0])) or []:
+                if isinstance(m, dict) and m.get("from") == nid:
+                    sent.append({**m, "to": "@user"})   # ledger.USER
         for raw, in reversed(conn.execute(
                 "SELECT val FROM log_l WHERE sect='user_mail_log' AND "
-                "json_extract(val,'$.from')=? ORDER BY seq DESC LIMIT ?",
-                (nid, keep + slack)).fetchall()):
+                "json_extract(val,'$.from')=? "
+                "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+                "LIMIT ?", (nid, cap)).fetchall()):
             sent.append({**json.loads(cast(str, raw)), "to": "@user"})
         sent.sort(key=lambda m: m.get("at") or "")
-        return delivered, sent[-(keep + slack):]
+        return box, delivering, delivered, sent[-cap:]
     return _bounded_read(slug, body)
 
 

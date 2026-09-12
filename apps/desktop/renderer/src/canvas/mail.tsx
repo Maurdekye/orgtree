@@ -1076,10 +1076,20 @@ export function MailFolders({ folder, setFolder, unread, folders, tier }: MailFo
 // №10: the org record — every ledger operation (the overseer was the only
 // node never told what changed). Renders the events log the server has kept
 // all along; the §4.6 cascade warnings ride each row.
-export interface OrgRecordProps { events?: OrgEvent[] | null }
+export interface OrgRecordProps {
+  events?: OrgEvent[] | null
+  /** the filter is LIFTED (perf-review round 2): the owner fetches a bounded
+   *  tail for the plain view and the FULL record while a search is active,
+   *  so the query has to live where the fetch is decided. Uncontrolled
+   *  fallback keeps old call sites working. */
+  query?: string
+  onQuery?: (q: string) => void
+}
 
-export function OrgRecord({ events }: OrgRecordProps) {
-  const [q, setQ] = useState('')
+export function OrgRecord({ events, query, onQuery }: OrgRecordProps) {
+  const [qLocal, setQLocal] = useState('')
+  const q = query ?? qLocal
+  const setQ = onQuery ?? setQLocal
   const qn = q.trim().toLowerCase()
   const rows = [...(events ?? [])].reverse().filter((ev) => !qn
     || JSON.stringify(ev).toLowerCase().includes(qn))

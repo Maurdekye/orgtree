@@ -643,11 +643,14 @@ export const reorderNode = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-export const getEvents = (slug: string): Promise<EventsPayload> =>
-  // the record tab renders a recent slice, so ask for one — the bare form
-  // used to make the server materialize and ship the ENTIRE event log
-  // (19k rows / 357 ms measured) every 5 s poll while the tab was up
-  req(`/api/orgs/${slug}/events?last=300`)
+export const getEvents = (slug: string, last?: number): Promise<EventsPayload> =>
+  // the record tab renders a recent slice, so it asks for one — the bare
+  // form used to make the server materialize and ship the ENTIRE event log
+  // (19k rows / 357 ms measured) every 5 s poll while the tab was up. An
+  // ACTIVE SEARCH passes no `last`: its filter has always looked at the
+  // whole record, and a bounded fetch would silently hide older matches
+  // (perf-review round 2).
+  req(`/api/orgs/${slug}/events${last ? `?last=${last}` : ''}`)
 export const retractMail = (
   slug: string, nid: string, mid: string,
 ): Promise<{ retracted: string }> =>
