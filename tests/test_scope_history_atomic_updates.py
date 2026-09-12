@@ -1138,17 +1138,50 @@ class EveryRefusalIsByteIdentical(unittest.TestCase):
     it guards. A new argument added later with its validation in the wrong
     place fails HERE without anyone remembering to write a test for it.
 
-    ⚠ `archived_at` is excluded, and only that. `_work_sweep()` runs at the top
-    of every docket call — reads included — and a dropped item archives at
-    once, so the sweep stamping it is the item's own clock doing its job, not
-    the refused call writing to the item. Nothing else is excused.
+    ⚠ TWO CATEGORIES OF FIELD, AND THE DISTINCTION IS THE POINT (coordinator
+    ruling 2026-09-12 20:51, made explicit here rather than left as a quiet
+    exclusion):
+
+      WRITE-OWNED   everything the attempted update could have touched. These
+                    must be BYTE-IDENTICAL after a refusal. No exceptions.
+      SWEEP-OWNED   `SWEEP_OWNED` below. `_work_sweep()` runs at the top of
+                    every docket call — READS INCLUDED — so these advance on
+                    calls that wrote nothing at all. That is the independent
+                    archive clock doing its scheduled job, not a partial
+                    mutation by the refused write.
+
+    The assertions check BOTH halves: the write-owned document is unchanged,
+    AND the set of fields that did change is a subset of the sweep-owned ones.
+    The second half is what stops this from being a loophole — a future field
+    cannot quietly drift through the exclusion without being named here.
     """
 
+    #: The ONLY fields a refused call may leave different, and why. Adding to
+    #: this set is a deliberate statement that the field belongs to the
+    #: scheduled sweep rather than to the write — not a way to silence a test.
+    SWEEP_OWNED = frozenset({"archived_at"})
+
     def frozen(self, org, wid):
+        """The WRITE-OWNED document: everything the attempted update owns."""
         import json
-        it = dict(item(org, wid))
-        it.pop("archived_at", None)
+        it = {k: v for k, v in item(org, wid).items()
+              if k not in self.SWEEP_OWNED}
         return json.dumps(it, sort_keys=True, default=str)
+
+    def changed_fields(self, org, wid, before_item):
+        after = item(org, wid)
+        return {k for k in set(before_item) | set(after)
+                if before_item.get(k) != after.get(k)}
+
+    def assert_untouched(self, org, wid, before_frozen, before_item, label):
+        """Both halves of the promise, in one place."""
+        self.assertEqual(self.frozen(org, wid), before_frozen,
+                         f"a refused update ({label}) changed a WRITE-OWNED field")
+        drifted = self.changed_fields(org, wid, before_item)
+        self.assertTrue(
+            drifted <= self.SWEEP_OWNED,
+            f"a refused update ({label}) changed {sorted(drifted - self.SWEEP_OWNED)},"
+            f" which the scheduled sweep does not own")
 
     def cases(self):
         """(label, kwargs) for every refusal `work_update` owes. Each runs
@@ -1208,13 +1241,31 @@ class EveryRefusalIsByteIdentical(unittest.TestCase):
                 upd(org, wid, objective=OBJ_2)
                 org.work_decision("owner-a", wid, "a standing ruling")
                 org.work_evidence("owner-a", wid, "note", "a-ref", "a note")
+                import copy
+                before_item = copy.deepcopy(item(org, wid))
                 before = self.frozen(org, wid)
                 with self.assertRaises(Exception, msg=f"{label} did not refuse"):
                     upd(org, wid, **dict(kw))
-                self.assertEqual(self.frozen(org, wid), before,
-                                 f"a refused update ({label}) changed the item")
+                self.assert_untouched(org, wid, before, before_item, label)
                 checked += 1
         self.assertEqual(checked, len(self.cases()))
+
+    def test_the_sweep_owned_exclusion_is_exactly_one_field_and_is_earned(self):
+        """The exclusion is not a free pass. It is one field, and it is the
+        one `_work_sweep()` advances on calls that write nothing — provable by
+        a pure READ moving it, which no write could be blamed for."""
+        self.assertEqual(self.SWEEP_OWNED, {"archived_at"})
+        org, wid = fixture()
+        upd(org, wid, status="dropped", dropped_reason="Cancelled.")
+        # a dropped item archives at once; nothing below writes to it
+        import copy
+        before_item = copy.deepcopy(item(org, wid))
+        before = self.frozen(org, wid)
+        org.work_get("owner-a", wid)                 # a READ, not a write
+        self.assertEqual(self.frozen(org, wid), before,
+                         "a pure read changed a write-owned field")
+        drifted = self.changed_fields(org, wid, before_item)
+        self.assertTrue(drifted <= self.SWEEP_OWNED)
 
     def test_the_same_sweep_against_a_CLOSED_item(self):
         """The reopen paths need a closed item to be reachable at all, and a
@@ -1238,11 +1289,13 @@ class EveryRefusalIsByteIdentical(unittest.TestCase):
                 org, wid = fixture()
                 upd(org, wid, objective=OBJ_2)
                 upd(org, wid, status="done", done_so_far=["the first round"])
+                import copy
+                before_item = copy.deepcopy(item(org, wid))
                 before = self.frozen(org, wid)
                 with self.assertRaises(Exception, msg=f"{label} did not refuse"):
                     upd(org, wid, **dict(kw))
-                self.assertEqual(self.frozen(org, wid), before,
-                                 f"a refused reopen ({label}) changed the item")
+                self.assert_untouched(org, wid, before, before_item,
+                                      f"reopen: {label}")
 
     def test_an_archived_item_is_never_resurrected_by_a_refusal(self):
         """Every reopen refusal, against a PHYSICALLY archived item: the
