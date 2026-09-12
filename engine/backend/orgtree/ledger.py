@@ -1122,17 +1122,23 @@ class Org:
         kids.sort(key=lambda k: (self.nodes[k].get("ui_order", 0), self.nodes[k]["created"]))
         return kids
 
-    def committed(self, nid: str) -> float:
+    def committed(self, nid: str,
+                  index: dict[str | None, list[str]] | None = None) -> float:
         # _q: the two totals below are the ONLY places credit quantities are
         # summed, so quantising here is what keeps every reachable value on
-        # the 0.01 grid (CREDIT_PLACES) and the `free() >= 0` invariant exact
+        # the 0.01 grid (CREDIT_PLACES) and the `free() >= 0` invariant exact.
+        # `index` is `children_index`'s accelerator, threaded through by the
+        # per-node callers inside tree()/audit() — without it each live
+        # node's free() re-scanned the whole node table (O(live x total);
+        # perf-redesign 2026-09-12, REPORT.md #9).
         return _q(sum(self.seat_cost(c) + self.nodes[c]["grant"]
-                      for c in self.children(nid)))
+                      for c in self.children(nid, index=index)))
 
-    def free(self, nid: str) -> float:
+    def free(self, nid: str,
+             index: dict[str | None, list[str]] | None = None) -> float:
         if nid == USER:
             return math.inf
-        return _q(self.node(nid)["grant"] - self.committed(nid))
+        return _q(self.node(nid)["grant"] - self.committed(nid, index=index))
 
     def parent(self, nid: str) -> str:
         """Parent id, with USER standing in for None (top level)."""
@@ -9419,12 +9425,14 @@ class Org:
     # ------------------------------------------------------------------ audit
     def audit(self) -> dict[str, Any]:
         """Global consistency: no overdraft anywhere; per-node free is derivable."""
+        idx = self.children_index()      # one partition for the whole audit
         live = [k for k, v in self.nodes.items() if v["state"] == "live"]
-        problems = [f"{k} free={self.free(k):g}" for k in live if self.free(k) < 0]
+        problems = [f"{k} free={self.free(k, index=idx):g}" for k in live
+                    if self.free(k, index=idx) < 0]
         return {
             "live_nodes": len(live),
             "top_level_holds": _q(sum(self.seat_cost(k) + self.nodes[k]["grant"]
-                                      for k in self.children(None))),
+                                      for k in self.children(None, index=idx))),
             "no_overdraft": not problems,
             "problems": problems,
         }
@@ -9453,7 +9461,7 @@ class Org:
                 "state": n["state"],
                 "seat": self.d["tiers"][n["model"]],
                 "grant": n["grant"],
-                "free": None if n["state"] != "live" else self.free(nid),
+                "free": None if n["state"] != "live" else self.free(nid, index=_kids),
                 "session_id": n["session_id"],
                 "scope": n["scope"],
                 # what a turn would ACTUALLY launch with — scope.effort is

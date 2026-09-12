@@ -350,8 +350,17 @@ export function useConvo(slug: string, nid: string): Convo {
         // stays set, so a resubscribe resumes with the true elapsed time.
         stopClock(e)
         if (e.s.paged && e.s.chat) {
-          e.s = { ...e.s, paged: false, chat: { ...e.s.chat,
-            messages: e.s.chat.messages.slice(-e.s.win), before: undefined } }
+          // …and the WINDOW resets with the paging (perf-redesign
+          // 2026-09-12, REPORT.md #10): `win` only ever grew, so a deep
+          // history scroll left every later 2.5 s poll re-projecting and
+          // re-shipping thousands of rows for as long as the entry lived.
+          // The expanded window belongs to the viewing session that asked
+          // for it; the next mount starts at the tail again.
+          e.s = { ...e.s, paged: false, win: CHAT_WINDOW, chat: { ...e.s.chat,
+            messages: e.s.chat.messages.slice(-CHAT_WINDOW), before: undefined } }
+          e.dirty = true
+        } else if (e.s.win > CHAT_WINDOW) {
+          e.s = { ...e.s, win: CHAT_WINDOW }
           e.dirty = true
         }
       }

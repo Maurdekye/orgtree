@@ -1934,7 +1934,17 @@ export const md = (text: string | null | undefined,
     hit = { __html: wrapCodeBlocks(DOMPurify.sanitize(
       marked.parse(escapeAngles(local),
         { gfm: true, breaks: true, async: false })), imgBase, agentHtmlResponse) }
-    if (_mdCache.size > 800) _mdCache.clear()   // bounded; refills on demand
+    // LRU eviction, not clear-all (perf-redesign 2026-09-12): a long
+    // expanded chat plus mail previews cycles past the bound, and the old
+    // wholesale clear re-parsed EVERYTHING visible on the next paint.
+    // Map iterates in insertion order, so the first key is the oldest.
+    if (_mdCache.size > 800) {
+      const oldest = _mdCache.keys().next()
+      if (!oldest.done) _mdCache.delete(oldest.value)
+    }
+    _mdCache.set(key, hit)
+  } else {
+    _mdCache.delete(key)          // re-insert: a hit is recent again
     _mdCache.set(key, hit)
   }
   return hit
