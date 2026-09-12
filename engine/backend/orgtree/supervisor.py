@@ -24376,17 +24376,20 @@ def start_auto_resume_loop() -> None:
                     try:
                         # cheap read-only gate on the shared snapshot: an org
                         # with no freeze anywhere and no spend freeze is a
-                        # provable no-op for this scheduler, and taking
+                        # provable no-op for the RESUME SCHEDULER, and taking
                         # DOC_LOCK + a fresh load every 30 s per org to
                         # discover that was most of this loop's cost
                         # (REPORT.md #7). Any freeze lands via a save, which
-                        # bumps the seq and refreshes the snapshot.
+                        # bumps the seq and refreshes the snapshot. The gate
+                        # wraps only the resume call — never a `continue`, so
+                        # other per-org work sharing this tick (the invariant
+                        # sweep) always runs (perf-review round 3 caught the
+                        # composed skip).
                         snap = store.cached_org(slug)
-                        if (not snap.d.get("spend_frozen")
-                                and not any(n.get("frozen")
-                                            for n in snap.nodes.values())):
-                            continue
-                        _auto_resume_org(slug)
+                        if (snap.d.get("spend_frozen")
+                                or any(n.get("frozen")
+                                       for n in snap.nodes.values())):
+                            _auto_resume_org(slug)
                     except Exception as exc:
                         print(f"[orgtree] auto-resume org skipped ({type(exc).__name__})", flush=True)
                     # state-audit SH-3+SH-6: the continuous invariant sweep
