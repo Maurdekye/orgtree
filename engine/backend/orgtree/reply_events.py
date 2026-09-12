@@ -13,12 +13,13 @@ def _connect():
     connection = sqlite3.connect(path, timeout=15)
     connection.execute('CREATE TABLE IF NOT EXISTS events (org TEXT, agent TEXT, generation INTEGER, id TEXT, text TEXT, scope TEXT, PRIMARY KEY(org,agent,generation,id))')
     # WAL so a commit is one WAL append instead of a rollback-journal
-    # create/fsync/delete pair, and NORMAL because these are display-layer
-    # snapshots: losing the tail of the WAL on a power cut re-mints the same
-    # deterministic ids on the next render (the id is a hash of its content,
-    # INSERT OR IGNORE), so full-durability fsyncs per delta bought nothing.
+    # create/fsync/delete pair. synchronous stays FULL: a quoted
+    # INTERMEDIATE stream snapshot is not reconstructible from the final
+    # row (perf-review round 3 — dropping one leaves its quoted id
+    # unresolved forever), so these commits keep the durability the plain
+    # journal gave them; the win here is the journal-churn removal only.
     connection.execute('PRAGMA journal_mode=WAL')
-    connection.execute('PRAGMA synchronous=NORMAL')
+    connection.execute('PRAGMA synchronous=FULL')
     return connection
 
 
