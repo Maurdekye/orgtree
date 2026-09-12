@@ -16,6 +16,7 @@ here pokes a generation number in by hand except where it stands in for an
 identity the id was re-minted out from under, which is the one case that must
 still read stale.
 """
+import copy
 import os
 import sys
 import tempfile
@@ -379,6 +380,54 @@ class PreservedStaleAndAssignmentBehaviourTests(unittest.TestCase):
         self.assertTrue(any(i["slug"] == slug for i in org._work_archive()))
         org.delete(USER, "perf-pass")
         self.assertTrue(stored(org, slug)["owner"]["deleted"])
+
+    def test_deletion_does_not_edit_authored_history(self):
+        """state-review's second finding (2026-09-12). `_work_assign_core`
+        records the assignment as `{"from": frm, "to": it["owner"]}`, and
+        `_work_name_reviewer` does the same for the reviewer — so the history
+        row holds THE VERY SAME dict the item holds. Marking the holder in
+        place reached into an authored row and edited it, with no rev bump and
+        no event. Deep-compared, not identity-compared, so a shared object is
+        caught rather than excused."""
+        for mode in ("owner", "reviewer"):
+            with self.subTest(mode=mode):
+                org = fixture()
+                slug = make_item(org, "perf-pass", "History stays historical")
+                if mode == "owner":
+                    org.work_assign(USER, slug, "peer-agent")
+                    target = "peer-agent"
+                else:
+                    org.work_update("perf-pass", slug, ["drafted"], ["review"],
+                                    status="review", reviewer="review-sub")
+                    target = "review-sub"
+                it = stored(org, slug)
+                before = copy.deepcopy(it["history"])
+                rev, upd = it["rev"], it["updated_at"]
+
+                org.delete(USER, target)
+
+                self.assertEqual(it["history"], before, mode)
+                self.assertEqual(it["rev"], rev, mode)
+                self.assertEqual(it["updated_at"], upd, mode)
+                # the LIVE field really was marked — the row above is unchanged
+                # because it is a different object now, not because nothing ran
+                self.assertTrue(it[mode]["deleted"], mode)
+
+    def test_deletion_does_not_edit_authored_history_in_the_archive(self):
+        org = fixture()
+        slug = make_item(org, "perf-pass", "Closed, then history checked")
+        org.work_assign(USER, slug, "peer-agent")
+        org.work_update("peer-agent", slug, ["done"], [], status="done")
+        age_out(org)
+        org._work_sweep(now_ts=FAR_FUTURE)
+        it = stored(org, slug)
+        self.assertTrue(any(i["slug"] == slug for i in org._work_archive()))
+        before = copy.deepcopy(it["history"])
+        rev = it["rev"]
+        org.delete(USER, "peer-agent")
+        self.assertEqual(it["history"], before)
+        self.assertEqual(it["rev"], rev)
+        self.assertTrue(it["owner"]["deleted"])
 
     def test_an_unrelated_owner_is_untouched_by_someone_elses_deletion(self):
         org = fixture()

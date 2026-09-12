@@ -10737,7 +10737,17 @@ class Org:
         item must not come back owned by a namesake. Nothing else on the item
         moves — not `rev`, not `updated_at`, not `history`: this is an identity
         invalidation, not a docket update (`_rekey_work_identity` takes the
-        same care for the same reason)."""
+        same care for the same reason).
+
+        ⚠ THE FIELD IS REPLACED, NEVER MUTATED IN PLACE (review finding,
+        state-review 2026-09-12). `_work_assign_core` records the assignment as
+        `_work_hist(..., {"from": frm, "to": it["owner"]})` and
+        `_work_name_reviewer` does the same with the reviewer — the history row
+        holds THE VERY SAME dict object the item holds, not a copy of it. An
+        in-place `a["deleted"] = True` therefore reached into an authored
+        history row and edited it, with no `rev` bump and no event: exactly the
+        thing this function's own docstring promises it does not do. Binding a
+        fresh dict leaves every alias reading what it read before."""
         marked = 0
         for key in ("work_items", "work_items_archive"):
             for it in self.d.get(key) or []:
@@ -10745,7 +10755,8 @@ class Org:
                     a = it.get(f)
                     if isinstance(a, dict) and str(a.get("node") or "") in gone \
                             and not a.get("deleted"):
-                        a["deleted"] = True
+                        it[f] = cast("WorkActor",           # type: ignore[literal-required]
+                                     {**cast("dict[str, Any]", a), "deleted": True})
                         marked += 1
         return marked
 

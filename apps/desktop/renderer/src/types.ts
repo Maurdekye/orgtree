@@ -1993,8 +1993,31 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
 // below mirror that document verbatim; do not rename without telling them.
 
 /** Who did something to a work item: a node at a generation. The user is the
- *  literal string "user" wherever an actor is accepted. */
-export interface WorkActor { node: string; generation: number }
+ *  literal string "user" wherever an actor is accepted.
+ *
+ *  The last two fields are written ONLY onto a HOLDER reference — `owner` and
+ *  `reviewer`, the two that say who has the item NOW and so have to keep
+ *  resolving to a live agent (backend `ledger._work_holder`). `created_by`,
+ *  `last_updater`, history rows and delivery claims record who acted THEN and
+ *  carry neither. Both are also absent on every reference written before
+ *  2026-09-12, so treat absence as "not known", never as false.
+ *
+ *  Nothing in the UI needs to read either one: `owner_current` and
+ *  `owner_state` on the item already carry the conclusion the backend draws
+ *  from them. They are declared because this file mirrors what the writers
+ *  write. */
+export interface WorkActor {
+  node: string
+  generation: number
+  /** the holder's own mint id (`NodeDoc.seat_id`) — one uuid per agent, fixed
+   *  at hire, which is what makes the reference name an AGENT rather than a
+   *  name a later hire could be given. */
+  born?: string
+  /** set by a node `delete` on the holder references it strands: the agent
+   *  this named is gone, so whoever wears the name now never held the item.
+   *  Present only when true. */
+  deleted?: boolean
+}
 
 /** One asker's OPEN question(s) attached to this item — the item's own view
  *  of the same data `tree.asks`/`node.ask` carries (one entry per asker,
