@@ -1,9 +1,11 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { isolatedRoot, acceptanceEnvironment, assertIsolatedEnvironment, preflightHelpers, acceptanceLaunchArgs } from './isolation.mjs'
+
+export { isolatedRoot, acceptanceEnvironment, assertIsolatedEnvironment, preflightHelpers, acceptanceLaunchArgs }
 
 export function runtimeManifest(target, packaged = null) {
   const base = packaged ? path.join(packaged, 'resources') : target
@@ -33,19 +35,6 @@ export function prerequisites(target, electron, python) {
     ['built preload', path.join(target, 'dist/preload/index.cjs')],
     ['built renderer', path.join(target, 'dist/renderer/index.html')],
   ].filter(([, file]) => !file || !fs.existsSync(file) || !fs.statSync(file).isFile()).map(([name]) => name)
-}
-
-export function isolatedRoot(base = os.tmpdir()) {
-  const canonicalBase = fs.realpathSync.native(base)
-  const forbiddenPath = path.resolve(os.homedir(), 'orgtree')
-  const forbidden = fs.existsSync(forbiddenPath) ? fs.realpathSync.native(forbiddenPath) : forbiddenPath
-  const relative = path.relative(forbidden, canonicalBase)
-  if (!relative || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) {
-    throw new Error('Acceptance data must be outside the live v1 tree')
-  }
-  const root = fs.mkdtempSync(path.join(canonicalBase, 'orgtree-v2-acceptance-'))
-  for (const name of ['data', 'profile', 'project', 'inherited-v1', 'home']) fs.mkdirSync(path.join(root, name))
-  return root
 }
 
 export function phaseResult(phase, report, result, survivors) {
@@ -84,24 +73,28 @@ function main() {
     fs.copyFileSync(path.join(fixture, 'manifest.json'), path.join(root, 'import-manifest.json'))
     acceptanceHome = JSON.parse(fs.readFileSync(path.join(root, 'import-manifest.json'), 'utf8')).home
   }
+  const env = acceptanceEnvironment(root, { home: acceptanceHome, env: {
+    ORGTREE_ACCEPTANCE_APP: target, ORGTREE_V2_PYTHON: python,
+    ORGTREE_V2_PORT: '0', ORGTREE_NET_HUB_ADDRESS: 'http://127.0.0.1:9',
+    ...(packaged ? { ORGTREE_ACCEPTANCE_PACKAGE: packaged } : {}),
+  } })
+  assertIsolatedEnvironment(env, root)
+  const preflight = preflightHelpers(here, python)
+  fs.writeFileSync(path.join(root, 'preflight.json'), JSON.stringify(preflight, null, 2))
+  if (preflight.status !== 'PASS') {
+    fs.writeFileSync(path.join(root, 'report.json'), JSON.stringify({ status: 'FAIL', root, preflight }, null, 2))
+    console.log(JSON.stringify({ status: 'FAIL', root, preflight }, null, 2))
+    process.exitCode = 1
+    return
+  }
   const manifest = runtimeManifest(target, packaged)
   fs.writeFileSync(path.join(root, 'runtime-manifest.json'), JSON.stringify(manifest, null, 2))
   const source = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8', windowsHide: true })
   const buildInfoFile = path.join(packaged ? path.join(packaged, 'resources') : path.join(target, 'dist'), 'build-info.json')
   const buildInfo = fs.existsSync(buildInfoFile) ? JSON.parse(fs.readFileSync(buildInfoFile, 'utf8')) : null
-  const env = { ...process.env, HOME: acceptanceHome, USERPROFILE: acceptanceHome,
-    ORGTREE_ACCEPTANCE_ROOT: root, ORGTREE_ACCEPTANCE_APP: target,
-    ORGTREE_DATA: path.join(root, 'inherited-v1'), ORGTREE_V2_DATA: path.join(root, 'data'),
-    ORGTREE_V2_PROFILE: path.join(root, 'profile'), ORGTREE_V2_PYTHON: python,
-    ORGTREE_V2_PORT: '0', ORGTREE_NET_HUB_ADDRESS: 'http://127.0.0.1:9' }
-  if (packaged) env.ORGTREE_ACCEPTANCE_PACKAGE = packaged
-  delete env.ELECTRON_RUN_AS_NODE
-  delete env.ORGTREE_PORT
-  delete env.ORGTREE_V1_ROOT
-  delete env.ORGTREE_V2_TOKEN
   const phases = []
   for (const phase of ['initial', 'restart']) {
-    const result = spawnSync(electron, [path.join(here, 'application.cjs')], {
+    const result = spawnSync(electron, acceptanceLaunchArgs(path.join(here, 'application.cjs')), {
       cwd: target, env: { ...env, ORGTREE_ACCEPTANCE_PHASE: phase }, windowsHide: true,
       encoding: 'utf8', timeout: 150000, maxBuffer: 1024 * 1024,
     })
