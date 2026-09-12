@@ -694,16 +694,15 @@ export default function App() {
   // not make the render cheap.
   useEffect(() => {
     if (!slug) return
-    // hidden windows keep a slower beat (the app lives in the tray, so a
-    // minimized window used to poll at full rate around the clock): the ws
-    // 'changed' handler still refetches at full rate on real changes, so
-    // hidden staleness is bounded to state-only flips between saves — and
-    // the server's ETag makes the hidden beat a 304 in the common case.
-    // Becoming visible refetches immediately rather than waiting a beat.
+    // hidden windows PAUSE the beat entirely (the accepted requirement —
+    // perf-review round 3 caught the earlier 5×-slower compromise): the ws
+    // 'changed' handler still refetches on real changes while hidden, so
+    // nothing saved goes stale, and becoming visible refetches immediately
+    // rather than waiting a beat — timer-only staleness cannot be seen.
     let last = 0
     const tick = () => {
-      const gap = document.hidden ? TREE_POLL_MS * 5 : TREE_POLL_MS
-      if (Date.now() - last < gap) return
+      if (document.hidden) return
+      if (Date.now() - last < TREE_POLL_MS) return
       last = Date.now()
       refreshTree(slug)
     }
