@@ -138,7 +138,9 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Displaythis computer', 'Import'])
+        ['Providers', 'Runtime', 'Display', 'Import'])
+      assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
+        'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
       await inAct(async () => {

@@ -155,7 +155,7 @@ type AppSettingsTab = 'providers' | 'runtime' | 'display' | 'import'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
-  { id: 'display', label: 'Display', note: 'this computer' },
+  { id: 'display', label: 'Display' },
   { id: 'import', label: 'Import' },
 ]
 
