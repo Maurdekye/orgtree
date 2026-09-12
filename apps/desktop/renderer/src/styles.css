@@ -4529,7 +4529,26 @@ svg.MuiSvgIcon-root {
   padding: 0; border: 0; box-shadow: none;
 }
 .tray-panel.modalpin-win { max-width: none; }
-.tray-wrap > .surface-inline { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
+/* ⚠ A DESCENDANT, NOT A CHILD, AND THE DIFFERENCE IS THE WHOLE BUG (user
+   report 2026-09-12: with many agents the Agents window grew off the TOP of
+   the canvas and took its pin/pop-out/close bar and its filter box with it).
+   PinFrame renders through MovableSurface, so what actually sits under the
+   wrap is
+     .tray-wrap > .movable-anchor > .movable-surface > .movable-content
+                > .movable-events > .surface-inline
+   Those four wrappers are `display: contents` (see the movable-surface rule),
+   so `.surface-inline` really IS a flex item of the wrap for LAYOUT — but a
+   child combinator reads the DOM tree, not the box tree, so `>` had stopped
+   matching anything at all. Left unstyled, `.surface-inline` was a block with
+   `min-height: auto`, which in a column flex container means "never shrink
+   below your content", and the surface overflowed its wrap upward.
+   ⚠ THIS IS THE EMBEDDED CAP AND IT IS SELF-SCOPING. PinFrame emits
+   `.surface-inline` only for `inline && !pinned && !detached`, and a pinned
+   surface is portaled to the pin layer rather than the wrap, so neither a
+   pinned nor a popped-out Agents window can be reached by these two rules.
+   Measured in a real browser by tests/trayheight_probe.py — jsdom sees none
+   of this. */
+.tray-wrap .surface-inline { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
 .surface-inline > .tray-panel { min-height: 0; max-height: 100%; }
 .tray-panel > .modalpin-bar:not(.on) { margin: 0 0 3px; }
 .tray-row {

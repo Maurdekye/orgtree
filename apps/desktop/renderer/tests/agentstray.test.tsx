@@ -467,6 +467,18 @@ uiTest('§12 a detached whole-agent list stays open through main clicks and redo
     await flush(10)
     const childPanel = child.window.document.querySelector('.tray-panel') as HTMLElement | null
     assert.ok(childPanel, 'the whole list moved into the native child window')
+    // ⚠ THE POPPED-OUT HALF OF THE EMBEDDED-ONLY HEIGHT CAP (see §13-§14).
+    // Asserted here rather than in a section of its own because this is the
+    // only place a really detached surface exists: PinFrame emits
+    // `.surface-inline` for `inline && !pinned && !detached`, so a window in
+    // its own document must carry neither it nor a leftover embedded surface
+    // back in the wrap.
+    assert.equal(childPanel!.closest('.surface-inline'), null,
+      'a popped-out agents window rendered inside .surface-inline, which is the '
+      + 'embedded state the viewport height cap bounds')
+    assert.equal(view.el.querySelectorAll('.tray-wrap .surface-inline').length, 0,
+      'the main window still holds an embedded agents surface while the window '
+      + 'is popped out')
     assert.equal(savedWindows().find(r => r.kind === 'agent-list')?.open, true,
       'native popout persistence records the agent-list surface')
     const outside = document.createElement('button'); document.body.appendChild(outside)
@@ -498,3 +510,95 @@ uiTest('§12 a detached whole-agent list stays open through main clicks and redo
 // CONTEXT MENU on the real canvas, in tests/agentrowmenu.test.tsx §7. Deleted
 // here rather than rewritten: that test drives the shipping surface end to end,
 // where this one drove a fixture of a component that no longer exists.
+
+// ═══════════════════════════════════════════════════════════ §13-§14
+// KEEPING THE AGENTS WINDOW INSIDE THE VIEWPORT (user report 2026-09-12: with
+// many agents the ordinary Agents window grew off the TOP of the canvas and
+// took its pin/pop-out/close bar and its filter box with it).
+//
+// ⚠ THE LAYOUT ITSELF IS NOT MEASURED HERE AND CANNOT BE. Whether the surface
+// fits, whether the list scrolls and whether the cap survives a resize are
+// pixel claims; jsdom applies no stylesheet and does no layout, so
+// tests/trayheight_probe.py measures all of that in a real browser against the
+// real styles.css. What jsdom CAN prove is the pair of facts the browser check
+// rests on, and the pair that broke:
+//   §13 the cap's selector actually reaches the element the app renders, and
+//   §14 the states that must be excluded are excluded STRUCTURALLY.
+
+/** the shipped embedded cap, read back as `[selector, body]` — found by what
+ *  it does (bounds `.surface-inline`) rather than by a selector spelled out
+ *  here, which would just restate the thing under test */
+function capRule(): [string, string] {
+  const m = /^([^\n{}]*\.surface-inline)\s*\{([^}]*max-height:\s*100%[^}]*)\}/m.exec(CSS)
+  assert.ok(m, 'styles.css no longer bounds .surface-inline to its container at all')
+  return [m![1]!.trim(), m![2]!]
+}
+
+uiTest('§13 the embedded height cap selects the surface the app really renders',
+  async ({ mount }) => {
+    const [selector, body] = capRule()
+    // the cap has to be able to shrink the item, or a definite-height wrap
+    // means nothing — `min-height: auto` is the flexbox default and is exactly
+    // what "never shrink below your content" is spelled
+    assert.match(body, /min-height:\s*0/,
+      `"${selector}" must let the surface shrink inside the wrap`)
+    assert.match(rule('.surface-inline > .tray-panel'), /min-height:\s*0/,
+      'the panel inside the surface must be able to shrink too')
+
+    const el = await openTray(mount, undefined,
+      ['ceo', 'cto', 'cfo', 'coo', 'cpo', 'cro', 'cso', 'cmo'])
+    const surface = el.querySelector('.tray-wrap .surface-inline') as HTMLElement | null
+    assert.ok(surface, 'the ordinary agents window did not render a .surface-inline '
+      + 'inside .tray-wrap at all')
+
+    // ⚠ THE REGRESSION, ASSERTED AS THE SELECTOR MEETING THE ELEMENT. The rule
+    // shipped for weeks as `.tray-wrap > .surface-inline` and matched NOTHING:
+    // PinFrame renders through MovableSurface, whose .movable-anchor /
+    // -surface / -content / -events wrappers sit in between. They are
+    // `display: contents`, so the surface really is a flex item of the wrap
+    // for LAYOUT and the rule looked right — but a child combinator reads the
+    // DOM tree, not the box tree. Asked this way the check survives any number
+    // of wrappers being added or removed, and fails the moment the stylesheet
+    // and the markup stop agreeing.
+    assert.ok(surface!.matches(selector),
+      `the stylesheet bounds "${selector}", which does not match the element the `
+      + 'app renders — the cap is dead CSS')
+    const panel = surface!.querySelector('.tray-panel') as HTMLElement | null
+    assert.ok(panel, 'no agents panel inside the surface')
+    assert.ok(panel!.matches('.surface-inline > .tray-panel'),
+      'the panel is no longer a direct child of the surface, so its own cap is '
+      + 'dead CSS too')
+    // and the list that has to absorb the overflow is the one inside it
+    assert.ok(panel!.querySelector('.tray'), 'the panel holds no agent list')
+    assert.equal(panel!.querySelectorAll('.tray-row').length, 8,
+      'every fixture agent is a row — nothing is dropped to make the panel fit')
+  })
+
+uiTest('§14 a pinned agents window is outside the embedded cap, structurally',
+  async ({ mount }) => {
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    const { CurrentOrg } = await import('../src/popout')
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+    pinModal('agent-list', { x: 40, y: 20, w: 320, h: 420 }, 'mine')
+    rememberModalOpen('agent-list', 'mine')
+    const { el } = await mount(<CurrentOrg.Provider value="mine">
+      <OrgCanvas tree={treeWithStatus(['ceo', 'cto'])} op={() => Promise.resolve({} as never)}
+        slug="mine" toast={noop} mailEvt={null} /></CurrentOrg.Provider>)
+    await flush(5)
+    const panel = document.querySelector('.tray-panel.modalpin-win') as HTMLElement | null
+    assert.ok(panel, 'the pinned agents window did not render — this section is inert')
+    // ⚠ TWO SEPARATE REASONS THE CAP CANNOT REACH IT, and both are load-bearing.
+    // PinFrame emits `.surface-inline` only for `inline && !pinned && !detached`
+    // (modalpin.tsx), and a pinned surface is anchored to the org's pin layer
+    // instead of the wrap. Either one alone would do; asserting both means a
+    // change to either is visible here rather than only in a screenshot.
+    assert.equal(panel!.closest('.surface-inline'), null,
+      'a pinned window rendered inside .surface-inline, which is the embedded '
+      + 'state the height cap bounds')
+    assert.equal(panel!.closest('.tray-wrap'), null,
+      'a pinned window is still inside .tray-wrap — the cap now depends on the '
+      + 'selector alone')
+    assert.equal(el.querySelectorAll('.tray-wrap .surface-inline').length, 0,
+      'the wrap still holds an embedded surface while the window is pinned')
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  })
