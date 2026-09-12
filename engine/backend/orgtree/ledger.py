@@ -3464,6 +3464,9 @@ class Org:
         sibs = self.children(parent, live_only=False)
         self.nodes[nid] = {
             "session_id": str(uuid.uuid4()),
+            # the agent's own mint id — see NodeDoc. Distinct from
+            # `session_id`, which this agent replaces every time it compacts.
+            "seat_id": str(uuid.uuid4()),
             "model": tier,
             "parent": parent,
             "grant": grant,
@@ -4252,6 +4255,17 @@ class Org:
         self.d["watchdogs"] = [
             w for w in self.d.get("watchdogs", [])
             if w.get("owner") not in doomed_set]
+        # …and the same re-bind hazard one last time, on the docket. The ITEMS
+        # STAY — they are the org's durable record of the work and outlive
+        # everyone who touched it — but the two references that say who HOLDS
+        # one must stop naming a live agent, because the id being freed here is
+        # exactly what a later hire can be handed. Marked rather than cleared:
+        # the item still shows who held it (the panel reads `owner.node`), and
+        # `_work_identity_state` reads the mark as 'missing', so the
+        # stale-owner reconciler hands the item on as it always has. A holder
+        # reference written since the `born` stamp exists is already safe by
+        # itself; this is what covers the ones written before it.
+        self._work_mark_deleted_holders(doomed_set)
         extra = len(doomed_set) - 1
         def _deleted(relation: str) -> dict[str, Any]:
             return _mint("lifecycle.deleted", actor_of(actor), self.node_ref(nid), node=nid,
@@ -10027,6 +10041,36 @@ class Org:
         n = self.node(actor)
         return {"node": actor, "generation": int(n.get("generation") or 0)}
 
+    def _work_holder(self, actor: str) -> WorkActor | str:
+        """A HOLDER reference — `owner` and `reviewer`, the two fields that say
+        who has an item NOW and must still be resolvable to a live agent later.
+
+        It is `_work_actor` plus `born`, the agent's own mint id (`seat_id`),
+        and that id is what makes the reference name an AGENT rather than a
+        NAME. A node id becomes re-mintable when `delete` drops it out of the
+        table, so a later hire can wear it; the mint id is the one thing that
+        hire cannot also be given. `repair_rename_identity` reasons the same
+        way about the same question — "a node cannot predate itself: one
+        created after its own rename is a different node wearing the name" —
+        but it compares `created`, and `created` is not enough HERE: stamps
+        are millisecond-resolution, so a delete and a same-name hire inside one
+        millisecond are indistinguishable by it. That is not hypothetical; it
+        is reproducible in a test loop.
+
+        Deliberately NOT used for `created_by`, `last_updater` or history rows:
+        those record who did something THEN and are never re-resolved to a live
+        agent, so a mint id on them would be weight with no reader.
+
+        A seat with no `seat_id` — everything hired before the field existed —
+        yields the plain `_work_actor` shape, and `_work_identity_state` falls
+        back to its generation comparison rather than inventing a value. An
+        absent record is not evidence of anything."""
+        a = self._work_actor(actor)
+        if not isinstance(a, dict):
+            return a
+        born = str(self.node(actor).get("seat_id") or "")
+        return cast("WorkActor", {**a, "born": born} if born else a)
+
     @staticmethod
     def _work_actor_node(a: Any) -> str | None:
         if isinstance(a, dict):
@@ -10628,32 +10672,82 @@ class Org:
         EQUALITY and so contradicted it, which is what made an advance read as
         an abandoned owner.
 
-        ⚠ BUT THE COMPARISON IS DIRECTIONAL, NOT ABSENT. `delete` (user only)
-        drops a node and its whole lineage stack out of the table without
-        touching the docket, so the freed id can be re-minted by a later hire
-        — at generation 0. An item still naming the old agent must NOT re-bind
-        to that namesake, which is the same re-bind hazard `delete` already
-        sweeps asks, credit requests, scope requests and watchdogs for. A node
-        generation BELOW the stored one is therefore a replaced identity, not a
-        continuation, and reads stale exactly as it did before.
+        ⚠ BUT IT IS A CONTINUITY TEST, NOT "IGNORE THE GENERATION". `delete`
+        (user only) drops a node and its whole lineage stack out of the table
+        without touching the docket, so the freed id can be re-minted by a
+        later hire. An item still naming the old agent must NOT re-bind to that
+        namesake — the same re-bind hazard `delete` already sweeps asks, credit
+        requests, scope requests and watchdogs for. Continuity is therefore
+        decided in this order:
+
+          1. `born` — the agent's own mint id (`seat_id`), carried on every
+             holder reference written since 2026-09-12 (`_work_holder`). An id
+             that does not match the node standing under the name is a
+             DIFFERENT AGENT wearing it, whatever generation either has
+             reached. This is the real answer and it does not decay: a namesake
+             may compact as many times as it likes and never become the holder.
+          2. failing that (a reference written before the stamp existed, or a
+             node with no recorded creation time), the generation comparison,
+             DIRECTIONALLY: at or above the stored value is a continuation,
+             below it is an id re-minted underneath the reference. That is at
+             least as strict as the equality rule it replaces for every case
+             except a namesake that advances past the stored generation, which
+             is why `delete` now also marks the references it strands.
+          3. `deleted` — set by `delete` on the holder references of the nodes
+             it removes, so a stamp-less legacy reference is invalidated at the
+             moment its holder ceases to exist rather than being left to be
+             out-argued by a namesake later.
 
         States, unchanged on the wire: 'live' | 'retired' | 'missing' |
-        'generation moved' (now reached only by that backwards case) | None for
-        a non-node actor such as the user, which owns nothing reconcilable."""
+        'generation moved' (a replaced identity) | None for a non-node actor
+        such as the user, which owns nothing reconcilable."""
         if not isinstance(a, dict):
             return False, None
-        n = self.nodes.get(str(cast("dict[str, Any]", a).get("node")))
+        ref = cast("dict[str, Any]", a)
+        n = self.nodes.get(str(ref.get("node")))
         if n is None:
+            return False, "missing"
+        if ref.get("deleted"):
+            # the agent this named was deleted; whoever holds the name now was
+            # hired afterwards and never held the item
             return False, "missing"
         if n.get("state") != "live":
             return False, "retired"
-        if int(n.get("generation") or 0) < int(
-                cast("dict[str, Any]", a).get("generation") or 0):
+        born = str(ref.get("born") or "")
+        if born:
+            return ((True, "live") if born == str(n.get("seat_id") or "")
+                    else (False, "generation moved"))
+        if int(n.get("generation") or 0) < int(ref.get("generation") or 0):
             return False, "generation moved"
         return True, "live"
 
     def _work_owner_state(self, it: WorkItem) -> tuple[bool, str | None]:
         return self._work_identity_state(it.get("owner"))
+
+    #: the two work-item fields that say who HOLDS an item now and so have to
+    #: keep resolving to a live agent. `WORK_IDENTITY_FIELDS` is a different
+    #: list on purpose: that one is what a RENAME moves (owner and
+    #: last_updater, because the authority paths read both), this one is what a
+    #: DELETE invalidates.
+    WORK_HOLDER_FIELDS: tuple[str, ...] = ("owner", "reviewer")
+
+    def _work_mark_deleted_holders(self, gone: set[str]) -> int:
+        """Mark every holder reference naming one of `gone` as belonging to a
+        deleted agent. Active items and the archive both, because a reopened
+        item must not come back owned by a namesake. Nothing else on the item
+        moves — not `rev`, not `updated_at`, not `history`: this is an identity
+        invalidation, not a docket update (`_rekey_work_identity` takes the
+        same care for the same reason)."""
+        marked = 0
+        for key in ("work_items", "work_items_archive"):
+            for it in self.d.get(key) or []:
+                for f in self.WORK_HOLDER_FIELDS:
+                    a = it.get(f)
+                    if isinstance(a, dict) and str(a.get("node") or "") in gone \
+                            and not a.get("deleted"):
+                        a["deleted"] = True
+                        marked += 1
+        return marked
 
     def _work_actor_view(self, a: Any) -> Any:
         """A stored actor reference projected onto the generation the node is
@@ -11294,7 +11388,7 @@ class Org:
             # a new item can never start `dropped` (the status guard above
             # refuses it), so this is only ever the field's resting value
             "dropped_reason": None,
-            "owner": (cast(WorkActor, self._work_actor(own)) if own else None),
+            "owner": (cast(WorkActor, self._work_holder(own)) if own else None),
             # named only when the item ENTERS review, never at creation: a
             # reviewer for work that has not been done yet is a name nobody
             # chose for a reason
@@ -11748,7 +11842,7 @@ class Org:
             raise LedgerError(f"you may assign an item to yourself or a "
                               f"subordinate — {own!r} is neither")
         frm = it.get("owner")
-        it["owner"] = cast(WorkActor, self._work_actor(own))
+        it["owner"] = cast(WorkActor, self._work_holder(own))
         # Assignment starts work that was explicitly left in the backlog.
         # Keep every other status untouched: assignment is ownership, not a
         # general-purpose status update.
@@ -11869,7 +11963,7 @@ class Org:
                 f"you may ask yourself, an agent in your subtree, or your own "
                 f"superior to review this — {want!r} is none of those")
         prev = self._work_actor_node(it.get("reviewer"))
-        it["reviewer"] = cast(WorkActor, self._work_actor(want))
+        it["reviewer"] = cast(WorkActor, self._work_holder(want))
         self._work_hist(it, actor, "reviewer", {"from": prev, "to": it["reviewer"]})
         if want == actor:
             return None                 # naming yourself mails nobody

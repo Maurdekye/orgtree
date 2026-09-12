@@ -209,9 +209,9 @@ class GenerationAdvanceKeepsOwnershipTests(unittest.TestCase):
         # a compacted REVIEWER is still the reviewer, not a stale seat
         self.assertEqual(org._work_next_recipient(stored(org, review)),
                          ("review-sub", "reviewer"))
-        self.assertEqual(view(org, review)["reviewer"],
-                         {"node": "review-sub",
-                          "generation": org.nodes["review-sub"]["generation"]})
+        self.assertEqual(view(org, review)["reviewer"]["node"], "review-sub")
+        self.assertEqual(view(org, review)["reviewer"]["generation"],
+                         org.nodes["review-sub"]["generation"])
 
         # the user's reply reaches it, and it is listed as a live recipient
         self.assertEqual(org.work_reply_target(slug)["node"], "perf-pass")
@@ -280,17 +280,11 @@ class PreservedStaleAndAssignmentBehaviourTests(unittest.TestCase):
         self.assertEqual([m["previous_owner_state"] for m in moved], ["missing"])
 
     def test_a_re_minted_namesake_does_not_inherit_the_item(self):
-        """The directional half of the rule. A deleted agent frees its id; a
-        later hire of the same name starts at generation 0, BELOW the stored
-        reference, and must read as a replaced identity rather than as the
-        owner coming back.
-
-        The reference has to have been WRITTEN above 0 for the guard to have
-        anything to compare with — an item created before its owner ever
-        compacted stores generation 0 and a namesake starting at 0 matches it,
-        exactly as it did under the old equality rule. That is the same hole
-        `delete` sweeps asks, credit requests, scope requests and watchdogs to
-        avoid, and it is unchanged by this fix, not introduced by it."""
+        """A deleted agent frees its id; a later hire of the same name must
+        read as a replaced identity rather than as the owner coming back. Both
+        guards apply at once here — `delete` marked the reference and the
+        namesake's `born` does not match — and the mark is the stronger claim,
+        so the state reads 'missing'."""
         org = fixture()
         org.cheap_compact(USER, "perf-pass")      # the seat is at gen 1 …
         slug = make_item(org, "perf-pass", "Held by an agent that is deleted")
@@ -301,10 +295,102 @@ class PreservedStaleAndAssignmentBehaviourTests(unittest.TestCase):
         self.assertEqual(org.nodes["perf-pass"]["generation"], 0)
         v = view(org, slug)
         self.assertFalse(v["owner_current"])
-        self.assertEqual(v["owner_state"], "generation moved")
+        self.assertEqual(v["owner_state"], "missing")
         self.assertEqual(v["owner"]["generation"], 1)   # served verbatim
         moved = org.work_reassign_abandoned(now_ts=FAR_FUTURE)
         self.assertEqual([m["owner"]["node"] for m in moved], ["coordinator"])
+
+    def test_a_namesake_advancing_past_the_stored_generation_is_still_not_the_owner(self):
+        """state-review's blocking repro (2026-09-12). A namesake is not
+        stopped by an arithmetic comparison — it can compact its way past any
+        stored generation — so the reference carries the seat's own `born`
+        stamp and the deleted holder is marked as well. Neither decays."""
+        org = fixture()
+        org.cheap_compact(USER, "perf-pass")
+        slug = make_item(org, "perf-pass", "Deleted owner replacement advances")
+        age_out(org)
+        was = dict(stored(org, slug)["owner"])
+        self.assertEqual(was["generation"], 1)
+        org.delete(USER, "perf-pass")
+        org.hire(USER, "coordinator", "haiku", 0, "perf-pass")
+        org.cheap_compact(USER, "perf-pass")
+        org.cheap_compact(USER, "perf-pass")
+        self.assertEqual(org.nodes["perf-pass"]["generation"], 2)   # past stored 1
+
+        v = view(org, slug)
+        self.assertFalse(v["owner_current"])
+        self.assertEqual(v["owner"]["node"], "perf-pass")   # still says who held it
+        self.assertEqual(v["owner"]["generation"], 1)       # verbatim, not projected
+        moved = org.work_reassign_abandoned(now_ts=FAR_FUTURE)
+        self.assertEqual([m["owner"]["node"] for m in moved], ["coordinator"])
+
+    def test_the_mint_id_alone_rejects_a_namesake(self):
+        """The `born` half on its own, with `delete`'s mark taken back off, so
+        neither mechanism can hide a failure in the other.
+
+        This is why `born` is the agent's mint id and not its `created` stamp:
+        stamps are millisecond-resolution, and a delete plus a same-name hire
+        land in one millisecond often enough that this exact test failed about
+        one run in four while `created` was the marker."""
+        org = fixture()
+        slug = make_item(org, "perf-pass", "Mint id under test")
+        born = stored(org, slug)["owner"]["born"]
+        self.assertEqual(born, org.nodes["perf-pass"]["seat_id"])
+        age_out(org)
+        org.delete(USER, "perf-pass")
+        org.hire(USER, "coordinator", "haiku", 0, "perf-pass")
+        stored(org, slug)["owner"].pop("deleted", None)      # mark removed
+        for _ in range(4):
+            org.cheap_compact(USER, "perf-pass")
+        self.assertFalse(view(org, slug)["owner_current"])
+        self.assertEqual(view(org, slug)["owner_state"], "generation moved")
+
+    def test_deletion_marks_a_stampless_legacy_reference(self):
+        """The `delete` half on its own, against a reference written before
+        `born` existed — the shape every item already on disk has."""
+        org = fixture()
+        slug = make_item(org, "perf-pass", "Legacy reference under test")
+        review = make_item(org, "perf-pass", "Legacy reviewer reference",
+                           status="review", reviewer="review-sub")
+        for s in (slug, review):
+            for f in ("owner", "reviewer"):
+                if isinstance(stored(org, s).get(f), dict):
+                    stored(org, s)[f].pop("born", None)      # pre-stamp shape
+        age_out(org)
+        org.delete(USER, "perf-pass")
+        org.hire(USER, "coordinator", "haiku", 0, "perf-pass")
+        for _ in range(4):
+            org.cheap_compact(USER, "perf-pass")             # advance well past 0
+        self.assertTrue(stored(org, slug)["owner"]["deleted"])
+        v = view(org, slug)
+        self.assertFalse(v["owner_current"])
+        self.assertEqual(v["owner_state"], "missing")
+        moved = org.work_reassign_abandoned(now_ts=FAR_FUTURE)
+        self.assertEqual(sorted(m["owner"]["node"] for m in moved),
+                         ["coordinator", "coordinator"])
+
+    def test_deletion_marks_the_archive_too(self):
+        """A reopened item must not come back owned by a namesake."""
+        org = fixture()
+        slug = make_item(org, "perf-pass", "Closed then its owner is deleted")
+        org.work_update("perf-pass", slug, ["done"], [], status="done")
+        age_out(org)
+        org._work_sweep(now_ts=FAR_FUTURE)
+        self.assertTrue(any(i["slug"] == slug for i in org._work_archive()))
+        org.delete(USER, "perf-pass")
+        self.assertTrue(stored(org, slug)["owner"]["deleted"])
+
+    def test_an_unrelated_owner_is_untouched_by_someone_elses_deletion(self):
+        org = fixture()
+        mine = make_item(org, "perf-pass", "Kept by an agent that stays")
+        theirs = make_item(org, "peer-agent", "Held by the agent deleted")
+        age_out(org)
+        org.delete(USER, "peer-agent")
+        self.assertNotIn("deleted", stored(org, mine)["owner"])
+        self.assertTrue(view(org, mine)["owner_current"])
+        self.assertTrue(stored(org, theirs)["owner"]["deleted"])
+        moved = org.work_reassign_abandoned(now_ts=FAR_FUTURE)
+        self.assertEqual([m["assigned"] for m in moved], [theirs])
 
     def test_renamed_owner_keeps_its_items_as_before(self):
         org = fixture()

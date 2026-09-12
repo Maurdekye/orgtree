@@ -283,6 +283,25 @@ class NodeDoc(TypedDict):
     title: str
     charter: str | None
     created: str
+    #: THIS AGENT'S OWN MINT ID — one uuid, generated at hire and never
+    #: rewritten afterwards by anything: not a compaction, not a rehire, not a
+    #: rename, not a model switch. It travels with the agent's record, so a
+    #: lineage predecessor `nid@gen` carries the same one (it IS the same
+    #: agent, one session back) while a later hire that happens to be given a
+    #: freed name carries a different one.
+    #:
+    #: It exists because `created` cannot answer that question: stamps are
+    #: millisecond-resolution, so a delete and a same-name hire inside one
+    #: millisecond produce two agents with identical `created`. A docket
+    #: holder reference records this instead (`ledger._work_holder`), and
+    #: `ledger._work_identity_state` compares it to decide whether the node
+    #: standing under a name is still the agent that was assigned the work.
+    #:
+    #: NotRequired: every seat hired before 2026-09-12 has none, and nothing
+    #: back-fills one — a stamp invented after the fact would be a claim about
+    #: identity the ledger cannot actually make. References to those seats fall
+    #: back to the generation comparison.
+    seat_id: NotRequired[str]
     archived_at: str | None
     # FR-22: set by rescind() — archived AND the superior's grant clawed
     # back; the marker makes a second rescind a no-op instead of a
@@ -579,9 +598,24 @@ class WorkActor(TypedDict):
     """Who did something to a work item: a node AT A GENERATION. A compaction
     or rehire bumps the generation, so the record keeps naming the process
     that acted even after the seat is a different session. The user is the
-    literal string "user" wherever a WorkActor is accepted."""
+    literal string "user" wherever a WorkActor is accepted.
+
+    The last two fields are carried ONLY by a HOLDER reference — `owner` and
+    `reviewer`, the two that say who has the item NOW and so have to keep
+    resolving to a live agent (`ledger._work_holder`). `created_by`,
+    `last_updater`, history rows and delivery claims record who acted THEN,
+    are never re-resolved, and carry neither. Both are absent on every
+    reference written before 2026-09-12; `ledger._work_identity_state` falls
+    back to comparing generations when they are, and treats that absence as
+    no evidence rather than as a negative."""
     node: str
     generation: int
+    #: the holder's own mint id (NodeDoc.seat_id), which is what makes the
+    #: reference name an AGENT and not just a name a later hire could be handed
+    born: NotRequired[str]
+    #: set by `delete` on the references it strands: the agent this named is
+    #: gone, so whoever wears the name now never held the item
+    deleted: NotRequired[bool]
 
 
 class WorkStage(TypedDict, total=False):
