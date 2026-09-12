@@ -38,6 +38,9 @@
 //   resize-when-detached  give a detached window the pinned window's in-page
 //                         resize handles                             [§3]
 //   glyph-when-detached   show the push-pin on a window that is not pinned [§4]
+//   own-window-ignored    give the title bar to ANY detached surface, including
+//                         a dialog that merely lives in somebody else's
+//                         popped-out window                          [§5]
 // ⚠ ONE HALF OF §3 IS NOT PROVABLE HERE. That the controls inside a drag
 // region still take a click is a compositor property, not a DOM one; the
 // mutation that proves it is in tests/popout-header-native.probe.ts, which
@@ -324,4 +327,32 @@ test('§4 pinned is untouched: its glyph, its handles and its drag still answer'
   assert.equal(s.find('.modalpin-glyph'), null,
     'a window of its own is not pinned to anything, so it shows no push-pin')
   assert.ok(s.find('.modalpin-name'), 'it still names itself')
+})
+
+test('§5 a dialog in another surface’s window does not wear that window’s title bar', async (t: TestContext) => {
+  withOpener(t)
+  // the shape this guards: a surface that does NOT own a MovableSurface of its
+  // own — no org scope, or `pinnable={false}` — inherits the surface it was
+  // opened from, so inside a popped-out window it reads as detached too. The
+  // native drag region is scoped to `.popout-mount` and ModalOverPins portals
+  // such a dialog to the document body, outside it, so a title bar there would
+  // promise a handle that moves nothing.
+  const s = await mountSurface('settings usage-modal', 'Usage',
+    <PinFrame kind="draft-scope" pinnable={false} title="Draft permissions" panel="settings" close={noop}>
+      <h3>Draft permissions</h3>
+    </PinFrame>)
+  t.after(() => s.unmount())
+  await popOut()
+
+  const owner = s.find('.usage-modal')!
+  assert.ok(owner.classList.contains('modalpin-detached'), 'the window’s own surface takes the title bar')
+  const dialog = s.find('.settings:not(.usage-modal)')
+  assert.ok(dialog, 'the nested dialog must still render inside the popped-out window')
+  assert.ok(!dialog.classList.contains('modalpin-detached'),
+    `a dialog in the window is not the window (${dialog.className})`)
+  const bar = dialog.querySelector('.modalpin-bar')
+  assert.ok(bar, 'it keeps its ordinary bar')
+  assert.ok(!bar.classList.contains('detached'), 'which is not a title bar')
+  assert.equal(bar.querySelector('.modalpin-name'), null, 'and carries no window name')
+  assert.equal(s.all('.modalpin-name').length, 1, 'one window, one title bar heading')
 })

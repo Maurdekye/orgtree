@@ -506,6 +506,18 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const ownerDocument = useSurfaceDocument()
   const ownerWindow = ownerDocument.defaultView ?? window
   const detached = !!surface?.detached
+  /** Is this surface the one the window BELONGS to?
+   *
+   *  ⚠ `detached` ALONE IS NOT THE SAME QUESTION. PinFrame wraps itself in a
+   *  MovableSurface only when it has an org scope and is pinnable (which is
+   *  exactly when `orgScope` is non-null); anything else — the OpenRouter
+   *  picker, draft permissions, an add-account dialog — inherits whatever
+   *  surface it was opened from, so inside a popped-out window it reads as
+   *  detached too. Those are dialogs in somebody else's window: giving them
+   *  the window's title bar would promise a handle that moves nothing, since
+   *  the native drag region is scoped to `.popout-mount` and a dialog raised
+   *  by ModalOverPins is portaled to the document body, outside it. */
+  const ownWindow = detached && orgScope !== null
   const pinned = pinnable && orgScope !== null && pin !== null && !detached
   const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
@@ -673,7 +685,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           the class list and the inline rect change, so React keeps the whole
           subtree mounted across a pin, an unpin, a drag and a resize. */}
       <div ref={panelRef} role={dialogLabel ? (inPlace ? "region" : "dialog") : undefined} aria-label={dialogLabel}
-        className={panel + (pinned ? ' modalpin-win' : '') + (detached ? ' modalpin-detached' : '')}
+        className={panel + (pinned ? ' modalpin-win' : '') + (ownWindow ? ' modalpin-detached' : '')}
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
@@ -693,11 +705,11 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
             desk (an 884px header) moved fine. Detached it takes the title bar
             a pinned window already has: the surface's name, the full width,
             and the panel's own duplicate heading stood down. */}
-        <div className={'modalpin-bar' + (pinned ? ' on' : '') + (detached ? ' detached' : '')}
+        <div className={'modalpin-bar' + (pinned ? ' on' : '') + (ownWindow ? ' detached' : '')}
           data-copy-agent-name={restore?.agent}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'
-            : detached ? 'drag to move this window' : undefined}
+            : ownWindow ? 'drag to move this window' : undefined}
           onPointerDown={pinned && rect
             ? (e) => begin(e, { kind: 'move', sx: e.clientX, sy: e.clientY, o: rect })
             : undefined}
@@ -710,7 +722,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           {/* the push-pin says PINNED, so it belongs to that mode alone; a
               detached window is not pinned to anything. */}
           {pinned && <PushPinIcon fontSize="inherit" className="modalpin-glyph" />}
-          {(pinned || detached) && <>
+          {(pinned || ownWindow) && <>
             {/* ⚠ THIS IS THE SURFACE'S HEADING IN BOTH WINDOW MODES, not
                 decoration. The panel's own <h3> is hidden by CSS in both (one
                 title, not two — Astra 2026-09-06), so if this span carried no

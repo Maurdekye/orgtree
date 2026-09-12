@@ -10,12 +10,12 @@ const mutation = process.argv[2]
 const mutations = {
   // the state before the fix: the bar keeps `margin-left: auto`, so a
   // popped-out window's title bar is a button cluster in the top-right corner
-  'no-detached-bar': ['src/canvas/modalpin.tsx', " + (detached ? ' detached' : '')", ''],
+  'no-detached-bar': ['src/canvas/modalpin.tsx', " + (ownWindow ? ' detached' : '')", ''],
   // ...and the surface's name is rendered only while pinned
-  'no-detached-name': ['src/canvas/modalpin.tsx', '{(pinned || detached) && <>', '{pinned && <>'],
+  'no-detached-name': ['src/canvas/modalpin.tsx', '{(pinned || ownWindow) && <>', '{pinned && <>'],
   // the panel stops saying it is in a window of its own, so its own heading
   // no longer stands down and the window says its name twice
-  'no-panel-class': ['src/canvas/modalpin.tsx', " + (detached ? ' modalpin-detached' : '')", ''],
+  'no-panel-class': ['src/canvas/modalpin.tsx', " + (ownWindow ? ' modalpin-detached' : '')", ''],
   // the title bar scrolls away with the content, taking the handle with it
   'no-sticky-bar': ['src/styles.css', 'position: sticky; top: calc(-1 * var(--panel-pad-y, 8px)); z-index: 6;',
     'position: static; z-index: 6;'],
