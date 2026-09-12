@@ -253,7 +253,16 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
     # possession of a stale descriptor must never pass for the right engine.
     @api_app.get("/api/desktop/identity")
     def desktop_identity() -> dict[str, Any]:
-        return {"protocol": 1, "pid": os.getpid(), "dataRootId": data_root_id(data)}
+        from orgtree.build_identity import artifact_root_for, resolve_build_identity
+        runtime_root = artifact_root_for(api.__file__)
+        return {
+            "protocol": 1,
+            "pid": os.getpid(),
+            "dataRootId": data_root_id(data),
+            "runtimeRoot": str(runtime_root.resolve()),
+            "pythonExecutable": str(Path(sys.executable).resolve()),
+            "buildIdentity": resolve_build_identity(runtime_root),
+        }
 
     @api_app.get("/api/desktop/notifications")
     def desktop_notifications(offset: int = 0) -> dict[str, Any]:

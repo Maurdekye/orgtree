@@ -17,9 +17,11 @@ import tempfile
 import textwrap
 import time
 import uuid
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 
 SCHEMA = "orgtree.python-verification/v1"
@@ -28,6 +30,7 @@ SUPPORTED_MAX = (4, 0)
 FAILURE_PHASES = frozenset(
     {"assertion_failure", "import_failure", "teardown_failure", "execution_failure", "cleanup_error"}
 )
+_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,24 @@ class Interpreter:
     version_info: tuple[int, int, int]
     implementation: str
     executable: str
+
+
+class RuntimeDiscoveryError(ValueError):
+    """A safe, actionable failure while locating an installed engine."""
+
+
+@dataclass(frozen=True)
+class EngineTarget:
+    """Authenticated identity for the engine that a verifier may inspect."""
+
+    mode: str
+    endpoint: str
+    pid: int
+    data_root: str
+    runtime_root: str
+    python_executable: str
+    build_identity: dict[str, Any]
+    descriptor: str | None = None
 
 
 @dataclass
@@ -58,6 +79,172 @@ class ModuleResult:
 
 def _canonical(path: Path) -> Path:
     return Path(os.path.realpath(os.path.abspath(str(path))))
+
+
+def _endpoint(value: str) -> str:
+    """Accept only an explicit loopback HTTP endpoint."""
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise RuntimeDiscoveryError(f"unsupported engine endpoint: {value!r}") from exc
+    if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1"
+            or parsed.username or parsed.password or parsed.path not in ("", "/")
+            or parsed.query or parsed.fragment):
+        raise RuntimeDiscoveryError(
+            "unsupported engine endpoint: expected an unauthenticated loopback URL "
+            "such as http://127.0.0.1:1234"
+        )
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeDiscoveryError(f"unsupported engine endpoint port: {value!r}") from exc
+    if port is None or not 1 <= port <= 65535:
+        raise RuntimeDiscoveryError(f"unsupported engine endpoint port: {value!r}")
+    return f"http://127.0.0.1:{port}"
+
+
+def _identity_request(endpoint: str, token: str, timeout: float = 5.0) -> dict[str, Any]:
+    request = Request(
+        endpoint + "/api/desktop/identity",
+        headers={"X-Orgtree-Desktop-Token": token},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            value = json.load(response)
+    except (OSError, ValueError, TypeError) as exc:
+        raise RuntimeDiscoveryError(
+            f"not-found: desktop engine endpoint did not answer identity: {exc}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise RuntimeDiscoveryError("unsupported runtime identity: response is not an object")
+    return value
+
+
+def _process_executable(pid: int) -> str:
+    """Resolve a PID through the selected runtime's pinned psutil package."""
+    try:
+        import psutil  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeDiscoveryError(
+            "unsupported process identity check: psutil is not available in the selected runtime"
+        ) from exc
+    try:
+        executable = psutil.Process(pid).exe()
+    except (OSError, psutil.Error) as exc:
+        raise RuntimeDiscoveryError(f"not-found: engine process {pid} is not available: {exc}") from exc
+    if not executable:
+        raise RuntimeDiscoveryError(f"unsupported process identity: engine process {pid} has no executable path")
+    return str(_canonical(Path(executable)))
+
+
+def _descriptor(path: Path, data_root: Path) -> tuple[str, int, str, str]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: {exc}") from exc
+    if not isinstance(value, dict) or value.get("type") != "attach" or value.get("protocol") != 1:
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: protocol is not 1")
+    port, pid, token, reported_root = value.get("port"), value.get("enginePid"), value.get("token"), value.get("dataRootId")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: invalid port")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid < 1:
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: invalid engine PID")
+    if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: invalid token")
+    if not isinstance(reported_root, str) or not Path(reported_root).is_absolute() or _canonical(Path(reported_root)) != data_root:
+        raise RuntimeDiscoveryError(f"unsupported attach descriptor at {path}: data root mismatch")
+    return f"http://127.0.0.1:{port}", pid, token, str(path)
+
+
+def discover_engine(
+    data_root: Path,
+    *,
+    endpoint: str | None = None,
+    token: str | None = None,
+    expected_pid: int | None = None,
+    expected_runtime_root: Path | None = None,
+    descriptor: Path | None = None,
+    identity_request: Callable[[str, str], dict[str, Any]] | None = None,
+    process_probe: Callable[[int], str] | None = None,
+) -> EngineTarget:
+    """Discover and authenticate either supported engine ownership topology.
+
+    A boot-host engine publishes ``engine-attach.json``. A desktop-owned
+    engine has no descriptor; its endpoint and token are supplied by the
+    desktop launch handshake. ``engine-port.json`` is intentionally never
+    used because it contains no owner, token, or process identity.
+    """
+    root = _canonical(data_root)
+    if not root.is_dir():
+        raise RuntimeDiscoveryError(f"not-found: engine data root does not exist: {root}")
+    descriptor_path = _canonical(descriptor) if descriptor else root / "engine-attach.json"
+    if not _is_within(descriptor_path, root):
+        raise RuntimeDiscoveryError("unsupported engine discovery: descriptor must be below the engine data root")
+    mode = "desktop-owned"
+    descriptor_name: str | None = None
+    descriptor_pid: int | None = None
+    if descriptor_path.exists():
+        selected_endpoint, descriptor_pid, selected_token, descriptor_name = _descriptor(descriptor_path, root)
+        mode = "boot-host"
+        if endpoint is not None and _endpoint(endpoint) != selected_endpoint:
+            raise RuntimeDiscoveryError("unsupported engine discovery: endpoint disagrees with attach descriptor")
+        endpoint = selected_endpoint
+        if token is not None and token != selected_token:
+            raise RuntimeDiscoveryError("unsupported engine discovery: token disagrees with attach descriptor")
+        token = selected_token
+    elif endpoint is None:
+        if (root / "engine-port.json").exists():
+            raise RuntimeDiscoveryError(
+                "unsupported engine discovery: engine-port.json is not authoritative; "
+                "provide the desktop-owned endpoint and token"
+            )
+        raise RuntimeDiscoveryError(
+            f"not-found: no engine-attach.json or desktop-owned endpoint for {root}"
+        )
+    else:
+        endpoint = _endpoint(endpoint)
+        if not token:
+            raise RuntimeDiscoveryError(
+                "unsupported desktop-owned discovery: an authenticated desktop token is required"
+            )
+    assert endpoint is not None and token is not None
+    endpoint = _endpoint(endpoint)
+    identity = (identity_request or _identity_request)(endpoint, token)
+    if identity.get("protocol") != 1:
+        raise RuntimeDiscoveryError("unsupported runtime identity: protocol is not 1")
+    pid = identity.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid < 1:
+        raise RuntimeDiscoveryError("unsupported runtime identity: invalid process identity")
+    if descriptor_pid is not None and pid != descriptor_pid:
+        raise RuntimeDiscoveryError("unsupported runtime identity: endpoint process does not match descriptor")
+    if expected_pid is not None and pid != expected_pid:
+        raise RuntimeDiscoveryError("unsupported runtime identity: endpoint process does not match expected PID")
+    reported_root = identity.get("dataRootId")
+    if not isinstance(reported_root, str) or not Path(reported_root).is_absolute() or _canonical(Path(reported_root)) != root:
+        raise RuntimeDiscoveryError("unsupported runtime identity: endpoint data root mismatch")
+    runtime_root_value = identity.get("runtimeRoot")
+    python_value = identity.get("pythonExecutable")
+    build = identity.get("buildIdentity")
+    if not isinstance(runtime_root_value, str) or not Path(runtime_root_value).is_absolute():
+        raise RuntimeDiscoveryError("unsupported runtime identity: runtime root is missing or not absolute")
+    if not isinstance(python_value, str) or not Path(python_value).is_absolute():
+        raise RuntimeDiscoveryError("unsupported runtime identity: Python executable is missing or not absolute")
+    runtime_root = _canonical(Path(runtime_root_value))
+    python_executable = _canonical(Path(python_value))
+    if expected_runtime_root is not None and runtime_root != _canonical(expected_runtime_root):
+        raise RuntimeDiscoveryError("unsupported runtime identity: runtime root mismatch")
+    if not isinstance(build, dict) or build.get("provenance") not in {"source", "packaged"}:
+        raise RuntimeDiscoveryError("unsupported runtime identity: build provenance is missing")
+    if not isinstance(build.get("commit"), str) or not _SHA.fullmatch(build["commit"]):
+        raise RuntimeDiscoveryError("unsupported runtime identity: invalid build commit")
+    if not runtime_root.joinpath("engine", "launch.py").is_file():
+        raise RuntimeDiscoveryError(f"not-found: engine launcher is missing below runtime root: {runtime_root}")
+    observed_executable = (process_probe or _process_executable)(pid)
+    if _canonical(Path(observed_executable)) != python_executable:
+        raise RuntimeDiscoveryError("unsupported process identity: endpoint PID executable differs from runtime identity")
+    return EngineTarget(mode=mode, endpoint=endpoint, pid=pid, data_root=str(root),
+                        runtime_root=str(runtime_root), python_executable=str(python_executable),
+                        build_identity=dict(build), descriptor=descriptor_name)
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -296,12 +483,22 @@ def run_modules(
     baseline: set[str] | None = None,
     timeout: float = 300.0,
 ) -> list[ModuleResult]:
-    roots = [Path(item).resolve() for item in (import_root_paths or import_roots(repo_root))]
+    configured_roots = [Path(item).resolve() for item in (import_root_paths or import_roots(repo_root))]
     baseline = baseline or set()
     results: list[ModuleResult] = []
     for module in modules:
         path = _canonical(Path(module) if Path(module).is_absolute() else repo_root / module)
         label = _module_name(path, repo_root)
+        # A verifier may carry a sibling guard module (for example
+        # ``release_guards.py``).  The embedded interpreter starts in isolated
+        # mode, so the module's own directory must be an explicit root rather
+        # than relying on cwd or PYTHONPATH.  Keep the roots deterministic and
+        # reject duplicate aliases after canonicalization.
+        roots: list[Path] = []
+        for root in [path.parent, *configured_roots]:
+            canonical = _canonical(root)
+            if canonical not in roots:
+                roots.append(canonical)
         private_root = data_root / uuid.uuid4().hex
         private_root.mkdir(parents=True)
         env = os.environ.copy()

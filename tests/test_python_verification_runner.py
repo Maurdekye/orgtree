@@ -44,7 +44,63 @@ class PythonVerificationRunner(unittest.TestCase):
         self.assertEqual(result.phase, "pass")
         self.assertNotEqual(Path(result.data_root), self.data)
         self.assertFalse(Path(result.data_root).exists())
-        self.assertEqual(result.import_roots[0], str(ROOT))
+        self.assertIn(str(ROOT), result.import_roots)
+
+    def test_module_directory_is_pinned_for_embedded_sibling_guards(self):
+        self.module("release_guards.py", "VALUE = 'pinned-sibling'\n")
+        path = self.module("verifier.py", "from release_guards import VALUE\nassert VALUE == 'pinned-sibling'\n")
+        [result] = self.execute(path)
+        self.assertEqual(result.phase, "pass")
+        self.assertTrue(any(Path(root).samefile(self.fixture) for root in result.import_roots))
+
+    def _runtime_fixture(self):
+        data = self.fixture / "engine-data"
+        data.mkdir()
+        runtime = self.fixture / "runtime"
+        (runtime / "engine").mkdir(parents=True)
+        (runtime / "engine" / "launch.py").write_text("# fixture\n", encoding="utf-8")
+        python = runtime / "python.exe"
+        python.write_text("fixture", encoding="utf-8")
+        identity = {
+            "protocol": 1,
+            "pid": 4242,
+            "dataRootId": str(data.resolve()),
+            "runtimeRoot": str(runtime.resolve()),
+            "pythonExecutable": str(python.resolve()),
+            "buildIdentity": {"commit": "a" * 40, "provenance": "packaged"},
+        }
+        return data, runtime, python, identity
+
+    def test_discovery_accepts_boot_host_and_desktop_owned_topologies(self):
+        data, runtime, python, identity = self._runtime_fixture()
+        token = "ab" * 32
+        descriptor = data / "engine-attach.json"
+        descriptor.write_text(json.dumps({
+            "type": "attach", "protocol": 1, "port": 2345, "enginePid": 4242,
+            "hostPid": 4241, "dataRootId": str(data.resolve()), "token": token,
+        }), encoding="utf-8")
+        target = runner.discover_engine(data, expected_runtime_root=runtime,
+            identity_request=lambda endpoint, supplied: identity,
+            process_probe=lambda pid: str(python))
+        self.assertEqual(target.mode, "boot-host")
+        descriptor.unlink()
+        target = runner.discover_engine(data, endpoint="http://127.0.0.1:2345", token=token,
+            expected_runtime_root=runtime, identity_request=lambda endpoint, supplied: identity,
+            process_probe=lambda pid: str(python))
+        self.assertEqual(target.mode, "desktop-owned")
+
+    def test_discovery_refuses_stale_identity_and_non_authoritative_port(self):
+        data, runtime, python, identity = self._runtime_fixture()
+        (data / "engine-port.json").write_text('{"port":2345}', encoding="utf-8")
+        with self.assertRaisesRegex(runner.RuntimeDiscoveryError, "not authoritative"):
+            runner.discover_engine(data)
+        token = "ab" * 32
+        bad = dict(identity, pid=4243)
+        with self.assertRaisesRegex(runner.RuntimeDiscoveryError, "process"):
+            runner.discover_engine(data, endpoint="http://127.0.0.1:2345", token=token,
+                expected_pid=4242, expected_runtime_root=runtime,
+                identity_request=lambda endpoint, supplied: bad,
+                process_probe=lambda pid: str(python))
 
     def test_classifies_skip_assertion_and_import_failures(self):
         for name, source, expected in (
