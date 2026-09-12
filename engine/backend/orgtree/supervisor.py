@@ -5432,8 +5432,10 @@ def commit_wake_deadlines(org: Org, now: float | None = None) -> bool:
                 del fz["wake"]
                 changed = True
             continue
-        if eff["ts"] <= now and _committed_wake(fz):
-            continue                # already promised and now due — leave it
+        # `effective_freeze_deadline` already decides whether an existing
+        # promise stands or a live source pulled it in, so writing whatever it
+        # answers is exactly right: an unchanged promise compares equal and
+        # costs no write.
         want = {"ts": float(eff["ts"]), "src": eff["src"],
                 "schedule_kind": eff["schedule_kind"],
                 "provenance": eff["provenance"],
@@ -5521,18 +5523,16 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
          make the stated time cosmetic. If the wall really is still up, the
          attempt returns a new 429 and that 429 rewrites this record with its
          own timing — the precedence working, not a hole.
-      1b. THE PROMISE THIS FREEZE ALREADY CARRIES, ONCE IT HAS ELAPSED —
-         `frozen.wake`, above every fallback for the reason just given.
+      1b. THE PROMISE THIS FREEZE ALREADY CARRIES — `frozen.wake`. Once
+         chosen it IS the deadline, whether or not it has elapsed; the ranks
+         below may only pull it EARLIER (round 6).
       2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints. The
          fallback the precedence allows when the 429 said nothing. LIVE only:
          a mark is evidence about now, and an elapsed one belongs to a window
          that has closed, possibly long before this freeze existed.
-      2b. THE PROMISE AGAIN, while it is still to come — below fresh evidence,
-         which may legitimately move a deadline that has not arrived yet, but
-         above the record's own weaker guess below.
-      3. ANY OTHER LIVE HORIZON the record carries: an inherited one, the
-         blind probe floor. Weak, but a wake is coming and neither surface may
-         deny it.
+      3. ANY OTHER HORIZON the record carries, LIVE OR ELAPSED: an inherited
+         one, the blind probe floor. Weak, but it is a statement about THIS
+         freeze, a wake is coming, and neither surface may deny it.
       4. THE ROSTER — `accounts.resolve` for the tier, when it reports the
          pool unavailable. ⚠ SHARED, not display-only (round 4): while this
          rank lived in `api._rederive_freeze_reset` alone, a node with no time
@@ -5564,9 +5564,8 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
         # usage wall: its own deadline or nothing. The marks and the roster
         # describe capacity, and capacity is not what this node is waiting on.
         return _own() if in_range else None
-    promised = _committed_wake(fz)
-    if promised and promised["ts"] <= now:
-        return promised                     # it came due: nothing may extend it
+    # ── THE FALLBACKS, in their own order, read from LIVE state.
+    fallback: dict[str, Any] | None = None
     if mark:
         try:
             m_ts = float(mark["until"])
@@ -5574,20 +5573,20 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
             m_ts = 0.0
         if now < m_ts <= now + limits.MAX_HORIZON:
             prov = str(mark.get("provenance") or "")
-            return {"ts": m_ts, "src": "account-mark",
-                    "schedule_kind": ("observed-deadline" if prov == "observed"
-                                      else "probe"),
-                    "provenance": prov}
-    if promised and promised["ts"] <= now + limits.MAX_HORIZON:
-        # STILL TO COME, and already shown. Live evidence above may move it —
-        # that is round 2's fix — but the record's own weaker guess below may
-        # not: when the account row behind a promise disappears, falling to an
-        # inherited +2h would jump the badge FORWARD and then back again the
-        # moment the promised time arrived.
-        return promised
-    if now < own <= now + limits.MAX_HORIZON:
-        return _own()
-    if roster and not roster.get("available"):
+            fallback = {"ts": m_ts, "src": "account-mark",
+                        "schedule_kind": ("observed-deadline"
+                                          if prov == "observed" else "probe"),
+                        "provenance": prov}
+    if fallback is None and in_range:
+        # ⚠ LIVE *OR* ELAPSED (review round 6, case A). Live-only left a hole
+        # exactly one deadline wide: a freeze carrying `inherited +10s` showed
+        # +10s, and the first tick after it elapsed found nothing at this rank
+        # and promised the ROSTER'S +2h instead — postponing a wake that had
+        # already been published. A record's own horizon is a statement about
+        # this freeze; when its moment passes the node is due, and a pool-wide
+        # horizon is not entitled to overrule that.
+        fallback = _own()
+    if fallback is None and roster and not roster.get("available"):
         try:
             r_ts = float(roster.get("refresh_at") or 0.0)
         except (TypeError, ValueError):
@@ -5598,9 +5597,31 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
             # display can keep the wording it already had for it, and
             # `schedule_kind`/`provenance` stay empty rather than stamping a
             # kind onto a number the record does not own.
-            return {"ts": r_ts, "src": "roster", "schedule_kind": "",
-                    "provenance": ""}
-    return None
+            fallback = {"ts": r_ts, "src": "roster", "schedule_kind": "",
+                        "provenance": ""}
+    promised = _committed_wake(fz)
+    if promised:
+        # ⚠ ONCE CHOSEN, A PROMISE IS THE DEADLINE — a live source may pull it
+        # EARLIER but never push it out (review round 6, case B). Letting fresh
+        # evidence move it later made the two readers disagree ACROSS the
+        # elapsed boundary and nowhere else: a promise of +300 lost to a newly
+        # arrived mark of +7200 while it was still to come, then beat that same
+        # mark the moment it came due — so the badge read +2h at one instant
+        # and +5m at the next, and the node woke on the +5m. The winner may not
+        # depend on which side of the deadline the clock is on.
+        #
+        # Pulling IN is safe and stays useful: it only ever wakes the node
+        # sooner than it was told, and both readers see the same live source at
+        # the same instant, so they move together. (The cost, stated plainly:
+        # a mark that moves LATER no longer updates the badge. The node wakes
+        # at the promised time, the pre-slot gate re-parks it on the newer mark
+        # and stamps a fresh record, and the badge shows that — one spent
+        # admission, in public, which is the trade round 3 already made for an
+        # elapsed 429.)
+        if fallback and fallback["ts"] < promised["ts"]:
+            return fallback
+        return promised
+    return fallback
 
 
 def freeze_account_of(fz: FrozenInfo, node: Mapping[str, Any]) -> str:
@@ -16231,6 +16252,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                        if nid in _g_org.nodes else None)
         except Exception:                                    # noqa: BLE001
             _g_node = None
+        # bound before the gate branch: the spawn seam below reads it whether
+        # or not the gate ran for this turn.
+        _g_pass = False
         if _g_node is not None and not _g_node.get("frozen"):
             _g_acct = str(_g_node.get("account") or "")
             _g_mark = None
@@ -16581,13 +16605,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # actually sent (`_cache_inflight_attempt`).
                         inf["cache_attempt"] = cache_attempt
                     o2.node(nid)["inflight"] = inf
-                    # THE PROVIDER SEAM, and so where the one-shot gate pass is
-                    # finally spent (review round 5): the turn is committed and
-                    # about to launch, which is the REAL ATTEMPT the pass was
-                    # owed. Every in-slot refusal above raises before this line,
-                    # leaving the pass intact for the next admission. It rides
-                    # the save below.
-                    _spend_admit_once(o2, nid)
                     # new work begins: a lingering done/blocked chip would lie —
                     # but the history is kept, not erased (gap audit №13)
                     ls = o2.node(nid).pop("last_status", None)
@@ -16815,6 +16832,24 @@ def _run_one_turn_recorded(slug: str, nid: str,
             if turn_hash is not None:
                 wp_turn, _adm_reason = warmpool.claim_snapshot(
                     slug, nid, turn_hash, turn_components)
+            if _g_pass:
+                # ⚠ THE PROVIDER SEAM, AND IT IS HERE — the last statement
+                # before the process is claimed or spawned (review round 6).
+                # The `inflight` stamp looked like the commitment point and is
+                # not: `_envelope_state_block` and the whole prompt assembly
+                # still run after it and can raise, which would burn the pass
+                # on a turn that never reached a provider — the very thing
+                # round 5 moved it out of the gate to prevent. Everything that
+                # can still refuse this turn has now run.
+                #
+                # Its own lock, and only for a node that actually holds a pass:
+                # this is the rare wake at a conclusive 429's own stated time,
+                # not the ordinary turn.
+                with store.DOC_LOCK:
+                    _o_pass = store.load_org(slug)
+                    if _spend_admit_once(_o_pass, nid):
+                        store.save_org(_o_pass)
+                _g_pass = False
             _spawn_t0 = time.monotonic()
             if wp_turn is not None:
                 proc = wp_turn.proc

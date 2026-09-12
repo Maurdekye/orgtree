@@ -177,12 +177,37 @@ class WakeEstimateTests(unittest.TestCase):
     # capacity, no instruction to resume by hand (that copy is retired).
     def test_no_estimate_says_so_and_claims_nothing(self):
         for fz_in in ({'until_ts': None, 'reset_src': 'probe'},
-                      {'until_ts': time.time() - 60, 'reset_src': 'probe'},
                       {'until_ts': None, 'reset_src': ''}):
             with self.subTest(**fz_in):
                 fz = self._derive(self._node('fable', **fz_in))
                 self.assertEqual(fz['until'], 'reset time unknown')
                 self.assertIsNone(fz['until_ts'])
+
+    def test_an_elapsed_weak_horizon_is_a_time_too(self):
+        """⚠ CHANGED IN ROUND 6, and this is the case it was changed for.
+
+        An elapsed probe floor used to read "reset time unknown" here while
+        the scheduler, asked about the same record, treated it as a real
+        deadline. Review found the hole that opens: a freeze carrying
+        `inherited +10s` is displayed as +10s, and the first scheduler tick
+        AFTER those ten seconds pass finds nothing at this rank and promises
+        the roster's +2h instead — postponing a wake that had already been
+        published to the user.
+
+        A horizon on the record is a statement about THIS freeze. When its
+        moment passes the node is due, and both surfaces now say so. The
+        neutral text above is for a record that names no time at all, which is
+        the only thing "unknown" ever honestly described."""
+        past = time.time() - 60
+        fz = self._derive(self._node('fable', until_ts=past,
+                                     reset_src='probe'))
+        self.assertAlmostEqual(fz['until_ts'], past, delta=1.0)
+        self.assertNotEqual(fz['until'], 'reset time unknown')
+        # …and still without over-claiming: a probe floor is a RECHECK, and an
+        # elapsed one may not be dressed up as a promise that capacity returns
+        self.assertIn('capacity recheck', fz['until'])
+        self.assertNotIn('capacity available', fz['until'])
+        self.assertNotIn('▶', fz['until'])
 
     def test_an_elapsed_429_is_kept_because_the_node_is_due(self):
         """⚠ CHANGED DELIBERATELY (user ruling 2026-09-12, coordinator
@@ -192,8 +217,10 @@ class WakeEstimateTests(unittest.TestCase):
         scheduler says ready at the same instant — one number — and dropping
         it here would put the badge back out of step with the timer.
 
-        An elapsed weak source still falls through: nothing there was owed an
-        attempt (the case above)."""
+        (Round 6 gave an elapsed WEAK source a time as well, for a different
+        reason — see `test_an_elapsed_weak_horizon_is_a_time_too`. What is
+        rank 1's alone is the words: a stated reset keeps "capacity resets",
+        while a probe floor stays a "recheck" however it arrived.)"""
         past = time.time() - 60
         for src in ('text', 'provider'):
             with self.subTest(src=src):
@@ -844,6 +871,81 @@ class CommittedWakeTests(unittest.TestCase):
         supervisor.commit_wake_deadlines(org, now)
         self.assertNotIn('wake', org.node('root')['frozen'],
                          'a stale promise must not linger to fire later')
+
+    def test_a_horizon_that_elapses_before_the_first_tick_is_not_postponed(self):
+        """⚠ ROUND 6, case A — THE WINDOW BEFORE ANYTHING IS COMMITTED.
+
+        The display publishes an effective deadline on every read, but only the
+        scheduler tick can write one down. A freeze carrying `inherited +10s`
+        is therefore SHOWN as +10s with nothing recorded — and when the first
+        tick lands after those ten seconds, a live-only rank 3 found nothing
+        and promised the roster's +2h instead. The wake the user had already
+        been shown was quietly postponed by two hours.
+
+        The record's own horizon now answers whether or not it has elapsed, so
+        the pre-tick read and the first tick agree by construction."""
+        from orgtree import supervisor
+        now = time.time()
+        org, _ = self._fixture(until_ts=now + 10, reset_src='inherited')
+        org.node('root').pop('account', None)
+        org.node('root')['frozen'].pop('account', None)
+        roster = {'fable': marked(now + 7200)}
+        self.assertAlmostEqual(self._shown(org, roster)['until_ts'],
+                               now + 10, delta=2.0)
+        supervisor.commit_wake_deadlines(org, now + 31)
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 10, delta=2.0)
+        self.assertAlmostEqual(self._shown(org, roster)['until_ts'],
+                               now + 10, delta=2.0)
+        self.assertIn('root', supervisor.auto_resume_ready(org, now + 71))
+
+    def test_a_later_source_may_not_push_a_promise_out(self):
+        """⚠ ROUND 6, case B — THE WINNER MAY NOT DEPEND ON WHICH SIDE OF THE
+        DEADLINE THE CLOCK IS ON.
+
+        A promise of +300 used to lose to a newly arrived mark of +7200 while
+        it was still to come, and then beat that same mark the instant it came
+        due. So the badge read +2h at one moment and +5m at the next, and the
+        node woke on the +5m — the two readers disagreeing across the elapsed
+        boundary and nowhere else.
+
+        A promise is now the deadline once chosen; live sources may only pull
+        it EARLIER (the test below), which moves both readers together."""
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 7200, reset_src='inherited')
+        registry.record_mark(acct, 'fable', until=now + 300,
+                             provenance='observed')
+        supervisor.commit_wake_deadlines(org, now + 280)
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 300, delta=2.0)
+        registry.record_mark(acct, 'fable', until=now + 7200,
+                             provenance='observed', now=now + 290)
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 300,
+                               delta=2.0)
+        supervisor.commit_wake_deadlines(org, now + 310)
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 300,
+                               delta=2.0)
+        self.assertIn('root', supervisor.auto_resume_ready(org, now + 371))
+
+    def test_an_earlier_source_still_pulls_a_promise_in(self):
+        """The other half of the round-6 rule, and why it is "earlier only"
+        rather than "never": waking a node SOONER than it was told breaks no
+        promise, and both readers see the same live source at the same
+        instant, so they move together."""
+        from orgtree import supervisor
+        now = time.time()
+        org, acct = self._fixture(until_ts=now + 7200, reset_src='inherited')
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 7200, delta=2.0)
+        registry.record_mark(acct, 'fable', until=now + 900,
+                             provenance='observed')
+        self.assertAlmostEqual(self._shown(org)['until_ts'], now + 900,
+                               delta=2.0)
+        supervisor.commit_wake_deadlines(org, now)
+        self.assertAlmostEqual(org.node('root')['frozen']['wake']['ts'],
+                               now + 900, delta=2.0)
 
     def test_asking_the_scheduler_a_question_writes_nothing(self):
         """⚠ `auto_resume_ready` stays PURE. It is asked "would this be ready

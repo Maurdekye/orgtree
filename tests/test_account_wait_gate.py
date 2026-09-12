@@ -120,8 +120,8 @@ class WaitGateTests(unittest.TestCase):
     # longer mark. `spend_frozen` stops every one of these inside the slot for
     # an unrelated reason, so a pass that WORKS still launches nothing — and
     # the freeze record is the observable either way, exactly as above.
-    def _pass_fixture(self, slug, pass_):
-        row = self._fixture(slug, until=86400.0, spend=True)
+    def _pass_fixture(self, slug, pass_, spend=True):
+        row = self._fixture(slug, until=86400.0, spend=spend)
         org = self.store.load_org(slug)
         org.node("root")["admit_once"] = pass_(row)
         self.store.save_org(org)
@@ -217,6 +217,35 @@ class WaitGateTests(unittest.TestCase):
         self.store.save_org(o)
         self.assertFalse(self.supervisor._spend_admit_once(
             self.store.load_org("wg-pass-abort"), "root"))
+
+    def test_a_pass_survives_a_failure_after_the_inflight_stamp(self):
+        """⚠ ROUND 6. The `inflight` stamp LOOKS like the point of no return
+        and is not: the whole prompt assembly — `_envelope_state_block` and
+        the rest — still runs after it and can raise, on a turn that never
+        reached a provider. Spending the pass there burned it for exactly the
+        reason round 5 moved it out of the gate.
+
+        This turn is NOT `spend_frozen`, so it runs past the slot and past the
+        inflight stamp, and then the envelope build fails. Popen is stubbed as
+        a backstop so no provider process can start even if the seam moves."""
+        import time as _t
+        from unittest.mock import patch
+        self._pass_fixture("wg-pass-late",
+                           lambda row: {"at": _t.time(),
+                                        "account": row["id"],
+                                        "model": "opus"},
+                           spend=False)
+
+        def _boom(*a, **kw):
+            raise RuntimeError("synthetic failure during prompt assembly")
+
+        with patch.object(self.supervisor, "_envelope_state_block", _boom), \
+                patch.object(self.supervisor.subprocess, "Popen", _boom):
+            self._drive("wg-pass-late")
+        node = self.store.load_org("wg-pass-late").node("root")
+        self.assertTrue(
+            self.supervisor._admit_once_valid(node),
+            "the pass was spent on a turn that never reached a provider")
 
     def test_stateless_over_durable_state(self):
         # the wait re-derives from the DOC + registry alone: wipe the
