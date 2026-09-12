@@ -186,6 +186,15 @@ class FrozenInfo(TypedDict, total=False):
     # the same reason `cause` is one: `_resumable` refuses a record carrying
     # an unknown True key, which would make ▶ skip the node forever.
     provenance: str
+    # THE ADMISSION FLOOR, when it is later than `until_ts` (user ruling
+    # 2026-09-12). The mandatory precedence makes `until_ts` report the
+    # specific 429's own time; an older account mark that outlived it is still
+    # what the PRE-SLOT GATE refuses this node against, so the wake has to
+    # wait for it while the badge goes on reporting what the provider said.
+    # Only `supervisor.auto_resume_ready` reads it, and only when it is later;
+    # absent means the displayed deadline is the whole truth. ⚠ A FLOAT — the
+    # `_resumable` unknown-True-key trap takes booleans only (see `provenance`).
+    admit_ts: float | None
     # where `until_ts` came from (user ruling 2026-08-18): "text" (parsed out
     # of the CLI's error prose), "usage:<lane>" (looked up in the account's
     # own usage readout — see limits.reset_for), "probe" (nothing could

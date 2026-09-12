@@ -1767,11 +1767,12 @@ def _rederive_freeze_reset(node: dict[str, Any],
     overwrote every source but the 429's own prose, which erased the estimate
     on every registry-bound node in the org.
 
-    ⚠ WHEN NOTHING CAN ANSWER THERE IS NO T. No live deadline on the record
-    and no refresh time on the roster means the wake is genuinely unknown —
-    an auth freeze marks no lane by design — and computing a plausible-looking
-    countdown for it is exactly the invented-T failure the expired-login rule
-    exists to prevent. It says the time is unknown instead. It also never
+    ⚠ WHEN NOTHING CAN ANSWER THERE IS NO T. No live deadline on the record,
+    no live mark on its account and no refresh time on the roster means the
+    wake is genuinely unknown — an auth freeze marks no lane by design — and
+    computing a plausible-looking countdown for it is exactly the invented-T
+    failure the expired-login rule exists to prevent. It says the time is
+    unknown instead. It also never
     SHORTENS a mark: it reads the marks rather than recomputing a horizon, so
     it inherits the pool `max()` floor by construction.
 
@@ -1780,10 +1781,12 @@ def _rederive_freeze_reset(node: dict[str, Any],
     render it down a separate branch; a fable weekly lock is not a
     subscription-pool question and `resolve` cannot describe it.
 
-    `cache` memoises per tier for the life of ONE tree render: `resolve`
-    re-reads the roster file per call, and a large org would otherwise pay
-    that once per frozen node (the O(n²) warning above is already watching
-    this endpoint).
+    `cache` memoises for the life of ONE tree render, under two key shapes: a
+    bare tier name for the roster and `mark:<account>:<tier>` for the account's
+    own mark (`{}` meaning "asked, none"). Both `resolve` and `active_mark`
+    re-read their whole file per call, and a large org would otherwise pay that
+    once per frozen node (the O(n²) warning above is already watching this
+    endpoint).
     """
     fz = node.get("frozen")
     if not isinstance(fz, dict):
@@ -1830,6 +1833,13 @@ def _rederive_freeze_reset(node: dict[str, Any],
     #      the badge must not deny that a wake is coming.
     #   4. only THEN the roster.
     #
+    # Ranks 1-3 are one branch, because a live `until_ts` already IS the
+    # winner among them — the supervisor resolved that order when it stamped
+    # the record. Rank 2 then gets a SECOND reading below, from `registry`
+    # directly, for the record that carries no live deadline at all: the mark
+    # is durable and the stamp is a snapshot, so the account can be marked
+    # while the freeze's own number has expired or was never written.
+    #
     # ⚠ WHY THIS WAS THE BUG (user report 2026-09-12, screenshot). Only rank 1
     # used to be protected. `accounts.resolve` reads the LEGACY roster, which
     # never learns registry account ids — `accounts.record_limit` refuses
@@ -1854,6 +1864,52 @@ def _rederive_freeze_reset(node: dict[str, Any],
         fz["until"] = _capacity_label(own, src, str(fzd.get("schedule_kind") or ""))
         fz["until_ts"] = own
         return
+    # ── RANK 2, and the reason this function exists at all (review 2026-09-12).
+    # With no live deadline on the record the old code went STRAIGHT to the
+    # legacy roster and skipped the account's own authoritative mark — the
+    # exact number the Usage modal prints as "<pool> limited until …". So a
+    # registry-bound node whose account is marked for another 30 minutes showed
+    # the roster's unrelated 2-hour answer, or "reset time unknown" when the
+    # roster was open, while Usage went on showing the truth one panel away.
+    # The two surfaces must agree, so they read ONE source: `registry` is that
+    # source, `accounts.resolve` describes only the legacy roster.
+    #
+    # The freeze's OWN account comes first — the badge's title already names
+    # that lane as whose wait this is — and the node's current binding is the
+    # fallback for older records stamped before the freeze carried one. A
+    # `missing:` id is a park with no account to be marked (state-audit SH-2)
+    # and `active_mark` already returns None past an expired mark, so a stale
+    # mark cannot resurrect a horizon here.
+    #
+    # ⚠ MEMOISED IN THE SAME `cache`, for the same reason the roster is:
+    # `registry.active_mark` re-reads and re-parses the whole registry FILE per
+    # call, and an org with 40 frozen seats would pay that 40 times for the
+    # handful of (account, tier) pairs it actually has. The `mark:` prefix
+    # cannot collide with the roster's own keys — those are bare tier names
+    # from `accounts.TIERS`, tested a few lines above.
+    _acct = str(fzd.get("account") or node.get("account") or "")
+    if _acct and not _acct.startswith("missing:"):
+        _mkey = f"mark:{_acct}:{tier}"
+        if _mkey not in cache:
+            try:
+                cache[_mkey] = registry.active_mark(_acct, tier, now) or {}
+            except Exception:                                # noqa: BLE001
+                cache[_mkey] = {}                            # unreadable registry
+        _mark = cache[_mkey]
+        if _mark:
+            _m_ts = float(_mark["until"])
+            _prov = str(_mark.get("provenance") or "")
+            # an INFERRED mark is the D-152 ride-along, never a measurement:
+            # `_capacity_label` must call it a recheck, and the desk must print
+            # "(inferred)" beside it exactly as Usage does.
+            _kind = "observed-deadline" if _prov == "observed" else "probe"
+            fz["until"] = _capacity_label(_m_ts, "account-mark", _kind)
+            fz["until_ts"] = _m_ts
+            fz["reset_src"] = "account-mark"
+            fz["schedule_kind"] = _kind
+            if _prov:
+                fz["provenance"] = _prov
+            return
     if tier not in cache:
         cache[tier] = accounts.resolve(tier)
     got = cache[tier]

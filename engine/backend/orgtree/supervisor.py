@@ -5309,27 +5309,54 @@ REREAD_TRIES = 3
 REREAD_BACKOFF = 2.0        # seconds, multiplied by the attempt number
 
 
+def _message_is_conclusive(msg_ts: float | None, msg_src: str) -> bool:
+    """Did THIS 429 state its own reset time?
+
+    `text` (parsed out of this error's prose) and `provider` (a machine reset
+    the lane stated for this turn) are the 429 speaking about this wall, for
+    this model. Every other source — the account's recorded mark, a usage
+    readout, an inherited horizon, the blind probe floor — is the FALLBACK the
+    precedence admits only when this answers False.
+    """
+    return msg_src in ("text", "provider") and bool(msg_ts)
+
+
 def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
                              msg_src: str) -> bool:
-    """May the account MARK replace the deadline the 429 itself produced?
+    """May the account MARK supply the deadline this record DISPLAYS?
 
-    THE MANDATORY PRECEDENCE (user ruling 2026-09-12): the specific 429's own
-    timing first; authoritative usage/reset data only when that response is
-    inconclusive. `text` (parsed out of this error's prose) and `provider` (a
-    machine reset the lane stated for this turn) are the 429 speaking; every
-    other source is the fallback, and a fallback may not overwrite it.
+    THE MANDATORY PRECEDENCE (user ruling 2026-09-12, restated by review
+    2026-09-12): timing from the specific 429 first; authoritative usage/reset
+    data only when that response is INCONCLUSIVE. So the answer is simply
+    "only when the 429 said nothing" — a later mark is not authorization to
+    overwrite a time a provider stated.
 
-    ⚠ AND YET THE MARK IS STILL A FLOOR, because it is what the PRE-SLOT GATE
-    admits against: a freeze that wakes before the mark wakes into a refusal
-    and re-freezes (Opus Q1's loop). `record_mark` never shortens, so the two
-    disagree only when an older, LATER mark survived — and there the mark is
-    the honest wake. So: the mark wins only by being LATER, never by being
-    last to write.
+    ⚠ THE MARK IS STILL AN ADMISSION FLOOR, and that is a SEPARATE question
+    answered separately (`_admission_floor` / `frozen.admit_ts`). It is what
+    the PRE-SLOT GATE admits against: a node that wakes before the mark wakes
+    into a refusal and re-freezes (Opus Q1's loop). `record_mark` never
+    shortens, so the two disagree only when an older, LATER mark survived —
+    and there the honest split is that the badge reports what the provider
+    SAID while the timer waits for what the gate will actually ALLOW.
+    Reconciling the wake by rewriting the displayed time is what this
+    function used to do, and it is what the precedence forbids.
 
     Answers True when the record has no 429 deadline to protect."""
-    if msg_src not in ("text", "provider") or not msg_ts:
-        return True
-    return mark_ts > float(msg_ts)
+    return not _message_is_conclusive(msg_ts, msg_src)
+
+
+def _admission_floor(mark_ts: float, msg_ts: float | None,
+                     msg_src: str) -> float | None:
+    """The time before which the PRE-SLOT GATE will refuse this node anyway,
+    when that is later than the deadline the record displays.
+
+    Returned only for a conclusive 429 the mark outlives: everywhere else the
+    mark either IS the displayed deadline (so the wake already waits for it)
+    or is earlier than one, and a floor that changes nothing is noise on the
+    record. None means "the displayed deadline is the whole truth"."""
+    if not _message_is_conclusive(msg_ts, msg_src):
+        return None
+    return mark_ts if mark_ts > float(cast(float, msg_ts)) else None
 
 
 def _record_account_reset(account: str, tier: str, blob: str,
@@ -18452,23 +18479,29 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     _m = None
                                 if _m:
                                     _m_ts = float(_m["until"])
-                                    # ⚠ THE 429 FIRST, AND THE MARK MAY ONLY
-                                    # PUSH IT LATER (user ruling 2026-09-12).
-                                    # The mark is normally written from THIS
-                                    # blob moments ago, so the two agree — and
+                                    # ⚠ THE 429 FIRST, FULL STOP (user ruling
+                                    # 2026-09-12, restated by review). The mark
+                                    # is normally written from THIS blob
+                                    # moments ago, so the two agree — and
                                     # overwriting `reset_src` with
                                     # "account-mark" anyway threw away the one
                                     # fact that says a provider STATED this
                                     # time. After which the tree projection,
                                     # which keys on that field, could not tell
                                     # a measured deadline from a guess and let
-                                    # the roster erase it. They disagree only
-                                    # when an older, LATER mark survived
-                                    # `record_mark`'s never-shorten rule; that
-                                    # mark really does gate admission (the
-                                    # pre-slot gate freezes on any live mark),
-                                    # so the record follows it there or the
-                                    # node wakes into a refusal and re-freezes.
+                                    # the roster erase it.
+                                    #
+                                    # They disagree only when an older, LATER
+                                    # mark survived `record_mark`'s
+                                    # never-shorten rule. That mark really does
+                                    # gate admission (the pre-slot gate freezes
+                                    # on any live mark) — but ADMISSION IS NOT
+                                    # THE DISPLAYED TIME, and reconciling the
+                                    # wake by rewriting what the provider said
+                                    # is exactly what the precedence forbids.
+                                    # The floor goes on its own field and
+                                    # `auto_resume_ready` waits for it there;
+                                    # the record keeps reporting the 429.
                                     #
                                     # `provenance` describes THE NUMBER THIS
                                     # RECORD CARRIES, not whatever sits in the
@@ -18485,6 +18518,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             if _m['provenance'] == 'observed' else 'probe')
                                     else:
                                         fz["provenance"] = "observed"
+                                    _floor = _admission_floor(
+                                        _m_ts, _rts, _rsrc)
+                                    if _floor:
+                                        fz["admit_ts"] = _floor
+                                    else:
+                                        fz.pop("admit_ts", None)
                             _uts = fz.get("until_ts")
                             # a readout time is minute-exact, timezone-safe
                             # and lane-aware, so it OVERWRITES a prose label
@@ -24254,6 +24293,24 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
             ready.add(nid)
             continue
         ts = fz.get("until_ts")
+        # ⚠ THE DISPLAYED DEADLINE IS NOT ALWAYS THE ADMISSION ONE (user
+        # ruling 2026-09-12, review 2026-09-12). The precedence makes the
+        # record report the specific 429's own time; when an older, LATER
+        # account mark outlived it, that mark is still what the PRE-SLOT GATE
+        # will refuse this node against, so the freeze carries it as
+        # `admit_ts` and the WAKE waits for the later of the two. Waking on
+        # the displayed time alone would drive the node into the gate, which
+        # re-freezes it — the loop the mark is here to prevent. This is the
+        # separate reconciliation the precedence asks for: the badge keeps
+        # saying what the provider said, and only the timer knows about the
+        # floor. (`admit_ts` is a FLOAT: the `_resumable` unknown-True-key
+        # trap takes booleans only.)
+        try:
+            _floor = float(fz.get("admit_ts") or 0.0)
+        except (TypeError, ValueError):
+            _floor = 0.0
+        if ts and _floor > float(ts):
+            ts = _floor
         if ts:
             if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
                 ready.add(nid)
