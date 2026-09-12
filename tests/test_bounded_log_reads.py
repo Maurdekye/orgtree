@@ -109,9 +109,14 @@ class BoundedLogReads(unittest.TestCase):
         want_sent.sort(key=lambda m: m['at'])
         got = store.read_mail_tails('bounded', nid, keep=50)
         self.assertIsNotNone(got)
-        delivered, sent = got
-        self.assertEqual(delivered, want_delivered[-90:])
-        self.assertEqual(sent, want_sent[-90:])
+        box, delivering, delivered, sent = got
+        self.assertEqual(box, list((fresh.d.get('mail') or {}).get(nid) or []))
+        self.assertEqual(delivering,
+                         list((fresh.d.get('delivering') or {}).get(nid) or []))
+        cap = 50 + 40 + len(box) + sum(len(b.get('mail') or [])
+                                       for b in delivering)
+        self.assertEqual(delivered, want_delivered[-cap:])
+        self.assertEqual(sent, want_sent[-cap:])
 
     def test_events_negative_since_slices_like_python(self):
         # perf-review reproduction #1: events[since:] with a NEGATIVE index
@@ -164,7 +169,7 @@ class BoundedLogReads(unittest.TestCase):
         # emulate 41 of the newest rows still pending (the handler's keys)
         pending = archive[-41:]
         keys = {(m['at'], m['from'], m['body']) for m in pending}
-        delivered_src, _sent = store.read_mail_tails(
+        _box, _dlv, delivered_src, _sent = store.read_mail_tails(
             'slackorg', 'alpha', keep=50, slack=len(pending) + 40)
         delivered = [m for m in delivered_src
                      if (m['at'], m['from'], m['body']) not in keys]
