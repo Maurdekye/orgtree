@@ -46,12 +46,18 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned, readModalOpen } from '../src/canvas/modalpin'
 import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
-import { MailList } from '../src/canvas/mail'
-import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
+import { MailList, NodeInboxModal, OrgInboxModal } from '../src/canvas/mail'
+import { AgentGalleryModal, AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { DocReader } from '../src/canvas/docs'
 import { DiskBrowser } from '../src/DiskBrowser'
 import { ConnectionsPanel } from '../src/canvas/connections'
-import App from '../src/App'
+import { AgentDocketModal } from '../src/canvas/agentdocket'
+import { DraftScopeModal, NodeConfig, WatchdogPanel } from '../src/canvas/modals'
+import { LineagePanel } from '../src/canvas/desk'
+import { AccountsPanel } from '../src/canvas/accounts'
+import { AddAccountDialog } from '../src/canvas/accountsregistry'
+import { ModelPicker } from '../src/canvas/openrouter'
+import App, { AdvancedOrgModal, DefaultsPanel } from '../src/App'
 
 const W = window as unknown as Window & typeof globalThis
 const noop = () => {}
@@ -66,7 +72,16 @@ const menuShape = () => [...(menuEl()?.children ?? [])]
 const itemNamed = (label: string) => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
   .find((b) => b.textContent === label) as HTMLButtonElement | undefined
 
+/** ⚠ DISMISS ANY MENU STILL OPEN FIRST. `labels()` reads the document, not a
+ *  particular surface, so one section that fails mid-menu would otherwise be
+ *  read by the NEXT section as its own menu and fail it too — a cascade that
+ *  hides which assertion actually broke. Escape is how the app closes one. */
 async function rightClick(el: Element): Promise<boolean> {
+  if (menuEl()) {
+    await inAct(() => { document.body.dispatchEvent(
+      new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    await flush(2)
+  }
   const ev = new W.MouseEvent('contextmenu',
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
   await inAct(() => { el.dispatchEvent(ev) })
@@ -355,17 +370,21 @@ test('§7 the same Close on two panels reached outside the header, and on a '
   let diskClosed = 0
   const disk = await mountView(<DiskBrowser slug="org" isPublic={false} toast={noop}
     close={() => { diskClosed += 1 }} />, (h) => h)
+  // ⚠ REGISTERED BEFORE THE FIRST ASSERTION, not after the last one: a
+  // section that throws in the middle must still take its panel down, or the
+  // next section inherits a live surface and an open menu.
+  t.after(() => disk.unmount())
   await flush(3)
   assert.ok(panelBy('.disk-browser'), 'POSITIVE CONTROL: the disk browser is up')
   await rightClick(barOf('.disk-browser'))
   assert.ok(labels().includes('Close'), 'the disk browser offers Close')
   await pick('Close')
   assert.equal(diskClosed, 1, 'the disk browser ran its own close')
-  await disk.unmount()
 
   let connClosed = 0
   const conn = await mountView(<ConnectionsPanel tree={tree('org') as never} toast={noop}
     close={() => { connClosed += 1 }} />, (h) => h)
+  t.after(() => conn.unmount())
   await flush(3)
   const connPanel = [...document.querySelectorAll('.settings.wide')]
     .find((p) => (p.textContent ?? '').includes('Connections')) as HTMLElement
@@ -373,11 +392,11 @@ test('§7 the same Close on two panels reached outside the header, and on a '
   await rightClick(connPanel.querySelector('.modalpin-bar') as HTMLElement)
   await pick('Close')
   assert.equal(connClosed, 1, 'connections ran its own close')
-  await conn.unmount()
 
   let readerClosed = 0
   const reader = await mountView(<DocReader slug="org" docId="d1" toast={noop}
     close={() => { readerClosed += 1 }} />, (h) => h)
+  t.after(() => reader.unmount())
   await flush(3)
   const loading = [...document.querySelectorAll('.gallery-modal')]
     .find((p) => (p.textContent ?? '').toLowerCase().includes('loading')) as HTMLElement
@@ -387,7 +406,194 @@ test('§7 the same Close on two panels reached outside the header, and on a '
     'the loading reader is not pinnable either: one item, no leading rule')
   await pick('Close')
   assert.equal(readerClosed, 1, 'and it closes the reader')
-  await reader.unmount()
+})
+
+// ------------------------------- A2. the other fourteen panels, one by one
+//
+// §1–§7 drive the nine surfaces the app's own chrome can reach. These are the
+// rest of the PinFrame surfaces — the ones that open from a card, a draft, a
+// provider row or another panel — so that EVERY kind that offers Close has
+// had its Close clicked rather than read (reviewer's requirement,
+// coordinator-astra 2026-09-12).
+//
+// Each is mounted on its own with the smallest props its existing tests use,
+// inside an org scope so the pinnable ones really are pinnable. `close` is
+// counted, not stubbed away: the assertion is that the panel ran ITS OWN
+// dismiss, which is the only part of Close each panel contributes.
+//
+// ⚠ POPPED-OUT IS NOT REPEATED PER PANEL, ON PURPOSE. Detaching is
+// MovableSurface's teardown, not the panel's — no panel contributes a line to
+// it — and §4 drives it end to end on a real second window. Repeating it
+// fourteen times would open fourteen JSDOM windows to re-measure one code
+// path.
+const cnode = (id: string) => ({
+  id, title: id, tier: 'haiku', model_id: 'haiku', state: 'live', seat: 1, grant: 0, free: 0,
+  ui_order: 0, cost_usd: 0, occupancy: null, context_window: null, charter: null,
+  mail_pending: 0, limit_locked: false, last_status: null, prev_status: null,
+  inflight_at: null, last_denials: [], turns: [], frozen: null, audiences_held: [],
+  bearer_state: null, generation: 0, children: [], lineage: [],
+  scope: { permission_mode: 'default', add_dirs: [], tools: {}, org_visibility: 'team' },
+}) as never
+const ctree = (roots: unknown[]) => ({ ...tree('mine'), roots }) as never
+const dog = { id: 'w1', owner: 'ceo', name: 'the dog', kind: 'file', target: '/tmp/x',
+  interval_s: 60, state: 'armed', at: '2026-09-10T00:00:00Z', fired: 0, one_shot: false } as never
+const ORDOC = { installed: true, connected: true, key_set: true, kind: 'api-key',
+  label: 'sk-or-v1-abc…xyz', reason: null, favorites: 0, favorites_max: 0, tiers: [],
+  user_enabled: true,
+  credits: { limit: null, limit_remaining: null, usage: 0, usage_daily: 0, usage_weekly: 0,
+    usage_monthly: 0, is_free_tier: false, checked_at: '2026-09-03T09:00:00Z' } } as never
+
+/** every PinFrame kind §1–§7 does not already drive */
+const OTHER_SURFACES: {
+  name: string; kind: string; pinnable: boolean
+  render: (close: () => void) => JSX.Element
+  /** the panel, when more than one thing on screen carries a bar */
+  sel?: string
+}[] = [
+  { name: 'agent gallery', kind: 'agent-gallery', pinnable: true,
+    render: (close) => <AgentGalleryModal slug="mine" nid="worker" node={cnode('worker')}
+      toast={noop} close={close} /> },
+  { name: 'node inbox', kind: 'node-inbox', pinnable: true,
+    render: (close) => <NodeInboxModal slug="mine" node={cnode('worker')} toast={noop}
+      close={close} onFocusAgent={noop} /> },
+  { name: 'org inbox', kind: 'org-inbox', pinnable: true,
+    render: (close) => <OrgInboxModal inbox={{ entries: [], unread: 0, holders: [], visible: true } as never}
+      net={null} map={new Map()} slug="mine" toast={noop} close={close} jumpTo={null} /> },
+  { name: 'agent docket', kind: 'agent-docket', pinnable: true,
+    render: (close) => <AgentDocketModal slug="mine" nid="worker" tree={ctree([cnode('worker')])}
+      toast={noop} close={close} refs={{ world: { org: 'mine' }, onOpen: noop } as never} /> },
+  { name: 'node configuration', kind: 'node-config', pinnable: true,
+    render: (close) => <NodeConfig slug="mine" node={cnode('worker')}
+      map={new Map([['worker', cnode('worker')]]) as never} tree={ctree([cnode('worker')])}
+      op={(async () => ({})) as never} toast={noop} close={close} /> },
+  { name: 'lineage', kind: 'lineage', pinnable: true,
+    render: (close) => <LineagePanel slug="mine" node={cnode('worker')}
+      map={new Map([['worker', cnode('worker')]]) as never}
+      op={(async () => ({})) as never} close={close} /> },
+  { name: 'watchdog', kind: 'watchdog', pinnable: true,
+    render: (close) => <WatchdogPanel slug="mine" dog={dog} toast={noop} close={close} /> },
+  // …and the surfaces that are deliberately NOT pinnable: a dialog answering
+  // a question, or a panel that belongs to the app rather than to an org
+  { name: 'app settings', kind: 'app-settings', pinnable: false,
+    render: (close) => <AccountsPanel toast={noop} close={close} /> },
+  { name: 'default org settings', kind: 'defaults', pinnable: false,
+    render: (close) => <DefaultsPanel toast={noop} close={close} /> },
+  { name: 'org advanced', kind: 'advanced-org', pinnable: false,
+    render: (close) => <AdvancedOrgModal title="new organization" close={close} /> },
+  { name: 'draft permissions', kind: 'draft-scope', pinnable: false,
+    render: (close) => <DraftScopeModal draft={{ parent: null, tier: 'opus' } as never}
+      map={new Map()} tree={ctree([])} scope={null} onSave={noop} close={close} /> },
+  { name: 'OpenRouter models', kind: 'openrouter-picker', pinnable: false,
+    render: (close) => <ModelPicker doc={ORDOC} busy={false} onToggle={noop} onClose={close} /> },
+  { name: 'add secondary account', kind: 'add-secondary-account', pinnable: false,
+    render: (close) => <AddAccountDialog provider={'claude' as never}
+      onAdded={async () => {}} close={close} /> },
+]
+
+/** a fetch that answers every panel above with an empty-but-valid payload:
+ *  none of them is being tested for what it lists, only for its Close. */
+function quietServer(): () => void {
+  const g = globalThis as unknown as Record<string, unknown>
+  const had = g.fetch
+  g.fetch = (async (url: RequestInfo | URL) => {
+    const path = String(url)
+    const body = path.includes('/openrouter/models') ? { query: '', offset: 0, limit: 8, total: 0, items: [] }
+      : path.includes('/work-items') ? { items: [], counts: { attention: 0, active: 0, archived: 0, backlogged: 0 }, now: '2026-09-12T00:00:00Z' }
+        : path.includes('/inbox') ? { pending: [], delivered: [], sent: [] }
+          : path.includes('/documents') ? { documents: [], total: 0 }
+            : path.includes('/accounts') ? { accounts: [] }
+              : path.includes('/providers') ? { providers: [] }
+                : {}
+    return { ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) }
+  }) as unknown as typeof fetch
+  return () => { g.fetch = had }
+}
+
+const onlyBar = (sel?: string) => {
+  const bar = document.querySelector(sel ? `${sel} .modalpin-bar` : '.modalpin-bar') as HTMLElement | null
+  assert.ok(bar, `the surface draws a title bar to right-click${sel ? ` (${sel})` : ''}`)
+  return bar!
+}
+
+for (const s of OTHER_SURFACES) {
+  test(`§10 ${s.name}: its title-bar menu offers Close, and Close runs the `
+    + "panel's own dismiss", async (t) => {
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+    const stop = quietServer()
+    t.after(() => { stop(); forgetModalPins(); forgetModalOpenCache() })
+    const { CurrentOrg } = await import('../src/popout')
+    let closed = 0
+    const v = await mountView(<CurrentOrg.Provider value="mine">
+      {s.render(() => { closed += 1 })}</CurrentOrg.Provider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(6)
+
+    const bar = onlyBar(s.sel)
+    assert.equal(await rightClick(bar), true, 'the bar takes the right-click')
+    const have = labels()
+    assert.equal(have.at(-1), 'Close', `Close is offered, last — have ${JSON.stringify(have)}`)
+    assert.equal(have.includes('Pin to window'), s.pinnable,
+      s.pinnable ? 'a pinnable surface offers the pin' : 'a non-pinnable surface offers no pin')
+    // the §6 fix, on every surface that has nothing above its Close
+    assert.notEqual(menuShape()[0], '—', 'no separator with nothing above it')
+    await pick('Close')
+    assert.equal(closed, 1, 'the panel ran its own close exactly once')
+  })
+}
+
+for (const s of OTHER_SURFACES.filter((x) => x.pinnable)) {
+  test(`§11 ${s.name}, PINNED: Close closes the window and keeps its `
+    + 'placement', async (t) => {
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+    const stop = quietServer()
+    t.after(() => { stop(); forgetModalPins(); forgetModalOpenCache() })
+    const { CurrentOrg } = await import('../src/popout')
+    let closed = 0
+    const v = await mountView(<CurrentOrg.Provider value="mine">
+      {s.render(() => { closed += 1 })}</CurrentOrg.Provider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(6)
+
+    const pinBtn = [...document.querySelectorAll('button')]
+      .find((b) => (b.getAttribute('aria-label') ?? '').startsWith('pin this')) as HTMLElement | undefined
+    assert.ok(pinBtn, 'the surface carries its own pin control')
+    await inAct(() => { pinBtn!.click() }); await flush(4)
+    assert.ok(isModalPinned(s.kind, 'mine'), 'POSITIVE CONTROL: it really pinned')
+
+    await rightClick(onlyBar(s.sel))
+    assert.ok(labels().includes('Unpin'), 'pinned, the menu says Unpin')
+    await pick('Close')
+    assert.equal(closed, 1, 'Close ran the panel\'s own dismiss')
+    assert.ok(isModalPinned(s.kind, 'mine'),
+      'and left the placement alone — Unpin is the control that discards it')
+  })
+}
+
+test('§12 compose, opened from inside the org inbox, closes on its own '
+  + 'without taking the inbox with it', async (t) => {
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const stop = quietServer()
+  t.after(() => { stop(); forgetModalPins(); forgetModalOpenCache() })
+  const { CurrentOrg } = await import('../src/popout')
+  let inboxClosed = 0
+  const v = await mountView(<CurrentOrg.Provider value="mine">
+    <OrgInboxModal inbox={{ entries: [], unread: 0, holders: [], visible: true } as never}
+      net={null} map={new Map()} slug="mine" toast={noop}
+      close={() => { inboxClosed += 1 }} jumpTo={null} />
+  </CurrentOrg.Provider>, (h) => h)
+  t.after(() => v.unmount())
+  await flush(6)
+  const composeBtn = [...document.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').toLowerCase().includes('compose mail')) as HTMLElement | undefined
+  assert.ok(composeBtn, 'POSITIVE CONTROL: the inbox offers compose')
+  await inAct(() => { composeBtn!.click() }); await flush(4)
+  assert.ok(document.querySelector('.cmp-modal'), 'POSITIVE CONTROL: compose opened')
+
+  await rightClick(onlyBar('.cmp-modal'))
+  assert.equal(labels().at(-1), 'Close', `compose offers Close — have ${JSON.stringify(labels())}`)
+  await pick('Close')
+  assert.equal(document.querySelector('.cmp-modal'), null, 'compose closed')
+  assert.equal(inboxClosed, 0, 'and the inbox it was opened from is still up')
 })
 
 // -------------------------------------------------------- B. a row's Close
