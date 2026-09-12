@@ -74,6 +74,26 @@ def marked(ts):
     return {'available': False, 'refresh_at': ts}
 
 
+def _write_then_render(node, roster=OPEN, now=None):
+    """Put a tree-payload node through the REAL order of events and return the
+    rendered freeze: the wake is promised when the record is WRITTEN, and the
+    badge renders that promise.
+
+    ⚠ ROUND 9 MOVED LIVE STATE OUT OF THE READ PATH. `_rederive_freeze_reset`
+    no longer reads the registry or the roster — `supervisor.commit_node_wake`
+    does, on the pre-save hook and on every scheduler tick — so a fixture that
+    calls the projection alone is now testing a badge that has not been told
+    anything yet. This models the write."""
+    from unittest.mock import patch
+    from orgtree import supervisor
+    n = {'state': 'live', 'model': node['tier'],
+         'account': node.get('account'), 'frozen': node['frozen']}
+    with patch.object(accounts, 'resolve', return_value=dict(roster)):
+        supervisor.commit_node_wake(n, time.time() if now is None else now)
+    api._rederive_freeze_reset(node, {})
+    return node['frozen']
+
+
 class WakeEstimateTests(unittest.TestCase):
     """The projection in isolation: one freeze record in, one badge out."""
 
@@ -99,9 +119,16 @@ class WakeEstimateTests(unittest.TestCase):
         return {'tier': tier, 'frozen': fz}
 
     def _derive(self, node, roster=OPEN):
-        """`roster` is what `accounts.resolve` would answer for this tier."""
-        api._rederive_freeze_reset(node, {node['tier']: dict(roster)})
-        return node['frozen']
+        """THE REAL PATH, in the order it happens (round 9): a freeze is
+        promised its wake when it is WRITTEN — `commit_node_wake`, which the
+        pre-save hook runs — and the badge then renders that promise.
+
+        ⚠ These used to call the projection alone and let it read the registry.
+        That is precisely what round 9 removed: the badge renders from a
+        read-only snapshot, so a deadline it derives from live state is one
+        nothing recorded, and the next tick could contradict it. `roster` is
+        what `accounts.resolve` would answer while the freeze is written."""
+        return _write_then_render(node, roster)
 
     # ------------------------------------------------------------------ §1
     # THE REPRODUCTION. A registry-bound fable freeze carrying the account's
@@ -312,12 +339,12 @@ class WakeEstimateTests(unittest.TestCase):
               'provider': supervisor.providers.provider_of('luna'),
               'until_ts': time.time() + 300, 'reset_src': 'probe'}
         node = {'tier': 'luna', 'account': acct['id'], 'frozen': dict(fz)}
-        api._rederive_freeze_reset(node, {})
-        self.assertAlmostEqual(node['frozen']['until_ts'], mine, delta=1.0)
+        self.assertAlmostEqual(_write_then_render(node)['until_ts'], mine,
+                               delta=1.0)
         self.assertEqual(node['frozen']['reset_src'], 'account-mark')
-        # …and the scheduler was already saying exactly this
-        eff = supervisor.effective_freeze_deadline(
-            fz, registry.active_mark(acct['id'], 'luna'), time.time())
+        # …and the scheduler reads that same recorded promise, not the mark
+        eff = supervisor.effective_freeze_deadline(node['frozen'], None,
+                                                   time.time())
         self.assertAlmostEqual(eff['ts'], mine, delta=1.0)
 
     # ------------------------------------------------------------------ §7
@@ -516,6 +543,9 @@ class ShownAndScheduledAgreeTests(unittest.TestCase):
         org.node(nid)['frozen'] = {'limit': True, 'provider': 'claude',
                                    'account': acct['id'], 'at': 'x', **fz}
         _SLUGS.append(org.d['slug'])
+        # the WRITE is what promises the wake (round 9): save through the
+        # pre-save hook, then render the record it left behind.
+        store.save_org(org)
         payload = {'tier': 'fable', 'account': acct['id'],
                    'frozen': copy.deepcopy(org.node(nid)['frozen'])}
         api._rederive_freeze_reset(payload, {})
@@ -660,6 +690,10 @@ class SharedFallbackRanksTests(unittest.TestCase):
         org.d['auto_resume_last'] = now - 301        # the probe floor is ripe
 
         def _check():
+            # the roster reaches the badge by being WRITTEN (round 9): the
+            # commit runs under the patched resolver, the badge renders what
+            # it recorded.
+            supervisor.commit_node_wake(org.node(nid), now)
             payload = {'tier': 'fable', 'account': acct,
                        'frozen': copy.deepcopy(org.node(nid)['frozen'])}
             api._rederive_freeze_reset(payload, {})
@@ -687,6 +721,10 @@ class SharedFallbackRanksTests(unittest.TestCase):
         org.d['auto_resume_last'] = now - 301
 
         def _check():
+            # the roster reaches the badge by being WRITTEN (round 9): the
+            # commit runs under the patched resolver, the badge renders what
+            # it recorded.
+            supervisor.commit_node_wake(org.node(nid), now)
             payload = {'tier': 'fable', 'account': acct,
                        'frozen': copy.deepcopy(org.node(nid)['frozen'])}
             api._rederive_freeze_reset(payload, {})
@@ -1197,8 +1235,7 @@ class BoundAccountMarkTests(unittest.TestCase):
              'path': os.path.join(_root.name, f'bound-{self._seq}')})
 
     def _derive(self, node, roster=OPEN):
-        api._rederive_freeze_reset(node, {node['tier']: dict(roster)})
-        return node['frozen']
+        return _write_then_render(node, roster)
 
     @staticmethod
     def _aged_mark(account_id, tier, until, provenance='observed'):
@@ -1467,9 +1504,45 @@ class BoundAccountMarkTests(unittest.TestCase):
             registry.active_mark = real
         self.assertEqual(len(seen), 1, 'the mark was never consulted')
 
-    def test_the_mark_is_read_once_per_render_not_once_per_node(self):
-        """`active_mark` re-reads and re-parses the whole registry FILE per
-        call; the tree endpoint is already on an O(n²) warning."""
+    def test_a_promised_node_costs_no_registry_read_at_all(self):
+        """⚠ ROUND 9 MOVED THIS COST. The registry is no longer read while
+        RENDERING — the badge answers from the record — so the question is now
+        what the WRITER costs, and the answer must be nothing for a node that
+        is already promised. `commit_node_wake` runs on every save through the
+        pre-save hook, so a lookup there would be paid by every write in the
+        org, not just by frozen seats."""
+        from orgtree import supervisor
+        acct = self._account()
+        registry.record_mark(acct['id'], 'fable', until=time.time() + 1800,
+                             provenance='observed')
+        n = {'state': 'live', 'model': 'fable', 'account': acct['id'],
+             'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
+                        'until_ts': None, 'reset_src': 'probe'}}
+        calls = []
+        real = registry.active_mark
+
+        def counted(*a, **k):
+            calls.append(a[:2])
+            return real(*a, **k)
+
+        registry.active_mark = counted
+        try:
+            self.assertTrue(supervisor.commit_node_wake(n))
+            self.assertEqual(len(calls), 1, 'the promise was never chosen')
+            for _ in range(5):
+                self.assertFalse(supervisor.commit_node_wake(n))
+        finally:
+            registry.active_mark = real
+        self.assertEqual(len(calls), 1, calls)
+
+    def test_the_render_reads_no_registry_at_all(self):
+        """⚠ INVERTED IN ROUND 9, and this is the assertion that keeps the
+        badge honest. It used to check that the projection read the registry
+        ONCE per render rather than once per node — a memo, to bound a cost.
+        Round 9 removed the read entirely: the badge renders from a read-only
+        snapshot, so a deadline it derives from live state is one nothing
+        recorded, and the next scheduler tick could contradict it. Zero, not
+        one."""
         acct = self._account()
         registry.record_mark(acct['id'], 'fable', until=time.time() + 1800,
                              provenance='observed')
@@ -1480,7 +1553,6 @@ class BoundAccountMarkTests(unittest.TestCase):
             calls.append(a[:2])
             return real(*a, **k)
 
-        cache = {}
         registry.active_mark = counted
         try:
             for _ in range(5):
@@ -1488,10 +1560,10 @@ class BoundAccountMarkTests(unittest.TestCase):
                     {'tier': 'fable', 'account': acct['id'],
                      'frozen': {'limit': True, 'at': 'x',
                                 'account': acct['id'], 'until_ts': None,
-                                'reset_src': 'probe'}}, cache)
+                                'reset_src': 'probe'}}, {})
         finally:
             registry.active_mark = real
-        self.assertEqual(len(calls), 1, calls)
+        self.assertEqual(calls, [], 'the badge reached for live state')
 
     def test_an_auth_freeze_is_still_untouched(self):
         """D-156: the credential was rejected, not exhausted — a mark on the

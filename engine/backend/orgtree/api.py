@@ -1887,30 +1887,21 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # `accounts.TIERS`, tested a few lines above.
     fzd = cast("dict[str, Any]", fz)
     now = time.time()
-    _acct = supervisor.freeze_account_of(fz, node)
-    _mark: dict[str, Any] | None = None
-    if _acct:
-        _mkey = f"mark:{_acct}:{tier}"
-        if _mkey not in cache:
-            try:
-                # ⚠ `recorded_mark`, NOT `active_mark`: the wake question is
-                # "when is this node due", and a mark whose time has PASSED
-                # answers it (review round 4 — the account's wall came down at
-                # the moment it named). `effective_freeze_deadline` owns what
-                # an elapsed one means; this only has to fetch it.
-                cache[_mkey] = registry.active_mark(_acct, tier, now) or {}
-            except Exception:                                # noqa: BLE001
-                cache[_mkey] = {}                            # unreadable registry
-        _mark = cache[_mkey] or None
-    # ── RANK 4's OWN GUARD. `accounts.resolve` is the legacy CLAUDE roster;
-    # for any other lane there is simply no roster to ask, and the contract is
-    # told so rather than being handed an answer about somebody else's pool.
-    _roster: dict[str, Any] | None = None
-    if tier in accounts.TIERS:
-        if tier not in cache:
-            cache[tier] = accounts.resolve(tier)
-        _roster = cache[tier]
-    _eff = supervisor.effective_freeze_deadline(fz, _mark, now, _roster)
+    # ⚠ THE BADGE READS THE RECORD AND NOTHING ELSE (review round 9). It used
+    # to fetch the account's mark and the roster here, and that was the last
+    # source of the disagreement this whole item is about: this endpoint
+    # renders from a READ-ONLY SNAPSHOT, so a deadline it derives from live
+    # state is one nothing wrote down — and review kept reproducing the same
+    # ending, a mark displayed here and expired before the next scheduler tick
+    # could record it, leaving a wake the user had been shown and never got.
+    #
+    # Live evidence still reaches the badge; it reaches it by being WRITTEN.
+    # `supervisor.commit_node_wake` reads the mark and the roster and stamps
+    # `frozen.wake` — on the pre-save hook when the freeze is first written,
+    # and on every scheduler tick after that — so the number rendered below
+    # is always one that is durably on the record, and the wake timer reads
+    # that same number.
+    _eff = supervisor.effective_freeze_deadline(fz, None, now)
     if _eff and _eff["src"] == "roster":
         # ── RANK 4, with the wording it has always had. The roster's
         # `refresh_at` is a POOL horizon, so the record gains no `reset_src`,

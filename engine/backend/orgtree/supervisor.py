@@ -5517,12 +5517,23 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
     Both callers ask THIS function now. Do not re-derive a deadline anywhere
     else; add the rank here and both surfaces move together.
 
-    `mark` is the serving account's RECORDED registry mark (or None) — live
-    or elapsed, `registry.recorded_mark` — and `roster` is
-    `accounts.resolve(tier)` (or None). Both are passed in rather than
-    fetched, because each caller memoises them differently and a pure function
-    is the point. Answers None only when NOTHING can name a time; the
-    scheduler then falls to its probe floor and the badge says so.
+    ⚠ `mark` AND `roster` BELONG TO THE WRITER, NOT THE READERS (review
+    2026-09-12, round 9). `commit_node_wake` passes them; the badge and the
+    wake timer both pass None, and so answer from the RECORD ALONE.
+
+    That is the only way the two can be trusted to agree. Live state changes
+    between reads, and the badge renders from a read-only snapshot — so any
+    dynamic answer it publishes is one that nothing recorded, and review kept
+    finding the same failure in a new place: a mark of +10s displayed, then
+    expired before the next tick, which recorded something else entirely, so a
+    wake the user had already been shown never came. Narrowing that window
+    never worked, because no window is small enough. Taking volatile state out
+    of the READ path does work: what the record says is what both surfaces
+    say, and folding new evidence into the record is a WRITE — which is
+    exactly where it can be seen and kept.
+
+    Answers None only when the record names nothing at all; the scheduler then
+    falls to its probe floor and the badge says the reset is unknown.
 
     ⚠ A DEADLINE THIS FREEZE WAS ALREADY PROMISED OUTLIVES THE SOURCE THAT
     SUPPLIED IT (review 2026-09-12, round 5). `frozen.wake` is that promise —
@@ -5785,6 +5796,26 @@ def _spend_admit_once(o: Org, nid: str) -> bool:
     if n is None or n.pop("admit_once", None) is None:
         return False
     return True
+
+
+def _note_provider_attempt(slug: str, nid: str) -> None:
+    """A provider request for this node is IN FLIGHT — spend its one-shot pass.
+
+    ⚠ CALLED AT THE SEND, NOT AT THE RETURN (review 2026-09-12, round 9). The
+    codex and antigravity legs reach their provider, read its answer, and then
+    raise `_ProviderTurnFailed` on it — a refusal, a usage limit, a failed
+    turn. Spending only when a leg RETURNED therefore missed exactly the
+    outcomes the pass exists for: the node got its one real attempt, the
+    attempt came back a wall, and the pass survived to wave a second admission
+    through. The attempt is the event, not its verdict.
+
+    Cheap and safe to call unconditionally: `_spend_admit_once` answers False
+    for a node holding no pass, and nothing is written then. `DOC_LOCK` is an
+    RLock, so a caller already holding it is not deadlocked by this."""
+    with store.DOC_LOCK:
+        o = store.load_org(slug)
+        if _spend_admit_once(o, nid):
+            store.save_org(o)
 
 
 def _record_account_reset(account: str, tier: str, blob: str,
@@ -14853,6 +14884,9 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             target=_steer_pump, daemon=True,
             name=f"codexsteer-{slug}-{nid}")
         steer_thread.start()
+        # the request is with the provider: this IS the attempt the one-shot
+        # pass was owed, whatever the answer turns out to be (round 9).
+        _note_provider_attempt(slug, nid)
         res_raw = turn.wait(timeout=TURN_TIMEOUT,
                             close_client=wp_turn is None)
     finally:
@@ -15937,6 +15971,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         steer_thread = threading.Thread(target=_steer_pump, daemon=True,
                                         name=f"agysteer-{slug}-{nid}")
         steer_thread.start()
+        _note_provider_attempt(slug, nid)    # same rule as the codex leg
         res_raw = turn.wait(timeout=TURN_TIMEOUT)
     finally:
         # NESTED, and the sweep is the inner `finally`: every statement below
@@ -24827,10 +24862,11 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         # added a private `admit_ts` floor that the badge could not see, and
         # the version before that let this function read a stamped `until_ts`
         # the projection had already overruled. Both were the same bug.
-        _tier = str(n.get("model") or "")
-        _eff = effective_freeze_deadline(
-            fz, _mark_for(freeze_account_of(fz, n), _tier), now,
-            _roster_for(_tier) if _tier in accounts.TIERS else None)
+        # ⚠ NO MARK, NO ROSTER (review round 9). The badge reads the record
+        # and nothing else, so the timer must too, or the two drift apart the
+        # moment live state changes between them. `commit_node_wake` is where
+        # live evidence enters, and it enters by being WRITTEN DOWN.
+        _eff = effective_freeze_deadline(fz, None, now)
         ts = _eff["ts"] if _eff else None
         if ts:
             if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
