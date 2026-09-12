@@ -193,13 +193,14 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         owner=F("str", B, True, _YOU), previous_owner=F("str?", B, True),
         assigner=F("str", B, True), status=F(_STATUS, B, True),
         objective=F("str", B, True), done_so_far=F("[str]", B, True),
-        working_on_next=F("[str]", B, True)),
+        working_on_next=F("[str]", B, True),
+        acceptance=F("[str]", B, True)),
     # ---- family review
     "docket.review_requested": leaf(
         "review", "WorkItemRef",
         reviewer=F("str", B, True, _YOU), requested_by=F("str", B, True),
         owner=F("str", B, True), objective=F("str", B, True),
-        done_so_far=F("[str]", B, True)),
+        done_so_far=F("[str]", B, True), acceptance=F("[str]", B, True)),
     "docket.review_changes": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),

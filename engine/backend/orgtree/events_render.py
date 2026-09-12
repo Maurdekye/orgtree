@@ -142,7 +142,9 @@ def _r_assigned(ev: _R) -> str:
             + ("; ".join(ev["done_so_far"]) or "(nothing recorded)")
             + "\nWorking on / next: "
             + ("; ".join(ev["working_on_next"]) or "(nothing recorded)")
-            + f"\nRead it in full with orgtree_work get slug={o['slug']}, and "
+             + "\nAcceptance conditions: "
+             + ("; ".join(ev["acceptance"]) or "(none recorded)")
+             + f"\nRead it in full with orgtree_work get slug={o['slug']}, and "
               "`update` it at the next meaningful boundary — your update is what "
               "the user reads.")
 
@@ -160,8 +162,11 @@ def _r_review_requested(ev: _R) -> str:
               "on). Until you decide, the next action on this item is yours."
             + f"\nRequested by {_user_or(str(ev['requested_by']))}."
             + f"\nDescription: {_desc(ev)}"
-            + "\nWhat the owner says is done: "
-            + ("; ".join(ev["done_so_far"]) or "(nothing recorded)"))
+             + "\nAcceptance conditions: "
+             + ("; ".join(ev["acceptance"]) or "(none recorded)")
+             + "\nWhat the owner says is done: "
+             + ("; ".join(ev["done_so_far"]) or "(nothing recorded)")
+             + f"\nRead the complete standalone scope with orgtree_work get slug={_obj(ev)['slug']} before reviewing it.")
 
 
 def _relay_suffix(ev: _R) -> str:

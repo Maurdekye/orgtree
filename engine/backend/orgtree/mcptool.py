@@ -399,7 +399,7 @@ TOOLS: list[dict[str, Any]] = [
             "retirement, compaction and reassignment. Actions: `list` (the "
             "items you may read; include_archived for finished ones, "
             "include_backlogged for ones nobody has started), `get` "
-            "(one item in full), `create` (title, REQUIRED objective, kind "
+            "(one item in full, or compact when explicitly requested), `create` (title, REQUIRED objective, kind "
             "code|non-code, owner = you or a subordinate, participants, "
             "acceptance conditions, optional first done_so_far/"
             "working_on_next). `objective` is the item's DESCRIPTION and may "
@@ -571,6 +571,7 @@ TOOLS: list[dict[str, Any]] = [
                 "slug": {"type": "string", "description": "the work item's readable name, e.g. git-review-workspace (every action but list/create). Items have no other identifier"},
                 "include_archived": {"type": "boolean", "description": "list: include archived items"},
                 "include_backlogged": {"type": "boolean", "description": "list: include backlogged (not yet started) items"},
+                "compact": {"type": "boolean", "description": "list/get: opt into the compact authorized projection. It keeps identity, owner/reviewer, status/revision, questions, candidate and requested scope fields; omitted history-heavy fields are labeled with counts. Full reads remain the default"},
                 "title": {"type": "string", "description": "create/update: short concrete title." + _cap("title")},
                 "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated: it is stored entire and returned entire by `get` (a notification may carry a marked excerpt of it, which says so and says how long the whole is)"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},
@@ -1933,6 +1934,9 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "list every retired/archived agent by "
                                    "name instead of counting them — the "
                                    "rehire shortlist"},
+                "include_standing_charter": {
+                    "type": "boolean",
+                    "description": "include inherited/team standing charters (default true); set false when those stable instructions are already present. The agent's own role charter remains included"},
             },
         },
     },

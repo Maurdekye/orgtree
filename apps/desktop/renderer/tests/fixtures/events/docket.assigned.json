@@ -25,12 +25,14 @@
     ],
     "working_on_next": [
       "docket.assigned·working_on_next[0]"
-    ]
+    ],
+    "acceptance": ["docket.assigned acceptance"]
   },
   "public": {
     "v": 1,
     "variant": "docket.assigned",
     "projection": "public",
+    "acceptance": ["docket.assigned acceptance"],
     "actor": {
       "kind": "agent",
       "id": "docket.assigned·actor"

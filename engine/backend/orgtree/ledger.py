@@ -11104,6 +11104,78 @@ class Org:
             "dependencies": deps,
         }
 
+    @staticmethod
+    def _work_compact_view(full: dict[str, Any]) -> dict[str, Any]:
+        """Return the explicit, opt-in compact docket projection.
+
+        The caller must construct ``full`` through ``_work_view`` first.  That
+        ordering is important: ``_work_view`` applies all item authorization
+        and pointer disclosure rules, while this function only removes bulky
+        history collections.  The current description and requested scope
+        fields stay intact so compact output is still actionable, and every
+        removed collection has a count in ``omissions``.
+
+        ``candidate`` is the most advanced delivery claim currently present.
+        It is a small status/candidate summary, not a second authority: the
+        complete delivery receipts remain available from the full read.
+        """
+        omitted: dict[str, int] = {}
+        out = dict(full)
+        for field in ("history", "scope", "evidence", "attachments",
+                      "dismissals", "attention_sources"):
+            value = full.get(field)
+            if isinstance(value, list):
+                if field == "history":
+                    # Full history may already contain a folded marker.  The
+                    # compact omission count describes the underlying rows,
+                    # not just the one marker that summarizes them.
+                    omitted[field] = sum(
+                        int(row.get("count") or 0)
+                        if isinstance(row, dict) and row.get("kind") == "folded"
+                        else 1 for row in value)
+                else:
+                    omitted[field] = len(value)
+                out.pop(field, None)
+
+        # Preserve the scope requested when the item was created/updated as a
+        # stable, named group.  The same values also remain at their original
+        # top-level keys for clients that consume the full work shape.
+        out["requested_scope"] = {
+            key: full.get(key) for key in
+            ("kind", "title", "objective", "acceptance", "dependencies",
+             "parent", "parent_visible", "participants")
+        }
+
+        delivery = full.get("delivery")
+        candidate: dict[str, Any] | None = None
+        if isinstance(delivery, dict):
+            # Delivery stages are ordered from earliest to latest in the
+            # durable contract.  Select the latest claimed stage without
+            # exposing all receipts in this compact view.
+            for stage in ("implemented", "committed", "pushed", "deployed",
+                          "in_build"):
+                row = delivery.get(stage)
+                if isinstance(row, dict):
+                    candidate = {"stage": stage}
+                    if "ref" in row:
+                        candidate["ref"] = row["ref"]
+                        # A candidate is commonly discussed as a commit SHA;
+                        # retain the stage's canonical `ref` while providing
+                        # that readable alias for compact consumers.
+                        candidate["sha"] = row["ref"]
+                    if "target" in row:
+                        candidate["target"] = row["target"]
+        out["candidate"] = candidate
+        if isinstance(delivery, dict):
+            out.pop("delivery", None)
+            omitted["delivery_receipts"] = sum(
+                1 for row in delivery.values() if isinstance(row, dict))
+        out["compact"] = True
+        out["omissions"] = omitted
+        for field, count in omitted.items():
+            out[f"omitted_{field}_count"] = count
+        return out
+
     #: history-row fields that NAME ANOTHER WORK ITEM, PER OPERATION. Since
     #: the name is derived from the title, each one is a disclosure and is
     #: gated exactly like `superseded_by`, `parent` and `dependencies` are.
@@ -11282,7 +11354,8 @@ class Org:
 
     def work_list(self, viewer: str, include_archived: bool = False,
                   now_ts: float | None = None,
-                  include_backlogged: bool = False) -> dict[str, Any]:
+                  include_backlogged: bool = False,
+                  compact: bool = False) -> dict[str, Any]:
         """Every item the viewer may read, split into THREE disjoint groups —
         the main list, the derived archive, and the derived backlog — newest
         docket update first within each. Counts are over the viewer's READABLE
@@ -11302,6 +11375,8 @@ class Org:
             if not self._work_can_read(viewer, it):
                 continue
             v = self._work_view(it, phys, viewer, now_ts)
+            if compact:
+                v = self._work_compact_view(v)
             if v["archived"]:
                 arch.append(v)
             elif self._work_backlogged(it):
@@ -11333,6 +11408,8 @@ class Org:
             "archived": len(arch),
             "backlogged": len(back)})
         out: dict[str, Any] = {"items": items, "counts": counts, "now": now()}
+        if compact:
+            out["compact"] = True
         if include_archived:
             out["archived"] = arch
         if include_backlogged:
@@ -11340,10 +11417,12 @@ class Org:
         return out
 
     def work_get(self, viewer: str, wid: str,
-                 now_ts: float | None = None) -> dict[str, Any]:
+                 now_ts: float | None = None,
+                 compact: bool = False) -> dict[str, Any]:
         it, phys = self._work_get_for(viewer, wid)
-        return self._work_view(it, phys, viewer,
+        view = self._work_view(it, phys, viewer,
                                _time.time() if now_ts is None else now_ts)
+        return self._work_compact_view(view) if compact else view
 
     # ---- mutation plumbing
     def _work_hist(self, it: WorkItem, actor: str, op: str,
@@ -12498,7 +12577,8 @@ class Org:
                      assigner=actor, status=str(it.get("status") or "open"),
                      objective=str(it.get("objective") or ""),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
-                     working_on_next=[str(x) for x in (it.get("working_on_next") or [])]))
+                     working_on_next=[str(x) for x in (it.get("working_on_next") or [])],
+                     acceptance=[str(x) for x in (it.get("acceptance") or [])]))
 
     def _work_reviewer_check(self, actor: str, it: WorkItem,
                              reviewer: str | None, status: str | None,
@@ -12615,7 +12695,8 @@ class Org:
                      reviewer=want, requested_by=actor,
                      owner=str(self._work_actor_node(it.get("owner")) or ""),
                      objective=str(it.get("objective") or ""),
-                     done_so_far=[str(x) for x in (it.get("done_so_far") or [])]))
+                     done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
+                     acceptance=[str(x) for x in (it.get("acceptance") or [])]))
         return want
 
     def work_reassign_abandoned(self, now_ts: float | None = None,

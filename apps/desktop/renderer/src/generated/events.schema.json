@@ -1522,6 +1522,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -1536,7 +1542,8 @@
         "status",
         "objective",
         "done_so_far",
-        "working_on_next"
+        "working_on_next",
+        "acceptance"
       ],
       "additionalProperties": false
     },
@@ -1575,6 +1582,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -1587,7 +1600,8 @@
         "requested_by",
         "owner",
         "objective",
-        "done_so_far"
+        "done_so_far",
+        "acceptance"
       ],
       "additionalProperties": false
     },
@@ -6702,6 +6716,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -6716,7 +6736,8 @@
         "status",
         "objective",
         "done_so_far",
-        "working_on_next"
+        "working_on_next",
+        "acceptance"
       ],
       "additionalProperties": false
     },
@@ -6755,6 +6776,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -6767,7 +6794,8 @@
         "requested_by",
         "owner",
         "objective",
-        "done_so_far"
+        "done_so_far",
+        "acceptance"
       ],
       "additionalProperties": false
     },

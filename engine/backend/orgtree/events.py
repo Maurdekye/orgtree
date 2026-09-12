@@ -336,6 +336,13 @@ def mint(variant: str, actor: Mapping[str, Any], object: Mapping[str, Any] | Non
                           "object": dict(object) if object is not None else None,
                           "engine_authored": a.get("kind") == "system"}
     ev.update(fields)
+    # W04 added acceptance conditions to assignment/review context.  Keep
+    # callers that mint historical event fixtures source-compatible: an old
+    # producer did not have this field, and an empty list faithfully means the
+    # item carried no conditions at that point.
+    if variant in ("docket.assigned", "docket.review_requested") \
+            and "acceptance" not in ev:
+        ev["acceptance"] = []
     validate_event(ev)
     return ev
 

@@ -7665,7 +7665,8 @@ ACCOUNT_LANE_DOCTRINE = (
     "forth. ")
 
 
-def identity_prompt(org: Org, nid: str, include_archived: bool = False) -> str:
+def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
+                    include_standing_charter: bool = True) -> str:
     """№29: the STABLE identity — who this agent is, who it answers to, what it
     may touch, and how the tools work. Regenerated every turn, but by design it
     now renders the same bytes every turn for an unchanged agent.
@@ -7721,6 +7722,8 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False) -> str:
                  f"this is not.")
 
     charter_bits = []
+    # The role charter identifies THIS seat and is distinct from the
+    # inherited/team standing charters that a compact chart may omit.
     if n.get("charter"):
         charter_bits.append(f"Your charter: {n['charter']}")
     # D-105: a manager may now edit its OWN team charter, so it has to be able
@@ -7728,12 +7731,13 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False) -> str:
     # charters (that is what binds it), never its own, which is what it binds
     # others with. D-181: child count is live state, so a set team charter is
     # shown before the first hire too; 0↔1 reports must not rewrite identity.
-    if n.get("team_charter"):
+    if include_standing_charter and n.get("team_charter"):
         charter_bits.append(
             f"The standing charter YOU give your team (yours to edit — "
             f"orgtree_retool on your own id, team_charter): "
             f"{n.get('team_charter')}")
-    chain = [a for a in reversed(org.ancestors(nid)) if a != USER]
+    chain = ([a for a in reversed(org.ancestors(nid)) if a != USER]
+             if include_standing_charter else [])
     for a in chain:                       # §15 cascade: ancestors bind their subtrees
         tc = org.nodes[a].get("team_charter")
         if tc:

@@ -5543,7 +5543,7 @@ def work_identity_migrate(slug: str) -> dict[str, Any]:
 
 @app.get("/api/orgs/{slug}/work-items")
 def work_items_list(slug: str, archived: int = 0,
-                    backlogged: int = 0) -> dict[str, Any]:
+                    backlogged: int = 0, compact: int = 0) -> dict[str, Any]:
     """Every item, split by the DERIVED archive and backlog rules, newest
     docket update first; `counts` over the full set for the toolbar badge.
     `?archived=1` adds the archived group and `?backlogged=1` the backlog
@@ -5557,18 +5557,18 @@ def work_items_list(slug: str, archived: int = 0,
     _work_identity_guard(org)
     return _work_refs(slug, org.work_list(
         USER, include_archived=bool(archived),
-        include_backlogged=bool(backlogged)))
+        include_backlogged=bool(backlogged), compact=bool(compact)))
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}")
-def work_item_get(slug: str, wid: str) -> dict[str, Any]:
+def work_item_get(slug: str, wid: str, compact: int = 0) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
     _work_identity_guard(org)
     try:
-        it = org.work_get(USER, wid)
+        it = org.work_get(USER, wid, compact=bool(compact))
     except LedgerError as e:
         raise HTTPException(404, str(e))
     it["ref"] = refs.item(slug, str(it["slug"]))
@@ -6512,8 +6512,10 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
             return _work_refs(body.org, org.work_list(
                 body.node,
                 include_archived=_arg_flag(a, "include_archived"),
-                include_backlogged=_arg_flag(a, "include_backlogged")))
-        it = org.work_get(body.node, _work_ref(a))
+                include_backlogged=_arg_flag(a, "include_backlogged"),
+                compact=_arg_flag(a, "compact")))
+        it = org.work_get(body.node, _work_ref(a),
+                          compact=_arg_flag(a, "compact"))
         it["ref"] = refs.item(body.org, str(it["slug"]))
         return {"item": it}
     except LedgerError as e:
@@ -8986,8 +8988,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # chart tool that renders no chart. Both halves, concatenated,
                 # is exactly what this tool returned before the split.
                 _ia = _arg_flag(a, "include_archived")
+                _isc = ("include_standing_charter" not in a
+                        or _arg_flag(a, "include_standing_charter"))
                 return {"chart": supervisor.identity_prompt(
-                    org, body.node, include_archived=_ia)
+                    org, body.node, include_archived=_ia,
+                    include_standing_charter=_isc)
                     + "\n\n" + supervisor.org_state_block(
                         org, body.node, include_archived=_ia)}
             if body.tool == "orgtree_send_file":
