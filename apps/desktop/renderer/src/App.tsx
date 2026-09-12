@@ -2212,10 +2212,18 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
       })
   }, [jumpTo, jumpSeq, box, userLookup, askAgain])
   const aud = usePolled(() => getAudiences(slug), [slug])
-  // №10: the record loads on demand — and keeps loading while that tab is up
+  // №10: the record loads on demand — and keeps loading while that tab is up.
+  // The plain view fetches a bounded tail (the server used to materialize
+  // and ship the whole 19k-row log per poll); an ACTIVE SEARCH fetches the
+  // full record, because its filter has always looked at everything and a
+  // bounded fetch would silently hide older matches (perf-review round 2).
+  // The dep is the BOOLEAN, so typing within a search never restarts the poll.
+  const [recordQuery, setRecordQuery] = useState('')
+  const recordFull = recordQuery.trim() !== ''
   const events = usePolled(
-    () => (folder === 'record' ? getEvents(slug).then((r) => r.events)
-      : Promise.resolve(null)), [folder, slug])
+    () => (folder === 'record'
+      ? getEvents(slug, recordFull ? undefined : 300).then((r) => r.events)
+      : Promise.resolve(null)), [folder, slug, recordFull])
   const userAud = aud?.audiences?.filter((a) => a.grantor === USER) ?? []
   const userReqs = (aud?.requests?.filter((r) => r.target === USER && r.currently_at === USER) ?? []) as UserAudReq[]
   const act = (action: string, node: string, target?: string | null) =>
@@ -2317,7 +2325,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
           unread={(box?.pending.length ?? 0) + askPending.length} />
         <div className="mailpane">
           {folder === 'record'
-            ? <OrgRecord events={events} />
+            ? <OrgRecord events={events} query={recordQuery}
+                onQuery={setRecordQuery} />
             : box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
