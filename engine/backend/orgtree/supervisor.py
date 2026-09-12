@@ -5331,32 +5331,25 @@ def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
     "only when the 429 said nothing" — a later mark is not authorization to
     overwrite a time a provider stated.
 
-    ⚠ THE MARK IS STILL AN ADMISSION FLOOR, and that is a SEPARATE question
-    answered separately (`_admission_floor` / `frozen.admit_ts`). It is what
-    the PRE-SLOT GATE admits against: a node that wakes before the mark wakes
-    into a refusal and re-freezes (Opus Q1's loop). `record_mark` never
-    shortens, so the two disagree only when an older, LATER mark survived —
-    and there the honest split is that the badge reports what the provider
-    SAID while the timer waits for what the gate will actually ALLOW.
-    Reconciling the wake by rewriting the displayed time is what this
-    function used to do, and it is what the precedence forbids.
+    ⚠ AND THE WAKE FOLLOWS WHAT IS SHOWN — there is no separate, later
+    admission floor (USER RULING 2026-09-12, answering this exact question on
+    the docket: "the wake timer should follow whats shown, and what's shown
+    should always take precedence from the 429 error, not from usage").
+
+    An interim version of this fix kept the mark on a `frozen.admit_ts` field
+    and made `auto_resume_ready` wait for the later of the two, so the badge
+    said 30 minutes while the timer privately waited 2 hours. The user was
+    asked and chose against it: one number, and it is the 429's.
+
+    So a node CAN now wake while an older, longer mark is still live. That is
+    not a loop — it is the system correcting itself in public. The pre-slot
+    gate re-freezes it from the mark, which stamps the mark's own later time
+    and `reset_src = "account-mark"`, and the badge then shows THAT. One
+    spent admission, after which the displayed time is the honest one. The
+    alternative the user rejected hid the same disagreement forever.
 
     Answers True when the record has no 429 deadline to protect."""
     return not _message_is_conclusive(msg_ts, msg_src)
-
-
-def _admission_floor(mark_ts: float, msg_ts: float | None,
-                     msg_src: str) -> float | None:
-    """The time before which the PRE-SLOT GATE will refuse this node anyway,
-    when that is later than the deadline the record displays.
-
-    Returned only for a conclusive 429 the mark outlives: everywhere else the
-    mark either IS the displayed deadline (so the wake already waits for it)
-    or is earlier than one, and a floor that changes nothing is noise on the
-    record. None means "the displayed deadline is the whole truth"."""
-    if not _message_is_conclusive(msg_ts, msg_src):
-        return None
-    return mark_ts if mark_ts > float(cast(float, msg_ts)) else None
 
 
 def _record_account_reset(account: str, tier: str, blob: str,
@@ -18495,13 +18488,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     # mark survived `record_mark`'s
                                     # never-shorten rule. That mark really does
                                     # gate admission (the pre-slot gate freezes
-                                    # on any live mark) — but ADMISSION IS NOT
-                                    # THE DISPLAYED TIME, and reconciling the
-                                    # wake by rewriting what the provider said
-                                    # is exactly what the precedence forbids.
-                                    # The floor goes on its own field and
-                                    # `auto_resume_ready` waits for it there;
-                                    # the record keeps reporting the 429.
+                                    # on any live mark) — and the record STILL
+                                    # does not follow it, because the user was
+                                    # asked and ruled that the wake follows
+                                    # what is shown (2026-09-12). The node may
+                                    # wake into that gate and be re-frozen from
+                                    # the mark; that re-freeze stamps the
+                                    # mark's own time and the badge then shows
+                                    # it. One spent admission, in public,
+                                    # instead of a permanent hidden difference
+                                    # between the shown and the real wake.
                                     #
                                     # `provenance` describes THE NUMBER THIS
                                     # RECORD CARRIES, not whatever sits in the
@@ -18518,12 +18514,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             if _m['provenance'] == 'observed' else 'probe')
                                     else:
                                         fz["provenance"] = "observed"
-                                    _floor = _admission_floor(
-                                        _m_ts, _rts, _rsrc)
-                                    if _floor:
-                                        fz["admit_ts"] = _floor
-                                    else:
-                                        fz.pop("admit_ts", None)
                             _uts = fz.get("until_ts")
                             # a readout time is minute-exact, timezone-safe
                             # and lane-aware, so it OVERWRITES a prose label
@@ -24293,24 +24283,16 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
             ready.add(nid)
             continue
         ts = fz.get("until_ts")
-        # ⚠ THE DISPLAYED DEADLINE IS NOT ALWAYS THE ADMISSION ONE (user
-        # ruling 2026-09-12, review 2026-09-12). The precedence makes the
-        # record report the specific 429's own time; when an older, LATER
-        # account mark outlived it, that mark is still what the PRE-SLOT GATE
-        # will refuse this node against, so the freeze carries it as
-        # `admit_ts` and the WAKE waits for the later of the two. Waking on
-        # the displayed time alone would drive the node into the gate, which
-        # re-freezes it — the loop the mark is here to prevent. This is the
-        # separate reconciliation the precedence asks for: the badge keeps
-        # saying what the provider said, and only the timer knows about the
-        # floor. (`admit_ts` is a FLOAT: the `_resumable` unknown-True-key
-        # trap takes booleans only.)
-        try:
-            _floor = float(fz.get("admit_ts") or 0.0)
-        except (TypeError, ValueError):
-            _floor = 0.0
-        if ts and _floor > float(ts):
-            ts = _floor
+        # ⚠ THE WAKE IS THE DISPLAYED DEADLINE, AND NOTHING ELSE (USER RULING
+        # 2026-09-12: "the wake timer should follow whats shown, and what's
+        # shown should always take precedence from the 429 error, not from
+        # usage"). An interim fix gave the freeze a private `admit_ts` floor
+        # from the account's mark, so a node could show 30 minutes and sleep
+        # for 2 hours; the user was asked this exact question on the docket
+        # and chose one number. Do not reintroduce a hidden later wake here —
+        # if a node wakes while a longer mark is still live, the pre-slot gate
+        # re-freezes it from that mark and the badge then reports the mark's
+        # time. The correction is meant to be visible.
         if ts:
             if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
                 ready.add(nid)

@@ -1833,12 +1833,13 @@ def _rederive_freeze_reset(node: dict[str, Any],
     #      the badge must not deny that a wake is coming.
     #   4. only THEN the roster.
     #
-    # Ranks 1-3 are one branch, because a live `until_ts` already IS the
-    # winner among them — the supervisor resolved that order when it stamped
-    # the record. Rank 2 then gets a SECOND reading below, from `registry`
-    # directly, for the record that carries no live deadline at all: the mark
-    # is durable and the stamp is a snapshot, so the account can be marked
-    # while the freeze's own number has expired or was never written.
+    # Each rank is its own branch below, in that order. Rank 2 is read from
+    # `registry` rather than from the record, because the mark is DURABLE and
+    # the record's `until_ts` is a snapshot taken when this node froze — a
+    # sibling seat hitting the same account's wall moves the mark afterwards,
+    # and nothing rewrites the stamp. Collapsing ranks 1-3 into one "has a live
+    # `until_ts`" test is the round-2 defect: it let a rank-3 probe floor
+    # suppress a rank-2 observed mark.
     #
     # ⚠ WHY THIS WAS THE BUG (user report 2026-09-12, screenshot). Only rank 1
     # used to be protected. `accounts.resolve` reads the LEGACY roster, which
@@ -1860,19 +1861,36 @@ def _rederive_freeze_reset(node: dict[str, Any],
     except (TypeError, ValueError):
         own = 0.0
     now = time.time()
-    if now < own <= now + limits.MAX_HORIZON:
-        fz["until"] = _capacity_label(own, src, str(fzd.get("schedule_kind") or ""))
+    live_own = now < own <= now + limits.MAX_HORIZON
+
+    def _keep_own() -> None:
+        fz["until"] = _capacity_label(
+            own, src, str(fzd.get("schedule_kind") or ""))
         fz["until_ts"] = own
+
+    # ── RANK 1. The specific 429's own answer, and nothing outranks it.
+    if live_own and src in ("text", "provider"):
+        _keep_own()
         return
-    # ── RANK 2, and the reason this function exists at all (review 2026-09-12).
-    # With no live deadline on the record the old code went STRAIGHT to the
-    # legacy roster and skipped the account's own authoritative mark — the
-    # exact number the Usage modal prints as "<pool> limited until …". So a
-    # registry-bound node whose account is marked for another 30 minutes showed
-    # the roster's unrelated 2-hour answer, or "reset time unknown" when the
-    # roster was open, while Usage went on showing the truth one panel away.
-    # The two surfaces must agree, so they read ONE source: `registry` is that
-    # source, `accounts.resolve` describes only the legacy roster.
+    # ── RANK 2 (review 2026-09-12, rounds 1 and 2). The account's own live
+    # mark — the exact number the Usage modal prints as "<pool> limited
+    # until …" — read FRESH from the registry, which is the current authority.
+    # `accounts.resolve` describes only the legacy roster, and the record's
+    # `until_ts` is a snapshot taken when this node froze.
+    #
+    # ⚠ IT OUTRANKS THE RECORD'S OTHER LIVE HORIZONS, not just an absent one.
+    # Round 1 fixed the absent case and left this one: the function returned
+    # for ANY plausible live `until_ts`, so a `probe` floor at +300 — or an
+    # `inherited`, `account-mark` or `usage:<lane>` snapshot — suppressed the
+    # account's observed mark at +1800 and the badge under-reported the wait
+    # while Usage showed the truth one panel away. The mark moves under a
+    # stamped record in the ordinary way: a SIBLING seat hitting the same
+    # account's wall updates the shared mark long after this node was frozen.
+    #
+    # ⚠ AND IT MAY MOVE THE DISPLAYED TIME EARLIER. A stale inherited horizon
+    # further out is not a reason to keep it: rank 2 is the authoritative
+    # reading and rank 3 is a guess that nothing has re-derived. This is the
+    # ranking as written, deliberately, not a never-shorten floor.
     #
     # The freeze's OWN account comes first — the badge's title already names
     # that lane as whose wait this is — and the node's current binding is the
@@ -1910,6 +1928,14 @@ def _rederive_freeze_reset(node: dict[str, Any],
             if _prov:
                 fz["provenance"] = _prov
             return
+    # ── RANK 3. Whatever else the record carries with a live deadline — an
+    # inherited horizon, the blind 5-minute probe floor, a `usage:<lane>`
+    # readout with no mark standing behind it any more. Weak, but it IS a
+    # scheduled wake and the badge must not deny that one is coming.
+    if live_own:
+        _keep_own()
+        return
+    # ── RANK 4. Only now the roster.
     if tier not in cache:
         cache[tier] = accounts.resolve(tier)
     got = cache[tier]

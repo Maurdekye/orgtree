@@ -336,33 +336,6 @@ class MarkVersusMessageTests(unittest.TestCase):
                     supervisor._mark_supersedes_message(msg + 300, msg, src),
                     'a later fallback overwrote explicit provider timing')
 
-    def test_a_later_mark_becomes_the_admission_floor_instead(self):
-        """…and the wake still waits for it, or the node wakes into the
-        pre-slot gate's refusal and re-freezes (Opus Q1's loop)."""
-        from orgtree import supervisor
-        msg = time.time() + 1800
-        for src in ('text', 'provider'):
-            with self.subTest(src=src):
-                self.assertEqual(
-                    supervisor._admission_floor(msg + 300, msg, src),
-                    msg + 300)
-
-    def test_no_floor_is_recorded_when_it_would_change_nothing(self):
-        """An equal or earlier mark is already covered by the displayed
-        deadline, and an inconclusive 429 hands the mark the deadline itself —
-        a floor on either is noise on the record."""
-        from orgtree import supervisor
-        msg = time.time() + 1800
-        for src, ts, mark in (('text', msg, msg), ('provider', msg, msg),
-                              ('text', msg, msg - 300),
-                              ('probe', None, msg), ('', None, msg),
-                              ('inherited', msg, msg + 300),
-                              ('usage:session', msg, msg + 300),
-                              ('account-mark', msg, msg + 300)):
-            with self.subTest(src=src, ts=ts, delta=mark - (ts or 0)):
-                self.assertIsNone(
-                    supervisor._admission_floor(mark, ts, src))
-
     def test_an_inconclusive_429_hands_the_answer_to_the_mark(self):
         from orgtree import supervisor
         now = time.time()
@@ -374,17 +347,19 @@ class MarkVersusMessageTests(unittest.TestCase):
                     'nothing was protecting this deadline')
 
 
-class AdmissionFloorWakeTests(unittest.TestCase):
-    """The other half of the separation: `auto_resume_ready` waits for
-    `admit_ts` while the badge goes on reporting the 429's own time.
+class WakeFollowsWhatIsShownTests(unittest.TestCase):
+    """USER RULING 2026-09-12, answering this exact question on the docket:
+    "the wake timer should follow whats shown, and what's shown should always
+    take precedence from the 429 error, not from usage."
 
-    Without this the precedence fix would trade a wrong badge for a wake/
-    refuse/re-freeze loop — the node would wake at the stated time, meet the
-    pre-slot gate's still-live mark, and be parked again."""
+    An interim version of this fix kept a later account mark on a private
+    `frozen.admit_ts` and had `auto_resume_ready` wait for it, so a node could
+    display 30 minutes and sleep for 2 hours. The user was asked and chose one
+    number. These tests are what stop it coming back."""
 
     def _org(self, **fz):
         from orgtree import ledger
-        org = ledger.Org.create('floor-' + str(id(fz))[-6:])
+        org = ledger.Org.create('shown-' + str(id(fz))[-6:])
         nid = org._new_node('fable', None, 0, 'root', [],
                             {'bash': False, 'web': False, 'edit': False,
                              'subagents': False, 'mcp': []}, 'full', 'c')
@@ -392,51 +367,35 @@ class AdmissionFloorWakeTests(unittest.TestCase):
                                    'at': 'x', **fz}
         return org, nid
 
-    def test_the_wake_waits_for_a_later_floor(self):
+    def test_the_wake_fires_at_the_shown_time(self):
         from orgtree import supervisor
         now = time.time()
-        # the 429 said 10 minutes ago; an older mark runs another hour
-        org, nid = self._org(until_ts=now - 600, reset_src='text',
-                             until='past', admit_ts=now + 3600)
-        self.assertNotIn(nid, supervisor.auto_resume_ready(org, now=now))
-
-    def test_the_wake_fires_once_the_floor_passes(self):
-        from orgtree import supervisor
-        now = time.time()
-        org, nid = self._org(until_ts=now - 7200, reset_src='text',
-                             until='past', admit_ts=now - 3600)
+        org, nid = self._org(until_ts=now - 120, reset_src='text',
+                             until='capacity resets 3:23pm')
         self.assertIn(nid, supervisor.auto_resume_ready(org, now=now))
 
-    def test_an_earlier_floor_never_delays_a_wake(self):
-        """`admit_ts` is a FLOOR, never a ceiling — it can only push a wake
-        later, and a record without one behaves exactly as before."""
+    def test_nothing_delays_the_wake_past_the_shown_time(self):
+        """The regression guard. A stray `admit_ts` on the record — an old
+        document, or this field reintroduced — must not hold the node back."""
         from orgtree import supervisor
         now = time.time()
-        for fz in ({'admit_ts': now - 9000}, {}, {'admit_ts': None}):
-            with self.subTest(**fz):
-                org, nid = self._org(until_ts=now - 3600, reset_src='text',
-                                     until='past', **fz)
-                self.assertIn(nid,
-                              supervisor.auto_resume_ready(org, now=now))
+        org, nid = self._org(until_ts=now - 120, reset_src='text',
+                             until='capacity resets 3:23pm',
+                             admit_ts=now + 7200)
+        self.assertIn(nid, supervisor.auto_resume_ready(org, now=now),
+                      'a hidden later deadline is delaying the wake')
 
-    def test_a_floor_alone_never_invents_a_wake(self):
-        """No displayed deadline means the blind 5-minute probe floor owns the
-        wake; `admit_ts` must not become a deadline in its own right."""
+    def test_the_shown_time_is_not_yet_due(self):
         from orgtree import supervisor
         now = time.time()
-        org, nid = self._org(until_ts=None, reset_src='probe',
-                             until='unknown', admit_ts=now + 3600)
-        org.d['auto_resume_last'] = now      # the probe floor is not due
+        org, nid = self._org(until_ts=now + 1800, reset_src='text',
+                             until='capacity resets 3:30pm')
         self.assertNotIn(nid, supervisor.auto_resume_ready(org, now=now))
 
-    def test_a_floor_does_not_make_the_freeze_unresumable(self):
-        """⚠ The `_resumable` unknown-True-key trap: a new flag that is not
-        exempted makes ▶ skip the node forever. `admit_ts` is a float for
-        exactly this reason, and this is the test that says so."""
+    def test_the_supervisor_no_longer_carries_an_admission_floor(self):
         from orgtree import supervisor
-        org, nid = self._org(until_ts=time.time() + 60, reset_src='text',
-                             until='soon', admit_ts=time.time() + 3600)
-        self.assertTrue(supervisor.resumable(org.node(nid)))
+        self.assertFalse(hasattr(supervisor, '_admission_floor'),
+                         'the hidden admission floor is back')
 
 
 class BoundAccountMarkTests(unittest.TestCase):
@@ -576,6 +535,100 @@ class BoundAccountMarkTests(unittest.TestCase):
              'frozen': {'limit': True, 'at': 'x', 'until_ts': None,
                         'reset_src': 'probe'}})
         self.assertAlmostEqual(fz['until_ts'], mine, delta=1.0)
+
+    def test_a_weak_live_snapshot_no_longer_suppresses_the_mark(self):
+        """Round 2. The record's `until_ts` is a SNAPSHOT taken when this node
+        froze; the mark is durable and moves under it — a sibling seat hitting
+        the same account's wall updates it long afterwards. Returning early
+        for any live horizon let a 5-minute probe floor hide an observed
+        30-minute mark, and the badge under-reported the wait."""
+        acct = self._account()
+        mine = time.time() + 1800
+        registry.record_mark(acct['id'], 'fable', until=mine,
+                             provenance='observed')
+        for src in ('probe', 'inherited', 'account-mark', 'usage:session'):
+            with self.subTest(src=src):
+                fz = self._derive(
+                    {'tier': 'fable', 'account': acct['id'],
+                     'frozen': {'limit': True, 'at': 'x',
+                                'account': acct['id'],
+                                'until_ts': time.time() + 300,
+                                'reset_src': src}})
+                self.assertAlmostEqual(fz['until_ts'], mine, delta=1.0)
+                self.assertEqual(fz['reset_src'], 'account-mark')
+
+    def test_the_mark_wins_even_when_it_shortens_a_stale_horizon(self):
+        """Rank 2 is the authoritative reading and rank 3 is a guess nothing
+        has re-derived, so precedence holds in BOTH directions — this is the
+        ranking as written, not a never-shorten floor."""
+        acct = self._account()
+        mine = time.time() + 1800
+        registry.record_mark(acct['id'], 'fable', until=mine,
+                             provenance='observed')
+        fz = self._derive(
+            {'tier': 'fable', 'account': acct['id'],
+             'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
+                        'until_ts': time.time() + 7200,
+                        'reset_src': 'inherited'}})
+        self.assertAlmostEqual(fz['until_ts'], mine, delta=1.0)
+
+    def test_a_live_429_still_outranks_the_mark_in_both_directions(self):
+        """Rank 1 is untouched by the round-2 reordering: neither a later nor
+        an earlier mark may replace a time the provider stated."""
+        acct = self._account()
+        for mark_at in (time.time() + 7200, time.time() + 600):
+            registry.record_mark(acct['id'], 'fable', until=mark_at,
+                                 provenance='observed')
+            stated = time.time() + 1800
+            for src in ('text', 'provider'):
+                with self.subTest(src=src, mark=mark_at):
+                    fz = self._derive(
+                        {'tier': 'fable', 'account': acct['id'],
+                         'frozen': {'limit': True, 'at': 'x',
+                                    'account': acct['id'],
+                                    'until_ts': stated, 'reset_src': src,
+                                    'schedule_kind': 'observed-deadline'}})
+                    self.assertAlmostEqual(fz['until_ts'], stated, delta=1.0)
+                    self.assertEqual(fz['reset_src'], src)
+
+    def test_a_live_snapshot_survives_when_no_mark_stands_behind_it(self):
+        """Rank 3 still answers when rank 2 cannot: an unbound node, and a
+        bound one whose mark has expired. The badge must not deny that a
+        scheduled wake is coming."""
+        soon = time.time() + 300
+        fz = self._derive(
+            {'tier': 'fable',
+             'frozen': {'limit': True, 'at': 'x', 'until_ts': soon,
+                        'reset_src': 'probe'}})
+        self.assertAlmostEqual(fz['until_ts'], soon, delta=1.0)
+        acct = self._account()
+        registry.record_mark(acct['id'], 'fable', until=time.time() - 60,
+                             provenance='observed')
+        fz = self._derive(
+            {'tier': 'fable', 'account': acct['id'],
+             'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
+                        'until_ts': soon, 'reset_src': 'inherited'}})
+        self.assertAlmostEqual(fz['until_ts'], soon, delta=1.0)
+
+    def test_the_mark_is_read_once_per_node_not_skipped_by_a_live_horizon(self):
+        """⚠ The memo must not make rank 2 conditional on rank 3 being absent:
+        a live horizon used to return before the lookup happened at all."""
+        acct = self._account()
+        registry.record_mark(acct['id'], 'fable', until=time.time() + 1800,
+                             provenance='observed')
+        seen = []
+        real = registry.active_mark
+        registry.active_mark = lambda *a, **k: (seen.append(a[:2])
+                                                or real(*a, **k))
+        try:
+            self._derive(
+                {'tier': 'fable', 'account': acct['id'],
+                 'frozen': {'limit': True, 'at': 'x', 'account': acct['id'],
+                            'until_ts': time.time() + 300,
+                            'reset_src': 'probe'}})
+        finally:
+            registry.active_mark = real
+        self.assertEqual(len(seen), 1, 'the mark was never consulted')
 
     def test_the_mark_is_read_once_per_render_not_once_per_node(self):
         """`active_mark` re-reads and re-parses the whole registry FILE per
