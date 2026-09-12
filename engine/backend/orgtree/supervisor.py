@@ -5569,20 +5569,30 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
          make the stated time cosmetic. If the wall really is still up, the
          attempt returns a new 429 and that 429 rewrites this record with its
          own timing — the precedence working, not a hole.
-      1b. THE PROMISE THIS FREEZE ALREADY CARRIES — `frozen.wake`. Once
+      2. THE PROMISE THIS FREEZE ALREADY CARRIES — `frozen.wake`. Once
          chosen it IS the deadline, elapsed or not, and NOTHING below moves it
          in either direction (user ruling: honour the time already shown).
-         The ranks below are how a promise is CHOSEN, not how it is revised.
-      2. ANY OTHER HORIZON THE RECORD CARRIES, LIVE OR ELAPSED: an inherited
-         one, the blind probe floor. Weak, but it is a statement about THIS
-         freeze that both surfaces can already SEE, so nothing below may move
-         it (round 10).
+         The ranks below are how a promise is CHOSEN, not how it is revised —
+         and a READER stops here. Everything after this point is visible only
+         with `include_sources=True`, which only `commit_node_wake` passes.
+
+    ── and the sources a promise is chosen FROM, in this order:
+
       3. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints, and
          the answer to the bug this item opened with: a seat frozen with
-         nothing usable on its record while the registry knew the wall. It
-         fills a SILENCE, never overrules a statement. LIVE only: a mark is
-         evidence about now, and an elapsed one belongs to a window that has
-         closed, possibly long before this freeze existed.
+         nothing usable on its record while the registry knew the wall. LIVE
+         only: a mark is evidence about now, and an elapsed one belongs to a
+         window that has closed, possibly long before this freeze existed.
+         ⚠ IT OUTRANKS RANK 4 BELOW, AND THAT ORDER IS THE USER'S: "the
+         specific 429 first; authoritative usage/reset data only when that
+         response is inconclusive". A probe floor is not the 429's contents.
+         Round 10 nearly inverted this to protect a legacy record that had
+         been displayed before anything committed to it — the fix was to stop
+         displaying an uncommitted deadline, not to demote the mark.
+      4. ANY OTHER HORIZON THE RECORD CARRIES, LIVE OR ELAPSED: an inherited
+         one, the blind probe floor. Weak, and below the mark by the ordering
+         just stated — but it still answers when no mark does, and it answers
+         after elapsing, because it is a statement about THIS freeze.
       4. THE ROSTER — `accounts.resolve` for the tier, when it reports the
          pool unavailable. ⚠ SHARED, not display-only (round 4): while this
          rank lived in `api._rederive_freeze_reset` alone, a node with no time
@@ -14604,13 +14614,20 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             tid = turn.start(text, _codex_image_inputs(images or []),
                              on_thread=_open_journal)
         finally:
-            # ⚠ IN THE `finally`, BECAUSE START IS THE SEND (review round 10).
-            # `turn/start` goes on the wire inside this call, and the provider
-            # can reject it immediately — which raises from here and left the
-            # one-shot pass unspent when it was consumed further down, beside
-            # `turn.wait`. An immediate rejection IS the provider answering,
-            # so it is the attempt the pass was owed.
-            _note_provider_attempt(slug, nid)
+            # ⚠ ON THE EVIDENCE OF THE SEND, NOT ON REACHING THIS LINE (review
+            # round 11). `start` does two round trips: `thread/start` and then
+            # `turn/start`. An unconditional `finally` here spent the one-shot
+            # pass when the FIRST one failed — a turn that never asked for a
+            # provider answer at all — and the pass exists precisely so that a
+            # node owed a real attempt gets one.
+            #
+            # `_turn_started` is set immediately before `turn/start` goes on
+            # the wire, so it is the send itself: false means the abort came
+            # first and the pass is still owed; true means the request was
+            # made and whatever comes back — including an immediate rejection
+            # — is the provider answering, which IS the attempt.
+            if getattr(turn, "_turn_started", False):
+                _note_provider_attempt(slug, nid)
         # FR-17: the desk's "is this checklist from the turn that's actually
         # running" question wants the real id, not a timestamp guess — best
         # effort, in-memory (st resets on restart, same as every other
@@ -15908,7 +15925,11 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         try:
             cid = turn.start(text + _antigravity_image_note(images or []))
         finally:
-            _note_provider_attempt(slug, nid)    # the send — same as codex
+            # the same rule as the codex leg, on this lane's own evidence: the
+            # send here is a process, and `Popen` failing means there was never
+            # one to answer. `turn.proc` is None until it exists.
+            if getattr(turn, "proc", None) is not None:
+                _note_provider_attempt(slug, nid)
         # the prompt is on the wire: the agent holds this turn's input, so
         # the journaled batch is delivered (the codex C1 proof transposed)
         _confirm_delivered(slug, nid, toks)

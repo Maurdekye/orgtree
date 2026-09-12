@@ -1781,12 +1781,13 @@ def _rederive_freeze_reset(node: dict[str, Any],
     render it down a separate branch; a fable weekly lock is not a
     subscription-pool question and `resolve` cannot describe it.
 
-    `cache` memoises for the life of ONE tree render, under two key shapes: a
-    bare tier name for the roster and `mark:<account>:<tier>` for the account's
-    own mark (`{}` meaning "asked, none"). Both `resolve` and `active_mark`
-    re-read their whole file per call, and a large org would otherwise pay that
-    once per frozen node (the O(n²) warning above is already watching this
-    endpoint).
+    ⚠ `cache` IS VESTIGIAL HERE (review round 11 flagged this text as stale).
+    It memoised the roster and the account mark for the life of one tree
+    render, back when this function read them. It reads NEITHER now — a badge
+    rendered from a read-only snapshot must not publish a deadline nothing
+    wrote down — so there is nothing left to memoise and the argument is kept
+    only because callers pass it. `supervisor.commit_node_wake` does the
+    reading, when a freeze is written and on the scheduler tick.
     """
     fz = node.get("frozen")
     if not isinstance(fz, dict):
@@ -1879,12 +1880,6 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # floor. This function still WORDS that rank (below) — the wording is
     # display's business — but it no longer decides it.
     #
-    # ⚠ MEMOISED IN THE SAME `cache` AS THE ROSTER: `registry.active_mark`
-    # re-reads and re-parses the whole registry FILE per call, and an org with
-    # 40 frozen seats would pay that 40 times over for the handful of
-    # (account, tier) pairs it actually has. The `mark:` prefix cannot collide
-    # with the roster's own keys — those are bare tier names from
-    # `accounts.TIERS`, tested a few lines above.
     fzd = cast("dict[str, Any]", fz)
     now = time.time()
     # ⚠ THE BADGE READS THE RECORD AND NOTHING ELSE (review round 9). It used
@@ -1926,13 +1921,16 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # the roster answering "available" says another account could serve a
     # NEW turn, not that this node is about to run. Neutral, and true.
     #
-    # ⚠ ROSTER LANES ONLY. This overwrite exists to replace what the LEGACY
-    # CLAUDE ROSTER said; a codex or openrouter lane has no roster to ask and
-    # therefore nothing to correct, so it keeps whatever its own path stamped.
-    # (Its TIMING still comes from the ranks above — that is round 5's
-    # non-Claude fix — and only this last neutral-text branch is scoped.)
-    if tier in accounts.TIERS:
-        fz["until"], fz["until_ts"] = "reset time unknown", None
+    # ⚠ EVERY LANE, NOT JUST THE ROSTER'S (review round 11). Scoping this to
+    # `accounts.TIERS` was defensible while the projection still derived a
+    # deadline here — a lane with no roster had nothing to correct. It stopped
+    # being defensible when readers began answering from the record alone: a
+    # luna, flash or openrouter freeze with no promise kept the `until_ts` its
+    # own path stamped, so the badge published a deadline the contract had
+    # already declined to name and the wake timer was not waiting for. That is
+    # the same uncommitted exposure round 10 closed, surviving on the lanes
+    # this branch was not reaching.
+    fz["until"], fz["until_ts"] = "reset time unknown", None
 
 
 #: §4.8 — ARCHIVED SEATS TRAVEL AS A SUMMARY.

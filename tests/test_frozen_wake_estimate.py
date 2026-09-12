@@ -307,17 +307,25 @@ class WakeEstimateTests(unittest.TestCase):
         fz = self._derive(node)
         self.assertEqual(fz['until'], 'HALTED')
 
-    def test_an_unknown_tier_is_left_alone(self):
-        """The roster answers for the known claude tiers; a codex/openrouter
-        node is somebody else's lane and keeps what its own path stamped.
+    def test_an_unknown_tier_publishes_no_uncommitted_time_either(self):
+        """⚠ INVERTED IN ROUND 11, and the inversion is the point.
 
-        ⚠ Only the neutral-text branch is scoped this way — that branch exists
-        to replace what the legacy CLAUDE roster said, and a lane with no
-        roster has nothing to correct. Its TIMING is re-derived like everyone
-        else's; see `test_a_non_claude_lane_reads_its_own_account_mark`."""
+        This used to assert that a codex/openrouter node keeps whatever its own
+        path stamped, because the neutral-text branch existed to replace what
+        the legacy CLAUDE roster said and a lane with no roster had nothing to
+        correct. That reasoning died when readers began answering from the
+        record alone: a luna, flash or openrouter freeze with no promise kept
+        publishing the `until_ts` its own path had stamped, so the badge named
+        a deadline the contract had already declined to name and the wake timer
+        was not waiting for. The same uncommitted exposure round 10 closed,
+        surviving on the lanes this branch was not reaching.
+
+        A wake time is published on every lane the same way now: once
+        something has committed to it, and not before."""
         fz = self._derive(self._node(
             'gpt-5.6', until='capacity resets soon', until_ts=None))
-        self.assertEqual(fz['until'], 'capacity resets soon')
+        self.assertEqual(fz['until'], 'reset time unknown')
+        self.assertIsNone(fz['until_ts'])
 
     def test_a_non_claude_lane_reads_its_own_account_mark(self):
         """⚠ ROUND 5. `tier not in accounts.TIERS` sat at the HEAD of the
