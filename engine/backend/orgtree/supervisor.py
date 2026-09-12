@@ -1360,18 +1360,16 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
                                    f"live:{_BOOT_TOKEN}:{slug}:{nid}:{n}")})
         payload = {**payload, "event_id": rows[-1]["event_id"]}
         del rows[:-_LIVE_KEEP]
-    # the claude and codex lanes reach the epoch through here, because their
-    # text rows go out as live rows (their transcript may lag, so the row holds
-    # the content until it catches up). The antigravity lane journals its own
-    # record synchronously and needs no live row, so it calls
-    # `_text_became_durable` directly — same invariant, one lane's shape.
+    # Keep the epoch for legacy clients and non-prose scaffolding. Typed
+    # assistant messages use their occurrence id for their own handover.
     if payload.get("kind") == "text" and not payload.get("sticky"):
         _text_became_durable(slug, nid)
     stream(slug, nid, payload)
 
 
 def _paired_text_rows(ts: str, mid: str, model: str, body: str, *,
-                      cap: int = 2000) -> tuple[dict[str, Any], dict[str, Any]]:
+                      cap: int = 2000, assistant_id: str | None = None
+                      ) -> tuple[dict[str, Any], dict[str, Any]]:
     """The journal record and the live row for ONE agent message, carrying ONE
     durable id (user ruling 2026-09-11: "live rows and transcript rows need a
     singular durable id that can cross-identify them").
@@ -1387,14 +1385,18 @@ def _paired_text_rows(ts: str, mid: str, model: str, body: str, *,
     matches one. A real uuid4 rather than a namespaced string: the
     native-import validator (`desktop_native.claude_records`) rejects any
     record whose `uuid` is not uuid-shaped."""
-    rid = str(uuid.uuid4())
+    rid = assistant_id or str(uuid.uuid4())
     record = {"type": "assistant", "timestamp": ts, "uuid": rid,
               "message": {"id": mid, "role": "assistant", "model": model,
                           "content": [{"type": "text", "text": body}]}}
     live: dict[str, Any] = {"kind": "text", "text": body[:cap],
                             "event_id": rid}
+    if assistant_id:
+        record['assistant_id'] = assistant_id
+        live.update(assistant_id=assistant_id, text=body)
     if len(body) > cap:
-        live["truncated"] = True
+        if not assistant_id:
+            live["truncated"] = True
     return record, live
 
 
@@ -1481,7 +1483,7 @@ def _frame_text_row(ev: Mapping[str, Any], *,
     stream frame (REQUIRED in claude-code 2.1.258’s frame schema) and writes
     the transcript record by spreading that same frame object, so frame.uuid IS
     record.uuid. Absent or unreadable, the row simply keeps the per-row `live:`
-    id and is swept the old way — never a guessed pairing.
+    id without a guessed prose pairing.
 
     Tool blocks are not this function’s business: they already pair on the
     CLI’s tool_use_id."""
@@ -2867,7 +2869,7 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
 def _stable_event_id(org: Org, nid: str, row: Mapping[str, Any]) -> str:
     """Stable server-owned identity for a chat row; never derive it from seq."""
     node = org.node(nid)
-    source = (row.get("event_id") or row.get("id") or
+    source = (row.get('assistant_id') or row.get("event_id") or row.get("id") or
               row.get("request_id") or row.get("requestId") or
               row.get("_source_id"))
     if source and not str(source).startswith("record:"):
@@ -2974,7 +2976,11 @@ def _assemble_chat(org: Org, nid: str, last: int | None,
         if want is not None:
             selected = selected[-want:]
 
-    seq0 = total - len(selected)
+    from . import assistant_messages
+    selected = assistant_messages.reconcile(assistant_messages.scope(org, nid), selected)
+    if want is not None:
+        selected = selected[-want:]
+    seq0 = max(0, total - len(selected))
     messages = []
     for i, row in enumerate(selected):
         event_id = _stable_event_id(org, nid, row)
@@ -3012,6 +3018,11 @@ def _assemble_chat(org: Org, nid: str, last: int | None,
     out = dynamic
     out["prompts_withheld"] = len(withheld)
     out["live"] = live
+    # Assistant snapshots are already rows in the conversation. Their old
+    # live-tail copy is only transport compatibility, never a second surface.
+    out['live'] = [r for r in live if not r.get('assistant_id')]
+    out['assistant_identity'] = 1
+    out['assistant_scope'] = assistant_messages.scope(org, nid)
     out["draft_epoch"] = draft_epoch(org.d["slug"], nid)
     out["messages"] = messages
     fill = cast("_OccTracker", source["fill"])
@@ -3160,6 +3171,20 @@ def _read_chat_legacy(org: Org, nid: str, last: int | None = None, *,
 def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist exact transient quote revisions before emitting their IDs."""
     kind = str(payload.get('kind') or '')
+    mid = payload.get('assistant_id')
+    if mid and kind in {'delta', 'draft', 'text'} and not payload.get('cmd_output'):
+        from . import assistant_messages, reply_events
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+        row = assistant_messages.observe(str(payload.get('assistant_scope') or
+            assistant_messages.scope(org, nid)), str(mid),
+            str(payload.get('text') or ''), now_iso(), complete=kind == 'text',
+            append=kind == 'delta' and not payload.get('assistant_reset'),
+            native_id=payload.get('event_id') if kind == 'text' else None,
+            owned=payload.get('assistant_ids'))
+        annotated = reply_events.annotate(org, nid, {'messages': [row]})['messages'][0]
+        return {**payload, 'assistant_row': annotated,
+                'event_id': annotated['event_id'], 'reply_quote': annotated['reply_quote']}
     if kind not in {'draft', 'delta', 'thinking', 'thinking_start', 'thought', 'starting', 'error'}:
         return payload
     from . import reply_events
@@ -13089,11 +13114,17 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                     return
             emit()         # outside jlock: emission reaches the websocket
 
+    def _assistant_payload(payload):
+        if not payload.get('assistant_id'):
+            return payload
+        return {**payload, 'assistant_scope': assistant_messages.scope(org, nid,
+            session_id=str(jstate.get('sid') or n.get('session_id') or ''))}
+
     def _visible_stream(payload: dict[str, Any]) -> None:
-        _visible(lambda: stream(slug, nid, payload))
+        _visible(lambda: stream(slug, nid, _assistant_payload(payload)))
 
     def _visible_live_row(payload: dict[str, Any]) -> None:
-        _visible(lambda: live_row(slug, nid, payload))
+        _visible(lambda: live_row(slug, nid, _assistant_payload(payload)))
 
     def _begin_visible_barrier() -> str:
         """Stop journal + desk output at a mid-turn input boundary.
@@ -13135,6 +13166,24 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             for emit in held:
                 emit()
 
+    assistant_attempt = uuid.uuid4().hex
+    assistant_items: dict[tuple[str, str], str] = {}
+    assistant_anonymous: dict[str, str] = {}
+    def _assistant_item(params, item_id, *, complete=False):
+        turn_id = str(params.get('turnId') or assistant_attempt)
+        item_id = str(item_id or '')
+        if not item_id:
+            # Missing replay identity is unknown. Give each occurrence a
+            # local id through completion; preserve distinct equal messages.
+            item_id = assistant_anonymous.setdefault(turn_id, uuid.uuid4().hex)
+            if complete:
+                assistant_anonymous.pop(turn_id, None)
+        key = (turn_id, item_id)
+        source = assistant_messages.scope(org, nid,
+            session_id=str(params.get('threadId') or jstate.get('sid') or n.get('session_id') or ''))
+        return assistant_items.setdefault(key, assistant_messages.identity(
+            source, 'codex', turn_id + ':' + item_id))
+
     def _first_time(iid: str) -> bool:
         """Is this the first `item/completed` seen for this item id?
 
@@ -13163,44 +13212,12 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             cast("set[str]", jstate["item_ids"]).add(iid)
         return True
 
-    dstate: dict[str, Any] = {"buf": "", "timer": None}
-    dlock = threading.Lock()
-
-    def _flush_draft() -> None:
-        # A size-or-time batch needs an ACTUAL timer. The old "elapsed >=
-        # .12" check only ran when the next delta arrived, so a short final
-        # fragment before a tool call sat buffered for the whole tool and the
-        # live stream looked frozen. The timer makes 120 ms a ceiling rather
-        # than a hope about future traffic.
-        with dlock:
-            body = str(dstate["buf"] or "")
-            dstate["buf"] = ""
-            dstate["timer"] = None
-            # Keep extraction and emission ordered: completion/tool flushes
-            # must wait for an in-flight timer before publishing their row.
-            while body:
-                # through the barrier: a delta is the FIRST assistant output of a
-                # turn, so it is the first thing that could outrun the user's row
-                _visible_stream({"kind": "delta", "text": body[:2000]})
-                body = body[2000:]
-
-    def _queue_delta(body: str) -> None:
-        fire = False
-        with dlock:
-            dstate["buf"] += body
-            if len(dstate["buf"]) >= 400:
-                timer = dstate.get("timer")
-                if timer:
-                    timer.cancel()
-                dstate["timer"] = None
-                fire = True
-            elif dstate.get("timer") is None:
-                timer = threading.Timer(0.12, _flush_draft)
-                timer.daemon = True
-                dstate["timer"] = timer
-                timer.start()
-        if fire:
-            _flush_draft()
+    from . import assistant_messages
+    assistant_scope = assistant_messages.scope(org, nid)
+    draft_batch = assistant_messages.TextBatcher(lambda mid, body:
+        _visible_stream({'kind': 'delta', 'text': body, 'assistant_id': mid}))
+    _flush_draft = draft_batch.flush
+    _queue_delta = draft_batch.add
 
     def _journal_records(recs: list[dict[str, Any]]) -> None:
         """Serialize reader-thread item events with the turn thread's start /
@@ -13260,7 +13277,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             body = str(item.get("text") or "")
             if not body:
                 return
-            if not _first_time(str(item.get("id") or "")):
+            assistant_id = _assistant_item(params, item.get('id'), complete=True)
+            if not _first_time(assistant_id):
                 return
             _flush_draft()
             jstate["agent_items"] += 1
@@ -13270,7 +13288,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             # be given different ids.
             _record, _live = _paired_text_rows(
                 ts, str(item.get("id") or f"codex-{time.time_ns()}"),
-                codex_model, body)
+                codex_model, body, assistant_id=assistant_id)
             _journal_records([_record])
             _visible_live_row(_live)
             return
@@ -13278,12 +13296,13 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             body = str(item.get("text") or "")
             if not body:
                 return
-            if not _first_time(str(item.get("id") or "")):
+            assistant_id = _assistant_item(params, item.get('id'), complete=True)
+            if not _first_time(assistant_id):
                 return
             # the same paired identity as the agentMessage branch above
             _record, _live = _paired_text_rows(
                 ts, str(item.get("id") or f"codex-plan-{time.time_ns()}"),
-                codex_model, body)
+                codex_model, body, assistant_id=assistant_id)
             _journal_records([_record])
             _visible_live_row(_live)
             return
@@ -13544,7 +13563,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         if method == "item/agentMessage/delta":
             d = (msg.get("params") or {}).get("delta")
             if isinstance(d, str) and d:
-                _queue_delta(d)
+                params = msg.get('params') or {}
+                _queue_delta(d, _assistant_item(params, params.get('itemId')))
         if method in ("mcpServer/startupStatus/updated",
                       "mcpServer/event/stream/notification"):
             threading.Thread(target=_refresh_codex_mcp, daemon=True,
@@ -13746,6 +13766,17 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         the last user row and prices its chronology backstop off the newest
         durable stamp, so a user row stamped after the turn's first items
         would put the turn boundary in the wrong place."""
+        # on_thread runs before turn/start. Adopt the provider's conversation
+        # before it can emit, while leaving session_unrun for input acceptance.
+        # Otherwise first-turn snapshots are filed under the hire placeholder
+        # and vanish when the start response installs the real thread id.
+        if tid and tid != n.get('session_id'):
+            with store.DOC_LOCK:
+                current = store.load_org(slug)
+                if nid in current.nodes:
+                    current.node(nid)['session_id'] = tid
+                    store.save_org(current)
+            n['session_id'] = tid
         held: list[Callable[[], None]] = []
         # `emit_lock` FIRST and held across the flush: while this runs, no
         # other thread may emit, so nothing produced after the release can
@@ -14237,11 +14268,6 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         res_raw["_codex_account_ambiguous"] = True
     turnlog.emit(trec, "codex_account", ambiguous=account_ambiguous)
 
-    with dlock:
-        draft_timer = dstate.get("timer")
-        if draft_timer:
-            draft_timer.cancel()
-            dstate["timer"] = None
     _flush_draft()
     # ⚠ FOLD THE ACCOUNT STANDING BEFORE THE STATUS CHECK, NOT AFTER (D-209).
     # The app-server pushes the same standing the usage modal reads, and this
@@ -14421,13 +14447,17 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     last_tu: dict[str, Any] = ((tu or {}).get("last")
                                or (tu or {}).get("total") or {})
     final_recs: list[dict[str, Any]] = []
+    fallback_live = None
     if not jstate["agent_items"] and res_raw.get("agent_text"):
-        final_recs.append({
-            "type": "assistant", "timestamp": now_iso(),
-            "message": {"id": f"codex-{turn.turn_id or 'turn'}",
-                        "role": "assistant", "model": turn.model,
-                        "content": [{"type": "text",
-                                     "text": str(res_raw["agent_text"])}]}})
+        owned = list(dict.fromkeys(assistant_items.values())) or [
+            assistant_messages.identity(assistant_scope, 'codex',
+                'fallback:' + str(turn.turn_id or assistant_attempt))]
+        fallback_record, fallback_live = _paired_text_rows(now_iso(),
+            f"codex-{turn.turn_id or 'turn'}", turn.model,
+            str(res_raw['agent_text']), assistant_id=owned[0])
+        fallback_record['assistant_ids'] = owned
+        fallback_live['assistant_ids'] = owned
+        final_recs.append(fallback_record)
     final_recs.append({
         "type": "assistant", "timestamp": now_iso(),
         "message": {"id": f"codex-{turn.turn_id or 'turn'}-usage",
@@ -14440,6 +14470,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                             int(last_tu.get("cachedInputTokens") or 0),
                         "output_tokens": int(last_tu.get("outputTokens") or 0)}}})
     _journal_records(final_recs)
+    if fallback_live is not None:
+        _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
         "total_cost_usd": providers.codex_cost(tier, tu),
@@ -14679,11 +14711,17 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     return
             emit()         # outside jlock: emission reaches the websocket
 
+    def _assistant_payload(payload):
+        if not payload.get('assistant_id'):
+            return payload
+        return {**payload, 'assistant_scope': assistant_messages.scope(org, nid,
+            session_id=str(jstate.get('sid') or n.get('session_id') or ''))}
+
     def _visible_stream(payload: dict[str, Any]) -> None:
-        _visible(lambda: stream(slug, nid, payload))
+        _visible(lambda: stream(slug, nid, _assistant_payload(payload)))
 
     def _visible_live_row(payload: dict[str, Any]) -> None:
-        _visible(lambda: live_row(slug, nid, payload))
+        _visible(lambda: live_row(slug, nid, _assistant_payload(payload)))
 
     def _committed(iid: str) -> bool:
         """Has this item already been committed? A repeated DONE/ERROR (or
@@ -14730,49 +14768,12 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                             "execution outcome is unknown."),
                 "is_error": True}]}}
 
-    dstate: dict[str, Any] = {"buf": "", "timer": None}
-    dlock = threading.Lock()
-
-    def _flush_draft() -> None:
-        # Extraction AND emission under `dlock`, as one step. Astra's seam
-        # review of 6ca27ad (2026-09-05): the timer thread took the buffer,
-        # dropped the lock, and only then emitted — so `_commit_text`'s own
-        # flush found an empty buffer, its `text` handover retired the desk's
-        # draft, and the timer's late `delta` then REVIVED a stale draft the
-        # durable row had already replaced (frames text→delta; one row). The
-        # handover's flush now WAITS for an in-flight timer emission instead
-        # of overtaking it. Order dlock → emit_lock → jlock; nothing takes
-        # `dlock` while holding either of the other two, and every caller
-        # (`_queue_delta`'s fire path, `_commit_text`, the end-of-turn drain)
-        # calls in with `dlock` released, so the plain lock cannot re-enter.
-        with dlock:
-            body = str(dstate["buf"] or "")
-            dstate["buf"] = ""
-            dstate["timer"] = None
-            while body:
-                # through the barrier: a delta is the FIRST assistant output
-                # of a turn, so it is the first thing that could outrun the
-                # user's row
-                _visible_stream({"kind": "delta", "text": body[:2000]})
-                body = body[2000:]
-
-    def _queue_delta(body: str) -> None:
-        fire = False
-        with dlock:
-            dstate["buf"] += body
-            if len(dstate["buf"]) >= 400:
-                timer = dstate.get("timer")
-                if timer:
-                    timer.cancel()
-                dstate["timer"] = None
-                fire = True
-            elif dstate.get("timer") is None:
-                timer = threading.Timer(0.12, _flush_draft)
-                timer.daemon = True
-                dstate["timer"] = timer
-                timer.start()
-        if fire:
-            _flush_draft()
+    from . import assistant_messages
+    assistant_scope = assistant_messages.scope(org, nid)
+    draft_batch = assistant_messages.TextBatcher(lambda mid, body:
+        _visible_stream({'kind': 'delta', 'text': body, 'assistant_id': mid}))
+    _flush_draft = draft_batch.flush
+    _queue_delta = draft_batch.add
 
     def _journal_locked(recs: list[dict[str, Any]]) -> None:
         """`_journal_records` with `jlock` ALREADY HELD — for the one caller
@@ -14807,17 +14808,10 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         _flush_draft()
         with jlock:
             jstate["agent_items"] += 1
-        _journal_records([{
-            "type": "assistant", "timestamp": ts,
-            "message": {"id": iid, "role": "assistant", "model": model_id,
-                        "content": [{"type": "text", "text": body}]}}])
-
-        def _handover() -> None:
-            _text_became_durable(slug, nid)
-            stream(slug, nid, {"kind": "text", "text": body[:2000],
-                               **({"truncated": True}
-                                  if len(body) > 2000 else {})})
-        _visible(_handover)
+        mid = assistant_messages.identity(assistant_scope, 'antigravity', iid)
+        record, live = _paired_text_rows(ts, iid, model_id, body, assistant_id=mid)
+        _journal_records([record])
+        _visible_live_row(live)
 
     def _d(obj: Any) -> dict[str, Any]:
         """A wire sub-document, or empty — the shapes are JSON objects by
@@ -14889,7 +14883,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         if kind == "agent_response":
             delta = step.get("text_delta")
             if isinstance(delta, str) and delta:
-                _queue_delta(delta)
+                _queue_delta(delta, assistant_messages.identity(assistant_scope, 'antigravity', iid))
                 # same finalization scope as the tool side: `text_drained` is
                 # set with the end-of-turn drain's snapshot, so parking a
                 # delta after it would keep text nothing will ever commit —
@@ -15250,11 +15244,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                              exited=turn.pid is None or turn.poll() is not None)
             finally:
                 _commit_unfinished_tools()
-    with dlock:
-        draft_timer = dstate.get("timer")
-        if draft_timer:
-            draft_timer.cancel()
-            dstate["timer"] = None
     _flush_draft()
     # BEFORE the status check: a text step still open when the process went
     # away (killed, died, timed out) was on the desk, so it is on disk under
@@ -15367,13 +15356,13 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     with jlock:
         no_items = not jstate["agent_items"]
     fallback_text = str(res_raw.get("agent_text") or "") if no_items else ""
+    fallback_live = None
     if fallback_text:
-        final_recs.append({
-            "type": "assistant", "timestamp": now_iso(),
-            "message": {"id": f"agy-{turn_token}-final",
-                        "role": "assistant", "model": model_id,
-                        "content": [{"type": "text",
-                                     "text": fallback_text}]}})
+        fallback_id = assistant_messages.identity(assistant_scope, 'antigravity',
+                                                  f'agy-{turn_token}-final')
+        fallback_record, fallback_live = _paired_text_rows(now_iso(),
+            f'agy-{turn_token}-final', model_id, fallback_text, assistant_id=fallback_id)
+        final_recs.append(fallback_record)
     tu_in = int((tu or {}).get("input") or 0)
     tu_cached = int((tu or {}).get("cached") or 0)
     tu_out = int((tu or {}).get("output") or 0)
@@ -15400,9 +15389,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     # Every committed text step already sent its own frame from
     # `_commit_text`, journal first; the fallback row above is the one case
     # left to hand over here. D-50 holds: the row is on disk before the frame.
-    if fallback_text:
-        _text_became_durable(slug, nid)
-        stream(slug, nid, {"kind": "text", "text": fallback_text[:2000]})
+    if fallback_live is not None:
+        _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
         "total_cost_usd": providers.antigravity_cost(tu),
@@ -16232,7 +16220,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # max() site; №24 was about the result event)
             turn_out = 0        # cumulative output tokens (killed-turn accounting)
             last_cache_usage = {}
-            dbuf, dlast = "", time.time()   # token-stream delta batcher (~8 Hz)
+            from . import assistant_messages
+            prose_identity = assistant_messages.ClaudeIdentity(assistant_messages.current_native_scope(org, nid))
+            prose_reset: set[str] = set()
+            def _emit_prose(mid, body):
+                stream(slug, nid, {'kind': 'delta', 'text': body,
+                    **({'assistant_id': mid, 'assistant_reset': mid in prose_reset} if mid else {})})
+                prose_reset.discard(mid)
+            prose_batch = assistant_messages.TextBatcher(_emit_prose)
             think_t0, think_buf = 0.0, ""   # the in-progress thought
             # record uuids of the thinking frames this thought was written
             # from, oldest first — spent by `fold_thought`
@@ -16515,7 +16510,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # partial-message deltas → the UI renders the reply
                         # growing word-by-word (user spec); batched so the WS
                         # is not flooded — ~8 Hz or 400 chars, whichever first
+                        if ev.get('parent_tool_use_id'):
+                            continue
                         sev = ev.get("event") or {}
+                        if sev.get('type') in {'content_block_start', 'content_block_stop', 'message_stop'}:
+                            prose_batch.flush()
+                        prose_id = prose_identity.event(sev)
+                        if sev.get('type') == 'content_block_start' and prose_id:
+                            prose_reset.add(prose_id)
                         if (sev.get("type") == "content_block_start"
                                 and (sev.get("content_block") or {}).get("type")
                                 == "thinking"):
@@ -16536,11 +16538,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         d = sev.get("delta") or {}
                         if d.get("type") == "text_delta" and d.get("text"):
                             _tl_first_output()
-                            dbuf += d["text"]
-                            if len(dbuf) >= 400 or time.time() - dlast >= 0.12:
-                                stream(slug, nid, {"kind": "delta",
-                                                   "text": dbuf[:2000]})
-                                dbuf, dlast = "", time.time()
+                            prose_batch.add(d['text'], prose_id)
                         elif d.get("type") == "thinking_delta" and d.get("thinking"):
                             # №18 (live-only, never persisted): a dimmed
                             # italic ribbon above the growing draft
@@ -16720,7 +16718,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # surely, so it should still freeze the node.
                         sub = ev.get("parent_tool_use_id")
                         if not sub:
-                            dbuf = ""   # the full message supersedes the draft
                             # PROOF OF LIFE, for _died_in_flight. Top-level
                             # only — and that is not a limitation: the model
                             # has to emit the Task tool call before a subagent
@@ -16837,8 +16834,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # Emitted before the tool rows below, which is the
                         # order the durable row reads in (its text, then its
                         # chips).
+                        owned = prose_identity.frame(ev)
                         _text_row = _frame_text_row(ev)
                         if _text_row is not None:
+                            prose_batch.flush()
+                            if owned:
+                                _text_row.update(assistant_id=owned[0], assistant_ids=owned,
+                                    text='\n\n'.join(str(b.get('text') or '') for b in
+                                        ev['message']['content'] if isinstance(b, dict)
+                                        and b.get('type') == 'text' and str(b.get('text') or '').strip()))
+                                _text_row.pop('truncated', None)
                             fold_thought()
                             live_row(slug, nid, _text_row)
                         for b in ev.get("message", {}).get("content") or []:
@@ -17446,6 +17451,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             finally:
                 dog_stop.set()
                 stream_stop.set()
+                prose_batch.flush()
                 try:
                     # THE STATE FLAGS FIRST: everything below them can raise,
                     # and `st["proc"]` is the handle ⏸ acts on.
@@ -28474,56 +28480,17 @@ def _extend_live_evidence(evidence: dict[str, Any],
 
 def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
                 _evidence: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Retire live rows the transcript has caught up on, and return the rest.
+    """Retire legacy live rows with proof from the transcript.
 
-    This is the whole live/durable reconciliation, in ONE place that can see
-    both sides. It used to run in the browser, once per mounted view, against
-    a payload the client had assembled itself — matching by 300-character
-    string prefix and expiring on a 5-second timer that raced the transcript
-    write. Here a tool row retires on the CLI's own tool_use_id, and nothing
-    is dropped on a clock: a row survives until its durable twin is visible.
+    Assistant prose retires only by its shared native identity. Equal words,
+    a newer timestamp and a turn ending never establish that this message
+    was saved. Typed assistant snapshots are reconciled separately by
+    assistant_messages, including retained partials and paged-out receipts.
 
-    Sticky rows (immediate /context output) are in no transcript, ever, so
-    they are never swept — only the turn's end clears them.
-
-    ⚠ The match window is PER KIND, and that is the whole point of this
-    block (redteam, 2026-08-12, on a report from the neoja org; measured: a
-    20-step unwatched turn stranded 8 rows whose twins were all present).
-    The sweep runs only inside `read_chat`, and the desk polls only while
-    someone is looking — so a turn that ran unwatched presents its whole
-    backlog at the first poll. Judging that backlog against a fixed 12-row
-    tail retired the last handful and STRANDED the rest for the remainder of
-    the turn: the sweep's quality must not depend on when a human happened to
-    open the desk.
-      · tool — the whole transcript. `tool_use_id` is globally unique, so a
-        match IS the durable twin, and there is no false-retire to fear.
-      · text — this TURN (everything after the last user row). Text has no
-        id and is matched by its first 300 chars, so the window is not
-        arbitrary caution: widening it to all of history would let a phrase
-        the agent used yesterday retire today's live row. Per-turn is the
-        largest window that cannot collide with history, and any strand
-        inside it is bounded by the turn the row belongs to anyway.
-      · thought — unchanged; it has neither id nor text and rides the
-        ordering rule below.
-
-    ⚠ THE CHRONOLOGY BACKSTOP (user report 2026-08-14: "temporary greyed out"
-    rows render out of order — the desk draws the durable block first and the
-    whole live tail below it, so a live row that outlives its on-screen twin
-    sinks beneath events that happened after it). The CLI writes its
-    transcript strictly in order, so a durable record NEWER than a live row
-    is proof the row's own record is already written — its twin is on screen
-    (or deliberately filtered), whatever the matching above concluded. Any
-    non-sticky row older than the newest durable stamp minus 2 s therefore
-    retires. This is not the old drop-on-a-clock timer (that one raced the
-    transcript write with no evidence at all); the evidence here is ORDER,
-    and the 2 s guard only absorbs the stamp jitter between a stream event's
-    server-side `at` and the CLI's own record `ts` (same machine clock; the
-    known hazard is a queued user message whose record cuts the line while
-    an assistant message is still streaming). A strand now outlives its twin
-    by one poll cycle, not the rest of the turn. Sticky rows are exempt: they
-    have no record EVER, and their bottom anchor is design (immediate command
-    output stays visible under the composer).
-    D-50 holds throughout: every retirement still names the evidence."""
+    Other event kinds retain their existing rules: tool ids, counted command
+    output, thought ordering and a chronology backstop. Sticky immediate
+    command output is exempt because it has no transcript record.
+    """
     turn = msgs
     for i in (range(len(msgs) - 1, -1, -1)
               if _evidence is None else ()):
@@ -28580,32 +28547,11 @@ def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
                            and str(m["cmd_out"]).startswith(head)))
 
     def by_id(r: dict[str, Any]) -> bool:
-        """⭐ THE DURABLE TWIN, BY IDENTITY (user ruling 2026-09-11: "live rows
-        and transcript rows need a singular durable id that can cross-identify
-        them, that's the whole point of this fix").
+        """A shared native record id is proof across the whole transcript.
 
-        Every other rule here INFERS the twin — a tool by the CLI's
-        tool_use_id (which works), TEXT by its first 300 characters, a thought
-        by what landed after it. The text inference is the one that strands:
-        it is bounded to this turn on purpose (a phrase used yesterday must
-        not retire today's row), so anything that moves the turn boundary or
-        truncates the head can miss a twin sitting right there, and the row
-        renders a second time beside it.
-
-        Where the emitter knew the durable id it stamped it on the live row,
-        so the twin is not inferred at all: the same uuid on both sides IS the
-        record. Whole-history and unconditional — a uuid cannot collide, so
-        there is no window to get wrong.
-
-        ⚠ IT MUST BE ASKED FOR EVERY KIND, which is why it lives here rather
-        than inside `covered`: `thought` and `plan` rows never reach `covered`
-        at all (see the dispatch below), so an identity check buried in it was
-        unreachable for exactly the kinds that have no other identity
-        (coordinator-astra review, 2026-09-11).
-
-        Sticky rows are exempt like everywhere else: immediate command output
-        is in NO transcript, so an id match would be a twin that cannot
-        exist."""
+        This check applies before kind-specific compatibility rules, including
+        thought and plan rows. Sticky command output has no native twin.
+        """
         rid = r.get("event_id")
         return (not r.get("sticky") and isinstance(rid, str) and bool(rid)
                 and rid in native_ids)
@@ -28622,6 +28568,10 @@ def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
                     any(t.get("id") and t["id"] == r.get("id")
                         for m in msgs for t in (m.get("tools") or [])))
         if kind == "text":
+            if not r.get('cmd_output'):
+                # Prose is retired only by identity. Equal words, timestamps
+                # and successors do not prove that this occurrence was saved.
+                return False
             # ⚠ COUNTED, not merely matched. An agent that says the same thing
             # twice in one turn ("done." after two edits) used to have its
             # second live row retired by the FIRST one's durable twin — the row
@@ -28675,7 +28625,8 @@ def _sweep_live(slug: str, nid: str, msgs: list[dict[str, Any]], *,
         # forward, so the counted text budget is spent oldest-first. `stale`
         # ORs in per kind: a stale thought's own record is provably written
         # (in-order transcript), so it no longer needs a covered successor.
-        cov = [(by_id(r) or stale(r)) if r.get("kind") in ("thought", "plan")
+        cov = [by_id(r) if r.get('kind') == 'text' and not r.get('cmd_output')
+               else (by_id(r) or stale(r)) if r.get("kind") in ("thought", "plan")
                else (covered(r, budget) or stale(r))
                for r in rows]
         # backward, so each thought/plan row can see whether anything after
@@ -29100,6 +29051,10 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
     # below). The index check invalidates it the moment any other row lands.
     prev_think = cast("tuple[int, str] | None",
                       (_resume or {}).get("prev_think"))
+    from . import assistant_messages
+    assistant_scope = assistant_messages.scope(org, nid)
+    assistant_counts = (_resume or {}).get('assistant_counts', {})
+    assistant_known = (_resume or {}).get('assistant_known', {})
     source_lines = (_lines if _lines is not None else
                     open(tpath, encoding="utf-8", errors="replace"))
     offsets = iter(_record_offsets) if _record_offsets is not None else None
@@ -29203,6 +29158,9 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             # orgtree_read_transcript, the reading agent's tool call
             continue
         content = m.get("content", "")
+        prose_ids = (assistant_messages.record_ids(
+                     assistant_messages.native_scope(assistant_scope, offset // (1 << 40)), rec,
+                     assistant_counts, assistant_known) if t == 'assistant' else [])
         # №5: the compaction summary attaches to the boundary line (expand to
         # read), and the /compact command echoes are dropped like isMeta
         if t == "user" and after_boundary and rec.get("isCompactSummary"):
@@ -29495,6 +29453,9 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
         }
         if rec.get('uuid'):
             mrow['native_event_id'] = str(rec['uuid'])
+        if t == 'assistant' and texts and prose_ids:
+            mrow.update(assistant_id=prose_ids[0], assistant_ids=prose_ids,
+                        assistant_state='complete', assistant_scope=assistant_scope)
         if prompt_unresolved:
             mrow["_prompt_unresolved"] = True
             mrow["_prompt_raw"] = prompt_raw
@@ -29566,6 +29527,8 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             "after_boundary": after_boundary,
             "prev_ts": prev_ts,
             "prev_think": prev_think,
+            'assistant_counts': assistant_counts,
+            'assistant_known': assistant_known,
             "prompt_views": prompt_views,
             "context_cap": context_window(n, org.d.get("models")),
         }}

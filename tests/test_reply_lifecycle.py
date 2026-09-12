@@ -34,11 +34,10 @@ class ReplyLifecycleTests(unittest.TestCase):
         return supervisor.read_chat(self.org, 'agent', hold_back=False)
 
     def journal(self, identity, text):
-        supervisor._codex_journal(self.slug, self.sid, [{
-            'type': 'assistant', 'timestamp': '2026-09-08T18:42:23Z',
-            'message': {'id': identity, 'role': 'assistant',
-                        'content': [{'type': 'text', 'text': text}]}}])
-        supervisor.live_row(self.slug, 'agent', {'kind': 'text', 'text': text})
+        record, live = supervisor._paired_text_rows(
+            '2026-09-08T18:42:23Z', identity, 'test', text)
+        supervisor._codex_journal(self.slug, self.sid, [record])
+        supervisor.live_row(self.slug, 'agent', live)
 
     def test_draft_promotion_retires_scaffolding_but_keeps_exact_reply(self):
         self.emit('thinking_start')

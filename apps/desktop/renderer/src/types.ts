@@ -945,6 +945,14 @@ export interface ToolChip {
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
 export interface ChatMessage {
+  assistant_id?: string
+  assistant_ids?: string[]
+  assistant_scope?: string
+  assistant_revision?: number
+  assistant_order?: number
+  assistant_state?: 'partial' | 'complete'
+  assistant_pending?: boolean
+  assistant_materialized?: boolean
   row_id?: string
   /** THE SHARED DURABLE IDENTITY (user ruling 2026-09-11). The CLI/journal
    *  record uuid this row was projected from (supervisor read_chat:
@@ -1092,6 +1100,8 @@ export interface LiveRowPayload {
 export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
+  assistant_identity?: number
+  assistant_scope?: string
   order_epoch?: number
   conversation_id?: string
   /** Bounded source projection: seq is an identity, not a row count. */

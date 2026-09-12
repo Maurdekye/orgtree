@@ -177,6 +177,22 @@ def _project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *,
                 continue
             if isinstance(rec, dict):
                 chronological.append((epoch * (1 << 40) + offset, line, rec))
+        # A Claude response may span several records. Start before that
+        # response so its text-block ordinals do not change with page size.
+        if more and chronological:
+            first_record = chronological[0][2]
+            first_message = first_record.get('message') or {}
+            if (first_record.get('type') == 'assistant'
+                    and isinstance(first_message, dict) and first_message.get('id')
+                    and not first_record.get('assistant_id') and Path(path).is_file()):
+                boundary = next((i for i, (_, _, rec) in enumerate(chronological)
+                    if rec.get('type') == 'user' or
+                    (rec.get('type') == 'assistant' and isinstance(rec.get('message'), dict)
+                     and rec['message'].get('id') != first_message['id'])), None)
+                if boundary is None:
+                    target *= 2
+                    continue
+                chronological = chronological[boundary:]
         if before is not None:
             calls = []
             for _, _, rec in chronological:
@@ -230,11 +246,19 @@ def _cursor(org, nid, rows, raw):
         return None
     first = rows[0]
     identity = first.get('row_id') or first.get('event_id')
-    anchor = next((r for r in raw if r.get('event_id') == identity), None)
+    from . import supervisor as sup
+    anchor = next((r for r in raw if sup._stable_event_id(org, nid, r) == identity), None)
     if anchor is None:
         anchor = next((r for r in raw if str(r.get('ts') or '') >= str(first.get('ts') or '')), None)
+    position = anchor.get('_byte_offset') if anchor else None
+    if anchor is None and raw:
+        # A retained partial can follow the latest native record. Include
+        # that record on the next page rather than making history unreachable.
+        last_position = raw[-1].get('_byte_offset')
+        if last_position is not None:
+            position = last_position + 1
     payload = {'scope': source_key(org, nid), 'id': identity, 'ts': first.get('ts'),
-               'position': anchor.get('_byte_offset') if anchor else None,
+               'position': position,
                'imported': bool(anchor and anchor.get('imported_history'))}
     return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
 
@@ -258,7 +282,9 @@ def read_page(org, nid, want, before):
                                     (source_key(org, nid, phase),)).fetchone()
         path = retained[0] if retained else None
     raw, more = [], False
+    projected = False
     if path and cursor.get('position') is not None:
+        projected = True
         _, source, more = project_tail(org, nid, path, want + 2, stats,
                                       imported=phase, before=int(cursor['position']))
         withheld = sup._visible_unresolved(source, org, nid, True)
@@ -266,11 +292,23 @@ def read_page(org, nid, want, before):
         for row in raw:
             if phase:
                 row['imported_history'] = True
+        from . import assistant_messages
+        raw = assistant_messages.reconcile(assistant_messages.scope(org, nid), raw)
         # The boundary record is included for tool/thinking context, then
         # removed together with every row at or after the visible cursor.
-        cut = next((i for i, row in enumerate(raw) if row.get('event_id') == cursor['id']), None)
+        cut = next((i for i, row in enumerate(raw)
+                    if sup._stable_event_id(org, nid, row) == cursor['id']), None)
         raw = raw[:cut] if cut is not None else [row for row in raw if
-              row.get('_byte_offset', -1) < cursor['position']]
+              (str(row.get('ts') or '') < str(cursor.get('ts') or '')
+               if row.get('assistant_pending') else
+               row.get('_byte_offset', -1) < cursor['position'])]
+    if not projected:
+        from . import assistant_messages
+        raw = assistant_messages.reconcile(assistant_messages.scope(org, nid), [])
+        cut = next((i for i, row in enumerate(raw)
+                    if sup._stable_event_id(org, nid, row) == cursor['id']), None)
+        raw = raw[:cut] if cut is not None else [row for row in raw
+            if str(row.get('ts') or '') < str(cursor.get('ts') or '')]
     if not phase and history and not more and len(raw) < want + 2:
         _, archive, more = project_tail(org, nid, history, want - len(raw) + 2, stats, imported=True)
         for row in archive['messages']:
@@ -322,7 +360,8 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
             native_count = conn.execute('SELECT COUNT(*) FROM transcript_native_rows WHERE source=?',
                                         (source_key(org, nid),)).fetchone()[0] if imported else None
         return json.dumps([sup._file_version(path), None if imported else sup._file_version(sidecar),
-                           sup.context_window(node, org.d.get('models')), persisted, native_count])
+                           sup.context_window(node, org.d.get('models')), persisted, native_count,
+                           'assistant-identity-v1'])
     # Ingest BEFORE the version snapshot: the projection's own lazy import
     # legitimately advances the persisted cursor, and taking the snapshot
     # first would make every COLD read invalidate its own cache write (the

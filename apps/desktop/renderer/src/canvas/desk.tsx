@@ -69,6 +69,7 @@ import { EventCard, eventSurface } from '../events/card'
 import { MailMessage } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
 import { eventDedup } from '../events/dedup'
+import { mergeAssistantRows } from '../assistantMessages'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
 import { isMobile } from '../mobile'
 import { fmtFull, fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
@@ -1817,14 +1818,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // events and both render. See events/dedup.ts.
   const dedup = eventDedup()
   // the DURABLE id decides — events/dedup.ts says why the reply id cannot
-  const viewMessages = dedup.list(chat?.messages ?? [],
-    (m) => eventKey(m.native_event_id ?? m.event_id))
+  const viewMessages = dedup.list(mergeAssistantRows(chat?.messages ?? []),
+    (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
   // …and each surviving row OWNS the other names it answers to: its reply id,
   // and the tool_use_id of every chip it carries. A live tool row and its
   // durable chip have always shared that id, but nothing here claimed it, so
   // one the server's sweep missed drew beside its own chip.
   for (const m of viewMessages) {
     dedup.claim(eventKey(m.event_id))
+    dedup.claim(eventKey(m.native_event_id))
     // a merged thinking row answers to every record it absorbed, not only the
     // one whose place it kept — see the projection's `native_event_ids`
     for (const id of m.native_event_ids ?? []) dedup.claim(eventKey(id))
@@ -2486,7 +2488,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div data-transcript-row key={m.event_id ?? m.native_event_id ?? m.seq ?? i}
+              <div data-transcript-row key={m.assistant_id ?? m.native_event_id ?? m.row_id ?? m.event_id ?? m.seq ?? i}
+                data-assistant-id={m.assistant_id} data-assistant-state={m.assistant_state}
                 data-reply-event={m.event_id} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
                 // the durable anchor a reply falls back to when the exact
                 // snapshot it names was deduplicated away — see locateReply
@@ -3172,10 +3175,10 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                             desk runs, on its OWN pass: this is a different
                             conversation (an archived generation's), so it must
                             never share an id set with the desk above it. */}
-                        {eventDedup().list(readChat.messages.slice(-80),
-                          (m) => eventKey(m.native_event_id ?? m.event_id))
+                        {eventDedup().list(mergeAssistantRows(readChat.messages.slice(-80)),
+                          (m) => eventKey(m.assistant_id ?? m.native_event_id ?? m.event_id))
                           .map((m, i) => (
-                            <Msg key={m.event_id ?? m.native_event_id ?? i}
+                            <Msg key={m.assistant_id ?? m.native_event_id ?? m.event_id ?? i}
                               m={m} slug={slug} nid={b.id} />))}
                       </AgentDirectoryProvider>
                     )
@@ -3512,6 +3515,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
           tool output and presented documents. */}
       {text && <RefMdBody className="msgtext md" world={refs?.world}
         onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />}
+      {m.assistant_state === 'partial' && <div className="dim small">partial response</div>}
       {/* the display copy was capped server-side (steered-log per-row cap) —
           without this line the tail is just silently missing and the message
           reads as complete (user report 2026-08-17) */}

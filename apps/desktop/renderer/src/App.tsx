@@ -99,6 +99,7 @@ const SYSTEM = '@system'
 type WsEvent =
   | { type: 'mail'; from: string; to: string }
   | { type: 'node_stream'; event_id?: string; reply_quote?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
+      assistant_row?: unknown;
       segments?: unknown; delivery?: unknown;
       count?: number | null; last_turn_count?: number | null; provider?: string;
       source?: string | null; reason?: string | null; emitted_at_ms?: number;
@@ -788,6 +789,7 @@ export default function App() {
         // (user bug 2026-08-02). See convo.ts.
         ingestStream(slug, {
           node: data.node, kind: data.kind, text: data.text ?? '',
+          ...(data.assistant_row !== undefined ? { assistant_row: data.assistant_row } : {}),
           ...(typeof data.event_id === 'string' ? { event_id: data.event_id } : {}),
           ...(typeof data.reply_quote === 'string' ? { reply_quote: data.reply_quote } : {}),
           ...(data.segments !== undefined ? { segments: data.segments } : {}),

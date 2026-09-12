@@ -24,6 +24,7 @@ import { BASE, getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
+import { assistantIds, isAssistantSnapshot, mergeAssistantRows } from './assistantMessages'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useSyncExternalStore } from 'react'
 
@@ -156,6 +157,8 @@ const BLANK: Convo = {
 }
 
 interface Entry {
+  assistantRows: Map<string, ChatMessage>
+  assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
   pageInFlight?: boolean
   /** canonical map key owning this Entry; callbacks verify it before
@@ -303,7 +306,7 @@ export function dropConvo(slug: string, nid: string): void {
 function entry(k: string): Entry {
   let e = M.get(k)
   if (!e) {
-    e = { committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
+    e = { assistantRows: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
           textSeen: 0, epochBoot: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
           poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
@@ -419,7 +422,18 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload 
   // streamed commit. Otherwise a stale pending row briefly duplicates its
   // already-visible transcript row when no steer frame was received.
   const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id))
-  const messages = [...c.messages]
+  const native = new Set(c.messages.filter(row => !row.assistant_pending).flatMap(assistantIds))
+  for (const id of native) e.assistantNative.add(id)
+  for (const [id] of e.assistantRows) if (e.assistantNative.has(id)) e.assistantRows.delete(id)
+  const combined = c.messages.filter(row => !row.assistant_pending
+    || !assistantIds(row).some(id => e.assistantNative.has(id)))
+  for (const row of e.assistantRows.values()) {
+    const index = combined.findIndex(existing => !!existing.ts && !!row.ts &&
+      (existing.ts > row.ts || (existing.ts === row.ts && existing.assistant_order !== undefined
+        && row.assistant_order !== undefined && existing.assistant_order > row.assistant_order)))
+    combined.splice(index < 0 ? combined.length : index, 0, row)
+  }
+  const messages = mergeAssistantRows(combined)
   for (const [id, row] of e.committedRows) {
     if (ids.has(id)) { if (fetched) e.committedRows.delete(id); continue }
     const index = messages.findIndex(existing => !!existing.ts && !!row.ts && existing.ts > row.ts)
@@ -463,7 +477,9 @@ export function refreshConvo(slug: string, nid: string,
   return getChat(slug, nid, e.s.win).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
-    const changedConversation = (!!c.conversation_id && !!e.s.chat?.conversation_id
+    const changedAssistantScope = !!c.assistant_scope && !!e.s.chat?.assistant_scope
+      && c.assistant_scope !== e.s.chat.assistant_scope
+    const changedConversation = changedAssistantScope || (!!c.conversation_id && !!e.s.chat?.conversation_id
       && c.conversation_id !== e.s.chat.conversation_id)
       || (c.order_epoch !== undefined && e.s.chat?.order_epoch !== undefined
         && c.order_epoch !== e.s.chat.order_epoch)
@@ -480,7 +496,8 @@ export function refreshConvo(slug: string, nid: string,
         if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
         if (!page.messages.length || page.before === cursor) break
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
-        c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+        c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
+          || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
         cursor = page.before
       }
     }
@@ -501,7 +518,8 @@ export function refreshConvo(slug: string, nid: string,
       if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
       if (!page.messages.length || page.before === proofCursor) break
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
-      c = { ...c, messages: [...page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
+      c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
+        || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
       proofCursor = page.before
     }
     // Publish the freshness watermark only after all paging awaits. A newer
@@ -510,6 +528,7 @@ export function refreshConvo(slug: string, nid: string,
     e.installed = requestSerial
     e.fetchedAt = Date.now()
     if (changedConversation) e.committedRows.clear()
+    if (changedAssistantScope) { e.assistantRows.clear(); e.assistantNative.clear() }
     if (!changedConversation && e.s.paged && e.s.chat && c.messages.length) {
       const first = c.messages[0]!.seq
       const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
@@ -699,10 +718,10 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         return
       }
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
-      const added = page.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq))
+      const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
       patchEntry(e, { paged: true, loadingOlder: false,
-        chat: { ...current, messages: [...added, ...current.messages],
-          before: page.before, has_older: page.has_older } }, version)
+        chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
+          before: page.before, has_older: page.has_older }) }, version)
     }).catch(() => {
       e.pageInFlight = false
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) return
@@ -819,6 +838,40 @@ export function markBusy(slug: string, nid: string): void {
 export function ingestStream(slug: string, ev: StreamEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  if (isAssistantSnapshot(ev.assistant_row)) {
+    const row = ev.assistant_row
+    if (e.s.chat?.assistant_scope && e.s.chat.assistant_scope !== row.assistant_scope) {
+      nudge(slug, ev.node)
+      return
+    }
+    if (row.assistant_materialized) {
+      // The server has already read this occurrence from the transcript,
+      // even if this window never saw it or has since paged past it. Keep
+      // the current view until the fetch replaces it; never resurrect a
+      // retained snapshot from a delayed frame.
+      for (const id of assistantIds(row)) e.assistantNative.add(id)
+      nudge(slug, ev.node)
+      return
+    }
+    if (assistantIds(row).some(id => e.assistantNative.has(id))) return
+    const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
+      last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
+    const prior = e.assistantRows.get(row.assistant_id!)
+    const latest = mergeAssistantRows(prior ? [prior, row] : [row])[0]!
+    e.assistantRows.set(row.assistant_id!, latest)
+    const chat = mergeCommitted(e, { ...current, assistant_identity: 1,
+      assistant_scope: row.assistant_scope })
+    e.streamAt = Date.now()
+    patch(k, { chat, draft: '', draftEventId: undefined, draftReplyQuote: undefined })
+    if (row.assistant_state === 'complete') {
+      e.thinkT0 = 0
+      stopClock(e)
+      e.staleThink = true
+      e.staleAt = Date.now()
+      nudge(slug, ev.node)
+    }
+    return
+  }
   const received = ev.committed_row
   if (ev.kind === 'steered' && received?.role === 'user' && received.steered
       && typeof received.row_id === 'string' && typeof received.text === 'string'
@@ -1004,6 +1057,8 @@ export function resetConvos(): void {
     e.fetchedAt = 0
     e.installed = 0
     e.dirty = false
+    e.assistantRows.clear()
+    e.assistantNative.clear()
     e.s = BLANK
     e.subs.forEach((cb) => cb())
   })

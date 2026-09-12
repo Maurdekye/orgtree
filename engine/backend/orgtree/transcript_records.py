@@ -80,6 +80,14 @@ def database():
           CREATE TABLE IF NOT EXISTS transcript_view_sources (
             source TEXT PRIMARY KEY, path TEXT NOT NULL,
             upper INTEGER NOT NULL, anchor TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS assistant_messages (
+            ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL,
+            materialized INTEGER NOT NULL DEFAULT 0, UNIQUE(scope,id));
+          CREATE INDEX IF NOT EXISTS assistant_messages_pending
+            ON assistant_messages(scope,materialized,ordinal);
+          CREATE TABLE IF NOT EXISTS assistant_receipts (
+            scope TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(scope,id)) WITHOUT ROWID;
                 """)
                 _initialized.add(str(path))
         with conn:
