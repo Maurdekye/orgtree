@@ -55,6 +55,8 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
 }
 interface SegmentProps { segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
   world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode
+  /** A quoted source has no transcript anchors or further reply annotations. */
+  annotation?: boolean
   /** show-reply-context-on-sent-user-messages: whether a settled mail row's
    *  OWN reply reference can be located in THIS loaded conversation, and
    *  where to scroll if so — the same two facts `DeskChat`'s `renderReply`
@@ -66,7 +68,7 @@ interface SegmentProps { segments: AnySegment[]; profile: EventProfile; slug: st
   replyAvailable?: (r: ReplyContext) => boolean
   onLocateReply?: (r: ReplyContext) => void }
 export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply }: SegmentProps) {
+  replyAvailable, onLocateReply, annotation }: SegmentProps) {
   const base = fileBase(slug, nid)
   const card = (row: unknown, preview: boolean, part?: "header" | "body", headerMeta?: ReactNode) => <EventCard row={row} profile={profile} org={slug}
     preview={preview} part={part} headerMeta={headerMeta} world={world} onOpen={onOpen} actor={actor} imgBase={base} />
@@ -92,7 +94,7 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
       case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) =>
         <MailMessage key={row.id ?? j} row={row} profile={profile} slug={slug} nid={nid}
           world={world} onOpen={onOpen} actor={actor}
-          replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}</div>
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} annotation={annotation} />)}</div>
     }
     const unhandled: never = segment
     return unhandled
@@ -107,7 +109,7 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
  *  adds joins the strip where metadata already lives instead of reserving a
  *  side column that made every pending card narrower than its settled twin. */
 export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, meta }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; row: {
+  replyAvailable, onLocateReply, meta, annotation }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; row: {
     id?: string | null; from: string; kind?: string; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
@@ -134,7 +136,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
       world={world} onOpen={onOpen} actor={actor} imgBase={base} />
   return <section
-        {...surface} className={'turn-mail ' + surface.className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={row.id ?? undefined}>
+        {...surface} className={'turn-mail ' + surface.className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
@@ -161,7 +163,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
             it uses the same annotation shape without a remove control). The backend already
             threads `reply_to` this far (ledger.post_mail -> journal_row ->
             _segments_for's mail rows), it was simply never rendered. */}
-        {(() => { const rc = replyContext(row.reply_to)
+        {!annotation && (() => { const rc = replyContext(row.reply_to)
           return rc && <ReplyPreview reply={rc} available={Boolean(replyAvailable?.(rc))}
             onLocate={() => onLocateReply?.(rc)} /> })()}
         {card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>

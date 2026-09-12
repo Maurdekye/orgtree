@@ -1,4 +1,11 @@
+import { createContext, useContext } from 'react'
+import type { ReactNode } from 'react'
 import type { ReplyContext } from '../eventReply'
+
+/** The loaded conversation resolves exact reply snapshots, never text or a
+ * newer revision of the same assistant message. Other surfaces keep quotes. */
+const ReplySources = createContext<((reply: ReplyContext) => ReactNode) | null>(null)
+export const ReplySourceProvider = ReplySources.Provider
 
 export function ReplyPreview({ reply, available, onLocate, onRemove }: {
   reply: ReplyContext; available: boolean; onLocate: () => void; onRemove?: () => void
@@ -6,6 +13,8 @@ export function ReplyPreview({ reply, available, onLocate, onRemove }: {
   // Composer, pending and sent replies share one annotation layout. Only
   // the composer supplies onRemove; read-only previews retain navigation.
   const composing = Boolean(onRemove)
+  const resolve = useContext(ReplySources)
+  const source = resolve?.(reply)
   return <aside className={'reply-preview' + (composing ? ' reply-preview-composing' : '')}
     aria-label="Replying to chat event">
     <div className="reply-preview-head">
@@ -15,7 +24,10 @@ export function ReplyPreview({ reply, available, onLocate, onRemove }: {
       </button>
       {onRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
     </div>
-    <blockquote>{reply.quote || '(event without visible text)'}</blockquote>
-    {!available && <span className="dim">Original event unavailable here; quoted context is retained.</span>}
+    {source ? <div className="reply-preview-content" role="region" aria-label="Referenced event" tabIndex={0}
+      onContextMenu={e => e.stopPropagation()}>{source}</div>
+      : <blockquote>{reply.quote || '(event without visible text)'}</blockquote>}
+    {!available && <span className="dim">{source ? 'Original event is not visible in this conversation.'
+      : 'Original event unavailable here; quoted context is retained.'}</span>}
   </aside>
 }

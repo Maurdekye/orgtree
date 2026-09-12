@@ -2,7 +2,8 @@ import { transcriptViewport } from '../transcriptViewport'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
-import { ReplyPreview } from './replypreview'
+import { ReplyPreview, ReplySourceProvider } from './replypreview'
+import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
@@ -1373,7 +1374,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       onSelect: () => { void copyToClipboard(exact, copy).then(ok =>
         toast([ok ? 'copied the message' : 'could not copy — clipboard unavailable'])) } }])
   }
-  const sameReplyIdentity = (r: ReplyContext) => r.org === slug && r.agent === node.id && r.generation === (node.generation ?? 0)
+  const sameReplyIdentity = useCallback((r: ReplyContext) => r.org === slug && r.agent === node.id
+    && r.generation === (node.generation ?? 0), [slug, node.id, node.generation])
   const sourceIds = new Set([
     ...(chat?.messages ?? []).flatMap(m => [m.event_id, m.thinking_event_id,
       ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id])]),
@@ -1435,6 +1437,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
     (sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
+  const replySources = useMemo(() => indexReplySources({
+    messages: chat?.messages, pending: chat?.pending_mail, live: live_feed, transient: chat?.transient,
+    draft: convo.draft, draftId: convo.draftEventId, thinking: convo.thinking, thinkingId: convo.thinkingEventId,
+  }), [chat?.messages, chat?.pending_mail, live_feed, chat?.transient,
+    convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
   // Every reply id the payload carries, mapped to the event it belongs to.
   // A reply naming the STALE snapshot of a row still has somewhere to go: the
   // surviving snapshot of that same event is on screen under a different reply
@@ -2111,8 +2118,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     tierOf: (id: string) => mapRef.current.get(id)?.tier,
   }), [routeSig, destination])
   const deskRefs = useRefRoutes(slug, agentIndex, deskRoutes)
+  const resolveReplySource = useCallback((r: ReplyContext) => {
+    const source = sameReplyIdentity(r) ? replySources.get(r.eventId) : undefined
+    return source ? <ReplySourceContent key={r.eventId} source={source} slug={slug} nid={node.id}
+      profile={BASE ? 'public' : 'operator'} refs={deskRefs} actor={id => <MailFrom from={id} />} /> : null
+  }, [sameReplyIdentity, replySources, slug, node.id, deskRefs])
   const content = (
     <AgentDirectoryProvider value={agentDir}>
+    <ReplySourceProvider value={resolveReplySource}>
       <div className="cc-head">
         <div className="cc-head-top">
         <span className="cc-head-left" data-copy-agent-name={node.id}>
@@ -2862,6 +2875,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           : <button className="cc-send" disabled={!canMail || !text.trim()}
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
       </div>
+    </ReplySourceProvider>
     </AgentDirectoryProvider>
   )
   // bare: the switchboard hosts many chats inside ONE counter-scaled surface —
