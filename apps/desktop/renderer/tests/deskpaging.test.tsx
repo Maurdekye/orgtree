@@ -369,6 +369,44 @@ pagingTest('§8 CONTRACT: a leave-history intent recorded during a flight is '
     + `${settled} rows -> ${seqs(d.now()).length}`)
 })
 
+// ───────── §10 the AUTOMATIC path reports its failures too
+
+pagingTest('§10 a failed VIEWPORT-GROWTH page reports itself, like a scrolled one',
+  async ({ s, SL, ND, desk }) => {
+  // desk-review, third pass. There are two ways to ask for older rows and
+  // only one of them was covered. `onScroll` takes the CURSOR path
+  // (viewport=false), which makes its own request and owns its own catch —
+  // that is §3. But the desk's automatic `fillViewport` takes the VIEWPORT
+  // path, which makes no request at all: it widens `win` and rides an
+  // ordinary forced refresh, whose generic catch knew nothing about older
+  // rows and so never reported anything. A failed automatic page was
+  // completely silent.
+  //
+  // ⚠ It differs from the cursor path in a way worth stating rather than
+  // hiding: fillViewport re-asks on the next render, so this path DOES
+  // recover on its own within a poll. The flag is an honest indication, not
+  // the only way back. §3's path has no such recovery, which is why that one
+  // is the dead end.
+  for (let i = 0; i < 80; i++) s.assistantMsg(`row ${i}`)
+  const d = await desk()
+  await advance(100)
+  assert.equal(d.now().olderError, false, 'nothing has failed yet')
+
+  s.fail = 500                                  // armed BEFORE the call
+  await inAct(() => { loadOlder(SL, ND, 40, true) })   // the viewport path
+  await advance(300)
+  assert.equal(d.now().loadingOlder, false, 'the attempt is over')
+  assert.equal(d.now().olderError, true,
+    'an automatic older-rows fetch failed and said nothing at all')
+
+  // …and the next success clears it, on this path as on the other
+  s.fail = null
+  await inAct(() => { loadOlder(SL, ND, 40, true) })
+  await advance(300)
+  assert.equal(d.now().olderError, false,
+    'a successful automatic page must clear the failure')
+})
+
 // ────────────────────────────────────────────── §5 merged, never doubled
 
 pagingTest('§5 successive pages merge without duplicating rows',

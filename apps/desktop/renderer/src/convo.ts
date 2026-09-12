@@ -184,6 +184,12 @@ interface Entry {
   /** how many rows the caller that recorded `pendingCollapse` said its
    * viewport was still drawing — see collapseWindow's `keep`. */
   pendingKeep?: number
+  /** a WINDOW-GROWTH request for older rows is riding the ordinary refresh.
+   * The viewport path (fillViewport -> loadOlder(n, viewport)) does not make
+   * its own request: it widens `win` and forces a refresh, so that refresh's
+   * outcome is the page's outcome, and it is the only place that can report
+   * one (desk-review, third pass). */
+  growingOlder?: boolean
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -766,14 +772,25 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
+    const grew = e.growingOlder
+    e.growingOlder = false
+    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: false } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
     if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).catch(() => {
     if (!stillFreshest()) return
-    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight) }, ownerVersion)
+    // …and if this refresh WAS the older-rows request (the viewport path
+    // widens `win` and rides an ordinary refresh rather than making its own
+    // call), its failure is a failed page and has to say so. Without this the
+    // automatic path failed silently and offered nothing (desk-review, third
+    // pass). It differs from the cursor path in one way worth keeping in
+    // mind: fillViewport re-asks on the next render, so this is an honest
+    // indication that also self-heals, not the only way back.
+    const grew = e.growingOlder
+    e.growingOlder = false
+    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight), ...(grew ? { olderError: true } : {}) }, ownerVersion)
     if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
@@ -892,7 +909,11 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     })
     return true
   }
-  patch(k, { loadingOlder: true, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
+  // the VIEWPORT path: no request of its own — widen the window and let the
+  // forced refresh carry it. Mark it so that refresh's outcome is reported as
+  // this page's outcome.
+  e.growingOlder = true
+  patch(k, { loadingOlder: true, olderError: false, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
   void refreshConvo(slug, nid, { force: true })
   return true
 }
