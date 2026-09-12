@@ -6611,6 +6611,9 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
                               or a.get("candidate")))
     if act == "assign":
         return org.work_assign(nid, wid, str(a.get("owner") or ""))
+    if act in ("handoff", "handoff_request"):
+        return org.work_request_handoff(nid, wid, _s("target"),
+                                        _s("reason"))
     if act == "review":
         return org.work_review_decide(nid, wid, str(a.get("decision") or ""),
                                       _s("note"))
@@ -6719,7 +6722,7 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         # Authority and refusals live in the ledger (`work_delete`).
         return org.work_delete(nid, wid, _s("note"))
     raise LedgerError(
-        "action must be list|get|create|update|assign|review|participants|"
+        "action must be list|get|create|update|assign|handoff|review|participants|"
         "evidence|decision|receipt|rangediff|receipts|artifact|artifact_read|"
         "grant|revoke|finding|dispose|claim|verify|check|accept|archive|"
         "supersede|move|delete")

@@ -121,7 +121,7 @@ RECORDS: Final[dict[str, dict[str, dict[str, Any]]]] = {
                 "multi": F("bool", B, True)},
     "DocketItem": {"slug": F("str", B, True), "title": F("str", B, True),
                    "status": F("str", B, True),
-                   "role": F("L[owner|reviewer|unassigned_review|stale_reviewer]", B, True)},
+                   "role": F("L[owner|deployer|reviewer|unassigned_review|stale_reviewer]", B, True)},
     "Orphan": {"id": F("str", B, True), "description": F("str", B, True),
                "output_file": F("str?", B, False)},
     "ReportRow": {"id": F("str", M, False), "name": F("str", M, False),

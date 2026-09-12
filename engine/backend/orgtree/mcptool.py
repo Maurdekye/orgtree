@@ -423,6 +423,8 @@ TOOLS: list[dict[str, Any]] = [
             "deploy_ready|dropped, blocked_reason, dropped_reason, "
             "attention:true + attention_reason for a concrete reason the user "
             "must see, reopen:true to resume an archived item), `assign` "
+            "(actual reassignment) and `handoff` (the owner requests an "
+            "upward handoff without changing ownership), "
             "THE DESCRIPTION IS VERSIONED, NEVER OVERWRITTEN: changing "
             "`objective` — or widening it with `objective_append` instead of "
             "re-typing the whole thing — appends a row to the item's "
@@ -559,7 +561,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "action": {"type": "string",
-                           "enum": ["list", "get", "create", "update", "assign",
+                           "enum": ["list", "get", "create", "update", "assign", "handoff",
                            "review", "verdict", "candidate_verdict",
                            "integration_verdict", "review_verdict",
                            "review_grant", "review_grants",
@@ -579,6 +581,8 @@ TOOLS: list[dict[str, Any]] = [
                 "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated: it is stored entire and returned entire by `get` (a notification may carry a marked excerpt of it, which says so and says how long the whole is)"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},
                 "owner": {"type": "string", "description": "create/assign: owner node (you or a subordinate) · update: the explicit assignment — name the CURRENT owner to keep an item where it is when you update somebody else's"},
+                "target": {"type": "string", "description": "handoff: the current owner's immediate superior; omitted means that superior (or the user for a top-level owner)"},
+                "reason": {"type": "string", "description": "handoff: why the owner needs an upward handoff; this sends a request and does not change assignment"},
                 "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
                 "decision": {"type": "string", "enum": ["approve", "changes"],
                              "description": "review: approve completes the item; changes returns it to its owner as in_progress (put what you want changed in `note`)"},

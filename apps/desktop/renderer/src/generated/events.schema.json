@@ -697,6 +697,7 @@
         "role": {
           "enum": [
             "owner",
+            "deployer",
             "reviewer",
             "unassigned_review",
             "stale_reviewer"
@@ -6119,6 +6120,7 @@
         "role": {
           "enum": [
             "owner",
+            "deployer",
             "reviewer",
             "unassigned_review",
             "stale_reviewer"

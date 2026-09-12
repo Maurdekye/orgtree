@@ -1165,6 +1165,7 @@ _CHECKUP = ("[AUTOMATIC 20-MINUTE WORKING-STATUS CHECK]\n"
             "that work is continuing without verifying it.")
 _IDLE_ROLE = {
     "owner": "",
+    "deployer": " — awaiting YOUR authorized deployment/publication action",
     "reviewer": " — awaiting YOUR review",
     "unassigned_review": " — NO REVIEWER NAMED: assign one, do not review "
                          "your own work",

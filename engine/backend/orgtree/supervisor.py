@@ -259,6 +259,7 @@ IDLE_DOCKET_REMINDER_BODY = (
 #: owner, or is the owner of something they must not review themselves.
 IDLE_DOCKET_REMINDER_ROLE: dict[str, str] = {
     "owner": "",
+    "deployer": " — awaiting YOUR authorized deployment/publication action",
     "reviewer": " — awaiting YOUR review",
     "unassigned_review": " — NO REVIEWER NAMED: assign one, do not review "
                          "your own work",

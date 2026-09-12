@@ -11072,6 +11072,7 @@ class Org:
         (user ruling on slug-only identity + Astra 2026-09-05)."""
         cur, ostate = self._work_owner_state(it)
         sources = self._work_attention(it)
+        next_actor, next_role = self._work_next_recipient(it)
         deps: list[dict[str, Any]] = []
         for did in it.get("dependencies") or []:
             try:
@@ -11093,6 +11094,10 @@ class Org:
                 "manual_attention", "acceptance", "evidence",
                 "accepted", "candidate_verdict", "candidate_verdicts",
                 "review_packet", "review_packets")},
+            # Derived on read: this names who owes the next action without
+            # changing the implementation owner or where user replies go.
+            "next_action": ({"node": next_actor, "role": next_role}
+                             if next_actor else None),
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
@@ -11314,6 +11319,35 @@ class Org:
         return {"attention": attention, "active": active,
                 "archived": archived, "backlogged": backlogged}
 
+    def _work_deploy_recipient(self, it: WorkItem) -> str | None:
+        """Return the live actor authorized to take a release-stage action.
+
+        ``deploy_ready`` is still owned by the implementer.  The next action
+        is different, though: a child implementer must not be woken as if it
+        could publish the result.  Walk upward from the owner to the nearest
+        live superior; a live top-level owner remains the release actor.  A
+        retired/generation-moved owner with no live superior has no honest
+        recipient and is left to abandoned-owner recovery.
+        """
+        owner = self._work_actor_node(it.get("owner"))
+        if not owner:
+            return None
+        owner_live, _ = self._work_identity_state(it.get("owner"))
+        if not owner_live:
+            return None
+        current = self.nodes.get(owner)
+        if not current:
+            return None
+        parent = str(current.get("parent") or "").strip()
+        while parent:
+            superior = self.nodes.get(parent)
+            if not superior:
+                return None
+            if superior.get("state") == "live":
+                return parent
+            parent = str(superior.get("parent") or "").strip()
+        return owner
+
     def _work_next_recipient(self, it: WorkItem) -> tuple[str | None, str]:
         """THE canonical next-action recipient of one item, and the ROLE that
         answer was reached by — who owes the next move, not who is interested.
@@ -11351,6 +11385,10 @@ class Org:
             if rv:
                 return rv, "reviewer"
             return owner, "unassigned_review"
+        if self._work_status(it) == "deploy_ready":
+            release = self._work_deploy_recipient(it)
+            if release and release != owner:
+                return release, "deployer"
         return owner, "owner"
 
     def work_blocked_only(self, nid: str) -> bool:
@@ -11414,7 +11452,7 @@ class Org:
                 continue
             out.append({"slug": str(it.get("slug") or ""),
                         "title": str(it.get("title") or ""),
-                        "status": str(it.get("status") or ""),
+                        "status": self._work_status(it),
                         "role": role})
         return sorted(out, key=lambda r: r["slug"])
 
@@ -12679,7 +12717,20 @@ class Org:
                   {"item": it["slug"], "to": own, "why": why}, [])
         out: dict[str, Any] = {"assigned": it["slug"], "owner": it["owner"],
                                "rev": it["rev"], "notified": None,
-                               "status": it["status"]}
+                               "status": it["status"],
+                               "previous_owner_notified": None}
+        previous = self._work_actor_node(frm)
+        if notify and previous and previous != own and previous != actor:
+            previous_doc = self.nodes.get(previous)
+            if previous_doc and previous_doc.get("state") == "live":
+                notice = (f"[DOCKET REASSIGNMENT · {it['slug']} "
+                          f'\"{str(it.get("title") or "")[:80]}\"]\n'
+                          f"This item was reassigned to {own}. You are no "
+                          "longer its implementation owner; the assignment "
+                          "and user-reply route now belong to that agent.")
+                self.post_mail(SYSTEM, previous, notice, "notice",
+                               typed=True, grant_reply_audience=False)
+                out["previous_owner_notified"] = previous
         if not notify or own == actor or own == USER:
             return out
         m = self._work_assign_mail(actor, it, own, self._work_actor_node(frm))
@@ -12958,6 +13009,51 @@ class Org:
             raise LedgerError("only the owner, the creator, their superiors or "
                               "the user may reassign an item")
         return self._work_assign_core(actor, it, owner, notify, "assign")
+
+    def work_request_handoff(self, actor: str, wid: str,
+                             target: str | None = None,
+                             reason: str | None = None) -> dict[str, Any]:
+        """Ask the owner's immediate superior to take a docket handoff.
+
+        This is deliberately a request, not an assignment.  The owner stays
+        in the item, its history and the user-reply route until an authorized
+        assign call completes.  Restricting the destination to the owner's
+        immediate superior keeps the request inside the sender's existing
+        upward mail authorization; a request cannot manufacture assignment
+        rights for either side.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        owner_node = self._work_actor_node(it.get("owner"))
+        if actor == USER or not owner_node or actor != owner_node:
+            raise LedgerError("only the current item owner may request an "
+                              "upward handoff")
+        if self._work_status(it) in self.WORK_CLOSED:
+            raise LedgerError("a closed item cannot request an upward handoff")
+        owner_doc = self.node(owner_node)
+        parent = str(owner_doc.get("parent") or "").strip() or USER
+        requested = str(target or parent).strip()
+        if requested != parent:
+            raise LedgerError("an upward handoff request may name only the "
+                              "owner's immediate superior")
+        if requested != USER:
+            self.node(requested)
+        detail = str(reason or "").strip()
+        if not detail:
+            detail = "the owner requests an authorized upward handoff"
+        body = (f"[DOCKET HANDOFF REQUEST · {it['slug']} "
+                f'\"{str(it.get("title") or "")[:80]}\"]\n'
+                f"{detail}\n"
+                f"The implementation owner remains {owner_node}; this is a "
+                "request only and does not reassign the item. If you accept, "
+                f"use orgtree_work action='assign' with slug={it['slug']} "
+                "and an explicitly authorized destination.")
+        mail = self.post_mail(actor, requested, body, "request")
+        return {"handoff_requested": it["slug"], "owner": it["owner"],
+                "target": requested, "notified": requested,
+                "deferred": bool(mail.get("deferred")),
+                "operation_id": mail.get("operation_id"), "rev": it["rev"]}
 
     def work_participants(self, actor: str, wid: str,
                           add: list[Any] | None = None,
