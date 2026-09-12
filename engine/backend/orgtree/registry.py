@@ -285,6 +285,46 @@ class BindingRefused(ValueError):
     """A binding the validator refuses — the reason names both sides."""
 
 
+def primary_name(provider: str) -> str:
+    """The public name of a provider's ambient account, even without a row."""
+    return f"{provider}/primary"
+
+
+def account_name(row: dict[str, Any]) -> str:
+    from . import accountusage
+    from .registry_migration import observe_ambient
+    return accountusage.canonical_name(row, resolve_alias("primary"), observe_ambient())
+
+
+def validate_selection(org_slug: str, tier: str,
+                       account: str) -> dict[str, Any]:
+    """Resolve a public account selection without changing registry or org.
+
+    Registered names are immutable row IDs. Labels and emails are metadata:
+    changing either cannot redirect an existing selector. `primary` is the
+    provider-relative shorthand; the qualified spelling is safe to copy from
+    a board containing several providers. Empty remains a hire-only legacy
+    spelling, handled by the ledger, never a silent retool no-op.
+    """
+    from . import providers
+    want = str(account).strip()
+    provider = providers.provider_of(str(tier or ""))
+    if want == "primary" or want in {primary_name(p) for p in PROVIDERS}:
+        if provider not in PROVIDERS:
+            raise BindingRefused("an OpenRouter-tier node has no account binding")
+        if want != "primary" and want != primary_name(provider):
+            raise BindingRefused(
+                f"account {want!r} does not match the node's provider {provider}")
+        return {"id": "", "name": primary_name(provider),
+                "label": primary_name(provider), "provider": provider,
+                "credential": {"kind": "ambient"},
+                "auth": "unobserved", "marks": {}}
+    if not want:
+        raise BindingRefused("name an account, or use 'primary' to return to the ambient account")
+    row = validate_binding(org_slug, tier, want)
+    return {**row, "name": account_name(row)}
+
+
 def validate_binding(org_slug: str, tier: str,
                      account_id: str) -> dict[str, Any]:
     """THE one binding validator (design D2d: one rule, every surface — the

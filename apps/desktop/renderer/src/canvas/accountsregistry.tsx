@@ -11,7 +11,7 @@ import type { ToastFn } from '../types'
 
 export type AccountProvider = 'claude' | 'openai' | 'google'
 type AccountRow = {
-  id: string; provider: string; label: string
+  id: string; provider: string; label: string; name?: string; ambient?: boolean
   credential: { kind: string; path?: string; default_config?: boolean }
   identity: Record<string, string>; tint_ordinal: number; origin_org?: string
   standing: { auth: string }
@@ -49,7 +49,7 @@ export function AccountRegistrySection({ provider, registry, toast }: {
     setBusy(row.id)
     try {
       const result = await req<{ auth: string }>(`/api/accounts/${row.id}/identity`)
-      toast([`${row.label || row.id}: ${result.auth}`])
+      toast([`${row.name || row.id}: ${result.auth}`])
       await registry.reload()
     } catch (e) { toast([e instanceof Error ? e.message : 'Could not refresh account']) }
     finally { setBusy(null) }
@@ -67,7 +67,7 @@ export function AccountRegistrySection({ provider, registry, toast }: {
       return <div key={row.id} className="account-row">
         <div className="account-identity">
           <span className="account-swatch" aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
-          <strong title={`Account ID: ${row.id}`}>{row.label || row.id}</strong>
+          <strong>{row.name || row.id}</strong>
           <span className="dim">{row.identity.email || row.identity.account_digest || 'No identity yet'}</span>
           <span className="dim">{row.standing.auth === 'authenticated' ? 'Signed in' : row.standing.auth === 'unauthenticated' ? 'Sign-in required' : 'Sign-in not verified'}</span>
         </div>

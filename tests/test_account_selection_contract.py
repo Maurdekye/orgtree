@@ -1,51 +1,9 @@
-"""An agent can DISCOVER an account with capacity and HIRE onto it.
+"""Discover a canonical account name on the board and use it through the
+real hire, rehire, retool and staff dispatch. Compatibility, org restrictions,
+provider matching and downward authority remain enforced.
 
-USER DECISION 2026-09-12, verbatim: "yes, the agent hire / rehire / retool
-tools should be able to decide which account to hire on".
-
-WHAT WAS ACTUALLY BROKEN, and it was not the guidance. The turn envelope's
-`[PROVIDER USAGE]` board shows every signed-in account, and the managed
-instructions tell an agent how to compare them and which one to place work on.
-Then the agent reached for the field that places work on an account and there
-was none: `args["account"]` has been read by the hire path for as long as the
-account registry has existed, `supervisor.assign_account` has been the one
-writer for a rebind — and NEITHER APPEARED IN ANY AGENT-FACING SCHEMA. The
-board said "this account has room"; nothing let an agent act on it. Advice an
-agent cannot carry out is not a feature, and a model does not read the source
-to find an undocumented argument.
-
-Two halves, and the suite is built around the seam between them:
-
-  · the BOARD must publish a value the tools accept. It prints a lane name, a
-    label, an email and an id; only the registry id is accepted, so the roster
-    names it as `account=<id>` — and the HOST lanes get roster entries too,
-    because `registered_views` drops the rows a host lane already serves and
-    dropping the row dropped its id. On the ordinary two-account machine the
-    ambient sign-in IS one of the two, so half the board was unnameable.
-
-  · the TOOLS must take it, with the same checks at every door: `orgtree_hire`,
-    `orgtree_rehire`, `orgtree_retool` and `orgtree_staff` — which composes the
-    first two and must therefore not be a route to a binding either of them
-    would refuse.
-
-§1 the field exists and names the right value · §2 discover → hire, end to end,
-through the real dispatch · §3 per-account exhaustion is visible AND nameable ·
-§4 authority (downward only, never your own billing) · §5 provider
-compatibility · §6 unbound, and what cannot be unbound · §7 rehire lands on the
-named account · §8 staff is not a bypass.
-
-MEASURED against main (41d78e9): 18 of these 23 RED, 5 green before and after.
-Red: all of §1 (no `account` property on any of the four schemas, and nothing
-in their cards saying the capability exists), §2 and §2b (the board published no
-id a tool would accept), §3 and §3b, all of §4 and §5b/§5c's rebind leg (retool
-ignored the argument), §6b, §6c, all of §7 (a rehire ignored `account`
-entirely) and §8b. Green before and after — the controls, each one a thing this
-change reuses rather than rewrites: §3c (no credential material on the board),
-§4d (a refused scope change leaves the binding alone), §5 and §8's hire leg and
-§6a (the ledger's own validator and its unbound-hire semantics, which the hire
-path has always run).
-
-    python -B tests/test_account_selection_contract.py
+Primary selection extends this contract in test_account_primary_selection.py.
+All data and agent wakes are isolated fixtures.
 """
 import os
 import tempfile
@@ -229,7 +187,8 @@ class AccountSelectionContract(unittest.TestCase):
                 text = schema_of(tool)['account']['description']
                 self.assertIn('account=', text)
                 self.assertIn('[PROVIDER USAGE]', text)
-                self.assertIn('not the lane name', text)
+                self.assertIn('canonical account name', text)
+                self.assertIn('primary', text)
 
     def test_s1c_the_tool_cards_say_the_capability_exists(self):
         """The schema property is what a client validates against; the tool
@@ -270,7 +229,7 @@ class AccountSelectionContract(unittest.TestCase):
                   charter='hired onto the account with room', add_dirs=[],
                   tools=NO_TOOLS,
                   org_visibility='self', account=chosen)
-        self.assertEqual(self.bound('picked'), host['id'],
+        self.assertEqual(self.bound('picked'), None,
                          'the value the board published was not the value the '
                          'hire field accepts')
 
@@ -285,7 +244,7 @@ class AccountSelectionContract(unittest.TestCase):
                         tools=NO_TOOLS,
                         org_visibility='self', account=chosen)
         self.assertEqual(out.get('assigned_to'), 'staffed')
-        self.assertEqual(self.bound('staffed'), host['id'])
+        self.assertIsNone(self.bound('staffed'))
 
     # ── §3 per-account exhaustion: visible, and nameable ─────────────────
     def test_s3_two_accounts_report_their_own_windows(self):
@@ -294,14 +253,14 @@ class AccountSelectionContract(unittest.TestCase):
         self.seed_account(full, [limit('weekly_all', 100.0, NOW + 3 * 86400)])
         self.seed_account(room, [limit('weekly_all', 12.0, NOW + 3 * 86400)])
         text = self.board()
-        self.assertIn('claude/full', self.exhausted_lanes(text))
-        self.assertNotIn('claude/room', self.exhausted_lanes(text))
+        self.assertIn(full['id'], self.exhausted_lanes(text))
+        self.assertNotIn(room['id'], self.exhausted_lanes(text))
         # …and BOTH are nameable: the board reports, it does not ration. The
         # 100% rule is the agent's to apply, so the exhausted account keeps an
         # id — an agent that must explain why it did not use a lane needs to
         # be able to refer to it.
-        self.assertEqual(self.roster(text).get('claude/full'), full['id'])
-        self.assertEqual(self.roster(text).get('claude/room'), room['id'])
+        self.assertEqual(self.roster(text).get(full['id']), full['id'])
+        self.assertEqual(self.roster(text).get(room['id']), room['id'])
 
     def test_s3b_the_host_lane_is_nameable_too(self):
         """The regression that made the rest of it unactionable. The ambient
@@ -312,14 +271,14 @@ class AccountSelectionContract(unittest.TestCase):
         self.make_ambient(host)
         self.seed_host([limit('weekly_all', 30.0, NOW + 3 * 86400)])
         text = self.board()
-        self.assertEqual(self.roster(text).get('claude/primary'), host['id'])
+        self.assertEqual(self.roster(text).get('claude/primary'), 'claude/primary')
         # and still exactly once — the id on the roster, the usage on one lane
         lanes = {ln.split('|')[0].strip().rstrip('*')
                  for ln in text.splitlines() if ln.count('|') >= 6}
         self.assertNotIn('claude/ambient', lanes)
-        self.assertEqual(text.count(host['id']), 1, text)
+        self.assertNotIn(host['id'], text)
         # the id is bindable as printed: the same validator every door calls
-        registry.validate_binding(self.slug, 'haiku',
+        registry.validate_selection(self.slug, 'haiku',
                                   self.roster(text)['claude/primary'])
 
     def test_s3c_still_no_credential_material_on_the_board(self):
@@ -419,25 +378,23 @@ class AccountSelectionContract(unittest.TestCase):
                   org_visibility='self')
         self.assertEqual(self.bound('inherited'), default['id'])
 
-    def test_s6b_but_a_rebind_cannot_clear_one_and_says_so(self):
-        """There is no unbind writer: `assign_account` validates a row and
-        writes it, and nothing takes one away. Accepting `''` here would read
-        as an instruction that was obeyed and do nothing at all."""
+    def test_s6b_empty_rebind_names_the_explicit_primary_choice(self):
+        """Empty stays refused; the error names the supported primary choice."""
         row = self.account('claude', 'Bound')
         self.call('orgtree_retool', node='worker', account=row['id'])
         with self.assertRaises(Exception) as e:
             self.call('orgtree_retool', node='worker', account='')
-        self.assertIn('unbind', str(e.exception))
+        self.assertIn('primary', str(e.exception))
         self.assertEqual(self.bound('worker'), row['id'],
                          'a refused clear must leave the binding standing')
 
-    def test_s6c_and_neither_can_a_rehire(self):
+    def test_s6c_empty_rehire_names_the_explicit_primary_choice(self):
         row = self.account('claude', 'Archived')
         self.call('orgtree_retool', node='worker', account=row['id'])
         self.call('orgtree_retire', node='worker')
         with self.assertRaises(Exception) as e:
             self.call('orgtree_rehire', node='worker', account='')
-        self.assertIn('unbind', str(e.exception))
+        self.assertIn('primary', str(e.exception))
 
     # ── §7 a rehire lands on the account it is told to ───────────────────
     def test_s7_rehire_brings_an_agent_back_on_a_named_account(self):

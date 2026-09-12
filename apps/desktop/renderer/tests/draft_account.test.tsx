@@ -63,13 +63,13 @@ test('draft modal shows valid accounts for the selected provider and filters out
     text: o.textContent,
   }))
 
-  assert.equal(claudeOptions.length, 3, '1 unbound option + 2 claude accounts')
+  assert.equal(claudeOptions.length, 4, 'default, primary and 2 claude accounts')
   assert.equal(claudeOptions[0].value, '')
-  assert.equal(claudeOptions[0].text, '(unbound — machine default)')
-  assert.equal(claudeOptions[1].value, 'claude-1')
-  assert.equal(claudeOptions[1].text, 'Primary Claude')
-  assert.equal(claudeOptions[2].value, 'claude-2')
-  assert.ok(claudeOptions[2].text?.includes('(limited — will wait)'))
+  assert.equal(claudeOptions[0].text, '(machine default)')
+  assert.equal(claudeOptions[2].value, 'claude-1')
+  assert.equal(claudeOptions[2].text, 'claude-1')
+  assert.equal(claudeOptions[3].value, 'claude-2')
+  assert.ok(claudeOptions[3].text?.includes('(limited — will wait)'))
   assert.equal(claudeOptions.some((o) => o.value.startsWith('openai-')), false)
 
   // Now test an OpenAI tier (astra)
@@ -87,11 +87,11 @@ test('draft modal shows valid accounts for the selected provider and filters out
     text: o.textContent,
   }))
 
-  assert.equal(openAIOptions.length, 3, '1 unbound option + 2 openai accounts')
+  assert.equal(openAIOptions.length, 4, 'default, primary and 2 openai accounts')
   assert.equal(openAIOptions[0].value, '')
-  assert.equal(openAIOptions[0].text, '(unbound — machine default)')
-  assert.equal(openAIOptions[1].value, 'openai-1')
-  assert.equal(openAIOptions[2].value, 'openai-2')
+  assert.equal(openAIOptions[0].text, '(machine default)')
+  assert.equal(openAIOptions[2].value, 'openai-1')
+  assert.equal(openAIOptions[3].value, 'openai-2')
   assert.equal(openAIOptions.some((o) => o.value.startsWith('claude-')), false)
 })
 
@@ -118,6 +118,29 @@ test('draft modal pre-selects matching org default account', async (t: TestConte
   await act(async () => { apply.click() })
 
   assert.equal(saved.at(-1)?.account, 'openai-1', 'pre-selected account is preserved on save')
+})
+
+test('draft displays and saves the canonical primary name for a legacy default binding', async (t: TestContext) => {
+  useFakeClock()
+  installFetch(new FakeServer())
+  const saved: DraftScope[] = []
+  const view = await mountView(
+    <DraftScopeModal draft={{ parent: null, tier: 'astra' }} map={new Map()}
+      tree={tree('openai-1')} scope={null}
+      accounts={[{ ...sampleAccounts[2], name: 'openai/primary', ambient: true }]}
+      onSave={(s) => saved.push(s)} close={noop} />,
+    (el) => el
+  )
+  t.after(async () => { await view.unmount(); realClock() })
+  await flush()
+  const body = document.body as unknown as HTMLElement
+  const select = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
+  assert.equal(select.value, 'openai/primary')
+  assert.equal(select.selectedOptions[0].textContent, select.value)
+  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const { act } = await import('react')
+  await act(async () => { apply.click() })
+  assert.equal(saved.at(-1)?.account, 'openai/primary')
 })
 
 test('draft modal ignores incompatible org default account and starts unbound', async (t: TestContext) => {
@@ -212,7 +235,7 @@ test('draft modal fetches live accounts from /api/accounts?org=${slug} when not 
   const body = document.body as unknown as HTMLElement
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
   const options = [...sel.querySelectorAll('option')].map((o) => o.value)
-  assert.deepEqual(options, ['', 'claude-1', 'claude-2'])
+  assert.deepEqual(options, ['', 'claude/primary', 'claude-1', 'claude-2'])
 })
 
 test('empty accounts list renders unbound cleanly', async (t: TestContext) => {
@@ -231,5 +254,5 @@ test('empty accounts list renders unbound cleanly', async (t: TestContext) => {
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')
   assert.ok(sel)
   const options = [...sel!.querySelectorAll('option')].map((o) => o.value)
-  assert.deepEqual(options, [''])
+  assert.deepEqual(options, ['', 'claude/primary'])
 })

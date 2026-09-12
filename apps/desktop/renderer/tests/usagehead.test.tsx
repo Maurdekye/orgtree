@@ -244,7 +244,7 @@ test('§5 each card refreshes its own account, under its own name', async () => 
     const card = t.view.el.querySelector<HTMLElement>('[data-account="claude-4"]')
     assert.ok(card, `no registered card rendered: ${t.view.el.textContent}`)
     const button = card.querySelector<HTMLButtonElement>('.usage-refresh-button')!
-    assert.equal(button.getAttribute('aria-label'), 'refresh claude-0 usage')
+    assert.equal(button.getAttribute('aria-label'), 'refresh claude-4 usage')
     assert.equal(cards(t.view.el)[0]!
       .querySelector('.usage-refresh-button')!.getAttribute('aria-label'),
     'refresh Claude usage')

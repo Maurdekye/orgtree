@@ -84,7 +84,7 @@ test('the usage modal renders each registered non-ambient account once, labelled
     // the secondary account has its OWN section, named and identified
     assert.ok(view.el.querySelector('[data-account="claude-4"]'),
       'the registered secondary account gets a section')
-    assert.match(text, /claude-0/)
+    assert.match(text, /claude-4/)
     assert.match(text, /second@example\.test/)
     assert.match(text, /42%/)
     assert.match(text, /67%/)
@@ -154,7 +154,7 @@ test('secondary Codex usage shows its own email beside its label', async () => {
     await inAct(async () => { await flush(8) })
     const section = view.el.querySelector('[data-account="openai-2"]')!
     assert.ok(section)
-    assert.match(section.textContent ?? '', /Codex.*openai-0.*codex-second@example\.test/)
+    assert.match(section.textContent ?? '', /Codex.*openai-2.*codex-second@example\.test/)
     assert.doesNotMatch(section.textContent ?? '', /primary@example/)
   } finally { delete g.fetch }
 })

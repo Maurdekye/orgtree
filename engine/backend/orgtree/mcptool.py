@@ -90,22 +90,18 @@ TOOLS_SCHEMA: dict[str, Any] = {
 # it which account had capacity, and nothing told it how to place work there.
 # Exposing the field is the whole difference between guidance and an action.
 #
-# The text says WHICH VALUE, and says it by example, because that is where
-# this goes wrong: the board shows a lane name, a label, an email and an id,
-# and only the id is accepted. One constant rather than four hand-written
-# copies — four copies are four chances for one of them to name a value the
-# validator refuses.
+# One public name is shown by the UI and board and accepted by every
+# selector. Keep this definition shared so a tool cannot teach a second name.
 _ACCOUNT_VALUE: str = (
-    "Pass the REGISTRY ACCOUNT ID, exactly as the `accounts:` roster on your "
-    "turn envelope's [PROVIDER USAGE] board prints it. That line reads "
-    "`accounts: claude/primary account=claude-1 \"Main\" · claude/side "
-    "account=claude-2 \"Side\"`, so the value to pass is `claude-2` — the "
-    "`account=` field and nothing else: not the lane name, not the quoted "
-    "label, not the email. The board is how you SEE which account has "
-    "capacity; this field is how you ACT on it. The binding must match the "
-    "tier's own provider (a Claude tier takes a Claude account, a Codex tier "
-    "a Codex account) and an account of the wrong provider is REFUSED, never "
-    "silently ignored — as is an id that is not registered.")
+    "Pass the canonical account name shown in the UI and the `account=` "
+    "roster of [PROVIDER USAGE], for example `claude-4` or `openai/primary`. "
+    "The same value works on hire, rehire, retool and staff. `primary` is "
+    "shorthand for the target tier's ambient account and clears an existing "
+    "secondary binding. Qualified primary names must match the target "
+    "provider. Secondary names are immutable: labels and emails never select "
+    "billing, and existing registry IDs remain accepted. Provider mismatch, "
+    "unknown accounts and another org's restricted key are refused.")
+
 
 ACCOUNT_SCHEMA: dict[str, Any] = {
     "type": "string",
@@ -115,8 +111,7 @@ ACCOUNT_SCHEMA: dict[str, Any] = {
         + " Omit it to take the org's default account for the tier's "
           "provider; pass the empty string to leave the seat explicitly "
           "UNBOUND (it then runs on this machine's ambient sign-in for that "
-          "provider), which is the one way to override a default account "
-          "without naming another.",
+          "provider). Prefer the explicit `primary` selector.",
 }
 
 #: ⚠ THE CODEX SESSION BOUNDARY, stated wherever an EXISTING agent can be
@@ -126,13 +121,14 @@ ACCOUNT_SCHEMA: dict[str, Any] = {
 #: (`<node>@<gen>`) and it starts fresh. Saying so is the difference between
 #: an agent choosing that cost and discovering it.
 _ACCOUNT_BOUNDARY: str = (
-    "⚠ MOVING A CODEX AGENT TO A DIFFERENT CODEX ACCOUNT IS A SESSION "
-    "BOUNDARY (CODEX_HOME is never repointed under a live session): its "
-    "pre-switch self is archived in place as a readable knowledge bearer and "
-    "it starts a fresh session, so do it at a natural break rather than "
-    "mid-thread. And it cannot CLEAR a binding — there is no unbind writer; "
-    "name another account, or seat the work on a NEW hire with account='' "
-    "for an unbound one.")
+    "An account change starts a new provider cache namespace. Moving a "
+    "Codex agent, including back to primary, is a SESSION BOUNDARY: its "
+    "pre-switch self is archived as a readable knowledge bearer and it "
+    "starts fresh. A no-op keeps its session. Use primary to clear a binding; "
+    "empty strings are accepted only on new hires for compatibility. "
+    "Primary restores the existing ambient authentication and fallback "
+    "rules; billing and sign-in availability are observed on the next turn.")
+
 
 #: The same field on the surface that rebinds a LIVE agent.
 ACCOUNT_REBIND_SCHEMA: dict[str, Any] = {

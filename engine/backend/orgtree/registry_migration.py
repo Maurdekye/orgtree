@@ -323,7 +323,8 @@ def run_migration(org_docs: list[dict[str, Any]],
                 report["org_key_rows"][slug] = org_key_id
         changed = False
         for nid, node in (org.get("nodes") or {}).items():
-            if not isinstance(node, dict) or node.get("account"):
+            if (not isinstance(node, dict) or node.get("account")
+                    or node.get("account_primary")):
                 continue
             provider = _node_provider(node)
             if provider == "openrouter":

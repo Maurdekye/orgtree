@@ -192,14 +192,14 @@ class AccountUsageEnvelope(unittest.TestCase):
         self.seed_codex(c, [limit('weekly_all', 40.0, NOW + 7200)])
         text = self.board()
         lanes = self.lanes(text)
-        self.assertIn('claude/work', lanes)
-        self.assertIn('claude/personal', lanes)
-        self.assertIn('codex/codex-two', lanes)
+        self.assertIn(a['id'], lanes)
+        self.assertIn(b['id'], lanes)
+        self.assertIn(c['id'], lanes)
         # the windows themselves, not just the lane names
-        self.assertRegex(text, r'claude/work \| weekly_all \| 12% \|')
-        self.assertRegex(text, r'claude/work \| weekly_scoped:fable \| 100% \|.*limit-active')
-        self.assertRegex(text, r'claude/personal \| weekly_all \| 90% \|')
-        self.assertRegex(text, r'codex/codex-two \| weekly_all \| 40% \|')
+        self.assertRegex(text, rf"{a['id']} \| weekly_all \| 12% \|")
+        self.assertRegex(text, rf"{a['id']} \| weekly_scoped:fable \| 100% \|.*limit-active")
+        self.assertRegex(text, rf"{b['id']} \| weekly_all \| 90% \|")
+        self.assertRegex(text, rf"{c['id']} \| weekly_all \| 40% \|")
         # …and the reset instant with its countdown, the modal's own column
         self.assertIn('2027-01-16T08:00:00Z (+1d0h)', text)
 
@@ -209,7 +209,7 @@ class AccountUsageEnvelope(unittest.TestCase):
         text = turnusage.board(self.org, 'agent', selected_provider='claude',
                                selected_lane='primary', now=NOW)[0]
         rows = turnusage.board_rows(text)
-        work = [r for r in rows if r['lane'] == 'work']
+        work = [r for r in rows if r['lane'] == a['id']]
         self.assertEqual(len(work), 1, rows)
         self.assertEqual(work[0]['used_pct'], 12.0)
         self.assertEqual(work[0]['window'], 'weekly_all')
@@ -217,7 +217,7 @@ class AccountUsageEnvelope(unittest.TestCase):
         # all and the column header has its own (pre-existing) pipes without
         # ever being a row, so neither is counted here.
         body = [ln for ln in text.splitlines()
-                if ln.count('|') >= 6 and not ln.startswith('provider/lane |')]
+                if ln.count('|') >= 6 and not ln.startswith('account |')]
         self.assertEqual(len(rows), len(body), text)
 
     # ── §4 the roster says WHO each lane is ───────────────────────────────
@@ -228,18 +228,16 @@ class AccountUsageEnvelope(unittest.TestCase):
         roster = [ln for ln in text.splitlines()
                   if ln.startswith(turnusage.ROSTER)]
         self.assertEqual(len(roster), 1, text)
-        self.assertIn('claude/work', roster[0])
-        self.assertIn('"Work"', roster[0])
+        self.assertIn(a['id'], roster[0])
+        self.assertIn(f"account={a['id']}", roster[0])
         self.assertIn('<work@example.com>', roster[0])
         # a roster line is NOT a usage row — every reader tells them apart by
         # the pipe count, and a roster that parsed as a row would be junk
         self.assertLess(roster[0].count('|'), 6)
         self.assertNotIn(a['credential']['path'], text)
 
-    def test_s4b_renaming_an_account_re_sends_the_board(self):
-        """D-223 suppression compares `material_key`. An account that changed
-        its name is news; a board that suppressed it would leave the agent
-        quoting a lane that no longer exists."""
+    def test_s4b_label_rename_preserves_the_canonical_account_name(self):
+        """Mutable labels cannot change a canonical name or stale a selector."""
         a = self.account('claude', 'Work', 'work@example.com')
         self.seed_claude(a, [limit('weekly_all', 12.0, NOW + 86400)])
         before = turnusage.board(self.org, 'agent', now=NOW)[1]
@@ -247,7 +245,7 @@ class AccountUsageEnvelope(unittest.TestCase):
         registry.get_account(a['id'], doc)['label'] = 'Renamed'
         registry.save(doc)
         after = turnusage.board(self.org, 'agent', now=NOW)[1]
-        self.assertNotEqual(before, after)
+        self.assertEqual(before, after)
 
     # ── §5 an account is listed ONCE ──────────────────────────────────────
     def test_s5_the_ambient_row_is_the_host_lane_and_is_not_repeated(self):
@@ -283,7 +281,8 @@ class AccountUsageEnvelope(unittest.TestCase):
         registry.create_account('claude', 'Legacy',
                                 {'kind': 'token', 'token_ref': 'key-1'})
         lanes = self.lanes(self.board())
-        self.assertIn('claude/fallback-1', lanes)
+        self.assertIn('claude-1', lanes)
+        self.assertNotIn('claude/fallback-1', lanes)
         self.assertNotIn('claude/legacy', lanes,
                          'one key, listed under two names, reads as two '
                          'accounts an agent could balance between')
@@ -295,8 +294,8 @@ class AccountUsageEnvelope(unittest.TestCase):
         # branches did not flatten it into the generic no-cache reason.
         self.account('google', 'AG Account')
         text = self.board()
-        self.assertRegex(text, r'antigravity/account \|.*unavailable\(unsupported\).*unsupported')
-        self.assertRegex(text, r'antigravity/ag-account \|.*unavailable\(unsupported\).*unsupported')
+        self.assertRegex(text, r'google/primary \|.*unavailable\(unsupported\).*unsupported')
+        self.assertRegex(text, r'google-1 \|.*unavailable\(unsupported\).*unsupported')
         self.assertRegex(text, r'claude/primary\* \|.*unavailable\(no-cache\).*unavailable')
 
     # ── §7 marks ride along, provenance intact ────────────────────────────
@@ -307,7 +306,7 @@ class AccountUsageEnvelope(unittest.TestCase):
                              provenance='inferred')
         text = turnusage.render(self.org, 'agent', now=NOW)
         marked = [ln for ln in text.splitlines()
-                  if ln.startswith('claude/marked |') and 'mark:' in ln]
+                  if ln.startswith(f"{a['id']} |") and 'mark:' in ln]
         # `record_mark` writes ONE mark per pool the tier belongs to — an opus
         # mark lands on the pooled window, and this registry also carries the
         # fable axis. Every one of them is a row: collapsing them would hide
@@ -362,7 +361,7 @@ class AccountUsageEnvelope(unittest.TestCase):
                                    label='$12.50 of credits left')])
         text = self.board()
         row = [ln for ln in text.splitlines()
-               if ln.startswith('claude/credits |')][0]
+               if ln.startswith(f"{a['id']} |")][0]
         cells = [c.strip() for c in row.split('|')]
         self.assertEqual(cells[2], 'unavailable',
                          'a null percent must never render as 0%')

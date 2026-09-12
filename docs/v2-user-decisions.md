@@ -167,3 +167,39 @@ provider does not match the tier's. Every retained rule from 2026-09-11 and
 chooses its own billing; there is no automatic movement; a rebind cannot clear a
 binding; and a Codex account change remains a session boundary whose continuity
 effect is disclosed rather than hidden.
+
+
+## 2026-09-12 — Primary account selection and one displayed account name
+
+The user confirmed that agents must be able to retool a secondary-bound
+agent back to primary, and that the same choice must work in the operator
+UI. The user also requested one canonical name/value across account settings,
+Usage, the turn board and hire/rehire/retool/staff, with collision, rename and
+backward-compatibility behavior tested.
+
+Implementation: secondary accounts use their existing immutable registry
+name (for example `claude-4`). The UI and board display that exact name;
+there is no separate label-derived lane slug to translate. Historical labels
+remain stored metadata and do not redirect selection when edited, duplicated
+or made equal to another account's name. Names are never reused on removal.
+No account-rename feature is added. Existing registry IDs/aliases remain
+accepted through the existing provider and organization validator.
+
+Primary is displayed as `claude/primary`, `openai/primary` or `google/primary`.
+These values work through the UI and all four agent selection paths even
+without a registered ambient row. `primary` is a contextual shorthand for the
+target tier's provider. A provider-qualified mismatch is refused. Selecting
+primary clears the secondary binding and restores existing ambient auth and
+fallback rules; it does not claim a sign-in, available quota or a billing
+mode that has not yet been observed. Empty strings retain their legacy
+new-hire-only behavior; omission keeps hire defaults or an existing binding.
+
+Retool remains strictly downward and refuses a busy agent. Rehire/staff
+finish scope, audience, topology, docket and kiosk checks before assignment
+can export a session or notify an account change; assignment is saved before
+the agent is driven. A Codex account change, including primary, preserves the
+pre-switch session as a knowledge bearer and starts fresh. A no-op keeps the
+session. Account names, previous binding, session/cache boundary and bearer
+are disclosed in the result/audit, with a safe summary retained in operation
+receipts. An account switch is a new cache namespace; publishing the updated
+managed instructions and tool definitions also changes their cached prefix.

@@ -265,16 +265,16 @@ class AccountLaneDoctrine(unittest.TestCase):
         room" leaves an agent holding a conclusion and no move — so the rule
         has to name the field, and the value that field takes."""
         body = norm(sup.ACCOUNT_LANE_DOCTRINE)
-        self.assertIn('account=<id>', body)
+        self.assertIn('`account=`', body)
         for tool in ('orgtree_hire', 'orgtree_rehire', 'orgtree_retool',
                      'orgtree_staff'):
             self.assertIn(tool, body, f'{tool} takes `account` and the rule '
                                       f'never mentions it')
         # and the two traps: the board prints four things per account and only
         # one of them binds; a wrong-provider id is refused, not ignored
-        self.assertIn('never pass the lane name, the quoted label or the email',
+        self.assertIn('labels and emails never redirect billing',
                       body)
-        self.assertIn('refused rather than quietly ignored', body)
+        self.assertIn('qualified primary names must match the target provider', body)
 
     def test_s6i_the_tools_it_names_really_take_the_field(self):
         """The prose quotes four tool names and a parameter name. If any of
@@ -295,7 +295,7 @@ class AccountLaneDoctrine(unittest.TestCase):
         off the roster, so the roster has to write it."""
         from orgtree import turnusage
         import inspect
-        self.assertIn('account={rid}',
+        self.assertIn('account={name}',
                       inspect.getsource(turnusage._roster_entry),
                       'the roster no longer prints the id the rule tells '
                       'agents to pass')

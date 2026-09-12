@@ -87,7 +87,7 @@ test('usage modal renders the Antigravity wall beside Claude and Codex', async (
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
-    assert.match(text, /Antigravity · agy@example\.test/)
+    assert.match(text, /Antigravity · google\/primary · agy@example\.test/)
     assert.match(text, /individual quota/)
     assert.match(text, /100%/)
     // one Claude bar, one Codex bar, one Antigravity bar
@@ -105,7 +105,7 @@ test('with no wall on record the section carries the settled note', async () => 
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
-    assert.match(text, /Antigravity · agy@example\.test/)
+    assert.match(text, /Antigravity · google\/primary · agy@example\.test/)
     assert.match(text, /publishes no usage readout/)
     assert.ok(view.el.querySelector('.acct-unsupported'),
       'the note wears the settled styling, not the error one')

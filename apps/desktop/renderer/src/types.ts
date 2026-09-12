@@ -1616,6 +1616,8 @@ export interface AccountStanding {
  *  home) — the modal renders every row where it is false, so each registered
  *  account's standing appears exactly once. */
 export interface AccountRegistryRow {
+  /** Canonical displayed value accepted by every account selector. */
+  name?: string
   id: string
   provider: string
   harness: string

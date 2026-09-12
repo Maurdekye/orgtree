@@ -17,7 +17,7 @@ import time
 from typing import Any, Final, cast
 
 from . import (accountusage, accounts, antigravity_limits, codex_limits,
-               limits)
+               limits, registry)
 from .ledger import Org
 
 OPEN: Final = "[PROVIDER USAGE"
@@ -203,7 +203,8 @@ def _line(provider: str, lane: str, window: str, used: str,
           amount: str, reset: str, observed: str, state: str,
           *, selected: bool = False) -> str:
     marker = "*" if selected else ""
-    line = (f"{provider}/{lane}{marker} | {window} | {used} | {amount} | "
+    name = getattr(_tl, "names", {}).get(f"{provider}/{lane}", f"{provider}/{lane}")
+    line = (f"{name}{marker} | {window} | {used} | {amount} | "
             f"{reset} | {observed} | {state}")
     try:
         pct = float(used[:-1]) if used.endswith("%") else None
@@ -353,6 +354,9 @@ def _fallback_rows(now: float, selected_lane: str,
             continue
         account = str(raw.get("id") or "")
         lane = f"fallback-{ordinal}"
+        name = getattr(_tl, "token_names", {}).get(account)
+        if name:
+            _tl.names[f"claude/{lane}"] = name
         if rendered is not None and account:
             rendered.add(account)
         liveness = accounts.key_liveness(doc, account)
@@ -399,25 +403,8 @@ ROSTER: Final = "accounts:"
 
 
 def _lane_of(identity: dict[str, str], taken: set[str]) -> str:
-    """This account's lane name — stable, unique, and free of credentials.
-
-    The user-chosen LABEL first, because that is what they named the account
-    in the panel and what they will use when they tell an agent which account
-    to run on. A label that slugifies to nothing, or that another account
-    already took, falls back to the registry row id (`claude-2`), which is an
-    opaque counter and not a secret.
-    """
-    slug = _LANE_SAFE.sub("-", identity.get("label", "").lower()).strip("-")[:24]
-    rid = _LANE_SAFE.sub("-", identity.get("id", "").lower()).strip("-")[:24]
-    for candidate in (slug, rid):
-        if candidate and candidate not in taken:
-            taken.add(candidate)
-            return candidate
-    n = 2
-    while f"{rid or 'account'}-{n}" in taken:
-        n += 1
-    taken.add(f"{rid or 'account'}-{n}")
-    return f"{rid or 'account'}-{n}"
+    """The immutable canonical name, without label-derived aliases."""
+    return identity["id"]
 
 
 def _mark_rows(provider: str, lane: str, standing: Any, now: float,
@@ -482,73 +469,33 @@ def _registered_rows(org: Org, now: float, seen_token_refs: set[str],
             continue
         row_obj = usage.get("account")
         if isinstance(row_obj, str) and row_obj in seen_token_refs:
+            roster.append(_roster_entry(provider, identity["id"], identity))
             continue
         lane = _lane_of(identity, taken_lanes)
+        _tl.names[f"{provider}/{lane}"] = identity.get("name") or lane
         roster.append(_roster_entry(provider, lane, identity))
-        rows += _cached_rows(usage, provider, lane, now, False, False)
+        selected = identity.get("id") == getattr(_tl, "selected_account", "")
+        rows += _cached_rows(usage, provider, lane, now, selected,
+                             getattr(_tl, "frozen", False),
+                             getattr(_tl, "freeze_reset", None))
         rows += _mark_rows(provider, lane, usage.get("standing"), now)
     return rows
 
 
 def _host_roster(org: Org, roster: list[str]) -> None:
-    """The HOST lanes' own roster entries — `claude/primary`, `codex/account`.
-
-    ⚠ WHY THESE ARE HERE AT ALL, when their usage rows are drawn far above.
-    `_registered_rows` deliberately skips the registry rows a host lane already
-    serves, so that one account is never counted as two. Skipping the row
-    skipped its ID as well, and the id is the half an agent acts on: with the
-    ambient sign-in plus one more account — the ordinary two-account setup on
-    this machine — exactly one of the two lanes could be named, and "put this
-    work on the account that still has capacity" was an instruction an agent
-    could read and not carry out for half the board.
-
-    So the usage stays where it is, once, and the NAME rides the roster beside
-    it. `accountusage.ambient_identities` decides which rows those are by the
-    same `ambient_covered` rule that drops them below, so these entries and
-    those rows are complements by construction.
-
-    A host lane with no registry row behind it gets no entry — nothing was
-    observed to name, and inventing a label for it would be worse than silence.
-    """
-    try:
-        idents = accountusage.ambient_identities(
-            str(org.d.get("slug") or "") or None)
-    except Exception:                                          # noqa: BLE001
-        return                    # the roster is context, never a turn blocker
-    for identity in idents:
-        provider = _REGISTRY_PROVIDER.get(identity.get("provider") or "")
-        if provider is None:
-            continue
-        roster.append(_roster_entry(provider, _HOST_LANE.get(provider, "account"),
-                                    identity))
+    """Primary is selectable even before its sign-in has a registry row."""
+    identities = {i["provider"]: i for i in accountusage.ambient_identities(
+        str(org.d.get("slug") or "") or None)}
+    for provider, display in _REGISTRY_PROVIDER.items():
+        identity = identities.get(provider) or {
+            "name": f"{provider}/primary", "auth": "unobserved"}
+        roster.append(_roster_entry(display, _HOST_LANE[display], identity))
 
 
 def _roster_entry(provider: str, lane: str, identity: dict[str, str]) -> str:
-    """One account's line in the roster — who this lane actually is.
-
-    ⚠ THIS IS THE ONE PLACE ACCOUNT IDENTITY ENTERS THE BOARD, and it is here
-    because the user asked for it by name. The rows above are deliberately
-    anonymous columns of numbers; without a roster, two accounts of the same
-    provider are two lane names an agent cannot connect to anything the user
-    would recognise. Label, the email the registry already observed, and the
-    auth state — never a credential path, a token ref or key material.
-
-    ⚠ AND `account=<id>` IS THE ACTIONABLE HALF, not decoration. `orgtree_hire`,
-    `orgtree_rehire`, `orgtree_retool` and `orgtree_staff` all take an `account`
-    argument, and the ONE value they accept is the registry row id — a lane
-    name is this module's own slug, a label is the user's free text and an
-    email is an observation, so none of the other three can be passed. Printing
-    the id here is what turns "this account has room" into something an agent
-    can do: read the board, pass the id. A registry id is an opaque counter
-    (`claude-2`), not a secret.
-    """
-    bits = [f"{provider}/{lane}"]
-    rid = identity.get("id") or ""
-    if rid:
-        bits.append(f"account={rid}")
-    label = identity.get("label") or ""
-    if label and label != lane:
-        bits.append(f'"{label}"')
+    """The account column, roster and selection argument use one value."""
+    name = identity.get("name") or identity.get("id") or f"{provider}/{lane}"
+    bits = [name, f"account={name}"]
     email = identity.get("email") or ""
     if email:
         bits.append(f"<{email}>")
@@ -663,7 +610,7 @@ def failure_block(now: float | None = None) -> str:
               "unavailable(unsupported)", "-", "-", "-", "unsupported"),
     ]
     return (f"{OPEN} — current as of {_iso(now)}; dynamic/cache-only]\n"
-            "provider/lane | window | used | amount | reset (countdown) | "
+            "account | window | used | amount | reset (countdown) | "
             "observed (age,freshness) | state\n"
             + "\n".join(lines)
             + "\n* selected for this turn; - = not authoritatively reported.\n"
@@ -691,34 +638,41 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
     weekly-all, weekly-scoped, then provider-specific.  Raw provider errors,
     model labels and groups never enter the text.
 
-    ⚠ ACCOUNT IDS, LABELS AND OBSERVED EMAILS DO — on the `accounts:` roster
-    line only, and by user ruling 2026-09-12 ("i want you to be able to see the
-    same information i see in the current usage modal"). The id is the
-    load-bearing one: it is the exact value `orgtree_hire` / `orgtree_rehire` /
-    `orgtree_retool` / `orgtree_staff` take as `account`, so without it the
-    board could say an account had capacity and an agent still could not place
-    work there. Credential paths, token refs and key material remain out,
-    always — those an agent cannot act on and an operator never expected to
-    leave the app.
+    The account column and roster share the canonical name accepted by
+    hire, rehire, retool and staff. Primary names exist even without a
+    registry row. Emails are metadata, never selectors. Credential paths,
+    token references and key material stay out of the board.
 
     Side effect: the rendered rows' structured records are recorded for
     `board_rows` (thread-local, cleared here).
     """
     _recs().clear()
+    _tl.names = {"claude/primary": "claude/primary",
+                 "codex/account": "openai/primary",
+                 "antigravity/account": "google/primary"}
     now = time.time() if now is None else now
     try:
         node = org.node(nid)
+        ambient_ids = {i["id"] for i in accountusage.ambient_identities(
+            str(org.d.get("slug") or "") or None)}
+        bound = str(node.get("account") or "")
+        _tl.selected_account = bound if bound not in ambient_ids else ""
+        _tl.token_names = {
+            str(r["credential"].get("token_ref")): str(r["id"])
+            for r in registry.list_accounts(str(org.d.get("slug") or "") or None)
+            if r["credential"].get("kind") == "token"}
         freeze = node.get("frozen")
         freeze = freeze if isinstance(freeze, dict) else {}
         frozen = bool(freeze.get("limit") or node.get("limit_locked"))
         freeze_reset = freeze.get("until_ts")
+        _tl.frozen, _tl.freeze_reset = frozen, freeze_reset
         rows: list[tuple[tuple[Any, ...], str]] = []
 
         try:
             claude = limits.snapshot(now)
             rows += _cached_rows(
                 claude, "claude", "primary", now,
-                selected_provider == "claude" and selected_lane == "primary",
+                selected_provider == "claude" and selected_lane == "primary" and not _tl.selected_account,
                 frozen, freeze_reset)
         except Exception:  # noqa: BLE001
             rows.append(((0, "primary", 99, "", 0),
@@ -750,7 +704,7 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
             codex = codex_limits.snapshot(now)
             rows += _cached_rows(
                 codex, "codex", "account", now,
-                selected_provider == "openai", frozen, freeze_reset)
+                selected_provider == "openai" and not _tl.selected_account, frozen, freeze_reset)
         except Exception:  # noqa: BLE001
             rows.append(((1, "account", 99, "", 0),
                          _line("codex", "account", "usage",
@@ -828,7 +782,7 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
         return ((f"{OPEN} — current as of {_iso(now)}; "
                  f"dynamic/cache-only]\n"
                  + roster_line
-                 + "provider/lane | window | used | amount | reset (countdown) | "
+                 + "account | window | used | amount | reset (countdown) | "
                    "observed (age,freshness) | state\n"
                  + "\n".join(lines)
                  + "\n* selected for this turn; - = not authoritatively "

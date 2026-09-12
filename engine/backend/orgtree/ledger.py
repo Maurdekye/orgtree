@@ -1658,9 +1658,12 @@ class Org:
         if default_account is not None:
             acct_val = default_account.strip() if isinstance(default_account, str) else None
             if acct_val:
+                row: dict[str, Any] = {}
                 try:
                     from . import registry
-                    row = registry.get_account(acct_val)
+                    primary_names = {registry.primary_name(p) for p in registry.PROVIDERS}
+                    row = ({} if acct_val == "primary" or acct_val in primary_names
+                           else registry.get_account(acct_val))
                     scope = str(row.get("origin_org") or "")
                     if scope and scope != self.d.get("slug"):
                         raise LedgerError(
@@ -1675,7 +1678,7 @@ class Org:
                             raise LedgerError(f"no account {acct_val!r} is registered")
                     except ImportError:
                         pass
-                self.d["default_account"] = acct_val
+                self.d["default_account"] = str(row.get("id") or acct_val)
             else:
                 self.d["default_account"] = None
         self._log("set_defaults", USER,
@@ -3186,17 +3189,17 @@ class Org:
             acct_clean = account.strip()
             try:
                 from . import registry
-                registry.validate_binding(self.d.get("slug", ""), tier, acct_clean)
+                acct_row = registry.validate_selection(self.d.get("slug", ""), tier, acct_clean)
             except Exception as e:
                 raise LedgerError(str(e))
-            node_account = acct_clean
+            node_account = acct_row["id"] or None
         elif account is None and self.d.get("default_account"):
             def_acct = str(self.d.get("default_account") or "").strip()
             if def_acct:
                 try:
                     from . import registry
-                    registry.validate_binding(self.d.get("slug", ""), tier, def_acct)
-                    node_account = def_acct
+                    acct_row = registry.validate_selection(self.d.get("slug", ""), tier, def_acct)
+                    node_account = acct_row["id"] or None
                 except Exception:
                     node_account = None
 
@@ -3204,6 +3207,8 @@ class Org:
                              str(charter).strip() if charter else None)
         if node_account:
             self.nodes[nid]["account"] = node_account
+        elif account is not None:
+            self.nodes[nid]["account_primary"] = True
         if handles:
             self.nodes[nid]["external_handles"] = handles
             stamp_handles(self.nodes[nid], handles)      # D-166

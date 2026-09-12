@@ -2018,13 +2018,17 @@ def _org_view(slug: str, request: Request,
     _cap_cache: dict[str, dict[str, Any]] = {}
 
     # Resolve display metadata once for the graph, never once per card.
+    from . import accountusage
+    from .registry_migration import observe_ambient
+    primary = registry.resolve_alias("primary")
+    ambient_paths = observe_ambient()
     account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
 
     def annotate(node: dict[str, Any], *, full: bool = False) -> None:
         account_row = account_rows.get(node.get("account"))
         if account_row:
             node["account_tint_ordinal"] = account_row["tint_ordinal"]
-            node["account_label"] = account_row["label"]
+            node["account_label"] = accountusage.canonical_name(account_row, primary, ambient_paths)
         _rederive_freeze_reset(node, _cap_cache)
         # §4.8: an archived seat has no turn and no process, so every field
         # below is a constant for it — and deriving 242 constants from the
@@ -4057,12 +4061,15 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
     `_ambient_covered`) — the modal lists every OTHER row so no account's
     standing appears twice and none is silently absent."""
     from .registry_migration import observe_ambient
+    from . import accountusage
     rows = registry.list_accounts(org)
     bindings = _account_bindings()
     primary = registry.resolve_alias("primary")
     ambient_paths = observe_ambient()
     return {"accounts": [
         {**{k: v for k, v in r.items() if k != "marks"},
+         "name": accountusage.canonical_name(r, primary, ambient_paths),
+         "label": accountusage.canonical_name(r, primary, ambient_paths),
          "identity": _account_display_identity(r),
          "standing": registry.standing_of(r),
          "ambient": _ambient_covered(r, primary, ambient_paths),
@@ -4111,7 +4118,9 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
             body.provider, str(body.label or ""), credential)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return {**row, "standing": registry.standing_of(row)}
+    name = registry.account_name(row)
+    return {**row, "name": name, "label": name,
+            "standing": registry.standing_of(row)}
 
 
 @app.get("/api/accounts/{account_id}/identity")
@@ -7301,38 +7310,28 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
             f'start it — send it an orgtree_message now saying what '
             f'to do (or pass `kickoff` to this tool next time), or '
             f'it will never run.')
+    if result.get("node"):
+        node = org.node(str(result["node"]))
+        bound = str(node.get("account") or "")
+        provider = providers.provider_of(str(node.get("model") or ""))
+        if provider in registry.PROVIDERS:
+            result["account"] = (registry.account_name(registry.get_account(bound))
+                                 if bound else registry.primary_name(provider))
     return result
 
 
-def _rehire_account(org: Org, tier: str, a: dict[str, Any]) -> str:
-    """The account a rehire should come back on — validated, not yet applied.
-
-    Returns "" for "change nothing", which is what an omitted field means: a
-    rehire has always restored the agent on its stored binding, and that stays
-    the default.
-
-    ⚠ AN EMPTY STRING IS REFUSED RATHER THAN READ AS "UNBIND". On the HIRE path
-    `account=""` is a meaningful value — it seats a new agent explicitly
-    unbound, overriding the org default. There is no writer that can take an
-    existing binding away again (`supervisor.assign_account` validates a row
-    and writes it; nothing clears one), so accepting the same spelling here
-    would quietly do nothing while reading like an instruction that was obeyed.
-    """
+def _rehire_account(org: Org, tier: str, a: dict[str, Any]) -> str | None:
+    """Validate before restoring; omission retains the archived binding."""
     raw = a.get("account")
     if raw is None:
-        return ""
-    want = str(raw).strip()
-    if not want:
-        raise LedgerError(
-            "account='' seats a NEW hire unbound; it cannot clear the binding "
-            "of an agent that already has one (there is no unbind writer). "
-            "Omit `account` to restore it on the account it was archived "
-            "with, or name the account it should come back on")
+        return None
     try:
-        registry.validate_binding(str(org.d.get("slug") or ""), tier, want)
-    except ValueError as e:          # registry.BindingRefused is one of these
-        raise LedgerError(str(e))
-    return want
+        registry.validate_selection(str(org.d.get("slug") or ""), tier, str(raw))
+    except ValueError as e:
+        raise LedgerError(str(e)) from e
+    # Preserve legacy IDs as binding requests: naming an imported primary
+    # profile explicitly must not silently become an unbind operation.
+    return str(raw).strip()
 
 
 def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
@@ -7412,19 +7411,11 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     # already the post-rename id (rebound above).
     _rid = str(a.get("node") or "")
     result["node"] = _rid
-    if _acct_want:
-        # THE ONE WRITER, not a second one. `supervisor.assign_account` is what
-        # the operator panel and the downward rebind both go through, and it
-        # carries the parts a direct `node["account"] = x` would silently skip:
-        # the codex session boundary (a restored thread cannot follow its agent
-        # onto a different CODEX_HOME, so the pre-switch self is archived as a
-        # knowledge bearer), the warm-pool continuity record, and the audit
-        # entry the USER reads. `org=org` keeps it inside this transaction —
-        # a separate load/save would be clobbered by the dispatch's own save.
-        _rh_disc = supervisor.assign_account(
-            slug, _rid, _acct_want, actor=actor, org=org, via="rehire")
-        result["account"] = _rh_disc.get("account")
-        result["account_binding"] = _rh_disc
+    if _acct_want is not None:
+        # Applied at the dispatch tail, after scope, audiences, placement,
+        # staff's docket write and the kiosk cap all passed. No account
+        # notification or session export may escape a refused composite.
+        result["_account_selection"] = (_rid, _acct_want, "rehire")
     _seat_finish(org, slug, actor, _rid, a, result, drive,
                  fields=_SEAT_SCOPE_REHIRE)
     if _dest:
@@ -8234,6 +8225,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 actor=body.node)
         except LedgerError as e:
             raise HTTPException(422, str(e))
+    account_notify: str | None = None
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -8830,12 +8822,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                             403, f"you can only rebind accounts of your "
                                  f"subordinates ({_rt_target!r} is not one)")
                     _rt_acct = str(a.get("account") or "").strip()
-                    if not _rt_acct:
-                        raise LedgerError(
-                            "account='' seats a NEW hire unbound; it cannot "
-                            "clear the binding of an agent that already has "
-                            "one (there is no unbind writer). Name the account "
-                            "this agent should run on instead")
+                    try:
+                        registry.validate_selection(
+                            body.org, str(org.node(_rt_target).get("model") or ""),
+                            _rt_acct)
+                    except ValueError as e:
+                        raise LedgerError(str(e)) from e
                 rdirs, dwarns = supervisor.sandbox_dirs_to_host(
                     org, a.get("add_dirs"))
                 result = org.set_scope(body.node, a.get("node", ""),
@@ -8854,23 +8846,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                        clear_account_fallback=bool(a.get("clear_account_fallback")))
                 if dwarns:
                     result.setdefault("warnings", []).extend(dwarns)
-                if _rt_acct:
-                    try:
-                        _rt_disc = supervisor.assign_account(
-                            body.org, _rt_target, _rt_acct,
-                            actor=body.node, org=org, via="retool")
-                    except (RuntimeError, ValueError) as e:
-                        raise HTTPException(422, str(e))
-                    # the id as a plain string for a caller that only wants to
-                    # read back what it asked for, and the FULL disclosure set
-                    # beside it — billing mode, auth, standing with provenance,
-                    # the continuity record and the knowledge bearer a codex
-                    # switch just created. None of that is noise: a rebind that
-                    # silently flipped an agent onto API-key billing, or that
-                    # archived its session, is exactly the thing the caller has
-                    # to be told about at the moment it happens.
-                    result["account"] = _rt_disc.get("account")
-                    result["account_binding"] = _rt_disc
+                if _rt_acct is not None:
+                    result["_account_selection"] = (_rt_target, _rt_acct, "retool")
             elif body.tool == "orgtree_retire":
                 result = org.retire(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:
@@ -9114,6 +9091,18 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 if routed and not result.get("deferred"):
                     drive.append(str(routed))
             _kiosk_cap_check(org)
+            selection = result.pop("_account_selection", None)
+            if selection is not None:
+                target, account, via = selection
+                try:
+                    disclosure = supervisor.assign_account(
+                        body.org, target, account, actor=body.node, org=org,
+                        via=via, notify_change=False)
+                except (RuntimeError, ValueError) as e:
+                    raise LedgerError(str(e)) from e
+                result["account"] = disclosure["account"]
+                result["account_binding"] = disclosure
+                account_notify = target
         except LedgerError as e:
             # D-160: everything inside this block is discarded with the
             # unsaved doc, so "refused" normally means "nothing happened".
@@ -9140,6 +9129,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # below it is a rewind (opreceipts.witness)
             opreceipts.witness(store.DATA_ROOT, body.org,
                                opreceipts.seq(cast("dict[str, Any]", org.d)))
+    if account_notify is not None:
+        supervisor.notify(body.org, account_notify, "account")
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [

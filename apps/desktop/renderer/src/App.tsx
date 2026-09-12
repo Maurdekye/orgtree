@@ -1691,7 +1691,7 @@ function RegisteredAccountSection({ row }: { row: AccountRegistryRow }) {
     (force) => getRegisteredAccountUsage(row.id, force))
   const u = state.value
   const provider = registryProviderName(row.provider)
-  const name = row.label || row.id
+  const name = row.name || row.id
   return <div className="usage-acct" data-account={row.id}>
     <UsageAcctHead label={provider} parts={[name, row.identity?.email]}
       provider={name} state={state} />
@@ -1761,7 +1761,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
           {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
-            <UsageAcctHead label="Claude Code" parts={[claude.value?.email]}
+            <UsageAcctHead label="Claude Code" parts={["claude/primary", claude.value?.email]}
               provider="Claude" state={claude} />
             {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
                 only in App settings — shown exactly when the usage fetch
@@ -1775,7 +1775,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           </div>}
           {shown.openai && (codex.value || codex.failure || codex.pending) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
             <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
-              parts={[codex.value?.label]} provider="Codex" state={codex} />
+              parts={["openai/primary", codex.value?.label]} provider="Codex" state={codex} />
             {codex.value?.reauth_required && <ProviderSignIn provider="codex"
               connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
             {codex.value
@@ -1784,7 +1784,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           </div>}
           {shown.google && (agy.value || agy.failure || agy.pending) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
             <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
-              parts={[agy.value?.label]} provider="Antigravity" state={agy} />
+              parts={["google/primary", agy.value?.label]} provider="Antigravity" state={agy} />
             {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
                 visible terminal running the CLI's own interactive entry
                 point rather than the browser/in-app-code flow Claude and

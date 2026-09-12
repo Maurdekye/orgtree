@@ -6936,24 +6936,20 @@ ACCOUNT_LANE_DOCTRINE = (
     "as that account's gpt-reserve still has room, and is judged on the "
     "standard weekly window instead when reserve is disabled, unavailable, or "
     "itself at 100%. "
-    "AND HERE IS HOW YOU ACTUALLY PLACE THE WORK (user decision 2026-09-12: "
-    "\"the agent hire / rehire / retool tools should be able to decide which "
-    "account to hire on\"). The roster line names each lane's account as "
-    "`account=<id>` — `accounts: claude/primary account=claude-1 \"Main\" · "
-    "claude/side account=claude-2 \"Side\"`. That id is the value, and the only "
-    "value, that these four fields take: `account` on orgtree_hire (which "
-    "account a NEW seat runs on), on orgtree_rehire (which account an archived "
-    "agent comes back on — omitted, it returns on the one it was archived "
-    "with, which may be the exhausted one), on orgtree_retool (REBIND a live "
-    "report, strictly downward and never yourself) and on orgtree_staff "
-    "(whichever of hire or rehire it composed). Never pass the lane name, the "
-    "quoted label or the email: an account of the wrong provider, or an id "
-    "that is not registered, is refused rather than quietly ignored. Omit the "
-    "field on a hire to take the org default, or pass the empty string for a "
-    "deliberately unbound seat. A rebind cannot CLEAR a binding, and moving a "
-    "Codex agent to another Codex account is a session boundary — its "
-    "pre-switch self is archived as a readable knowledge bearer and it starts "
-    "fresh, so do that at a break rather than mid-thread. "
+    "PLACE THE WORK with the canonical account name shown in both the UI "
+    "and the [PROVIDER USAGE] roster's `account=` field: for example "
+    "`claude-4` or `openai/primary`. Pass that same value as `account` on "
+    "orgtree_hire, orgtree_rehire, orgtree_retool or orgtree_staff. "
+    "`primary` selects the target tier's ambient account and can return an "
+    "existing secondary-bound agent to it. Qualified primary names must "
+    "match the target provider. Secondary names are immutable; labels and "
+    "emails never redirect billing. Omit the field on a hire to inherit the "
+    "org default; omit it on a rehire or retool to keep the stored binding. "
+    "A retool account change is strictly downward, never on yourself, and "
+    "is refused while the agent is mid-turn. Moving a Codex agent, including "
+    "back to primary, archives the old session as a readable knowledge "
+    "bearer and starts fresh. Primary restores ambient authentication and "
+    "existing fallback rules; it does not promise available capacity. "
     "THIS IS HOW TO CHOOSE AMONG ACCOUNTS YOU MAY ALREADY USE. It does not "
     "override an agent's account binding, the automatic fallback order when a "
     "lane is exhausted, or the cache-continuity rules above: switching a "
@@ -11353,7 +11349,7 @@ def check_switch_account(org: Org, slug: str, nid: str, tier: str,
                 f"account decision the no-rollover rule forbids; pass "
                 f"`account`")
     if account:
-        registry.validate_binding(slug, str(tier or ""), account)
+        registry.validate_selection(slug, str(tier or ""), account)
 
 
 def finish_switch_binding(org: Org, slug: str, nid: str,
@@ -11364,6 +11360,8 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     if not account or nid not in org.nodes:
         return
     node = org.node(nid)
+    selection = registry.validate_selection(slug, str(node.get("model") or ""), account)
+    account = selection["id"]
     previous = str(node.get("account") or "")
     if previous != account and (
             providers.provider_of(str(node.get("model") or "")) == "openai"
@@ -11383,9 +11381,14 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
         node.pop("codex_account", None)
         node.pop("codex_usage_total", None)
         node.pop("cache_continuity", None)
-    node["account"] = account
+    if account:
+        node["account"] = account
+        node.pop("account_primary", None)
+    else:
+        node.pop("account", None)
+        node["account_primary"] = True
     org._log("account_assign", actor,
-             {"account": account, "previous_account": previous or None,
+             {"account": selection["name"], "previous_account": previous or None,
               "via": "switch_model"}, [])
 
 
@@ -11957,7 +11960,8 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
 
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
-                   org: Org | None = None, via: str = "manual") -> dict[str, Any]:
+                   org: Org | None = None, via: str = "manual",
+                   notify_change: bool = True) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
@@ -12002,14 +12006,15 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 "sandboxed orgs are container-managed — accounts do not "
                 "apply (declared exemption, design D2a)")
         tier = str(node.get("model") or "")
-        row = registry.validate_binding(slug, tier, account_id)
+        row = registry.validate_selection(slug, tier, account_id)
         previous = str(node.get("account") or "")
+        changed = previous != row["id"]
         try:
             prev_hash, prev_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
             prev_hash, prev_comp = "", None
         pred_id = None
-        if previous != row["id"] and (
+        if changed and (
                 row["provider"] == "openai"
                 or providers.provider_of(tier) == "openai"
                 or bool(node.get("codex_thread"))):
@@ -12028,7 +12033,13 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             node.pop("codex_account", None)
             node.pop("codex_usage_total", None)
             node.pop("cache_continuity", None)
-        node["account"] = row["id"]
+        if row["id"]:
+            node["account"] = row["id"]
+            node.pop("account_primary", None)
+        else:
+            node.pop("account", None)
+            # Distinguish an explicit choice from an old unmigrated seat.
+            node["account_primary"] = True
         try:
             next_hash, next_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
@@ -12036,28 +12047,34 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         continuity = warmpool.identity_change_fields(
             prev_hash, prev_comp, next_hash, next_comp)
         cred = row["credential"]
-        billing = ("api-key"
+        billing = ("ambient" if cred["kind"] == "ambient" else "api-key"
                    if (cred["kind"] == "token"
                        and str(cred.get("token_ref", ""))
                        .startswith("org-api-key:"))
                    else "subscription")
-        mark = registry.active_mark(row["id"], tier)
+        mark = registry.active_mark(row["id"], tier) if row["id"] else None
         standing = ({"state": "limited", "until": mark["until"],
                      "provenance": mark["provenance"]} if mark
-                    else {"state": "ready"})
+                    else {"state": "unobserved" if not row["id"] else "ready"})
         disclosure = {
-            "account": row["id"], "label": row["label"],
+            "account": row["name"], "label": row["name"],
             "credential_kind": cred["kind"], "billing_mode": billing,
             "auth": row["auth"], "standing": standing,
             "previous_account": previous or None,
             "continuity": continuity,
-            "session_boundary": row["provider"] == "openai",
+            "cache_namespace_changed": changed,
+            "session_boundary": changed and row["provider"] == "openai",
+            **({"note": "Uses the ambient sign-in and existing org/machine "
+                         "authentication and fallback rules; auth and billing "
+                         "are observed when the next turn starts."}
+               if not row["id"] else {}),
             **({"bearer": pred_id} if pred_id else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
         if not _caller_owns_save:
             store.save_org(org)
-    notify(slug, nid, "account")
+    if notify_change:
+        notify(slug, nid, "account")
     return disclosure
 
 

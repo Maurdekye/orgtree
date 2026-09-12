@@ -277,7 +277,7 @@ interface HireDefaultsTabProps {
   servers?: string[]
   account?: string
   setAccount?: (v: string) => void
-  accounts?: { id: string; provider: string; label: string; standing?: { state: string } }[]
+  accounts?: { id: string; provider: string; label: string; name?: string; ambient?: boolean; standing?: { state: string } }[]
 }
 
 /** the org's folder holdings as the server reports them, workspace excluded
@@ -337,7 +337,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
   const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string
+    id: string; provider: string; label: string; name?: string; ambient?: boolean
     standing?: { state: string } }[]>(propAccounts ?? [])
   useEffect(() => {
     if (propAccounts !== undefined) {
@@ -489,12 +489,13 @@ export function HireDefaultsTab({ tree, slug, toast, close,
         </SetRow>}
         {!pub && <SetRow label="provider account for NEW agents"
           hint="existing agents keep theirs — change those in the agent's own ⚙">
-          <select value={account ?? ''} aria-label="default provider account for new hires"
+          <select value={acctRows.find((r) => r.id === account)?.name ?? account ?? ''}
+            aria-label="default provider account for new hires"
             onChange={(e) => setAccount?.(e.target.value)}>
-            <option value="">(unbound — machine default)</option>
+            <option value="">(machine default)</option>
             {acctRows.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label || r.id}{r.provider ? ` (${r.provider})` : ''}
+              <option key={r.id} value={r.name || r.id}>
+                {r.name || r.id}{r.provider ? ` (${r.provider})` : ''}
                 {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
               </option>
             ))}
@@ -539,7 +540,7 @@ interface DraftScopeModalProps {
   scope: DraftScope | null
   onSave: (scope: DraftScope) => void
   close: () => void
-  accounts?: { id: string; provider: string; label: string; standing?: { state: string } }[]
+  accounts?: { id: string; provider: string; label: string; name?: string; ambient?: boolean; standing?: { state: string } }[]
 }
 
 /** item 12 — the "Prefer reserve" checkbox (user ruling 2026-09-04: "make
@@ -608,7 +609,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const [servers, setServers] = useState<string[]>([])
   const [sandboxMcp, setSandboxMcp] = useState(false)
   const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string
+    id: string; provider: string; label: string; name?: string; ambient?: boolean
     standing?: { state: string } }[]>(propAccounts ?? [])
   useEffect(() => {
     if (propAccounts !== undefined) {
@@ -650,6 +651,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
       : (defaultAccountMatches ? (tree.default_account ?? '') : '')
   )
   const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
+  const selectedAccount = acctRows.find((r) => r.id === acct)?.name ?? acct
 
   useEffect(() => {
     if (!acctTouched && base.account === undefined && tree.default_account) {
@@ -742,17 +744,18 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <PreferReserveRow checked={preferReserve} onChange={changePreferReserve} />
         )}
         <div className="field-label">account</div>
-        <select aria-label="Account" value={acct}
+        <select aria-label="Account" value={selectedAccount}
           onChange={(e) => {
             setAcct(e.target.value)
             setAcctTouched(true)
           }}>
-          <option value="">(unbound — machine default)</option>
+          <option value="">(machine default)</option>
+          <option value={`${targetProvider}/primary`}>{targetProvider}/primary</option>
           {acctRows
-            .filter((r) => r.provider === targetProvider)
+            .filter((r) => !r.ambient && r.provider === targetProvider)
             .map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label || r.id}
+              <option key={r.id} value={r.name || r.id}>
+                {r.name || r.id}
                 {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
               </option>
             ))}
@@ -767,7 +770,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
               ...(effort ? { effort } : {}),
               ...(draft.tier === 'luna' && preferReserveTouched
                 ? { prefer_reserve: preferReserve } : {}),
-              ...(acctTouched ? { account: acct } : (acct ? { account: acct } : {})) })}>apply</button>
+              ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}) })}>apply</button>
           <button onClick={close}>cancel</button>
         </div>
     </PinFrame></ModalOverPins>
@@ -1007,7 +1010,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // (billing/standing) surfaces in the toast at the point of action
   const [acct, setAcct] = useState(node.account ?? '')
   const [acctRows, setAcctRows] = useState<{
-    id: string; provider: string; label: string
+    id: string; provider: string; label: string; name?: string; ambient?: boolean
     standing: { state: string } }[]>([])
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
@@ -1482,15 +1485,14 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               {node.account?.startsWith('missing:') &&
                 <span className="ask-warn"> — PARKED: {node.account}</span>}
             </div>
-            <select aria-label="Account" value={acct}
+            <select aria-label="Account" value={acctRows.find(r => r.id === acct)?.name || acct}
               onChange={(e) => setAcct(e.target.value)}>
-              <option value="">
-                {node.account ? '(keep current)' : '(unbound — machine default)'}
-              </option>
+              <option value="">(keep current)</option>
+              <option value={`${providerOf(model)}/primary`}>{providerOf(model)}/primary</option>
               {acctRows
-                .filter((r) => r.provider === providerOf(model))
-                .map((r) => <option key={r.id} value={r.id}>
-                  {r.label || r.id}
+                .filter((r) => !r.ambient && r.provider === providerOf(model))
+                .map((r) => <option key={r.id} value={r.name || r.id}>
+                  {r.name || r.id}
                   {r.standing.state === 'limited' ? ' (limited — will wait)' : ''}
                 </option>)}
             </select>

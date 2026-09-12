@@ -82,6 +82,13 @@ def ambient_covered(row: dict[str, Any], primary: str,
             == os.path.normcase(os.path.normpath(home)))
 
 
+def canonical_name(row: dict[str, Any], primary: str,
+                   ambient_paths: dict[str, str | None]) -> str:
+    """One displayed, selectable name. Mutable labels never choose billing."""
+    return (registry.primary_name(row["provider"])
+            if ambient_covered(row, primary, ambient_paths) else str(row["id"]))
+
+
 def _claude_view(row: dict[str, Any], out: dict[str, Any], *,
                  allow_fetch: bool, now: float) -> dict[str, Any]:
     """A claude PROFILE row — the ambient login, or a redirected profile."""
@@ -210,19 +217,16 @@ def _row_rank(row: dict[str, Any]) -> tuple[int, str, str]:
 
 
 def identity_of(row: dict[str, Any]) -> dict[str, str]:
-    """The account's NAME, as the modal's card head writes it — label, the
-    signed-in email the registry already observed, and the auth state.
+    """Public canonical name plus already-observed identity metadata.
 
-    ⚠ THE STORED IDENTITY ONLY. `api._account_display_identity` re-reads a
-    codex profile's `auth.json` to refresh its email; that is a credentials
-    read, and this function is on the every-turn path. An email the registry
-    has not observed is simply absent here — an agent tells accounts apart by
-    label and lane, and a missing email costs it nothing.
+    Labels are mutable and may collide with another row's immutable ID, so
+    they never become public selectors. No credentials are read here.
     """
     ident = row.get("identity")
     ident = ident if isinstance(ident, dict) else {}
     return {"id": str(row.get("id") or ""),
-            "label": str(row.get("label") or row.get("id") or ""),
+            "name": str(row.get("id") or ""),
+            "label": str(row.get("id") or ""),
             "email": str(ident.get("email") or ""),
             "auth": str(row.get("auth") or "unobserved"),
             "provider": str(row.get("provider") or "")}
@@ -259,7 +263,9 @@ def ambient_identities(org: str | None = None) -> list[dict[str, str]]:
     for row in sorted(rows, key=_row_rank):
         try:
             if ambient_covered(row, primary, ambient_paths):
-                out.append(identity_of(row))
+                identity = identity_of(row)
+                identity["name"] = identity["label"] = registry.primary_name(row["provider"])
+                out.append(identity)
         except Exception:                                      # noqa: BLE001
             continue                 # one unreadable row never costs the rest
     return out

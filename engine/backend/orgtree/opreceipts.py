@@ -330,6 +330,16 @@ def result_slice(tool: str, result: Any) -> dict[str, Any]:
     for k in _RESULT_FIELDS.get(tool, ()):
         if k in r and isinstance(r[k], (str, int, float, bool)):
             out[k] = r[k] if not isinstance(r[k], str) else r[k][:200]
+    if tool in ("orgtree_hire", "orgtree_rehire", "orgtree_retool", "orgtree_staff"):
+        binding = r.get("account_binding")
+        if isinstance(binding, dict):
+            # Preserve the cost of a rebind on replay without broadening the
+            # receipt into a snapshot of arbitrary result or credential data.
+            out["account_binding"] = {
+                key: value if not isinstance(value, str) else value[:200]
+                for key in ("previous_account", "session_boundary",
+                            "cache_namespace_changed", "bearer", "billing_mode")
+                if isinstance(value := binding.get(key), (str, bool))}
     return out
 
 
