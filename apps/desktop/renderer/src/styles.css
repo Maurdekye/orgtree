@@ -3328,6 +3328,19 @@ main.solo { width: 100%; }
   background: var(--panel); z-index: 1;
 }
 .docket-group-n { font-weight: 600; letter-spacing: 0; }
+/* Each named category has its own disclosure. Keep it separate from the
+   ticket-row fold arrow and from an agent heading's navigation button. */
+.docket-modal .docket-category-toggle {
+  background: none; border: 0; color: inherit; cursor: pointer;
+  padding: 0 2px; margin: 0; font: inherit; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; flex-shrink: 0;
+}
+.docket-modal .docket-category-toggle:hover { color: var(--ink-strong); }
+.docket-modal .docket-category-toggle:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.docket-category-rows[hidden] { display: none; }
 /* AN AGENT'S GROUP HEAD wears the agent's model chip and its name is the jump
    to its desk. The name is a `.cc-name`, which everywhere else is a 12.5px
    mono flex block — here it is HANDED THE HEADING'S OWN FONT back, so this is

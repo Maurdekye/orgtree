@@ -564,6 +564,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // tells "still loading" from "no such document" by itself, which is the
   // judgement this panel cannot make (it holds no document list).
   const [docView, setDocView] = useState<string | null>(null)
+  const categoryId = useId()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const optionsToggle = useRef<HTMLButtonElement>(null)
   // ⚠ ESCAPE BELONGS TO THE TOP-MOST THING ON SCREEN. Both listeners sit on
@@ -754,8 +755,20 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // not org state.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
+  // Category folding is separate from the existing per-ticket subtree fold.
+  // It is deliberately panel-local and starts empty, so the initial docket is
+  // unchanged and no UI posture becomes org data.
+  const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
+    () => new Set<string>())
   const toggleFold = useCallback((name: string) => {
     setCollapsed((c) => {
+      const next = new Set(c)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+  }, [])
+  const toggleCategoryFold = useCallback((name: string) => {
+    setCollapsedCategories((c) => {
       const next = new Set(c)
       if (!next.delete(name)) next.add(name)
       return next
@@ -781,6 +794,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
         return next
       })
     }
+    // A category fold is another way the target can be off-screen. Reveal all
+    // category rows before selecting a referenced item, just as the ancestor
+    // fold above does for nested ticket rows. This is panel-local posture, not
+    // docket data, and clearing it keeps every jump visibly actionable.
+    setCollapsedCategories((c) => c.size ? new Set<string>() : c)
     setSel({ slug, id })
     setFlash(id)
   }, [allKnown, slug])
@@ -942,41 +960,56 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
               : (
                 <div className="mailer">
                   <div className="mailer-list">
-                    {sections.map((s) => (
-                      <div key={s.key}
-                        className={'docket-section' + (s.tone ? ' tone-' + s.tone : '')}>
-                        {s.heading && (
-                          <div className="docket-group-head">
-                            {/* an agent's head IS that agent; a status, the
-                                backlog, the archive and `Unassigned` are
-                                words and stay plain spans */}
-                            {s.agent
-                              ? <GroupAgentHead agent={s.agent} items={s.items}
-                                  facts={facts} onFocusAgent={onFocusAgent}
-                                  close={navClose} />
-                              : <span>{s.heading}</span>}
-                            <span className="dim docket-group-n">{s.items.length}</span>
+                    {sections.map((s) => {
+                      const categoryFolded = Boolean(s.heading && collapsedCategories.has(s.key))
+                      const rowsId = `${categoryId}-${s.key}-rows`
+                      const categoryName = s.agent ? `${s.agent} category` : `${s.heading}`
+                      return (
+                        <div key={s.key}
+                          className={'docket-section' + (s.tone ? ' tone-' + s.tone : '')}>
+                          {s.heading && (
+                            <div className="docket-group-head">
+                              {/* an agent's head IS that agent; a status, the
+                                  backlog, the archive and `Unassigned` are
+                                  words and stay plain spans */}
+                              {s.agent
+                                ? <GroupAgentHead agent={s.agent} items={s.items}
+                                    facts={facts} onFocusAgent={onFocusAgent}
+                                    close={navClose} />
+                                : <span>{s.heading}</span>}
+                              <button type="button" className="docket-category-toggle"
+                                title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
+                                aria-label={`${categoryFolded ? 'Expand' : 'Collapse'} ${categoryName}`}
+                                aria-expanded={!categoryFolded} aria-controls={rowsId}
+                                onClick={() => toggleCategoryFold(s.key)}>
+                                <span aria-hidden="true">{categoryFolded ? '\u25b6' : '\u25bc'}</span>
+                              </button>
+                              <span className="dim docket-group-n">{s.items.length}</span>
+                            </div>
+                          )}
+                          <div id={s.heading ? rowsId : undefined}
+                            className="docket-category-rows" hidden={categoryFolded}>
+                            {nestRows(s.items, collapsed).map((row) => (
+                              <DocketRow key={row.item.slug} item={row.item}
+                                ageMode={sortMode} org={slug} toast={toast}
+                                selected={row.item.slug === selId}
+                                depth={row.depth} kids={row.kids}
+                                folded={collapsed.has(row.item.slug)}
+                                onFold={() => toggleFold(row.item.slug)}
+                                onClick={() => setSelId(
+                                  row.item.slug === selId ? null : row.item.slug)}
+                                onDismiss={onDismiss} facts={facts}
+                                onFocusAgent={onFocusAgent} close={navClose}
+                                flash={row.item.slug === flash}
+                                rowRef={(el) => {
+                                  if (el) rows.current.set(row.item.slug, el)
+                                  else rows.current.delete(row.item.slug)
+                                }} />
+                            ))}
                           </div>
-                        )}
-                        {nestRows(s.items, collapsed).map((row) => (
-                          <DocketRow key={row.item.slug} item={row.item}
-                            ageMode={sortMode} org={slug} toast={toast}
-                            selected={row.item.slug === selId}
-                            depth={row.depth} kids={row.kids}
-                            folded={collapsed.has(row.item.slug)}
-                            onFold={() => toggleFold(row.item.slug)}
-                            onClick={() => setSelId(
-                              row.item.slug === selId ? null : row.item.slug)}
-                            onDismiss={onDismiss} facts={facts}
-                            onFocusAgent={onFocusAgent} close={navClose}
-                            flash={row.item.slug === flash}
-                            rowRef={(el) => {
-                              if (el) rows.current.set(row.item.slug, el)
-                              else rows.current.delete(row.item.slug)
-                            }} />
-                        ))}
-                      </div>
-                    ))}
+                        </div>
+                      )
+                    })}
                   </div>
                   <div className="mailer-read">
                     {cur
@@ -1088,6 +1121,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const [selId, setSelId] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
+  const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
+    () => new Set<string>())
   const rows = mine ?? []
   const sections = buildSections(groupMode,
     sortItems(rows.filter(it => !it.archived && it.status !== 'backlogged'), sortMode),
@@ -1152,6 +1187,13 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
       return next
     })
   }, [])
+  const toggleCategoryFold = useCallback((name: string) => {
+    setCollapsedCategories((c) => {
+      const next = new Set(c)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+  }, [])
   const onDismiss = (item: WorkItem) => {
     if (!item.manual_attention) return
     dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
@@ -1198,23 +1240,42 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
           : (
             <div className="mailer">
               <div className="mailer-list">
-                {sections.map(section => <div key={section.key}
-                  className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
-                  {section.heading && <div className="docket-group-head">{section.heading}
-                    <span className="dim docket-group-n">{section.items.length}</span></div>}
-                {nestRows(section.items, collapsed).map((row) => (
-                  <DocketRow key={row.item.slug} item={row.item}
-                    org={slug} toast={toast} ageMode={sortMode}
-                    selected={row.item.slug === selId}
-                    depth={row.depth} kids={row.kids}
-                    folded={collapsed.has(row.item.slug)}
-                    onFold={() => toggleFold(row.item.slug)}
-                    onClick={() => setSelId(
-                      row.item.slug === selId ? null : row.item.slug)}
-                    onDismiss={onDismiss} facts={facts}
-                    onFocusAgent={onFocusAgent} />
-                ))}
-                </div>)}
+                {sections.map(section => {
+                  const categoryFolded = Boolean(section.heading && collapsedCategories.has(section.key))
+                  const rowsId = `${controlsId}-${section.key}-rows`
+                  const categoryName = `${section.heading}`
+                  return (
+                    <div key={section.key}
+                      className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
+                      {section.heading && <div className="docket-group-head">
+                        <span>{section.heading}</span>
+                        <button type="button" className="docket-category-toggle"
+                          title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
+                          aria-label={`${categoryFolded ? 'Expand' : 'Collapse'} ${categoryName}`}
+                          aria-expanded={!categoryFolded} aria-controls={rowsId}
+                          onClick={() => toggleCategoryFold(section.key)}>
+                          <span aria-hidden="true">{categoryFolded ? '\u25b6' : '\u25bc'}</span>
+                        </button>
+                        <span className="dim docket-group-n">{section.items.length}</span>
+                      </div>}
+                      <div id={section.heading ? rowsId : undefined}
+                        className="docket-category-rows" hidden={categoryFolded}>
+                        {nestRows(section.items, collapsed).map((row) => (
+                          <DocketRow key={row.item.slug} item={row.item}
+                            org={slug} toast={toast} ageMode={sortMode}
+                            selected={row.item.slug === selId}
+                            depth={row.depth} kids={row.kids}
+                            folded={collapsed.has(row.item.slug)}
+                            onFold={() => toggleFold(row.item.slug)}
+                            onClick={() => setSelId(
+                              row.item.slug === selId ? null : row.item.slug)}
+                            onDismiss={onDismiss} facts={facts}
+                            onFocusAgent={onFocusAgent} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
               <div className="mailer-read">
                 {cur

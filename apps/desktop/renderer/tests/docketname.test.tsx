@@ -174,8 +174,8 @@ uiTest('§N1 an agent group head IS the agent — chip and jump; a word is not',
       'the owner-less group was drawn as if it were an agent')
     absent(unassigned!.querySelector('.tier'),
       'the owner-less group wears a model chip')
-    absent(unassigned!.querySelector('button'),
-      'the owner-less group heading is a control')
+    absent(unassigned!.querySelector('button.cc-name'),
+      'the owner-less group heading is an agent navigation control')
     assert.match(unassigned!.textContent ?? '', /Unassigned/)
   })
 

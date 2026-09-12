@@ -2389,6 +2389,110 @@ uiTest('agent docket exposes backlog, all three clocks and status groups without
 })
 
 
+// ===================== category disclosures =====================
+// Categories are the sections produced by the selected grouping mode. This
+// helper deliberately follows the disclosure's hidden content rather than
+// counting every mounted row: rows stay mounted while their section is folded
+// so selecting a ticket and its draft/detail state are not disturbed.
+const categoryToggles = (el: HTMLElement) =>
+  [...el.querySelectorAll<HTMLButtonElement>('.docket-category-toggle')]
+const visibleCategoryRows = (section: Element) =>
+  [...section.querySelectorAll('.mailrow.docket-row')]
+    .filter((row) => !row.closest('[hidden]'))
+
+uiTest('§F category folds are independent, counted, accessible, and filter-safe',
+  async (mount) => {
+    forgetGroupChoice()
+    const active = [
+      mkItem({ slug: 'blocked-item', title: 'blocked-item', status: 'blocked' }),
+      mkItem({ slug: 'progress-item', title: 'progress-item', status: 'in_progress' }),
+    ]
+    const archived = [mkItem({ slug: 'archived-item', title: 'archived-item', status: 'done', archived: true })]
+    const backlog = [mkItem({ slug: 'backlog-item', title: 'backlog-item', status: 'backlogged' })]
+    const calls = mockWorkItems(active, archived, undefined, backlog)
+    const { el } = await mount(docketModal())
+    await flush()
+    await chooseGroup(el, 'status')
+
+    let sections = [...el.querySelectorAll('.docket-section')]
+    assert.equal(sections.length, 2)
+    assert.equal(categoryToggles(el).length, 2)
+    for (const section of sections) {
+      const toggle = section.querySelector<HTMLButtonElement>('.docket-category-toggle')!
+      assert.equal(toggle.type, 'button')
+      assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+      assert.ok(toggle.getAttribute('aria-label')?.startsWith('Collapse '))
+      const target = toggle.getAttribute('aria-controls')
+      assert.ok(target && el.ownerDocument.getElementById(target), 'disclosure target is missing')
+      assert.equal(section.querySelector('.docket-group-n')?.textContent, '1')
+      assert.equal(visibleCategoryRows(section).length, 1)
+    }
+
+    const callsBeforeFolding = calls.length
+    const first = categoryToggles(el)[0]!
+    const second = categoryToggles(el)[1]!
+    first.focus()
+    assert.equal(el.ownerDocument.activeElement, first, 'category control cannot receive focus')
+    await inAct(() => first.click())
+    await flush()
+    assert.equal(first.getAttribute('aria-expanded'), 'false')
+    assert.equal(calls.length, callsBeforeFolding, 'folding triggered a refetch')
+    assert.equal(visibleCategoryRows(first.closest('.docket-section')!).length, 0)
+    assert.equal(visibleCategoryRows(second.closest('.docket-section')!).length, 1)
+
+    await inAct(() => second.click())
+    await flush()
+    assert.equal(calls.length, callsBeforeFolding, 'a second fold triggered a refetch')
+    assert.equal(first.getAttribute('aria-expanded'), 'false')
+    assert.equal(second.getAttribute('aria-expanded'), 'false')
+    await inAct(() => first.click())
+    await flush()
+    assert.equal(first.getAttribute('aria-expanded'), 'true')
+    assert.equal(second.getAttribute('aria-expanded'), 'false')
+    assert.equal(visibleCategoryRows(first.closest('.docket-section')!).length, 1)
+
+    // Adding both filtered groups must preserve the folded state and their
+    // accurate heading counts; only their own rows are hidden.
+    await inAct(() => showBacklogBox(el).click())
+    await inAct(() => showArchivedBox(el).click())
+    await flush()
+    sections = [...el.querySelectorAll('.docket-section')]
+    assert.equal(sections.length, 4)
+    assert.equal(categoryToggles(el)[1]!.getAttribute('aria-expanded'), 'false')
+    for (const section of sections) {
+      assert.equal(section.querySelector('.docket-group-n')?.textContent, '1')
+    }
+    assert.deepEqual(
+      sections.filter((s) => visibleCategoryRows(s).length > 0)
+        .map((s) => s.querySelector('.docket-group-head')?.textContent?.trim()),
+      ['Blocked▼1', 'Backlogged — not yet approached▼1', 'Archived▼1'])
+  })
+
+uiTest('§F1 a jump into a folded category reveals the target row', async (mount) => {
+  forgetGroupChoice()
+  mockWorkItems([
+    mkItem({ slug: 'jump-target', title: 'jump-target', status: 'blocked' }),
+    mkItem({ slug: 'jump-other', title: 'jump-other', status: 'open' }),
+  ])
+  const { el, render: re } = await mount(docketModal())
+  await flush()
+  await chooseGroup(el, 'status')
+  const first = categoryToggles(el)[0]!
+  await inAct(() => first.click())
+  await flush()
+  assert.equal(first.getAttribute('aria-expanded'), 'false')
+
+  await re(docketModal({ jumpTo: 'jump-target', jumpSeq: 1 }))
+  await flush()
+  const targetSection = [...el.querySelectorAll('.docket-section')]
+    .find((section) => section.textContent?.includes('jump-target'))!
+  const targetToggle = targetSection.querySelector<HTMLButtonElement>('.docket-category-toggle')!
+  assert.equal(targetToggle.getAttribute('aria-expanded'), 'true',
+    'jump left the target category folded')
+  assert.equal(visibleCategoryRows(targetSection).length, 1,
+    'jump selected a row that remained hidden')
+})
+
 // ===================== the docket head's two controls (user 2026-09-11) =====
 //
 // The screenshot showed "View options ▾" as words with a separate × right
@@ -2519,6 +2623,37 @@ uiTest('§D the redundant local × is gone, and the way out is not',
 // handed. §E1 is the user's own scene, §E2 pins the two routes to the SAME
 // rendering, and §E3 is what an unfindable name must look like — which is
 // also what they saw, with a 3 KB name.
+
+uiTest('§F2 category disclosures stay in the pinned Docket surface', async (mount) => {
+  pinModal('docket', PIN_RECT, 'org1')
+  try {
+    forgetGroupChoice()
+    mockWorkItems([
+      mkItem({ slug: 'pinned-blocked', title: 'pinned-blocked', status: 'blocked' }),
+      mkItem({ slug: 'pinned-open', title: 'pinned-open', status: 'open' }),
+    ])
+    const { el } = await mount(pinnedDocket())
+    await flush()
+    const win = pinnedWindow(el)
+    const group = win.querySelector<HTMLSelectElement>('.docket-group-select')!
+    await inAct(() => {
+      group.value = 'status'
+      group.dispatchEvent(new window.Event('change', { bubbles: true }))
+    })
+    await flush()
+    const toggle = win.querySelector<HTMLButtonElement>('.docket-category-toggle')!
+    assert.ok(win.querySelector('[aria-label="Open in new window"]'),
+      'the pinned Docket lost its existing popout control')
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+    const target = win.ownerDocument.getElementById(toggle.getAttribute('aria-controls')!)!
+    assert.equal(target.hidden, false)
+    await inAct(() => toggle.click())
+    await flush()
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(target.hidden, true)
+    assert.equal(win.querySelector('.docket-group-n')?.textContent, '1')
+  } finally { unpinModal('docket', 'org1') }
+})
 
 const ITEM_FOR_JUMP = () => mkItem({
   slug: 'ship-the-thing', title: 'ship-the-thing',
