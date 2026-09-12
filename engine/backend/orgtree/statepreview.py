@@ -186,24 +186,38 @@ def _diff(before: Any, after: Any, path: str = "") -> list[dict[str, Any]]:
     return [] if before == after else [{"path": path, "before": before, "after": after}]
 
 
-def _apply(org: Org, actor: str, operation: str, args: Mapping[str, Any]) -> dict[str, Any]:
+def _move_args(args: Mapping[str, Any]) -> list[tuple[str, str | None]]:
+    """Validate the batch shape used by the real orgtree_move gateway."""
+    raw = args.get("moves")
+    if not isinstance(raw, list):
+        raise LedgerError("`moves` must be a list of {node, new_parent}")
+    moves: list[tuple[str, str | None]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            raise LedgerError(
+                f"moves[{i}] must be an object {{node, new_parent}}, not "
+                f"{type(item).__name__}")
+        if "new_parent" not in item:
+            raise LedgerError(
+                f"moves[{i}] has no `new_parent` — name the new superior, "
+                "or pass \"\" for the top level (user only)")
+        moves.append((str(item.get("node") or ""),
+                      item.get("new_parent") or None))
+    return moves
+
+
+def _apply(org: Org, actor: str, operation: str, args: Mapping[str, Any],
+           *, switch_busy: bool = False) -> dict[str, Any]:
     op = operation.removeprefix("orgtree_")
     target = str(args.get("node") or "")
     if op == "reallocate":
         return org.reallocate(actor, target, float(args.get("delta", 0)))
     if op == "move":
         if isinstance(args.get("moves"), list):
-            moves = [(str(m.get("node") or ""), m.get("new_parent", m.get("parent")))
-                     for m in args["moves"] if isinstance(m, Mapping)]
-            return org.move_batch(actor, moves)
+            return org.move_batch(actor, _move_args(args))
         return org.move(actor, target, args.get("new_parent", args.get("parent")))
     if op == "move_batch":
-        raw = args.get("moves")
-        if not isinstance(raw, list):
-            raise LedgerError("move_batch needs a moves list")
-        moves = [(str(m.get("node") or ""), m.get("new_parent", m.get("parent")))
-                 for m in raw if isinstance(m, Mapping)]
-        return org.move_batch(actor, moves)
+        return org.move_batch(actor, _move_args(args))
     if op in ("swap", "swap_seats"):
         return org.swap_seats(actor, str(args.get("a") or ""),
                               str(args.get("b") or ""))
@@ -235,7 +249,7 @@ def _apply(org: Org, actor: str, operation: str, args: Mapping[str, Any]) -> dic
         return org.revoke_dir(actor, target, str(args.get("dir") or ""))
     if op == "switch_model":
         return org.switch_model(actor, target, str(args.get("tier") or ""),
-                                busy=False, account=args.get("account"))
+                                busy=switch_busy, account=args.get("account"))
     if op == "audience":
         action = str(args.get("action") or "")
         if action == "grant":
@@ -248,13 +262,13 @@ def _apply(org: Org, actor: str, operation: str, args: Mapping[str, Any]) -> dic
 
 
 def preview(org: Org, actor: str, operation: str, args: Mapping[str, Any],
-            include_archived: bool = False) -> dict[str, Any]:
+            include_archived: bool = False, *, switch_busy: bool = False) -> dict[str, Any]:
     """Run one supported ledger operation on an isolated document."""
     if not operation:
         raise LedgerError("preview needs an operation")
     before = inspect_state(org, actor, include_archived=include_archived)
     shadow = isolated(org)
-    result = _apply(shadow, actor, operation, args)
+    result = _apply(shadow, actor, operation, args, switch_busy=switch_busy)
     after = inspect_state(shadow, actor, include_archived=include_archived)
     return {
         "operation": operation,

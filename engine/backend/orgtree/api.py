@@ -7840,7 +7840,7 @@ def _arg_flag(a: dict[str, Any], key: str) -> bool:
 
 
 _AGENT_PREVIEW_OPS = frozenset({
-    "reallocate", "move", "move_batch", "swap", "swap_seats",
+    "reallocate", "move", "swap", "swap_seats",
     "self_subjugate", "subjugate", "retool", "set_scope", "retire",
     "dissolve", "revoke_dir", "switch_model", "audience",
 })
@@ -7861,7 +7861,7 @@ def _agent_capability_payload(org: Org, actor: str) -> dict[str, Any]:
         "operations": names,
         "operator_only": ["rescind", "delete", "reseed"],
         "agent_only": ["orgtree_swap", "orgtree_self_subjugate",
-                        "orgtree_move_batch"],
+                        "orgtree_move"],
         "scope": {
             "org_visibility": (org.node(actor).get("scope") or {}).get(
                 "org_visibility", "team"),
@@ -9020,11 +9020,50 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             if not isinstance(raw_preview_args, dict):
                 raise LedgerError("preview args must be an object")
             preview_args = _norm_args(cast(dict[str, Any], raw_preview_args))
+            switch_busy = False
+            if operation in ("retool", "set_scope"):
+                # Re-run the non-ledger gates from the real retool door.  The
+                # account check is deliberately done before the isolated
+                # ledger call: a preview must not claim a valid transition
+                # for a registry selection that dispatch would reject.
+                target = str(preview_args.get("node") or "")
+                account = preview_args.get("account")
+                if account is not None:
+                    if target == body.node:
+                        raise HTTPException(
+                            403, "you cannot choose your own account")
+                    if not org.is_ancestor(body.node, target):
+                        raise HTTPException(
+                            403, "you can only rebind accounts of your "
+                            "subordinates")
+                    try:
+                        registry.validate_selection(
+                            body.org, str(org.node(target).get("model") or ""),
+                            str(account).strip())
+                    except ValueError as e:
+                        raise LedgerError(str(e)) from e
+                rdirs, _ = supervisor.sandbox_dirs_to_host(
+                    org, preview_args.get("add_dirs"))
+                if rdirs is not None:
+                    preview_args["add_dirs"] = rdirs
+            elif operation == "switch_model":
+                tier = str(preview_args.get("tier") or "")
+                provider_hire_gate(org, tier)
+                target = str(preview_args.get("node") or "")
+                account = str(preview_args.get("account") or "") or None
+                try:
+                    supervisor.check_switch_account(
+                        org, body.org, target, tier, account)
+                except ValueError as e:
+                    raise HTTPException(422, str(e)) from None
+                switch_busy = bool(
+                    target and supervisor.state(body.org, target).get("busy"))
             # A nested target is still the ordinary ledger call's target; the
             # shadow ledger repeats its authority and live-state checks.
             return statepreview.preview(
                 org, body.node, operation, preview_args,
-                include_archived=bool(a.get("include_archived", True)))
+                include_archived=bool(a.get("include_archived", True)),
+                switch_busy=switch_busy)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     if body.tool in ("orgtree_read_transcript", "orgtree_read_scratch",
@@ -11594,6 +11633,9 @@ def provider_hire_gate(
 def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
     if body.preview:
+        if pub:
+            raise HTTPException(
+                403, "kiosk: operator previews are available from the admin side")
         # Preview is an operator-authenticated variant of the existing ops
         # surface, not a new unauthenticated REST route.  It loads once and
         # never calls the interrupt, supervisor, or save paths below.
@@ -11614,8 +11656,23 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
                     org._require_live(actor)
                 args = body.model_dump(exclude={"op", "actor", "preview"},
                                        exclude_none=True)
+                switch_busy = False
+                if body.op == "switch_model":
+                    if body.tier is None:
+                        raise LedgerError("switch_model needs tier")
+                    provider_hire_gate(org, body.tier)
+                    account = str(body.account or "") or None
+                    try:
+                        supervisor.check_switch_account(
+                            org, slug, str(body.node or ""), body.tier,
+                            account)
+                    except ValueError as e:
+                        raise HTTPException(422, str(e)) from None
+                    switch_busy = bool(
+                        body.node and supervisor.state(slug, body.node).get("busy"))
                 return statepreview.preview(
-                    org, actor, body.op, args, include_archived=True)
+                    org, actor, body.op, args, include_archived=True,
+                    switch_busy=switch_busy)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     # Visitor delete is deliberately OPEN (user ruling 2026-08-01, twice
