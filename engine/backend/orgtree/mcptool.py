@@ -1167,7 +1167,9 @@ TOOLS: list[dict[str, Any]] = [
             "yourself in the same turn you act on its first fire. "
             "Costs no credits; capped at 8 per agent — and a one-shot dog "
             "gives its slot back when it fires. Actions: create, list, "
-            "pause, resume, remove — superiors may manage their subtree's. "
+            "pause, resume, remove, supersede — supersede explicitly cancels "
+            "an obsolete one-shot wait and requires a reason; superiors may "
+            "manage their subtree's. "
             "Prefer a watchdog over burning turns polling for a condition "
             "yourself."),
         "inputSchema": {
@@ -1175,7 +1177,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "action": {"type": "string",
                            "enum": ["create", "list", "pause", "resume",
-                                    "remove"]},
+                                    "remove", "supersede"]},
                 "name": {"type": "string",
                          "description": "create: a short name, e.g. "
                                         "build-watch"},
@@ -1227,7 +1229,9 @@ TOOLS: list[dict[str, Any]] = [
                                          "back to cmd, where your target "
                                          "would match nothing forever"},
                 "id": {"type": "string",
-                       "description": "pause/resume/remove: the watchdog id"},
+                       "description": "pause/resume/remove/supersede: the watchdog id"},
+                "reason": {"type": "string",
+                           "description": "supersede (or optional remove): durable cancellation reason"},
             },
             "required": ["action"],
         },

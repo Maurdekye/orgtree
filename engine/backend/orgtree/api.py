@@ -4567,10 +4567,14 @@ def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
     exactly what the websocket row for the same id will say."""
     mid = str(r.get("id") or "")
     out: dict[str, Any] = {"id": mid, "ref": refs.mail(slug, nid, mid) or ""}
+    if r.get("operation_id"):
+        out["operation_id"] = str(r["operation_id"])
     rows = [*((org.d.get("mail") or {}).get(nid) or []),
             *((org.d.get("mail_log") or {}).get(nid) or [])]
     row = next((m for m in rows if str(m.get("id")) == mid), None)
     if row is not None:
+        if row.get("operation_id") and "operation_id" not in out:
+            out["operation_id"] = str(row["operation_id"])
         w = events.wire_row(row, public=bool(public))
         for k in ("ev", "ev_public"):
             if k in w:
@@ -6822,7 +6826,8 @@ async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, An
 
 class WatchdogAction(Body):
     id: str
-    action: str          # pause | resume | remove
+    action: str          # pause | resume | remove | supersede
+    reason: str = ""     # required by supersede; retained in the lifecycle ledger
 
 
 @app.post("/api/orgs/{slug}/watchdogs")
@@ -6831,7 +6836,7 @@ async def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
     with store.DOC_LOCK:
         try:
             org = store.load_org(slug)
-            r = org.watchdog_action(USER, body.id, body.action)
+            r = org.watchdog_action(USER, body.id, body.action, body.reason)
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
@@ -9615,7 +9620,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         or org.is_ancestor(body.node, str(w["owner"]))]}
                 else:
                     result = org.watchdog_action(
-                        body.node, str(a.get("id") or ""), act)
+                        body.node, str(a.get("id") or ""), act,
+                        str(a.get("reason") or ""))
             elif body.tool == "orgtree_request_scope":
                 # FR-13: user-only grantor; the ledger routes deep agents
                 # without a user audience to their superior as mail

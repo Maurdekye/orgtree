@@ -34,7 +34,8 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
-from . import clipin, deployment, events, events_render, opreceipts, workfields
+from . import (clipin, deployment, events, events_render, lifecycle,
+               opreceipts, workfields)
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
@@ -2225,6 +2226,8 @@ class Org:
                     "to the user — escalate to your superior instead (§7.5)")
             ue: UserMailEntry = {"id": uuid.uuid4().hex[:8], "from": sender,
                                  "kind": kind, "body": body, "at": now()}
+            ue["message_id"] = ue["id"]
+            ue["operation_id"] = lifecycle.identity("mail", ue["id"])
             if ev is not None:
                 cast("dict[str, Any]", ue)["ev"] = events.encode_row_ev(ev, ue)
             if urgent:
@@ -2286,7 +2289,12 @@ class Org:
             self._log("mail", sender, {"to": USER, "kind": kind}, [])
             # the id rides the result → the sender's chat renders an inline
             # "open in mailbox" link on the send (user spec 2026-07-31)
+            lifecycle.record(self.d, operation_id=ue["operation_id"],
+                             kind="mail", state="accepted", at=ue["at"],
+                             message_id=ue["id"], recipient=USER,
+                             sender=sender, delivery="user_inbox")
             return {"delivered": "user_inbox", "id": ue["id"],
+                    "operation_id": ue["operation_id"],
                     "warnings": warnings}
 
         target = self.node(to)
@@ -2367,6 +2375,8 @@ class Org:
             "from": sender, "kind": kind, "body": body, "at": now(),
             "relationship": ("system" if sender == SYSTEM else self.relationship(sender, to)),
         }
+        entry["message_id"] = entry["id"]
+        entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
         keep, lost = _attachments_and_losses(attachments, missing)
@@ -2446,7 +2456,12 @@ class Org:
         gist = (body.strip().splitlines() or [""])[0][:80]
         self._log("mail", sender, {"to": to, "kind": kind, "gist": gist},
                   warnings)
+        lifecycle.record(self.d, operation_id=entry["operation_id"],
+                         kind="mail", state="accepted", at=entry["at"],
+                         message_id=entry["id"], recipient=to,
+                         sender=sender, delivery="mailbox")
         return {"delivered": to, "id": entry["id"], "deferred": deferred,
+                "operation_id": entry["operation_id"],
                 "warnings": warnings}
 
     def post_event(self, sender: str, to: str, ev: Mapping[str, Any], *,
@@ -2477,6 +2492,8 @@ class Org:
             "id": uuid.uuid4().hex[:12], "from": sender, "kind": kind,
             "body": events.render_agent(ev)[:8000], "at": now(),
             "relationship": relationship}
+        entry["message_id"] = entry["id"]
+        entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if model_only:
             entry["model_only"] = True
         entry["ev"] = events.encode_row_ev(ev, entry)
@@ -2484,6 +2501,11 @@ class Org:
         box.setdefault(to, []).append(cast(MailEntry, dict(entry)))
         log = self.d.setdefault("mail_log", {}).setdefault(to, [])
         log.append(cast(MailEntry, dict(entry)))
+
+        lifecycle.record(self.d, operation_id=entry["operation_id"],
+                         kind="mail", state="accepted", at=entry["at"],
+                         message_id=entry["id"], recipient=to,
+                         sender=sender, delivery="mailbox")
 
         return entry
 
@@ -6992,6 +7014,10 @@ class Org:
                      **({"shell": sh} if sh != "native" else {}),
                      **({"once": True} if one_shot else {}),
                      "fired": 0, "events": []})
+        lifecycle.record(self.d,
+                         operation_id=lifecycle.identity("watchdog", wid),
+                         kind="watchdog", state="armed", at=now(),
+                         watchdog_id=wid, owner=owner, once=one_shot)
         self._log("watchdog_create", owner,
                   {"id": wid, "name": name, "kind": kind,
                    **({"notice": True} if quiet else {}),
@@ -7013,8 +7039,8 @@ class Org:
                              "not show it" if one_shot else "")
                           + "; it costs no credits."}
 
-    def watchdog_action(self, actor: str, wid: str,
-                        action: str) -> dict[str, Any]:
+    def watchdog_action(self, actor: str, wid: str, action: str,
+                        reason: str = "") -> dict[str, Any]:
         """pause | resume | remove — the owner itself, any ancestor of the
         owner (downward authority), or the user."""
         w = self._watchdog(wid)
@@ -7030,12 +7056,42 @@ class Org:
             w.pop("paused_why", None)
         elif action == "remove":
             self.d.setdefault("watchdogs", []).remove(w)
+            if str(reason or "").strip():
+                lifecycle.record(
+                    self.d, operation_id=lifecycle.identity("watchdog", wid),
+                    kind="watchdog", state="cancelled", at=now(),
+                    watchdog_id=wid, by=actor, reason=str(reason).strip())
+        elif action == "supersede":
+            why = str(reason or "").strip()
+            if not why:
+                raise LedgerError("supersede requires a reason explaining why this wait is obsolete")
+            if not w.get("once"):
+                raise LedgerError("only a one-shot watchdog can be superseded; remove a persistent watchdog")
+            self.d.setdefault("watchdogs", []).remove(w)
+            tombs = cast("list[dict[str, Any]]",
+                         self.d.setdefault("watchdog_tombs", []))
+            tombs[:] = [t for t in tombs
+                        if not self._tomb_expired(t)][-self.WATCHDOG_TOMBS_KEEP:]
+            tombs.append({"id": wid, "owner": str(w["owner"]),
+                          "name": str(w["name"]), "kind": str(w["kind"]),
+                          "target": str(w.get("target") or ""),
+                          "interval_s": w.get("interval_s"), "at": w.get("at"),
+                          "spent_at": now(), "state": "superseded",
+                          "superseded_by": actor, "reason": why,
+                          "once": True})
+            lifecycle.record(
+                self.d, operation_id=lifecycle.identity("watchdog", wid),
+                kind="watchdog", state="superseded", at=now(),
+                watchdog_id=wid, by=actor, reason=why)
         else:
-            raise LedgerError("action must be pause|resume|remove")
+            raise LedgerError("action must be pause|resume|remove|supersede")
         self._log("watchdog_" + action, actor,
                   {"id": wid, "name": w["name"]}, [])
         return {"id": wid, "name": w["name"], "state":
-                ("removed" if action == "remove" else w["state"])}
+                ("removed" if action == "remove" else
+                 "superseded" if action == "supersede" else w["state"]),
+                **({"reason": str(reason).strip()} if str(reason or "").strip()
+                   else {})}
 
     #: How long a spent one-shot dog leaves a TOMBSTONE on the canvas (D-200,
     #: user catch 2026-08-30).
@@ -7138,6 +7194,8 @@ class Org:
             "id": uuid.uuid4().hex[:12], "from": str(w["name"]),
             "kind": "watchdog", "body": body[:8000], "at": now(),
             "relationship": "your watchdog"}
+        entry["message_id"] = entry["id"]
+        entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
         box = cast("dict[str, list[dict[str, Any]]]",
@@ -7154,6 +7212,11 @@ class Org:
         self._log("watchdog_fire", owner, {"id": wid, "gist": gist[:80],
                                            **({"once": True} if one_shot
                                               else {})}, [])
+        lifecycle.record(self.d,
+                         operation_id=lifecycle.identity("watchdog", wid),
+                         kind="watchdog", state="fired", at=fire["at"],
+                         watchdog_id=wid, owner=owner, once=one_shot,
+                         message_id=entry["id"])
         if one_shot:
             # the dog's own `events` ring and `fired` counter go with it, so
             # the org event log is the only durable trace that it ever fired.
@@ -7257,6 +7320,8 @@ class Org:
             "id": uuid.uuid4().hex[:12], "from": str(w["name"]),
             "kind": "watchdog", "body": body[:8000], "at": now(),
             "relationship": "your watchdog"}
+        entry["message_id"] = entry["id"]
+        entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
         box = cast("dict[str, list[dict[str, Any]]]",

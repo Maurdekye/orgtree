@@ -351,12 +351,13 @@ export const answerAsk = (
   })
 /** FR-18: the user manages a watchdog from its detail panel */
 export const watchdogAction = (
-  slug: string, id: string, action: 'pause' | 'resume' | 'remove',
+  slug: string, id: string, action: 'pause' | 'resume' | 'remove' | 'supersede',
+  reason?: string,
 ): Promise<{ id: string; name: string; state: string }> =>
   req(`/api/orgs/${slug}/watchdogs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, action }),
+    body: JSON.stringify({ id, action, ...(reason ? { reason } : {}) }),
   })
 /** FR-14: the ONE submit over a node's whole request batch — question
  *  answers (null = explicitly skipped), the credits decision, and per-item

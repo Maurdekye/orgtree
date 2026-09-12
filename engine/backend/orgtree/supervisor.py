@@ -45,7 +45,7 @@ from typing import Any, Final, Protocol, cast
 from . import halt
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, events, codex_route,
-               deployment, envelope, failfix, handoff, imgblock, limits,
+               deployment, envelope, failfix, handoff, imgblock, lifecycle, limits,
                liveness, localtime, net, openrouter, opreceipts, providers, registry,
                sandbox as sbx, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
@@ -16482,6 +16482,12 @@ def _run_one_turn(slug: str, nid: str,
                                       trec=_trec)
     finally:
         transcript_ingest.capture_safely(slug, nid)
+        # `state()` takes `_state_lock` itself.  Resolve the dict before
+        # taking the lock here; re-entering the plain lock would deadlock on
+        # every completed turn and hide the lifecycle receipt.
+        st = state(slug, nid)
+        with _state_lock:
+            st.pop("lifecycle_operation_id", None)
         if _trec is not None:
             try:
                 _trec.close()
@@ -16498,6 +16504,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
     recorder handle (None when recording is off)."""
     _trec = trec
     st = state(slug, nid)
+    turn_operation_id = lifecycle.new_operation("turn")
+    with _state_lock:
+        st["lifecycle_operation_id"] = turn_operation_id
     # WHEN THIS ATTEMPT BEGAN, on this process's wall clock — the lower bound
     # the retry banner filters operation receipts by (Phase 2 of w71d69aac,
     # see `_receipts_into_replay`). Taken HERE, before the slot wait and before
@@ -20375,6 +20384,12 @@ def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
                 return False
             name = str(org.node(nid).get("name") or nid)
             sup = str(org.node(nid).get("parent") or "")
+            op_id = lifecycle.identity("turn", str(org.node(nid).get(
+                "session_id") or nid))
+            lifecycle.record(
+                org.d, operation_id=op_id, kind="turn", state="failed",
+                at=now_iso(), node=nid, settlement="foreground-failed",
+                cleanup="complete", door=str(door), reason=str(err or ""))
             # typed (family runtime_recovery): the node's own copy is the frozen
             # rendering of runtime.turn_failed_terminal (test_events_producers §R)
             org.append_system_mail(
@@ -20988,6 +21003,12 @@ def _bg_orphaned(slug: str, nid: str,
             ref = _session_ref(org, nid)
             if sid:
                 ref["session_id"] = str(sid)
+            for tid, _desc, _outf in orphans:
+                lifecycle.record(
+                    org.d, operation_id=lifecycle.identity("task", tid),
+                    kind="task", state="orphaned", at=now_iso(),
+                    task_id=str(tid), owner=nid, settlement="process-dead",
+                    reason=str(why))
             org.append_system_mail(
                 nid, events.mint("runtime.subagent_died", _SYSTEM_ACTOR, ref,
                                  orphans=rows, count=len(orphans), reason=why),
@@ -21043,6 +21064,11 @@ def _bg_task_stopped(slug: str, nid: str, task_id: str, desc: str,
                 return
             # typed (family runtime_recovery): runtime.background_task_stopped on a
             # TaskRef; the body is its frozen rendering (test_events_producers §R)
+            lifecycle.record(
+                org.d, operation_id=lifecycle.identity("task", task_id),
+                kind="task", state="stopped", at=now_iso(),
+                task_id=str(task_id), owner=nid, settlement="cleanup-complete",
+                summary=(str(summary) if summary else None))
             org.append_system_mail(
                 nid, events.mint("runtime.background_task_stopped", _SYSTEM_ACTOR,
                                  {"kind": "task", "org": str(org.d.get("slug") or ""),
@@ -21387,6 +21413,15 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
     needlessly compact-split the node."""
     if nid not in org.nodes:
         return
+    op_id = str(st.get("lifecycle_operation_id") or "")
+    if op_id:
+        completed = _turn_observed_success(res, st)
+        lifecycle.record(
+            org.d, operation_id=op_id, kind="turn",
+            state="completed" if completed else "interrupted",
+            at=now_iso(), node=nid,
+            settlement="foreground-complete" if completed else "foreground-stopped",
+            cleanup="complete", status=str(res.get("status") or ""))
     _tier0 = str(org.node(nid).get("model") or "")
     _mu_probe: dict[str, Any] | None = None     # audit C-2, set on the OR lane
     # THE OPENROUTER LANE'S COST (2026-09-02, measured on 2.1.258). The CLI
@@ -23492,6 +23527,11 @@ def send_message(slug: str, nid: str, text: str,
             # the box was already drained.
             carrier["from"] = sender
             carrier["at"] = time.time()
+            # The first journal token is stable across the in-memory carrier
+            # and restart reconciliation.  It gives delay notices a durable
+            # identity without copying message bodies into runtime state.
+            if tok:
+                carrier["delivery_id"] = lifecycle.identity("delivery", tok)
         with _state_lock:
             if st.get("responding"):
                 st.setdefault("steer", []).append(carrier)
@@ -23560,6 +23600,7 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     delivers at the now-immediate result boundary."""
     st = state(slug, nid)
     with _state_lock:
+        operation_id = str(st.get("lifecycle_operation_id") or "")
         proc = st.get("proc") if st.get("responding") else None
         codex_turn = st.get("codex_turn") if st.get("responding") else None
         antigravity_turn = (st.get("antigravity_turn")
@@ -23580,61 +23621,67 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         elif (proc is not None or codex_turn is not None \
               or antigravity_turn is not None or readiness_wait):
             st["interrupted"] = True
+    def _result(interrupted: bool, reason: str | None = None) -> dict[str, Any]:
+        out: dict[str, Any] = {"interrupted": interrupted}
+        if reason:
+            out["reason"] = reason
+        if operation_id:
+            out["operation_id"] = operation_id
+            out["cleanup"] = {"state": "pending" if interrupted else "settled",
+                               "operation_id": operation_id,
+                               "reason": reason or ("interrupt requested"
+                                                      if interrupted else "already settled")}
+        return out
     if hold_waiting:
-        return {"interrupted": True,
-                "reason": "turn held for a pending restart"}
+        return _result(True, "turn held for a pending restart")
     if (admission_waiting and not readiness_wait and proc is None
             and codex_turn is None and antigravity_turn is None):
-        return {"interrupted": True, "reason": "turn waiting for a turn slot"}
+        return _result(True, "turn waiting for a turn slot")
     if readiness_wait:
         # No provider prompt has been admitted yet. Wake the bounded gate
         # itself instead of sending an interrupt verb to a turn that does not
         # exist; the owner sees `interrupted` and exits deterministically.
         if isinstance(readiness_event, threading.Event):
             readiness_event.set()
-        return {"interrupted": True}
+        return _result(True)
     if codex_turn is not None:
         # the codex lane's graceful stop: turn/interrupt on the live session
         # (the turn completes with status "interrupted", C.3)
         if codex_turn.interrupt():
-            return {"interrupted": True}
+            return _result(True)
         with _state_lock:
             st.pop("interrupted", None)
-        return {"interrupted": False,
-                "reason": "the turn was already over"}
+        return _result(False, "the turn was already over")
     if antigravity_turn is not None:
         # the antigravity lane's stop: the process tree is killed — the
         # conversation store already holds the turn so far (measured), and
         # the leg books an interrupted completed turn from the per-request
         # usage it had seen
         if antigravity_turn.interrupt():
-            return {"interrupted": True}
+            return _result(True)
         with _state_lock:
             st.pop("interrupted", None)
-        return {"interrupted": False,
-                "reason": "the turn was already over"}
+        return _result(False, "the turn was already over")
     if proc is None:
-        return {"interrupted": False,
-                "reason": "the turn is admitted but no provider call is active"}
+        return _result(False, "the turn is admitted but no provider call is active")
     if proc.poll() is not None:
         # A child can retain writable stdin after its launcher has died. A
         # successful write is not evidence that a CLI can receive the stop.
         with _state_lock:
             if st.get("proc") is proc:
                 st.pop("interrupted", None)
-        return {"interrupted": False,
-                "reason": "the CLI process exited; turn cleanup is pending"}
+        return _result(False, "the CLI process exited; turn cleanup is pending")
     try:
         proc.stdin.write(json.dumps({
             "type": "control_request",
             "request_id": "pause-" + os.urandom(4).hex(),
             "request": {"subtype": "interrupt"}}) + "\n")
         proc.stdin.flush()
-        return {"interrupted": True}
+        return _result(True)
     except (OSError, ValueError) as e:   # ValueError = stdin already closed
         with _state_lock:
             st.pop("interrupted", None)
-        return {"interrupted": False, "reason": str(e)}
+        return _result(False, str(e))
 
 
 def _ensure_frozen(n: NodeDoc) -> FrozenInfo:
@@ -27785,6 +27832,7 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
     now = time.time() if now is None else now
     due: list[tuple[str, str, str, float]] = []
     toks_of: dict[tuple[str, str, str], list[str]] = {}
+    delivery_of: dict[tuple[str, str, str], str] = {}
     with _state_lock:
         for (slug, nid), st in list(_state.items()):
             if not st.get("responding"):
@@ -27798,15 +27846,30 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
                 waited = now - float(at)
                 if waited < STEER_LATE_AFTER:
                     continue
+                did = str(c.get("delivery_id") or "")
+                if not did:
+                    toks = [str(t) for t in (c.get("toks") or []) if t]
+                    if toks:
+                        did = lifecycle.identity("delivery", toks[0])
+                        c["delivery_id"] = did
+                if not did:
+                    continue
                 c["late_told"] = True
                 due.append((slug, str(frm), nid, waited))
-                toks_of[(slug, str(frm), nid)] = [str(t) for t in (c.get("toks") or []) if t]
+                key = (slug, str(frm), nid)
+                toks_of[key] = [str(t) for t in (c.get("toks") or []) if t]
+                delivery_of[key] = did
     for slug, frm, nid, waited in due:
         boundary = steer_wait(slug, nid)
         try:
             with store.DOC_LOCK:
                 org = store.load_org(slug)
                 if frm not in org.nodes or nid not in org.nodes:
+                    continue
+                key = (slug, frm, nid)
+                did = delivery_of.get(key) or lifecycle.identity(
+                    "delivery", (toks_of.get(key) or [""])[0])
+                if lifecycle.has_state(org.d, did, "delay_reported"):
                     continue
                 # typed (family runtime_recovery): runtime.delivery_unread on the
                 # MailRef of the waiting mail — found in the delivery journal by the
@@ -27818,6 +27881,13 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
                     to=nid, waited=_dur(waited),
                     boundary_for=(_dur(boundary)
                                   if isinstance(boundary, (int, float)) else None)))
+                lifecycle.record(
+                    org.d, operation_id=did, kind="delivery",
+                    state="delay_reported", at=now_iso(), sender=frm,
+                    recipient=nid, waited=_dur(waited),
+                    boundary_for=(_dur(boundary)
+                                  if isinstance(boundary, (int, float)) else None),
+                    observed=True)
                 store.save_org(org)
         except Exception:                                        # noqa: BLE001
             continue

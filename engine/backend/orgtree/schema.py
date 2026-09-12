@@ -552,6 +552,9 @@ class NoticeLogEntry(TypedDict):
 # (audience_forward) omits it — Org.__init__ backfills ids on next load.
 UserMailEntry = TypedDict("UserMailEntry", {
     "id": NotRequired[str],
+    # Stable lifecycle correlation. These identify the write, not a read.
+    "message_id": NotRequired[str],
+    "operation_id": NotRequired[str],
     "from": str,
     "kind": str,
     "body": str,
@@ -591,6 +594,11 @@ UserMailEntry = TypedDict("UserMailEntry", {
 # retractable by id until delivery). Functional form: "from" is a keyword.
 MailEntry = TypedDict("MailEntry", {
     "id": str,
+    # Stable lifecycle correlation. ``message_id`` is the durable mail id;
+    # ``operation_id`` names the operation that created it and is never a
+    # claim that the recipient has read it.
+    "message_id": NotRequired[str],
+    "operation_id": NotRequired[str],
     "from": str,
     # message|question|request|decision|status — or "notice"
     # (orgtree_send_notice): minted ONLY by that tool, the single marker the
@@ -889,6 +897,9 @@ class OrgDoc(TypedDict):
     max_children: NotRequired[int]
     mail: NotRequired[dict[str, list[MailEntry]]]
     mail_log: NotRequired[dict[str, list[MailEntry]]]   # full-body archive, cap 100/node
+    # Bounded identity/state transitions for mail, child tasks, watchdogs and
+    # delivery warnings. Bodies remain in their owning records.
+    lifecycle: NotRequired[list[dict[str, Any]]]
     user_inbox: NotRequired[list[UserMailEntry]]
     user_outbox: NotRequired[list[dict[str, Any]]]      # MailEntry + "to" (user's Sent)
     user_mail_log: NotRequired[list[UserMailEntry]]     # api: dismissed-inbox archive
