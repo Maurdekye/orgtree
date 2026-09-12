@@ -145,32 +145,59 @@ export const createOrg = (
 // rather than req(): req treats every non-2xx as an error, and 304 is the
 // success case here.
 const treeCache = new Map<string, { etag: string; tree: TreePayload }>()
+// Per-slug invalidation stamp. Deleting the cache entry is not enough for a
+// request already IN FLIGHT (perf-review round 3): its captured `hit` would
+// still resolve a 304 to the pre-patch tree, and its 200 would re-install a
+// cache entry the ws patch just declared stale — either way setTree replaces
+// the patched render with the past. getTree captures the stamp before each
+// attempt and refuses to publish (return or cache) across a change.
+const treeCacheGen = new Map<string, number>()
 /** A ws node_stream patch just edited the RENDERED tree in place (cache
  *  forecast, MCP counts). The conditional cache must not hand that edit's
  *  pre-patch snapshot back on the next 304 — drop the entry so the next
- *  heartbeat does a real fetch (whose payload includes the pushed value). */
-export const invalidateTreeCache = (slug: string): void => { treeCache.delete(slug) }
+ *  heartbeat does a real fetch (whose payload includes the pushed value),
+ *  and bump the stamp so an in-flight fetch refetches instead of
+ *  publishing its pre-patch result. */
+export const invalidateTreeCache = (slug: string): void => {
+  treeCache.delete(slug)
+  treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
+}
 export const getTree = (slug: string): Promise<TreePayload> => {
-  const hit = treeCache.get(slug)
-  return fetch(u(`/api/orgs/${slug}`), {
-    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
-  }).then((r) => {
-    noteInstance(r)
-    if (r.status === 304 && hit) return hit.tree
-    if (!r.ok) {
-      return r.json().then((b: { detail?: string }) => {
-        throw new Error(b.detail || r.statusText)
+  const attempt = (left: number): Promise<TreePayload> => {
+    const gen = treeCacheGen.get(slug) ?? 0
+    // an invalidation deletes the entry, so a raced retry sends no
+    // validator and always lands on the fresh-200 arm
+    const hit = treeCache.get(slug)
+    return fetch(u(`/api/orgs/${slug}`), {
+      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+      ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+    }).then((r) => {
+      noteInstance(r)
+      if (r.status === 304 && hit) {
+        if ((treeCacheGen.get(slug) ?? 0) !== gen && left > 0) return attempt(left - 1)
+        return hit.tree
+      }
+      if (!r.ok) {
+        return r.json().then((b: { detail?: string }) => {
+          throw new Error(b.detail || r.statusText)
+        })
+      }
+      const etag = r.headers.get('ETag')
+      return r.json().then((raw: TreePayload) => {
+        const tree = hydrateTree(raw)
+        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
+          // raced an invalidation: this body may predate the ws patch.
+          // Refetch; on exhaustion hand it over UNCACHED so the next
+          // heartbeat still does a real fetch.
+          return left > 0 ? attempt(left - 1) : tree
+        }
+        if (etag) treeCache.set(slug, { etag, tree })
+        else treeCache.delete(slug)
+        return tree
       })
-    }
-    const etag = r.headers.get('ETag')
-    return r.json().then((raw: TreePayload) => {
-      const tree = hydrateTree(raw)
-      if (etag) treeCache.set(slug, { etag, tree })
-      else treeCache.delete(slug)
-      return tree
     })
-  })
+  }
+  return attempt(2)
 }
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */
