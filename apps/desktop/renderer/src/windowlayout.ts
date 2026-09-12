@@ -83,10 +83,61 @@ export function closeSavedWindow(key: string) {
   const row = savedWindows().find(r => r.key === key)
   if (row) saveWindow({ ...row, open: false })
 }
-export function popupFeatures(key: string) {
+/** The shape a popped-out window opens at when it has never been opened
+ *  before.
+ *
+ *  900x760 USED TO BE THE ONLY ANSWER - for a tall narrow desk, a wide
+ *  docket, a small usage panel, everything. The content then arrived into
+ *  proportions it was never laid out for, which is what the user reported on
+ *  2026-09-12: the window "feels resized into the wrong proportions".
+ *
+ *  So the SHAPE comes from the surface being popped out and the SIZE does
+ *  not. `source` is that surface's box on screen at the moment of the
+ *  pop-out, which is already the app's own answer to "how big is this
+ *  surface": a centred modal measures its default laid-out panel, and a
+ *  pinned one measures the box the user dragged it to (`measureRect` in
+ *  canvas/modalpin.tsx does exactly this when placing a fresh pin). Only its
+ *  ASPECT is used - a desk on a canvas card is a 120px square on screen and
+ *  a window that size would be useless - and the AREA stays what the single
+ *  fixed size always was, so nothing gets bigger or smaller overall.
+ *
+ *  ⚠ THE ASPECT IS NOT CLAMPED, deliberately. A band of "reasonable" ratios
+ *  would be two invented numbers, and the two real constraints are already
+ *  here: the window cannot exceed the screen, and it cannot go below the
+ *  size `valid()` above will persist. Scaling to fit the screen divides both
+ *  sides equally, so fitting never distorts what it was asked to match.
+ */
+export const POPUP_DEFAULT = { width: 900, height: 760 }
+const POPUP_AREA = POPUP_DEFAULT.width * POPUP_DEFAULT.height
+/** the floor `valid()` enforces on a saved window: below it the size cannot
+ *  even survive a restart, so there is no point opening one */
+const POPUP_MIN = { width: 200, height: 150 }
+
+export function popupSize(source?: { w: number; h: number } | null,
+  screenBox?: { width: number; height: number } | null): { width: number; height: number } {
+  const aspect = source && source.w > 0 && source.h > 0 ? source.w / source.h : NaN
+  if (!Number.isFinite(aspect) || aspect <= 0) return { ...POPUP_DEFAULT }
+  let width = Math.sqrt(POPUP_AREA * aspect)
+  let height = Math.sqrt(POPUP_AREA / aspect)
+  const limit = screenBox ?? (typeof screen === 'undefined' ? null
+    : { width: screen.availWidth, height: screen.availHeight })
+  if (limit && limit.width > 0 && limit.height > 0) {
+    const fit = Math.min(1, limit.width / width, limit.height / height)
+    width *= fit; height *= fit
+  }
+  return {
+    width: Math.max(POPUP_MIN.width, Math.round(width)),
+    height: Math.max(POPUP_MIN.height, Math.round(height)),
+  }
+}
+
+export function popupFeatures(key: string, source?: { w: number; h: number } | null) {
+  // A window that has been opened before keeps the size and place the user
+  // left it at; matching the source surface is only for the FIRST opening.
   const rect = savedWindows().find(r => r.key === key)?.rect
-  return rect ? `popup,left=${Math.round(rect.x)},top=${Math.round(rect.y)},width=${Math.round(rect.width)},height=${Math.round(rect.height)}`
-    : 'popup,width=900,height=760'
+  if (rect) return `popup,left=${Math.round(rect.x)},top=${Math.round(rect.y)},width=${Math.round(rect.width)},height=${Math.round(rect.height)}`
+  const size = popupSize(source)
+  return `popup,width=${size.width},height=${size.height}`
 }
 export function savedDeskIdentities(org: string): [string, string, number][] {
   return restoredWindows(org).flatMap(r => {

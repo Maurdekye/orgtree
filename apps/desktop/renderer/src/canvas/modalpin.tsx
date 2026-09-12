@@ -25,7 +25,7 @@ import { detachedKind } from '../windowlife'
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode,
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject,
   PointerEvent as ReactPointerEvent } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
@@ -488,12 +488,19 @@ export function PinFrame(props: PinFrameProps) {
   // it pins/pops out like any org surface — saved independently per org —
   // and only at home (no org) does the null scope below disable pin/popout.
   const scope = ['defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
-  if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} />
-  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}><PinFrameInner {...props} orgScope={scope} /></MovableSurface>
+  // THE PANEL, not the overlay around it, is this surface's size - centred it
+  // is the modal's own laid-out default, pinned it is the box the user
+  // dragged it to. The ref is owned HERE so the same measurement can be
+  // handed to the window opener, which sits above the panel in the tree.
+  const panelRef = useRef<HTMLDivElement>(null)
+  if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
+  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}
+    sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { w: r.width, h: r.height } : null }}>
+    <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
 function PinFrameInner({ kind, title, panel, overlayClass, close, children,
-  onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope }: PinFrameProps & { orgScope: string | null }) {
+  onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
@@ -502,7 +509,6 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const pinned = pinnable && orgScope !== null && pin !== null && !detached
   const inPlace = inline && !pinned && !detached
   const overlapSetting = useModalOverlap()
-  const panelRef = useRef<HTMLDivElement>(null)
   const bounds = useCanvasBox(ownerDocument, orgScope)
   const overlapsDesk = useDeskOverlap(panelRef, pinned && overlapSetting.enabled)
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always

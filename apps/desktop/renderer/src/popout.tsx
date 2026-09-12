@@ -216,10 +216,17 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, flush, restore }: {
+  anchor, onDetached, flush, restore, sourceBox }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean) => void; flush?: () => void
+  /** This surface's own box on screen, for the shape a first pop-out opens
+   *  at (see `popupSize`). A surface whose visible panel is NOT the whole of
+   *  its DOM has to say so: a centred modal renders a full-screen `.overlay`
+   *  around its panel, and measuring that would ask for a window the shape
+   *  of the screen. A surface that does not declare one keeps the fixed
+   *  default size, exactly as before. */
+  sourceBox?: () => { w: number; h: number } | null
 }) {
   const parent = useSurface()
   const layoutKey = windowLayoutKey(kind, org)
@@ -241,8 +248,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const pendingRestore = useRef<(() => void) | null>(null)
   const cleanups = useRef<(() => void)[]>([])
   const epoch = useRef(0)
-  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore })
-  latest.current = { anchor, parent, onDetached, flush, org, title, restore }
+  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox })
+  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
   const popoutName = useRef('')
@@ -308,6 +315,19 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     try { void desktop()?.focusPopout?.(popoutName.current)?.catch(() => {}) } catch { /* no native host */ }
   }
 
+  /** What shape is this surface right now?
+   *
+   *  ONLY WHAT THE OWNER DECLARES. Measuring this component's own boxes
+   *  instead would be guessing: `.movable-content` is a plain div, and a
+   *  desk's body is absolutely positioned inside it, so the box is either
+   *  zero-height or the slot's full width by a sliver - and a sliver asks
+   *  for an extremely wide window. A surface that knows its own panel says
+   *  so; anything that does not keeps the fixed default it has always had. */
+  const surfaceShape = (): { w: number; h: number } | null => {
+    const declared = latest.current.sourceBox?.()
+    return declared && declared.w > 0 && declared.h > 0 ? declared : null
+  }
+
   const open = () => {
     if (child.current && !child.current.closed) { reveal(); return }
     const transaction = ++epoch.current
@@ -318,7 +338,11 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // NAMED, not '_blank': the main process pairs this name to the native
       // window in did-create-window, and it is the only thing that lets this
       // surface's own header command its own window.
-      w = owner.defaultView!.open('', popoutName.current, popupFeatures(layoutKey))
+      // MEASURED BEFORE THE SURFACE MOVES. Everything below re-parents this
+      // DOM into the new window, after which there is nothing left here to
+      // measure - so the shape has to be read while the surface is still
+      // sitting where the user was looking at it.
+      w = owner.defaultView!.open('', popoutName.current, popupFeatures(layoutKey, surfaceShape()))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
