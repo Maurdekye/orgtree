@@ -4205,8 +4205,10 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     # the alias the caller asked by, never the resolved row id — an existing
     # client that asked for `primary` must keep reading its own key back
     out["account"] = account_id
-    # Keep public identity independent of provider-native/legacy labels.
-    # `account` above retains the requested alias for old clients.
+    # API identity metadata only: name/label use the canonical selector and
+    # account retains the requested alias for old clients. Every usage field,
+    # including provider-native labels INSIDE limits, remains the resolver's
+    # exact answer. The turn board gets identity separately from its roster.
     name = registry.account_name(row)
     out.update(name=name, label=name)
     return out

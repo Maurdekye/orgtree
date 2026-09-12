@@ -14,8 +14,9 @@ spending it. An agent cannot balance across accounts it cannot see.
 THE FIX IS ONE RESOLVER, NOT A SECOND READER. `accountusage.view` is the
 per-account resolution that used to sit inline in `api.accounts_usage`; the
 modal's endpoint now calls it with `allow_fetch=True` and the board calls it
-with `allow_fetch=False`. §1 pins that the two really are one function (parity
-by construction, not by coincidence), and §2 pins the half that makes it safe
+with `allow_fetch=False`. The endpoint adds canonical name/label metadata and
+echoes the requested account alias; it does not interpret usage again. §1 pins
+those identity fields and exact usage parity, and §2 pins the half that makes it safe
 to put on the every-turn path: cache-only means NO fetch, no app-server, no
 credentials read.
 
@@ -130,9 +131,11 @@ class AccountUsageEnvelope(unittest.TestCase):
         row = self.account('google', 'ag')
         endpoint = asyncio.run(api.accounts_usage(row['id']))
         direct = accountusage.view(row, allow_fetch=True)
-        self.assertEqual(endpoint, direct,
+        self.assertEqual(endpoint['name'], row['id'])
+        self.assertEqual(endpoint['label'], row['id'])
+        self.assertEqual(endpoint, {**direct, 'name': row['id'], 'label': row['id']},
                          'the modal endpoint no longer answers from '
-                         'accountusage.view — the two surfaces can drift')
+                         'accountusage.view plus canonical identity metadata')
         # and the ambient rule is one function too, not two copies
         self.assertIs(api._ambient_covered.__module__ and
                       accountusage.ambient_covered(
@@ -148,6 +151,29 @@ class AccountUsageEnvelope(unittest.TestCase):
         self.assertEqual(out['account'], 'primary',
                          'a client that asked for `primary` must read its '
                          'own key back, not the resolved row id')
+        self.assertEqual(out['name'], 'claude/primary')
+        self.assertEqual(out['label'], 'claude/primary')
+
+    def test_s1c_endpoint_changes_only_identity_and_preserves_every_usage_field(self):
+        import asyncio
+        from copy import deepcopy
+        row = self.account('openai', 'old mutable label', 'observed@example.test')
+        reading = {
+            'account': 'provider-account-digest', 'name': 'provider name',
+            'label': 'provider display label', 'provider': 'Codex',
+            'email': 'observed@example.test', 'available': True, 'plan': 'Pro',
+            'limits': [limit('weekly_scoped', 84, '2026-09-20T08:00:00Z',
+                             model='gpt-reserve', label='Provider window label')],
+            'observed_at': '2026-09-12T12:00:00Z', 'stale': False,
+            'standing': {'auth': 'authenticated', 'state': 'limited',
+                         'marks': {'pooled': {'until': NOW + 60, 'provenance': 'observed'}}},
+        }
+        with patch.object(accountusage, 'view', return_value=deepcopy(reading)) as resolver:
+            endpoint = asyncio.run(api.accounts_usage(row['id']))
+        resolver.assert_called_once_with(row, allow_fetch=True)
+        self.assertEqual(endpoint, {**reading, 'account': row['id'],
+                                    'name': row['id'], 'label': row['id']})
+        self.assertEqual(endpoint['limits'][0]['label'], 'Provider window label')
 
     # ── §2 the envelope path never fetches ────────────────────────────────
     def test_s2_cache_only_view_opens_no_fetch_no_process_no_credential(self):
