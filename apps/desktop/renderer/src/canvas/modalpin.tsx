@@ -646,7 +646,14 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
           : 'pin this to the window, so it stays put and can be dragged around',
         onSelect: toggle })
     }
-    entries.push('sep', { label: 'Close', onSelect: closeSurface })
+    // ⚠ THE SEPARATOR ONLY EXISTS IF THERE IS SOMETHING TO SEPARATE. A
+    // surface that is not pinnable — Usage at home, App settings, the
+    // OpenRouter picker, the doc reader while it loads — offers Close and
+    // nothing else, and an unconditional 'sep' drew a rule across the top of
+    // a one-item menu (found by the 2026-09-12 Close audit). The renderer
+    // draws every 'sep' it is given; deciding there is not this list's job.
+    if (entries.length) entries.push('sep')
+    entries.push({ label: 'Close', onSelect: closeSurface })
     return entries
   }
 
