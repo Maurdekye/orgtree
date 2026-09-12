@@ -366,6 +366,39 @@ test('§5 leaving history DOES still collapse the poll window — bounded by wha
   } finally { await d.unmount(); restore() }
 })
 
+test('§5c sending from deep history unloads the off-screen history behind you',
+  async () => {
+    // USER DECISION 2026-09-12, asked explicitly and answered "unload it
+    // (keep it fast)". Sending from history takes you to the newest message —
+    // intended and unchanged — and the old rows now scrolled off above you are
+    // dropped, so the 2.5s poll goes back to carrying a screenful instead of
+    // the whole depth of the visit. Scrolling up re-pages them.
+    //
+    // This is NOT the reported defect and must not be confused with it: §4
+    // covers what the user actually saw, a COLLAPSED FRAME AND A JUMP while
+    // sending from the tail. Here the reader ends at the tail looking at their
+    // own message, so nothing they can see collapses or moves. It is pinned
+    // because it was a decision, and the opposite choice was a real option.
+    const restore = layout(SHORT)
+    const d = await desk(300)
+    try {
+      for (let i = 0; i < 10; i++) await d.scrollBy(-10_000)
+      const deep = d.shot()
+      assert.ok(deep.rows > 40, `fixture: paged deep, got ${deep.rows} rows`)
+      assert.equal(d.atBottom(), false, 'fixture: reading history')
+      await d.send('a message sent from up here')
+      await inAct(async () => { await flush(12) })
+      const after = d.shot()
+      assert.equal(d.atBottom(), true,
+        'sending must still take the reader to their own message')
+      assert.ok(after.rows < deep.rows,
+        `the off-screen history was kept loaded (${deep.rows} -> ${after.rows} rows), `
+        + 'so every later poll would re-ship it — the user chose the other way')
+      assert.ok(after.rows >= Math.ceil((VIEW_H * 2) / ROW_H),
+        `it unloaded below what the desk draws (${after.rows} rows)`)
+    } finally { await d.unmount(); restore() }
+  })
+
 test('§5b a TALL desk collapses to ITS viewport, not to the small-desk floor',
   async () => {
     const restore = layout(TALL)
