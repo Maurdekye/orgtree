@@ -12,9 +12,11 @@ import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
 import './styles.css'
 import { startThemeSync } from './themes'
 import { startContrastSync } from './contrast'
+import { startAgentColorSync } from './agentcolors'
 
 startThemeSync()
 startContrastSync()
+startAgentColorSync()
 
 flushPendingReports()
 

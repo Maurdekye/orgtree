@@ -34,7 +34,7 @@ test('Display persists only appearance, honors broadcasts over stale load, and r
   assert.match(document.querySelector('[role=alert]').textContent,/Disk unavailable/)
   assert.equal(select.value,'openrouter')
   assert.equal(document.documentElement.style.getPropertyValue('--accent'),THEMES.openrouter.accent)
-  assert.equal(document.documentElement.style.length,4,'only four appearance tokens changed')
+  assert.equal(document.documentElement.style.length,7,'only accent tokens and their organization copies changed')
   await act(async()=>root.unmount());stop();assert.equal(listeners.size,0);dom.window.close()
 })
 

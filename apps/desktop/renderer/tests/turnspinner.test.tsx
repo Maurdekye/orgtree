@@ -629,13 +629,14 @@ test('Working state gets fixed non-provider styling across providers, while Acti
   assert.match(css, /\.tray-status-label\.working\s*\{\s*color:\s*var\(--work\);/,
     'tray-status-label.working uses fixed var(--work)')
 
-  // Active in-turn rules: Active state uses var(--accent) (provider theme)
-  assert.match(css, /\.sq-idle\.working\.active[^{]*\{\s*color:\s*var\(--accent\);/,
-    'sq-idle active turn uses var(--accent)')
-  assert.match(css, /\.turn-status-banner\.working\.active[^{]*\{\s*color:\s*var\(--accent\);/,
-    'turn-status-banner active turn uses var(--accent)')
-  assert.match(css, /\.tray-status-label\.working\.active[^{]*\{\s*color:\s*var\(--accent\);/,
-    'tray-status-label active turn uses var(--accent)')
+  // Active text keeps the provider accent by default; the organization-color
+  // option supplies a readable shade without changing the recorded status.
+  assert.match(css, /\.sq-idle\.working\.active[^{]*\{\s*color:\s*var\(--agent-accent-text,\s*var\(--accent\)\);/,
+    'sq-idle active turn retains the provider accent fallback')
+  assert.match(css, /\.turn-status-banner\.working\.active[^{]*\{\s*color:\s*var\(--agent-accent-text,\s*var\(--accent\)\);/,
+    'turn-status-banner active turn retains the provider accent fallback')
+  assert.match(css, /\.tray-status-label\.working\.active[^{]*\{\s*color:\s*var\(--agent-accent-text,\s*var\(--accent\)\);/,
+    'tray-status-label active turn retains the provider accent fallback')
 
   // Across providers: Claude (haiku), OpenAI (terra), Google (flash)
   for (const tier of ['haiku', 'terra', 'flash'] as const) {

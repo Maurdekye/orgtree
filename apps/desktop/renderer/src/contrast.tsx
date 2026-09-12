@@ -15,6 +15,7 @@ export function applyContrast(value: unknown): void {
   // Popouts already mirror root classes and CSS. Preserve mobile and any
   // other unrelated classes, as well as the separately managed accent tokens.
   for (const id of CONTRAST_THEMES) document.documentElement.classList.toggle(`contrast-${id}`, id === theme)
+  window.dispatchEvent(new window.Event('orgtree:contrast-changed'))
 }
 
 function preference(value: unknown): ContrastTheme {

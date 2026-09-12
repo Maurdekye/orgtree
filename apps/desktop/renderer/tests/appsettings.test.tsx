@@ -226,7 +226,7 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     const plus = [...panel.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent === '+')!
     await inAct(async () => { plus.click() })
-    const crowd = panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    const crowd = panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!
     await inAct(async () => { crowd.click() })
     assert.equal(localStorage.getItem('orgtree-desk-dpi'), '1.25')
     assert.equal(document.documentElement.style.getPropertyValue('--desk-dpi'), '1.25')
@@ -242,7 +242,7 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     await inAct(async () => { displayTab.click() })
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
     assert.match(panel.textContent ?? '', /125%/)
-    assert.equal(panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked,
+    assert.equal(panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!.checked,
       true)
   } finally {
     await view.unmount(); delete g.fetch; localStorage.clear()

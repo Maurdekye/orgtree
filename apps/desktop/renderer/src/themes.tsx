@@ -3,6 +3,7 @@ import { desktop } from './desktop'
 import { getProviders } from './api'
 import { SetGroup, SetRow } from './canvas/settingskit'
 import { ContrastSetting } from './contrast'
+import { AgentColorSetting } from './agentcolors'
 import { isVisualTheme, isCustomTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
@@ -43,7 +44,6 @@ export function applyTheme(value: unknown) {
   const selected = isVisualTheme(value) ? value : DEFAULT_THEME
   const theme = isCustomTheme(selected) ? customTheme(selected.slice(7)) : THEMES[selected]
   document.documentElement.dataset.visualTheme = selected
-  window.dispatchEvent(new window.CustomEvent('orgtree:visual-theme-changed', { detail: selected }))
   // The existing native-popout observer copies this root style, including
   // subsequent updates. Semantic status and scoped provider colors stay intact.
   const style = document.documentElement.style
@@ -51,6 +51,10 @@ export function applyTheme(value: unknown) {
   style.setProperty('--accent-hover', theme.hover)
   style.setProperty('--accent-soft', theme.soft)
   style.setProperty('--accent-ink', isCustomTheme(selected) ? customTheme(selected.slice(7)).ink : '#17191d')
+  style.setProperty('--org-accent', theme.accent)
+  style.setProperty('--org-accent-hover', theme.hover)
+  style.setProperty('--org-accent-soft', theme.soft)
+  window.dispatchEvent(new window.CustomEvent('orgtree:visual-theme-changed', { detail: selected }))
 }
 
 function notifyNative(bridge: ReturnType<typeof desktop>, theme: VisualTheme): void {
@@ -210,5 +214,6 @@ export function ThemeSetting() {
     </SetRow>}
     {error && <p role="alert">Could not save theme: {error}</p>}
     <ContrastSetting />
+    <AgentColorSetting />
   </SetGroup>
 }
