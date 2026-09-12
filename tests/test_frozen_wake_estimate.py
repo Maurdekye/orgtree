@@ -177,12 +177,30 @@ class WakeEstimateTests(unittest.TestCase):
     # capacity, no instruction to resume by hand (that copy is retired).
     def test_no_estimate_says_so_and_claims_nothing(self):
         for fz_in in ({'until_ts': None, 'reset_src': 'probe'},
-                      {'until_ts': time.time() - 60, 'reset_src': 'text'},
+                      {'until_ts': time.time() - 60, 'reset_src': 'probe'},
                       {'until_ts': None, 'reset_src': ''}):
             with self.subTest(**fz_in):
                 fz = self._derive(self._node('fable', **fz_in))
                 self.assertEqual(fz['until'], 'reset time unknown')
                 self.assertIsNone(fz['until_ts'])
+
+    def test_an_elapsed_429_is_kept_because_the_node_is_due(self):
+        """⚠ CHANGED DELIBERATELY (user ruling 2026-09-12, coordinator
+        decision): an elapsed conclusive 429 used to fall through to "reset
+        time unknown". It is kept now, because the moment the provider named
+        is when this node is DUE and it is owed one real attempt then. The
+        scheduler says ready at the same instant — one number — and dropping
+        it here would put the badge back out of step with the timer.
+
+        An elapsed weak source still falls through: nothing there was owed an
+        attempt (the case above)."""
+        past = time.time() - 60
+        for src in ('text', 'provider'):
+            with self.subTest(src=src):
+                fz = self._derive(self._node('fable', until_ts=past,
+                                             reset_src=src))
+                self.assertEqual(fz['until_ts'], past)
+                self.assertNotEqual(fz['until'], 'reset time unknown')
 
     def test_an_open_roster_never_offers_manual_resume(self):
         """THE RETIRED COPY. `capacity available — ▶ to resume` came out of
@@ -396,6 +414,205 @@ class WakeFollowsWhatIsShownTests(unittest.TestCase):
         from orgtree import supervisor
         self.assertFalse(hasattr(supervisor, '_admission_floor'),
                          'the hidden admission floor is back')
+
+
+class ShownAndScheduledAgreeTests(unittest.TestCase):
+    """THE CONTRACT, end to end (review round 3). The badge and the wake timer
+    must name the same instant for the same record.
+
+    They came apart because the re-derivation was PROJECTION-ONLY:
+    `_rederive_freeze_reset` ranked the sources on the tree payload and wrote
+    nothing durable, while `auto_resume_ready` read the stamped
+    `frozen.until_ts` off the document. Both ask
+    `supervisor.effective_freeze_deadline` now, and these are the two
+    disagreements perf-review reproduced."""
+
+    def setUp(self):
+        path = registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    _seq = 0
+
+    def _fixture(self, mark_at, **fz):
+        """A real bound node with a real registry account, plus the payload the
+        desk would repaint from — built from the SAME durable record."""
+        import copy
+        from orgtree import ledger
+        ShownAndScheduledAgreeTests._seq += 1
+        seq = ShownAndScheduledAgreeTests._seq
+        acct = registry.create_account(
+            'claude', 't', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'agree-{seq}')})
+        if mark_at:
+            registry.record_mark(acct['id'], 'fable', until=mark_at,
+                                 provenance='observed')
+        org = ledger.Org.create(f'agree-{seq}')
+        nid = org._new_node('fable', None, 0, 'root', [],
+                            {'bash': False, 'web': False, 'edit': False,
+                             'subagents': False, 'mcp': []}, 'full', 'c')
+        org.node(nid)['account'] = acct['id']
+        org.node(nid)['frozen'] = {'limit': True, 'provider': 'claude',
+                                   'account': acct['id'], 'at': 'x', **fz}
+        _SLUGS.append(org.d['slug'])
+        payload = {'tier': 'fable', 'account': acct['id'],
+                   'frozen': copy.deepcopy(org.node(nid)['frozen'])}
+        api._rederive_freeze_reset(payload, {})
+        return org, nid, acct['id'], payload['frozen']
+
+    def _assert_agree(self, org, nid, acct, payload_fz, offsets):
+        """⚠ BOTH READERS ARE ASKED AT THE SAME INSTANT. `_rederive_freeze_
+        reset` reads the wall clock, so the badge cannot be re-derived for a
+        future `at`; the contract can, and the badge IS the contract — pinned
+        by the first assertion here. Moving the scheduler back onto a raw
+        `frozen.until_ts` breaks this test, which is its whole job."""
+        from orgtree import supervisor
+        now = time.time()
+        fzdoc = org.node(nid)['frozen']
+        shown_now = supervisor.effective_freeze_deadline(
+            fzdoc, registry.active_mark(acct, 'fable', now), now)
+        # the badge renders exactly what the contract said, at this instant
+        self.assertEqual(payload_fz.get('until_ts'),
+                         shown_now['ts'] if shown_now else None)
+        for off in offsets:
+            at = now + off
+            with self.subTest(at=off):
+                eff = supervisor.effective_freeze_deadline(
+                    fzdoc, registry.active_mark(acct, 'fable', at), at)
+                ready = nid in supervisor.auto_resume_ready(org, now=at)
+                if eff is None:
+                    # no time from any source: the org-wide 5-minute probe
+                    # floor owns the wake and the badge says so. Nothing to
+                    # reconcile — the two are not naming different instants.
+                    continue
+                self.assertEqual(
+                    ready, at >= float(eff['ts']) + 60.0,
+                    f'shown {eff["src"]}@{eff["ts"] - now:+.0f}s, ready={ready}')
+
+    def test_a_weak_horizon_under_a_live_mark(self):
+        """perf-review's first reproduction: badge +1800, timer +300."""
+        now = time.time()
+        org, nid, acct, fz = self._fixture(now + 1800, until_ts=now + 300,
+                                           reset_src='probe')
+        self.assertAlmostEqual(fz['until_ts'], now + 1800, delta=2.0)
+        self._assert_agree(org, nid, acct, fz, (0, 400, 1000, 1861, 1900))
+
+    def test_an_elapsed_429_under_a_longer_mark(self):
+        """perf-review's second: ready now, badge showing the mark's +1800."""
+        now = time.time()
+        org, nid, acct, fz = self._fixture(now + 1800, until_ts=now - 120,
+                                           reset_src='text')
+        self.assertAlmostEqual(fz['until_ts'], now - 120, delta=2.0)
+        self._assert_agree(org, nid, acct, fz, (0, 400, 1900))
+
+    def test_a_live_429_under_a_longer_mark(self):
+        now = time.time()
+        org, nid, acct, fz = self._fixture(now + 7200, until_ts=now + 1800,
+                                           reset_src='text')
+        self.assertAlmostEqual(fz['until_ts'], now + 1800, delta=2.0)
+        self._assert_agree(org, nid, acct, fz, (0, 1000, 1861, 1900, 7300))
+
+    def test_a_record_with_no_horizon_but_a_live_mark(self):
+        now = time.time()
+        org, nid, acct, fz = self._fixture(now + 1800, until_ts=None,
+                                           reset_src='probe')
+        self.assertAlmostEqual(fz['until_ts'], now + 1800, delta=2.0)
+        self._assert_agree(org, nid, acct, fz, (0, 1000, 1861, 1900))
+
+    def test_an_unbound_node_still_agrees(self):
+        """No mark anywhere — rank 3 on both sides."""
+        now = time.time()
+        org, nid, acct, fz = self._fixture(None, until_ts=now + 300,
+                                           reset_src='inherited')
+        self.assertAlmostEqual(fz['until_ts'], now + 300, delta=2.0)
+        self._assert_agree(org, nid, acct, fz, (0, 200, 361, 500))
+
+
+class OneShotGateBypassTests(unittest.TestCase):
+    """Coordinator decision 2026-09-12, the narrowest path: the wake of a
+    conclusive-429 freeze whose stated time has passed gets ONE real provider
+    attempt, instead of being re-frozen on the spot by the pre-slot account
+    gate reading an older, longer mark. Everything else stays gated."""
+
+    def _fz(self, **kw):
+        return {'limit': True, 'provider': 'claude', 'at': 'x', **kw}
+
+    def test_an_elapsed_429_earns_the_pass(self):
+        from orgtree import supervisor
+        now = time.time()
+        for src in ('text', 'provider'):
+            with self.subTest(src=src):
+                n = {}
+                self.assertTrue(supervisor._issue_admit_once(
+                    n, self._fz(until_ts=now - 60, reset_src=src), now))
+                self.assertAlmostEqual(n['admit_once'], now, delta=1.0)
+
+    def test_nothing_else_earns_it(self):
+        """Every clause is load-bearing: the limit kind, a provider-stated
+        source, and a deadline that has actually passed."""
+        from orgtree import supervisor
+        now = time.time()
+        for fz in (
+                # a wall still standing — not the wake it is owed
+                self._fz(until_ts=now + 600, reset_src='text'),
+                self._fz(until_ts=now + 600, reset_src='provider'),
+                # the fallback sources have no standing over the gate
+                self._fz(until_ts=now - 60, reset_src='probe'),
+                self._fz(until_ts=now - 60, reset_src='inherited'),
+                self._fz(until_ts=now - 60, reset_src='account-mark'),
+                self._fz(until_ts=now - 60, reset_src='usage:session'),
+                # no time at all, and not a usage-limit freeze
+                self._fz(until_ts=None, reset_src='text'),
+                {'connection': True, 'until_ts': now - 60,
+                 'reset_src': 'text', 'at': 'x'}):
+            with self.subTest(src=fz.get('reset_src'),
+                              ts=fz.get('until_ts'), limit=fz.get('limit')):
+                n = {}
+                self.assertFalse(supervisor._issue_admit_once(n, fz, now))
+                self.assertNotIn('admit_once', n)
+
+    def test_the_pass_is_spent_once_and_then_gone(self):
+        from orgtree import supervisor
+        from orgtree import ledger
+        org = ledger.Org.create('bypass-once')
+        nid = org._new_node('fable', None, 0, 'root', [],
+                            {'bash': False, 'web': False, 'edit': False,
+                             'subagents': False, 'mcp': []}, 'full', 'c')
+        slug = org.d['slug']
+        _SLUGS.append(slug)
+        org.node(nid)['admit_once'] = time.time()
+        store.save_org(org)
+        self.assertTrue(supervisor._consume_admit_once(slug, nid))
+        self.assertNotIn('admit_once', store.load_org(slug).node(nid))
+        self.assertFalse(supervisor._consume_admit_once(slug, nid))
+
+    def test_an_expired_pass_is_refused_and_cleared(self):
+        from orgtree import supervisor
+        from orgtree import ledger
+        org = ledger.Org.create('bypass-stale')
+        nid = org._new_node('fable', None, 0, 'root', [],
+                            {'bash': False, 'web': False, 'edit': False,
+                             'subagents': False, 'mcp': []}, 'full', 'c')
+        slug = org.d['slug']
+        _SLUGS.append(slug)
+        org.node(nid)['admit_once'] = (time.time()
+                                       - supervisor.ADMIT_ONCE_TTL - 30)
+        store.save_org(org)
+        self.assertFalse(supervisor._consume_admit_once(slug, nid))
+        self.assertNotIn('admit_once', store.load_org(slug).node(nid),
+                         'a stale pass must not sit waiting for a later wake')
+
+    def test_a_node_without_a_pass_is_untouched(self):
+        from orgtree import supervisor
+        from orgtree import ledger
+        org = ledger.Org.create('bypass-none')
+        nid = org._new_node('fable', None, 0, 'root', [],
+                            {'bash': False, 'web': False, 'edit': False,
+                             'subagents': False, 'mcp': []}, 'full', 'c')
+        slug = org.d['slug']
+        _SLUGS.append(slug)
+        store.save_org(org)
+        self.assertFalse(supervisor._consume_admit_once(slug, nid))
 
 
 class BoundAccountMarkTests(unittest.TestCase):

@@ -326,6 +326,15 @@ class NodeDoc(TypedDict):
     # back; the marker makes a second rescind a no-op instead of a
     # double-subtraction
     rescinded_at: NotRequired[str]
+    # ONE pass through the pre-slot account gate, as a unix time (user ruling
+    # 2026-09-12). Issued by `resume_frozen` when it clears a usage-limit
+    # freeze whose deadline came from the specific 429 (`reset_src` text or
+    # provider) and has passed, so the wake at that stated time reaches the
+    # provider instead of being re-frozen on the spot by an older, longer
+    # account mark. `supervisor._consume_admit_once` is the only reader and
+    # ALWAYS clears it; `ADMIT_ONCE_TTL` bounds a pass that was never spent.
+    # ⚠ Not a general admission override — every other wake stays gated.
+    admit_once: NotRequired[float]
     pid: int | None
     ui_order: float
     scope: NodeScope

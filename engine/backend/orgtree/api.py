@@ -1854,86 +1854,43 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # an unmarked fallback) is a fact about ROUTING that must never ERASE this
     # node's stated wake. Routing itself (`accounts.resolve` at spawn) is
     # untouched by this projection.
+    # ── RANKS 1-3 ARE NOT DECIDED HERE. `supervisor.effective_freeze_deadline`
+    # owns them, and `auto_resume_ready` asks it the same question, so the time
+    # on the badge and the time the node actually wakes are ONE NUMBER (user
+    # ruling 2026-09-12; review round 3 caught them disagreeing). This used to
+    # rank the sources itself, on the payload, writing nothing durable — while
+    # the scheduler read the stamped `frozen.until_ts` off the document. A
+    # `probe` floor at +300 under an observed mark at +1800 then displayed
+    # +1800 and woke at +300.
+    #
+    # ⚠ MEMOISED IN THE SAME `cache` AS THE ROSTER: `registry.active_mark`
+    # re-reads and re-parses the whole registry FILE per call, and an org with
+    # 40 frozen seats would pay that 40 times over for the handful of
+    # (account, tier) pairs it actually has. The `mark:` prefix cannot collide
+    # with the roster's own keys — those are bare tier names from
+    # `accounts.TIERS`, tested a few lines above.
     fzd = cast("dict[str, Any]", fz)
-    src = str(fzd.get("reset_src") or "")
-    try:
-        own = float(fzd.get("until_ts") or 0)
-    except (TypeError, ValueError):
-        own = 0.0
     now = time.time()
-    live_own = now < own <= now + limits.MAX_HORIZON
-
-    def _keep_own() -> None:
-        fz["until"] = _capacity_label(
-            own, src, str(fzd.get("schedule_kind") or ""))
-        fz["until_ts"] = own
-
-    # ── RANK 1. The specific 429's own answer, and nothing outranks it.
-    if live_own and src in ("text", "provider"):
-        _keep_own()
-        return
-    # ── RANK 2 (review 2026-09-12, rounds 1 and 2). The account's own live
-    # mark — the exact number the Usage modal prints as "<pool> limited
-    # until …" — read FRESH from the registry, which is the current authority.
-    # `accounts.resolve` describes only the legacy roster, and the record's
-    # `until_ts` is a snapshot taken when this node froze.
-    #
-    # ⚠ IT OUTRANKS THE RECORD'S OTHER LIVE HORIZONS, not just an absent one.
-    # Round 1 fixed the absent case and left this one: the function returned
-    # for ANY plausible live `until_ts`, so a `probe` floor at +300 — or an
-    # `inherited`, `account-mark` or `usage:<lane>` snapshot — suppressed the
-    # account's observed mark at +1800 and the badge under-reported the wait
-    # while Usage showed the truth one panel away. The mark moves under a
-    # stamped record in the ordinary way: a SIBLING seat hitting the same
-    # account's wall updates the shared mark long after this node was frozen.
-    #
-    # ⚠ AND IT MAY MOVE THE DISPLAYED TIME EARLIER. A stale inherited horizon
-    # further out is not a reason to keep it: rank 2 is the authoritative
-    # reading and rank 3 is a guess that nothing has re-derived. This is the
-    # ranking as written, deliberately, not a never-shorten floor.
-    #
-    # The freeze's OWN account comes first — the badge's title already names
-    # that lane as whose wait this is — and the node's current binding is the
-    # fallback for older records stamped before the freeze carried one. A
-    # `missing:` id is a park with no account to be marked (state-audit SH-2)
-    # and `active_mark` already returns None past an expired mark, so a stale
-    # mark cannot resurrect a horizon here.
-    #
-    # ⚠ MEMOISED IN THE SAME `cache`, for the same reason the roster is:
-    # `registry.active_mark` re-reads and re-parses the whole registry FILE per
-    # call, and an org with 40 frozen seats would pay that 40 times for the
-    # handful of (account, tier) pairs it actually has. The `mark:` prefix
-    # cannot collide with the roster's own keys — those are bare tier names
-    # from `accounts.TIERS`, tested a few lines above.
-    _acct = str(fzd.get("account") or node.get("account") or "")
-    if _acct and not _acct.startswith("missing:"):
+    _acct = supervisor.freeze_account_of(fz, node)
+    _mark: dict[str, Any] | None = None
+    if _acct:
         _mkey = f"mark:{_acct}:{tier}"
         if _mkey not in cache:
             try:
                 cache[_mkey] = registry.active_mark(_acct, tier, now) or {}
             except Exception:                                # noqa: BLE001
                 cache[_mkey] = {}                            # unreadable registry
-        _mark = cache[_mkey]
-        if _mark:
-            _m_ts = float(_mark["until"])
-            _prov = str(_mark.get("provenance") or "")
-            # an INFERRED mark is the D-152 ride-along, never a measurement:
-            # `_capacity_label` must call it a recheck, and the desk must print
-            # "(inferred)" beside it exactly as Usage does.
-            _kind = "observed-deadline" if _prov == "observed" else "probe"
-            fz["until"] = _capacity_label(_m_ts, "account-mark", _kind)
-            fz["until_ts"] = _m_ts
-            fz["reset_src"] = "account-mark"
-            fz["schedule_kind"] = _kind
-            if _prov:
-                fz["provenance"] = _prov
-            return
-    # ── RANK 3. Whatever else the record carries with a live deadline — an
-    # inherited horizon, the blind 5-minute probe floor, a `usage:<lane>`
-    # readout with no mark standing behind it any more. Weak, but it IS a
-    # scheduled wake and the badge must not deny that one is coming.
-    if live_own:
-        _keep_own()
+        _mark = cache[_mkey] or None
+    _eff = supervisor.effective_freeze_deadline(fz, _mark, now)
+    if _eff:
+        fz["until"] = _capacity_label(
+            _eff["ts"], _eff["src"], _eff["schedule_kind"])
+        fz["until_ts"] = _eff["ts"]
+        fz["reset_src"] = _eff["src"]
+        if _eff["schedule_kind"]:
+            fz["schedule_kind"] = _eff["schedule_kind"]
+        if _eff["provenance"]:
+            fz["provenance"] = _eff["provenance"]
         return
     # ── RANK 4. Only now the roster.
     if tier not in cache:

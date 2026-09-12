@@ -5352,6 +5352,146 @@ def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
     return not _message_is_conclusive(msg_ts, msg_src)
 
 
+def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
+                              now: float | None = None) -> dict[str, Any] | None:
+    """THE deadline a usage-limit freeze has — the one the badge shows AND the
+    one the wake timer uses. There is only ever one number (USER RULING
+    2026-09-12: "the wake timer should follow whats shown, and what's shown
+    should always take precedence from the 429 error, not from usage").
+
+    ⚠ THIS EXISTS BECAUSE TWO PLACES WERE COMPUTING IT (review 2026-09-12,
+    round 3). The re-derivation lived in `api._rederive_freeze_reset`, which
+    runs on the TREE PAYLOAD and writes nothing durable, while
+    `auto_resume_ready` read the stamped `frozen.until_ts` straight off the
+    document. So a node with a `probe` floor at +300 and an observed account
+    mark at +1800 displayed +1800 and woke at +300 — one number shown, a
+    different one scheduled, which is exactly what the user ruled against.
+    Both callers ask THIS function now. Do not re-derive a deadline anywhere
+    else; add the rank here and both surfaces move together.
+
+    `mark` is the serving account's live registry mark (or None) — passed in
+    rather than fetched, because each caller memoises it differently and a
+    pure function is the point. Answers None when nothing can name a time:
+    display then falls to the roster, the scheduler to its probe floor.
+
+    The ranks, in order:
+
+      1. THE SPECIFIC 429. `reset_src` text (parsed from this error's prose)
+         or provider (a machine reset the lane stated for this turn), with a
+         time. ⚠ KEPT EVEN WHEN IT HAS ELAPSED, which is the second half of
+         the user's ruling: the moment the provider named is when this node is
+         DUE, and it is owed one real attempt at that time. Letting a longer
+         account mark take over at that point would silently re-park it on
+         usage data and make the stated time cosmetic. If the wall really is
+         still up, the attempt returns a new 429 and that 429 rewrites this
+         record with its own timing — the precedence working, not a hole.
+      2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints.
+         The fallback the precedence allows when the 429 said nothing.
+      3. ANY OTHER LIVE HORIZON the record carries: an inherited one, the
+         blind probe floor. Weak, but a scheduled wake is coming and neither
+         surface may deny it.
+    """
+    now = time.time() if now is None else now
+    try:
+        own = float(fz.get("until_ts") or 0.0)
+    except (TypeError, ValueError):
+        own = 0.0
+    src = str(fz.get("reset_src") or "")
+    if own and own <= now + limits.MAX_HORIZON and src in ("text", "provider"):
+        return {"ts": own, "src": src,
+                "schedule_kind": str(fz.get("schedule_kind")
+                                     or "observed-deadline"),
+                "provenance": str(fz.get("provenance") or "observed")}
+    if mark:
+        try:
+            m_ts = float(mark["until"])
+        except (KeyError, TypeError, ValueError):
+            m_ts = 0.0
+        if m_ts > now:
+            prov = str(mark.get("provenance") or "")
+            return {"ts": m_ts, "src": "account-mark",
+                    "schedule_kind": ("observed-deadline" if prov == "observed"
+                                      else "probe"),
+                    "provenance": prov}
+    if now < own <= now + limits.MAX_HORIZON:
+        return {"ts": own, "src": src,
+                "schedule_kind": str(fz.get("schedule_kind") or ""),
+                "provenance": str(fz.get("provenance") or "")}
+    return None
+
+
+def freeze_account_of(fz: FrozenInfo, node: Mapping[str, Any]) -> str:
+    """Whose lane a freeze's wait belongs to, for the mark lookup both callers
+    make. The freeze's own account first — the badge already names that lane —
+    then the node's current binding, for records stamped before
+    `frozen.account` existed. A `missing:` park has no account to be marked
+    (state-audit SH-2) and answers empty."""
+    acct = str(fz.get("account") or node.get("account") or "")
+    return "" if acct.startswith("missing:") else acct
+
+
+#: how long a `node["admit_once"]` pass stays good, in seconds. It is issued
+#: by the wake and spent by the admission a moment later, so this is a leash
+#: on a pass that never got spent (the turn died, the backend restarted
+#: between the two), not a window anyone is meant to use. Short enough that a
+#: forgotten pass cannot wave through an admission the operator makes minutes
+#: later by hand.
+ADMIT_ONCE_TTL = 120.0
+
+
+def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
+    """Does clearing THIS freeze earn the node one pass through the account
+    gate? Stamps `node["admit_once"]` and answers True when it does.
+
+    USER RULING 2026-09-12 — "the wake timer should follow whats shown, and
+    what's shown should always take precedence from the 429 error, not from
+    usage" — read by the coordinator as substantive rather than cosmetic: at
+    the stated time the node must get a REAL PROVIDER ATTEMPT, not a wake that
+    the account gate immediately converts back into a freeze.
+
+    ⚠ NARROW ON PURPOSE, and every clause is load-bearing:
+    · a usage-LIMIT freeze, because that is the kind a 429 writes;
+    · `reset_src` in text/provider, so ONLY a deadline the provider itself
+      stated buys the pass — a mark, a usage readout, an inherited horizon or
+      a probe floor is the fallback and has no standing to override the gate;
+    · the stated time has actually PASSED, so this is the wall expiring and
+      not an early manual ▶ through a wall still standing.
+
+    Everything else — a connection freeze, an auth freeze, a probe wake, a
+    node that was never frozen — is admitted exactly as before. The pass is
+    ONE node's, for ONE admission, and `_consume_admit_once` spends it."""
+    if not fz.get("limit"):
+        return False
+    if not _message_is_conclusive(fz.get("until_ts"), str(fz.get("reset_src") or "")):
+        return False
+    if now < float(cast(float, fz["until_ts"])):
+        return False
+    n["admit_once"] = now
+    return True
+
+
+def _consume_admit_once(slug: str, nid: str, now: float | None = None) -> bool:
+    """Spend the node's gate pass, if it has a live one. ALWAYS clears it.
+
+    Durable (the pass lives on the node document, so it survives the restart
+    between a wake and its turn) and strictly one-shot: this is the only
+    reader, and it removes the field whether or not the pass was still good.
+    An expired pass is cleared and refused — see `ADMIT_ONCE_TTL`."""
+    now = time.time() if now is None else now
+    spent = False
+    with store.DOC_LOCK:
+        o = store.load_org(slug)
+        if nid in o.nodes:
+            issued = o.node(nid).pop("admit_once", None)
+            try:
+                spent = bool(issued) and now - float(issued) <= ADMIT_ONCE_TTL
+            except (TypeError, ValueError):
+                spent = False
+            if issued is not None:
+                store.save_org(o)
+    return spent
+
+
 def _record_account_reset(account: str, tier: str, blob: str,
                           ts: float | None, source: str, trusted: bool) -> bool:
     """Record the deadline with its actual evidence; a retry floor is a guess."""
@@ -15878,6 +16018,21 @@ def _run_one_turn_recorded(slug: str, nid: str,
         if _g_node is not None and not _g_node.get("frozen"):
             _g_acct = str(_g_node.get("account") or "")
             _g_mark = None
+            # ⚠ THE ONE-SHOT PASS (user ruling 2026-09-12; coordinator
+            # decision, narrowest path). A wake at a conclusive 429's own
+            # stated time gets a REAL PROVIDER ATTEMPT: without this the node
+            # wakes on the shown time and this gate re-freezes it on the spot
+            # from an older, longer account mark, which makes the shown time
+            # cosmetic — the thing the user ruled against.
+            #
+            # It is spent HERE and nowhere else, it is one node's, it is good
+            # for one admission, and `_consume_admit_once` clears it even when
+            # it has expired. Every other admission stays gated exactly as
+            # before: no pass, no bypass. The read below is free — `_g_node`
+            # is already loaded — so the lock is taken only for a node that
+            # actually carries one.
+            _g_pass = bool(_g_node.get("admit_once")) and _consume_admit_once(
+                slug, nid)
             # ── state-audit SH-2 (user ruling 2026-09-12): a `missing:`
             # binding is held HERE, as the spawn seam's comment always
             # promised, instead of proceeding to a spawn that raises — one
@@ -15920,6 +16075,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         _g_acct, str(_g_node.get("model") or ""))
                 except registry.UnknownAccount:
                     _g_mark = None
+            if _g_mark and _g_pass:
+                # the pass is spent on exactly this: the mark is real and
+                # still live, and this ONE admission goes through anyway so
+                # the 429's own stated time gets a provider answer rather
+                # than a re-freeze. If the wall is genuinely still up, the
+                # 429 that comes back re-freezes the node with ITS timing —
+                # which is the precedence working, not a hole in it.
+                _g_mark = None
             if _g_mark:
                 with store.DOC_LOCK:
                     o_g = store.load_org(slug)
@@ -23813,6 +23976,14 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                             reason="cheap_compact")
                 except LedgerError:
                     pass          # an optimization, never a gate (D-114)
+            # ⚠ BEFORE the pop, because the pass is earned by what THIS freeze
+            # record says. A wake at a conclusive 429's own stated time must
+            # reach the provider, not be turned straight back by the account
+            # gate reading usage data (user ruling 2026-09-12; coordinator
+            # decision: implement the narrowest path). `_issue_admit_once`
+            # holds every condition; this is `org`'s node dict and the save
+            # below is already coming.
+            _issue_admit_once(n, fz, time.time())
             n.pop("frozen", None)
             _texts, _ridx, _rpayload = _retry_replay(org, nid, fz)
             resumed.append((nid, _texts,
@@ -24137,11 +24308,18 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     would be skipped by the resume it triggered, so counting it would re-fire
     the sweep every tick forever.
 
-    Timed freezes wake at their own `until_ts`, plus a minute's grace for the
-    LIMIT kind only — there the timestamp is the API's claim about someone
-    else's clock and a hair early means re-freezing. A connection backoff is
-    OUR OWN timer measured from our own failure; padding it just makes the
-    node wait longer than the label it already showed the user.
+    Timed freezes wake at the deadline `effective_freeze_deadline` gives them,
+    plus a minute's grace for the LIMIT kind only — there the timestamp is the
+    API's claim about someone else's clock and a hair early means re-freezing.
+    A connection backoff is OUR OWN timer measured from our own failure;
+    padding it just makes the node wait longer than the label it already
+    showed the user.
+
+    ⚠ IT ASKS THE SAME FUNCTION THE BADGE ASKS, and that is the whole point
+    (user ruling 2026-09-12, review round 3). This used to read
+    `frozen.until_ts` straight off the document while `api` re-derived a
+    different number for the display, so a node could show one time and wake
+    at another. One deadline, two readers.
 
     A limit/connection freeze with NO time known is probed on the 5-minute
     floor instead of waiting for a human forever (redteam gap 2026-08-05);
@@ -24181,6 +24359,23 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     # are deterministic, and a resolver reading the wall clock behind its back
     # would make exactly the timing-sensitive branches untestable.
     _pool_seen: dict[str, bool] = {}
+    # …and one registry answer per (account, tier), for the same reason: the
+    # deadline contract needs the account's live mark per node, and
+    # `registry.active_mark` re-reads and re-parses the whole registry FILE
+    # per call. It takes no lock of its own, so there is no inversion with the
+    # DOC_LOCK this runs under.
+    _mark_seen: dict[tuple[str, str], dict[str, Any] | None] = {}
+
+    def _mark_for(acct: str, tier: str) -> dict[str, Any] | None:
+        if not acct or not tier:
+            return None
+        key = (acct, tier)
+        if key not in _mark_seen:
+            try:
+                _mark_seen[key] = registry.active_mark(acct, tier, now)
+            except Exception:               # noqa: BLE001 — unreadable registry
+                _mark_seen[key] = None
+        return _mark_seen[key]
 
     def _pool_open(tier: str) -> bool:
         if not tier:
@@ -24282,17 +24477,19 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
             # minutes instead of the ~15 the floor gives it.
             ready.add(nid)
             continue
-        ts = fz.get("until_ts")
         # ⚠ THE WAKE IS THE DISPLAYED DEADLINE, AND NOTHING ELSE (USER RULING
         # 2026-09-12: "the wake timer should follow whats shown, and what's
         # shown should always take precedence from the 429 error, not from
-        # usage"). An interim fix gave the freeze a private `admit_ts` floor
-        # from the account's mark, so a node could show 30 minutes and sleep
-        # for 2 hours; the user was asked this exact question on the docket
-        # and chose one number. Do not reintroduce a hidden later wake here —
-        # if a node wakes while a longer mark is still live, the pre-slot gate
-        # re-freezes it from that mark and the badge then reports the mark's
-        # time. The correction is meant to be visible.
+        # usage"). `effective_freeze_deadline` is where that one number is
+        # decided, and `api._rederive_freeze_reset` shows whatever it says.
+        # Do not compute a deadline here — an earlier attempt at this ruling
+        # added a private `admit_ts` floor that the badge could not see, and
+        # the version before that let this function read a stamped `until_ts`
+        # the projection had already overruled. Both were the same bug.
+        _eff = effective_freeze_deadline(
+            fz, _mark_for(freeze_account_of(fz, n),
+                          str(n.get("model") or "")), now)
+        ts = _eff["ts"] if _eff else None
         if ts:
             if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
                 ready.add(nid)
