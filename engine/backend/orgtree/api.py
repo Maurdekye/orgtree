@@ -7778,16 +7778,10 @@ async def anthropic_proxy(path: str, request: Request) -> StreamingResponse:
         raise HTTPException(403, "bridge only")
     if not _anthropic_operation_allowed(request.method, path):
         raise HTTPException(403, "operation not allowed by deployment policy")
-    # api_fallback (user feature 2026-08-17): while the org's fallback window
-    # is open, this passthrough re-auths with the org's KEY instead of the
-    # host OAuth token — same container, same proxy, no recreate; reverting
-    # is the window expiring. (A sandboxed fallback org is kept in proxied
-    # mode by sandbox.ensure_container for exactly this reason.)
     upstream_key = ""
     try:
         _fo = await run_in_threadpool(store.load_org, bslug)
-        upstream_key = sandbox.anthropic_proxy_api_key(
-            _fo, fallback_active=supervisor.api_fallback_active(_fo))
+        upstream_key = sandbox.anthropic_proxy_api_key(_fo)
     except LedgerError:
         pass
     headers: dict[str, str] = {}

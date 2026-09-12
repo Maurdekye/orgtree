@@ -171,13 +171,13 @@ class SpawnEnvTests(unittest.TestCase):
                          tokens.get(row["credential"]["token_ref"]))
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
 
-    def test_default_toggles_change_no_legacy_lane(self):
+    def test_default_toggles_route_nothing_and_v1_field_is_inert(self):
         _key_row(1)                       # present but not consented to
         org = _org("mk-b")
-        org.d["api_key"] = "ORGKEY"
+        org.d["api_key"] = "ORGKEY"       # stale V1 field (cutover missed)
         env = supervisor.spawn_env(org, tier="opus", nid="root")
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "ORGKEY")   # V1 unchanged
-        self.assertNotIn(registry.MARKER, env)
+        self.assertNotIn("ANTHROPIC_API_KEY", env)   # V1 lane removed
+        self.assertNotIn(registry.MARKER, env)       # and no unconsented row
 
     def test_subscription_off_refusals_for_admission_to_hold(self):
         appsettings.set_subscription_inference_enabled("claude", False)

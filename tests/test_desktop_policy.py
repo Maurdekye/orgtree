@@ -69,10 +69,12 @@ class DesktopPolicyTests(unittest.TestCase):
             self.assertEqual(accounts.load()['keys'],[])
         with self.assertRaises(accounts.RegistryUnreadable): accounts.save({'keys':[]})
         org = ledger.Org.create('runtime')
-        org.d.update(api_fallback=True,api_key='not-a-real-key',api_fallback_until=9999999999)
-        self.assertFalse(supervisor.api_fallback_active(org))
+        # the V1 org-key window is gone outright in every build (user
+        # redesign 2026-09-12), so desktop no longer needs a guard for it
+        self.assertFalse(hasattr(supervisor, 'api_fallback_active'))
+        org.d.update(sandbox={'flavor': 'kiosk'})
         with self.assertRaises(ValueError): supervisor._deployment_org_gate(org)
-        org.d.update(api_fallback=False)
+        org.d.pop('sandbox', None)
         supervisor._deployment_org_gate(org)
         self.assertEqual(client.get('/api/orgs',headers=headers).status_code,200)
 

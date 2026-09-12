@@ -253,14 +253,20 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         self.assertEqual(thread.call_count, 1)
 
     def test_key_billing_is_not_a_subscription_capacity_switch(self):
+        # a freeze earned on a metered API-key ACCOUNT row (user redesign
+        # 2026-09-12; formerly the V1 `bills_the_key` org-key guard) is the
+        # API's own wall — switching login profiles cannot clear it
         fallback, registry, supervisor, source, target = self._runtime()
-        with patch.object(supervisor, "bills_the_key", return_value=True), \
-             patch.object(fallback, "read_board") as read:
+        key_row = registry.create_account(
+            "claude", "meter", {"kind": "apikey", "token_ref": "tok-kb"},
+            mode="apikey")
+        self.org.node("worker")["frozen"]["account"] = key_row["id"]
+        with patch.object(fallback, "read_board") as read:
             self.assertFalse(fallback.eligible(self.org, "worker"))
             self.assertEqual(fallback.candidates(self.org), {})
             read.assert_not_called()
-        with patch.object(supervisor, "bills_the_key", return_value=False), \
-             patch.object(fallback, "read_board", return_value=self._board()):
+        self.org.node("worker")["frozen"]["account"] = source["id"]
+        with patch.object(fallback, "read_board", return_value=self._board()):
             self.assertIn("worker", fallback.candidates(self.org))
 
     def test_codex_uses_router_classification_from_real_normalized_payload(self):

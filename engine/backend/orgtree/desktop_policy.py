@@ -9,7 +9,7 @@ def enabled():
 def validate(values):
     if not enabled():
         return
-    forbidden = [key for key in ('kiosk','sandbox','api_fallback','fable_api_fallback') if values.get(key)]
+    forbidden = [key for key in ('kiosk','sandbox') if values.get(key)]
     if values.get('disk_mb') is not None:
         forbidden.append('disk_mb')
     if forbidden:

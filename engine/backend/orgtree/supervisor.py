@@ -4449,9 +4449,9 @@ def spawn_env(org: Org, tier: str | None = None,
         return env
     # THE NODE BINDING WINS UNIFORMLY (multi-account D2/D2e, user ruling
     # 2026-09-09 18:38Z): a bound node reaches exactly its bound account —
-    # placed BEFORE the org-key branch so the old precedence cannot fire for
-    # bound nodes, while an UNBOUND node (pre-migration) keeps today's lanes
-    # byte-for-byte. The injector writes marker + credential together (N2);
+    # ahead of the metered route and the ambient lanes, so no other
+    # precedence can fire for bound nodes, while an UNBOUND node keeps its
+    # lanes. The injector writes marker + credential together (N2);
     # a binding that cannot be honored raises rather than running half-bound
     # — the admission gate is what turns "cannot run" into a named wait.
     # `bind_node` (the S3c fork sweep, closing the gap the earlier comment
@@ -4484,26 +4484,16 @@ def spawn_env(org: Org, tier: str | None = None,
                     f"{bound} but claude subscription inference is disabled "
                     f"on this machine — admission should hold this turn; "
                     f"refusing a subscription spawn")
-            def _secret(ref: str) -> str:
-                if ref.startswith("org-api-key:"):
-                    slug = ref.split(":", 1)[1]
-                    if slug != str(org.d.get("slug") or ""):
-                        # the binding validator prevents this; defense in
-                        # depth against a foreign org's key ever injecting
-                        raise RuntimeError(
-                            f"account {bound} carries {ref!r} but this org "
-                            f"is {org.d.get('slug')!r} — refusing a foreign "
-                            f"org key")
-                    return str(org.d.get("api_key") or "")
-                return tokens.get(ref) or ""
+            # `org-api-key:` refs are gone: the startup cutover rewrote
+            # every such row to an apikey-kind row whose secret lives in
+            # the machine token store (registry_migration.run_apikey_cutover)
             return registry.inject_binding(env, row,
-                                           secret_resolver=_secret)
+                                           secret_resolver=tokens.get)
     # ── the metered ACCOUNT lane (user redesign 2026-09-12): an UNBOUND
     # claude spawn may route to an enabled API-key account row — real
     # attribution via the marker, spend metered to the row. Placed after the
-    # binding (which wins uniformly) and before the V1 org-key branch it
-    # replaces (stage e removes that one). `tier=None` (watchdog shells,
-    # forks pass bind_node instead) stays ambient, as ever.
+    # binding, which wins uniformly. `tier=None` (watchdog shells, forks
+    # pass bind_node instead) stays ambient, as ever.
     if tier:
         _ak_row = apikey_route_for(tier)
         if _ak_row is not None:
@@ -4515,15 +4505,6 @@ def spawn_env(org: Org, tier: str | None = None,
                 "claude subscription inference is disabled on this machine "
                 "and no enabled API-key account has capacity — admission "
                 "should hold this turn; refusing a subscription spawn")
-    key = str(org.d.get("api_key") or "")
-    if key:
-        # api_fallback (user feature 2026-08-17): with the option ON the key
-        # is a SPARE, not the lane — injected only while a usage-limit window
-        # is open; expiry alone reverts the org to the subscription
-        if not org.d.get("api_fallback") or api_fallback_active(org):
-            env["ANTHROPIC_API_KEY"] = key
-            return env
-    if tier:
         acct = str(accounts.resolve(tier).get("account") or "")
         if acct and acct != accounts.PRIMARY:
             tok = tokens.get(acct)
@@ -4706,69 +4687,23 @@ def openrouter_env(env: dict[str, str]) -> bool:
             and bool(env.get("ANTHROPIC_AUTH_TOKEN")))
 
 
-def api_fallback_active(org: Org, now: float | None = None) -> bool:
-    """User feature 2026-08-17: when a usage limit freezes the subscription
-    lane and the org holds a fallback key (`api_fallback` + `api_key`), turns
-    temporarily bill the key. The window (`api_fallback_until`) is stamped at
-    freeze time to the limit's own reset; reverting is pure expiry — no
-    writer, no timer: spawn_env and the bridge proxy just stop choosing the
-    key. Read wherever billing or readiness needs the answer."""
-    if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
-        return False
-    if not (org.d.get("api_fallback") and org.d.get("api_key")):
-        return False
-    now = time.time() if now is None else now
-    return now < float(org.d.get("api_fallback_until") or 0)
-
-
-def api_fallback_active_for(org: Org, tier: str,
-                            now: float | None = None) -> bool:
-    """`api_fallback_active`, asked about ONE TIER — i.e. will a process for
-    this tier bill the org's ANTHROPIC API KEY? (D-194.)
-
-    ⚠ THE ORG-ONLY QUESTION IS THE WRONG QUESTION AT A MULTI-PROVIDER BOOKING
-    POINT, and this is the whole reason the function exists. `api_fallback`
-    is an ANTHROPIC key: `spawn_env` injects it as `ANTHROPIC_API_KEY`, and
-    `_bank_api_cost` accumulates what it billed onto `api_cost_usd`, which the
-    canvas renders to the user as "subscription $X · api key $Y" with the
-    subscription half derived as `total − api`. A dollar banked there wrongly
-    corrupts BOTH halves of a number a person reads.
-
-    A codex-tier process cannot bill that key, and not by accident: `codexrun`
-    strips every `ANTHROPIC_*` and `CLAUDE_CODE_*` variable out of the child's
-    environment on purpose (and `OPENAI_API_KEY` too, so the mirror mistake is
-    equally impossible), and its dollars are priced by `providers.codex_cost`
-    from OpenAI rates. Asking `api_fallback_active(org)` about such a process
-    asks whether a credential window is open for a credential the process has
-    been deliberately deprived of — the answer is real, and irrelevant.
-
-    ⚠ THE AXIS IS POSITIVE — "is this a KNOWN Anthropic tier", not "is this
-    not a known codex one". An unrecognised tier therefore reads as NOT
-    billing the key, which is the safe direction for money: under-reporting
-    the split leaves a true number small, while over-reporting puts another
-    provider's spend into the user's "api key" figure and takes it out of
-    their "subscription" figure at the same time. It also means a provider
-    added tomorrow is correct here the moment it is absent from
-    `providers.claude_tiers()`, rather than correct only if someone remembers
-    to add it to an exclusion list. (`claude_tiers()` is the one place that
-    already answers "which tiers are Claude's"; this reads it rather than
-    keeping a second copy that could disagree with it.)"""
-    return api_fallback_tier(tier) and api_fallback_active(org, now)
-
-
 def api_fallback_tier(tier: str) -> bool:
-    """CAN a process for this tier bill the org's Anthropic API key at all —
-    the eligibility half of `api_fallback_active_for`, with no window asked
-    about. Split out (audit F1, 2026-09-05) because two sites need the
-    eligibility BEFORE a window exists: the freeze stamp that decides whether
-    to OPEN one, and readiness deciding whether an open one is this node's.
+    """CAN a process for this tier bill an Anthropic API key at all — the
+    Anthropic eligibility axis of the cost split (D-194), asked by the
+    freeze stamp, the metered account route (`apikey_route_for`) and every
+    billing classifier.
 
-    The axis is the same positive one, for the same reason: a KNOWN Claude
-    tier. Codex and Antigravity are stripped of every `ANTHROPIC_*` variable;
-    an OpenRouter tier is handed the OR token and an EMPTY `ANTHROPIC_API_KEY`
-    (`spawn_env`) — the key cannot serve any of them, so a window opened on
-    their walls buys nothing and moves every Claude sibling onto the metered
-    key for a limit they never hit. Unknown tiers read as ineligible."""
+    ⚠ THE AXIS IS POSITIVE — "is this a KNOWN Claude tier", not "is this
+    not a known codex one". An unrecognised tier reads as NOT billing a
+    key, which is the safe direction for money: under-reporting the split
+    leaves a true number small, while over-reporting puts another
+    provider's spend into the user's "api key" figure and takes it out of
+    their "subscription" figure at the same time. Codex and Antigravity are
+    stripped of every `ANTHROPIC_*` variable; an OpenRouter tier is handed
+    the OR token and an EMPTY `ANTHROPIC_API_KEY` (`spawn_env`) — a key
+    cannot serve any of them. (`providers.claude_tiers()` is the one place
+    that already answers "which tiers are Claude's"; this reads it rather
+    than keeping a second copy that could disagree with it.)"""
     return tier in {t["tier"] for t in providers.claude_tiers()}
 
 
@@ -4874,11 +4809,12 @@ def served_metered_row(ran_as: str) -> dict[str, Any] | None:
 
 
 def _bank_api_cost(org: Org, amount: float, served: str = "") -> None:
-    """api_fallback split (user feature 2026-08-17): dollars billed while the
-    key lane was open accumulate on this org-lifetime counter, surfaced as
-    the hover split on the UI cost card. Callers gate on the lane decision
-    CAPTURED AT SPAWN (a window expiring mid-turn doesn't rewrite where that
-    turn's tokens were billed). Org-level and monotonic on purpose: node
+    """The key-lane cost split: dollars a turn billed to an API key (today a
+    metered ACCOUNT row; originally the V1 org key, user feature 2026-08-17)
+    accumulate on this org-lifetime counter, surfaced as the hover split on
+    the UI cost card. Callers gate on the lane decision CAPTURED AT SPAWN (a
+    toggle flipping mid-turn doesn't rewrite where that turn's tokens were
+    billed). Org-level and monotonic on purpose: node
     deletion banks per-node burn into deleted_cost_usd, and this counter
     must never need the same dance.
 
@@ -5292,8 +5228,8 @@ def _parse_limit_reset_ts(blob: str, kind: str | None = None,
       OWN bound, `_TEXT_HORIZON`: an epoch, a dated time and a relative
       duration out to `MAX_HORIZON` (eight days; the regex matches ANY long
       number after a pipe, and an 11-digit one reads as a date in the fifth
-      millennium — believe that and `api_fallback` holds the key lane open
-      for the rest of recorded time), a bare clock within a day (it carries
+      millennium — believe that and a freeze sleeps its node for the rest
+      of recorded time), a bare clock within a day (it carries
       no date, so it cannot honestly mean more).
     - a TRUSTED message — the CLI's or the provider's own words — is not
       clipped further by the lane the wording names or implies. "Try again
@@ -5304,8 +5240,8 @@ def _parse_limit_reset_ts(blob: str, kind: str | None = None,
       motivated the old rule — "your session limit — resets 1:40pm" with
       1:40pm already past, rolling to tomorrow — now schedules at that clock
       (within 24 h, the form's own bound), because the message said so; the
-      cost of being wrong is the `api_fallback` window, which
-      `_fallback_window_until` bounds independently.
+      cost of being wrong is a long sleep, which ▶ and the off-lock
+      correction pass can both cut short.
     - an UNTRUSTED blob (the agent's own final answer promoted by the
       clean-result gate) keeps the lane band on every form: it names no
       lane of its own (`_limit_reset_ts` classifies it as unnamed), so the
@@ -5347,40 +5283,28 @@ def _parse_limit_reset_ts(blob: str, kind: str | None = None,
     return ts
 
 
-def bills_the_key(org: Org, on_fallback_key: bool) -> bool:
-    """Did THIS turn's process bill the org's own API key rather than the host
-    subscription? It decides whether the host's usage lanes describe the wall
-    this turn hit at all — they describe the SUBSCRIPTION, and reading them
-    for a key-billed turn parked nodes for four hours on a per-minute API rate
-    limit.
+def bills_the_key(org: Org) -> bool:
+    """Did THIS turn's process bill a container-held API key rather than the
+    host subscription? It decides whether the host's usage lanes describe the
+    wall this turn hit at all — they describe the SUBSCRIPTION, and reading
+    them for a key-billed turn parked nodes for four hours on a per-minute
+    API rate limit.
 
-    Three shapes bill a key. A permanent-key org (`api_key` without
-    `api_fallback`); a fallback org inside an open window (captured at SPAWN,
-    like `_bank_api_cost` — a window opening or closing mid-turn does not move
-    the turn already running); and a SANDBOXED org whose container was handed
-    a key that never appears in `org.d` — a kiosk-level `api_key` or the
-    `ORGTREE_SANDBOX_API_KEY` escape hatch. That third one is why this asks
-    `sandbox.container_auth` rather than reading the org field twice (redteam
-    2026-08-18).
-
-    Errs toward "the key": a false "subscription" times the freeze off someone
-    else's quota, while a false "key" costs one 5-minute probe floor."""
+    Only the SANDBOX shape remains: a sandboxed org whose container was
+    handed a key that never appears in `org.d` — a kiosk-level `api_key` or
+    the `ORGTREE_SANDBOX_API_KEY` escape hatch — which is why this asks
+    `sandbox.container_auth` (redteam 2026-08-18). The V1 org-key shapes
+    (permanent key, fallback window) are gone with the org fields (user
+    redesign 2026-09-12); a turn served by a metered ACCOUNT row is
+    classified by its own spawn-captured attribution (`served_metered_row`),
+    never by org state."""
     if sbx.is_sandboxed(org):
         auth = sbx.container_auth(org).lower()
         # the same fuzzy test `ensure_container` applies — an exact-match copy
         # read `ORGTREE_SANDBOX_API_KEY=proxy` as a key while the sandbox read
         # it as proxied (redteam 2026-08-18)
-        if "prox" not in auth and auth != "subscription":
-            return True
-        # a sandboxed FALLBACK org stays proxied on purpose: the bridge flips
-        # auth per REQUEST, so any part of the turn may have billed the key.
-        # (The `api_fallback_active` re-read is belt-and-braces: the only
-        # caller today asks AT spawn, where the two agree.)
-        return bool(org.d.get("api_fallback")
-                    and (on_fallback_key or api_fallback_active(org)))
-    if not org.d.get("api_key"):
-        return False
-    return not org.d.get("api_fallback") or on_fallback_key
+        return "prox" not in auth and auth != "subscription"
+    return False
 
 
 def subscription_lane(billed_key: bool, ran_as: str) -> bool:
@@ -5449,9 +5373,9 @@ def _limit_reset_ts(blob: str, allow_fetch: bool = False,
     `limits.recovery_deadline`, until that ruling.
 
     User ruling 2026-08-18 — every usage freeze must end up with a timestamp,
-    because the `api_fallback` window is stamped from it and a window that
-    outlives its limit bills the org's key for turns the subscription would
-    have served for free. The CLI's prose is first (cheapest, and usually
+    because wake scheduling and the account's capacity mark — which the
+    metered fallback route spends real money against — are both priced from
+    it. The CLI's prose is first (cheapest, and usually
     carries an epoch); when it says nothing believable the account's own
     usage readout is asked — the same source the header usage modal renders,
     minute-exact and lane-aware (`limits.reset_for`). Only if that cannot
@@ -6133,7 +6057,6 @@ def _reset_readout_account(billed_key: bool, ran_as: str) -> str:
 
 def _refresh_freeze_reset(slug: str, nid: str, blob: str,
                           stamped_ts: float | None,
-                          stamped_win: float | None,
                           subscription: bool = True,
                           trusted: bool = True,
                           tier: str = "",
@@ -6144,14 +6067,12 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
     the agent, waiting for it). → True when it rewrote the record.
 
     The freeze stamps what the warm cache already knew; this re-asks and
-    rewrites only if the answer moved by more than a minute. It corrects the
-    `api_fallback` window too, in BOTH directions: shorter is money saved,
-    longer is a wake that will not re-freeze the moment it lands.
+    rewrites only if the answer moved by more than a minute.
 
-    Both writes are ownership-checked against the exact values that freeze
-    stamped. Anything else — the node resumed, a later freeze re-stamped it,
-    the user cleared the window or turned the fallback off — means the record
-    is no longer ours to move, and the pass does nothing."""
+    The write is ownership-checked against the exact values that freeze
+    stamped. Anything else — the node resumed, a later freeze re-stamped it
+    — means the record is no longer ours to move, and the pass does
+    nothing."""
     billing_ts, billing_src = None, ""
     # a key-billed freeze never consults the readout, so every attempt would
     # return the same prose answer — the retry loop would just sleep
@@ -6185,11 +6106,7 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
                         or abs(ts - stamped_ts) > 60.0
                         or (stamped_kind is not None
                             and schedule_kind != stamped_kind)))
-    window_target = (_fallback_window_until(billing_ts, trusted=trusted)
-                     if billing_ts and stamped_win is not None else None)
-    window_moved = bool(window_target is not None and stamped_win is not None
-                        and abs(window_target - stamped_win) > 60.0)
-    if not freeze_moved and not window_moved:
+    if not freeze_moved:
         return False
     wrote = False
     corrected_freeze = False
@@ -6218,15 +6135,6 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
                 fz["reset_src"] = src
                 fz["schedule_kind"] = schedule_kind
                 wrote = corrected_freeze = True
-        # ⚠ the window is owned SEPARATELY from the freeze. Resuming the node
-        # is the likeliest thing to happen in the second this pass takes, and
-        # gating the re-price on the freeze record left an over-long window
-        # open with nobody left to shrink it (redteam 2026-08-18).
-        if (stamped_win is not None and o.d.get("api_fallback")
-                and float(o.d.get("api_fallback_until") or 0) == stamped_win):
-            o.d["api_fallback_until"] = _fallback_window_until(
-                billing_ts, trusted=trusted)
-            wrote = True
         if not wrote:
             return False
         store.save_org(o)
@@ -6240,7 +6148,6 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
 
 def _spawn_reset_refresh(slug: str, nid: str, blob: str,
                          stamped_ts: float | None,
-                         stamped_win: float | None,
                          subscription: bool = True,
                          trusted: bool = True,
                          tier: str = "",
@@ -6249,7 +6156,7 @@ def _spawn_reset_refresh(slug: str, nid: str, blob: str,
     the moment it lets go of the document lock."""
     threading.Thread(
         target=_refresh_freeze_reset, daemon=True,
-        args=(slug, nid, blob, stamped_ts, stamped_win, subscription,
+        args=(slug, nid, blob, stamped_ts, subscription,
               trusted, tier, stamped_kind, account),
         name=f"usage-reset-{slug}-{nid}").start()
 
@@ -6398,32 +6305,6 @@ def start_usage_warm_loop() -> None:
                 aim, misses, min(resets) if resets else None, top, now)
             time.sleep(delay)
     threading.Thread(target=loop, daemon=True, name="usage-warm").start()
-
-
-FALLBACK_MIN_WINDOW = 900.0                   # 15 min — below this is churn
-FALLBACK_MAX_WINDOW = 7 * 86400.0 + 3600.0    # the weekly lane, plus slack
-
-
-def _fallback_window_until(until_ts: Any, now: float | None = None,
-                           trusted: bool = True) -> float:
-    """How long `api_fallback` keeps the key lane open — bounded at BOTH ends
-    (user ruling 2026-08-18). The floor stops a 5-minute probe freeze from
-    opening a window too short to get a turn out of. The ceiling is the money
-    one: no reset time, however obtained, may bill the org's key past the
-    longest real limit lane — if the wall is still up when the window closes,
-    the next limit error opens a fresh one, which costs a round trip and
-    cannot cost a fortune."""
-    now = time.time() if now is None else now
-    if not trusted:
-        # ⚠ this is now unreachable from the freeze site, which declines to
-        # open a window at all on unvouched evidence — kept as the arithmetic
-        # floor for any future caller, and as the thing the tests pin.
-        return now + FALLBACK_MIN_WINDOW
-    try:
-        ts = float(until_ts or 0.0)
-    except (TypeError, ValueError):
-        ts = 0.0
-    return min(max(ts, now + FALLBACK_MIN_WINDOW), now + FALLBACK_MAX_WINDOW)
 
 
 def registered_mcp_servers() -> dict[str, Any]:
@@ -7443,8 +7324,10 @@ def _turn_usage_selection(org: Org, nid: str,
         if not str(org.node(nid).get("account") or "") \
                 and apikey_route_for(tier, now) is not None:
             return provider, "account"
-        if bills_the_key(org, api_fallback_active(org, now)):
-            return provider, "org-api-key"
+        if bills_the_key(org):
+            # a sandboxed container key consumes no host lane — advisory
+            # selection has no board marker to place for it
+            return provider, ""
         resolved = accounts.resolve(tier, now)
         account = str(resolved.get("account") or "")
         if account == accounts.PRIMARY:
@@ -10410,14 +10293,11 @@ def _cache_claude_namespace(org: Org, tier: str,
     request relay.
     """
     if sbx.is_sandboxed(org):
-        selected = sbx.container_auth(org)
-        fallback = api_fallback_active(org, now)
-        if not bills_the_key(org, fallback):
+        if not bills_the_key(org):
             # Billed to the host subscription, i.e. to the main login — so it
             # is the main login's identity that bounds this cache namespace.
             return _cache_primary_namespace(), "subscription"
-        credential = (str(org.d.get("api_key") or "")
-                      if fallback else selected)
+        credential = sbx.container_auth(org)
         return ("sandbox-api-key:" + cachecontinuity.digest(
                     {"credential": credential}, 16), "api_key")
     api_key = str(resolved_env.get("ANTHROPIC_API_KEY") or "")
@@ -11587,8 +11467,7 @@ def _working_cache_interval(org: Org, nid: str) -> tuple[float, bool] | None:
         return None
     if str(n.get("model") or "") not in providers.CLAUDE_TIERS:
         return None
-    on_fallback = api_fallback_active(org)
-    billed_key = bills_the_key(org, on_fallback)
+    billed_key = bills_the_key(org)
     if not billed_key:
         # metered ACCOUNT lane (2026-09-12): a node bound to an apikey row —
         # or an unbound one the stateless route would serve from one — keeps
@@ -11799,8 +11678,7 @@ def _working_cache_read(slug: str, nid: str,
                 n = org.node(nid)
                 old_sid = n["session_id"]
                 tier = str(n.get("model") or "")
-                on_fallback = api_fallback_active(org)
-                billed_key = bills_the_key(org, on_fallback)
+                billed_key = bills_the_key(org)
                 env = spawn_env(org, tier=tier, nid=nid)
                 # metered ACCOUNT lane (2026-09-12): the keepalive's own env
                 # says which lane it warms — a key-account read banks to that
@@ -17391,26 +17269,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # 2026-08-25, machine-local per-model routing).
             env = cache_pre_env or spawn_env(
                 org, tier=str(org.node(nid).get("model") or ""), nid=nid)
-            # api_fallback cost split: which lane bills THIS turn is decided
-            # here, at spawn — capture it so the accounting below attributes
-            # the whole turn to that lane even if the window expires mid-turn
-            on_fallback_key = api_fallback_active(org)
-            billed_on_key = on_fallback_key   # visible to the failure path
-            # ⚠ and the WHOLE lane decision with it. `on_fallback_key` alone
-            # is ambiguous — False means both "not a fallback org" and
-            # "fallback org, window shut" — so combining it with org fields
-            # re-read at FREEZE time let a mid-turn settings change (a
-            # permanent-key org switched to api_fallback) turn a key-billed
-            # turn into a "subscription" one, and time its API limit off the
-            # host's lanes (redteam 2026-08-18). The invariant the docs state
-            # is "captured at spawn"; this is what makes that true.
-            billed_key = bills_the_key(org, on_fallback_key)
-            # …and the same capture drives the UI's red border (user feature
-            # 2026-08-19): while this turn runs on the fallback key the card
-            # wears it, so "who is spending my API credit right now" is one
-            # glance, not a cost-card hover. Popped in the finally below —
-            # the next turn re-decides the lane at its own spawn.
-            st["on_fallback"] = on_fallback_key
+            # which lane bills THIS turn is decided here, at spawn, and
+            # CAPTURED — a toggle flipped or a mark expiring mid-turn must
+            # not relabel the turn already running (redteam 2026-08-18; the
+            # invariant the docs state is "captured at spawn")
+            billed_key = bills_the_key(org)
             # ⚠ RECORDED FROM THE RESOLVED ENV, NOT FROM INTENT. `env` is the
             # dict this Popen is about to receive, so this says which
             # credential the process will actually hold — not which one the
@@ -17423,10 +17286,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # ── the metered ACCOUNT lane (user redesign 2026-09-12): a turn
             # SERVED by an apikey registry row is key-billed for every
             # downstream classification, decided from the RESOLVED env's own
-            # attribution — the same captured-at-spawn discipline as the V1
-            # window above. st["on_fallback"] is deliberately NOT set: that
-            # flag is the V1 red border, and a key ACCOUNT is a normal
-            # account mode (the ticket removes the red).
+            # attribution under the same captured-at-spawn discipline.
+            # st["on_fallback"] is deliberately NOT set: that flag was the
+            # V1 red border, and a key ACCOUNT is a normal account mode
+            # (the ticket removes the red).
             if served_metered_row(str(st.get("ran_as") or "")) is not None:
                 billed_key = True
                 billed_on_key = True
@@ -18963,7 +18826,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # this path does its own (estimated) booking — tell the
                 # failure handler so the spend is not charged twice
                 paid_booked = True
-                _charge_killed_turn(slug, nid, turn_out, on_fallback_key,
+                _charge_killed_turn(slug, nid, turn_out, billed_on_key,
                                     reported=turn_paid)
                 # DOOR 1 of 2: killed from outside the model — the idle
                 # watchdog, the turn budget, the job-object leash. Nothing
@@ -19364,7 +19227,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # the turn text (mail included — it was already drained) is
                     # kept so the org-wide ▶ resume replays it verbatim
                     _stamped_ts: float | None = None
-                    _stamped_win: float | None = None
                     _stamped_kind: str | None = None
                     _billing_ts: float | None = None
                     _billing_src = ""
@@ -19459,7 +19321,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # user ruling 2026-08-18: the prose first, then
                             # the account's own usage readout — a usage
                             # freeze must not end up with no timestamp, and
-                            # `api_fallback` spends real money on this number.
+                            # the capacity mark stamped from this number is
+                            # what the metered fallback route spends real
+                            # money against.
                             # The readout is the HOST subscription's, so it
                             # may only answer when the host login is what
                             # served this turn — a key row's wall is another
@@ -19755,31 +19619,18 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                            and _trusted_blob
                                            and _looks_like_fable_tier_limit(
                                                err_blob))
-                            # fable_api_fallback (user feature 2026-08-23,
-                            # opt-in, default off): D-130 still holds by
-                            # default — a fable-TIER quota is normally
-                            # fable_limit_policy's lane, not billing's. This
-                            # toggle lets the org say "no, spend the spare key
-                            # on it too" — but only when the spare actually
-                            # exists (api_fallback + api_key both held), so a
-                            # toggle left on with no key configured degrades
-                            # to exactly today's behavior rather than doing
-                            # nothing silently.
-                            _fable_fallback_eligible = (
-                                _fable_tier and bool(o2.d.get("fable_api_fallback"))
-                                and bool(o2.d.get("api_fallback"))
-                                and bool(o2.d.get("api_key")))
                             # FABLE-1 (user report 2026-08-06): tier alone is
                             # not evidence — escalate org-wide only on the
                             # WEEKLY wording; a session limit freezes this
                             # one agent like any tier and auto-resumes. The
                             # parsed reset rides onto the lock (FABLE-2) so
                             # even a real weekly halt releases by time.
-                            # An ELIGIBLE hit (above) skips the escalation
-                            # entirely: no org-wide lock, no per-node
-                            # limit_locked — the elif below opens the billing
-                            # window instead, same as any other tier's limit.
-                            if _fable_tier and not _fable_fallback_eligible:
+                            # (The V1 fable_api_fallback opt-out of this
+                            # escalation went with the org key fields, user
+                            # redesign 2026-09-12: D-130 holds again
+                            # unconditionally — a fable-tier quota is
+                            # fable_limit_policy's lane, never billing's.)
+                            if _fable_tier:
                                 # ⚠ re-parse rather than reading fz["until_ts"]
                                 # (2026-08-07). By here that field may be the
                                 # 300-SECOND PROBE FLOOR, which means "no
@@ -19805,94 +19656,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     until_ts=_fable_lock_ts(
                                         err_blob, _billing_ts, _billing_src,
                                         _trusted_blob))
-                            # api_fallback (user feature 2026-08-17): the org
-                            # holds a key for exactly this moment — open the
-                            # window so the resume timer wakes the node on its
-                            # next tick and spawn_env / the bridge proxy bill
-                            # the key until the subscription's own reset. A
-                            # fable-TIER quota is excluded BY DEFAULT: that
-                            # lane is owned by fable_limit_policy, not by
-                            # billing — UNLESS fable_api_fallback opted this
-                            # org in and _fable_fallback_eligible said the
-                            # spare key actually exists, in which case this is
-                            # the branch that keeps the fable agent running.
-                            #
-                            # ⚠ AND ONLY FOR A TIER THE KEY CAN SERVE (audit
-                            # F1, 2026-09-05). This is the SHARED claude-CLI
-                            # failure path, and an OpenRouter tier runs down
-                            # it too — Claude Code is its harness, the
-                            # gateway its endpoint. Both branches below asked
-                            # only the ORG ("is a window open" / "is there a
-                            # key"), so an OpenRouter 429 opened the org's
-                            # ANTHROPIC billing window: nothing for this node
-                            # (its spawn carries an EMPTY ANTHROPIC_API_KEY),
-                            # every claude sibling onto the metered key for a
-                            # wall they never hit. `api_fallback_tier` is the
-                            # cost split's own eligibility axis (D-194) —
-                            # not a second provider table.
-                            _fz_tier = str(o2.node(nid).get("model") or "")
-                            if api_fallback_active_for(o2, _fz_tier):
-                                # frozen ON the key lane: that record owns its
-                                # own reset — mark it so readiness never
-                                # insta-wakes it into the same wall.
-                                # ⚠ the flag is the lane THIS turn ran on
-                                # (captured at spawn), not "a window happens
-                                # to be open now": a sibling that opened the
-                                # window a second ago left this turn's
-                                # subscription-lane freeze marked as the key
-                                # lane, and readiness then slept it for hours
-                                # beside a paid, open, unused key window
-                                # (redteam 2026-08-18).
-                                fz["on_fallback"] = on_fallback_key
-                            elif not api_fallback_tier(_fz_tier):
-                                # no key lane serves this route — the record
-                                # must say nothing about one, and must not
-                                # inherit a sibling window's answer from an
-                                # earlier freeze that survived `_ensure_frozen`
-                                # (same rule as freeze_provider_limit)
-                                fz.pop("on_fallback", None)
-                            elif (o2.d.get("api_fallback")
-                                  and o2.d.get("api_key")
-                                  and (not _fable_tier
-                                       or _fable_fallback_eligible)
-                                  and _trusted_blob
-                                  and not _auth_fail):
-                                # ⚠ AND NOT ON A REJECTED CREDENTIAL (D-156).
-                                # This branch spends the user's metered key,
-                                # org-wide, on the strength of "the
-                                # subscription is out of capacity". A 401
-                                # says no such thing — it says the credential
-                                # is broken — and opening a billing window on
-                                # it is D-149's routed-around shape wearing
-                                # the one costume that costs money: the org
-                                # quietly moves onto the key and the operator
-                                # finds out from the bill. Parking is the
-                                # honest outcome; the key is still there to
-                                # be turned on deliberately.
-                                # ⚠ TRUSTED evidence only. Flooring an
-                                # unvouched window at 15 minutes bounded ONE
-                                # incident and not the RATE: the window makes
-                                # the node immediately resumable (and, since
-                                # D-122, does so even with auto_resume off),
-                                # the resume replays the same prompt to the
-                                # same agent, and the same sentence re-opens
-                                # it — measured at 95% duty, indefinitely,
-                                # with the whole org on the user's metered key
-                                # (redteam 2026-08-18). A real wall is always
-                                # reported BY the CLI, so declining here costs
-                                # a genuine limit nothing.
-                                # the same lane record as the `if` branch: a
-                                # window that expired MID-TURN leaves a
-                                # key-lane freeze here, and an unset flag made
-                                # readiness wake it at once — bypassing the
-                                # auto_resume toggle — straight into the API
-                                # wall it just hit (redteam 2026-08-18)
-                                fz["on_fallback"] = on_fallback_key
-                                _stamped_win = _fallback_window_until(
-                                    _billing_ts or fz.get("until_ts"),
-                                    trusted=_trusted_blob)
-                                o2.d["api_fallback_until"] = _stamped_win
-                                o2.d["api_fallback_since"] = time.time()
+                            # V1 window removal (user redesign 2026-09-12):
+                            # no turn runs on an org-key lane any more, so a
+                            # fresh limit freeze never carries the key-lane
+                            # flag — pop rather than inherit one from a
+                            # record `_ensure_frozen` kept (same rule as
+                            # freeze_provider_limit). A wall hit by a turn a
+                            # metered ACCOUNT row served is that row's own:
+                            # the account mark recorded above is what keeps
+                            # readiness from re-opening the same wall, and
+                            # the stateless route (`apikey_route_for`)
+                            # decides any fast wake from live toggles and
+                            # registry marks, never from a stamped window.
+                            fz.pop("on_fallback", None)
                             store.save_org(o2)
                             _frozen_at = str(fz.get("at") or "") or None
                             # RECORDING ONLY: the record's own fields, read
@@ -19925,7 +19701,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # under the lock and this pass handed it straight
                         # back off-lock. Pass the shared name, never a copy.
                         _spawn_reset_refresh(slug, nid, err_blob,
-                                             _stamped_ts, _stamped_win,
+                                             _stamped_ts,
                                              _sub_lane, _trusted_blob,
                                              _tier, _stamped_kind,
                                              account=_reset_readout_account(_billed_key, str(st.get("ran_as") or "")))
@@ -20300,7 +20076,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             paid_booked = True     # _after_turn books `res`'s cost itself
             probe_success = _turn_observed_success(res, st)
             _after_turn(slug, nid, org, res, st, turn_occ,
-                        on_key=on_fallback_key,
+                        on_key=billed_on_key,
                         cache_attempt=cache_attempt)
             if probe_success and probe_token:
                 if _release_limit_probe(slug, nid, success=True,
@@ -20559,7 +20335,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # `_after_turn` and reports nothing here
             _trec.book(paid_booked=paid_booked,
                        cost_usd=turn_paid if turn_paid > 0 else None)
-        st.pop("on_fallback", None)     # this turn's lane is spent
         with _state_lock:
             if dropped_here:
                 # a dropped pointer already took the next carrier (or cleared
@@ -22967,24 +22742,10 @@ def _compact_split(slug: str, nid: str) -> None:
     for these up-to-600 s is "compacting", not a lying "working"."""
     st0 = state(slug, nid)
     st0["phase"] = "compacting"
-    # the fork bills a lane like any turn, and it is the expensive one — the
-    # card wears the fallback red for it too (user feature 2026-08-19). Decided
-    # here rather than inside the body so the flag brackets the whole phase.
-    # SAVED and restored, not popped: the automatic path runs inside a turn
-    # (_after_turn), whose own spawn-captured flag must survive the fork.
-    prev_fb = st0.get("on_fallback")
-    try:
-        st0["on_fallback"] = api_fallback_active(store.load_org(slug))
-    except LedgerError:                                     # org deleted mid-flight
-        st0["on_fallback"] = False
     try:
         _compact_split_body(slug, nid)
     finally:
         st0.pop("phase", None)
-        if prev_fb is None:
-            st0.pop("on_fallback", None)
-        else:
-            st0["on_fallback"] = prev_fb
 
 
 def _compact_split_codex_body(slug: str, nid: str, org: Org,
@@ -22999,19 +22760,10 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
     from . import codexrun                              # noqa: PLC0415
 
     tier = str(n.get("model") or "")
-    # ⚠ THE TIER-AWARE PREDICATE, NOT THE ORG-ONLY ONE (D-194). This asked
-    # `api_fallback_active(org)` — "is the Anthropic key window open?" — about
-    # a process `codexrun` deliberately strips every `ANTHROPIC_*` variable
-    # from, whose dollars are priced by `providers.codex_cost` at OpenAI
-    # rates. The answer was real and irrelevant, and it put OpenAI spend into
-    # the user's "api key" figure while subtracting it from their
-    # "subscription" one. The codex TURN already knew better: `_run_one_turn`
-    # books `on_key=False` for a codex tier and raises `_CodexTurnDone` before
-    # the Anthropic capture is reached — the turn and this fork gave opposite
-    # answers about the same provider in the same org. It resolves to False
-    # for every codex tier; the name is kept so all three branches below read
-    # the same as the claude fork's.
-    on_fallback_key = api_fallback_active_for(org, tier)
+    # a codex fork never bills an Anthropic key (D-194): `codexrun` strips
+    # every `ANTHROPIC_*` variable and its dollars are priced by
+    # `providers.codex_cost` at OpenAI rates — so unlike the claude fork
+    # there is no key-lane split to bank here at all
     fork_cost = 0.0
     try:
         cstat = providers.codex_status()
@@ -23108,8 +22860,6 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
                 current.d["deleted_cost_usd"] = round(
                     float(current.d.get("deleted_cost_usd") or 0.0)
                     + fork_cost, 6)
-                if on_fallback_key:
-                    _bank_api_cost(current, fork_cost)
                 store.save_org(current)
             return
         if current.node(nid)["session_id"] != old_sid:
@@ -23117,8 +22867,6 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
                 live0 = current.node(nid)
                 live0["cost_usd"] = round(
                     float(live0.get("cost_usd") or 0.0) + fork_cost, 6)
-                if on_fallback_key:
-                    _bank_api_cost(current, fork_cost)
                 store.save_org(current)
             print(f"[orgtree] {slug}/{nid}: Codex compaction abandoned; "
                   "the session was replaced while the fork ran")
@@ -23132,8 +22880,6 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         if fork_cost:
             live["cost_usd"] = round(
                 float(live.get("cost_usd") or 0.0) + fork_cost, 6)
-            if on_fallback_key:
-                _bank_api_cost(current, fork_cost)
         live["occupancy"] = occ_new
         live.pop("occupancy_est", None)
         live["compacted_unrun"] = True
@@ -23211,11 +22957,19 @@ def _compact_split_body(slug: str, nid: str) -> None:
                    "--model", model,
                    "--settings", json.dumps({"disableAllHooks": True}),
                    "--strict-mcp-config"]
-    # the fork bills whichever lane is open at ITS spawn, same rule as a turn
-    # — the node's TIER routes the account exactly as its turns do
-    on_fallback_key = api_fallback_active(org)
+    # the fork bills whichever lane is open at ITS spawn, same rule as a
+    # turn — the node's TIER routes the account exactly as its turns do,
+    # and the RESOLVED fork env's own attribution says whether a metered
+    # ACCOUNT row served it (captured here, so a toggle flipped while the
+    # fork runs cannot relabel it)
+    on_fallback_key = False
+    _fork_served = ""
     try:
         resume, fork_env = _claude_fork_context(org, nid)
+        _fork_row = served_metered_row(identity_in_env(fork_env))
+        if _fork_row is not None:
+            on_fallback_key = True
+            _fork_served = str(_fork_row["id"])
         argv[argv.index('--resume') + 1] = resume
         proc = subprocess.Popen(argv, cwd=scratch_dir(slug, nid),
                                 env=fork_env,
@@ -23292,7 +23046,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
                 org.d["deleted_cost_usd"] = round(
                     float(org.d.get("deleted_cost_usd") or 0.0) + fork_cost, 6)
                 if on_fallback_key:
-                    _bank_api_cost(org, fork_cost)
+                    _bank_api_cost(org, fork_cost, served=_fork_served)
                 store.save_org(org)
             print(f"[orgtree] {slug}/{nid}: compaction split abandoned — the "
                   f"node was removed while the fork ran")
@@ -23316,7 +23070,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
                 n0["cost_usd"] = round(float(n0.get("cost_usd") or 0.0)
                                        + fork_cost, 6)
                 if on_fallback_key:
-                    _bank_api_cost(org, fork_cost)
+                    _bank_api_cost(org, fork_cost, served=_fork_served)
                 store.save_org(org)
             print(f"[orgtree] {slug}/{nid}: compaction split abandoned — the "
                   f"session was replaced while the fork ran "
@@ -23327,7 +23081,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
         if fork_cost:
             n["cost_usd"] = round(float(n.get("cost_usd") or 0.0) + fork_cost, 6)
             if on_fallback_key:
-                _bank_api_cost(org, fork_cost)
+                _bank_api_cost(org, fork_cost, served=_fork_served)
         # The successor's fill is the POST-compaction one, and it is knowable
         # HERE — the fork has already written its summary. This used to be a
         # flat `None`, which cleared the stale near-full reading but replaced
@@ -24130,9 +23884,9 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
       · the legacy token-roster failover re-drive. Registered Codex profiles
         now get pool-specific marks for opt-in account fallback; the common
         background scheduler owns the reassignment and frozen-turn replay.
-      · the `api_fallback` billing window. That key buys ANTHROPIC inference;
-        it cannot serve a codex turn, so opening a window on a codex wall would
-        bill the org for capacity it did not obtain.
+      · the metered API-key account route (`apikey_route_for`). Those rows
+        buy ANTHROPIC inference; they cannot serve a codex turn, so a codex
+        wall neither routes onto them nor marks them.
       · the org-wide fable escalation — there is no fable tier on these lanes.
       · `_spawn_reset_refresh`, which re-asks the claude host's usage readout.
         It describes a different account's quota entirely.
@@ -24897,10 +24651,13 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             _limit_resume = bool(fz.get("limit"))
             _frozen_at = str(fz.get("at") or "")
             _frozen_sid = str(n.get("session_id") or "")
-            # a fallback wake is seconds behind the freeze — the cache is
-            # still warm, which is the opposite of what cheap_first is for
-            if cheap_first and fz.get("limit") \
-                    and not api_fallback_active(org):
+            # a metered-lane wake is seconds behind the freeze — the cache
+            # is still warm, which is the opposite of what cheap_first is
+            # for (the same rule the V1 window wake had)
+            _fast_lane = (not str(n.get("account") or "")
+                          and apikey_route_for(
+                              str(n.get("model") or "")) is not None)
+            if cheap_first and fz.get("limit") and not _fast_lane:
                 try:
                     if transcript_path(n["session_id"],
                                        _transcript_root(org, nid)) is not None:
@@ -25275,16 +25032,6 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     """
     now = time.time() if now is None else now
     last = float(org.d.get("auto_resume_last") or 0)
-    # ⚠ THE ORG-WIDE WINDOW IS THE WRONG QUESTION HERE (audit F1, 2026-09-05).
-    # This was `fb = api_fallback_active(org, now)`, read once and applied to
-    # every node below — so enabling an ANTHROPIC fallback key made a Luna
-    # (Codex) node frozen for another 24 hours "ready" at once, and the wake
-    # re-drove it into a wall its own route had not cleared. The key serves
-    # exactly the Claude tiers; `api_fallback_active_for` is the classifier
-    # that already knew that for the cost split (D-194), asked PER NODE below.
-    # (`fb_org` is only the short-circuit: no window at all — the usual tick —
-    # means no tier lookup per node. It never decides on its own.)
-    fb_org = api_fallback_active(org, now)
     # ONE resolver answer per TIER per tick, not per node: this whole function
     # runs under `store.DOC_LOCK` (see the loop), and `accounts.resolve` is two
     # FILE reads — the roster and the CLI's own config. Neither is a network
@@ -25375,17 +25122,6 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
             # it — this suppresses the TIMER, not the person. (Placed before
             # every branch below, including the fallback fast-wake: a window
             # another node's REAL limit opened must not drag this one along.)
-            continue
-        if (fb_org and fz.get("limit") and not fz.get("on_fallback")
-                and api_fallback_active_for(
-                    org, str(n.get("model") or ""), now)):
-            # api_fallback (2026-08-17): the key lane is open RIGHT NOW —
-            # a subscription-side limit freeze has nothing to wait for.
-            # (A freeze earned ON the key lane keeps its own until_ts.)
-            # …FOR THIS NODE'S ROUTE. A codex, antigravity or openrouter
-            # freeze is a wall on a lane the key cannot serve; it waits for
-            # its own reset like any timed freeze (the branches below).
-            ready.add(nid)
             continue
         if (fz.get("limit") and not fz.get("on_fallback")
                 and not fz.get("untrusted")
@@ -25695,12 +25431,20 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
             store.save_org(org)
         ready = auto_resume_ready(org, now)
         if not org.d.get("auto_resume"):
-            fb = api_fallback_active(org)
+            # connection wakes always pass; a LIMIT wake passes only on the
+            # metered account lane — capacity the machine consented to spend
+            # is spent without the auto_resume opt-in, exactly as the V1
+            # window did (D-122), mirroring the ready-branch's own predicate
             ready = {nid for nid in ready
                      if (fz := _resumable(org.node(nid))) is not None
                      and ((fz.get("connection") and not fz.get("limit"))
-                          or (fb and fz.get("limit")
-                              and not fz.get("on_fallback")))}
+                          or (fz.get("limit")
+                              and not fz.get("on_fallback")
+                              and not fz.get("untrusted")
+                              and not str(org.node(nid).get("account") or "")
+                              and apikey_route_for(
+                                  str(org.node(nid).get("model") or ""),
+                                  now) is not None))}
         arc = bool(org.d.get("auto_resume_compact"))
         probe: list[tuple[str, str, NodeDoc, FrozenInfo]] = []
         direct: set[str] = set()

@@ -478,22 +478,21 @@ def shared_container_auth_env(org: Org, k: Any = None) -> dict[str, str]:
     return {"ANTHROPIC_API_KEY": key}
 
 
-def anthropic_proxy_api_key(org: Org, *, fallback_active: bool = False) -> str:
+def anthropic_proxy_api_key(org: Org) -> str:
     """Explicit key the host-side Anthropic relay should attach.
 
-    Standard mode keeps its historical split: literal keys live directly in
-    the container, while only api-fallback temporarily switches relay traffic
-    to the org key. Frozen mode routes literal keys through the per-org relay
-    too, so the actual provider credential never enters the shared container.
-    An empty return means the relay should use the host OAuth subscription.
+    Standard mode keeps literal keys directly in the container. Frozen mode
+    routes literal keys through the per-org relay too, so the actual
+    provider credential never enters the shared container. An empty return
+    means the relay should use the host OAuth subscription. (The V1
+    api-fallback arm — relay traffic temporarily re-authed with the org key
+    while a window was open — went with the org key fields, 2026-09-12.)
 
     Always resolve ``container_auth`` first.  Besides choosing org, kiosk, and
     install-default keys consistently, it owns frozen policy validation of
     forbidden legacy selectors.
     """
     selected = container_auth(org)
-    if fallback_active:
-        return str(org.d.get("api_key") or "").strip()
     if legacy_bridge_credentials_allowed():
         return ""
     low = selected.lower()

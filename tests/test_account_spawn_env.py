@@ -51,21 +51,27 @@ class SpawnEnvBindingTests(unittest.TestCase):
         # the old precedence CANNOT fire for a bound node
         self.assertNotIn("ANTHROPIC_API_KEY", env)
 
-    def test_unbound_node_keeps_legacy_org_key_lane(self):
+    def test_unbound_node_ignores_stale_org_key_field(self):
+        # V1 removal (user redesign 2026-09-12): the org-key lane is gone,
+        # so a stale `api_key` field left on a doc the cutover could not
+        # rewrite is INERT — the spawn stays on the ambient lanes rather
+        # than quietly billing a key nobody consented to any more.
         org = self._org("legacy-a", api_key="ORGKEY")
         env = self.supervisor.spawn_env(org, tier="opus", nid="root")
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "ORGKEY")
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn(self.registry.MARKER, env)
 
-    def test_org_key_row_injects_this_orgs_key(self):
+    def test_stale_org_key_ref_refuses_half_bound_spawn(self):
+        # after the startup cutover no row carries an `org-api-key:` ref;
+        # one that survives anyway (cutover held) must refuse LOUDLY at the
+        # binding seam, never run half-bound on an empty credential.
         row = self.registry.create_account(
             "claude", "orgkey",
             {"kind": "token", "token_ref": "org-api-key:keyed"},
             origin_org="keyed")
         org = self._org("keyed", account=row["id"], api_key="THEKEY")
-        env = self.supervisor.spawn_env(org, tier="opus", nid="root")
-        self.assertEqual(env["ANTHROPIC_API_KEY"], "THEKEY")
-        self.assertEqual(env[self.registry.MARKER], row["id"])
+        with self.assertRaises(RuntimeError):
+            self.supervisor.spawn_env(org, tier="opus", nid="root")
 
     def test_foreign_org_key_ref_refused_in_depth(self):
         row = self.registry.create_account(

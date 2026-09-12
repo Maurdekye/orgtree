@@ -156,8 +156,12 @@ def eligible(org: Any, nid: str) -> bool:
                 and not st.get("busy") and not st.get("responding")
                 and not org.d.get("spend_frozen") and not org.d.get("headless")
                 and not supervisor.sbx.is_sandboxed(org)
-                and not (providers.provider_of(str(n.get("model") or "")) == "claude"
-                         and supervisor.bills_the_key(org, bool(fz.get("on_fallback"))))
+                # a freeze earned on a metered API-key ACCOUNT row is the
+                # API's own wall, never a subscription's — switching login
+                # profiles cannot clear it (the V1 org-key form of this
+                # guard was `bills_the_key`, retired 2026-09-12)
+                and supervisor.served_metered_row(
+                    str(fz.get("account") or "")) is None
                 and providers.provider_of(str(n.get("model") or "")) in ("claude", "openai"))
 
 

@@ -191,7 +191,7 @@ class ManagedResetSelectionTests(unittest.TestCase):
         # Background reads use the same profile; no real OAuth/network in tests.
         with patch.object(self.limits.subproxy, "profile_access_token", return_value="fixture"):
             wrote = self.supervisor._refresh_freeze_reset(
-            "mrs-fix", "root", "You reached your Fable limit", stamped, None,
+            "mrs-fix", "root", "You reached your Fable limit", stamped,
             subscription=False, trusted=True, tier="fable",
             stamped_kind="probe", account=row["id"])
         self.assertTrue(wrote, "correction pass never re-timed a bound freeze")
@@ -268,7 +268,7 @@ class ManagedResetSelectionTests(unittest.TestCase):
         self.registry.record_mark(row['id'], 'fable', now+300, provenance='inferred')
         with patch.object(self.supervisor, '_limit_reset_ts', return_value=(now+7200, 'text')):
             self.assertFalse(self.supervisor._refresh_freeze_reset('mrs-rebound', 'root', 'limit',
-                now+300, None, account=row['id'], tier='fable', stamped_kind='probe'))
+                now+300, account=row['id'], tier='fable', stamped_kind='probe'))
         self.assertEqual(self.store.load_org('mrs-rebound').node('root')['frozen']['until_ts'], now+300)
         self.assertEqual(self.registry.active_mark(row['id'], 'fable')['until'], now+300)
 
@@ -286,7 +286,10 @@ class ManagedResetSelectionTests(unittest.TestCase):
                 self.assertAlmostEqual(answer[0], now+10800, delta=2)
         self.assertEqual(self.supervisor._reset_readout_account(False, 'primary'), '')
 
-    def test_fallback_window_corrects_even_when_freeze_ownership_changes(self):
+    def test_freeze_correction_respects_ownership_races(self):
+        # (was the V1 fallback-window correction test; the window died with
+        # the org-key lane, 2026-09-12 — the ownership races it also pinned
+        # for the FREEZE and the MARK keep their coverage here)
         for race in ('none', 'reassigned', 'mark_changed'):
             with self.subTest(race=race):
                 now = time.time()
@@ -296,15 +299,14 @@ class ManagedResetSelectionTests(unittest.TestCase):
                 stamped, actual = now+6*86400, now+7200
                 org.node('root')['frozen'] = {'limit': True, 'until_ts': stamped,
                     'schedule_kind': 'probe'}
-                org.d.update(api_fallback=True, api_fallback_until=stamped)
                 self.store.save_org(org)
                 mark = stamped+100 if race == 'mark_changed' else stamped
                 self.registry.record_mark(row['id'], 'fable', mark, provenance='inferred')
                 with patch.object(self.supervisor, '_limit_reset_ts', return_value=(actual, 'text')):
-                    self.assertTrue(self.supervisor._refresh_freeze_reset(slug, 'root', 'limit',
-                        stamped, stamped, account=row['id'], tier='fable', stamped_kind='probe'))
+                    wrote = self.supervisor._refresh_freeze_reset(slug, 'root', 'limit',
+                        stamped, account=row['id'], tier='fable', stamped_kind='probe')
+                self.assertEqual(wrote, race == 'none')
                 result = self.store.load_org(slug)
-                self.assertEqual(result.d['api_fallback_until'], actual)
                 self.assertEqual(result.node('root')['frozen']['until_ts'],
                     actual if race == 'none' else stamped)
                 self.assertEqual(self.registry.active_mark(row['id'], 'fable')['until'],
