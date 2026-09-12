@@ -3731,13 +3731,24 @@ span.ref-chip.ref-chip {
   overflow: hidden;
   mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
 }
-.docket-desc-toggle {
+/* ⚠ THE DOUBLED CLASS IS SPECIFICITY, NOT SCOPING — the same trick, and the
+   same reason, as `.ref-chip.ref-chip`. The docket pane is a `.settings`
+   modal, and `.settings button` (0,1,1) sets font-size 14px, padding 7px 15px
+   and border-radius 6px. A single `.docket-desc-toggle` (0,1,0) LOSES to it,
+   so this quiet little "show all N lines" link rendered as a 34px-tall padded
+   control hanging under every long description. Measured, not reasoned:
+   jsdom computes no cascade and every component test passed throughout —
+   `descfold_probe.py` caught it in a real browser, and its `settingsbutton`
+   mutant puts it back. */
+.docket-desc-toggle.docket-desc-toggle {
   display: block; margin-top: 2px; padding: 1px 6px 1px 0;
-  border: 0; background: none; color: var(--dim);
-  font: 11px/1.4 var(--sans); cursor: pointer;
+  border: 0; border-radius: 0; background: none; color: var(--dim);
+  font: 11px/1.4 var(--sans); cursor: pointer; min-height: 0;
 }
-.docket-desc-toggle:hover { color: var(--accent); }
-.docket-desc-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.docket-desc-toggle.docket-desc-toggle:hover { color: var(--accent); }
+.docket-desc-toggle.docket-desc-toggle:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 1px;
+}
 .docket-modal .mailrow .docket-dismiss { margin-left: auto; flex-shrink: 0; }
 .docket-modal button.cc-name, .mailer-head button.cc-name {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;
