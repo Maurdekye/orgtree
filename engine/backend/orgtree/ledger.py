@@ -2945,6 +2945,8 @@ class Org:
         return {"warnings": []}
 
     def take_mail(self, nid: str) -> list[MailEntry]:
+        if (self.nodes.get(nid) or {}).get("halt"):
+            return []
         return (self.d.get("mail") or {}).pop(nid, [])
 
     def waking_mail(self, nid: str) -> bool:
@@ -3676,6 +3678,7 @@ class Org:
                       "tools": {"bash": False, "web": False, "edit": False,
                                 "subagents": False, "mcp": []}},
         })
+        pred.pop("halt_queue", None)  # pending work belongs to the successor
         pred.pop("cost_usd_unknown", None)
         if model is not None:
             # the bearer is recorded on the tier whose provider owns
@@ -7219,6 +7222,8 @@ class Org:
         returned warning says so (user ruling: warn, don't rewrite)."""
         self._require_authority(actor, nid)
         n = self.node(nid)
+        if (n.get("halt") or {}).get("phase") == "halting":
+            raise LedgerError("halt is still settling — finish halt before renaming the agent")
         if "@" in nid:
             # a generation carries `base@gen` — renaming one directly would
             # detach the bearer from its lineage naming while the pointers
@@ -9076,6 +9081,7 @@ class Org:
                       "tools": {"bash": False, "web": False, "edit": False,
                                 "subagents": False, "mcp": []}},
         })
+        pred.pop("halt_queue", None)  # pending work belongs to the successor
         pred.pop("cost_usd_unknown", None)
         pred.pop("cheap_compacted", None)   # the bearer is the OLD session
         # a session that just compacted has demonstrably RUN, so neither half
@@ -9172,6 +9178,7 @@ class Org:
                       "tools": {"bash": False, "web": False, "edit": False,
                                 "subagents": False, "mcp": []}},
         })
+        pred.pop("halt_queue", None)  # pending work belongs to the successor
         pred.pop("cost_usd_unknown", None)
         # same invariant reseed holds: a LOST record must not also carry
         # the never-run pardon — one row cannot assert both "this session
@@ -9429,6 +9436,7 @@ class Org:
                       "tools": {"bash": False, "web": False, "edit": False,
                                 "subagents": False, "mcp": []}},
         })
+        pred.pop("halt_queue", None)  # pending work belongs to the successor
         pred.pop("cost_usd_unknown", None)
         pred.pop("cheap_compacted", None)   # the bearer is the OLD session
         # …and this bearer is stamped LOST — "its transcript is gone".
@@ -9541,6 +9549,9 @@ class Org:
                 "team_charter": n.get("team_charter"),
                 "mail_pending": len((self.d.get("mail") or {}).get(nid, [])),
                 "limit_locked": bool(n.get("limit_locked")),
+                "halt": ({k: n["halt"][k] for k in ("phase", "requested_at", "at", "by")
+                          if k in n["halt"]} if n.get("halt") else None),
+                "halt_queued": len(n.get("halt_queue") or []),
                 "last_status": n.get("last_status"),
                 "prev_status": n.get("prev_status"),
                 "inflight_at": (n.get("inflight") or {}).get("at"),

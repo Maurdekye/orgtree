@@ -90,11 +90,13 @@ TOOLS_SCHEMA: dict[str, Any] = {
 # it which account had capacity, and nothing told it how to place work there.
 # Exposing the field is the whole difference between guidance and an action.
 #
-# One public name is shown by the UI and board and accepted by every
-# selector. Keep this definition shared so a tool cannot teach a second name.
+# Managed IDs are shared by the UI and board. Primary's UI-only `default`
+# token is explained here so every selector teaches the same accepted value.
 _ACCOUNT_VALUE: str = (
-    "Pass the canonical account name shown in the UI and the `account=` "
-    "roster of [PROVIDER USAGE], for example `claude-4` or `openai/primary`. "
+    "Pass the immutable managed account ID or the provider/primary selector "
+    "from the `account=` roster of [PROVIDER USAGE], for example `claude-4` "
+    "or `openai/primary`. The UI shows `account-id · email`; its primary "
+    "display token `default` means provider/primary, never a new stored ID. "
     "The same value works on hire, rehire, retool and staff. `primary` is "
     "shorthand for the target tier's ambient account and clears an existing "
     "secondary binding. Qualified primary names must match the target "
@@ -1695,6 +1697,34 @@ TOOLS: list[dict[str, Any]] = [
             "text. Your own node, peers, and unrelated nodes are refused; "
             "the user retains the broad override and organization-wide "
             "spending and storage controls remain in force."),
+        "inputSchema": {"type": "object",
+                        "properties": {"node": {"type": "string"}},
+                        "required": ["node"]},
+    },
+    {
+        "name": "orgtree_halt",
+        "description": (
+            "Halt a descendant until explicit orgtree_unhalt. Abruptly kills "
+            "its active provider process and waits for the turn to fully end. "
+            "Success (halted=true, settled=true) means no turn can run. A "
+            "halting result means cleanup is still pending, not success. "
+            "Queued and new mail remain durable and unread; messages, "
+            "watchdogs, checkups, restarts, rehire and model/account changes "
+            "cannot wake it. Interrupt is different: orgtree_interrupt keeps "
+            "its immediate boundary semantics and allows pending mail to run. "
+            "Cannot halt yourself, a peer, or a superior."),
+        "inputSchema": {"type": "object",
+                        "properties": {"node": {"type": "string"}},
+                        "required": ["node"]},
+    },
+    {
+        "name": "orgtree_unhalt",
+        "description": (
+            "Explicitly release a descendant's durable halt after its active "
+            "turn has fully ended. Preserved pending work resumes through "
+            "ordinary delivery once; other lifecycle/account holds still "
+            "apply. An idle agent with no waking work stays idle. Repeating "
+            "unhalt does not create another turn."),
         "inputSchema": {"type": "object",
                         "properties": {"node": {"type": "string"}},
                         "required": ["node"]},

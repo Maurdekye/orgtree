@@ -4318,6 +4318,12 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     # the alias the caller asked by, never the resolved row id — an existing
     # client that asked for `primary` must keep reading its own key back
     out["account"] = account_id
+    # API identity metadata only: name/label use the canonical selector and
+    # account retains the requested alias for old clients. Every usage field,
+    # including provider-native labels INSIDE limits, remains the resolver's
+    # exact answer. The turn board gets identity separately from its roster.
+    name = registry.account_name(row)
+    out.update(name=name, label=name)
     return out
 
 
@@ -4455,6 +4461,12 @@ def node_message(slug: str, nid: str, body: Message,
                          f"nothing there and is not mail (nothing would "
                          f"survive to deliver at rehire); rehire first, or "
                          f"send it as a plain message")
+            if n.get("halt"):
+                if stripped.split()[0] == "/compact":
+                    raise HTTPException(409, "agent is halted — unhalt it before compacting")
+                org.user_deep_reach(nid, stripped[:160], kind="command")
+                store.save_org(org)
+                return supervisor.send_message(slug, nid, stripped, command=True)
             if n.get("frozen"):
                 raise HTTPException(
                     409, "frozen (usage limit) — a session command would be "
@@ -4740,6 +4752,23 @@ def node_interrupt(slug: str, nid: str) -> dict[str, Any]:
     return supervisor.interrupt_turn(slug, nid)
 
 
+@app.post("/api/orgs/{slug}/nodes/{nid}/halt")
+def node_halt(slug: str, nid: str) -> dict[str, Any]:
+    """Close all turn admission, then await abrupt termination and cleanup."""
+    try:
+        return supervisor.halt.halt(slug, nid)
+    except LedgerError as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/unhalt")
+def node_unhalt(slug: str, nid: str) -> dict[str, Any]:
+    try:
+        return supervisor.halt.unhalt(slug, nid)
+    except LedgerError as e:
+        raise HTTPException(409, str(e)) from e
+
+
 class ProcessControl(Body):
     action: str
 
@@ -4804,6 +4833,8 @@ def node_compact(slug: str, nid: str) -> dict[str, Any]:
                                  "until it takes a turn")
     if n.get("frozen"):
         raise HTTPException(409, "frozen by a usage limit — resume it first")
+    if n.get("halt"):
+        raise HTTPException(409, "agent is halted — unhalt it before compacting")
     if supervisor.state(slug, nid)["busy"]:
         raise HTTPException(409, "busy — wait for the current turn to finish")
 
@@ -8213,6 +8244,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # this request was always making: after it, `body.tool` is the real verb
     # and every authority, capability and policy check below sees THAT.
     body = _op_unwrap(body)
+    if supervisor.halt.requested(body.org, body.node):
+        raise HTTPException(409, "agent is halted — tools cannot execute until unhalt")
     try:
         a = _norm_args(body.args)
     except LedgerError as e:
@@ -8364,6 +8397,33 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 actor=body.node)
         except LedgerError as e:
             raise HTTPException(422, str(e))
+    if body.tool in ("orgtree_halt", "orgtree_unhalt"):
+        # Halt must wait OUTSIDE DOC_LOCK: the target's cleanup owns that
+        # same lock. These idempotent lifecycle operations own their saves;
+        # the receipt honestly names this PRE-transaction coverage.
+        with _op_inflight(body):
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    target = str(a.get("node") or "")
+                    org._require_authority(body.node, target)
+                    rcpt = _op_admit(org, body, a)
+                    if rcpt is not None and "replay" in rcpt:
+                        return cast("dict[str, Any]", rcpt["replay"])
+                if body.tool == "orgtree_halt":
+                    result = supervisor.halt.halt(body.org, target, body.node)
+                else:
+                    result = supervisor.halt.unhalt(body.org, target, body.node)
+            except LedgerError as e:
+                raise HTTPException(422, str(e)) from e
+            with store.DOC_LOCK:
+                org = store.load_org(body.org)
+                if rcpt is not None:
+                    _op_file(org, body, a, rcpt, result)
+                    store.save_org(org)
+                    opreceipts.witness(store.DATA_ROOT, body.org,
+                                      opreceipts.seq(cast("dict[str, Any]", org.d)))
+            return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     drive: list[str] = []      # nodes whose turn should run after we release the lock
@@ -8446,6 +8506,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         try:
             org = store.load_org(body.org)
             org.node(body.node)
+            if org.node(body.node).get("halt"):
+                raise LedgerError("agent is halted — tools cannot execute until unhalt")
             # ADMISSION (w71d69aac). Inside this lock acquisition on purpose:
             # the same one that mutates the document and saves it. A check
             # before the lock would be a time-of-check/time-of-use hole, and

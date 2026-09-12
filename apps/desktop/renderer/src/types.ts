@@ -397,6 +397,8 @@ export interface TreeNode {
   last_approvals?: Denial[]
   turns: TurnStat[]
   frozen: TreeFrozen | null
+  halt?: { phase: 'halting' | 'halted'; requested_at: string; at?: string; by: string } | null
+  halt_queued?: number
   audiences_held: string[]
   bearer_state: BearerState
   generation: number
@@ -1626,7 +1628,8 @@ export interface AccountStanding {
  *  home) — the modal renders every row where it is false, so each registered
  *  account's standing appears exactly once. */
 export interface AccountRegistryRow {
-  /** Canonical displayed value accepted by every account selector. */
+  /** Compatibility API field: managed ID or provider/primary. The UI derives
+   * identity from id/ambient and email, never from a mutable name or label. */
   name?: string
   id: string
   provider: string
@@ -1684,6 +1687,8 @@ export interface TierStanding {
 export interface AccountUsage {
   account: string
   label: string
+  /** Observed login email. Older host payloads carried this in label. */
+  email?: string | null
   /** Present for a non-Claude provider section in the combined usage modal. */
   provider?: string
   available: boolean
@@ -2039,6 +2044,8 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
   deferred?: boolean | string
   queued?: number
   frozen?: boolean
+  halted?: boolean
+  halting?: boolean
   compacting?: boolean
   command?: boolean
   immediate?: boolean

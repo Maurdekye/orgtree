@@ -1498,7 +1498,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           </span>}
         </div>
         <span className="map-name">{node.id}</span>
-        {isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
+        {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
           <MapTurnAge node={node} turn={lastTurn} />
         ) : (
           <LastTurnAge turn={lastTurn} busy={node.busy} variant="map" />
@@ -1569,13 +1569,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="queued-mark" title={queuedSwitchTitle(node)}>
               →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-          <span className="name" title={node.account ? `${node.id}: account ${node.account_label || node.account}` : node.id}>{node.id}</span>
+          <span className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}
             est={node.occupancy_est} compactAt={compactAt} />
           <div className="sq-workstate">
-            {isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
+            {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
             ) : (
               <>

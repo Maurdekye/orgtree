@@ -70,13 +70,16 @@ export type MenuEntry = MenuItem | 'sep'
 // contains status/model text, and a ticket row displays its slug, not title.
 const COPY_OBJECT = '[data-copy-agent-name], [data-copy-ticket-title]'
 const CopyFeedback = createContext<ToastFn | undefined>(undefined)
-const menuAnchors = new WeakMap<Element, Element>()
+// the anchor is stored as the LIVE REF, not the element that was current when
+// the menu opened: a host whose object is re-rendered under the menu re-anchors
+// it (see `reanchor`), and a stale entry here would answer for the wrong node
+const menuAnchors = new WeakMap<Element, { current: Element | null }>()
 
 /** Portals sit outside their surface's DOM. Outside-click guards must still
  * treat a press in that surface's own menu as an inside press. */
 export function contextMenuBelongsTo(target: EventTarget | null, surface: Element): boolean {
   const menu = (target as Element | null)?.closest?.('.ctxmenu')
-  const anchor = menu && menuAnchors.get(menu)
+  const anchor = menu && menuAnchors.get(menu)?.current
   return !!anchor && surface.contains(anchor)
 }
 
@@ -160,10 +163,6 @@ interface MenuState {
   entries: MenuEntry[]
   /** where focus was when the menu opened — restored on close */
   restore: Element | null
-  /** the object the menu was opened FROM. Used by the scroll rule below to
-   *  tell a scroll that carries this menu's anchor away from one that
-   *  happened somewhere else entirely. */
-  anchor: Element | null
   /** raised without a usable pointer (keyboard): focus lands on the first
    *  item so the arrow keys have somewhere to start from */
   keyboard: boolean
@@ -174,6 +173,27 @@ export interface ContextMenuHandle {
    *  renders many rows builds only the pressed row's items. */
   open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => void
   close: () => void
+  /** Point the open menu at the element that carries its object NOW.
+   *
+   *  A host whose list re-projects itself under an open menu — a live
+   *  transcript is the case this exists for — replaces the very node the menu
+   *  was opened from. The old one is then detached, which the scroll rule
+   *  below reads as an unanswerable case and closes on, so the menu died on
+   *  the next scroll anywhere on screen. The host knows which element carries
+   *  its object now; this is how it says so.
+   *
+   *  Deliberately a REF WRITE and not state: re-rendering the menu would re-run
+   *  its position/focus layout effect, moving focus off whatever item the
+   *  operator had reached. Nothing about the menu's appearance depends on the
+   *  anchor — only the "did this scroll move me" question does.
+   *
+   *  `null` is IGNORED rather than clearing the anchor: a host that has
+   *  momentarily lost sight of its object has said nothing about where the
+   *  menu is, and an unanchored menu dismisses itself on the next scroll
+   *  anywhere on screen. Where the object is really gone, the last anchor is
+   *  detached, which is the unanswerable case the scroll rule already
+   *  closes on. */
+  reanchor: (el: Element | null) => void
   isOpen: boolean
   /** render this once, anywhere in the component's tree */
   node: ReactNode
@@ -184,7 +204,9 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const inheritedFeedback = useContext(CopyFeedback)
   const feedback = toast ?? inheritedFeedback
   const overlayRoot = useSurfaceDocument().body
+  const anchorRef = useRef<Element | null>(null)
   const close = useCallback(() => setState(null), [])
+  const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
   const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
     if (e.defaultPrevented) return           // an inner object already took it
     const el = anchor ?? e.currentTarget as HTMLElement
@@ -202,30 +224,30 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     const measured = r.width > 0 || r.height > 0
     const inside = measured && e.clientX >= r.left && e.clientX <= r.right
       && e.clientY >= r.top && e.clientY <= r.bottom
+    anchorRef.current = el
     setState({
       x: inside ? e.clientX : r.left,
       y: inside ? e.clientY : r.bottom,
       entries: list,
       restore: el.ownerDocument.activeElement,
-      anchor: el,
       keyboard: !inside,
     })
   }, [feedback])
   const node = state
-    ? createPortal(<ContextMenu state={state} close={close} />, overlayRoot)
+    ? createPortal(<ContextMenu state={state} anchorRef={anchorRef} close={close} />, overlayRoot)
     : null
-  return { open, close, isOpen: state !== null, node }
+  return { open, close, reanchor, isOpen: state !== null, node }
 }
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
-function ContextMenu({ state, close }: { state: MenuState; close: () => void }) {
+function ContextMenu({ state, anchorRef, close }:
+{ state: MenuState; anchorRef: { current: Element | null }; close: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
-  // read through a ref so the listener effect below stays keyed on `close`
-  // alone — re-registering four document listeners on every anchor change
-  // would be a second behaviour, not a fix
-  const anchorRef = useRef<Element | null>(state.anchor)
-  anchorRef.current = state.anchor
+  // the anchor is read through the ref its OWNER holds, so the listener effect
+  // below stays keyed on `close` alone (re-registering four document listeners
+  // on every anchor change would be a second behaviour, not a fix) — and so
+  // that `reanchor` can move it without re-rendering this component at all
   // Escape joins the owning document's stack (shared.ts): pushed last, so it
   // is the top entry and the surface beneath keeps its own Escape for later
   useEsc(close, true)
@@ -331,7 +353,7 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
 
   const style: CSSProperties = { left: pos.x, top: pos.y }
   return (
-    <div ref={el => { ref.current = el; if (el && state.anchor) menuAnchors.set(el, state.anchor) }}
+    <div ref={el => { ref.current = el; if (el) menuAnchors.set(el, anchorRef) }}
       className="ctxmenu" role="menu" tabIndex={-1} style={style}
       onKeyDown={onKeyDown}
       onPointerDown={stop} onPointerUp={stop} onPointerMove={stop}

@@ -242,6 +242,7 @@ def _account(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "account": "codex",
         "label": status.get("email") or "signed-in account",
+        "email": status.get("email") or None,
         "provider": "Codex",
         **data,
     }

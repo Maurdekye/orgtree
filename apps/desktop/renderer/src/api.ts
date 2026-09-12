@@ -238,6 +238,12 @@ export const interruptNode = (
   slug: string, nid: string,
 ): Promise<{ interrupted: boolean; reason?: string }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+export const haltNode = (slug: string, nid: string): Promise<{
+  halted: boolean; settled: boolean; halting?: boolean; status: string
+}> => req(`/api/orgs/${slug}/nodes/${nid}/halt`, { method: 'POST' })
+export const unhaltNode = (slug: string, nid: string): Promise<{
+  unhalted: boolean; status?: string
+}> => req(`/api/orgs/${slug}/nodes/${nid}/unhalt`, { method: 'POST' })
 export const processControl = (
   slug: string, nid: string, action: 'start' | 'stop',
 ): Promise<{ ok: boolean; action: 'start' | 'stop'; already?: boolean;

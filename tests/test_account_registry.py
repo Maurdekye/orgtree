@@ -48,24 +48,26 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(d["tint_ordinal"], 4)
         self.assertNotEqual(d["id"], b["id"])
 
-    def test_display_names_reuse_free_numbers_without_reusing_identity(self):
+    def test_public_identity_is_never_reused_and_new_labels_default_to_that_id(self):
         def create(label=""):
             return self.registry.create_account("claude", label,
                 {"kind": "managed", "path": os.path.join(self.root, "p")})
         first = create()
-        self.assertEqual(first["label"], "claude-0")
+        self.assertEqual(first["label"], first["id"])
         self.registry.remove_account(first["id"])
         second = create()
-        self.assertEqual(second["label"], "claude-0")
+        self.assertEqual(second["label"], second["id"])
         self.assertNotEqual(first["id"], second["id"])
         third = create()
-        self.assertEqual(third["label"], "claude-1")
+        self.assertEqual(third["label"], third["id"])
         self.registry.remove_account(second["id"])
         fourth = create()
-        self.assertEqual(fourth["label"], "claude-0")
-        self.assertEqual(self.registry.get_account(third["id"])["label"], "claude-1")
+        self.assertEqual(fourth["label"], fourth["id"])
+        self.assertEqual(self.registry.get_account(third["id"])["label"], third["id"])
         named = create("claude-2")
-        self.assertEqual(create()["label"], "claude-3")
+        fresh = create()
+        self.assertEqual(fresh["label"], fresh["id"])
+        # Old clients may still supply/store a label; it is ignored identity.
         self.assertEqual(self.registry.get_account(named["id"])["label"], "claude-2")
 
     def test_openrouter_and_unknown_providers_refused(self):

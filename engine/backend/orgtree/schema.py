@@ -243,6 +243,7 @@ class FrozenInfo(TypedDict, total=False):
     # The raw prompt is replayed to the provider; this copy is only what the
     # chat renderer may show.  Older records legitimately omit it.
     resume_views: list[str]
+    halt_sources: dict[str, str]  # replay index -> unconfirmed halt carrier identity
 
 
 class OracleExchange(TypedDict):
@@ -364,6 +365,8 @@ class NodeDoc(TypedDict):
     #: scrubbed the same way on the tree. Approved, not "ran": see TurnStat.
     last_approvals: NotRequired[list[Denial]]
     turns: NotRequired[list[TurnStat]]
+    halt: NotRequired[dict[str, Any] | None]  # halting -> halted; explicit unhalt only
+    halt_queue: NotRequired[list[dict[str, Any]]]  # durable pending carriers
     frozen: NotRequired[FrozenInfo | None]
     remote_controlled: NotRequired[dict[str, Any] | None]  # FR-01 {at, pid} — the node is parked while the user drives its session directly
     limit_locked: NotRequired[bool]

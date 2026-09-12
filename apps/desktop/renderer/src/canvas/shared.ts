@@ -678,6 +678,8 @@ export interface CanvasNode {
   last_approvals?: TreeNode['last_approvals']
   turns?: TreeNode['turns']
   frozen?: TreeNode['frozen']
+  halt?: TreeNode['halt']
+  halt_queued?: number
   audiences_held?: string[]
   bearer_state?: TreeNode['bearer_state']
   generation?: number

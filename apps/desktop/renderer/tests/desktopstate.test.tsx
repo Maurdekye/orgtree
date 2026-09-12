@@ -11,6 +11,9 @@ import type { NativeDesktop, NativePreferences } from '../src/desktop'
 import type { TreePayload } from '../src/types'
 import { forgetModalPins, ModalOverlapSettings, MODAL_OVERLAP_KEY, PinFrame, pinModal, setModalOverlap } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
+import { applyContrast } from '../src/contrast'
+import { applyAgentColorSource } from '../src/agentcolors'
+import { applyTheme } from '../src/themes'
 
 function native(value?: Partial<NativeDesktop>) {
   Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
@@ -136,6 +139,11 @@ test('quiet login defers restoring until manual show, then the same composer DOM
   Object.defineProperties(cw, { screenX: { value: 200 }, screenY: { value: 180 }, outerWidth: { value: 830 }, outerHeight: { value: 700 } })
   cw.focus = () => {}; cw.requestAnimationFrame = () => 1; cw.cancelAnimationFrame = () => {}
   const originalOpen = window.open
+  const originalClasses = document.documentElement.className
+  const originalStyle = document.documentElement.style.cssText
+  applyContrast('light')
+  applyTheme('custom:#8435cf')
+  applyAgentColorSource('organization')
   const previousRoute = window.location.pathname
   const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = './assets/theme.css'
   Object.defineProperty(stylesheet, 'sheet', { value: { href: new URL('/assets/theme.css', window.location.href).href }, configurable: true })
@@ -160,6 +168,15 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     assert.ok(input, 'positive control: the child owns the real composer')
     assert.equal(cw.document.compatMode, 'CSS1Compat', 'adopted UI uses the same standards mode as main')
     assert.equal(input, initial)
+    assert.ok(cw.document.documentElement.classList.contains('contrast-light'), 'new popouts inherit the selected brightness')
+    assert.ok(cw.document.documentElement.classList.contains('agent-colors-organization'))
+    assert.equal(cw.document.documentElement.style.getPropertyValue('--org-accent'), '#8435cf')
+    await inAct(async () => { applyAgentColorSource('provider'); applyTheme('codex'); await flush(10) })
+    assert.ok(!cw.document.documentElement.classList.contains('agent-colors-organization'), 'open popouts follow the color-source toggle')
+    assert.equal(cw.document.documentElement.style.getPropertyValue('--org-accent'), '#22c4bd')
+    await inAct(async () => { applyContrast('obsidian-black'); await flush(10) })
+    assert.ok(cw.document.documentElement.classList.contains('contrast-obsidian-black'), 'open popouts follow brightness changes')
+    assert.ok(!cw.document.documentElement.classList.contains('contrast-light'))
     assert.equal(cw.document.querySelector<HTMLLinkElement>('link[rel=stylesheet]')!.href, new URL('/assets/theme.css', window.location.href).href, 'loaded CSS URL stays anchored before the organization route change')
     assert.equal(input.value, 'draft and reply kept')
     assert.deepEqual(savedWindows()[0]!.restore, { document: 'doc-original' })
@@ -168,7 +185,7 @@ test('quiet login defers restoring until manual show, then the same composer DOM
     await inAct(async () => { back.click(); await flush(5) })
     assert.equal(v.el.querySelector('input'), input, 'same DOM node returns; no second composer')
     assert.equal(savedWindows()[0]!.open, false)
-  } finally { await v.unmount(); window.open = originalOpen; globalThis.MutationObserver = originalObserver; stylesheet.remove(); window.history.replaceState(null, '', previousRoute); native(); child.window.close() }
+  } finally { await v.unmount(); window.open = originalOpen; globalThis.MutationObserver = originalObserver; stylesheet.remove(); window.history.replaceState(null, '', previousRoute); document.documentElement.className = originalClasses; document.documentElement.style.cssText = originalStyle; native(); child.window.close() }
 })
 
 test('pinned modal fades only over the focused desk; toggle, amount and non-overlap change real style', async () => {

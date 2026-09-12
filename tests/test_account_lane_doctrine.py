@@ -290,6 +290,20 @@ class AccountLaneDoctrine(unittest.TestCase):
                                   f"the rule tells agents to pass `account` to "
                                   f"{card['name']}, which does not take it")
 
+    def test_primary_ui_exception_and_managed_ids_are_explicit_on_every_selection_door(self):
+        from orgtree import mcptool
+        texts = [sup.ACCOUNT_LANE_DOCTRINE]
+        for card in mcptool.TOOLS:
+            if card['name'] in ('orgtree_hire', 'orgtree_rehire', 'orgtree_retool', 'orgtree_staff'):
+                texts.append(card['inputSchema']['properties']['account']['description'])
+        self.assertEqual(len(texts), 5)
+        for text in texts:
+            with self.subTest(text=text[:60]):
+                body = norm(text)
+                self.assertIn('immutable managed account id', body)
+                self.assertIn('`account-id · email`', body)
+                self.assertIn('`default` means provider/primary', body)
+
     def test_s6j_and_the_roster_really_prints_that_value(self):
         """The other end of the same seam: the rule says to read `account=<id>`
         off the roster, so the roster has to write it."""

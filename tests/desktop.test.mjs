@@ -16,9 +16,9 @@ const policy = await load('policy'), { Preferences } = await load('preferences')
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
+  assert.deepEqual(prefs.get(), { visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
+  assert.deepEqual(new Preferences(file).get(), { visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
   assert.equal(new Preferences(file).get().onboarded, true)
@@ -92,7 +92,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {visualTheme,visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
+    assert.deepEqual(new Preferences(file).get(), {visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
   }
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {
@@ -101,6 +101,55 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   }
 })
 
+
+test('contrast choices persist independently, migrate old files to Charcoal and reject invalid writes atomically', () => {
+  const file = path.join(temp, 'contrast-prefs.json')
+  fs.writeFileSync(file, JSON.stringify({visualTheme:'custom:#8435cf', startAtLogin:false}))
+  const prefs = new Preferences(file)
+  assert.equal(prefs.get().contrastTheme, 'charcoal')
+  for (const contrastTheme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
+    prefs.set({contrastTheme})
+    const restored = new Preferences(file).get()
+    assert.equal(restored.contrastTheme, contrastTheme)
+    assert.equal(restored.visualTheme, 'custom:#8435cf')
+    assert.equal(restored.visualThemeExplicit, true)
+    assert.equal(restored.startAtLogin, false)
+  }
+  prefs.set({visualTheme:'codex'})
+  assert.equal(new Preferences(file).get().contrastTheme, 'obsidian-black')
+  const bytes = fs.readFileSync(file, 'utf8'), previous = prefs.get()
+  for (const contrastTheme of ['unknown', '', true, null, {}, '__proto__']) {
+    assert.throws(() => prefs.set({visualTheme:'claude', contrastTheme}), /Invalid contrast theme/)
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes)
+    assert.deepEqual(prefs.get(), previous)
+  }
+  const fresh = new Preferences(path.join(temp, 'contrast-only-prefs.json'))
+  fresh.set({contrastTheme:'light'})
+  assert.equal(fresh.get().visualThemeExplicit, false, 'choosing brightness does not pin the detected accent')
+})
+
+test('agent coloring defaults to providers, persists both choices, and never changes theme or contrast', () => {
+  const file = path.join(temp, 'agent-color-prefs.json')
+  fs.writeFileSync(file, JSON.stringify({visualTheme:'custom:#8435cf', contrastTheme:'solarized-light', visualThemeExplicit:true}))
+  const prefs = new Preferences(file)
+  assert.equal(prefs.get().agentColorSource, 'provider')
+  for (const agentColorSource of ['organization', 'provider']) {
+    prefs.set({agentColorSource})
+    const restored = new Preferences(file).get()
+    assert.equal(restored.agentColorSource, agentColorSource)
+    assert.equal(restored.visualTheme, 'custom:#8435cf')
+    assert.equal(restored.contrastTheme, 'solarized-light')
+  }
+  const bytes = fs.readFileSync(file, 'utf8'), original = prefs.get()
+  for (const agentColorSource of ['unknown', '', true, null, {}, '__proto__']) {
+    assert.throws(() => prefs.set({visualTheme:'claude', agentColorSource}), /Invalid agent color source/)
+    assert.equal(fs.readFileSync(file, 'utf8'), bytes)
+    assert.deepEqual(prefs.get(), original)
+  }
+  const fresh = new Preferences(path.join(temp, 'agent-colors-only.json'))
+  fresh.set({agentColorSource:'organization'})
+  assert.equal(fresh.get().visualThemeExplicit, false)
+})
 
 test('automatic updates default on for old preferences and explicit off survives reload', () => {
   const file = path.join(temp, 'automatic-prefs.json')

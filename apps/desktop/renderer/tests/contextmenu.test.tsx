@@ -704,6 +704,80 @@ uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact
   assert.ok(!labels().includes('Hide 1 sub-item'))
 })
 
+uiTest('§B4b ticket row: the slug-copy double-click leaves no selection behind, so the SAME row\'s menu opens at once', async (t) => {
+  // USER REPORT 2026-09-12: "double-clicking a ticket to copy its slug leaves
+  // that ticket in a temporary interaction state where right-click cannot open
+  // its context menu until the operator opens another menu or clicks a
+  // different ticket".
+  //
+  // The state is the browser's own TEXT SELECTION. A double-click is the app's
+  // copy gesture AND the browser's select-the-word gesture; the word it
+  // selects sits inside the row, and a live selection touching the object is
+  // exactly when the menu stands aside for the browser's own (§A2). Nothing
+  // collapsed that selection, so it outlived the gesture that made it — and
+  // any later press anywhere else collapsed it, which is why the row worked
+  // again "after clicking a different ticket".
+  //
+  // jsdom does not select on dblclick (it does no layout and no hit-testing),
+  // so the browser's half is performed here, exactly as §A2 performs it, and
+  // then the app's dblclick is dispatched on top — the real order: the
+  // selection exists by mouseup of the second click, before `dblclick` fires.
+  const clip = stubClipboard(); t.after(clip.restore)
+  window.localStorage.removeItem('orgtree.docket.group')
+  const had = (globalThis as { fetch?: typeof fetch }).fetch
+  t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  mockWork([mkItem({ slug: 'parent-item', title: 'Parent' })])
+  const v = await mountView(
+    <DocketModal slug="org1" toast={noop} close={noop} jumpTo={null}
+      tree={docketTree()} onFocusAgent={noop} />, (h) => h)
+  t.after(() => v.unmount())
+  await flush(); await advance(200, 16); await flush()
+  const row = v.el.querySelector('.docket-row') as HTMLElement
+  assert.ok(row, 'positive control: the ticket row rendered')
+  const name = row.querySelector('.docket-rowname') as HTMLElement
+  assert.ok(name, 'positive control: the row prints its slug')
+
+  const sel = W.getSelection()!
+  const selectTheWord = () => {
+    const range = document.createRange()
+    range.selectNodeContents(name)
+    sel.removeAllRanges(); sel.addRange(range)
+    assert.equal(sel.isCollapsed, false, 'fixture: the browser selected the word')
+  }
+  selectTheWord()
+  await inAct(() => {
+    row.dispatchEvent(new W.MouseEvent('dblclick',
+      { bubbles: true, cancelable: true, clientX: 12, clientY: 8 }))
+  })
+  await flush(3)
+  // the copy itself is UNCHANGED — the exact slug, and the bubble that only
+  // appears once the write resolved
+  assert.deepEqual(clip.writes, ['parent-item'], 'the double-click still copies the exact slug')
+  assert.ok(row.querySelector('.docket-copied'), 'and still reports it with the Copied! bubble')
+  assert.ok(sel.isCollapsed || sel.rangeCount === 0,
+    'the gesture the app took no longer leaves the browser\'s selection behind')
+  // and the double-click is ONLY a copy: no menu of its own, and no
+  // navigation or selection from the handler itself (the row's SELECT is the
+  // single click that precedes it — two separate gestures, unchanged here)
+  assert.equal(menuEl(), null, 'a double-click opens no context menu')
+  assert.ok(!row.classList.contains('on'), 'and the dblclick handler selects nothing by itself')
+
+  // THE REPORTED SEQUENCE: right-click the same row, with nothing in between
+  assert.equal(await rightClick(row), true,
+    'the row\'s own menu takes the right-click that follows a slug copy')
+  assert.ok(labels().includes('Copy slug'), JSON.stringify(labels()))
+  assert.deepEqual(clip.writes, ['parent-item'],
+    'and the right-click itself copies nothing — Copy slug is an entry, not a side effect')
+
+  // …AND THE RULE IT MUST NOT BREAK (§A2): a selection the READER made is
+  // still a reason to stand aside — only the app's own gesture clears one
+  await key(document.body, 'Escape')
+  selectTheWord()
+  assert.equal(await rightClick(row), false, 'a reader\'s selection still keeps the browser\'s menu')
+  assert.equal(menuEl(), null, 'and no menu of ours opened over it')
+  sel.removeAllRanges()
+})
+
 // --- the pinned modal bar ---
 uiTest('§B5 pinned modal bar: Pin/Unpin says its effect, Close closes the surface', async (t) => {
   window.localStorage.removeItem(MODAL_PINS_KEY)

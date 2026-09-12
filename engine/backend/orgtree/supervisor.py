@@ -42,6 +42,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
+from . import halt
 from . import (accounts, agentauth, appsettings, cachecontinuity, clipin, codex_limits, events,
                codex_route, deployment, envelope, failfix, handoff, imgblock,
                limits, localtime, net, openrouter, opreceipts, providers,
@@ -1151,7 +1152,8 @@ class _InterruptibleTurnSlot:
             self._state["admission_wait_token"] = self._token
         while True:
             with _state_lock:
-                if self._state.get("admission_cancel_token") is self._token:
+                if (self._state.get("halt_requested")
+                        or self._state.get("admission_cancel_token") is self._token):
                     self._state.pop("admission_cancel_token", None)
                     self._state.pop("admission_wait_token", None)
                     self._state["waiting"] = False
@@ -1163,7 +1165,8 @@ class _InterruptibleTurnSlot:
                     self._state["waiting"] = False
                     self._state["admission_waiting"] = False
                     self._state.pop("admission_wait_token", None)
-                    if self._state.get("admission_cancel_token") is self._token:
+                    if (self._state.get("halt_requested")
+                        or self._state.get("admission_cancel_token") is self._token):
                         self._state.pop("admission_cancel_token", None)
                         self._acquired = False
                         _turn_slots.release()
@@ -6344,6 +6347,8 @@ def _render_chart(org: Org, root_ids: list[str], mark: str, indent: int = 0,
         # indistinguishable from a consultable knowledge bearer, and the
         # rehire tool's own description invites waking it
         tags = [] if n["state"] == "live" else [n["state"]]
+        if n.get("halt"):
+            tags.append(n["halt"]["phase"] + " — explicit unhalt required")
         bs = n.get("bearer_state")
         if bs == "knowledge":
             # ⚠ a REHIRED bearer is live and WORKING, and calling it
@@ -6625,6 +6630,7 @@ def _envelope_decide(org: Org, nid: str, kind: str, dig: str, now: float,
     return full, snap["seq"]
 
 
+@halt.delivery(lambda: None)
 def _commit_envelope(slug: str, nid: str,
                      pending: dict[str, envelope.Snapshot]) -> None:
     """Record what the agent has now demonstrably read (D-223).
@@ -7001,10 +7007,13 @@ ACCOUNT_LANE_DOCTRINE = (
     "as that account's gpt-reserve still has room, and is judged on the "
     "standard weekly window instead when reserve is disabled, unavailable, or "
     "itself at 100%. "
-    "PLACE THE WORK with the canonical account name shown in both the UI "
-    "and the [PROVIDER USAGE] roster's `account=` field: for example "
+    "PLACE THE WORK with the immutable managed account ID or the primary "
+    "selector in the [PROVIDER USAGE] roster's `account=` field: for example "
     "`claude-4` or `openai/primary`. Pass that same value as `account` on "
     "orgtree_hire, orgtree_rehire, orgtree_retool or orgtree_staff. "
+    "The UI shows `account-id · email`; its primary display token `default` "
+    "means provider/primary, never a new stored ID. Legacy mutable names "
+    "are ignored. "
     "`primary` selects the target tier's ambient account and can return an "
     "existing secondary-bound agent to it. Qualified primary names must "
     "match the target provider. Secondary names are immutable; labels and "
@@ -8101,11 +8110,13 @@ def _fold_steer(st: dict[str, Any]) -> list[Any]:
     return leftover
 
 
+@halt.delivery(lambda: None)
 def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
     """Drop confirmed journal batches. WHEN to confirm is the callers' rule
     (review C1): the turn path confirms on the first non-`system` stdout
     event — a successful stdin/pipe write is NOT consumption — and the steer
     path confirms at the hook's fetch (the ratified trade, D-045 Bounds)."""
+    halt.consumed(slug, nid)
     if not toks:
         return
     drop = set(toks)
@@ -8130,6 +8141,7 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
                 dlmap[nid] = keep
             else:
                 dlmap.pop(nid, None)
+            halt.confirmed(org, nid, drop)
             store.save_org(org)
         if net_ids:
             net.note_read(slug, net_ids)
@@ -8155,6 +8167,9 @@ def _fold_back_undelivered(slug: str, nid: str,
             org = store.load_org(slug)
             dlmap = org.d.get("delivering") or {}
             dl = dlmap.get(nid) or []
+            keep.update(halt.held_tokens(org, nid))
+            if only is not None:
+                only.difference_update(keep)
             fold = [b for b in dl if b.get("tok") in only] if only is not None \
                 else [b for b in dl if b.get("tok") not in keep]
             if not fold:
@@ -8301,6 +8316,8 @@ def _drop_ping(slug: str, nid: str) -> str | dict[str, Any] | None:
     between — the exact class of bug this whole change is about."""
     st = state(slug, nid)
     with _state_lock:
+        if st.get("halt_requested"):
+            return None
         if st["queue"]:
             return st["queue"].pop(0)
         st["busy"] = False
@@ -8428,6 +8445,7 @@ def _envelope(slug: str, nid: str, text: str,
             if view_out is not None:
                 view_out.append(base_view)
             return text, None, []
+        halt.check(slug, nid)
         pending = (org.d.get("notices") or {}).pop(nid, None)
         mail = org.take_mail(nid)
         held = list(owned_toks or [])         # materialised ONCE (a generator would be spent)
@@ -10380,7 +10398,7 @@ def _auto_wake_gates_clear(org: Org, nid: str) -> bool:
     n = org.nodes.get(nid)
     if not n or n.get("state") != "live":
         return False
-    if (n.get("frozen") or n.get("limit_locked")
+    if (n.get("halt") or n.get("frozen") or n.get("limit_locked")
             or n.get("remote_controlled") or n.get("bearer_state")
             or n.get("inflight")):
         return False
@@ -10463,6 +10481,7 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
         return mid
 
 
+@halt.delivery(lambda: None)
 def _auto_wake_cancel(slug: str, nid: str, mid: str) -> None:
     """Withdraw an automatic wake's reservation that lost the idle-admission
     race — the checkup's and the docket reminder's alike."""
@@ -10671,7 +10690,7 @@ def _working_cache_due(org: Org, nid: str, now: float | None = None) -> bool:
     if plan is None:
         return False
     n = org.node(nid)
-    if n.get("frozen") or n.get("limit_locked") \
+    if n.get("halt") or n.get("frozen") or n.get("limit_locked") \
             or n.get("remote_controlled") or n.get("bearer_state"):
         return False
     # An enabled-mode checkup, or an idle docket reminder on its own switch,
@@ -10804,6 +10823,7 @@ def _working_cache_fork_id(out: str, old_sid: str) -> str:
     return found
 
 
+@halt.worker
 def _working_cache_read(slug: str, nid: str,
                         lease: dict[str, Any] | None = None) -> None:
     """Make one billed, disposable read of a reported-working Claude prefix.
@@ -10825,7 +10845,7 @@ def _working_cache_read(slug: str, nid: str,
     cache_event: dict[str, Any] | None = None
     proc: subprocess.Popen[str] | None = None
     try:
-        with _working_cache_slots:
+        with halt.slot(slug, nid, _working_cache_slots):
             if lease is not None and lease["cancel"].is_set():
                 return
             with store.DOC_LOCK:
@@ -10860,6 +10880,7 @@ def _working_cache_read(slug: str, nid: str,
             st = state(slug, nid)
             with _state_lock:
                 if (st.get("busy") or st.get("waiting")
+                        or st.get("halt_requested")
                         or st.get("responding") or st.get("queue")
                         or (lease is not None
                             and (lease["cancel"].is_set()
@@ -10909,6 +10930,8 @@ def _working_cache_read(slug: str, nid: str,
                 failed = True
                 raise RuntimeError(
                     f"cache keepalive fork failed (rc={proc.returncode})")
+    except halt.Cancelled:
+        return
     except (LedgerError, OSError, RuntimeError, TypeError, ValueError) as e:
         if not (lease is not None and lease["cancel"].is_set()):
             failed = True
@@ -10987,6 +11010,7 @@ def _working_cache_read(slug: str, nid: str,
                                "forecast": cache_event})
 
 
+@halt.delivery(lambda: None)
 def _launch_working_cache_read(slug: str, nid: str) -> None:
     if appsettings.working_checkups_enabled():
         return
@@ -11340,7 +11364,7 @@ def _hold_for_deploy(slug: str, nid: str) -> bool:
                       f"starting the turn")
                 break
             with _state_lock:
-                if st.get("deploy_hold_cancel") is token:
+                if st.get("halt_requested") or st.get("deploy_hold_cancel") is token:
                     break
     finally:
         proceed = _retire_deploy_hold(st, token)
@@ -11363,7 +11387,7 @@ def _retire_deploy_hold(st: dict[str, Any], token: object) -> bool:
     or lands after and falls through to `interrupt_turn`'s ordinary branches,
     which say honestly that there is nothing to stop."""
     with _state_lock:
-        cancelled = st.get("deploy_hold_cancel") is token
+        cancelled = st.get("halt_requested") or st.get("deploy_hold_cancel") is token
         st["deploy_hold_waiting"] = False
         st.pop("deploy_hold_token", None)
         if cancelled:
@@ -11597,6 +11621,7 @@ def _limit_probe_worker(
     return worker
 
 
+@halt.worker
 @_limit_probe_worker
 def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     """Run a turn, then keep running whatever the queue has, until it is empty.
@@ -11619,6 +11644,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     st = state(slug, nid)
     with _state_lock:
         st["turn_activity"] = False
+        st["halt_carrier_id"] = text.get("_halt_id") if isinstance(text, dict) else None
     # A disposable cache read may own the same Claude session between turns.
     # Real work always wins: kill/reap it before this choke point can resume.
     _cancel_working_cache(slug, nid)
@@ -11649,6 +11675,11 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     while nxt is not None:
         with store.DOC_LOCK:
             current_org = store.load_org(slug)
+            if current_org.node(nid).get("halt"):
+                halt.retain(current_org, nid, [nxt])
+                store.save_org(current_org)
+                return
+            halt.restore_carriers(current_org, nid, nxt)
             native_reason = _native_context_hold(current_org,nid)
             if native_reason:
                 carrier = nxt if isinstance(nxt,dict) else {'text':nxt}
@@ -11697,6 +11728,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
         try:
             if _carrier_is_ping(nxt) and not _carrier_owes_mail(nxt) \
                     and not _has_deliverable(slug, nid):
+                halt.consumed(slug, nid)
                 _phantom_log(slug, nid, "turn start")
                 nxt = _drop_ping(slug, nid)
                 continue
@@ -14017,6 +14049,9 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # app-server can authoritatively answer mcpServerStatus/list, so the
         # optional readiness gate runs here and never sends the user turn
         # before the prior callable surface is ready.
+        halt.check(slug, nid)
+        with _state_lock:
+            st["codex_turn"] = turn
         turn.client.initialize()
         _refresh_codex_mcp()
         _mcp_gate_terminal(_mcp_wait_for_surface(
@@ -14024,6 +14059,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # `on_thread` fires inside start(), before `turn/start` goes on the
         # wire: that is where this turn's user row becomes durable, and it is
         # the only point early enough (THE ORDERING BARRIER, above).
+        halt.check(slug, nid)
         tid = turn.start(text, _codex_image_inputs(images or []),
                          on_thread=_open_journal)
         # FR-17: the desk's "is this checklist from the turn that's actually
@@ -14053,8 +14089,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 wp_turn.sid = tid
         # `turn/start`'s response is the C1 proof transposed: the server
         # accepted this turn's input, so the journaled batch is delivered
-        if toks:
-            _confirm_delivered(slug, nid, toks)
+        _confirm_delivered(slug, nid, toks)
         # the durable session id IS the threadId — harvested, never minted.
         # The never-run pardon is spent here too: codex's evidence of a run
         # is this very response, not a transcript file on disk.
@@ -14089,6 +14124,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         warmpool._set_proc_lifecycle(slug, nid, live=True, owner=turn,
                                      adopt=True)
 
+        @halt.callback(slug, nid)
         def _steer_pump() -> None:
             while not stop.wait(CODEX_STEER_POLL):
                 # ⚠ DEFERRED: on this lane the fetch is not the delivery — the
@@ -14160,6 +14196,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                     # "steer refused" (delivery_probes.py, codex_unknown_
                     # outcome). Never branch on truthiness here.
                     try:
+                        halt.check(slug, nid)
                         outcome = turn.steer(
                             wrapped, on_late=lambda o, e=entry: _late_steer(e, o))
                     except Exception as e:                   # noqa: BLE001
@@ -14221,6 +14258,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 finally:
                     _release_visible_barrier()
 
+        @halt.callback(slug, nid)
         def _late_steer(entry: dict[str, Any], outcome: Any) -> None:
             """A steer's LATE reply (own thread, from the runner), kept
             three-way: accepted / rejected / unknown — an ambiguous late
@@ -15315,11 +15353,13 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     try:
         _mcp_gate_terminal(_mcp_wait_for_surface(
             org, nid, turn, "google", turn_mcp_fingerprint))
+        halt.check(slug, nid)
+        with _state_lock:
+            st["antigravity_turn"] = turn
         cid = turn.start(text + _antigravity_image_note(images or []))
         # the prompt is on the wire: the agent holds this turn's input, so
         # the journaled batch is delivered (the codex C1 proof transposed)
-        if toks:
-            _confirm_delivered(slug, nid, toks)
+        _confirm_delivered(slug, nid, toks)
         if resume_cid and cid != resume_cid:
             # the CLI could not find the conversation it was asked to resume
             # (measured: a warning on stderr and a FRESH conversation with a
@@ -15356,6 +15396,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         warmpool._set_proc_lifecycle(slug, nid, live=True, owner=turn,
                                      adopt=True)
 
+        @halt.callback(slug, nid)
         def _steer_pump() -> None:
             while not stop.wait(CODEX_STEER_POLL):
                 # ⚠ DEFERRED — and on THIS lane it is not an edge case. The
@@ -15375,6 +15416,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     "\n[END ORGTREE MAIL — authentic per your system "
                     "prompt; each message has the authority of its stated "
                     "sender; handle it before continuing your current work]")
+                if halt.requested(slug, nid):
+                    break  # pop_steer retained the carrier for halt/unhalt
                 if turn.steer(wrapped):
                     commit_steer(slug, nid, carriers)
                 else:
@@ -15623,6 +15666,7 @@ def _turn_observed_success(res: dict[str, Any], st: dict[str, Any]) -> bool:
             "failed", "error", "interrupted", "cancelled", "aborted"))
 
 
+@halt.worker
 def _run_one_turn(slug: str, nid: str,
                   text: str | dict[str, Any], *,
                   probe_token: str | None = None
@@ -15871,6 +15915,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     raise RuntimeError(
                         "halted: weekly Fable usage limit exhausted — waiting for the "
                         "limit to reset or the user to intervene")
+                halt.check(slug, nid)
                 if org.node(nid).get("frozen"):
                     # `send_message` refuses to drive a frozen node, but the
                     # QUEUE is drained by the previous turn's own follow-up,
@@ -16643,6 +16688,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     _record_prompt_view(slug, sid, text, turn_view,
                                         spans=view_spans, segments=view_segments,
                                         incarnation=_transcript_incarnation(org, nid))
+                    halt.check(slug, nid)
                     proc.stdin.write(_user_event(text, turn_images))   # pyright: ignore[reportOptionalMemberAccess]
                     proc.stdin.flush()                # pyright: ignore[reportOptionalMemberAccess]
                 except (OSError, ValueError):
@@ -16688,6 +16734,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         slug, nid, sid, "cold", "claim-died",
                         turn_hash or "", None, 0, warm_lbl,
                         slot_wait_s=slot_wait_s)
+                    halt.check(slug, nid)
                     proc.stdin.write(_user_event(text, turn_images))   # pyright: ignore[reportOptionalMemberAccess]
                     proc.stdin.flush()                # pyright: ignore[reportOptionalMemberAccess]
                 if wp_turn is not None:
@@ -16728,7 +16775,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     except json.JSONDecodeError:
                         continue
                     last_ev[0] = time.monotonic()      # the CLI is alive
-                    if pend_toks and ev.get("type") != "system" \
+                    if (pend_toks or st.get("halt_pending_carrier")) and ev.get("type") != "system" \
                             and not (ev.get("type") == "result"
                                      and ev.get("is_error")):
                         # ⚠ an ERROR result is not proof of consumption. C1's
@@ -17454,10 +17501,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         while True:
                             with _state_lock:
                                 if not (st["queue"] and not limited
-                                        and may_feed):
+                                        and may_feed and not st.get("halt_requested")):
                                     nxt = None
                                     break
                                 nxt = st["queue"].pop(0)
+                                st["halt_pending_carrier"] = (nxt if isinstance(nxt, dict)
+                                                               else {"text": nxt})
+                                st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
                                 st["responding"] = True
                                 st["boundary_at"] = time.time()  # D-236
                                 st["boundary_polls"] = 0
@@ -18528,6 +18578,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             if not is_cmd and not pend_toks:
                                 _append_resume(fz, text[-8000:],
                                                turn_view[-8000:])
+                                halt.link_freeze_replay(slug, nid, fz)
                             # ⚠ trusted-only. This escalation halts — and
                             # under the `dissolve` policy ARCHIVES — every
                             # fable node in the org, and its trigger is three
@@ -18891,6 +18942,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         fz, compose_retry_banner(head, "",
                                                                  payload),
                                         turn_view[-8000:])
+                                    halt.link_freeze_replay(slug, nid, fz)
                             store.save_org(o2)
                     if 0 < run <= NET_RETRY_MAX:
                         notify(slug, nid, "frozen")
@@ -19091,7 +19143,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 if _release_limit_probe(slug, nid, success=True,
                                         token=probe_token):
                     probe_token = None
-    except _AdmissionCancelled:
+    except (_AdmissionCancelled, halt.Cancelled):
         if _trec is not None:
             _trec.dispose("interrupted")
     except _CodexTurnDone:
@@ -19099,6 +19151,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
     except _AntigravityTurnDone:
         pass    # the antigravity leg booked its turn; only the shared finally runs
     except Exception as e:                                  # noqa: BLE001
+        if halt.requested(slug, nid):
+            if not paid_booked:
+                _charge_reported_spend(slug, nid, turn_paid, billed_on_key,
+                                       native=turn_native, usage=last_cache_usage,
+                                       out_tokens=turn_out)
+            if _trec is not None:
+                _trec.dispose("interrupted")
+            return None
         # money first: the CLI reported this spend before the turn came apart,
         # and `_after_turn` — the only other booker — did not run. Skipped when
         # the timeout path already charged the turn (`_charge_killed_turn`),
@@ -19179,10 +19239,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # `_belt_owned` = some OTHER mechanism owns this node's stopped
             # state, so the belt must NOT announce a terminal error over it:
             # a freeze (the resume machinery owns it), an archived/unrecoverable
-            # node (its own lifecycle), or a deliberate HALT — today the fable
-            # `limit_locked` marker, and the extension point where halt-state's
-            # first-class halted state adds itself when it rebases on top of
-            # this. An unreadable doc proves nothing and stays silent (never a
+            # node (its own lifecycle), or a deliberate halt. Re-read halt
+            # here: it may have arrived after the exception handler's first
+            # check, while accounting or error recording was finishing.
+            # An unreadable doc proves nothing and stays silent (never a
             # false announcement).
             # The set matches the ACTUAL admission gate (the raises at the top
             # of the turn slot, ~15811-15824) exactly, so the belt never
@@ -19199,6 +19259,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     _bn = _bo.node(nid) if nid in _bo.nodes else None
                     _belt_owned = bool(
                         _bn is None
+                        or _bn.get("halt")
                         or _bn.get("frozen")
                         or _bn.get("limit_locked")
                         or _bn.get("remote_controlled")
@@ -19342,6 +19403,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # `busy`) under this same lock on its way out — popping again
                 # here would strand whatever it handed back
                 pass
+            elif st.get("halt_requested"):
+                st["busy"] = False
             elif st["queue"]:
                 follow = st["queue"].pop(0)
             else:
@@ -21776,6 +21839,10 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
                 "the current session is not a resumable Codex thread")
         cwd = scratch_dir(slug, nid)
         from .desktop_native import native_session_path
+        def compact_client_started(client):
+            state(slug, nid)["halt_compact_client"] = client
+            halt.check(slug, nid)
+        halt.check(slug, nid)
         compacted = codexrun.compact_fork(
             providers.codex_argv(exe), cwd=cwd, model=model,
             thread_id=old_sid, timeout=COMPACT_TIMEOUT,
@@ -21787,6 +21854,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             # compacting — a split nobody would find for weeks.
             sandbox=_codex_sandbox(n["scope"]),
             developer_instructions=identity_prompt(org, nid),
+            on_client=compact_client_started,
         env_extra={**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                        "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360")})
         new_sid = str(compacted.get("thread_id") or "")
@@ -21968,6 +22036,8 @@ def _compact_split_body(slug: str, nid: str) -> None:
                                 creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                                if os.name == "nt" else 0))
         _leash(proc)
+        state(slug, nid)["halt_compact_proc"] = proc
+        halt.check(slug, nid)
         try:
             out, _err = proc.communicate(input="/compact", timeout=COMPACT_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -22105,6 +22175,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
     notify(slug, pred, "created")
 
 
+@halt.worker
 def manual_compact(slug: str, nid: str) -> None:
     """The desk's compact button (№27): latch busy for the whole fork, so mail
     arriving during the up-to-10-minute split QUEUES instead of running a turn
@@ -22116,6 +22187,7 @@ def manual_compact(slug: str, nid: str) -> None:
     # orphaned session
     with store.DOC_LOCK:
         _o = store.load_org(slug)
+        halt.check(slug, nid)
         if nid in _o.nodes and _o.node(nid).get("remote_controlled"):
             raise RuntimeError(
                 "under remote control — release it before compacting (the "
@@ -22145,13 +22217,15 @@ def manual_compact(slug: str, nid: str) -> None:
         with _InterruptibleTurnSlot(st):
             st["waiting"] = False
             _compact_split(slug, nid)
-    except _AdmissionCancelled:
+    except (_AdmissionCancelled, halt.Cancelled):
         pass
     finally:
         st["waiting"] = False
         nxt = None
         with _state_lock:
-            if st["queue"]:
+            if st.get("halt_requested"):
+                st["busy"] = False
+            elif st["queue"]:
                 nxt = st["queue"].pop(0)
             else:
                 st["busy"] = False
@@ -22188,6 +22262,16 @@ def _remote_unpark(slug: str, nid: str) -> None:
 
 
 def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
+    try:
+        return _remote_control_start_owned(slug, nid) or {
+            "error": "agent is halted; unhalt it before starting remote control"}
+    except halt.Cancelled:
+        _remote_unpark(slug, nid)
+        return {"error": "remote control canceled by halt"}
+
+
+@halt.worker
+def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
     # PARK FIRST, PROVE SECOND (redteam race 2026-08-05): the flag goes into
     # the doc BEFORE anything is spawned, so from this point every turn
     # launch path refuses. Only then is `busy` re-checked: a turn that set
@@ -22201,6 +22285,8 @@ def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
         if nid not in org.nodes:
             return {"error": f"no agent {nid!r}"}
         n = org.node(nid)
+        if n.get("halt"):
+            return {"error": "agent is halted; unhalt it before starting remote control"}
         if n["state"] != "live":
             return {"error": f"{nid} is {n['state']} — only a live agent "
                              f"can be remote-controlled"}
@@ -22224,17 +22310,22 @@ def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
     cwd = scratch_dir(slug, nid)
     log_path = os.path.join(cwd, "remote-control.log")
     try:
-        logf = open(log_path, "a", encoding="utf-8")
-        proc = subprocess.Popen(
-            _claude_argv() + ["remote-control", "--session-id", sid],
-            cwd=cwd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
-            text=True, encoding="utf-8", errors="replace",
-            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                           if os.name == "nt" else 0))
+        with open(log_path, "a", encoding="utf-8") as logf:
+            halt.check(slug, nid)
+            proc = subprocess.Popen(
+                _claude_argv() + ["remote-control", "--session-id", sid],
+                cwd=cwd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
+                text=True, encoding="utf-8", errors="replace",
+                creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+                               if os.name == "nt" else 0))
     except OSError as e:
         _remote_unpark(slug, nid)
         return {"error": f"could not start the remote-control server: {e}"}
+    with _state_lock:
+        st["halt_remote_proc"] = proc
+    _remote_procs[(slug, nid)] = proc
     _leash(proc)
+    halt.check(slug, nid)
     time.sleep(2.5)                 # the cheap TTY-less sanity probe
     if proc.poll() is not None:
         _remote_unpark(slug, nid)
@@ -22248,7 +22339,8 @@ def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
                          f"(code {proc.returncode}) — log tail: {tail}"}
     with store.DOC_LOCK:
         o2 = store.load_org(slug)
-        if nid in o2.nodes and o2.node(nid).get("remote_controlled"):
+        if (nid in o2.nodes and o2.node(nid).get("remote_controlled")
+                and not o2.node(nid).get("halt")):
             o2.node(nid)["remote_controlled"] = {"at": now_iso(),
                                                  "pid": proc.pid}
             store.save_org(o2)
@@ -22260,7 +22352,6 @@ def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
             except OSError:
                 pass
             return {"error": f"{nid} disappeared while the server started"}
-    _remote_procs[(slug, nid)] = proc
     notify(slug, nid, "remote_control")
     return {"ok": True, "log": log_path,
             "note": "connect from claude.ai/code or the Claude mobile app; "
@@ -22337,6 +22428,7 @@ def remote_control_stop(slug: str, nid: str) -> dict[str, Any]:
     return {"ok": True}
 
 
+@halt.admission
 def send_message(slug: str, nid: str, text: str,
                  command: bool = False, wake: bool = True,
                  mail_ping: bool = False,
@@ -22903,6 +22995,7 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
                 # folds back as MAIL in the shared `finally` and replaying it
                 # too would deliver it twice.
                 _append_resume(fz, replay[-8000:], replay_view[-8000:])
+                halt.link_freeze_replay(slug, nid, fz)
             store.save_org(o2)
     except Exception as e:                                   # noqa: BLE001
         # a freeze that cannot be written must not swallow the failure that
@@ -22954,6 +23047,7 @@ def hard_freeze(slug: str, kind: str, error: str) -> None:
                     if inf["text"][-8000:] not in rt:
                         _append_resume(fz, inf["text"][-8000:],
                                        str(inf.get("view") or "")[-8000:])
+                        halt.link_freeze_replay(slug, nid, fz)
         store.save_org(org)
     interrupt_all(slug)
     notify(slug, "", flag)
@@ -23202,6 +23296,7 @@ def maybe_storage_check(slug: str) -> None:
 IMMEDIATE_CMDS = {"context", "cost", "todos"}
 
 
+@halt.delivery(lambda: False)
 def immediate_command(slug: str, nid: str, text: str) -> bool:
     """/context-class commands answer NOW via a throwaway --fork-session
     one-shot (the compaction-split idiom): the fork reads the transcript as
@@ -23225,9 +23320,18 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
     if not transcript_path(sid, tdir):
         return False
 
+    st = state(slug, nid)
+    carrier = {"cmd": True, "text": text.strip(), "view": text.strip(),
+               "_halt_id": uuid.uuid4().hex}
+    with _state_lock:
+        st.setdefault("halt_aux_carriers", []).append(carrier)
+
+    @halt.callback(slug, nid)
     def run() -> None:
         fork_sid, out_text = None, ""
+        proc = None
         try:
+            halt.check(slug, nid)
             if sbx.is_sandboxed(org):
                 name = sbx.ensure_container(org)
                 head = sbx.exec_argv(name,
@@ -23249,6 +23353,9 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
                                     creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                                    if os.name == "nt" else 0))
             _leash(proc)
+            with _state_lock:
+                st.setdefault("halt_aux_procs", []).append(proc)
+            halt.check(slug, nid)
             try:
                 out, _err = proc.communicate(input=text.strip(), timeout=120)
             except subprocess.TimeoutExpired:
@@ -23280,12 +23387,21 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
                 out_text = f"(/{word} returned no output)"
         except Exception as e:                               # noqa: BLE001
             out_text = f"⚠ /{word} failed: {e}"
+        finally:
+            if proc is not None:
+                if proc.poll() is None:
+                    _wd_kill_tree(proc)
+                with _state_lock:
+                    if proc.poll() is not None and proc in (st.get("halt_aux_procs") or []):
+                        st["halt_aux_procs"].remove(proc)
         # sticky: this output exists in NO transcript — the live-feed
         # reconciliation must never sweep it on a refresh or turn end.
         # `_command_output_row` marks this NOT agent prose — see its
         # docstring.
-        live_row(slug, nid,
-                 _command_output_row(out_text, cap=20000, sticky=True))
+        if not halt.requested(slug, nid):
+            live_row(slug, nid,
+                     _command_output_row(out_text, cap=20000, sticky=True))
+            halt.complete_auxiliary(slug, nid, carrier)
         # the fork transcript is a full COPY of the session — delete it, or
         # every /context banks megabytes (kiosk storage included) for nothing
         if fork_sid and fork_sid != sid:
@@ -23473,7 +23589,7 @@ def _resumable(n: NodeDoc) -> FrozenInfo | None:
     fz = n.get("frozen")
     if not isinstance(fz, dict):
         return None
-    if n["state"] != "live" or n.get("limit_locked"):
+    if n["state"] != "live" or n.get("halt") or n.get("limit_locked"):
         return None
     # `on_fallback` (frozen while the key lane was live) and `untrusted` (the
     # only witness was the agent's own answer) are QUALIFIERS on the limit
@@ -23539,7 +23655,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
     reload. A refusal falls through to a plain resume, never a gate."""
     pick = None if only is None else set(only)
     resumed: list[tuple[str, list[str], list[str], bool, str, str, str,
-                        int, str]] = []
+                        int, str, dict[str, str]]] = []
     with store.DOC_LOCK:
         org = store.load_org(slug)
         inventory = NativeInventory()
@@ -23600,11 +23716,11 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                             fz.get("resume_views") or [], _limit_resume,
                             _frozen_at, _frozen_sid,
                             str(org.node(nid).get("model") or ""),
-                            _ridx, _rpayload))
+                            _ridx, _rpayload, dict(fz.get("halt_sources") or {})))
         if resumed:
             store.save_org(org)
     for (nid, texts, views, limit_resume, frozen_at, frozen_sid, tier,
-         retry_idx, retry_payload) in resumed:
+         retry_idx, retry_payload, halt_sources) in resumed:
         if not texts:
             texts = ["(orgtree) You were frozen by a usage limit and have been "
                      "resumed — handle any mail above and continue."]
@@ -23627,36 +23743,43 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                     frozen_at.replace("Z", "+00:00")).timestamp()
             except (TypeError, ValueError):
                 pass
-        with _state_lock:
-            probe_token = str(st.get("limit_probe_token") or "") or None
-            if probe_token:
-                # The generation belongs to this replay, not permanently to
-                # the mutable node runtime. It may wait behind an existing
-                # worker, so carry it through that queue boundary explicitly.
-                carriers[0]["_limit_probe_token"] = probe_token
-            origin = st.pop("limit_cache_origin", None)
-            if limit_resume and claude_resume:
-                origin = origin if isinstance(origin, dict) else {}
-                st["limit_cache_resume"] = {
-                    "session_id": str(origin.get("session_id")
-                                      or frozen_sid),
-                    "pid": origin.get("pid"),
-                    "account": str(origin.get("account")
-                                   or st.get("ran_as") or ""),
-                    "freeze_s": freeze_s,
-                    "resumed_at": resumed_at,
-                }
-            st["queue"].extend(carriers[1:])
-            if st.get("proc_control"):
-                st["queue"].insert(0, carriers[0])
-            elif not st["busy"]:
-                st["busy"] = True
-                first = carriers[0]
-            else:
-                st["queue"].insert(0, carriers[0])
-        if first is not None:
-            threading.Thread(target=_run_turn, args=(slug, nid, first),
-                             daemon=True).start()
+        with store.DOC_LOCK:
+            current = store.load_org(slug)
+            halt.restore_frozen_sources(current, nid, carriers, halt_sources)
+            if current.node(nid).get("halt"):
+                halt.retain(current, nid, carriers)
+                store.save_org(current)
+                continue
+            with _state_lock:
+                probe_token = str(st.get("limit_probe_token") or "") or None
+                if probe_token:
+                    # The generation belongs to this replay, not permanently to
+                    # the mutable node runtime. It may wait behind an existing
+                    # worker, so carry it through that queue boundary explicitly.
+                    carriers[0]["_limit_probe_token"] = probe_token
+                origin = st.pop("limit_cache_origin", None)
+                if limit_resume and claude_resume:
+                    origin = origin if isinstance(origin, dict) else {}
+                    st["limit_cache_resume"] = {
+                        "session_id": str(origin.get("session_id")
+                                          or frozen_sid),
+                        "pid": origin.get("pid"),
+                        "account": str(origin.get("account")
+                                       or st.get("ran_as") or ""),
+                        "freeze_s": freeze_s,
+                        "resumed_at": resumed_at,
+                    }
+                st["queue"].extend(carriers[1:])
+                if st.get("proc_control"):
+                    st["queue"].insert(0, carriers[0])
+                elif not st["busy"]:
+                    st["busy"] = True
+                    first = carriers[0]
+                else:
+                    st["queue"].insert(0, carriers[0])
+            if first is not None:
+                threading.Thread(target=_run_turn, args=(slug, nid, first),
+                                 daemon=True).start()
         notify(slug, nid, "resumed")
     return [nid for nid, *_ in resumed]
 
@@ -25681,6 +25804,7 @@ def _steer_late_transition(st: dict[str, Any], entry: dict[str, Any],
     return "reclaim", reclaimed, escaped
 
 
+@halt.delivery(lambda: False)
 def _note_steer_attempt(slug: str, nid: str, toks: Iterable[str],
                         outcome: str, reason: str = "") -> bool:
     """Mark the DURABLE delivering batches behind a steer with the attempt's
@@ -25776,6 +25900,7 @@ def _steer_parts(msgs: list[Any]) -> tuple[list[Any], list[str], list[str]]:
     return out, views, toks
 
 
+@halt.delivery(list)
 def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                  at: str | None = None, level: str = "accepted") -> list[Any]:
     """A steer that was DELIVERED becomes durable, and then visible.
@@ -25864,6 +25989,7 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                     dlmap[nid] = keep
                 else:
                     dlmap.pop(nid, None)
+            halt.confirmed(org, nid, drop, msgs)
             store.save_org(org)
     if out or toks:
         try:
@@ -25883,6 +26009,7 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
     return out
 
 
+@halt.delivery(list)
 def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
               defer_commit: bool = False) -> list[Any]:
     """The steering hook's fetch: everything pending for this node, atomically.
@@ -25915,6 +26042,13 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
     with _state_lock:
         msgs = st.get("steer") or []
         st["steer"] = []
+        if defer_commit:
+            # Keep ownership while a pump holds carriers outside the queue.
+            # Halt must capture them even before steer_limbo is installed.
+            msgs = [c if isinstance(c, dict) else {"text": str(c)} for c in msgs]
+            for c in msgs:
+                c.setdefault("_halt_id", uuid.uuid4().hex)
+            st.setdefault("halt_steering_carriers", []).extend(msgs)
     if defer_commit:
         return list(msgs)
     # the legacy claude fetch: fetch-is-commit, labelled as the unconfirmed
@@ -26048,6 +26182,7 @@ def _supersede_steer_attempts(org: Org, nid: str, new_did: str, toks: Iterable[s
             atts[k]["resolved"] = "superseded"
 
 
+@halt.delivery(lambda: (None, []))
 def claim_steer(slug: str, nid: str, tool_use_id: str,
                 transcript_path: str = "") -> tuple[str | None, list[Any]]:
     """The hook's fetch, D1-safe: hand out everything offerable under a lease
@@ -26159,6 +26294,7 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
     return transcript_path(sid, _transcript_root(org, nid) or os.path.expanduser('~/.claude'))
 
 
+@halt.delivery(lambda: {"status": "halted"})
 def ack_steer(slug: str, nid: str, delivery_id: str, tool_use_id: str) -> dict[str, Any]:
     """The hook's receipt. Validated in order — issued, owner matches, not
     already acked — then applied to every batch and carrier the delivery
@@ -26243,6 +26379,9 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
     The row carries `mail_ids` so the last case can be found after the
     original batch is gone. Returns (net ids to mark read, the row)."""
     toks = set(att.get("toks") or [])
+    if org.node(nid).get("halt_queue"):
+        org.node(nid)["halt_queue"] = [c for c in org.node(nid)["halt_queue"]
+            if not (set(c.get("toks") or []) & toks)]
     ids = [str(x) for x in (att.get("mail_ids") or [])]
     dlmap = org.d.get("delivering") or {}
     dl = dlmap.get(nid) or []
@@ -26328,6 +26467,7 @@ def _carrier_confirmed(c: Any, did: str, toks: set[str]) -> bool:
     return did == cl.get("delivery_id") or did in (cl.get("ids") or [])
 
 
+@halt.delivery(dict)
 def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
     """Read the transcripts named by this node's unresolved attempts and
     COMMIT every delivery the CLI has recorded. Idempotent: a recorded attempt
@@ -26432,7 +26572,7 @@ def _reconcile_steer_records(org: Org) -> int:
     for nid in list(org.nodes):
         atts = (org.d.get("steer_attempts") or {}).get(nid) or {}
         for did, att in list(atts.items()):
-            if not _attempt_open(att):
+            if org.node(nid).get("halt") or not _attempt_open(att):
                 continue
             # any VALID owner match, whatever else the transcript holds
             if not any(f == did and tool == att.get("tool_use_id")
@@ -26552,6 +26692,9 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     the note also names ⏸ `orgtree_interrupt`, because that is the one thing
     that DOES land immediately and the sender will otherwise not think of it.
     """
+    if r.get("deferred") == "halted":
+        return (f"NOT delivered: {nid} is halted; mail is preserved unread "
+                "until explicit orgtree_unhalt.")
     if r.get("frozen"):
         return (f"NOT delivered: {nid} is frozen (usage limit or connection "
                 f"backoff). The mail is safe in its mailbox and is read when "
@@ -28643,6 +28786,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     with store.DOC_LOCK:
         org = store.load_org(slug)
         inventory = NativeInventory()
+        if halt.recover(org):
+            store.save_org(org)
         # (Only explicit import recovery may dispatch unresolved imported
         # work. That hold is per node and per marker — `_import_recovery_hold`
         # below — never a whole-org stop on this pass.)
@@ -28747,6 +28892,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         recovery_seats: set[str] = set()
         dropped_cmd = False
         for nid, n in org.nodes.items():
+            if n.get("halt"):
+                continue
             if recovery_observer is None and (
                     _native_context_hold(org, nid, inventory=inventory)
                     or _import_recovery_hold(org, nid, n.get("inflight"))):
@@ -28803,6 +28950,11 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         for dnid, batches in dlv.items():
             if dnid not in org.nodes:
                 continue
+            held = halt.held_tokens(org, dnid)
+            retained = [b for b in batches if b.get("tok") in held]
+            if retained:
+                org.d.setdefault("delivering", {})[dnid] = retained
+            batches = [b for b in batches if b.get("tok") not in held]
             mails = [m for b in batches for m in b.get("mail") or []]
             nots = [p for b in batches for p in b.get("notices") or []]
             if mails:
@@ -28840,7 +28992,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # "parked until the next turn", and a restart is not a turn
         revive = [nid for nid, n in org.nodes.items()
                   if n["state"] == "live" and nid not in marked
-                  and nid not in resumed and not n.get("frozen")
+                  and nid not in resumed and not n.get("frozen") and not n.get("halt")
                   and not (recovery_observer is None
                            and _import_recovery_unsettled(org, nid))
                   and org.waking_mail(nid)]
@@ -28933,6 +29085,13 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                      "(orgtree) You have mail above — some of it waited across "
                      "an orgtree restart. Handle it as appropriate.",
                      _inventory=inventory)
+    # An explicit unhalt may have committed just before shutdown. Those
+    # retained commands/carriers have durable intent even without waking mail.
+    with store.DOC_LOCK:
+        pending_halts = [nid for nid, n in store.load_org(slug).nodes.items()
+                         if n.get("halt_queue") and not n.get("halt")]
+    for nid in pending_halts:
+        halt.resume_pending(slug, nid)
     return marked
 
 

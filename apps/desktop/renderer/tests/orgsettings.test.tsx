@@ -443,10 +443,11 @@ test('⑩  Hire defaults offers canonical primary accounts even when no accounts
     const sel = view.el.querySelector<HTMLSelectElement>(
       'select[aria-label="default provider account for new hires"]')
     assert.ok(sel, 'account selector found')
-    assert.equal(sel.value, '')
+    assert.equal(sel.value, 'claude/primary')
     const opts = [...sel.querySelectorAll('option')]
-    assert.deepEqual(opts.map((o) => o.value), ['', 'claude/primary', 'openai/primary', 'google/primary'])
-    assert.equal(opts[0]?.textContent?.trim(), '(machine default)')
+    assert.deepEqual(opts.map((o) => o.value), ['claude/primary'])
+    assert.equal(opts[0]?.textContent?.trim(), 'default · email unavailable')
+    assert.equal(sel.disabled, true)
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -464,11 +465,11 @@ test('⑪  Hire defaults exposes live account options, updates selection, and pe
     const sel = view.el.querySelector<HTMLSelectElement>(
       'select[aria-label="default provider account for new hires"]')
     assert.ok(sel, 'account selector found')
-    assert.equal(sel.value, '')
+    assert.equal(sel.value, 'claude/primary')
     const opts = [...sel.querySelectorAll('option')]
-    assert.equal(opts.length, 5)
+    assert.equal(opts.length, 2)
     const accountOption = opts.find((o) => o.value === 'acct-claude-primary')!
-    assert.match(accountOption.textContent ?? '', /acct-claude-primary\s*\(claude\)/)
+    assert.equal(accountOption.textContent, 'acct-claude-primary · email unavailable')
 
     // select the account
     await setField(sel, 'acct-claude-primary')
@@ -513,15 +514,20 @@ test('⑫  Hire defaults handles multiple accounts across providers with limited
     assert.equal(sel.value, 'acct-claude-2')
 
     const opts = [...sel.querySelectorAll('option')]
-    assert.equal(opts.length, 7) // machine default + 3 primaries + 3 accounts
+    assert.equal(opts.length, 3) // primary and two Claude accounts
     assert.match(opts.find((o) => o.value === 'acct-claude-2')?.textContent ?? '',
-      /acct-claude-2\s*\(claude\)\s*\(limited — will wait\)/)
-    assert.match(opts.find((o) => o.value === 'acct-codex-1')?.textContent ?? '',
-      /acct-codex-1\s*\(openai\)/)
+      /acct-claude-2 · email unavailable \(limited — will wait\)/)
+    const provider = view.el.querySelector<HTMLSelectElement>('select[aria-label="Provider for default account"]')!
+    await setField(provider, 'openai')
+    assert.equal([...sel.options].find(o => o.value === 'acct-codex-1')?.textContent,
+      'acct-codex-1 · email unavailable')
 
     // Select unbound
-    await setField(sel, '')
-    assert.equal(sel.value, '')
+    await inAct(async () => {
+      [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+        .find(b => b.textContent === 'Use machine default')!.click()
+    })
+    assert.equal(sel.value, 'openai/primary')
 
     seen.length = 0
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
@@ -550,10 +556,12 @@ test('Settings selects and saves each canonical primary name with or without an 
           'select[aria-label="default provider account for new hires"]')!
         const options = [...sel.options].filter((o) => o.value === name)
         assert.equal(options.length, 1, `${name} is shown exactly once`)
-        assert.equal(options[0].textContent, name)
+        assert.equal(options[0].textContent, 'default · email unavailable')
         assert.equal(sel.value, name, 'the stored primary default remains selected')
-        await setField(sel, '')
-        await setField(sel, name)
+        assert.equal(sel.disabled, true)
+        const providerSelect = view.el.querySelector<HTMLSelectElement>('select[aria-label="Provider for default account"]')!
+        await setField(providerSelect, provider === 'claude' ? 'openai' : 'claude')
+        await setField(providerSelect, provider)
         seen.length = 0
         const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
           .find((b) => b.textContent?.trim() === 'save')!

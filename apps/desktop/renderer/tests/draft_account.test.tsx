@@ -63,13 +63,13 @@ test('draft modal shows valid accounts for the selected provider and filters out
     text: o.textContent,
   }))
 
-  assert.equal(claudeOptions.length, 4, 'default, primary and 2 claude accounts')
-  assert.equal(claudeOptions[0].value, '')
-  assert.equal(claudeOptions[0].text, '(machine default)')
-  assert.equal(claudeOptions[2].value, 'claude-1')
-  assert.equal(claudeOptions[2].text, 'claude-1')
-  assert.equal(claudeOptions[3].value, 'claude-2')
-  assert.ok(claudeOptions[3].text?.includes('(limited — will wait)'))
+  assert.equal(claudeOptions.length, 3, 'primary and 2 claude accounts')
+  assert.equal(claudeOptions[0].value, 'claude/primary')
+  assert.equal(claudeOptions[0].text, 'default · email unavailable')
+  assert.equal(claudeOptions[1].value, 'claude-1')
+  assert.equal(claudeOptions[1].text, 'claude-1 · email unavailable')
+  assert.equal(claudeOptions[2].value, 'claude-2')
+  assert.ok(claudeOptions[2].text?.includes('(limited — will wait)'))
   assert.equal(claudeOptions.some((o) => o.value.startsWith('openai-')), false)
 
   // Now test an OpenAI tier (astra)
@@ -87,11 +87,11 @@ test('draft modal shows valid accounts for the selected provider and filters out
     text: o.textContent,
   }))
 
-  assert.equal(openAIOptions.length, 4, 'default, primary and 2 openai accounts')
-  assert.equal(openAIOptions[0].value, '')
-  assert.equal(openAIOptions[0].text, '(machine default)')
-  assert.equal(openAIOptions[2].value, 'openai-1')
-  assert.equal(openAIOptions[3].value, 'openai-2')
+  assert.equal(openAIOptions.length, 3, 'primary and 2 openai accounts')
+  assert.equal(openAIOptions[0].value, 'openai/primary')
+  assert.equal(openAIOptions[0].text, 'default · email unavailable')
+  assert.equal(openAIOptions[1].value, 'openai-1')
+  assert.equal(openAIOptions[2].value, 'openai-2')
   assert.equal(openAIOptions.some((o) => o.value.startsWith('claude-')), false)
 })
 
@@ -136,7 +136,8 @@ test('draft displays and saves the canonical primary name for a legacy default b
   const body = document.body as unknown as HTMLElement
   const select = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
   assert.equal(select.value, 'openai/primary')
-  assert.equal(select.selectedOptions[0].textContent, select.value)
+  assert.equal(select.selectedOptions[0].textContent, 'default · email unavailable')
+  assert.equal(select.disabled, true)
   const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
   const { act } = await import('react')
   await act(async () => { apply.click() })
@@ -181,7 +182,7 @@ test('draft modal ignores incompatible org default account and starts unbound', 
   const body = document.body as unknown as HTMLElement
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')
   assert.ok(sel)
-  assert.equal(sel!.value, '', 'incompatible provider default must remain unbound')
+  assert.equal(sel!.value, 'openai/primary', 'unbound displays the selected provider default')
 
   const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
   const { act } = await import('react')
@@ -218,8 +219,9 @@ test('explicitly changing account in draft modal saves selection, including unbo
 
   // Switch to unbound
   await act(async () => {
-    sel.value = ''
-    sel.dispatchEvent(new Event('change', { bubbles: true }))
+    const reset = [...body.querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => b.textContent === 'Use machine default')!
+    reset.click()
   })
   await act(async () => { apply.click() })
   assert.equal(saved.at(-1)?.account, '', 'explicitly selected unbound saved as empty string')
@@ -256,7 +258,7 @@ test('draft modal fetches live accounts from /api/accounts?org=${slug} when not 
   const body = document.body as unknown as HTMLElement
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
   const options = [...sel.querySelectorAll('option')].map((o) => o.value)
-  assert.deepEqual(options, ['', 'claude/primary', 'claude-1', 'claude-2'])
+  assert.deepEqual(options, ['claude/primary', 'claude-1', 'claude-2'])
 })
 
 test('empty accounts list renders unbound cleanly', async (t: TestContext) => {
@@ -275,5 +277,6 @@ test('empty accounts list renders unbound cleanly', async (t: TestContext) => {
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')
   assert.ok(sel)
   const options = [...sel!.querySelectorAll('option')].map((o) => o.value)
-  assert.deepEqual(options, ['', 'claude/primary'])
+  assert.deepEqual(options, ['claude/primary'])
+  assert.equal(sel.disabled, true)
 })

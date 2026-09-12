@@ -160,7 +160,12 @@ else {
     // identity-guarded: a superseded popup's late blur must not close its successor
     popup.on('blur', () => { if (trayPopup === popup) closeTrayPopup() })
     trayPopup = popup
-    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(rows))) }
+    const currentTheme = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
+    const explicitTheme = currentTheme?.visualTheme &&
+      (currentTheme.visualTheme !== 'orgtree' || currentTheme.visualThemeExplicit === true)
+      ? currentTheme.visualTheme : undefined
+    const theme = effectiveTheme ?? explicitTheme ?? 'claude'
+    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(rows, theme))) }
     catch { if (trayPopup === popup) closeTrayPopup(); return }
     if (trayPopup !== popup || popup.isDestroyed()) return
     popup.show()

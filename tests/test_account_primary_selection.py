@@ -214,6 +214,56 @@ class PrimarySelection(unittest.TestCase):
         with self.assertRaises(fx.registry.BindingRefused):
             fx.registry.validate_selection(self.slug, 'haiku', first['id'])
 
+    def test_legacy_names_survive_storage_but_cannot_change_binding_or_receipt(self):
+        from copy import deepcopy
+        from orgtree import registry_migration
+        row = self.bind_worker('openai', ran=True)
+        doc = fx.registry.load(strict=True)
+        stored = fx.registry.get_account(row['id'], doc)
+        stored.update(name='openai-999', label='Some old mutable name')
+        original = deepcopy(stored)
+        fx.registry.save(doc)
+        registry_migration.run_migration([self.org.d], {
+            'claude': None, 'openai': None, 'google': None})
+        self.assertEqual(fx.registry.get_account(row['id']), original)
+        self.assertEqual(self.org.node('worker')['account'], row['id'])
+        self.assertEqual(self.org.node('worker')['codex_thread'], 'fixture-thread')
+        public = next(r for r in asyncio.run(fx.api.accounts_list(self.slug))['accounts']
+                      if r['id'] == row['id'])
+        self.assertEqual((public['id'], public['name'], public['label']), (row['id'],) * 3)
+        with patch('orgtree.accountusage.view', return_value={
+                'available': False, 'name': 'wrong', 'label': 'another legacy label',
+                'email': 'observed@example.test'}):
+            usage = asyncio.run(fx.api.accounts_usage(row['id']))
+        self.assertEqual((usage['account'], usage['name'], usage['label']), (row['id'],) * 3)
+        self.assertEqual(usage['email'], 'observed@example.test')
+        epoch, _ = fx.api.opreceipts.custody(self.org.d, fx.store.DATA_ROOT, self.slug)
+        body = fx.api.AgentCall(org=self.slug, node='manager', tool='orgtree_op_call', args={
+            'tool': 'orgtree_retool', 'args': {'node': 'worker', 'account': row['id']},
+            'op_key': f'{int(time.time() * 1000)}-{fx.uuid.uuid4().hex[:24]}', 'op_epoch': epoch})
+        with patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+            first = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
+            replay = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
+        self.assertEqual(first['account'], row['id'])
+        self.assertTrue(replay['replayed'])
+        result = replay['receipt']['result']
+        self.assertEqual(result['account'], row['id'])
+        self.assertFalse(result['account_binding']['session_boundary'])
+        self.assertFalse(result['account_binding']['cache_namespace_changed'])
+        export.assert_not_called()
+        self.assertEqual(self.org.node('worker')['codex_thread'], 'fixture-thread')
+
+    def test_legacy_rename_cannot_reorder_or_rewrite_the_usage_roster(self):
+        first = self.account(label='zzz')
+        second = self.account(label='aaa')
+        before = fx.turnusage.board(self.org, 'manager', now=fx.NOW)
+        doc = fx.registry.load(strict=True)
+        fx.registry.get_account(first['id'], doc).update(label='aaa', name=second['id'])
+        fx.registry.get_account(second['id'], doc).update(label='zzz', name=first['id'])
+        fx.registry.save(doc)
+        after = fx.turnusage.board(self.org, 'manager', now=fx.NOW)
+        self.assertEqual(after, before)
+
     def test_roster_ui_and_all_four_tools_accept_the_same_secondary_name(self):
         row = self.account(label='a confusing mutable label')
         listed = asyncio.run(fx.api.accounts_list(self.slug))['accounts'][0]

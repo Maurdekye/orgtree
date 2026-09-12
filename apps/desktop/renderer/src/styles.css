@@ -15,6 +15,28 @@
   --dim: #9d9d9d;
   --line: #3c3c3c;
   --line-soft: #2b2b2b;
+  --line-hover: #4a4a4a;
+  --scrollbar: #424242;
+  --scrollbar-hover: #4f4f4f;
+  --canvas-dot: #343434;
+  --peer-edge: #3e3e42;
+  --tether-edge: #5a5a5c;
+  --bearer-panel: #262628;
+  --bearer-line: #3a3a3c;
+  --bearer-top: #4a4a4c;
+  --pile-1: #232325;
+  --pile-2: #1e1e20;
+  --pile-3: #1a1a1c;
+  --pile-crowd-1: #26262c;
+  --pile-crowd-2: #212127;
+  --pile-crowd-3: #1c1c22;
+  --oracle-panel: #232328;
+  --oracle-line: #4a4a55;
+  --tip-panel: #111;
+  --tip-fill: #67c3d8;
+  --tip-seat: #a5f3fc;
+  --draft-stripe: #27272a;
+  --danger-ink: #ffb59c;
   --accent: #d97757;        /* Claude default accent; explicit themes override it */
   --prov-claude: #d97757;   /* explicit destination theme inside other desks */
   --aud-user: var(--accent);      /* direct line to the user — relationship color,
@@ -22,6 +44,10 @@
   --accent-soft: rgba(217, 119, 87, .16);
   --accent-hover: #e99b81;
   --accent-ink: #17191d;
+  /* Resolved at the root before provider scopes can redefine --accent. */
+  --org-accent: var(--accent);
+  --org-accent-hover: var(--accent-hover);
+  --org-accent-soft: var(--accent-soft);
   --sandbox: #7ea8cc;       /* sandboxed-org canvas border (light steel blue) */
   --kiosk: #4ba3c7;         /* "exposed to the public" teal */
   --kiosk-soft: rgba(75, 163, 199, .09);
@@ -64,6 +90,113 @@
   --sans: 'Segoe UI', 'SF Pro Text', system-ui, sans-serif;
 }
 
+/* Contrast changes surfaces and their text independently of the accent.
+   Charcoal is the original :root palette, including installations with no
+   saved contrast preference. Root classes also reach existing popouts. */
+:root.contrast-light {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --side: #eceff3;
+  --panel: #ffffff;
+  --panel-2: #e8ebef;
+  --input: #ffffff;
+  --ink: #2d333b;
+  --ink-strong: #161b22;
+  --dim: #57606a;
+  --line: #c5ccd4;
+  --line-soft: #dce1e7;
+  --shadow: 0 2px 8px rgba(0, 0, 0, .14);
+}
+:root.contrast-solarized-light {
+  color-scheme: light;
+  --bg: #fdf6e3;
+  --side: #eee8d5;
+  --panel: #fffbef;
+  --panel-2: #e9e2cb;
+  --input: #fffbef;
+  --ink: #455c64;
+  --ink-strong: #073642;
+  --dim: #52656b;
+  --line: #c8c2ae;
+  --line-soft: #ded8c3;
+  --shadow: 0 2px 8px rgba(7, 54, 66, .16);
+}
+:root.contrast-obsidian-black {
+  color-scheme: dark;
+  --bg: #000000;
+  --side: #080808;
+  --panel: #101010;
+  --panel-2: #191919;
+  --input: #171717;
+  --ink: #d6d6d6;
+  --ink-strong: #f3f3f3;
+  --dim: #a8a8a8;
+  --line: #303030;
+  --line-soft: #202020;
+}
+:root:is(.contrast-light, .contrast-solarized-light, .contrast-obsidian-black) {
+  --line-hover: color-mix(in srgb, var(--line) 65%, var(--ink));
+  --scrollbar: color-mix(in srgb, var(--line) 65%, var(--dim));
+  --scrollbar-hover: var(--dim);
+  --canvas-dot: var(--line-soft);
+  --peer-edge: var(--line);
+  --tether-edge: var(--dim);
+  --bearer-panel: var(--panel-2);
+  --bearer-line: var(--line);
+  --bearer-top: var(--line-hover);
+  --pile-1: color-mix(in srgb, var(--panel) 75%, var(--side));
+  --pile-2: color-mix(in srgb, var(--panel) 50%, var(--side));
+  --pile-3: var(--side);
+  --pile-crowd-1: var(--pile-1);
+  --pile-crowd-2: var(--pile-2);
+  --pile-crowd-3: var(--pile-3);
+  --oracle-panel: var(--panel-2);
+  --oracle-line: var(--line-hover);
+  --tip-panel: var(--panel);
+  --draft-stripe: var(--panel-2);
+}
+/* Status text retains its hue with darker ink on the two light surfaces.
+   Provider/tier identities keep their colors; tier labels have a dark backing
+   so even the pale Astra and Flash labels remain legible. */
+:root:is(.contrast-light, .contrast-solarized-light) {
+  --ok: #23722d;
+  --bad: #bf2929;
+  --warn: #805b0b;
+  --work: #23679e;
+  --review: #815379;
+  --backlog: #326b66;
+  --deploy-ready: #6350a8;
+  --ice: #326b82;
+  --tip-fill: #176377;
+  --tip-seat: #155e75;
+  --danger-ink: #af3320;
+}
+:root:is(.contrast-light, .contrast-solarized-light) :is(.tier, .chip.agents) { background: #313131; color: #cccccc; }
+
+/* The override is confined to individual agents, including their detached
+   roots and destination chips. Provider settings and tier/status identity
+   keep their own colors. Removing this class restores the original rules. */
+:root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
+  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tab-count, .badge, .mailbtn .count):is(.prov-claude, .prov-openai, .prov-google, .prov-openrouter) {
+  --prov-claude: var(--org-accent);
+  --prov-openai: var(--org-accent);
+  --prov-google: var(--org-accent);
+  --prov-openrouter: var(--org-accent);
+  /* Explicitly supersede NodeSquare's inline account shade in this mode. */
+  --provider-accent: var(--org-accent) !important;
+  --accent: var(--org-accent);
+  --accent-hover: var(--org-accent-hover);
+  --accent-soft: var(--org-accent-soft);
+  --accent-ink: var(--org-agent-ink);
+  --agent-accent-text: var(--org-agent-text);
+  --agent-accent-ink: var(--org-agent-ink);
+  --agent-count-ink: var(--org-agent-count-ink);
+}
+/* Stop remains the red destructive action; disabled controls retain their
+   ordinary dim state. Only accent-filled controls use the derived ink. */
+:root.agent-colors-organization .cc-send.stop { --agent-accent-ink: initial; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -73,8 +206,8 @@ body {
 ::selection { background: var(--accent-soft); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 .app { display: flex; min-height: 100vh; }
@@ -103,7 +236,7 @@ aside h1, .welcome-card h1 {
   color: var(--dim);
   display: flex; align-items: center; gap: 5px;
 }
-aside h1 svg, .welcome-card h1 svg { color: var(--accent); }
+aside h1 svg, .welcome-card h1 svg { color: var(--agent-accent-text, var(--accent)); }
 /* the repo link — lives in the orgbar and beside the brand */
 .gh-link {
   display: inline-flex; align-items: center; color: var(--dim);
@@ -206,7 +339,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
    not act. */
 .cmp-quiet-toggle { margin: 2px 0 6px; font-size: 11px; }
 .cmp-quiet-toggle .linkish { background: none; border: 0; padding: 0;
-  color: var(--accent); cursor: pointer; font: inherit; }
+  color: var(--agent-accent-text, var(--accent)); cursor: pointer; font: inherit; }
 .cmp-quiet-toggle .linkish:hover { text-decoration: underline; }
 .oi-hub { margin: 6px 0 2px; }
 .oi-hub-head { display: flex; align-items: center; gap: 8px;
@@ -238,7 +371,10 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   color: var(--dim); font-size: 12px; border-radius: 4px;
 }
 .home:hover { background: var(--panel-2); color: var(--ink); }
-.org:hover { background: var(--panel-2); }
+.org:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--ink-strong);
+}
 .org.current {
   background: var(--accent-soft); border-left-color: var(--accent);
   color: var(--ink-strong);
@@ -308,7 +444,7 @@ main {
    moving object. */
 .canvas-bg {
   position: absolute; inset: 0; pointer-events: none;
-  background-image: radial-gradient(circle, #343434 var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
+  background-image: radial-gradient(circle, var(--canvas-dot) var(--dot-r, 1.1px), transparent calc(var(--dot-r, 1.1px) + 0.5px));
   background-size: 28px 28px;
 }
 .space {
@@ -323,7 +459,7 @@ main {
 .edge.faded { opacity: .3; stroke-dasharray: 4 4; }
 .edge.draftedge { stroke: var(--accent); stroke-dasharray: 5 4; opacity: .6; }
 /* coworkers: the lateral peer channel between adjacent siblings */
-.edge.peer { stroke: #3e3e42; stroke-dasharray: 2 6; stroke-width: 1.2px; opacity: .65; }
+.edge.peer { stroke: var(--peer-edge); stroke-dasharray: 2 6; stroke-width: 1.2px; opacity: .65; }
 /* audience: an emphasized direct line BYPASSING the tree (bright = user's ear).
    Agent-granted lines are STEEL, not blue — the old #56aef0 was byte-identical
    to the sonnet tier hue, so "sonnet agent" and "holds an audience" collided */
@@ -434,15 +570,15 @@ main {
 .badge.frozen { color: var(--ice); border-color: #46647a; }
 /* D-234: a queued model switch, worn by the agent until the turn boundary
    applies it — the accent, so it reads as "about to change", not as a fault */
-.badge.queued { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.badge.queued { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 button.badge.queued { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.queued:hover { border-color: var(--accent); }
-.queued-mark { color: var(--accent); font-family: var(--mono); font-size: 10px; margin-left: 2px; white-space: nowrap; }
+.queued-mark { color: var(--agent-accent-text, var(--accent)); font-family: var(--mono); font-size: 10px; margin-left: 2px; white-space: nowrap; }
 .queued-warn { margin: 6px 0; }
 /* ⭐ the per-node unstick (user ruling 2026-08-06): the desk button, and the
    card's freeze badge doubling as the control */
 .badge.unstick {
-  background: none; border: 1px solid var(--accent); color: var(--accent);
+  background: none; border: 1px solid var(--accent); color: var(--agent-accent-text, var(--accent));
   cursor: pointer; font-weight: 600;
 }
 .badge.unstick:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
@@ -545,9 +681,9 @@ button.badge.audience-fold.alert {
 .mailbtn:hover { opacity: 1 !important; color: var(--ink-strong); background: none; }
 .mailbtn .count {
   position: absolute; top: -5px; right: 0; background: var(--accent);
-  color: #fff; border-radius: 8px; font-size: 9.5px; padding: 0 4px; font-weight: 700;
+  color: var(--agent-accent-ink, #fff); border-radius: 8px; font-size: 9.5px; padding: 0 4px; font-weight: 700;
 }
-.sq:hover { border-color: #4a4a4a; }
+.sq:hover { border-color: var(--line-hover); }
 .sq.archived { opacity: .5; }
 .sq.unrecoverable { border-color: var(--bad); opacity: .8; }
 .sq.busy { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -711,7 +847,7 @@ button.badge.audience-fold.alert {
 .proc-state.active.prov-openrouter { --process-accent: var(--prov-openrouter); }
 .cc-spin.prov-openrouter { color: var(--prov-openrouter); }
 .eye-count.prov-openrouter { background: color-mix(in srgb, var(--prov-openrouter) 42%, var(--panel-2)); }
-.tab-count.prov-openrouter { color: var(--prov-openrouter); font-weight: 700; }
+.tab-count.prov-openrouter { color: var(--agent-accent-text, var(--prov-openrouter)); font-weight: 700; }
 .mailbtn .count.prov-openrouter { background: var(--prov-openrouter); }
 /* status never rides color alone (dataviz rule): the dots carry a SHAPE
    channel too — done is a filled circle, working pulses, blocked is a diamond,
@@ -751,7 +887,7 @@ button.badge.audience-fold.alert {
    which is why there is no ancestor override on .sq.busy any more. */
 .sq-idle.working { color: var(--work); }
 .sq-idle.working.active,
-.sq-idle.active { color: var(--accent); }
+.sq-idle.active { color: var(--agent-accent-text, var(--accent)); }
 .sq-idle.waiting, .sq-idle.queued { color: var(--work); }
 .sq-idle.compacting { color: var(--warn, #e5c07b); }
 .sq-idle.done { color: var(--ok); }
@@ -906,7 +1042,7 @@ button.badge.audience-fold.alert {
 .cc-head .proc-mark { margin-left: 1px; }
 .settings h3 .proc-mark { margin: 0 4px; }
 .actgear {
-  flex: none; color: var(--accent); font-size: 11px; line-height: 1;
+  flex: none; color: var(--agent-accent-text, var(--accent)); font-size: 11px; line-height: 1;
   display: inline-block; animation: actspin 1.4s linear infinite;
 }
 @keyframes actspin { to { transform: rotate(360deg); } }
@@ -921,7 +1057,7 @@ button.badge.audience-fold.alert {
    every credit bar on the canvas. So the containment lives here. */
 .actlabel {
   display: flex; align-items: center; gap: 4px; font-size: 10px;
-  color: var(--accent); font-family: var(--mono); padding: 0 2px;
+  color: var(--agent-accent-text, var(--accent)); font-family: var(--mono); padding: 0 2px;
   flex-wrap: nowrap; min-width: 0; max-width: 100%; overflow: hidden;
 }
 .actlabel .actgear { font-size: 10px; }
@@ -1116,7 +1252,7 @@ html.mobile .edge-jump { display: none; }
 }
 .turn-status-banner.working { color: var(--work); }
 .turn-status-banner.working.active,
-.turn-status-banner.active { color: var(--accent); }
+.turn-status-banner.active { color: var(--agent-accent-text, var(--accent)); }
 .turn-status-banner.queued,
 .turn-status-banner.compacting { color: var(--warn, #e5c07b); }
 .turn-status-banner.blocked { color: var(--bad); }
@@ -1180,7 +1316,7 @@ button.cc-name {
   cursor: pointer; text-align: left;
 }
 button.cc-name:hover {
-  background: none; color: var(--accent); text-decoration: underline;
+  background: none; color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 .spacer { flex: 1; }
 .cc-tabs { display: flex; gap: 1px; }
@@ -1228,9 +1364,9 @@ button.cc-name:hover {
 .eye-count.prov-openai { background: color-mix(in srgb, var(--prov-openai) 42%, var(--panel-2)); }
 .eye-count.prov-google { background: color-mix(in srgb, var(--prov-google) 42%, var(--panel-2)); }
 /* tab-suffix counts (a desk's `inbox N`, a node mailbox's folder strip) */
-.tab-count.prov-claude { color: var(--prov-claude); font-weight: 700; }
-.tab-count.prov-openai { color: var(--prov-openai); font-weight: 700; }
-.tab-count.prov-google { color: var(--prov-google); font-weight: 700; }
+.tab-count.prov-claude { color: var(--agent-accent-text, var(--prov-claude)); font-weight: 700; }
+.tab-count.prov-openai { color: var(--agent-accent-text, var(--prov-openai)); font-weight: 700; }
+.tab-count.prov-google { color: var(--agent-accent-text, var(--prov-google)); font-weight: 700; }
 /* the card mail button's count: explicit, so a themed ancestor cannot
    restyle it away from its own agent (white-on-provider keeps the base
    form's contrast on all three hues) */
@@ -1238,10 +1374,10 @@ button.cc-name:hover {
 .mailbtn .count.prov-openai { background: var(--prov-openai); }
 .mailbtn .count.prov-google { background: var(--prov-google); }
 /* pile-picker rows: the "N mail" badge names its row's agent */
-.badge.prov-claude { color: var(--prov-claude); border-color: color-mix(in srgb, var(--prov-claude) 45%, var(--line)); }
-.badge.prov-openai { color: var(--prov-openai); border-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
-.badge.prov-google { color: var(--prov-google); border-color: color-mix(in srgb, var(--prov-google) 45%, var(--line)); }
-.badge.prov-openrouter { color: var(--prov-openrouter); border-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
+.badge.prov-claude { color: var(--agent-accent-text, var(--prov-claude)); border-color: color-mix(in srgb, var(--prov-claude) 45%, var(--line)); }
+.badge.prov-openai { color: var(--agent-accent-text, var(--prov-openai)); border-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
+.badge.prov-google { color: var(--agent-accent-text, var(--prov-google)); border-color: color-mix(in srgb, var(--prov-google) 45%, var(--line)); }
+.badge.prov-openrouter { color: var(--agent-accent-text, var(--prov-openrouter)); border-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
 /* jump cards re-scope the whole accent surface to the JUMP TARGET: hover/
    focus border and wash, the shed-form mail dot, and the inline count all
    follow one override — the focus ring and hover geometry are untouched, so
@@ -1301,7 +1437,7 @@ button.cc-name:hover {
   width: 24px; height: 24px; border-radius: 50%; padding: 0; flex: none;
   font-size: 13px; font-weight: 700; line-height: 1;
   display: flex; align-items: center; justify-content: center;
-  background: var(--accent); border: 1px solid var(--accent); color: #fff;
+  background: var(--accent); border: 1px solid var(--accent); color: var(--agent-accent-ink, #fff);
 }
 .cc-send:disabled { background: var(--input); border-color: var(--line); color: var(--dim); }
 /* the send button becomes STOP while responding (Claude Code idiom) */
@@ -1457,7 +1593,7 @@ button.cc-name:hover {
   color: var(--ink); min-width: 0; flex: none;
   white-space: nowrap; overflow-wrap: normal;
 }
-.turn-mail-head button.cc-name:hover { color: var(--accent); text-decoration: underline; }
+.turn-mail-head button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* …and the chip is smaller than the desk's 16px one: this header is 10.5px,
    and a 16px chip stands a whole line taller than the words beside it.
    (`.desk-body .tier` is (0,2,0); this needs three to win, since a mail card
@@ -1483,7 +1619,7 @@ button.cc-name:hover {
   color: var(--ink); min-width: 0; flex: none;
   white-space: nowrap; overflow-wrap: normal;
 }
-.live-mail-head button.cc-name:hover { color: var(--accent); text-decoration: underline; }
+.live-mail-head button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* the row's line box is 14px × 1.45 ≈ 20.3px; the desk's default 16px chip
    fits inside it, but only just, and this line has no metadata to hide a
    grown one behind. 15px keeps a visible gap. (`.desk-body .tier` is (0,2,0),
@@ -1546,7 +1682,7 @@ button.cc-name:hover {
   margin: 8px 0 4px; font-size: 15px; color: var(--ink-strong);
 }
 .md h1 { font-size: 16px; }
-.md a { color: var(--accent); }
+.md a { color: var(--agent-accent-text, var(--accent)); }
 .md blockquote {
   margin: 4px 0; padding: 2px 0 2px 9px; border-left: 2px solid var(--line);
   color: var(--dim);
@@ -1566,7 +1702,7 @@ button.cc-name:hover {
 .md hr { border: none; border-top: 1px solid var(--line-soft); margin: 8px 0; }
 .md strong { color: var(--ink-strong); }
 .msg .tools { color: var(--dim); font-size: 12px; margin-bottom: 2px; font-family: var(--mono); }
-.working { color: var(--accent); font-size: 12px; display: flex; gap: 5px; align-items: center; }
+.working { color: var(--agent-accent-text, var(--accent)); font-size: 12px; display: flex; gap: 5px; align-items: center; }
 .msg.live.tools { font-size: 12px; padding: 1px 4px; }
 .hist-row { font-size: 12.5px; gap: 6px; padding: 2.5px 3px; }
 .filepre { font-size: 12px; padding: 5px 7px; margin: 3px 0; }
@@ -1704,12 +1840,12 @@ button.cc-name:hover {
    live bearer against archived bearer — is the test of this rule, and
    tests/bearercard_probe.py measures it in a real browser. */
 .sq.bearer:not(.live) {
-  background: #262628; border-color: #3a3a3c; border-top-color: #4a4a4c;
+  background: var(--bearer-panel); border-color: var(--bearer-line); border-top-color: var(--bearer-top);
   opacity: .7;
 }
 .sq.bearer:not(.live) .name { color: var(--dim); }
 /* lifecycle wash beats the mini tier tint */
-.sq.mini.bearer:not(.live) { background: #262628; }
+.sq.mini.bearer:not(.live) { background: var(--bearer-panel); }
 .sq.mini.bearer:not(.live) .sq-title .name { color: var(--dim); }
 /* permission border: dashed = cannot edit files (read-only agent); the tier
    edge stays solid — dashing it too read as noise, not as a channel */
@@ -1799,7 +1935,7 @@ button.cc-name:hover {
 .eye-inbox:hover,
 .eye-gear:hover {
   opacity: 1 !important;
-  color: var(--accent);
+  color: var(--agent-accent-text, var(--accent));
   background: none;
 }
 /* (the eye's unread-mail glow is gone — user ruling 2026-08-04: attention
@@ -1814,11 +1950,11 @@ button.cc-name:hover {
 .eye-inbox .count {
   position: absolute; top: -5px; right: -7px;
   background: color-mix(in srgb, var(--accent) 42%, var(--panel-2));
-  color: var(--ink-strong); border-radius: 8px; font-size: 9.5px;
+  color: var(--agent-count-ink, var(--ink-strong)); border-radius: 8px; font-size: 9.5px;
   padding: 0 4px; font-weight: 700;
 }
 .eye-inbox .count.asks, .eye-count.asks {
-  background: var(--accent); color: #fff;
+  background: var(--accent); color: var(--agent-accent-ink, #fff);
   animation: askpip 2s ease-in-out infinite;
 }
 @keyframes askpip {
@@ -2021,7 +2157,7 @@ button.cc-name:hover {
   position: absolute; top: -4px; right: -6px;
 }
 .ask-bell.glow {
-  color: var(--accent);
+  color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
   animation: askbell 2s ease-in-out infinite;
 }
@@ -2040,7 +2176,7 @@ button.cc-name:hover {
    Only while ready: update-notice.tsx drops `glow` the moment the button is
    pressed, so a disabled "Restarting…" never pulses. */
 .update-notice button.update-now.glow {
-  color: var(--accent);
+  color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
   animation: askbell 2s ease-in-out infinite;
 }
@@ -2118,7 +2254,7 @@ button.cc-name:hover {
      both. (The same trap the `.docket-ref` comment records.) */
   padding: 0; border: none; border-radius: 0; background: none;
 }
-.mailrow .l1 .mfrom button.cc-name:hover { color: var(--accent); text-decoration: underline; }
+.mailrow .l1 .mfrom button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* SenderChip (the user's own inbox) wraps its name in a `<b>`. That was right
    in the reading pane and wrong in a row, where bold is what `unread` means. */
 .mailrow .l1 .mfrom .sender b { font-weight: inherit; }
@@ -2126,7 +2262,7 @@ button.cc-name:hover {
   margin-top: 2px; font-size: 11px; color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.mailrow.unread .l1 .mfrom { color: var(--accent); font-weight: 700; }
+.mailrow.unread .l1 .mfrom { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
 .mailrow.unread .l2 { color: var(--ink); }
 /* request mails stand apart in the list (user spec 2026-08-06): the
    askcard's accent family — a solid left bar + faint tint while the ask is
@@ -2144,7 +2280,7 @@ button.cc-name:hover {
 }
 .mailrow.ask.askdone.on { background: color-mix(in srgb, var(--accent) 13%, var(--bg)); }
 .askkind {
-  flex: none; font-size: 9px; line-height: 1.6; color: var(--accent);
+  flex: none; font-size: 9px; line-height: 1.6; color: var(--agent-accent-text, var(--accent));
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 8px; padding: 0 5px;
 }
@@ -2228,7 +2364,7 @@ button.cc-name:hover {
    new hue to say so. */
 .urgentkind {
   flex: none; font-size: 9px; line-height: 1.6; font-weight: 700;
-  background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--agent-accent-ink, #fff); border: 1px solid var(--accent);
   border-radius: 8px; padding: 0 5px; letter-spacing: .3px;
 }
 /* the sender's one-line justification, above the body in the reading pane */
@@ -2249,7 +2385,7 @@ button.cc-name:hover {
   font-family: var(--mono); font-size: 11px; color: var(--ink);
   padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft);
 }
-.mailer-head .wait { color: var(--accent); font-weight: 700; }
+.mailer-head .wait { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
 .mailer-body { font-size: 12.5px; line-height: 1.55; }
 /* ...and compact inside the desk (virtual-scaled) so more fits on screen */
 .desk-body .mailrow .l1, .desk-body .mailrow .l2, .desk-body .mailer-head { font-size: 12px; }
@@ -2266,9 +2402,9 @@ button.cc-name:hover {
   padding: 0; border-radius: 8px; border: 1px solid var(--line-soft);
   transition: transform .18s ease;
 }
-.pile-layer.l1 { background: #232325; transform: translate(5px, -5px); }
-.pile-layer.l2 { background: #1e1e20; transform: translate(10px, -10px); }
-.pile-layer.l3 { background: #1a1a1c; transform: translate(15px, -15px); }
+.pile-layer.l1 { background: var(--pile-1); transform: translate(5px, -5px); }
+.pile-layer.l2 { background: var(--pile-2); transform: translate(10px, -10px); }
+.pile-layer.l3 { background: var(--pile-3); transform: translate(15px, -15px); }
 .pile-stack:hover .pile-layer.l1 { transform: translate(9px, -9px); }
 .pile-stack:hover .pile-layer.l2 { transform: translate(18px, -18px); }
 .pile-stack:hover .pile-layer.l3 { transform: translate(27px, -27px); }
@@ -2285,11 +2421,11 @@ button.cc-name:hover {
 .pile-stack.crowd .pile-layer {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft));
 }
-.pile-stack.crowd .pile-layer.l1 { background: #26262c; }
-.pile-stack.crowd .pile-layer.l2 { background: #212127; }
-.pile-stack.crowd .pile-layer.l3 { background: #1c1c22; }
+.pile-stack.crowd .pile-layer.l1 { background: var(--pile-crowd-1); }
+.pile-stack.crowd .pile-layer.l2 { background: var(--pile-crowd-2); }
+.pile-stack.crowd .pile-layer.l3 { background: var(--pile-crowd-3); }
 .pile-stack.crowd .pile-count {
-  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 /* the picker: current front highlighted */
 .pile-picker { width: 420px; }
@@ -2321,18 +2457,18 @@ button.cc-name:hover {
    audience is held. One channel never silently suppresses another. */
 .sq.stack1 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft);
 }
 .sq.stack2 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft),
-    10px -10px 0 -1px #1e1e20, 10px -10px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft),
+    10px -10px 0 -1px var(--pile-2), 10px -10px 0 0 var(--line-soft);
 }
 .sq.stack3 {
   box-shadow: var(--aud-glow, 0 0 0 0 transparent),
-    5px -5px 0 -1px #232325, 5px -5px 0 0 var(--line-soft),
-    10px -10px 0 -1px #1e1e20, 10px -10px 0 0 var(--line-soft),
-    15px -15px 0 -1px #1a1a1c, 15px -15px 0 0 var(--line-soft);
+    5px -5px 0 -1px var(--pile-1), 5px -5px 0 0 var(--line-soft),
+    10px -10px 0 -1px var(--pile-2), 10px -10px 0 0 var(--line-soft),
+    15px -15px 0 -1px var(--pile-3), 15px -15px 0 0 var(--line-soft);
 }
 .stackbadge { border: 1px solid var(--line); background: var(--input); }
 /* SCOPED TO `button`, like `button.badge.frozen` above. On a zoomed-out card
@@ -2340,13 +2476,13 @@ button.cc-name:hover {
    unscoped `cursor: pointer` plus a hover highlight would keep it LOOKING
    like a control it no longer is. */
 button.stackbadge { cursor: pointer; }
-button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
+button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent-text, var(--accent)); }
 /* A badge that is an action only in desk view, standing as a sign. The span
    carries no handler, so this is belt and braces - but it also makes the
    press land on the CARD even when a descendant (the icon) is the hit
    target, which is the whole point: aim anywhere on an agent and focus it. */
 .badge.inert { pointer-events: none; }
-.edge.tether { stroke: #5a5a5c; stroke-dasharray: 2 4; stroke-width: 1.3px; opacity: .8; }
+.edge.tether { stroke: var(--tether-edge); stroke-dasharray: 2 4; stroke-width: 1.3px; opacity: .8; }
 .sq.locked { filter: saturate(.4); }
 .sq.locked::after {
   content: none;   /* the lock is a badge icon now (MUI icons — user ruling) */
@@ -2365,7 +2501,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   color: var(--dim); font-size: 11px; font-style: italic; margin-top: 3px;
 }
 .msg.live.tools { align-self: flex-start; background: none; border: none; color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 1px 4px; }
-.msg.oracle { border-color: #4a4a55; background: #232328; }
+.msg.oracle { border-color: var(--oracle-line); background: var(--oracle-panel); }
 
 /* desk tabs, history, files */
 .desk-tabs { margin-left: 6px; display: flex; gap: 2px; }
@@ -2843,7 +2979,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   transform: scale(var(--invz, 1)); transform-origin: bottom right;
   white-space: nowrap; font-size: 10px; line-height: 1.5; font-family: var(--mono);
   text-align: right;
-  background: #111; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--tip-panel); border: 1px solid var(--line); border-radius: 4px;
   padding: 3px 8px; color: var(--ink); opacity: 0; pointer-events: none;
   transition: opacity .12s; box-shadow: var(--shadow);
 }
@@ -2854,8 +2990,8 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
    for grant/alloc/circulation, the seat block's darker blue, the empty
    section's grey for free */
 /* tip colors mirror the swapped bar layers: seat brightest, alloc darker */
-.cbar-tip b.n-fill { color: #67c3d8; }
-.cbar-tip b.n-seat { color: #a5f3fc; }
+.cbar-tip b.n-fill { color: var(--tip-fill); }
+.cbar-tip b.n-seat { color: var(--tip-seat); }
 .cbar-tip b.n-free { color: #7f7f7f; }
 .cbar-tip .dim { color: var(--dim); }
 /* the hovered card (and its tip) must clear a neighbouring open desk (z 5) */
@@ -2866,13 +3002,13 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--accent); }
   cursor: default; border: 1px dashed var(--accent);
   box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 25%, transparent);
   background: repeating-linear-gradient(135deg,
-    var(--panel) 0, var(--panel) 9px, #27272a 9px, #27272a 10px);
+    var(--panel) 0, var(--panel) 9px, var(--draft-stripe) 9px, var(--draft-stripe) 10px);
 }
 /* floats ABOVE the box (user ruling) — frees a row inside the card */
 .draft-tag {
   position: absolute; top: -14px; left: 2px;
   font-size: 8px; letter-spacing: .12em; text-transform: uppercase;
-  color: var(--accent); opacity: .85; pointer-events: none;
+  color: var(--agent-accent-text, var(--accent)); opacity: .85; pointer-events: none;
 }
 /* ---- the redesigned hire form (user request: full redesign — the in-card
    form was cramped, but the flow must stay at roughly OVERVIEW scale).
@@ -2969,7 +3105,7 @@ main.solo { width: 100%; }
    underlying header region while the drawer is open so its controls click. */
 .drawer-backdrop, .drawer-backdrop * { -webkit-app-region: no-drag; }
 .drawer {
-  position: fixed; left: 0; top: 0; bottom: 0; width: 280px; z-index: 19;
+  position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 19;
   box-shadow: 8px 0 30px rgba(0, 0, 0, .5);
   animation: slidein .18s ease-out;
 }
@@ -3062,7 +3198,7 @@ main.solo { width: 100%; }
   padding: 0;
 }
 .gallery-modal .doc-pane-meta-row button.cc-name:hover {
-  color: var(--accent); text-decoration: underline;
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 
 /* ACTIVE agents' rows: white title */
@@ -3184,14 +3320,14 @@ main.solo { width: 100%; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .docket-modal .docket-group-head button.cc-name.docket-group-name:hover {
-  color: var(--accent); text-decoration: underline;
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 .docket-modal .docket-group-head .docket-group-agent.fit-retired .docket-group-name {
   color: var(--dim); font-style: italic;
 }
 .docket-modal .docket-group-head .docket-group-agent.fit-retired
   button.docket-group-name:hover {
-  color: var(--accent);
+  color: var(--agent-accent-text, var(--accent));
 }
 /* the chip is a hair smaller here than in a row: the head is 10.5px and the
    row's 16px chip stands a full line taller than the words beside it */
@@ -3233,8 +3369,8 @@ main.solo { width: 100%; }
 /* ATTENTION: orange title, orange status text — placed after .active/
    .archived/.backlog so it wins on order (an item is never both), not by
    accident of specificity */
-.docket-modal .mailrow.attention .l1 .mfrom { color: var(--accent); font-weight: 700; }
-.docket-modal .mailrow.attention .l2 { color: var(--accent); }
+.docket-modal .mailrow.attention .l1 .mfrom { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
+.docket-modal .mailrow.attention .l2 { color: var(--agent-accent-text, var(--accent)); }
 /* neutral selection for ordinary/archived rows (gallery's own rule) */
 .docket-modal .mailrow.on { background: var(--panel-2); }
 /* orange selection for attention rows — placed AFTER the neutral .on rule
@@ -3255,7 +3391,7 @@ main.solo { width: 100%; }
 .docket-status.status-backlogged { color: var(--backlog); }
 .docket-status.status-done { color: var(--ok); }
 .docket-status.status-superseded, .docket-status.status-dropped { color: var(--dim); }
-.docket-status.attention { color: var(--accent); }
+.docket-status.attention { color: var(--agent-accent-text, var(--accent)); }
 
 /* Left border indicators by status */
 .docket-modal .mailrow.status-in_progress { border-left: 3px solid var(--work); }
@@ -3285,7 +3421,7 @@ main.solo { width: 100%; }
 }
 .docket-modal .mailrow.archived .tier { opacity: .75; }
 .docket-dismiss {
-  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   cursor: pointer; flex-shrink: 0; white-space: nowrap;
 }
 .docket-dismiss:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
@@ -3293,7 +3429,7 @@ main.solo { width: 100%; }
 .docket-pane-head b { font-size: 13.5px; min-width: 0; overflow-wrap: break-word; }
 .docket-pane-head .docket-dismiss { flex-shrink: 0; }
 .docket-pane-sub { font-size: 12px; margin: 2px 0 10px; }
-.docket-pane-sub-attn { color: var(--accent); }
+.docket-pane-sub-attn { color: var(--agent-accent-text, var(--accent)); }
 .docket-list { margin: 0 0 12px; }
 .docket-list-heading {
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
@@ -3329,7 +3465,7 @@ main.solo { width: 100%; }
 }
 /* keep the line breaks the agent wrote into the attention reason */
 .docket-attention-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
-.docket-question-head { color: var(--accent); font-weight: 700; font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+.docket-question-head { color: var(--agent-accent-text, var(--accent)); font-weight: 700; font-size: 12px; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
 .docket-question-note { margin-bottom: 6px; }
 .docket-reply-label { font-size: 12px; margin: 4px 0 6px; display: flex; align-items: center; gap: 4px; }
 .docket-foot { font-size: 11.5px; padding-top: 8px; }
@@ -3405,7 +3541,7 @@ main.solo { width: 100%; }
    panel, but at 0.92em — a mono face at the prose's own size reads a size too
    large next to it. */
 .docket-modal .docket-ref {
-  font-family: var(--mono); font-size: 0.92em; color: var(--accent);
+  font-family: var(--mono); font-size: 0.92em; color: var(--agent-accent-text, var(--accent));
   background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
   cursor: pointer; appearance: none;
   text-decoration: underline; text-underline-offset: 2px;
@@ -3418,7 +3554,7 @@ main.solo { width: 100%; }
    class reset to beat `.docket-modal button.cc-name` (0,2,1) and keep the
    0.92em size the sentence around it was measured against. */
 .docket-modal .cc-name.docket-ref.docket-ref-agent {
-  font-size: 0.92em; font-weight: inherit; color: var(--accent);
+  font-size: 0.92em; font-weight: inherit; color: var(--agent-accent-text, var(--accent));
   min-width: 0; flex: none; display: inline;
 }
 .docket-modal .cc-name.docket-ref.docket-ref-agent:hover {
@@ -3459,7 +3595,7 @@ main.solo { width: 100%; }
   line-height: inherit; vertical-align: baseline;
 }
 button.ref-chip.ref-chip {
-  color: var(--accent); cursor: pointer;
+  color: var(--agent-accent-text, var(--accent)); cursor: pointer;
   text-decoration: underline; text-underline-offset: 2px;
 }
 button.ref-chip.ref-chip:hover { color: var(--ink-strong); }
@@ -3575,7 +3711,7 @@ span.ref-chip.ref-chip {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;
 }
 .docket-modal button.cc-name:hover, .mailer-head button.cc-name:hover {
-  color: var(--accent); text-decoration: underline;
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 /* THE DESK'S OWN DOCKET TAB (user ruling 2026-09-05 21:07). It is the docket's
    rows and pane, so it WEARS .docket-modal and inherits every rule above —
@@ -3625,7 +3761,7 @@ span.ref-chip.ref-chip {
 
 /* vibrant orange badge WITHOUT the mail bell's pulse animation — the
    2026-08-04 ruling keeps the glow/pulse to that one bell alone */
-.eye-count.docket-attn { background: var(--accent); color: #fff; }
+.eye-count.docket-attn { background: var(--accent); color: var(--agent-accent-ink, #fff); }
 .usage-row { display: flex; flex-direction: column; gap: 5px; }
 .usage-row .u-head { display: flex; align-items: baseline; gap: 10px; }
 .usage-row .u-label { font-weight: 600; color: var(--ink-strong); }
@@ -3712,7 +3848,7 @@ html.mobile .conn-chip { max-width: 46vw; }
    is also not silent: it stands out from the plain grey chips beside it,
    because the whole job of this chip is to be noticed by someone who did not
    arm it. Deliberately no animation — it may sit here for hours. */
-.chip.primed { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.chip.primed { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 
 /* -------------------------------------------------------------------- nodes */
 .node { margin: 6px 0; }
@@ -3738,7 +3874,7 @@ html.mobile .conn-chip { max-width: 46vw; }
   font-size: 10.5px; font-family: var(--mono); padding: 1px 7px; border-radius: 9px;
   background: var(--input); color: var(--dim); border: 1px solid transparent;
 }
-.badge.free { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.badge.free { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 /* A direct user audience is the same relationship in the desk and on the
    canvas. Codex desks rebind --accent to blue for provider chrome, but this
    badge inherits the root theme color, matching the user-audience line. */
@@ -3772,7 +3908,7 @@ html.mobile .conn-chip { max-width: 46vw; }
 }
 .aud-badge .cc-name-jump:hover,
 .settings .aud-badge button.cc-name-jump:hover {
-  color: var(--accent); text-decoration: underline;
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 .aud-badge .chip-x,
 .settings .aud-badge button.chip-x {
@@ -3814,7 +3950,7 @@ button {
   border: 1px solid var(--line); background: var(--input); color: var(--ink);
   cursor: pointer; transition: background .12s, border-color .12s;
 }
-button:hover { background: var(--panel-2); border-color: #4a4a4a; }
+button:hover { background: var(--panel-2); border-color: var(--line-hover); }
 button.primary {
   background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
   font-weight: 600;
@@ -3980,7 +4116,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .disk-size { width: 72px; text-align: right; flex: none; }
 .disk-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disk-cls { font-size: 10.5px; color: var(--dim); flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.disk-cls.ok { color: var(--accent); }
+.disk-cls.ok { color: var(--agent-accent-text, var(--accent)); }
 .disk-del {
   border: 1px solid var(--bad); color: var(--bad); background: none;
   border-radius: 4px; padding: 3px 10px; font-size: 12px;
@@ -4010,21 +4146,21 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   border: 1px solid var(--line); background: none; border-radius: 4px;
   padding: 2px 10px; font-size: 11px; color: var(--dim);
 }
-.disk-tabs button.on { color: var(--accent); border-color: var(--accent); }
+.disk-tabs button.on { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
 .disk-crumbs {
   display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
   font-size: 11.5px; padding: 2px 0 6px; color: var(--dim);
 }
 .disk-crumbs .crumb {
   border: none; background: none; padding: 1px 3px; font-size: inherit;
-  color: var(--accent); border-radius: 3px;
+  color: var(--agent-accent-text, var(--accent)); border-radius: 3px;
 }
 .disk-crumbs .crumb:hover { background: var(--panel-2); }
 .disk-dirlink {
   border: none; background: none; text-align: left; padding: 0;
   color: inherit; font-size: inherit; cursor: pointer;
 }
-.disk-dirlink:hover { color: var(--accent); }
+.disk-dirlink:hover { color: var(--agent-accent-text, var(--accent)); }
 .disk-chip { cursor: pointer; }
 .disk-chip.pend { border-color: var(--work); color: var(--work); }
 
@@ -4064,7 +4200,7 @@ svg.MuiSvgIcon-root {
   background: none; border: none; padding: 1px 2px; color: var(--ink);
   font-family: var(--mono); font-size: 12px;
 }
-.picker-crumbs .crumb:hover { color: var(--accent); background: none; }
+.picker-crumbs .crumb:hover { color: var(--agent-accent-text, var(--accent)); background: none; }
 .picker-list {
   height: 44vh; overflow-y: auto; display: flex; flex-direction: column;
   gap: 1px; background: var(--bg);
@@ -4137,7 +4273,7 @@ svg.MuiSvgIcon-root {
 .eye-count {
   font-size: 10.5px;
   background: color-mix(in srgb, var(--accent) 42%, var(--panel-2));
-  color: var(--ink-strong);
+  color: var(--agent-count-ink, var(--ink-strong));
   border-radius: 8px; padding: 0 5px; font-style: normal; line-height: 1.5;
 }
 /* tabs live IN the head row beside the eye (user spec 2026-07-31 — the old
@@ -4173,7 +4309,7 @@ svg.MuiSvgIcon-root {
 .eye-tab.on .eye-tab-id .cc-name, .eye-tab.pinned .eye-tab-id .cc-name {
   color: var(--ink-strong);
 }
-.eye-tab-id .cc-name-jump:hover { color: var(--accent); }
+.eye-tab-id .cc-name-jump:hover { color: var(--agent-accent-text, var(--accent)); }
 .eye-tab-main {
   display: inline-flex; align-items: center; gap: 6px;
   background: none; border: none; color: var(--dim);
@@ -4190,7 +4326,7 @@ svg.MuiSvgIcon-root {
 }
 .eye-tab.pinned .eye-tab-main { color: var(--ink-strong); }
 .eye-tab.pinned .eye-tab-main > svg:first-child {
-  font-size: 12px; color: var(--accent);
+  font-size: 12px; color: var(--agent-accent-text, var(--accent));
 }
 .eye-tab-main .tier { width: 17px; height: 17px; font-size: 10px; }
 .eye-tab-x {
@@ -4206,7 +4342,7 @@ svg.MuiSvgIcon-root {
   padding: 2px 6px;
 }
 .eye-auto.on {
-  color: var(--accent);
+  color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: var(--accent-soft);
 }
@@ -4237,7 +4373,7 @@ svg.MuiSvgIcon-root {
 .kiosk-warn svg { color: var(--bad); vertical-align: -2px; }
 /* the token-streamed growing reply: a typing caret at its end */
 .msg.draft::after {
-  content: "\258D"; color: var(--accent); margin-left: 2px;
+  content: "\258D"; color: var(--agent-accent-text, var(--accent)); margin-left: 2px;
   animation: pulse 1s ease-in-out infinite;
 }
 
@@ -4391,7 +4527,7 @@ svg.MuiSvgIcon-root {
 }
 .tray-status-label.working { color: var(--work); }
 .tray-status-label.working.active,
-.tray-status-label.active { color: var(--accent); }
+.tray-status-label.active { color: var(--agent-accent-text, var(--accent)); }
 /* the per-agent pin (⌖) and popout (↗) controls that sat at the end of every
    Agents List row are GONE (user ruling 2026-09-12) — both actions moved into
    the row's context menu, where the rest of the agent's actions already were,
@@ -4453,7 +4589,7 @@ svg.MuiSvgIcon-root {
 /* №17: the undo button inside a toast */
 .toast-undo {
   margin-top: 6px; font-size: 11px; padding: 2px 10px;
-  border: 1px solid var(--accent); color: var(--accent); background: none;
+  border: 1px solid var(--accent); color: var(--agent-accent-text, var(--accent)); background: none;
   border-radius: 4px;
 }
 .toast-undo:hover { background: var(--accent-soft); }
@@ -4473,7 +4609,7 @@ svg.MuiSvgIcon-root {
   background: none; border: 1px solid var(--line); color: var(--dim);
   display: flex; align-items: center; justify-content: center; font-size: 12px;
 }
-.cc-attach:hover { color: var(--accent); border-color: var(--accent); }
+.cc-attach:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
 
 /* ------------------------------------------------- desk parity (2026-07-31)
    №1/№9/№10: tool chips carry their argument; results and diffs expand in
@@ -4501,14 +4637,14 @@ svg.MuiSvgIcon-root {
   font-size: 12.5px; max-width: 100%; cursor: pointer;
 }
 .filecard:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.filecard .fc-ico { color: var(--accent); font-size: 17px; margin-top: 1px; }
+.filecard .fc-ico { color: var(--agent-accent-text, var(--accent)); font-size: 17px; margin-top: 1px; }
 .filecard .fc-name { font-weight: 600; overflow-wrap: anywhere; }
 .filecard .fc-note { display: block; color: var(--dim); font-size: 11.5px; margin-top: 1px; }
 .fdl {
   display: inline-flex; align-items: center; color: var(--dim);
   margin-left: auto; padding: 0 2px;
 }
-.fdl:hover { color: var(--accent); }
+.fdl:hover { color: var(--agent-accent-text, var(--accent)); }
 /* inline "open in mailbox" on mail-send chips (user spec 2026-07-31) */
 .maillink {
   display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
@@ -4516,7 +4652,7 @@ svg.MuiSvgIcon-root {
   color: var(--dim); font-size: 10.5px; padding: 0 7px; cursor: pointer;
   font-family: inherit;
 }
-.maillink:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.maillink:hover { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 /* the jumped-to mail flashes so "took me to it" is unmistakable */
 .mailrow.jflash { animation: jflash 1.6s ease-out 1; }
 @keyframes jflash {
@@ -4620,7 +4756,7 @@ svg.MuiSvgIcon-root {
   line-height: 1; white-space: nowrap;
 }
 .cc-eff:hover { border-color: var(--accent); color: var(--ink); }
-.cc-eff.set { color: var(--accent); border-color: var(--accent); }
+.cc-eff.set { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
 /* inherited from the org default: the level is REAL, so it is shown — but it
    is not this agent's own setting, so it does not claim the accent */
 .cc-eff.inherited { color: var(--dim); border-style: dashed; }
@@ -4662,7 +4798,7 @@ svg.MuiSvgIcon-root {
   color: var(--dim); background: none; border: none;
   border-left: 1px solid var(--line-soft); padding: 4px 7px;
 }
-.eye-tab-jump:hover { color: var(--accent); background: var(--accent-soft); }
+.eye-tab-jump:hover { color: var(--agent-accent-text, var(--accent)); background: var(--accent-soft); }
 .lineage-panel { min-width: 480px; }
 .lin-blurb { font-size: 11.5px; line-height: 1.55; }
 .lin-row {
@@ -4699,7 +4835,7 @@ svg.MuiSvgIcon-root {
   padding: 1px 8px; font-size: 11px; color: var(--ink);
   text-decoration: none; max-width: 100%; overflow: hidden;
 }
-a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); }
+a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--agent-accent-text, var(--accent)); }
 
 /* inline images (user spec 2026-08-25): image attachments and send_file
    images render viewable in place — a bounded thumbnail with a caption,
@@ -4859,7 +4995,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 .wd-chip.oneshot.paused .wd-name { opacity: .6; }
 .wd-chip.oneshot.paused .wd-once { opacity: .72; }
 .wd-chip.exited { border-color: var(--accent); }
-.wd-chip.exited .wd-glyph { color: var(--accent); }
+.wd-chip.exited .wd-glyph { color: var(--agent-accent-text, var(--accent)); }
 .wd-chip.spent {
   animation: wd-depart 15s linear both;
   border-color: color-mix(in srgb, var(--warn, #e5c07b) 45%, var(--line));
@@ -5285,13 +5421,13 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 /* the codex section wears its provider's blue (user spec 2026-08-29) */
 .acct-provider-head.prov-claude { border-bottom-color: color-mix(in srgb, var(--prov-claude) 45%, var(--line)); }
 .acct-provider-head.prov-openai { border-bottom-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
-.acct-provider-head.prov-openai .acct-preview-tag { color: var(--prov-openai);
+.acct-provider-head.prov-openai .acct-preview-tag { color: var(--agent-accent-text, var(--prov-openai));
   border-color: color-mix(in srgb, var(--prov-openai) 45%, var(--line)); }
 .acct-provider-head.prov-google { border-bottom-color: color-mix(in srgb, var(--prov-google) 45%, var(--line)); }
-.acct-provider-head.prov-google .acct-preview-tag { color: var(--prov-google);
+.acct-provider-head.prov-google .acct-preview-tag { color: var(--agent-accent-text, var(--prov-google));
   border-color: color-mix(in srgb, var(--prov-google) 45%, var(--line)); }
 .acct-provider-head.prov-openrouter { border-bottom-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
-.acct-provider-head.prov-openrouter .acct-preview-tag { color: var(--prov-openrouter);
+.acct-provider-head.prov-openrouter .acct-preview-tag { color: var(--agent-accent-text, var(--prov-openrouter));
   border-color: color-mix(in srgb, var(--prov-openrouter) 45%, var(--line)); }
 /* ---- sign in to Claude from the app (D-231): the claude card's own login
    row, shown while `claude auth login` is running. `.acct-claude-code` is
@@ -5380,13 +5516,13 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .orr-group { cursor: pointer; }
 .orr-note { font-size: 12px; margin-top: 6px; }
 .orr-note .linkish { background: none; border: 0; padding: 0; font: inherit;
-  color: var(--prov-openrouter); cursor: pointer; text-decoration: underline; }
+  color: var(--agent-accent-text, var(--prov-openrouter)); cursor: pointer; text-decoration: underline; }
 /* a group heading. `position: sticky` keeps the provider visible while its
    rows scroll, which is the other half of why a heading splitting across a
    page boundary is cosmetic rather than confusing. */
 .orr-vendor { position: sticky; top: 0; z-index: 1; padding: 3px 8px 2px;
   font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--prov-openrouter); background: var(--panel, var(--bg));
+  color: var(--agent-accent-text, var(--prov-openrouter)); background: var(--panel, var(--bg));
   border-bottom: 1px solid var(--line); }
 /* at 25 dense rows a heading scrolls out of view long before its group ends,
    which is exactly when a sticky heading earns its keep — the first heading
@@ -5433,7 +5569,7 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .orr-row .orr-price { font-variant-numeric: tabular-nums; font-size: 12px;
   color: var(--dim); white-space: nowrap; text-align: right; }
 .orr-row .orr-check { font-size: 12px; font-weight: 700;
-  color: var(--prov-openrouter); min-width: 5.5em; text-align: right; }
+  color: var(--agent-accent-text, var(--prov-openrouter)); min-width: 5.5em; text-align: right; }
 .orr-pager { display: flex; align-items: center; gap: 8px; }
 .orr-pager .dim { flex: 1; }
 /* D-222 — THE RAIL. The account rows are inset by the routing gutter
@@ -5759,6 +5895,18 @@ label.set-row { cursor: pointer; }
 .agy-est { font-size: 12px; line-height: 1.45; }
 .agy-est-n { font-variant-numeric: tabular-nums; }
 .agy-est-why { font-size: 11px; opacity: 0.8; }
+/* stacked standing/limit notes inside a usage section (e.g. Fable + pooled limits)
+   read as one compact group rather than scattering across paragraph-sized gaps */
+.standing-marks { display: flex; flex-direction: column; gap: 2px; }
+.standing-marks .standing-mark,
+.standing-marks p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.account-usage { display: flex; flex-direction: column; gap: 6px; }
 /* mid-turn steer-window warning (D-235): conditional on missing the window,
    so the composer banner yellow, never the red that promises a miss */
 .cache-forecast.steer {
@@ -5775,7 +5923,7 @@ label.set-row { cursor: pointer; }
 .mailload.err { color: var(--ink-strong); background: var(--warn-bg, var(--panel-2)); }
 .mailload .linkish {
   background: none; border: none; padding: 0; font: inherit;
-  color: var(--accent); text-decoration: underline; cursor: pointer;
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline; cursor: pointer;
 }
 
 /* ---- FR-3: desks PINNED TO SCREENSPACE (canvas/pins.tsx) ----
@@ -5837,7 +5985,7 @@ label.set-row { cursor: pointer; }
 .pinwin-title:active { cursor: grabbing; }
 .pinwin-title .spacer { flex: 1; }
 .pinwin-title .tier { width: 15px; height: 15px; font-size: 9px; }
-.pinwin-glyph { font-size: 14px; color: var(--accent); }
+.pinwin-glyph { font-size: 14px; color: var(--agent-accent-text, var(--accent)); }
 /* the title-bar name is a `.cc-name` now, which elsewhere is a flex mono
    block; here it must stay the title's own bold label and give its width back
    to the spacer so the state chip and unpin button keep their places */
@@ -5848,7 +5996,7 @@ label.set-row { cursor: pointer; }
   flex: 0 1 auto; font-family: inherit; font-size: inherit; font-weight: 700;
   color: var(--ink-strong);
 }
-.pinwin-title .cc-name-jump.pinwin-name:hover { color: var(--accent); }
+.pinwin-title .cc-name-jump.pinwin-name:hover { color: var(--agent-accent-text, var(--accent)); }
 .pinwin-state {
   font-size: 10px; color: var(--dim); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 5px;
@@ -5891,7 +6039,7 @@ label.set-row { cursor: pointer; }
    would have opened its desk — a placeholder in the desk's place. Same box
    as .desk-over (inset 2px) so the card's geometry does not change. */
 .badge.pinbadge {
-  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--agent-accent-text, var(--accent)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: none;
 }
 /* Both holders do one job: stand in the desk's box on a card while the desk
@@ -5911,11 +6059,11 @@ label.set-row { cursor: pointer; }
   font-size: 40px;
 }
 .pin-placeholder:hover { color: var(--ink-strong); background: var(--panel-2, var(--panel)); }
-.pin-placeholder-glyph { font-size: 120px; color: var(--accent); }
+.pin-placeholder-glyph { font-size: 120px; color: var(--agent-accent-text, var(--accent)); }
 .pin-placeholder b { font-size: 56px; color: var(--ink-strong); }
 .pin-placeholder-btn {
   margin-top: 24px; padding: 12px 36px; border-radius: 12px; font-size: 40px;
-  border: 3px solid var(--accent); color: var(--accent);
+  border: 3px solid var(--accent); color: var(--agent-accent-text, var(--accent));
 }
 
 /* The popped-out desk's sign, in the desk's place on a card.
@@ -5938,7 +6086,7 @@ label.set-row { cursor: pointer; }
 }
 .popout-placeholder.desk-elsewhere > button {
   align-self: center; padding: 12px 36px; border-radius: 12px; font-size: 40px;
-  border: 3px solid var(--accent); color: var(--accent);
+  border: 3px solid var(--accent); color: var(--agent-accent-text, var(--accent));
   background: none; cursor: pointer; max-width: 100%;
 }
 .popout-placeholder.desk-elsewhere > button:hover {
@@ -5971,7 +6119,7 @@ label.set-row { cursor: pointer; }
   background: none; border: none; padding: 0; font: inherit; color: inherit;
   cursor: pointer; text-align: left;
 }
-.progress-fold:hover { color: var(--accent); }
+.progress-fold:hover { color: var(--agent-accent-text, var(--accent)); }
 .progress-note { font-size: 12px; color: var(--dim); line-height: 1.35; overflow-wrap: anywhere; }
 .progress-note.stale { color: var(--warn, #e5c07b); }
 .progress-plan-explanation { font-style: italic; margin-top: 2px; }
@@ -6061,7 +6209,7 @@ label.set-row { cursor: pointer; }
 .overlay.overlay-pinned .modalpin-win,
 .overlay.overlay-pinned .modalpin-win * { -webkit-app-region: no-drag; }
 .modalpin-bar .spacer { flex: 1; }
-.modalpin-glyph { font-size: 14px; color: var(--accent); flex: none; }
+.modalpin-glyph { font-size: 14px; color: var(--agent-accent-text, var(--accent)); flex: none; }
 .modalpin-name {
   font-weight: 700; color: var(--ink-strong); font-size: 12.5px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -6072,7 +6220,7 @@ label.set-row { cursor: pointer; }
   flex: none; line-height: 1;
 }
 .modalpin-btn:hover { color: var(--ink-strong); background: var(--panel); }
-.modalpin-bar.on .modalpin-btn[aria-pressed="true"] { color: var(--accent); }
+.modalpin-bar.on .modalpin-btn[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
 /* the panel's own font sizing applies to buttons inside `.settings`; these are
    window chrome and stay chrome-sized */
 .settings .modalpin-btn { font-size: 15px; padding: 2px; border-radius: 3px; }
@@ -6170,7 +6318,7 @@ html.mobile .modalpin-win.gallery-modal > .gallery-head {
 .docket-reply-select .MuiSelect-select:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
 .docket-reply-select .MuiSelect-icon { color: var(--dim); font-size: 16px; right: 0; }
 .docket-reply-identity, .docket-reply-menu .MuiMenuItem-root { display: flex; align-items: center; gap: 5px; }
-.docket-reply-identity .cc-name, .docket-reply-menu .cc-name { font: inherit; color: var(--accent); }
+.docket-reply-identity .cc-name, .docket-reply-menu .cc-name { font: inherit; color: var(--agent-accent-text, var(--accent)); }
 .docket-reply-identity .tier, .docket-reply-menu .tier { flex: none; }
 .docket-reply-menu.MuiPaper-root { background: var(--panel); color: var(--ink); }
 .docket-reply-menu .MuiMenuItem-root { min-height: 28px; font: inherit; font-size: 12px; }
@@ -6271,7 +6419,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
    places (a small bordered pill for a mail row's kind), so make the rule
    itself context-free instead of asking every future caller to remember
    which specific ancestor class it happens to need. */
-.event-row-kind { font-size: 10px; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+.event-row-kind { font-size: 10px; color: var(--agent-accent-text, var(--accent)); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; white-space: nowrap; }
 
 .hist-event { padding: 8px; border-bottom: 1px solid var(--border); }
 .hist-event.event-surface { padding: 0; }
@@ -6288,7 +6436,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   background: var(--bg, #171717); color: var(--ink); font-size: 12px;
 }
-.popout-error { color: #ffb59c; }
+.popout-error { color: var(--danger-ink); }
 .popout-restart { border: 1px solid #a9803b; flex-wrap: wrap; }
 .popout-document { margin: 0; overflow: hidden; }
 .popout-mount, .popout-mount > .movable-surface,
@@ -6412,9 +6560,21 @@ html.mobile .popout-button { display: none; }
   background: var(--panel-2); color: var(--ink-strong); outline: none;
 }
 .ctxmenu-item:disabled { color: var(--dim); cursor: default; background: none; }
-.ctxmenu-item.danger { color: #ffb59c; }
+.ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
 .ctxmenu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+/* THE EVENT THE MENU IS ABOUT (user spec 2026-09-12). A right-click aims at
+   one event, and the menu that follows says nothing about which one — with a
+   transcript still moving underneath, "Reply" and "Copy contents" were an act
+   of faith. This marks the exact event for as long as its menu is up, and the
+   desk clears it when the menu closes. A tint and an edge only: no layout
+   property, because this lands on transcript rows whose height is already
+   being measured by the sticky-bottom scroller. */
+.ctx-target {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 5px;
+}
 /* the card's "Hire a subordinate…" entry reveals the existing bottom hire
    chips the way a hover at the bottom edge does (cards.tsx: hireReveal) —
    the tier choice and its gating stay in SpawnChips */
@@ -6532,6 +6692,12 @@ html.mobile .popout-button { display: none; }
 .provider-accounts:empty{display:none}
 .account-row{padding:12px 0;border-top:1px solid var(--line)}
 .account-identity,.account-management{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.account-identity strong{min-width:0;max-width:100%;overflow-wrap:anywhere}
+/* Native options retain the full identity; the selected identity also wraps
+   below the compact control, including on touch where title is unavailable. */
+.account-choice{display:flex;flex-direction:column;gap:4px;width:min(30rem,100%);min-width:0;margin:6px 0}
+.account-choice select{width:100%;min-width:0;text-overflow:ellipsis}
+.account-choice-identity{overflow-wrap:anywhere;min-width:0}
 .account-management{margin-top:8px}
 .account-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
 .account-note{margin-top:8px}

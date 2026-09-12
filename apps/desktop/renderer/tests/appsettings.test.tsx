@@ -138,7 +138,9 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Displaythis computer', 'Import'])
+        ['Providers', 'Runtime', 'Display', 'Import'])
+      assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
+        'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
       await inAct(async () => {
@@ -226,7 +228,7 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     const plus = [...panel.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent === '+')!
     await inAct(async () => { plus.click() })
-    const crowd = panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    const crowd = panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!
     await inAct(async () => { crowd.click() })
     assert.equal(localStorage.getItem('orgtree-desk-dpi'), '1.25')
     assert.equal(document.documentElement.style.getPropertyValue('--desk-dpi'), '1.25')
@@ -242,7 +244,7 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     await inAct(async () => { displayTab.click() })
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
     assert.match(panel.textContent ?? '', /125%/)
-    assert.equal(panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked,
+    assert.equal(panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!.checked,
       true)
   } finally {
     await view.unmount(); delete g.fetch; localStorage.clear()
