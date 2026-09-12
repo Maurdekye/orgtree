@@ -331,7 +331,10 @@ class EngineHTTPTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=10) as response:
             self.assertIn(b'UI positive control', response.read())
         for path, field in (('/api/desktop/status','activeAgents'),
-                            ('/api/desktop/hub','enabled'),('/api/desktop/notifications','notices')):
+                            ('/api/desktop/hub','enabled'),
+                            # installation-wide grants, reachable with no org open
+                            ('/api/desktop/hub/peers','peers'),
+                            ('/api/desktop/notifications','notices')):
             status, body = self.request(path, operator=True)
             self.assertEqual(status,200,(path,body))
             self.assertIsInstance(body,dict)

@@ -4,6 +4,7 @@ import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
 import { CharterDocumentsSetting } from './chartersettings'
+import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
 import type {
   AccountUsage, ProviderInfo, RuntimeSettingsPayload,
@@ -152,10 +153,14 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'providers' | 'runtime' | 'display' | 'import'
+type AppSettingsTab = 'providers' | 'runtime' | 'mailhub' | 'display' | 'import'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
+  // one installation hosts at most one mail hub, so hosting it and granting
+  // access to it are machine-wide settings — they used to sit inside a single
+  // organization's Connections tab, which is where they did not belong
+  { id: 'mailhub', label: 'Mail hub' },
   { id: 'display', label: 'Display' },
   { id: 'import', label: 'Import' },
 ]
@@ -513,6 +518,9 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         <SetToggle label="remind idle agents about unfinished docket items" checked={runtime?.idle_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setIdleDocketRemindersEnabled, v)} />
       </SetGroup>
+    </SettingsTabPanel>
+    <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
+      <MailHubSettings active={tab === 'mailhub'} />
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />

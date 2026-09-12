@@ -138,8 +138,8 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Display', 'Import'])
-      assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
+        ['Providers', 'Runtime', 'Mail hub', 'Display', 'Import'])
+      assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
@@ -156,8 +156,8 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[3]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[3])
+      assert.equal(tabs[4]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[4])
       const display = view.el.querySelector('#app-settings-panel-import')!
       assert.equal(display.hasAttribute('hidden'), false)
     } finally { await view.unmount(); delete g.fetch }

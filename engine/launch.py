@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import socket
 import sys
 from typing import Any, Awaitable, Callable
@@ -286,6 +287,68 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
             return _HUB_RUNTIME.configure(body)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    # ── who may connect to THIS INSTALLATION's hub ───────────────────────
+    # An installation hosts at most one hub, so its grants belong to App
+    # settings rather than to whichever organization happened to be open. The
+    # equivalent per-organization invitation routes in the V1 API still work
+    # unchanged; these simply do not need an organization to be selected.
+    def _hub_runtime() -> Any:
+        from fastapi import HTTPException
+        if _HUB_RUNTIME is None:
+            raise HTTPException(503, "hub runtime is not ready")
+        return _HUB_RUNTIME
+
+    def _checked_peer_id(value: str) -> str:
+        from fastapi import HTTPException
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", value):
+            raise HTTPException(422, "malformed peer id")
+        return value
+
+    @api_app.get("/api/desktop/hub/peers")
+    def desktop_hub_peers() -> dict[str, Any]:
+        from fastapi import HTTPException
+        try:
+            return _hub_runtime().peers()
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @api_app.post("/api/desktop/hub/peers")
+    def create_desktop_hub_peer(body: dict[str, Any]) -> dict[str, Any]:
+        from fastapi import HTTPException
+        from engine.hub import PeerIdInUse
+        runtime = _hub_runtime()
+        peer_id = _checked_peer_id(str(body.get("peer_id") or "").strip())
+        slug = str(body.get("slug") or "").strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", slug):
+            raise HTTPException(422, "malformed organization address")
+        try:
+            return runtime.issue_peer(peer_id, slug)
+        except PeerIdInUse as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @api_app.post("/api/desktop/hub/peers/{peer_id}/replace")
+    def replace_desktop_hub_peer(peer_id: str) -> dict[str, Any]:
+        from fastapi import HTTPException
+        from engine.hub import UnknownPeer
+        runtime = _hub_runtime()
+        try:
+            return runtime.replace_peer(_checked_peer_id(peer_id))
+        except UnknownPeer as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @api_app.delete("/api/desktop/hub/peers/{peer_id}")
+    def revoke_desktop_hub_peer(peer_id: str) -> dict[str, Any]:
+        from fastapi import HTTPException
+        runtime = _hub_runtime()
+        try:
+            return runtime.revoke_peer(_checked_peer_id(peer_id))
         except RuntimeError as exc:
             raise HTTPException(503, str(exc)) from exc
 

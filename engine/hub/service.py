@@ -62,6 +62,14 @@ _MAX_ATTACHMENT = 25 * 1024 * 1024
 _MAX_ATTACHMENTS = 10
 
 
+class PeerIdInUse(ValueError):
+    """A grant already exists under that identifier."""
+
+
+class UnknownPeer(ValueError):
+    """No grant exists under that identifier."""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
@@ -148,6 +156,58 @@ class _HubServer(ThreadingHTTPServer):
         if not re.fullmatch(r"[0-9a-f]{32}", attachment_id):
             raise ValueError("invalid attachment id")
         return self.blob_root / attachment_id
+
+    # ── grant administration ────────────────────────────────────────────
+    # These are the SAME operations the owner-token HTTP routes perform, kept
+    # here so the engine that hosts this service can administer grants without
+    # a second network round trip and, more importantly, without the hub
+    # growing another authenticated endpoint. The HTTP handlers below call
+    # exactly these methods, so there is one implementation of what a grant is.
+
+    def list_peers(self) -> list[dict[str, Any]]:
+        """Every grant this hub has issued. Never returns secret material."""
+        with self.db() as con:
+            rows = con.execute(
+                "SELECT peer_id,bound_slug,created_at,revoked_at FROM peers"
+                " ORDER BY created_at, peer_id").fetchall()
+        return [{"peer_id": row["peer_id"], "slug": row["bound_slug"],
+                 "created_at": row["created_at"], "revoked_at": row["revoked_at"],
+                 "allowed": row["revoked_at"] is None} for row in rows]
+
+    def issue_peer(self, peer_id: str, bound_slug: str) -> str:
+        """Mint a scoped credential. The secret is returned here and nowhere else."""
+        token = secrets.token_urlsafe(32)
+        with self.db() as con:
+            if con.execute("SELECT 1 FROM peers WHERE peer_id=?", (peer_id,)).fetchone():
+                raise PeerIdInUse("peer id already exists; choose a new id")
+            try:
+                con.execute("INSERT INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)",
+                            (peer_id, _fingerprint(token), bound_slug, _now()))
+            except sqlite3.IntegrityError as exc:  # lost a race for the same id
+                raise PeerIdInUse("peer id already exists; choose a new id") from exc
+            con.commit()
+        return token
+
+    def replace_peer(self, peer_id: str) -> tuple[str, str]:
+        """Bind a NEW secret to an existing grant, keeping its identifier and
+        the organization it is bound to. The previous secret stops verifying
+        immediately: admission matches a live fingerprint, and this replaces
+        it. Returns (bound_slug, new token)."""
+        token = secrets.token_urlsafe(32)
+        with self.db() as con:
+            row = con.execute("SELECT bound_slug FROM peers WHERE peer_id=?", (peer_id,)).fetchone()
+            if row is None:
+                raise UnknownPeer("no grant exists under that id")
+            con.execute("UPDATE peers SET fingerprint=?, created_at=?, revoked_at=NULL WHERE peer_id=?",
+                        (_fingerprint(token), _now(), peer_id))
+            con.commit()
+        return str(row["bound_slug"]), token
+
+    def revoke_peer(self, peer_id: str) -> bool:
+        with self.db() as con:
+            changed = con.execute("UPDATE peers SET revoked_at=? WHERE peer_id=? AND revoked_at IS NULL", (_now(), peer_id)).rowcount
+            con.commit()
+        return changed == 1
 
 
 class _HubHandler(BaseHTTPRequestHandler):
@@ -300,10 +360,7 @@ class _HubHandler(BaseHTTPRequestHandler):
                 self._error(403, "peer tokens cannot manage peers")
             return
         peer_id = urlparse(self.path).path.rsplit("/", 1)[-1]
-        with self.server.db() as con:
-            changed = con.execute("UPDATE peers SET revoked_at=? WHERE peer_id=? AND revoked_at IS NULL", (_now(), peer_id)).rowcount
-            con.commit()
-        self._send(200, {"revoked": changed == 1, "peer_id": peer_id})
+        self._send(200, {"revoked": self.server.revoke_peer(peer_id), "peer_id": peer_id})
 
     def _register(self) -> None:
         body = self._json()
@@ -344,13 +401,11 @@ class _HubHandler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", peer_id) or not _SLUG.fullmatch(bound_slug):
             self._error(422, "malformed peer binding")
             return
-        token = secrets.token_urlsafe(32)
-        with self.server.db() as con:
-            if con.execute("SELECT 1 FROM peers WHERE peer_id=?", (peer_id,)).fetchone():
-                self._error(409, "peer id already exists; choose a new id")
-                return
-            con.execute("INSERT INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)", (peer_id, _fingerprint(token), bound_slug, _now()))
-            con.commit()
+        try:
+            token = self.server.issue_peer(peer_id, bound_slug)
+        except PeerIdInUse as exc:
+            self._error(409, str(exc))
+            return
         self._send(200, {"peer_id": peer_id, "slug": bound_slug, "peer_token": token})
 
     def _unregister(self) -> None:
@@ -607,6 +662,25 @@ class HubService:
     @property
     def readiness(self) -> HubReadiness | None:
         return self._readiness
+
+    # Grant administration for the installation that HOSTS this hub. Same
+    # operations as the owner-token HTTP routes, reached in-process.
+    def _running(self) -> _HubServer:
+        if self._server is None:
+            raise RuntimeError("hub is not running")
+        return self._server
+
+    def list_peers(self) -> list[dict[str, Any]]:
+        return self._running().list_peers()
+
+    def issue_peer(self, peer_id: str, bound_slug: str) -> str:
+        return self._running().issue_peer(peer_id, bound_slug)
+
+    def replace_peer(self, peer_id: str) -> tuple[str, str]:
+        return self._running().replace_peer(peer_id)
+
+    def revoke_peer(self, peer_id: str) -> bool:
+        return self._running().revoke_peer(peer_id)
 
     def start(self) -> HubReadiness:
         if self._server is not None:

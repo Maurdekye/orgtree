@@ -117,4 +117,45 @@ class HubAPITests(unittest.TestCase):
         finally:
             runtime.stop()
 
+    def test_opening_a_different_org_changes_nothing_installation_wide(self):
+        """Hosting and grants belong to the installation, connections to the org.
+
+        This is the ownership split App Settings now renders: whichever
+        organization is open, the hub configuration and the allowed-organization
+        list are the same object, while each organization keeps only its own
+        outgoing connections.
+        """
+        runtime = HubRuntime(_temp.name)
+        runtime.start()
+        request = Request({'type':'http', 'headers':[], 'state':{}})
+        try:
+            runtime.configure({'version':1,'enabled':True,'bind_host':'127.0.0.1',
+                               'advertise_host':'127.0.0.1','port':0})
+            for slug, hub in (('switch-a','https://a.example'), ('switch-b','https://b.example')):
+                org = store.create_org(slug)
+                net.mint_identity(org)
+                org.d['net_hubs'] = [{'id':slug+'-hub','address':hub,'enabled':True}]
+                store.save_org(org)
+            granted = runtime.issue_peer('switch-grant',
+                                         store.load_org('switch-a').d['net_identity']['slug'])
+
+            # Same installation-wide answers, whichever org is "open".
+            first_status, first_peers = runtime.status(), runtime.peers()
+            a = api.org_net('switch-a', request)
+            self.assertEqual(runtime.status(), first_status)
+            self.assertEqual(runtime.peers(), first_peers)
+            b = api.org_net('switch-b', request)
+            self.assertEqual(runtime.status(), first_status)
+            self.assertEqual(runtime.peers(), first_peers)
+            self.assertEqual([p['peer_id'] for p in first_peers['peers']], ['switch-grant'])
+
+            # ...and each org sees only its own connections, with no secret.
+            self.assertEqual([h['address'] for h in a['hubs']], ['https://a.example'])
+            self.assertEqual([h['address'] for h in b['hubs']], ['https://b.example'])
+            self.assertNotIn(granted['peer_token'], json.dumps([a, b]))
+        finally:
+            runtime.stop()
+            for slug in ('switch-a','switch-b'):
+                store._POOL.close_all(slug)
+
 if __name__ == '__main__': unittest.main()

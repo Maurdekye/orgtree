@@ -217,7 +217,7 @@ test('§9 the tab strip is ONE keyboard control: roving tabindex, arrows that '
   const view = await mountSettings()
   try {
     const tabs = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    assert.equal(tabs.length, 4)
+    assert.equal(tabs.length, 5)
     for (const t of tabs) {
       const panel = view.el.querySelector(`#${t.getAttribute('aria-controls')}`)
       assert.ok(panel, `tab ${t.textContent} controls a panel that is absent`)
@@ -229,13 +229,14 @@ test('§9 the tab strip is ONE keyboard control: roving tabindex, arrows that '
     assert.equal(stops.length, 1)
     assert.equal(stops[0]!.getAttribute('aria-selected'), 'true')
 
-    await press(tabs[0]!, 'ArrowLeft')      // wraps backwards to the last
+    const last = tabs.length - 1
+    await press(tabs[0]!, 'ArrowLeft')       // wraps backwards to the last
     assert.match(selected(view), /Import/)
-    await press(tabs[3]!, 'ArrowRight')     // wraps forwards to the first
+    await press(tabs[last]!, 'ArrowRight')   // wraps forwards to the first
     assert.match(selected(view), /Providers/)
     await press(tabs[0]!, 'End')
     assert.match(selected(view), /Import/)
-    await press(tabs[3]!, 'Home')
+    await press(tabs[last]!, 'Home')
     assert.match(selected(view), /Providers/)
 
     // an inactive panel is `hidden`, not merely off-screen: its controls are

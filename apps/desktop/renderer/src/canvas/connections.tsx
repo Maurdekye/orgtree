@@ -1,9 +1,18 @@
+// canvas/connections.tsx — org settings → Connections.
+//
+// THIS ORGANIZATION's side of mail only: its address, and the hubs it
+// connects out to. Hosting a hub and deciding which organizations may connect
+// to it are properties of the INSTALLATION — one installation hosts at most
+// one hub — and now live in App settings → Mail hub (canvas/hosthub.tsx).
+// They used to be rendered here, which made an installation-wide setting look
+// per-organization and made the grant controls read as though they applied to
+// the remote hub named in the connect form beside them.
+
 import { useState } from 'react'
 import { req, saveSettings } from '../api'
 import type { TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
 import { PinFrame } from './modalpin'
-import { HostHub } from './hosthub'
 
 export function ConnectionsPanel({ tree, toast, close }: {
   tree: TreePayload; toast: ToastFn; close: () => void
@@ -21,6 +30,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
 }) {
   const hubs = tree.net?.hubs ?? []
   const [busy, setBusy] = useState(false)
+  const address = tree.net?.slug ?? ''
   const apply = async (patch: Parameters<typeof saveSettings>[1], note: string) => {
     setBusy(true)
     try {
@@ -33,13 +43,21 @@ export function Connections({ tree, toast, adding, setAdding }: {
   const settings = hubs.filter(h => h.id !== 'local').map(h => ({ id: h.id, address: h.address, enabled: h.enabled }))
   return <>
     <div className="field-label">This organization's address</div>
-    <p className="mono-sm">{tree.net?.slug ?? 'Not connected'}</p>
+    <div className="row" style={{ alignItems: 'center' }}>
+      <p className="mono-sm">{address || 'Not connected'}</p>
+      {address && <button type="button" onClick={() => {
+        navigator.clipboard.writeText(address)
+          .then(() => toast(['Organization address copied']))
+          .catch(() => toast(['error: copy is unavailable; select the address and copy it']))
+      }}>Copy address</button>}
+    </div>
+    <p className="dim">Give this address to the operator hosting a hub. They grant it access in their App settings, under Mail hub.</p>
     <label className="checkline"><input type="checkbox" disabled={busy}
       checked={hubs.some(h => h.id === 'local')}
       onChange={e => { void apply({ net_autoconnect: e.target.checked }, e.target.checked ? 'Local connection enabled' : 'Local connection disabled') }} />
       connect to organizations on this computer</label>
     <p className="dim">Read and send correspondence in Mail.</p>
-    <div className="field-label">Mail connections</div>
+    <div className="field-label">This organization's connections</div>
     {!hubs.length && <p className="dim">No connections configured.</p>}
     {hubs.map(h => <section key={h.id} className="connection-row">
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -59,8 +77,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
         {p.blurb && <span className="dim"> · {p.blurb}</span>}
       </li>)}</ul> : <p className="dim">No peers reported.</p>}
     </section>)}
-    <HostHub />
-    <ConnectHub slug={tree.slug} address={adding} setAddress={setAdding} identity={tree.net?.slug ?? ''} toast={toast} />
+    <ConnectHub slug={tree.slug} address={adding} setAddress={setAdding} identity={address} toast={toast} />
   </>
 }
 
@@ -73,16 +90,9 @@ export function ConnectHub({ slug, address, setAddress, identity, toast }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [invitation, setInvitation] = useState('')
-  const [issued, setIssued] = useState('')
-  const [issueId, setIssueId] = useState('')
-  const [issueSlug, setIssueSlug] = useState('')
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(issued); toast(['Credential copied']) }
-    catch { setError('Copy is unavailable. Select and copy the credential below.') }
-  }
-  return <section className="connection-setup">
-    <h4>Connect to an existing hub</h4>
-    <p className="dim">Enter the hub's address and the scoped credential its owner supplied.</p>
+  return <section className="connection-setup connect-hub">
+    <h4>Connect this organization to a hub</h4>
+    <p className="dim">Enter the hub's address and the connection details its owner supplied. Hosting a hub of your own is in App settings, under Mail hub.</p>
     {error && <p role="alert" className="ask-warn">{error}</p>}
     <form onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError('')
@@ -107,22 +117,6 @@ export function ConnectHub({ slug, address, setAddress, identity, toast }: {
           setAddress(data.address); setPeerId(data.peer_id); setPeerSlug(data.peer_slug); setCredential(data.peer_token); setInvitation(''); setError('')
         } catch { setError('This invitation could not be read. Paste its complete JSON text.') }
       }}>Use invitation</button>
-    </details>
-    <details><summary>Issue a scoped credential for this hub</summary>
-      <p className="dim">Give the connecting organization access. The credential is shown only here and can be copied for manual handoff.</p>
-      <label>Credential ID<input value={issueId} onChange={e => setIssueId(e.target.value)} /></label>
-      <label>Connecting organization's address<input value={issueSlug} onChange={e => setIssueSlug(e.target.value)} /></label>
-      <button disabled={busy || !issueId.trim() || !issueSlug.trim()} onClick={async () => {
-        setBusy(true); setError(''); setIssued('')
-        try {
-          const value = await req(`/api/orgs/${encodeURIComponent(slug)}/net/invitations`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ peer_id: issueId.trim(), peer_slug: issueSlug.trim() }) })
-          setIssued(JSON.stringify(value, null, 2))
-        } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
-      }}>Create credential</button>
-      {issued && <><textarea aria-label="New connection credential" readOnly value={issued} />
-        <button onClick={() => { void copy() }}>Copy credential</button>
-        <button onClick={() => setIssued('')}>Hide credential</button></>}
     </details>
   </section>
 }

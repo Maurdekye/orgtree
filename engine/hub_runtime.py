@@ -83,6 +83,53 @@ class HubRuntime:
                 'public':bool(self.ready and self.config['enabled'] and self.config['bind_host'] == '0.0.0.0')},
                 'warning':'Public hosting requires a manually provisioned trusted TLS certificate.'}
 
+    # ── installation-wide grant administration ──────────────────────────
+    # One Orgtree installation hosts at most one hub, so who may connect to it
+    # is an installation-wide question, not a per-organization one. These
+    # methods are what App settings → Mail hub drives. They change no
+    # authentication semantics: the token format, the admission check and the
+    # organization binding are exactly what the hub already implements.
+
+    def advertised_address(self):
+        with self.lock:
+            if self.ready is None:
+                return ''
+            return f'{"https" if self.ready.tls else "http"}://{self.ready.host}:{self.ready.port}'
+
+    def _service(self):
+        if self.service is None:
+            raise RuntimeError('hub runtime is not running')
+        return self.service
+
+    def _details(self, peer_id, slug, token):
+        """The connection-details package handed to the connecting operator.
+
+        Identical in shape to what the per-organization invitation route has
+        always returned, so details created before or after this move import
+        into the same Connect form.
+        """
+        return {'version': 1, 'address': self.advertised_address(),
+                'peer_id': peer_id, 'slug': slug, 'peer_slug': slug,
+                'peer_token': token, 'one_time': True}
+
+    def peers(self):
+        with self.lock:
+            return {'version': 1, 'address': self.advertised_address(),
+                    'peers': self._service().list_peers()}
+
+    def issue_peer(self, peer_id, slug):
+        with self.lock:
+            return self._details(peer_id, slug, self._service().issue_peer(peer_id, slug))
+
+    def replace_peer(self, peer_id):
+        with self.lock:
+            slug, token = self._service().replace_peer(peer_id)
+            return self._details(peer_id, slug, token)
+
+    def revoke_peer(self, peer_id):
+        with self.lock:
+            return {'revoked': self._service().revoke_peer(peer_id), 'peer_id': peer_id}
+
     def configure(self, raw):
         config = validate_config({**self.config, **raw})
         with self.lock:
