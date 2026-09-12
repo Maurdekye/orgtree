@@ -98,12 +98,23 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
       if (!prefsReady) { void loadPrefs(); return }
       if (running) { dirty ||= mutation; return }
       running = true
+      // A mutation landed while this pass was reading, so the response may
+      // already be stale and a withdrawn request must not alert. Re-read —
+      // but DEFERRING IS NOT FREE: a busy organization saves continuously, so
+      // every pass is dirtied before it finishes and an unbounded skip means
+      // no alert ever reaches the operating system at all (user report
+      // 2026-09-12: nothing arrived for hours while agents worked). After a
+      // few attempts, act on the newest read instead of waiting for a quiet
+      // moment that never comes; anything that did resolve in the meantime is
+      // retracted by the very next `sync`, which closes it natively.
+      let deferrals = 0
+      const defer = () => dirty && deferrals++ < 3
       try {
         do {
           dirty = false
           const { notices, active } = await readNotices()
           if (!alive) return
-          if (dirty) continue
+          if (defer()) continue
           const keys = active && new Set(active.map(identity))
           const candidates = [...notices.values()].filter(n => !keys || keys.has(identity(n)))
           // A card already on screen has reached the user. Remember it until
@@ -122,7 +133,7 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
           if (active) {
             await bridge.syncNotifications?.(eligible.map(({ org, id }) => ({ org, id })))
             if (!alive) return
-            if (dirty) continue
+            if (defer()) continue
             retainHistory(keys!)
           }
           await Promise.all(eligible.map(n => {
