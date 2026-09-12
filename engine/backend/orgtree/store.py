@@ -3191,6 +3191,12 @@ def read_node_history_rows(slug: str, nid: str, cap: int
     and slices by — a seq tail keeps the newest-by-insertion instead of the
     newest-by-timestamp and diverges the moment the two orders disagree
     (perf-review reproduction #2, reverse-timestamp fixture).
+
+    ⚠ LIMIT bounds the RETURNED rows and the Python-side decode, not the
+    scan: with no expression index the filter still visits every `events`
+    row inside SQLite (~18 VM ops per unrelated row, perf-review round-3
+    scaling probe). Database work stays linear in the section; what this
+    reader removes is the full-log JSON parse and transfer.
     None = fall back (JSON backend or blob-shaped section)."""
     def body(conn: sqlite3.Connection) -> tuple[list[Any], list[Any]] | None:
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
@@ -3238,7 +3244,12 @@ def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
     node across every recipient's archive plus the user logs — per-source
     tails by `$.at` (the merged sort key; a seq tail keeps the wrong end
     when insertion and timestamp order disagree — same round-2 finding as
-    history). None = fall back."""
+    history), with equal-`at` ties kept in the legacy (owner position,
+    list position) order, never global seq (round-3 finding).
+
+    ⚠ The same work-bound caveat as `read_node_history_rows`: the sent
+    filter scans the whole `mail_log` section inside SQLite; LIMIT bounds
+    output and decode, not the scan. None = fall back."""
     def body(conn: sqlite3.Connection
              ) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
@@ -3258,10 +3269,19 @@ def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
             "SELECT val FROM log_d WHERE sect='mail_log' AND owner=? "
             "ORDER BY seq DESC LIMIT ?", (nid, cap)).fetchall())]
         sent: list[Any] = []
+        # tie order is part of the contract: the legacy path walks owners in
+        # DICT ORDER (== MIN(seq) per owner, see `_load_sect_owners`) and each
+        # owner's list in order, then stable-sorts by `at` — so equal-`at`
+        # rows keep (owner position, list position), NOT global insertion seq
+        # (perf-review round 3, equal-time fixture: the wrong last-50). The
+        # join reproduces that composite key inside the capped query.
         for owner, raw in reversed(conn.execute(
-                "SELECT owner, val FROM log_d WHERE sect='mail_log' AND "
-                "json_extract(val,'$.from')=? "
-                "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+                "SELECT l.owner, l.val FROM log_d l JOIN "
+                "(SELECT owner, MIN(seq) AS pos FROM log_d "
+                " WHERE sect='mail_log' GROUP BY owner) o ON o.owner=l.owner "
+                "WHERE l.sect='mail_log' AND json_extract(l.val,'$.from')=? "
+                "ORDER BY COALESCE(json_extract(l.val,'$.at'),'') DESC, "
+                "o.pos DESC, l.seq DESC "
                 "LIMIT ?", (nid, cap)).fetchall()):
             sent.append({**json.loads(cast(str, raw)), "to": cast(str, owner)})
         row = conn.execute("SELECT val FROM doc WHERE key='user_inbox'"
