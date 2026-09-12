@@ -21,7 +21,7 @@ await build({
   stdin: {
     contents: `
 import React,{useEffect} from 'react';import{createRoot}from'react-dom/client';
-import{DeskHosts,DeskSlot,DeskListControls}from'./apps/desktop/renderer/src/canvas/deskhosts';
+import{DeskHosts,DeskSlot,useDeskActionsNow}from'./apps/desktop/renderer/src/canvas/deskhosts';
 import{PinnedPlaceholder}from'./apps/desktop/renderer/src/canvas/pins';
 import{NODE_W,NODE_H}from'./apps/desktop/renderer/src/canvas/shared';
 import'./apps/desktop/renderer/src/styles.css';
@@ -39,6 +39,9 @@ window.orgtreeDesktop={onEvent:()=>()=>{},
   minimizePopout:async()=>{},toggleMaximizePopout:async()=>{},closePopout:async()=>{}};
 const Card=({id,x,children})=><div className='sq tier-opus' id={id}
   style={{width:NODE_W,height:NODE_H,transform:'translate('+x+'px,0px)'}}>{children}</div>;
+const PopoutTrigger=()=>{const deskNow=useDeskActionsNow(ORG);
+  return <button aria-label='Open desk in a new window'
+    onClick={()=>deskNow(NODE).requestPopout()}>↗</button>};
 function Fixture(){
   useEffect(()=>{
     // the accumulated on-screen scale of an element: painted width over its own
@@ -49,7 +52,7 @@ function Fixture(){
       if(!a||!b) return null; const r=a.getBoundingClientRect(),c=b.getBoundingClientRect();
       return r.left>=c.left-1&&r.top>=c.top-1&&r.right<=c.right+1&&r.bottom<=c.bottom+1};
     window.count=sel=>document.querySelectorAll(sel).length;
-    window.popOut=()=>{const b=document.querySelector('[aria-label="open update-glow\\'s desk in a new window"]');
+    window.popOut=()=>{const b=document.querySelector('[aria-label="Open desk in a new window"]');
       if(!b) return false; b.click(); return true};
   });
   return <div className='viewport' style={{position:'absolute',inset:0,overflow:'hidden'}}>
@@ -59,8 +62,12 @@ function Fixture(){
         <Card id='card' x={0}><DeskSlot {...props} /></Card>
         {/* the switchboard / pinned-window case: bare, never counter-scaled */}
         <Card id='bare' x={400}><DeskSlot {...props} bare /></Card>
+        {/* the popout asked for from OUTSIDE the desk. This was the Agents
+            List row's ↗ button until the user had those removed on
+            2026-09-12; the action lives in the row's context menu now, so the
+            fixture makes that entry's call and gives it a handle to click. */}
         <div style={{position:'absolute',left:0,top:-60}}>
-          <DeskListControls slug={ORG} node={NODE} /></div>
+          <PopoutTrigger /></div>
       </DeskHosts>
       <Card id='pinned' x={200}>
         <div className='pin-holder'><PinnedPlaceholder id={NODE.id} onShow={()=>{}} /></div>

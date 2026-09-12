@@ -26,7 +26,7 @@ after(() => { if (!process.env.KEEP_POPOUT_UI_BUNDLE) try { fs.rmSync(dir, { rec
 const output = path.join(dir, 'popout-ui.cjs')
 await build({
   stdin: {
-    contents: `export { DeskHosts, DeskSlot, DeskListControls } from './apps/desktop/renderer/src/canvas/deskhosts'
+    contents: `export { DeskHosts, DeskSlot, useDeskActionsNow } from './apps/desktop/renderer/src/canvas/deskhosts'
 export { PinFrame } from './apps/desktop/renderer/src/canvas/modalpin'
 export { CurrentOrg } from './apps/desktop/renderer/src/popout'`,
     loader: 'ts', resolveDir: root,
@@ -52,7 +52,7 @@ for (const name of ['addPending','bindPendingMail','failPending','dismissPending
     },
   }],
 })
-const { DeskHosts, DeskSlot, DeskListControls, PinFrame, CurrentOrg } = createRequire(import.meta.url)(output)
+const { DeskHosts, DeskSlot, useDeskActionsNow, PinFrame, CurrentOrg } = createRequire(import.meta.url)(output)
 
 const CONTROLS = ['Minimize window', 'Maximize window', 'Close window']
 const text = doc => [...doc.querySelectorAll('button')].map(b => b.textContent?.trim())
@@ -126,6 +126,26 @@ const NODE = { id: 'writer', generation: 3, tier: 'opus', charter: 'write', stat
   children: [], turns: [], seat: 1, grant: 0, tasks: 0 }
 const deskProps = { node: NODE, map: new Map(), op: async () => {}, slug: 'org', toast: () => {}, pub: false }
 
+/** THE POPOUT ASKED FOR FROM OUTSIDE THE DESK, which is the journey most cases
+ *  below need: something that is not the desk's own header tells the registry
+ *  to pop it out, and the desk leaves the main window on its own.
+ *
+ *  This was `DeskListControls` — the ⌖/↗ buttons at the end of an Agents List
+ *  row — until the user had those buttons removed on 2026-09-12 and the action
+ *  moved into the row's context menu. There is no component to borrow any
+ *  more, so the fixture makes the call the menu entry makes
+ *  (canvas/agentmenu.tsx's "Open desk in a new window") and gives it a handle
+ *  to click. The production path under it — `requestPopout`, the retained
+ *  request, the host's own popout — is untouched and is what these tests are
+ *  actually about. */
+function PopoutTrigger() {
+  const deskNow = useDeskActionsNow('org')
+  return React.createElement('button', {
+    'aria-label': 'Open desk in a new window',
+    onClick: () => deskNow(NODE).requestPopout(),
+  }, '↗')
+}
+
 test('a popped-out desk offers no draft copy even once its agent identity has moved on', async () => {
   // The journey: a desk is popped out, the agent is rehired while it is out -
   // so the draft now belongs to a generation that no longer exists - and the
@@ -135,7 +155,7 @@ test('a popped-out desk offers no draft copy even once its agent identity has mo
   const current = { ...NODE, generation: 4 }
   const render = map => s.render(React.createElement(DeskHosts, { map, slug: 'org' },
     React.createElement(DeskSlot, { ...deskProps, map }),
-    React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+    React.createElement(PopoutTrigger)))
   try {
     await render(new Map([[NODE.id, NODE]]))
     assert.ok(!text(s.main).includes('Copy unsent draft'), 'nothing to recover from while the identity still matches')
@@ -166,7 +186,7 @@ test('the same stale desk, docked, does offer the draft copy', async () => {
     const map = new Map([[NODE.id, { ...NODE, generation: 4 }]])
     await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
       React.createElement(DeskSlot, { ...deskProps, map }),
-      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+      React.createElement(PopoutTrigger)))
     assert.match(s.main.body.textContent, /This agent's identity changed/, 'POSITIVE CONTROL: it is the stale desk')
     assert.ok(text(s.main).includes('Copy unsent draft'), 'docked, the recovery is offered')
     assert.match(s.main.body.textContent, /Copy your draft before returning/,
@@ -181,10 +201,10 @@ test('a popped-out desk carries window controls in its header; an ordinary one h
     const map = new Map([[NODE.id, NODE]])
     await s.render(React.createElement(DeskHosts, { map, slug: 'org' },
       React.createElement(DeskSlot, { ...deskProps, map }),
-      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+      React.createElement(PopoutTrigger)))
     for (const control of CONTROLS) assert.ok(!labels(s.main).includes(control), `${control} must not appear on a docked desk`)
 
-    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    await s.click(byLabel(s.main, 'Open desk in a new window'))
     const header = s.child.querySelector('.cc-head-top')
     assert.ok(header, 'the production desk header really moved into the popped-out window')
     for (const control of CONTROLS) {
@@ -238,7 +258,7 @@ test('a popped-out desk leaves a card-scaled notice on a card and a plain one in
         React.createElement(DeskSlot, { ...deskProps, map })),
       React.createElement('div', { className: 'sq', id: 'bare' },
         React.createElement(DeskSlot, { ...deskProps, map, bare: true })),
-      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+      React.createElement(PopoutTrigger)))
     // only one slot can host a desk, so the other already says so; the desk
     // itself is still here, which is what the pop-out below has to change
     assert.ok(s.main.querySelector('.cc-head-top'),
@@ -246,7 +266,7 @@ test('a popped-out desk leaves a card-scaled notice on a card and a plain one in
     assert.equal(s.main.querySelectorAll('.popout-placeholder').length, 1,
       'and exactly one of the two slots is standing aside for it')
 
-    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    await s.click(byLabel(s.main, 'Open desk in a new window'))
     assert.ok(!s.main.querySelector('.cc-head-top'), 'the desk really left the main window')
     const onCard = s.main.querySelector('#card .popout-placeholder')
     const inBare = s.main.querySelector('#bare .popout-placeholder')
@@ -289,8 +309,8 @@ test('a press on either notice action is kept off the canvas underneath it', asy
       React.createElement('div', { id: 'canvas', onPointerDown: e => seen.push(e.target.tagName) },
         React.createElement('div', { className: 'sq', id: 'card' },
           React.createElement(DeskSlot, { ...deskProps, map }))),
-      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
-    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+      React.createElement(PopoutTrigger)))
+    await s.click(byLabel(s.main, 'Open desk in a new window'))
     const notice = s.main.querySelector('#card .popout-placeholder')
     assert.ok(notice, 'the desk left a notice behind to press')
     const press = el => act(async () => {
@@ -322,7 +342,7 @@ test('Return here brings the desk to the host that was asked, not to the one it 
         React.createElement(DeskSlot, { ...deskProps, map })),
       React.createElement('div', { className: 'sq', id: 'second' },
         React.createElement(DeskSlot, { ...deskProps, map })),
-      React.createElement(DeskListControls, { slug: 'org', node: NODE })))
+      React.createElement(PopoutTrigger)))
     // One desk, two slots: the one already showing a notice is the one the
     // desk is NOT in, so asking THAT one to take it back is the case where
     // returning to `entry.last` would land in the wrong place. Reading it off
@@ -332,7 +352,7 @@ test('Return here brings the desk to the host that was asked, not to the one it 
     const holder = waiting === 'card' ? 'second' : 'card'
     assert.ok(s.main.querySelector(`#${holder} .cc-head-top`), 'POSITIVE CONTROL: the desk starts in the other slot')
 
-    await s.click(byLabel(s.main, "open writer's desk in a new window"))
+    await s.click(byLabel(s.main, 'Open desk in a new window'))
     assert.ok(!s.main.querySelector('.cc-head-top'), 'the desk really left the main window')
     const notice = s.main.querySelector(`#${waiting} .popout-placeholder`)
     await s.click([...notice.querySelectorAll('button')].find(b => b.textContent === 'Return here'))
