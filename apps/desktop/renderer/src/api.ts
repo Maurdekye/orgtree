@@ -150,7 +150,9 @@ const treeCache = new Map<string, { etag: string; tree: TreePayload }>()
 // still resolve a 304 to the pre-patch tree, and its 200 would re-install a
 // cache entry the ws patch just declared stale — either way setTree replaces
 // the patched render with the past. getTree captures the stamp before each
-// attempt and refuses to publish (return or cache) across a change.
+// attempt and refuses to publish (return or cache) across a change — and
+// that refusal holds on retry exhaustion too (perf-review round 4): a body
+// or captured hit known to predate the last invalidation is never returned.
 const treeCacheGen = new Map<string, number>()
 /** A ws node_stream patch just edited the RENDERED tree in place (cache
  *  forecast, MCP counts). The conditional cache must not hand that edit's
@@ -162,8 +164,15 @@ export const invalidateTreeCache = (slug: string): void => {
   treeCache.delete(slug)
   treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
 }
-export const getTree = (slug: string): Promise<TreePayload> => {
-  const attempt = (left: number): Promise<TreePayload> => {
+/** Resolves the fresh tree — or NULL when every bounded attempt raced a
+ *  ws-patch invalidation (perf-review round 4). Null means the refresh was
+ *  SUPERSEDED: the rendered tree, patched in place by those same ws frames,
+ *  is newer than any body this call fetched, so the caller must keep what
+ *  it is showing. The invalidation already deleted the cache entry, so the
+ *  next heartbeat or `changed` frame does a real fetch and picks up
+ *  whatever else the dropped bodies carried. */
+export const getTree = (slug: string): Promise<TreePayload | null> => {
+  const attempt = (left: number): Promise<TreePayload | null> => {
     const gen = treeCacheGen.get(slug) ?? 0
     // an invalidation deletes the entry, so a raced retry sends no
     // validator and always lands on the fresh-200 arm
@@ -174,7 +183,11 @@ export const getTree = (slug: string): Promise<TreePayload> => {
     }).then((r) => {
       noteInstance(r)
       if (r.status === 304 && hit) {
-        if ((treeCacheGen.get(slug) ?? 0) !== gen && left > 0) return attempt(left - 1)
+        // raced: the captured hit predates the patch — retry, never
+        // return it; exhaustion resolves null (superseded refresh)
+        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
+          return left > 0 ? attempt(left - 1) : null
+        }
         return hit.tree
       }
       if (!r.ok) {
@@ -187,9 +200,10 @@ export const getTree = (slug: string): Promise<TreePayload> => {
         const tree = hydrateTree(raw)
         if ((treeCacheGen.get(slug) ?? 0) !== gen) {
           // raced an invalidation: this body may predate the ws patch.
-          // Refetch; on exhaustion hand it over UNCACHED so the next
-          // heartbeat still does a real fetch.
-          return left > 0 ? attempt(left - 1) : tree
+          // Refetch — and on exhaustion resolve null rather than hand
+          // out a body known to be stale: the caller would install it
+          // over the newer patched render (perf-review round 4).
+          return left > 0 ? attempt(left - 1) : null
         }
         if (etag) treeCache.set(slug, { etag, tree })
         else treeCache.delete(slug)
