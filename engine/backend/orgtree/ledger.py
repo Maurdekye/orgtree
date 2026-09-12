@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
-from . import clipin, deployment, events, events_render, opreceipts
+from . import clipin, deployment, events, events_render, opreceipts, workfields
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkStage)
@@ -405,6 +405,31 @@ def actor_of(who: str) -> dict[str, str]:
 
 class LedgerError(ValueError):
     """Raised when an operation violates a precondition. Message is user-facing."""
+
+
+def _bounded(field: str, value: Any, *, limit: int | None = None) -> str:
+    """A BOUNDED docket field, through the one shared contract
+    (`workfields`), with its refusal re-raised as the `LedgerError` every
+    caller of this module already handles.
+
+    ⚠ CALL THIS BEFORE THE FIRST MUTATION, never beside the assignment that
+    stores the result. The contract's promise is that an over-length field
+    leaves NO item change, NO history row and NO mail — which is a promise
+    about WHERE the check runs, not about what it says. `work_update` proves
+    the point: its attention reason used to be checked two thirds of the way
+    down, so the refusal (then only a warning) arrived after the status, the
+    title and the description had already been rewritten.
+    """
+    try:
+        return workfields.bounded(field, value, limit=limit)
+    except workfields.FieldLimitError as e:
+        raise LedgerError(str(e)) from None
+
+
+def _prose(value: Any) -> str:
+    """A LOSSLESS docket field: trimmed at the ends, kept entire. See
+    `workfields.prose` — and never add a slice to a call site of this."""
+    return workfields.prose(value)
 
 
 def now() -> str:
@@ -4724,7 +4749,14 @@ class Org:
         cur = self.node(nid)["parent"]
         tgt = None if new_parent in (None, USER) else new_parent
         if tgt == cur:
-            return {"warnings": [f"{nid} already reports to "
+            # ⚠ IT SAYS SO IN A FIELD, not only in prose. A success-shaped
+            # result whose only trace of "nothing happened" is an English
+            # warning reads as a completed move to anything that checks the
+            # result programmatically — a benchmark measured `move` as free
+            # because every one of its samples was this no-op.
+            return {"moved": False, "node": nid,
+                    "parent": tgt, "changed": False,
+                    "warnings": [f"{nid} already reports to "
                                  f"{tgt or 'the top level'} — nothing to do"]}
         if tgt is None or (cur is not None
                            and self.is_ancestor(tgt, cur)):
@@ -9970,8 +10002,12 @@ class Org:
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
     # the attention reason, which now has to hold requested-against-delivered,
-    # the extra, and the confirmation wanted (user 2026-09-05)
-    WORK_ATTENTION_REASON_MAX: Final = 500
+    # the extra, and the confirmation wanted (user 2026-09-05).
+    # ⚠ READ FROM THE SHARED CONTRACT, not restated: `workfields.LIMITS` is
+    # the one place every docket writer and every tool description takes its
+    # numbers from, so a limit cannot be raised in one of them and left
+    # standing in the other.
+    WORK_ATTENTION_REASON_MAX: Final = workfields.limit_of("attention_reason")
     WORK_ARCHIVE_AFTER_S: Final = 3600       # strictly greater than ? archived
     WORK_ABANDONED_AFTER_S: Final = 1800    # strictly greater than ? reassigned
     #
@@ -10486,10 +10522,22 @@ class Org:
                 hint = (" — and note that this is shaped like a retired "
                         "opaque item id: items are named only by their "
                         "readable slug now, and old ids are not translated")
+            # ⚠ THE NAME IS ECHOED EXACTLY AS IT WAS SUBMITTED. The old
+            # `[:20]` printed a SHORTER name than the caller sent, so a
+            # refusal on `improve-inline-reply-previews` came back naming
+            # `improve-inline-reply` — and an access problem read as a typo
+            # the caller then went hunting for. The two cases stay
+            # deliberately indistinguishable (saying which would confirm that
+            # a hidden item exists), so the sentence says that outright and
+            # points at the one call that answers it truthfully.
             raise LedgerError(
-                f"no work item {str(wid)[:20]!r} that you may read — it does "
-                f"not exist, or you are neither its owner, its creator, a "
-                f"superior of those, nor a listed participant{hint}")
+                f"no work item {workfields.echo(wid)} that you may read — it "
+                f"does not exist, or you are neither its owner, its creator, a "
+                f"superior of those, nor a listed participant{hint}. That is "
+                f"ONE refusal for both cases on purpose: distinguishing them "
+                f"would confirm the existence of an item you may not see. The "
+                f"name is echoed here exactly as you submitted it; "
+                f"`orgtree_work list` shows every name you may read")
         return it, arch
 
     # ---- derived state
@@ -11327,7 +11375,15 @@ class Org:
 
     @staticmethod
     def _work_norm_list(raw: Any, name: str) -> list[str]:
-        """Individual nonblank strings — never a prose string to be parsed."""
+        """Individual nonblank strings — never a prose string to be parsed.
+
+        ⚠ AN OVER-LENGTH ENTRY REFUSES THE WHOLE UPDATE; it is not shortened.
+        These lists are the user's scannable summary, so the per-entry bound
+        stays — but the old `[:500]` cut the tail off the one entry that had
+        something to say and reported success, which is how a "done so far"
+        line ended mid-word in the pane. The refusal names the entry by its
+        position, because a list of forty is not searchable by eye.
+        """
         if raw is None:
             return []
         if isinstance(raw, str):
@@ -11337,12 +11393,17 @@ class Org:
         if not isinstance(raw, list):
             raise LedgerError(f"{name} must be a list of strings")
         out: list[str] = []
-        for x in cast("list[Any]", raw):
+        for i, x in enumerate(cast("list[Any]", raw)):
             if isinstance(x, (dict, list)):
                 raise LedgerError(f"{name} entries must be plain strings")
             s = str(x if x is not None else "").strip()
             if s:
-                out.append(s[:500])
+                try:
+                    out.append(workfields.bounded(name, s))
+                except workfields.FieldLimitError as e:
+                    raise LedgerError(
+                        f"{name} entry {i + 1} of {len(cast('list[Any]', raw))}: "
+                        f"{e}") from None
         if len(out) > Org.WORK_LIST_ENTRY_MAX:
             raise LedgerError(f"{name} carries {len(out)} entries — keep the "
                               f"displayed lists scannable (max "
@@ -11367,7 +11428,7 @@ class Org:
                     waiting_reason: str | None = None) -> dict[str, Any]:
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
-        t = str(title or "").strip()[:200]
+        t = _bounded("title", title)
         if not t:
             raise LedgerError("a work item needs a title")
         # The DESCRIPTION is mandatory (user 2026-09-05). It is the existing
@@ -11386,7 +11447,7 @@ class Org:
         # blob, the wire copies the field verbatim and the renderer folds long
         # prose rather than cutting it, so nothing downstream needs a bound.
         # Only whitespace at the ends is touched.
-        obj = str(objective or "").strip()
+        obj = _prose(objective)
         if not obj:
             raise LedgerError(
                 "a work item needs a description in `objective` — state the "
@@ -11419,7 +11480,7 @@ class Org:
                 self.node(pid)
                 if pid not in parts:
                     parts.append(pid)
-        acc = [{"text": str(a).strip()[:300], "checked": None}
+        acc = [{"text": _bounded("acceptance", a), "checked": None}
                for a in (acceptance or []) if str(a or "").strip()]
         deps: list[str] = []
         for d in dependencies or []:
@@ -11484,8 +11545,10 @@ class Org:
         self._work_state_info(it, None, {"blocked_reason": blocked_reason,
                                          "waiting_reason": waiting_reason})
         active.append(it)
-        self._log("work_create", actor,
-                  {"item": wid, "title": t[:60]}, [])
+        # the title WHOLE: it is a bounded field (200), so there is nothing to
+        # save by logging 60 characters of it, and a log row holding a
+        # different string from the item's own title is a reader's trap
+        self._log("work_create", actor, {"item": wid, "title": t}, [])
         # ONE CALL CREATES AND ASSIGNS (user request 2026-09-05). The owner
         # argument was always here; what is new is that handing an item to
         # somebody else at creation TELLS THEM, with the same wording every
@@ -11562,7 +11625,13 @@ class Org:
                     f"the real text ({asks}), or omit the field to leave the "
                     f"existing one standing")
             if val is not None:
-                it[field] = str(val).strip()[:500]    # type: ignore[literal-required]
+                # bounded — and on the UPDATE path already checked before
+                # anything was written (the pre-mutation loop in
+                # `work_update`), so this call cannot raise there and must
+                # not, because by then the status has already moved. On the
+                # CREATE path this IS the check, and it still runs before the
+                # new item is appended to the docket.
+                it[field] = _bounded(field, val)      # type: ignore[literal-required]
             elif st != was and not str(it.get(field) or "").strip():
                 raise LedgerError(
                     f"moving an item to `{state}` needs a nonblank {field}: "
@@ -11694,6 +11763,26 @@ class Org:
                 "added beyond the spec, and the confirmation you want. This "
                 "field is what they read to know what they are approving, so "
                 "it carries the detail rather than pointing at evidence")
+        # ---- EVERY BOUNDED FIELD, HERE, BEFORE THE FIRST MUTATION.
+        #
+        # This is the atomicity the contract promises: an update carrying one
+        # over-length field changes NOTHING — not the status, not the title,
+        # not the description, no history row and no mail — and says by how
+        # much. It used to be the opposite in the worst possible way: the
+        # attention reason was checked two thirds of the way down, AFTER the
+        # status, title and description had been rewritten, and it only
+        # WARNED while storing a truncated reason. The user then read a
+        # sentence that stopped mid-thought, and the agent learned about it
+        # from a warning it had already been too late to act on.
+        #
+        # The lists are checked earlier still (`_work_norm_list`, above) —
+        # they have to be, because the both-empty rule reads their result.
+        for _f, _v in (("title", title), ("attention_reason", attention_reason),
+                       ("blocked_reason", blocked_reason),
+                       ("waiting_reason", waiting_reason),
+                       ("dropped_reason", dropped_reason)):
+            if _v is not None:
+                _bounded(_f, _v)
         if reopen:
             if it.get("status") not in self.WORK_CLOSED and not phys:
                 pass                      # nothing to reopen; harmless
@@ -11719,7 +11808,6 @@ class Org:
             it["accepted"] = None
             it["superseded_by"] = None
         changes: dict[str, Any] = {}
-        attention_warning: str | None = None
         was = it.get("status")
         if was in self.WORK_LEGACY_STATUSES:
             # THE ONE WRITE THAT CONVERTS A LEGACY ROW: this item's own next
@@ -11769,8 +11857,9 @@ class Org:
             # exists to record.
             changes["dropped_reason"] = it.get("dropped_reason")
         if title is not None and str(title).strip():
-            changes["title"] = {"from": it.get("title"), "to": str(title).strip()[:200]}
-            it["title"] = str(title).strip()[:200]
+            newtitle = _bounded("title", title)     # checked above; cannot raise
+            changes["title"] = {"from": it.get("title"), "to": newtitle}
+            it["title"] = newtitle
         if objective is not None:
             # rewriting the description is fine; ERASING it is not — the field
             # is mandatory at creation, so a blanking update would be a way to
@@ -11780,7 +11869,7 @@ class Org:
             # uncapped for the same reason as `work_create` — an edit that
             # silently dropped the tail would turn "I completed the spec" into
             # a shorter spec that still looks whole
-            newobj = str(objective).strip()
+            newobj = _prose(objective)
             if not newobj:
                 raise LedgerError(
                     "the description (`objective`) may be rewritten but not "
@@ -11791,16 +11880,11 @@ class Org:
         # the manual flag is restated by every update
         prev = it.get("manual_attention")
         if attention is True:
-            submitted_reason = str(attention_reason or "").strip()
-            over = max(0, len(submitted_reason) - self.WORK_ATTENTION_REASON_MAX)
-            if over:
-                attention_warning = (
-                    f"attention_reason was truncated to the supported "
-                    f"{self.WORK_ATTENTION_REASON_MAX}-character limit; "
-                    f"submitted text exceeds it by {over} character(s). "
-                    f"Shorten it by at least {over} character(s) to keep the "
-                    f"full message.")
-            reason = submitted_reason[:self.WORK_ATTENTION_REASON_MAX]
+            # bounded, and REFUSED WHOLE above rather than truncated here —
+            # the warning this replaced arrived after the truncated reason had
+            # already been written, which is how the user ended up reading a
+            # sentence that stopped mid-thought
+            reason = _bounded("attention_reason", attention_reason)
             last = (it.get("dismissals") or [])[-1:]
             if last and " ".join(str(last[0].get("reason") or "").lower().split()) \
                     == " ".join(reason.lower().split()):
@@ -11874,9 +11958,7 @@ class Org:
                 "manual_attention": bool(it.get("manual_attention")),
                 "note": ("the standing attention flag was CLEARED by this "
                          "update (pass attention=true to keep one)"
-                         if prev and attention is not True else None),
-                **({"warnings": [attention_warning]} if attention_warning
-                   else {})}
+                         if prev and attention is not True else None)}
 
     # ---- ASSIGNMENT. User ruling 2026-09-05 21:02: ASSIGNMENT IS OWNERSHIP —
     # the `owner` field is the ONE meaning behind the docket's Assignment line,
@@ -12188,7 +12270,7 @@ class Org:
         if kind not in self.WORK_EVIDENCE_KINDS:
             raise LedgerError(f"evidence kind must be one of "
                               f"{'|'.join(self.WORK_EVIDENCE_KINDS)}")
-        r = str(ref or "").strip()[:500]
+        r = _bounded("ref", ref)
         if not r:
             raise LedgerError("evidence needs a ref (path, url, sha, log name)")
         ev = it.setdefault("evidence", [])
@@ -12197,8 +12279,13 @@ class Org:
                 f"this item already holds {len(ev)} evidence rows (cap "
                 f"{self.WORK_EVIDENCE_MAX}); nothing is truncated — consolidate "
                 f"into a file and reference that")
+        # ⚠ THE NOTE IS LOSSLESS. It used to be `[:500]`, which cut one agent's
+        # evidence note off inside a filename — the row then pointed at a path
+        # that does not exist. Evidence is the place the contract sends every
+        # detail too long for a bounded field, so it cannot itself have a
+        # bound (user-visible effect: `orgtree_work get` returns it entire).
         ev.append({"at": now(), "by": self._work_actor(actor), "kind": kind,
-                   "ref": r, **({"note": str(note).strip()[:500]} if note else {})})
+                   "ref": r, **({"note": _prose(note)} if note else {})})
         self._work_hist(it, actor, "evidence", {"kind": kind})
         return {"evidence": len(ev), "rev": it["rev"]}
 
@@ -12219,7 +12306,12 @@ class Org:
         n = int(it.get("attachment_seq") or 0) + 1
         it["attachment_seq"] = n
         rec = {"id": f"a{n}", "at": now(), "by": self._work_actor(actor),
-               "name": str(name)[:160], "bytes": int(nbytes),
+               # the name of the file that was ACTUALLY WRITTEN — kept whole.
+               # The upload route bounds the filename before it creates the
+               # file (stem 120 + extension 20); slicing it again here could
+               # only ever record a name that no longer matches the bytes on
+               # disk, which is a broken download rather than a tidy field.
+               "name": _prose(name), "bytes": int(nbytes),
                "path": str(stored)}
         atts.append(rec)
         self._work_hist(it, actor, "attach", {"name": rec["name"]})
@@ -12259,7 +12351,7 @@ class Org:
             raise LedgerError(f"stage must be one of {'|'.join(workitems.STAGES)}")
         st: WorkStage = {"claimed_at": now(),
                          "claimed_by": self._work_actor(actor),
-                         "ref": None, "note": (str(note).strip()[:500] if note else None),
+                         "ref": None, "note": (_prose(note) if note else None),
                          "verified": None, "method": "self-report", "detail": "",
                          "resolved_oid": None, "target": "", "ref_as_of": "",
                          "fetched_at": None, "observed_at": ""}
@@ -12268,7 +12360,7 @@ class Org:
             st["method"] = "unverified"
             st["detail"] = "claimed; run `verify` to check it against git"
         elif ref:
-            st["ref"] = str(ref).strip()[:500]
+            st["ref"] = _bounded("ref", ref)
         cast("dict[str, Any]", it["delivery"])[stage] = st
         self._work_hist(it, actor, "claim", {"stage": stage})
         return {"claimed": stage, "rev": it["rev"],
@@ -12325,12 +12417,13 @@ class Org:
         if not 0 <= int(index) < len(acc):
             raise LedgerError(f"acceptance index {index} out of range "
                               f"(0..{len(acc) - 1})")
-        r = str(evidence_ref or "").strip()[:500]
+        r = _bounded("evidence_ref", evidence_ref)
         if not r:
             raise LedgerError("checking a condition needs an evidence_ref")
+        checked_note = _prose(note) if note else None    # lossless
         acc[int(index)]["checked"] = {"at": now(), "by": self._work_actor(actor),
                                       "evidence_ref": r,
-                                      "note": (str(note).strip()[:500] if note else None)}
+                                      "note": checked_note}
         self._work_hist(it, actor, "check", {"index": int(index)})
         return {"checked": int(index), "rev": it["rev"]}
 
@@ -12372,8 +12465,13 @@ class Org:
         it["status"] = "done"
         self._work_stamp_status(it)
         self._work_clear_state_info(it)
+        # ⚠ THE ACCEPTANCE NOTE IS LOSSLESS. A reviewer's approval note is the
+        # durable record of what was checked and what was left standing, and
+        # `[:500]` ended one at `rerun focused/full r` — the sentence that
+        # said what still had to be run. It is folded by its readers, never
+        # cut here, and `orgtree_work get` returns the whole of it.
         it["accepted"] = {"at": now(), "by": self._work_actor(actor),
-                          "note": (str(note).strip()[:500] if note else None),
+                          "note": (_prose(note) if note else None),
                           "via": op}
         self._work_hist(it, actor, op, {"from": frm})
         it["docket_at"] = now()
@@ -12455,8 +12553,13 @@ class Org:
         # a state that owes information, and a field cleared by name is a field
         # that stops being cleared the moment the map grows.
         self._work_clear_state_info(it)
+        # ⚠ THE FULL NOTE GOES INTO HISTORY. `[:200]` cut the reviewer's
+        # findings in the one place the owner could have gone to recover them
+        # — the mail was cut too, and an agent that lost its review notes had
+        # to read `mail_log` out of the sqlite file to get them back. The mail
+        # still shows an excerpt, but it SAYS so and names this record.
         self._work_hist(it, actor, "review_changes",
-                        {"from": frm, "note": (str(note)[:200] if note else None)})
+                        {"from": frm, "note": (_prose(note) if note else None)})
         it["docket_at"] = now()
         self._log("work_review", actor, {"item": wid, "decision": dec}, [])
         return {"reviewed": wid, "decision": "changes", "rev": it["rev"],
@@ -12666,7 +12769,11 @@ class Org:
             it["parent"] = None                 # type: ignore[typeddict-unknown-key]
             self._work_hist(it, actor, "move", {"from": was, "to": None})
             self._work_stamp_docket(it, actor)
-            return {"moved": it["slug"], "parent": None, "rev": it["rev"]}
+            # `changed` says whether this call actually moved anything — a
+            # result that looks identical whether or not it did is a
+            # diagnostic that cannot be acted on
+            return {"moved": it["slug"], "parent": None, "rev": it["rev"],
+                    "changed": was is not None}
         # ⚠ read the prior parent BEFORE overwriting it, or every move
         # records `from: null` and claims the item was at the top level
         was = it.get("parent")
@@ -12675,7 +12782,7 @@ class Org:
                         {"from": was, "to": it.get("parent")})
         self._work_stamp_docket(it, actor)
         return {"moved": it["slug"], "parent": it.get("parent"),
-                "rev": it["rev"]}
+                "rev": it["rev"], "changed": was != it.get("parent")}
 
     def _work_parent_check(self, actor: str, child: WorkItem | None,
                            ref: str) -> str:
@@ -12788,7 +12895,13 @@ class Org:
         # was carrying describes a state it has just left. It reads the state
         # map, so it also covers the `waiting_reason` line this replaces.
         self._work_clear_state_info(it)
-        it["blocked_reason"] = f"attention flag dismissed by the user ({cur.get('reason')})"[:500]
+        # ⚠ NOT SLICED. This string is COMPOSED by the product out of a reason
+        # the contract already bounded on the way in, so the only thing the
+        # old `[:500]` could ever cut was the tail of the very reason the
+        # agent is being told not to re-raise — leaving it unable to tell
+        # which of its sentences the user rejected.
+        it["blocked_reason"] = (f"attention flag dismissed by the user "
+                                f"({cur.get('reason')})")
         if phys:
             # a dismissed flag on an archived item leaves it blocked, which is
             # open work — it comes back to the active list

@@ -21,13 +21,13 @@ import urllib.request
 from typing import Any, cast
 
 if __package__:
-    from . import deployment, opreceipts
+    from . import deployment, opreceipts, workfields
 else:
     # Sandboxed Claude runs this dependency-free server by its mounted file
     # path rather than with ``-m``. Preserve that supported entry point while
     # sharing the one authoritative policy parser.
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from orgtree import deployment, opreceipts
+    from orgtree import deployment, opreceipts, workfields
 
 ORG: str = os.environ.get("ORGTREE_ORG", "")
 NODE: str = os.environ.get("ORGTREE_NODE", "")
@@ -64,6 +64,24 @@ _WD_SHELL_WARNING: str = (
      "your interactive shell's aliases, rc files and PATH additions are NOT "
      "there, so use absolute paths for anything unusual. (On a Windows host "
      "it is cmd.exe instead, where grep/sed/awk/$(...)/$VAR/tmp all fail.) "))
+
+def _cap(field: str) -> str:
+    """The limit sentence for a BOUNDED docket field, in the tool card.
+
+    ⚠ THE NUMBER IS READ FROM THE ONE CONTRACT (`workfields.LIMITS`), never
+    typed here. An undocumented cap is how an agent ends up bisecting its way
+    down to a length that fits — and a cap documented in two places is how it
+    ends up trusting the stale one.
+    """
+    return (f" Limit {workfields.limit_of(field)} characters: over it the "
+            f"WHOLE call is refused before anything is written, and the "
+            f"refusal names the submitted length, the limit and the overage.")
+
+
+#: the counterpart for the fields that have no limit at all
+_NOCAP = (" No length limit and never truncated: it is stored entire and "
+          "returned entire by `get` (a notification may carry a marked "
+          "excerpt of it, which says so and says how long the whole is).")
 
 # JSON-schema fragments/tool cards for the MCP wire — freeform JSON by nature
 TOOLS_SCHEMA: dict[str, Any] = {
@@ -495,8 +513,8 @@ TOOLS: list[dict[str, Any]] = [
                 "slug": {"type": "string", "description": "the work item's readable name, e.g. git-review-workspace (every action but list/create). Items have no other identifier"},
                 "include_archived": {"type": "boolean", "description": "list: include archived items"},
                 "include_backlogged": {"type": "boolean", "description": "list: include backlogged (not yet started) items"},
-                "title": {"type": "string", "description": "create/update: short concrete title"},
-                "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated"},
+                "title": {"type": "string", "description": "create/update: short concrete title." + _cap("title")},
+                "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated: it is stored entire and returned entire by `get` (a notification may carry a marked excerpt of it, which says so and says how long the whole is)"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},
                 "owner": {"type": "string", "description": "create/assign: owner node (you or a subordinate) · update: the explicit assignment — name the CURRENT owner to keep an item where it is when you update somebody else's"},
                 "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
@@ -507,27 +525,27 @@ TOOLS: list[dict[str, Any]] = [
                 "add": {"type": "array", "items": {"type": "string"}, "description": "participants: node ids to add"},
                 "remove": {"type": "array", "items": {"type": "string"}, "description": "participants: node ids to drop"},
                 "acceptance": {"type": "array", "items": {"type": "string"},
-                               "description": "create: acceptance conditions"},
+                               "description": "create: acceptance conditions, one testable sentence each." + _cap("acceptance")},
                 "dependencies": {"type": "array", "items": {"type": "string"},
                                  "description": "create: names of items this one depends on"},
                 "done_so_far": {"type": "array", "items": {"type": "string"},
-                                "description": "update (required) / create: what is complete — individual entries"},
+                                "description": "update (required) / create: what is complete — individual entries, kept scannable." + _cap("done_so_far") + " Detail belongs in `evidence`, which has no limit."},
                 "working_on_next": {"type": "array", "items": {"type": "string"},
-                                    "description": "update (required) / create: what you are doing now and the next steps"},
+                                    "description": "update (required) / create: what you are doing now and the next steps, kept scannable." + _cap("working_on_next") + " Detail belongs in `evidence`, which has no limit."},
                 "status": {"type": "string",
                            "description": "create/update: backlogged|open|in_progress|blocked|review|deploy_ready|dropped — and on update also done (user 2026-09-10: any collaborator may complete directly; it writes the same acceptance record accept does). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `deploy_ready` = implementation is COMPLETE and awaiting deployment/publication — not blocked (nothing outside the item is stuck) and not done (not live yet): it counts as active and IS nudged, because getting it deployed is still actionable work owed by the owner. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
-                "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded"},
-                "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded"},
+                "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded." + _cap("blocked_reason")},
+                "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded." + _cap("dropped_reason")},
                 "attention": {"type": "boolean",
                               "description": "update: raise the manual attention flag (needs attention_reason)"},
-                "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving"},
+                "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
                 "reopen": {"type": "boolean", "description": "update: resume an archived/closed item"},
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
-                "ref": {"type": "string", "description": "claim: lowercase hex sha (git stages) or a note · evidence: path/url/sha/log"},
-                "note": {"type": "string", "description": "claim/evidence/check/accept: free text"},
+                "ref": {"type": "string", "description": "claim: lowercase hex sha, 7-40 lowercase hex characters, nothing else accepted (a refusal echoes what you sent, exactly, and names the character at fault) · evidence: path/url/sha/log." + _cap("ref") + " Prose goes in `note`."},
+                "note": {"type": "string", "description": "claim/evidence/check/accept/review: free text - the durable record of what was checked, asked for or left standing." + _NOCAP},
                 "index": {"type": "integer", "description": "check: acceptance condition index (0-based)"},
-                "evidence_ref": {"type": "string", "description": "check: what shows the condition is met"},
+                "evidence_ref": {"type": "string", "description": "check: what shows the condition is met (path/url/sha/log)." + _cap("evidence_ref") + " Prose goes in `note`."},
                 "by": {"type": "string", "description": "supersede: the replacing item's name"},
                 "parent": {"type": "string", "description": "create/move: the name of the item to nest this one under. move with an empty string returns it to the top level. A child keeps its own owner, status and authority — nesting says how work is ORGANISED, it does not grant or inherit anything"},
             },

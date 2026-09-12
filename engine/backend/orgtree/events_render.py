@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from . import workfields
 from .events import renderer
 
 USER = "@user"
@@ -49,7 +50,10 @@ def _obj(ev: _R) -> dict[str, Any]:
 
 
 #: how much of a description a docket NOTIFICATION carries inline.
-_DESC_EXCERPT = 600
+_DESC_EXCERPT = workfields.DESC_EXCERPT
+#: and how much of a review or acceptance note — longer, because a note is an
+#: instruction to act on rather than a pointer at a stored specification.
+_NOTE_EXCERPT = workfields.NOTE_EXCERPT
 
 
 def _desc(ev: _R) -> str:
@@ -68,12 +72,26 @@ def _desc(ev: _R) -> str:
     text = str(ev.get("objective") or "")
     if not text:
         return "(none recorded)"
-    if len(text) <= _DESC_EXCERPT:
-        return text
-    return (text[:_DESC_EXCERPT]
-            + f"… [EXCERPT — {len(text)} characters in full; this mail shows "
-              f"the first {_DESC_EXCERPT}. Read the whole description with "
-              f"orgtree_work get before acting on it]")
+    return workfields.excerpt(
+        text, _DESC_EXCERPT, what="description",
+        how=f"orgtree_work get slug={_obj(ev).get('slug')} before acting on it")
+
+
+def _note(ev: _R, what: str) -> str:
+    """A review or acceptance note as a NOTIFICATION shows it.
+
+    ⚠ THE STORED NOTE HAS NO LENGTH LIMIT. A reviewer's findings are what the
+    owner has to act on, so they are kept entire — in `accepted.note` for an
+    approval, in the `review_changes` history row for a sendback — and this is
+    only the copy riding along in the mail. It used to be a bare `[:500]`
+    which delivered findings that stopped mid-sentence, and the same text was
+    cut again in `history[].note`, so an agent that lost its review notes had
+    to read `mail_log` out of the sqlite file to recover them. The cut now
+    says it is a cut and names the call that returns the whole note.
+    """
+    return workfields.excerpt(
+        ev.get("note"), _NOTE_EXCERPT, what=f"{what} note",
+        how=f"orgtree_work get slug={_obj(ev).get('slug')}")
 
 
 # ================================================================== ordinary / reply
@@ -160,7 +178,7 @@ def _r_review_changes(ev: _R) -> str:
     return (_docket_head("REVIEW", ev)
             + f"CHANGES REQUESTED by {_user_or(str(ev['reviewer']))} — the item is "
               "back with you as in_progress and the next action is yours."
-            + (f"\nWhat the reviewer asked for: {str(note)[:500]}" if note else
+            + (f"\nWhat the reviewer asked for: {_note(ev, 'review')}" if note else
                "\nThe reviewer left no note; ask them what they want changed rather "
                "than guessing.")
             + _relay_suffix(ev))
@@ -172,7 +190,7 @@ def _r_review_approved(ev: _R) -> str:
     return (_docket_head("REVIEW", ev)
             + f"REVIEW PASSED — {_user_or(str(ev['reviewer']))} approved this item and "
               "it is now DONE. Nothing further is needed on it."
-            + (f"\nReviewer's note: {str(note)[:500]}" if note else "")
+            + (f"\nReviewer's note: {_note(ev, 'approval')}" if note else "")
             + _relay_suffix(ev))
 
 
@@ -193,8 +211,12 @@ def _r_participant(ev: _R) -> str:
 @renderer("decision.attention_dismissed")
 def _r_attention(ev: _R) -> str:
     o = _obj(ev)
+    # ⚠ QUOTED WHOLE. The contract bounds the reason on the way in (500), so
+    # the old `[:200]` could only ever cut the very sentence the agent is
+    # being told not to re-raise — leaving it unable to tell which part of it
+    # the user actually rejected.
     return (f"[DOCKET · {o['slug']}] The user DISMISSED your attention flag "
-            f"(\"{str(ev['reason'])[:200]}\") — the item is now BLOCKED. Do not "
+            f"(\"{str(ev['reason'])}\") — the item is now BLOCKED. Do not "
             f"re-raise the same reason without material new information; "
             f"{ev['pending_questions']} question(s) on the item are still pending.")
 
