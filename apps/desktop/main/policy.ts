@@ -32,8 +32,8 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val
     } else {
-      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
-      result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded'] = val
+      if (!['exitOnClose', 'startAtLogin', 'automaticUpdates', 'routineNotifications', 'onboarded', 'notificationsEnabled', ...NOTIFICATION_OPTIONS.map(o => o.key)].includes(key) || typeof val !== 'boolean') throw new Error('Invalid preference')
+      result[key as 'exitOnClose' | 'startAtLogin' | 'automaticUpdates' | 'routineNotifications' | 'onboarded' | 'notificationsEnabled'] = val
     }
   }
   return result

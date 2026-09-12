@@ -30,7 +30,20 @@ test('native settings save through bridge and adopt tray changes; failure leaves
   try {
     await inAct(async () => { await flush(5) })
     const switches = [...v.el.querySelectorAll<HTMLInputElement>('input')]
-    assert.deepEqual(switches.map(x => x.checked), [true, false, true, true, true, true, false, false, false, false])
+    assert.deepEqual(switches.map(x => x.getAttribute('aria-label')), [
+      'start at login',
+      'exit when the last window closes',
+      'automatic updates',
+      'Notifications',
+      'Questions',
+      'Urgent mail',
+      'Docket attention',
+      'All mail',
+      'New presented document',
+      'Agent frozen',
+      'Notify while Orgtree is focused',
+    ])
+    assert.deepEqual(switches.map(x => x.checked), [true, false, true, true, true, true, true, false, false, false, false])
     await inAct(async () => { switches[1]!.click(); await flush(5) })
     assert.deepEqual(writes, [{ exitOnClose: true }])
     assert.equal(switches[1]!.checked, true)
@@ -41,9 +54,18 @@ test('native settings save through bridge and adopt tray changes; failure leaves
     assert.equal(switches[2]!.checked, false)
     await inAct(async () => { event({ type: 'preferences', data: { ...prefs, automaticUpdates: true } }) })
     assert.equal(switches[2]!.checked, true, 'tray changes reach the app settings switch')
+    // Master notifications switch (index 3) gates category switches while preserving stored values
+    await inAct(async () => { switches[3]!.click(); await flush(5) })
+    assert.deepEqual(writes.at(-1), { notificationsEnabled: false })
+    assert.equal(switches[3]!.checked, false)
+    assert.ok(switches.slice(4).every(s => s.disabled), 'category switches are disabled while master switch is off')
+    assert.deepEqual(switches.slice(4).map(s => s.checked), [true, true, true, false, false, false, false], 'category values preserved while disabled')
+    await inAct(async () => { event({ type: 'preferences', data: { ...prefs, notificationsEnabled: true } }) })
+    assert.equal(switches[3]!.checked, true, 'tray changes restore master switch')
+    assert.ok(switches.slice(4).every(s => !s.disabled), 'category switches re-enabled')
     fail = true
-    await inAct(async () => { switches[6]!.click(); await flush(5) })
-    assert.equal(switches[6]!.checked, false)
+    await inAct(async () => { switches[7]!.click(); await flush(5) })
+    assert.equal(switches[7]!.checked, false)
     assert.match(v.el.textContent!, /Cannot save preferences/)
   } finally { await v.unmount(); native() }
 })

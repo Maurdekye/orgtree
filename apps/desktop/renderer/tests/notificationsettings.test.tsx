@@ -12,7 +12,7 @@ import { questionVisible } from '../src/notification-visibility'
 import { useNativeNotifications } from '../src/notifications'
 import type { NativeNotice } from '../src/desktop'
 import type { AskInfo } from '../src/types'
-import { DEFAULT_NOTIFICATIONS } from '../../../../packages/contracts/notifications'
+import { DEFAULT_NOTIFICATIONS, notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
 
 const labels = ['Questions', 'Urgent mail', 'Docket attention', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
 const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyDocketAttention', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
@@ -34,6 +34,10 @@ test('seven native settings use exact defaults, save separately and accept broad
   const v = await mountView(<DesktopSettings />, el => el)
   try {
     await inAct(() => event({ type: 'preferences', data: prefs }))
+    const masterSwitch = [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === 'Notifications')!
+    assert.ok(masterSwitch)
+    assert.equal(masterSwitch.checked, true)
+    assert.equal(masterSwitch.disabled, false)
     const switches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
     assert.ok(switches.every(Boolean))
     assert.deepEqual(switches.map(e => e.checked), [true, true, true, false, false, false, false])
@@ -220,4 +224,140 @@ test('a document removed during navigation reports the missing target and consum
     jumpTo={{ id: 'removed', seq: 500 }} onJumpHandled={() => { handled++ }} />, el => el)
   try { await settle(); assert.deepEqual(warnings, [['Document removed']]); assert.equal(handled, 1) }
   finally { await v.unmount(); globalThis.fetch = oldFetch }
+})
+
+test('global Notifications switch defaults on, gates specific toggles in UI, preserves values and restores configuration', async () => {
+  let event!: (e: { type: string; data: unknown }) => void
+  let prefs = { ...DEFAULT_NOTIFICATIONS, notifyQuestions: false, notifyUrgentMail: true, notifyDocketAttention: false, notifyAllMail: true, notifyDocuments: true }
+  const writes: unknown[] = []
+  native({
+    getPreferences: async () => prefs,
+    onEvent: (fn: typeof event) => { event = fn; return () => {} },
+    setPreferences: async (patch: Partial<typeof prefs>) => { writes.push(patch); prefs = { ...prefs, ...patch }; return prefs },
+  })
+  const v = await mountView(<DesktopSettings />, el => el)
+  try {
+    await inAct(() => event({ type: 'preferences', data: prefs }))
+    const masterSwitch = [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === 'Notifications')!
+    assert.ok(masterSwitch)
+    assert.equal(masterSwitch.checked, true, 'global Notifications switch defaults on')
+    assert.equal(masterSwitch.disabled, false)
+
+    const categorySwitches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
+    assert.ok(categorySwitches.every(Boolean))
+    assert.ok(categorySwitches.every(s => !s.disabled), 'all category toggles are enabled while master is on')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false])
+
+    // Click master switch to turn it off
+    await inAct(async () => { masterSwitch.click(); await flush(6) })
+    assert.deepEqual(writes.at(-1), { notificationsEnabled: false })
+
+    // Simulate backend broadcast of disabled master switch
+    prefs = { ...prefs, notificationsEnabled: false }
+    await inAct(() => event({ type: 'preferences', data: prefs }))
+
+    assert.equal(masterSwitch.checked, false)
+    assert.equal(masterSwitch.disabled, false, 'master switch remains interactive while off')
+
+    // While master switch is off, all individual category toggles remain visible but disabled
+    assert.ok(categorySwitches.every(s => s.disabled), 'all specific category toggles are disabled while master is off')
+    // Stored values are preserved and still reflected in the toggles
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false], 'category values preserved while disabled')
+
+    // Click master switch to turn it back on
+    await inAct(async () => { masterSwitch.click(); await flush(6) })
+    assert.deepEqual(writes.at(-1), { notificationsEnabled: true })
+
+    // Simulate backend broadcast of enabled master switch
+    prefs = { ...prefs, notificationsEnabled: true }
+    await inAct(() => event({ type: 'preferences', data: prefs }))
+
+    assert.equal(masterSwitch.checked, true)
+    assert.ok(categorySwitches.every(s => !s.disabled), 'all specific category toggles re-enabled when master is on')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false], 'exact prior configuration restored')
+  } finally { await v.unmount(); native() }
+})
+
+test('notificationPreferences and notificationEnabled enforce safe defaults, preservation and master gating', () => {
+  // 1. Fresh unconfigured preferences default All mail to off and notificationsEnabled to true
+  const fresh = notificationPreferences({})
+  assert.equal(fresh.notificationsEnabled, true, 'global switch defaults to on')
+  assert.equal(fresh.notifyAllMail, false, 'All mail defaults to off')
+  assert.equal(fresh.notifyQuestions, true)
+  assert.equal(fresh.notifyUrgentMail, true)
+  assert.equal(fresh.notifyDocketAttention, true)
+  assert.equal(fresh.notifyDocuments, false)
+  assert.equal(fresh.notifyFrozen, false)
+  assert.equal(fresh.notifyWhileFocused, false)
+
+  // 2. Existing explicit choices are preserved
+  const explicit = notificationPreferences({ notifyQuestions: false, notifyUrgentMail: false, notifyAllMail: true, notificationsEnabled: false })
+  assert.equal(explicit.notificationsEnabled, false)
+  assert.equal(explicit.notifyQuestions, false)
+  assert.equal(explicit.notifyUrgentMail, false)
+  assert.equal(explicit.notifyAllMail, true)
+
+  // 3. Legacy routineNotifications migrates safely
+  const legacyMigrate = notificationPreferences({ routineNotifications: true })
+  assert.equal(legacyMigrate.notifyAllMail, true, 'legacy routineNotifications true migrates to notifyAllMail true')
+  assert.equal(legacyMigrate.notificationsEnabled, true)
+
+  // Explicit notifyAllMail false wins over legacy routineNotifications true
+  const legacyExplicit = notificationPreferences({ notifyAllMail: false, routineNotifications: true })
+  assert.equal(legacyExplicit.notifyAllMail, false)
+
+  // 4. notificationEnabled authoritatively returns false for all kinds when notificationsEnabled is false
+  const kinds = ['question', 'urgent-mail', 'work-attention', 'routine', 'document', 'agent-frozen'] as const
+  const enabledPrefs = notificationPreferences({ notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true })
+  for (const kind of kinds) assert.equal(notificationEnabled(kind, enabledPrefs), true, `${kind} enabled when master is on`)
+
+  const disabledPrefs = { ...enabledPrefs, notificationsEnabled: false }
+  for (const kind of kinds) assert.equal(notificationEnabled(kind, disabledPrefs), false, `${kind} suppressed when master is off`)
+})
+
+test('master notifications switch off suppresses native polling dispatch and click navigation in useNativeNotifications', async () => {
+  localStorage.clear()
+  const oldFetch = globalThis.fetch, visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  let event!: (e: { type: string; data: unknown }) => void
+  let prefs = { ...DEFAULT_NOTIFICATIONS, notifyAllMail: true, notifyDocuments: true }
+  const delivered: NativeNotice[] = [], opened: NativeNotice[] = [], synced: unknown[][] = []
+  native({
+    getPreferences: async () => prefs,
+    notify: async (n: NativeNotice) => { delivered.push(n); return true },
+    syncNotifications: async (active: unknown[]) => { synced.push(active) },
+    onEvent: (fn: typeof event) => { event = fn; return () => {} },
+  })
+  const row = (kind: NativeNotice['kind'], id: string = kind): NativeNotice => ({ id, kind, org: 'one', title: kind, body: 'detail', agent: 'agent', generation: 2, source_id: id })
+  const notices = [row('question', 'q1'), row('urgent-mail', 'u1'), row('routine', 'r1')]
+  globalThis.fetch = async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length })
+
+  function View() { useNativeNotifications(n => opened.push(n)); return null }
+  const v = await mountView(<View />, el => el)
+  try {
+    await settle()
+    assert.deepEqual(delivered.map(n => n.id), ['q1', 'u1', 'r1'])
+
+    // Turn master notifications switch off
+    prefs = { ...prefs, notificationsEnabled: false }
+    await inAct(async () => { event({ type: 'preferences', data: prefs }); await flush(30) })
+    assert.deepEqual(synced.at(-1), [], 'syncNotifications cleared native alerts on master off')
+
+    const countBefore = delivered.length
+    notices.push(row('urgent-mail', 'u2'), row('question', 'q2'))
+    await inAct(async () => { event({ type: 'notification-poll', data: null }); await flush(30) })
+    assert.equal(delivered.length, countBefore, 'no notifications delivered while master switch is off')
+
+    await inAct(async () => { event({ type: 'notification-click', data: delivered[0] }); await flush(20) })
+    assert.equal(opened.length, 0, 'click navigation suppressed while master switch is off')
+
+    // Turn master notifications switch back on
+    prefs = { ...prefs, notificationsEnabled: true }
+    await inAct(async () => { event({ type: 'preferences', data: prefs }); await flush(30) })
+    assert.ok(delivered.some(n => n.id === 'u2'), 'delivery resumes for eligible notices after master re-enabled')
+  } finally {
+    await v.unmount(); native(); globalThis.fetch = oldFetch
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility)
+    else delete (document as unknown as Record<string, unknown>).visibilityState
+  }
 })

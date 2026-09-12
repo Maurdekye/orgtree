@@ -41,6 +41,8 @@ export function DesktopSettings() {
     setChecking(true)
     bridge.checkForUpdates().then(setUpdateStatus).finally(() => setChecking(false))
   }
+  const currentPrefs = notificationPreferences(prefs ?? {})
+  const masterOn = currentPrefs.notificationsEnabled
   return <><SetGroup title="Desktop">
     {error && <p role="alert">{error}</p>}
     <SetToggle label="start at login" checked={prefs?.startAtLogin ?? true}
@@ -68,8 +70,12 @@ export function DesktopSettings() {
     </SetRow>
   </SetGroup>
   <SetGroup title="Notifications">
+    <SetToggle label="Notifications"
+      checked={masterOn} disabled={!prefs || busy}
+      onChange={notificationsEnabled => put({ notificationsEnabled })}
+      hint="When off, all desktop notifications are suspended." />
     {NOTIFICATION_OPTIONS.map(({ key, label }) => <SetToggle key={key} label={label}
-      checked={notificationPreferences(prefs ?? {})[key]} disabled={!prefs || busy}
+      checked={currentPrefs[key]} disabled={!prefs || busy || !masterOn}
       onChange={value => put({ [key]: value })}
       hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
   </SetGroup></>

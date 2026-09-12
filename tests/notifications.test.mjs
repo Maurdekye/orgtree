@@ -14,7 +14,7 @@ await build({ entryPoints: ['apps/desktop/main/notifications.ts'], outfile: file
 const { NativeNotifications, anyOrgtreeWindowFocused, notification } = createRequire(import.meta.url)(file)
 test.after(() => rmSync(temp, { recursive: true, force: true }))
 
-const defaults = { notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
+const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 const question = { id: 'opaque', org: 'org', kind: 'question', agent: 'writer',
   source_id: 'q42', title: 'Question from writer', body: 'Choose one' }
 class Alert extends EventEmitter {
@@ -95,7 +95,7 @@ test('every category is independent and All mail cannot duplicate urgent mail', 
   const rows = [ ['question', 'notifyQuestions'], ['urgent-mail', 'notifyUrgentMail'],
     ['work-attention', 'notifyDocketAttention'], ['routine', 'notifyAllMail'],
     ['document', 'notifyDocuments'], ['agent-frozen', 'notifyFrozen'] ]
-  const off = Object.fromEntries(Object.keys(defaults).map(k => [k, false]))
+  const off = { ...defaults, notifyQuestions: false, notifyUrgentMail: false, notifyDocketAttention: false, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
   for (const [kind, option] of rows) {
     const { manager, native, opened } = fixture()
     const row = { ...question, kind, generation: 2 }
@@ -112,6 +112,37 @@ test('every category is independent and All mail cannot duplicate urgent mail', 
   const delivery = manager.notify({ ...question, kind: 'urgent-mail' }, { ...off, notifyAllMail: true })
   native[0].emit('show'); assert.equal(await delivery, true)
   assert.equal(await manager.notify({ ...question, kind: 'urgent-mail' }, { ...defaults, notifyAllMail: true }), false)
+  manager.sync([])
+})
+
+test('master notifications switch gates dispatch authoritatively across all categories and closes active alerts', async () => {
+  const allOn = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true, notifyWhileFocused: false }
+  const masterOff = { ...allOn, notificationsEnabled: false }
+  const categories = [
+    { ...question, kind: 'question' },
+    { ...question, kind: 'urgent-mail' },
+    { ...question, kind: 'work-attention' },
+    { ...question, kind: 'routine' },
+    { ...question, kind: 'document', source_id: 'doc-id' },
+    { ...question, kind: 'agent-frozen', generation: 1 },
+  ]
+  for (const row of categories) {
+    const { manager, native } = fixture()
+    assert.equal(await manager.notify(row, masterOff), false, `master switch off suppresses ${row.kind}`)
+    assert.equal(native.length, 0)
+  }
+  const { manager, native, opened } = fixture()
+  const pending = manager.notify(question, allOn)
+  native[0].emit('show')
+  assert.equal(await pending, true)
+  assert.equal(native[0].closed, false)
+  manager.configure(masterOff)
+  assert.equal(native[0].closed, true, 'turning master switch off closes active alert')
+  native[0].emit('click')
+  assert.deepEqual(opened, [], 'closed alert cannot navigate after master off')
+  const restored = manager.notify({ ...question, id: 'next-q' }, allOn)
+  native[1].emit('show')
+  assert.equal(await restored, true)
   manager.sync([])
 })
 

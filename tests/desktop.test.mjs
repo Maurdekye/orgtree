@@ -14,7 +14,7 @@ async function load(name) {
 }
 const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses'), { NotificationGate } = await load('notifications')
 
-const defaults = { notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
+const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 
 test('notification preferences migrate safely and every independent choice survives restart', () => {
   const file = path.join(temp, 'notifications.json')
@@ -31,6 +31,30 @@ test('notification preferences migrate safely and every independent choice survi
   prefs.set({ notifyAllMail: false })
   assert.equal(new Preferences(file).get().notifyAllMail, false, 'explicit off wins over legacy opt-in')
   assert.equal(new Preferences(file).get().visualTheme, 'codex')
+
+  // Unconfigured settings default All mail to off and global Notifications to on
+  const unconfiguredFile = path.join(temp, 'unconfigured-notifications.json')
+  fs.writeFileSync(unconfiguredFile, JSON.stringify({}))
+  const fresh = new Preferences(unconfiguredFile)
+  assert.equal(fresh.get().notifyAllMail, false, 'All mail is off by default when unconfigured')
+  assert.equal(fresh.get().notificationsEnabled, true, 'global Notifications switch defaults on')
+
+  // Turning global switch off preserves specific toggles across reload, and turning it back on restores them
+  fresh.set({ notifyQuestions: false, notifyUrgentMail: true, notifyAllMail: true, notifyDocuments: true })
+  fresh.set({ notificationsEnabled: false })
+  const reloaded = new Preferences(unconfiguredFile)
+  assert.equal(reloaded.get().notificationsEnabled, false)
+  assert.equal(reloaded.get().notifyQuestions, false, 'preserved specific toggle when global off')
+  assert.equal(reloaded.get().notifyUrgentMail, true, 'preserved specific toggle when global off')
+  assert.equal(reloaded.get().notifyAllMail, true, 'preserved specific toggle when global off')
+  assert.equal(reloaded.get().notifyDocuments, true, 'preserved specific toggle when global off')
+  reloaded.set({ notificationsEnabled: true })
+  const restored = new Preferences(unconfiguredFile)
+  assert.equal(restored.get().notificationsEnabled, true)
+  assert.equal(restored.get().notifyQuestions, false)
+  assert.equal(restored.get().notifyUrgentMail, true)
+  assert.equal(restored.get().notifyAllMail, true)
+  assert.equal(restored.get().notifyDocuments, true)
 })
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
@@ -93,6 +117,10 @@ test('native notification defaults are attention-only, with validated identity d
   assert.equal(gate.take(base, { ...defaults, notifyAllMail: true }), null)
   assert.ok(gate.take({ ...base, org: 'other' }, { ...defaults, notifyAllMail: true }), 'same local id in another org is distinct')
   for (const kind of ['question', 'urgent-mail', 'work-attention']) assert.ok(gate.take({ ...base, id: kind, kind }, defaults))
+  for (const kind of ['question', 'urgent-mail', 'work-attention', 'routine', 'document', 'agent-frozen']) {
+    const row = { ...base, id: 'gate-off-' + kind, kind, agent: 'ag', generation: 1, source_id: 'doc1' }
+    assert.equal(gate.take(row, { ...defaults, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true, notificationsEnabled: false }), null, `suppresses ${kind}`)
+  }
   for (const patch of [{ kind: 'arbitrary' }, { icon: 'file:///private' }, { body: 'x'.repeat(2001) }]) assert.throws(() => gate.take({ ...base, ...patch }, defaults))
 })
 

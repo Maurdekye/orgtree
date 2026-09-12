@@ -10,18 +10,25 @@ export const NOTIFICATION_OPTIONS = [
   { key: 'notifyWhileFocused', label: 'Notify while Orgtree is focused', default: false },
 ] as const
 export type NotificationPreferenceKey = typeof NOTIFICATION_OPTIONS[number]['key']
-export type NotificationPreferences = Record<NotificationPreferenceKey, boolean>
-export const DEFAULT_NOTIFICATIONS = Object.fromEntries(NOTIFICATION_OPTIONS.map(o => [o.key, o.default])) as NotificationPreferences
+export type NotificationPreferences = Record<NotificationPreferenceKey, boolean> & {
+  notificationsEnabled: boolean
+}
+export const DEFAULT_NOTIFICATIONS: NotificationPreferences = {
+  notificationsEnabled: true,
+  ...(Object.fromEntries(NOTIFICATION_OPTIONS.map(o => [o.key, o.default])) as Record<NotificationPreferenceKey, boolean>),
+}
 
 /** Old installs keep an explicit routine-mail opt-in; absent new fields always
  * receive their defaults, including the new foreground suppression policy. */
 export function notificationPreferences(value: Partial<NotificationPreferences> & { routineNotifications?: boolean } = {}): NotificationPreferences {
-  const result = { ...DEFAULT_NOTIFICATIONS }
+  const result: NotificationPreferences = { ...DEFAULT_NOTIFICATIONS }
+  if (typeof value.notificationsEnabled === 'boolean') result.notificationsEnabled = value.notificationsEnabled
   for (const { key } of NOTIFICATION_OPTIONS) if (typeof value[key] === 'boolean') result[key] = value[key]!
   if (value.notifyAllMail === undefined && value.routineNotifications === true) result.notifyAllMail = true
   return result
 }
 export function notificationEnabled(kind: DesktopNotification['kind'], prefs: NotificationPreferences): boolean {
+  if (!prefs.notificationsEnabled) return false
   switch (kind) {
     case 'question': return prefs.notifyQuestions
     case 'urgent-mail': return prefs.notifyUrgentMail || prefs.notifyAllMail

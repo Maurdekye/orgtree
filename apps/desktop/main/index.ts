@@ -228,8 +228,12 @@ else {
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
-      { label: 'Notifications', submenu: NOTIFICATION_OPTIONS.map(({ key, label }) => ({ label, type: 'checkbox' as const,
-        checked: prefs[key], click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })) },
+      { label: 'Notifications', submenu: [
+        { label: 'Notifications', type: 'checkbox' as const, checked: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ notificationsEnabled: item.checked }) },
+        { type: 'separator' as const },
+        ...NOTIFICATION_OPTIONS.map(({ key, label }) => ({ label, type: 'checkbox' as const,
+          checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
+      ] },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
       { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
     ])
