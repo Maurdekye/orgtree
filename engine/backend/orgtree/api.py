@@ -2336,12 +2336,6 @@ def _org_view(slug: str, request: Request,
         node["waiting"] = bool(st.get("waiting"))
         node["responding"] = bool(st.get("responding"))
         node["phase"] = st.get("phase")     # e.g. "compacting" (№3)
-        # api_fallback (user feature 2026-08-19): this agent's IN-FLIGHT turn
-        # is billing the org's own API key, not the subscription. Captured at
-        # spawn by the supervisor, so it stays true for the whole turn even
-        # after the window shuts — the card wears red for exactly as long as
-        # the spend it describes.
-        node["on_fallback"] = bool(st.get("on_fallback"))
         # ⚠ WHICH ACCOUNT ACTUALLY SERVED THIS TURN — captured at spawn from
         # the RESOLVED environment, not from what the org intended. This is
         # the only field that describes what HAPPENED: the switch row and the
@@ -2622,8 +2616,6 @@ def _org_view(slug: str, request: Request,
     # §4.8: what an archived seat's omitted runtime fields are worth, sent once
     # per payload instead of 242 times inside it. The client refills from this.
     tree["archived_defaults"] = _ARCHIVED_RUNTIME_DEFAULTS
-    # WHETHER a key is set, never the key (settings needs the fact)
-    tree["api_key_set"] = bool(org.d.get("api_key"))
     if _public_slug(request):
         # tells the UI to lock itself down; the SERVER gate is the enforcement
         tree["public"] = True
@@ -2750,20 +2742,10 @@ class Settings(Body):
                                             # local hub entry
     net_hubs: list[Any] | None = None       # F-06 (per-org): authoritative hub
                                             # list [{id?, address, enabled?}]
-    headless: bool | None = None            # §9.6: no user present; requires
-                                            # an api_key (both directions)
-    api_key: str | None = None              # §9.5: per-org ANTHROPIC_API_KEY
-    clear_api_key: bool = False             # refused while headless is on
-    api_fallback: bool | None = None        # 2026-08-17: the key is a SPARE —
-                                            # subscription bills routine turns;
-                                            # the key takes over only while a
-                                            # usage limit has the lane frozen,
-                                            # reverting at the limit's reset
-    fable_api_fallback: bool | None = None  # 2026-08-23: also spend the spare
-                                            # key on a TRUSTED fable-tier
-                                            # weekly hit, instead of leaving it
-                                            # to fable_limit_policy (requires
-                                            # api_fallback + api_key already)
+    headless: bool | None = None            # §9.6: no user present (user
+                                            # redesign 2026-09-12: fully
+                                            # decoupled from API keys — keys
+                                            # are machine-level ACCOUNTS now)
     # Cache-protective cheap compaction — {enabled, occ (0..1 fraction of the
     # context window)}. Expiry is derived from same-lane positive receipts
     # (60m subscription, 5m API key), never an editable idle timeout.
@@ -2894,13 +2876,6 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
         org = store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if body.api_key is not None \
-            and body.api_key.strip().lower() == "subscription" \
-            and not deployment.current_policy().allow_legacy_sandbox_credentials:
-        raise HTTPException(
-            422, "the frozen deployment profile forbids 'subscription' auth "
-                 "because it copies host credentials into the sandbox; use "
-                 "proxied auth or an explicit API key")
     ws = org.d.get("workspace")
     warnings: list[str] = []
     if body.org_dirs is not None:
@@ -3010,96 +2985,15 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
                 "enabled": bool(acc.get("enabled", old.get("enabled", False))),
                 "occ": min(0.95, max(0.05, float(
                     acc.get("occ", old.get("occ", 0.5)))))}
-    # ---- §9.5/§9.6: per-org API key + headless (couplings are HARD rules) --
-    if body.api_key is not None and body.api_key.strip():
-        org.d["api_key"] = body.api_key.strip()
-        warnings.append("API key set — held as the usage-limit fallback (the "
-                        "subscription still bills routine turns)"
-                        if org.d.get("api_fallback") else
-                        "API key set — this org's turns now bill the key, "
-                        "not the subscription")
-    if body.clear_api_key:
-        if org.d.get("headless"):
-            raise HTTPException(
-                422, "this org runs headless, which REQUIRES an API key "
-                     "(subscription auth ends in an interactive re-login "
-                     "nobody is present to perform) — turn headless off "
-                     "first")
-        org.d.pop("api_key", None)
-        if org.d.pop("api_fallback", None):
-            org.d.pop("api_fallback_until", None)
-            org.d.pop("api_fallback_since", None)
-            org.d.pop("fable_api_fallback", None)
-            warnings.append("API-key fallback off with it — nothing left to "
-                            "fall back to")
-        warnings.append("API key cleared — turns use the subscription again")
-    # ---- api_fallback (user feature 2026-08-17): the key as a SPARE lane ----
-    if body.api_fallback is not None:
-        if body.api_fallback and not org.d.get("api_fallback"):
-            if not org.d.get("api_key"):
-                raise HTTPException(
-                    422, "the fallback needs an API key to fall back TO — "
-                         "set one in the same panel first")
-            if org.d.get("headless"):
-                raise HTTPException(
-                    422, "a headless org bills its key full-time "
-                         "(subscription auth ends in an interactive re-login "
-                         "nobody is present to perform) — the fallback shape "
-                         "only fits orgs on the subscription")
-            org.d["api_fallback"] = True
-            warnings.append("API-key fallback ON — turns bill the "
-                            "subscription; the key takes over only while a "
-                            "usage limit has the subscription lane frozen, "
-                            "and reverts at the limit's own reset")
-        elif not body.api_fallback and org.d.get("api_fallback"):
-            org.d.pop("api_fallback", None)
-            org.d.pop("api_fallback_until", None)
-            org.d.pop("api_fallback_since", None)
-            if org.d.pop("fable_api_fallback", None):
-                warnings.append("fable-tier fallback OFF with it — it has "
-                                "no fallback left to ride")
-            if org.d.get("api_key"):
-                warnings.append("API-key fallback OFF — the stored key bills "
-                                "every turn again")
-    # ---- fable_api_fallback (user feature 2026-08-23): opt the fable TIER's
-    # own weekly quota into the same billing lane, instead of leaving a
-    # trusted hit to fable_limit_policy alone ----
-    if body.fable_api_fallback is not None:
-        if body.fable_api_fallback and not org.d.get("fable_api_fallback"):
-            if not org.d.get("api_fallback"):
-                raise HTTPException(
-                    422, "this needs the API-key fallback itself ON first "
-                         "(same panel) — it rides that window, it doesn't "
-                         "open its own")
-            org.d["fable_api_fallback"] = True
-            warnings.append("fable-tier fallback ON — a trusted weekly Fable "
-                            "limit now opens the same key-billing window a "
-                            "normal usage limit does, instead of applying "
-                            "fable_limit_policy; reverts at the limit's own "
-                            "reset like any other fallback window")
-        elif not body.fable_api_fallback and org.d.get("fable_api_fallback"):
-            org.d.pop("fable_api_fallback", None)
-            warnings.append("fable-tier fallback off — a weekly Fable limit "
-                            "goes back to fable_limit_policy (halt/opus/"
-                            "dissolve)")
+    # ---- §9.6: headless (user redesign 2026-09-12: the V1 §9.5 per-org key
+    # and its hard couplings are gone — inference credentials are
+    # machine-level ACCOUNTS now, so headless is purely "no user present")
     if body.headless is not None:
         if body.headless and not org.d.get("headless"):
             if org.d.get("kiosk") is not None:
                 raise HTTPException(422, "a kiosk cannot run headless — it "
                                          "is sealed from the org mail that "
                                          "headless depends on")
-            if not org.d.get("api_key"):
-                raise HTTPException(
-                    422, "headless REQUIRES an API key (set it in the same "
-                         "panel): subscription auth ends in an interactive "
-                         "re-login that a headless org, by definition, has "
-                         "nobody to perform")
-            if org.d.get("api_fallback"):
-                raise HTTPException(
-                    422, "the API key is currently a usage-limit FALLBACK, "
-                         "which keeps routine turns on the subscription — "
-                         "headless needs the key full-time; turn the "
-                         "fallback option off first")
             halted = [k for k in ("fable_limit_policy", "fable_filter_policy")
                       if org.d.get(k, "halt") == "halt"]
             if halted:
@@ -11804,11 +11698,11 @@ def provider_hire_gate(
     rehire paths remained open. A named list makes the next missing call site
     visible without trusting arithmetic prose.
 
-    Two provider-specific rulings ride along (user, 2026-08-28):
-      · kiosks hold codex out until its sandbox story is settled;
-      · a HEADLESS org may only hire tiers from KEYED providers — a
-        subscription login is a person's plan, and headless means nobody is
-        present to answer for it.
+    One provider-specific ruling rides along (user, 2026-08-28): kiosks hold
+    codex out until its sandbox story is settled. (The old companion rule —
+    a HEADLESS org may only hire tiers from KEYED providers — was retired by
+    the 2026-09-12 redesign: inference credentials are machine-level
+    ACCOUNTS now, so headless carries no credential coupling at all.)
     """
     if not tier:
         return
@@ -11855,8 +11749,6 @@ def provider_hire_gate(
                 "held out of kiosks until its sandboxing is settled (the "
                 "same holdout as codex and antigravity, user ruling "
                 "2026-08-28)")
-        # headless orgs may hire: an API key IS a keyed provider (user
-        # ruling 2026-08-28), and this lane has no other login kind
         return
     if tier in providers.ANTIGRAVITY_TIERS:
         ast = providers.antigravity_status()
@@ -11883,14 +11775,6 @@ def provider_hire_gate(
                 "kiosk orgs cannot hire Antigravity tiers yet — antigravity "
                 "is held out of kiosks until its sandboxing is settled (the "
                 "same holdout as codex, user ruling 2026-08-28)")
-        if org.d.get("headless"):
-            # the CLI's ONLY login is a Google account (OAuth, OS keyring);
-            # it offers no API-key lane at all (measured, 1.1.24), so there
-            # is no keyed login for a headless org to stand on
-            raise LedgerError(
-                "a headless org may only hire tiers from KEYED providers "
-                "(user ruling 2026-08-28) — the Antigravity CLI signs in "
-                "with a Google account only and offers no API-key login")
         return
     if tier not in providers.CODEX_TIERS:
         # D-199: the CLAUDE branch, and it is the last one because Claude is
@@ -11930,11 +11814,6 @@ def provider_hire_gate(
         raise LedgerError(
             "kiosk orgs cannot hire Codex tiers yet — codex is held out of "
             "kiosks until its sandboxing is settled (user ruling 2026-08-28)")
-    if org.d.get("headless") and st.get("kind") != "api-key":
-        raise LedgerError(
-            "a headless org may only hire tiers from KEYED providers (user "
-            "ruling 2026-08-28) — Codex here is signed in with a "
-            "subscription login, not an API key")
     # ⚠ NO USAGE-WINDOW CHECK HERE — user ruling 2026-09-02, and 65273fa had
     # one. Hiring prepares an agent; the TURN is what needs capacity, and the
     # Codex CLI already refuses that loudly. See the note above

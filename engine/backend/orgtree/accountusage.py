@@ -284,15 +284,7 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
         return _google_view(row, out, allow_fetch=allow_fetch, now=now)
     if cred["kind"] == "token":
         ref = str(cred.get("token_ref") or "")
-        if ref.startswith("org-api-key:"):
-            out.update(available=False,
-                       error="API-key billing — no subscription windows",
-                       capability=capability.observation(
-                           cli="claude", basis="billing",
-                           version=capability.cli_version_cached("claude"),
-                           detail="an API key is billed per request and has "
-                                  "no subscription window to report"))
-        elif not allow_fetch and ref == accounts.PRIMARY:
+        if not allow_fetch and ref == accounts.PRIMARY:
             # `accounts.account_usage("primary")` reaches the host subscription
             # through a fetch. Nothing on the envelope path may fetch, so the
             # same standing is read from its cache instead.

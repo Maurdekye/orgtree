@@ -31,13 +31,16 @@ class AccountAssignTests(unittest.TestCase):
 
     def _row(self, provider="claude", org=None, kind="managed"):
         AccountAssignTests._seq += 1
-        cred = ({"kind": kind,
-                 "path": os.path.join(self.root, f"as-{self._seq}")}
-                if kind != "token"
-                else {"kind": "token",
-                      "token_ref": f"org-api-key:{org or 'x'}"})
+        if kind == "token":
+            cred = {"kind": "token", "token_ref": f"org-api-key:{org or 'x'}"}
+        elif kind == "apikey":
+            cred = {"kind": "apikey", "token_ref": f"tok-{self._seq}"}
+        else:
+            cred = {"kind": kind,
+                    "path": os.path.join(self.root, f"as-{self._seq}")}
+        extra = {"mode": "apikey"} if kind == "apikey" else {}
         return self.registry.create_account(provider, "t", cred,
-                                            origin_org=org)
+                                            origin_org=org, **extra)
 
     def _org(self, slug, model="opus", account=None):
         org = self.ledger.Org.create(slug)
@@ -100,8 +103,10 @@ class AccountAssignTests(unittest.TestCase):
         self.assertEqual(out["standing"]["state"], "limited")
         self.assertEqual(out["standing"]["provenance"], "inferred")
 
-    def test_org_key_binding_discloses_api_billing(self):
-        keyrow = self._row(org="as-key", kind="token")
+    def test_metered_key_binding_discloses_api_billing(self):
+        # billing disclosure keys on the row's MODE since 2026-09-12 — an
+        # apikey account discloses "api-key"; ref shape no longer matters
+        keyrow = self._row(org="as-key", kind="apikey")
         self._org("as-key")
         out = self.supervisor.assign_account("as-key", "root", keyrow["id"],
                                              actor="USER")

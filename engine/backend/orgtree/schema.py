@@ -223,9 +223,8 @@ class FrozenInfo(TypedDict, total=False):
     # band: the codex app-server's `account/rateLimits/updated` carries a
     # `resetsAt` on the exhausted window, and it is exact where that lane's
     # error prose usually names a date no reset parser here can read).
-    # Diagnostic: a freeze that opened an api_fallback window records what the
-    # window was priced on. ⚠ On an `untrusted` freeze it records where the
-    # NUMBER came from and nothing more — no window was priced at all.
+    # Diagnostic. ⚠ On an `untrusted` freeze it records where the NUMBER
+    # came from and nothing more — the number priced nothing.
     reset_src: str
     # the transient/connection kind (user report 2026-08-06): a network drop
     # freezes with a short exponential until_ts; ▶/auto-resume own it like
@@ -236,16 +235,17 @@ class FrozenInfo(TypedDict, total=False):
     # the limit was reported by NOBODY BUT THE AGENT (2026-08-18): the
     # clean-result gate promotes a short final answer that names a limit into
     # a freeze, and that text is the agent's own. Such a freeze still carries
-    # a timestamp and still wakes — but it may not open an api_fallback
-    # window (the org's key would bill for a wall that need not exist), and
-    # after UNTRUSTED_LIMIT_RUNS consecutive ones the node waits for a person.
+    # a timestamp and still wakes — but the metered fast-wake refuses it
+    # (spending a key row on a wall that need not exist), and after
+    # UNTRUSTED_LIMIT_RUNS consecutive ones the node waits for a person.
     # ⚠ read it beside `reset_src`: on an untrusted freeze that field says
     # where the NUMBER came from, not that the number priced anything.
     untrusted: bool
-    # api_fallback (2026-08-17): this limit freeze was recorded while the
-    # org's fallback window was already OPEN — i.e. the KEY lane hit a wall,
-    # not the subscription. Readiness must not insta-wake it into the same
-    # wall; it waits for its own until_ts like any limit freeze.
+    # LEGACY, read-only since the 2026-09-12 redesign: a V1-era freeze
+    # recorded while the org-key fallback window was OPEN — the KEY lane hit
+    # a wall, not the subscription. No writer remains (fresh freezes pop it);
+    # readiness still honors it on old records, which wait for their own
+    # until_ts rather than fast-waking into the same wall.
     # (⚠ exempted in supervisor._resumable's other-kind test, like the kinds.)
     on_fallback: bool
     # ── D-156, and note that BOTH are strings on purpose ──────────────────
@@ -253,7 +253,7 @@ class FrozenInfo(TypedDict, total=False):
     # "auth" = the turn was rejected with a 401, so the record is a
     # usage-limit freeze in shape only. The auto-resume timer refuses it
     # (re-probing a rejected credential is D-149's routed-around shape on a
-    # timer), and no api_fallback window opens for it (that one spends money).
+    # timer), and no metered fast-wake fires for it (that one spends money).
     # ⚠ A STRING, NEVER `auth: True`. `supervisor._resumable` refuses a record
     # carrying any True key outside its allowlist, which would make ▶ skip the
     # node FOREVER — and ▶ is exactly what an operator needs after replacing
@@ -1014,33 +1014,30 @@ class OrgDoc(TypedDict):
                                               # value = {at, healed: [...]};
                                               # presence means "never again"
     headless: NotRequired[bool]             # §9.6: no user present; user-bound
-                                            # asks auto-deny (requires api_key)
-    api_key: NotRequired[str]               # §9.5: per-org ANTHROPIC_API_KEY
-    # api-key FALLBACK (user feature 2026-08-17): with this ON the stored
-    # api_key is a SPARE, not the lane — routine turns bill the subscription,
-    # and only while a usage-limit freeze holds the subscription lane does
-    # spawn_env / the bridge proxy switch to the key. The window closes at
-    # the limit's own reset time; reverting is expiry alone (no writer).
+                                            # asks auto-deny (decoupled from
+                                            # any credential, 2026-09-12)
+    # ── V1 org-key remnants (user redesign 2026-09-12). The startup cutover
+    # (registry_migration.run_apikey_cutover) pops all four from every
+    # NON-SANDBOXED doc after moving the secret into the account registry.
+    # SANDBOXED docs are skipped whole: `api_key` remains live there as a
+    # container-auth selector (sandbox.container_auth), while the three
+    # fallback fields are inert history nothing reads or writes any more.
+    api_key: NotRequired[str]
     api_fallback: NotRequired[bool]
-    api_fallback_until: NotRequired[float]  # epoch; window open while now < it
-    api_fallback_since: NotRequired[float]  # when the current window opened
-    # fable-tier weekly quota as a billing event too (user feature 2026-08-23):
-    # off by default (D-130 still holds — that lane is fable_limit_policy's).
-    # ON, and with api_fallback + api_key both already held, a TRUSTED
-    # fable-tier hit opens the same api_fallback window a normal usage limit
-    # does instead of invoking fable_limit_policy — no org-wide fable_lock,
-    # no per-node limit_locked. Requires api_fallback; cleared with it.
+    api_fallback_until: NotRequired[float]
+    api_fallback_since: NotRequired[float]
     fable_api_fallback: NotRequired[bool]
     cred_warned_at: NotRequired[str]        # §9.2 watcher: last credential-
                                             # expiry warning (≤1/day survives
                                             # restarts — redteam finding)
     deleted_cost_usd: NotRequired[float]    # tombstone burn accumulator (cost_total)
     deleted_cost_usd_unknown: NotRequired[bool]
-    api_cost_usd: NotRequired[float]        # lifetime burn billed to the key while
-                                            # an api_fallback window was open — the
-                                            # hover split on the UI cost card.
-                                            # Org-level and monotonic: node deletion
-                                            # never has to re-bank it.
+    api_cost_usd: NotRequired[float]        # lifetime burn billed to an API key
+                                            # (metered account rows; historically
+                                            # the V1 org key) — the hover split on
+                                            # the UI cost card. Org-level and
+                                            # monotonic: node deletion never has
+                                            # to re-bank it.
     _actors_typed: NotRequired[bool]        # one-shot @-sentinel migration marker
     # ---- legacy keys old docs may still carry (popped/rewritten on load) ----
     default_dirs: NotRequired[list[Any]]    # superseded by `dirs` with modes

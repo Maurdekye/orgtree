@@ -265,8 +265,6 @@ def _row_order(item: tuple[tuple[Any, ...], str]) -> tuple[Any, ...]:
                 lane_rank = 90
         elif lane == "fallbacks":
             lane_rank = 90
-        elif lane == "org-api-key":
-            lane_rank = 100
         else:
             lane_rank = 99
     return (provider_rank, lane_rank, lane, *key[2:])
@@ -766,20 +764,6 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
         rows += _fallback_rows(now, selected_lane if selected_provider == "claude" else "",
                                frozen, freeze_reset, legacy_keys)
 
-        if bool(org.d.get("api_key")) or (
-                selected_provider == "claude" and selected_lane == "org-api-key"):
-            selected = selected_provider == "claude" and selected_lane == "org-api-key"
-            fallback_until = org.d.get("api_fallback_until")
-            reset_value = freeze_reset if selected and frozen else fallback_until
-            state = ("frozen" if selected and frozen else
-                     "active" if selected else "standby")
-            rows.append(((0, "org-api-key", 99, "", 0),
-                         _line("claude", "org-api-key", "usage",
-                               "unavailable(unsupported)", "-",
-                               _reset_cell(reset_value, now),
-                               f"{_iso(now)} (live)", state,
-                               selected=selected)))
-
         try:
             codex = codex_limits.snapshot(now)
             rows += _cached_rows(
@@ -830,7 +814,7 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
         # Codex home, a registered Antigravity account — was invisible here
         # while being fully visible in their own Usage modal. The same
         # resolver the modal reads now fills the gap, cache-only.
-        taken_lanes = {"primary", "account", "org-api-key", "fallbacks",
+        taken_lanes = {"primary", "account", "fallbacks",
                        *(f"fallback-{i}" for i in range(1, 21))}
         roster: list[str] = []
         # the host lanes' NAMES first (their rows are already above), then

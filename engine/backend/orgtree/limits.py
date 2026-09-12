@@ -8,11 +8,11 @@ presents it". This module is that lookup, and it is the single owner of the
 readout the modal renders (`api.claude_usage` delegates here, so both share
 one cache and one parser).
 
-Why it matters beyond a nicer label: `api_fallback` bills the org's own API
-key for the length of the window it opens at freeze time, and that window is
-stamped from the freeze's timestamp. A guessed or mis-parsed reset is
-therefore money — a bogus epoch scraped out of an error string would keep the
-key lane open long after the subscription recovered.
+Why it matters beyond a nicer label: the account capacity mark stamped from
+a freeze's timestamp is what the metered API-key fallback route spends real
+money against. A guessed or mis-parsed reset is therefore money — a bogus
+epoch scraped out of an error string would keep turns on the metered key
+long after the subscription recovered.
 
 Source: `GET /api/oauth/usage` on the host's subscription OAuth token
 (`subproxy` owns the token and its refresh). The payload's `limits[]` carries

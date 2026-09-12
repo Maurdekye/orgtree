@@ -513,14 +513,13 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
     written together, by this function only, so no code path can set one
     without the other and `identity_in_env`'s cross-check has a pair to check.
 
-    Profile rows set the provider's profile var to the row's path. Token rows
-    need the caller's `secret_resolver(token_ref) -> str` (key material lives
-    outside the registry): an org-key ref (`org-api-key:<slug>`) injects
-    ANTHROPIC_API_KEY — the same lane that credential always billed — and a
-    legacy ref injects CLAUDE_CODE_OAUTH_TOKEN, the retained key lane. A
-    resolver miss RAISES: a spawn with a binding it cannot honor must fail
-    loudly at build time, never run half-bound (the admission gate, not this
-    seam, owns "account cannot run" waits)."""
+    Profile rows set the provider's profile var to the row's path. Token
+    rows need the caller's `secret_resolver(token_ref) -> str` (key material
+    lives outside the registry) and inject CLAUDE_CODE_OAUTH_TOKEN, the
+    retained key lane; apikey rows inject ANTHROPIC_API_KEY. A resolver miss
+    RAISES: a spawn with a binding it cannot honor must fail loudly at build
+    time, never run half-bound (the admission gate, not this seam, owns
+    "account cannot run" waits)."""
     cred = row["credential"]
     kind = cred["kind"]
     if kind in ("imported", "managed"):
@@ -568,10 +567,7 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
                 f"token account {row['id']}: credential "
                 f"{cred['token_ref']!r} did not resolve — refusing a "
                 f"half-bound spawn")
-        if str(cred["token_ref"]).startswith("org-api-key:"):
-            env["ANTHROPIC_API_KEY"] = secret
-        else:
-            env["CLAUDE_CODE_OAUTH_TOKEN"] = secret
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = secret
     env[MARKER] = row["id"]
     return env
 
@@ -600,9 +596,9 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
             return f"account-env-mismatch:{marker}"
         return None
     if cred["kind"] == "apikey":
-        # Verified by LANE PRESENCE, the org-api-key rationale exactly: value
-        # verification would mean comparing secrets the registry never holds,
-        # so the pair check is that the metered lane is populated at all.
+        # Verified by LANE PRESENCE: value verification would mean comparing
+        # secrets the registry never holds, so the pair check is that the
+        # metered lane is populated at all.
         if not env.get("ANTHROPIC_API_KEY"):
             return f"account-env-mismatch:{marker}"
         return None
@@ -610,19 +606,11 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
     # would answer a marker travelling with the WRONG token as authoritative
     # — the confident-wrong-attribution N2 exists to prevent). A legacy ref
     # is verified by value: key_for_token maps the injected token back to its
-    # row id, marker says B and the token says A ⇒ mismatch. An org-key ref
-    # is verified by LANE PRESENCE only — value verification would mean
-    # comparing secrets the registry never holds, so the pair check is that
-    # the key lane is populated at all; attribution of a wrong org key is the
-    # api-key sentinel's existing territory.
+    # row id, marker says B and the token says A ⇒ mismatch.
     ref = str(cred["token_ref"])
-    if ref.startswith("org-api-key:"):
-        if not env.get("ANTHROPIC_API_KEY"):
-            return f"account-env-mismatch:{marker}"
-    else:
-        from .accounts import key_for_token
-        if key_for_token(env.get("CLAUDE_CODE_OAUTH_TOKEN", "")) != ref:
-            return f"account-env-mismatch:{marker}"
+    from .accounts import key_for_token
+    if key_for_token(env.get("CLAUDE_CODE_OAUTH_TOKEN", "")) != ref:
+        return f"account-env-mismatch:{marker}"
     return None
 
 

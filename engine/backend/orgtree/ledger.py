@@ -9923,9 +9923,10 @@ class Org:
             "cost_usd_unknown": bool(
                 self.d.get("deleted_cost_usd_unknown")
                 or any(n.get("cost_usd_unknown") for n in self.nodes.values())),
-            # api_fallback split: the slice of cost_usd_total billed to the
-            # org's key while a fallback window was open (supervisor banks it
-            # at every cost-booking point) — the cost card's hover split
+            # the key-lane cost split: the slice of cost_usd_total billed to
+            # an API key (metered account rows; historically the V1 org key
+            # — supervisor banks it at every cost-booking point) — the cost
+            # card's hover split
             "api_cost_usd_total": round(
                 float(self.d.get("api_cost_usd") or 0.0), 4),
             "user_inbox_count": len(self.d.get("user_inbox", [])),
@@ -9948,10 +9949,6 @@ class Org:
             "account_fallback_default": bool(self.d.get("account_fallback_default", False)),
             "auto_resume": bool(self.d.get("auto_resume")),
             "auto_resume_compact": bool(self.d.get("auto_resume_compact")),
-            # api_fallback (2026-08-17): the option plus the window edge —
-            # the UI derives "active" by comparing against its own clock
-            "api_fallback": bool(self.d.get("api_fallback")),
-            "api_fallback_until": self.d.get("api_fallback_until"),
             # Cache-protective compaction: explicit on/off plus the minimum
             # measured context fraction. Provider/auth expiry is derived.
             "auto_cheap_compact": self.d.get("auto_cheap_compact"),
@@ -9980,7 +9977,6 @@ class Org:
             "fable_limit_policy": self.d.get("fable_limit_policy", "halt"),
             "fable_filter_policy": self.d.get("fable_filter_policy", "halt"),
             "fable_filter_model": self.d.get("fable_filter_model", "opus"),
-            "fable_api_fallback": bool(self.d.get("fable_api_fallback")),
             "cascade_hire": bool(self.d.get("cascade_hire", True)),
             "cascade_alloc": bool(self.d.get("cascade_alloc", True)),
             "sandboxed": bool((self.d.get("kiosk") or {}).get("sandbox")

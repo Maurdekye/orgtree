@@ -171,12 +171,13 @@ class BoardsTests(unittest.TestCase):
         self.assertFalse(out["available"])
         self.assertTrue(out["unsupported"])  # explicit, never fabricated
         okey = self.registry.create_account(
-            "claude", "ok", {"kind": "token",
-                             "token_ref": "org-api-key:u1"},
-            origin_org="u1")
+            "claude", "ok", {"kind": "apikey", "token_ref": "tok-u1"},
+            mode="apikey")
         out2 = asyncio.run(self.api.accounts_usage(okey["id"]))
-        self.assertFalse(out2["available"])
-        self.assertIn("API-key", out2["error"])
+        # the metered-key branch answers early, fetch-free, in local USD
+        self.assertTrue(out2["available"])
+        self.assertEqual(out2["mode"], "apikey")
+        self.assertEqual(out2["currency"], "USD")
         prof = self.registry.create_account(
             "claude", "p", {"kind": "managed",
                             "path": os.path.join(self.root, "cl-u")})

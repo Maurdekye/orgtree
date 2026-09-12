@@ -13060,10 +13060,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         continuity = warmpool.identity_change_fields(
             prev_hash, prev_comp, next_hash, next_comp)
         cred = row["credential"]
-        billing = ("ambient" if cred["kind"] == "ambient" else "api-key"
-                   if (cred["kind"] == "token"
-                       and str(cred.get("token_ref", ""))
-                       .startswith("org-api-key:"))
+        billing = ("ambient" if cred["kind"] == "ambient"
+                   else "api-key" if registry.account_mode(row) == "apikey"
                    else "subscription")
         mark = registry.active_mark(row["id"], tier) if row["id"] else None
         standing = ({"state": "limited", "until": mark["until"],

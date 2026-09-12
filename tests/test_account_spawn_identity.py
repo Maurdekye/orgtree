@@ -61,7 +61,11 @@ class SpawnIdentityTests(unittest.TestCase):
         self.assertEqual(env[self.registry.MARKER], row["id"])
         self.assertEqual(env["CLAUDE_CONFIG_DIR"], row["credential"]["path"])
 
-    def test_token_lanes_split_by_ref_shape(self):
+    def test_token_rows_have_one_lane_regardless_of_ref_shape(self):
+        # ref-shape lane routing died with the V1 org key (2026-09-12):
+        # every token row is the retained OAuth lane, and an `org-api-key:`
+        # ref — which the startup cutover rewrites to an apikey-KIND row —
+        # no longer selects ANTHROPIC_API_KEY at this seam
         org_row = self.registry.create_account(
             "claude", "orgkey", {"kind": "token",
                                  "token_ref": "org-api-key:alpha"},
@@ -72,8 +76,8 @@ class SpawnIdentityTests(unittest.TestCase):
                     "row1": "TOKSECRET"}.get
         env1 = self.registry.inject_binding({}, org_row,
                                             secret_resolver=resolver)
-        self.assertEqual(env1["ANTHROPIC_API_KEY"], "KEYSECRET")
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env1)
+        self.assertEqual(env1["CLAUDE_CODE_OAUTH_TOKEN"], "KEYSECRET")
+        self.assertNotIn("ANTHROPIC_API_KEY", env1)
         env2 = self.registry.inject_binding({}, legacy_row,
                                             secret_resolver=resolver)
         self.assertEqual(env2["CLAUDE_CODE_OAUTH_TOKEN"], "TOKSECRET")
@@ -181,7 +185,13 @@ class SpawnIdentityTests(unittest.TestCase):
             if managed is not None:
                 os.environ["ORGTREE_DESKTOP_MANAGED"] = managed
 
-    def test_org_key_marker_requires_its_lane(self):
+    def test_stale_org_key_row_reads_as_mismatch(self):
+        # V1 removal (2026-09-12): an `org-api-key:` token row — a shape only
+        # a held cutover can leave behind — no longer owns a lane-presence
+        # exemption. It verifies by VALUE like any token ref, no live token
+        # maps to it, and so it fails CLOSED whatever the env carries.
+        # (The surviving lane-presence check belongs to apikey-KIND rows —
+        # pinned in test_apikey_accounts.)
         row = self.registry.create_account(
             "claude", "ok", {"kind": "token",
                              "token_ref": "org-api-key:alpha"},
@@ -189,8 +199,10 @@ class SpawnIdentityTests(unittest.TestCase):
         self.assertEqual(
             self.registry.identity_mismatch({self.registry.MARKER: row["id"]}),
             f"account-env-mismatch:{row['id']}")
-        self.assertIsNone(self.registry.identity_mismatch(
-            {self.registry.MARKER: row["id"], "ANTHROPIC_API_KEY": "k"}))
+        self.assertEqual(
+            self.registry.identity_mismatch(
+                {self.registry.MARKER: row["id"], "ANTHROPIC_API_KEY": "k"}),
+            f"account-env-mismatch:{row['id']}")
 
     def test_mismatch_never_marks_a_row(self):
         b = self._profile_row()
