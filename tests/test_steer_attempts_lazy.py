@@ -125,8 +125,16 @@ class SteerAttemptsLazyTests(unittest.TestCase):
         org2 = store.load_org(slug)
         sect = org2.d["steer_attempts"]        # the eager legacy dict
         self.assertNotIsInstance(sect, store.SectionMap)
-        self.assertNotIn("views", sect["nodeA"]["d1"])          # stripped
-        self.assertNotIn("view_segments", sect["nodeB"]["d3"])  # stripped
+        # the strip is EXACT, proven against the pre-construction original
+        # (`legacy` was never handed to the loader): a settled attempt loses
+        # precisely views/view_segments, an open one is byte-identical
+        self.assertEqual(sect["nodeA"]["d1"],
+                         {k: v for k, v in legacy["nodeA"]["d1"].items()
+                          if k not in ("views", "view_segments")})
+        self.assertEqual(sect["nodeB"]["d3"],
+                         {k: v for k, v in legacy["nodeB"]["d3"].items()
+                          if k not in ("views", "view_segments")})
+        self.assertEqual(sect["nodeA"]["d2"], legacy["nodeA"]["d2"])
         self.assertIn("views", sect["nodeA"]["d2"])             # open: kept
         self.assertIn(Org.STEER_VIEW_STRIP_MIGRATION, org2.d["_migrations"])
         store.save_org(org2)
