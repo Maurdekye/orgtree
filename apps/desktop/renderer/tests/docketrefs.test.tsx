@@ -270,8 +270,13 @@ uiTest('§7 a mention in the DESCRIPTION is a link, and the sentence still reads
     assert.equal(link[0]!.textContent, 'clickable-docket-references')
     // ⚠ THE PROSE MUST BE INTACT. A linkifier that drops or reorders the words
     // around the match has broken the thing it was decorating.
+    //
+    // `.trim()` because the description is MARKDOWN now (user requirement
+    // 2026-09-12): the paragraph the sentence is wrapped in ends with the
+    // newline `marked` puts after every block. That is block structure, not
+    // prose — every character the author wrote is still here, in order.
     assert.equal(
-      pane(el)?.querySelector('.docket-desc-body')?.textContent,
+      pane(el)?.querySelector('.docket-desc-body')?.textContent?.trim(),
       'blocked behind clickable-docket-references until the renderer exists.')
   })
 
@@ -394,7 +399,8 @@ uiTest('§11 a name this org does not have stays prose, and nothing is clickable
     await flush()
     await openFirst(el)
     assert.equal(refs(el).length, 0)
-    assert.equal(pane(el)?.querySelector('.docket-desc-body')?.textContent,
+    // trimmed for the markdown paragraph's trailing newline — see §7
+    assert.equal(pane(el)?.querySelector('.docket-desc-body')?.textContent?.trim(),
       'see some-other-orgs-item and w2ffffff')
   })
 

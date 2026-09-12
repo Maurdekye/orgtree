@@ -3712,9 +3712,32 @@ span.ref-chip.ref-chip {
   /* no drift, but still the message: the confirmation is the point */
   .docket-copied { animation: none; opacity: 1; transform: translate(-50%, -100%); }
 }
-/* THE DESCRIPTION — problem first, then the proposed solution */
+/* THE DESCRIPTION — problem first, then the proposed solution, then every
+   remaining requirement (user 2026-09-12). It is FULL MARKDOWN and has no
+   length limit, so it is also the one field on this pane that folds. */
 .docket-desc { margin: 0 0 12px; }
 .docket-desc-body { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; }
+/* ⚠ MARKDOWN DECIDES ITS OWN WRAPPING. `pre-wrap` above is for the plain-text
+   surfaces; a rendered description already carries its line breaks as <br>
+   and its paragraphs as blocks, and keeping pre-wrap on top of that would
+   double every blank line the author wrote. */
+.docket-desc-body.md { white-space: normal; }
+.docket-desc-body.md > :last-child { margin-bottom: 0; }
+.docket-desc-fold { position: relative; }
+.docket-desc-clip { display: flow-root; }
+/* THE FOLD IS A CLIP, NOT A CUT: the whole description stays in the DOM, so
+   find-in-page, a screen reader and "copy contents" all still reach it. */
+.docket-desc-fold.folded .docket-desc-clip {
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+.docket-desc-toggle {
+  display: block; margin-top: 2px; padding: 1px 6px 1px 0;
+  border: 0; background: none; color: var(--dim);
+  font: 11px/1.4 var(--sans); cursor: pointer;
+}
+.docket-desc-toggle:hover { color: var(--accent); }
+.docket-desc-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .docket-modal .mailrow .docket-dismiss { margin-left: auto; flex-shrink: 0; }
 .docket-modal button.cc-name, .mailer-head button.cc-name {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;

@@ -275,7 +275,9 @@ uiTest('§N5 bare agent names in prose are words, even when this org has them',
     const links = [...(desc(el)?.querySelectorAll('.docket-ref-agent, .ref-chip.ref-agent') ?? [])]
     assert.equal(links.length, 0,
       'a bare agent name became an unintended prose link')
-    assert.equal(desc(el)?.textContent,
+    // trimmed for the trailing newline `marked` puts after a paragraph — the
+    // description renders as markdown since the user's 2026-09-12 requirement
+    assert.equal(desc(el)?.textContent?.trim(),
       'coordinator-astra asked, and ghost-agent never existed.')
     assert.deepEqual(went, [])
     assert.equal(closed, 0)

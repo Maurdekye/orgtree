@@ -11149,7 +11149,16 @@ class Org:
         # only make two places to look and two to keep true. What CHANGED is
         # that it may no longer be blank, and what it is asked to say: the
         # problem being faced FIRST, then the proposed solution.
-        obj = str(objective or "").strip()[:2000]
+        # ⚠ NO LENGTH CAP, DELIBERATELY (user requirement 2026-09-12). The
+        # description is the item's AUTHORITATIVE STANDALONE SPECIFICATION, so
+        # a product-level cut is not a tidy limit — it is the requirement that
+        # fell off the end. The old `[:2000]` truncated silently: the caller
+        # got a success, the item read as complete, and the missing half only
+        # surfaced when somebody tried to build from it. Storage is one JSON
+        # blob, the wire copies the field verbatim and the renderer folds long
+        # prose rather than cutting it, so nothing downstream needs a bound.
+        # Only whitespace at the ends is touched.
+        obj = str(objective or "").strip()
         if not obj:
             raise LedgerError(
                 "a work item needs a description in `objective` — state the "
@@ -11540,7 +11549,10 @@ class Org:
             # end up with the very item the create guard refuses. Items that
             # predate the rule keep whatever they have, including nothing:
             # nothing here rewrites history or invents prose for them.
-            newobj = str(objective).strip()[:2000]
+            # uncapped for the same reason as `work_create` — an edit that
+            # silently dropped the tail would turn "I completed the spec" into
+            # a shorter spec that still looks whole
+            newobj = str(objective).strip()
             if not newobj:
                 raise LedgerError(
                     "the description (`objective`) may be rewritten but not "

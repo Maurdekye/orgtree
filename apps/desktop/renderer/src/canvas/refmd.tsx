@@ -29,7 +29,8 @@
 import { useEffect, useRef } from 'react'
 import { resolveRef, refToken } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
-import { parseRef, scanRefs } from './workrefs'
+import { parseRef, scanRefs, splitRefs } from './workrefs'
+import type { MentionRef } from './workrefs'
 import { TIER_LETTER } from './shared'
 
 /** the attribute that makes an injected chip findable again on the next pass.
@@ -38,6 +39,10 @@ import { TIER_LETTER } from './shared'
  *  what the author wrote. */
 const TOK = 'data-ref-token'
 const OUT = 'data-ref-outcome'
+/** the same marker for a BARE NAME written in ordinary prose (a docket item
+ *  slug). It holds the name, which is also exactly the text it replaced, so
+ *  undoing it is exact for the same reason. */
+const MEN = 'data-ref-mention'
 /** every rendered fact about one chip, for the cheap exit (`chipSig`) */
 const SIG = 'data-ref-sig'
 
@@ -110,9 +115,71 @@ function chipEl(doc: Document, r: ResolvedRef,
   return el
 }
 
+/** BARE DOCKET NAMES INSIDE RENDERED MARKDOWN (user requirement 2026-09-12).
+ *
+ *  A docket description used to render as plain React text, where `RefProse`
+ *  turned an exact item name written in ordinary prose into a control. Now it
+ *  renders as Markdown, so the same names arrive here as text nodes in
+ *  sanitized HTML and there are no React children to decorate — exactly the
+ *  situation this module already exists for. Doing it in THIS walk rather
+ *  than a second pass of its own is deliberate: two passes would fight over
+ *  the same text nodes, and each would see the other's chips as prose.
+ *
+ *  ⚠ ITEMS ONLY. `RefProse` filters bare AGENT names out for a reason worth
+ *  repeating — an ordinary word that happens to match a live agent's name must
+ *  not silently become a destination. */
+export interface MentionWorld {
+  /** the names that may be matched. Membership is the whole rule: a name
+   *  absent from the map is left as prose. */
+  index: ReadonlyMap<string, MentionRef>
+  /** what a click does. Without it the name is marked but inert, the same
+   *  read-only rendering `WorkRefText` falls back to. */
+  onPick?: (slug: string) => void
+}
+
+/** the item entries of a mention index, as `splitRefs` wants them. Returns
+ *  null when there is nothing to scan for, which is the signal to skip the
+ *  mention half of the walk entirely. */
+function itemsOf(m: MentionWorld | null | undefined):
+Map<string, MentionRef> | null {
+  if (!m || m.index.size === 0) return null
+  const out = new Map<string, MentionRef>()
+  for (const [name, ref] of m.index) if (ref.kind === 'item') out.set(name, ref)
+  return out.size ? out : null
+}
+
+/** everything one mention chip renders, for the cheap exit — the mirror of
+ *  `chipSig`. The title rides along because it is on the element as copy text
+ *  (`data-copy-ticket-title`), so a renamed item must rebuild. */
+function mentionSig(ref: MentionRef, live: boolean): string {
+  return ['m', live ? '1' : '0',
+    ref.kind === 'item' ? ref.slug : '', ref.kind === 'item' ? ref.title ?? '' : ''].join('|')
+}
+
+/** build one bare-name chip as DOM. Mirrors `WorkRefText`'s item branch;
+ *  `docketdesc.test` §4c and `docketrefs.test` §7 hold the two together. */
+function mentionEl(doc: Document, ref: MentionRef,
+  onPick?: (slug: string) => void): HTMLElement {
+  const slug = ref.kind === 'item' ? ref.slug : ''
+  const live = !!onPick
+  const el = doc.createElement(live ? 'button' : 'span')
+  if (live) {
+    (el as HTMLButtonElement).type = 'button'
+    el.className = 'docket-ref'
+    el.title = `go to ${slug}`
+  }
+  el.setAttribute(MEN, slug)
+  el.setAttribute(SIG, mentionSig(ref, live))
+  if (ref.kind === 'item' && ref.title !== undefined) {
+    el.setAttribute('data-copy-ticket-title', ref.title)
+  }
+  el.textContent = slug
+  return el
+}
+
 /** every chip this module has injected into `host`, in document order */
 function injected(host: HTMLElement): HTMLElement[] {
-  return [...host.querySelectorAll(`[${TOK}]`)] as HTMLElement[]
+  return [...host.querySelectorAll(`[${TOK}],[${MEN}]`)] as HTMLElement[]
 }
 
 /** undo every injection, exactly, leaving the text the author wrote.
@@ -123,7 +190,7 @@ export function unlinkifyRefs(host: HTMLElement): number {
   const chips = injected(host)
   for (const el of chips) {
     el.replaceWith(host.ownerDocument.createTextNode(
-      el.getAttribute(TOK) ?? el.textContent ?? ''))
+      el.getAttribute(TOK) ?? el.getAttribute(MEN) ?? el.textContent ?? ''))
   }
   if (chips.length) host.normalize()
   return chips.length
@@ -139,14 +206,23 @@ export function unlinkifyRefs(host: HTMLElement): number {
  *  nothing to click, so a chip is rendered as inert text rather than as a
  *  button that swallows the click and does nothing. */
 export function linkifyRefs(host: HTMLElement, world: RefWorld,
-  clickable = true): number {
+  clickable = true, mentions?: MentionWorld | null): number {
   const doc = host.ownerDocument
+  const items = itemsOf(mentions)
   const existing = injected(host)
   if (existing.length) {
     // ⚠ THE CHEAP EXIT, AND THE ONLY ONE. Every chip still says what it would
     // say if rebuilt → touch nothing. A pass that rebuilt regardless would
     // drop the reader's selection on every poll that changed nothing.
     const same = existing.every((el) => {
+      const name = el.getAttribute(MEN)
+      if (name !== null) {
+        // a bare name is judged against the index the caller holds NOW: an
+        // item that has gone, or a surface that lost its handler, must stop
+        // being a control rather than keep a chip nothing stands behind
+        const ref = items?.get(name)
+        return !!ref && el.getAttribute(SIG) === mentionSig(ref, !!mentions?.onPick)
+      }
       const parsed = parseRef(el.getAttribute(TOK) ?? '')
       if (!parsed) return false
       const r = resolveRef(parsed, world)
@@ -163,30 +239,47 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   const walk = doc.createTreeWalker(host, 4 /* SHOW_TEXT */)
   for (let n = walk.nextNode(); n; n = walk.nextNode()) {
     const t = n as Text
-    if (!t.data || !t.data.includes('@')) continue    // no token can be here
+    // ⚠ THE `@` SHORTCUT ONLY HOLDS FOR TYPED TOKENS. A bare docket name
+    // carries no sigil at all, so a surface that scans for them must look at
+    // every text node — skipping on `@` there would silently link nothing.
+    if (!t.data || (!items && !t.data.includes('@'))) continue
     if (inSkipped(t)) continue
     texts.push(t)
   }
   let count = 0
   for (const t of texts) {
     const s = t.data
+    const parts: Node[] = []
+    let made = 0
+    /** the prose BETWEEN typed tokens — where bare names may still be found.
+     *  Typed tokens are matched first and their spans are never re-scanned,
+     *  so the slug inside `@item:org/slug` can never also become a mention. */
+    const plain = (text: string) => {
+      if (!text) return
+      if (!items) { parts.push(doc.createTextNode(text)); return }
+      for (const part of splitRefs(text, items)) {
+        if (part.ref) {
+          parts.push(mentionEl(doc, part.ref, mentions?.onPick))
+          made += 1
+        } else parts.push(doc.createTextNode(part.text))
+      }
+    }
     let last = 0
-    let frag: DocumentFragment | null = null
     // ⚠ THE SHARED SCANNER, not a second loop over the same pattern: both
     // boundaries live in `scanRefs`, and a renderer with its own loop is one
     // that can miss one of them.
     for (const hit of scanRefs(s)) {
-      frag = frag ?? doc.createDocumentFragment()
-      if (hit.index > last) {
-        frag.appendChild(doc.createTextNode(s.slice(last, hit.index)))
-      }
-      frag.appendChild(chipEl(doc, resolveRef(hit.ref, world), clickable))
-      count += 1
+      if (hit.index > last) plain(s.slice(last, hit.index))
+      parts.push(chipEl(doc, resolveRef(hit.ref, world), clickable))
+      made += 1
       last = hit.index + hit.token.length
     }
-    if (!frag) continue
-    if (last < s.length) frag.appendChild(doc.createTextNode(s.slice(last)))
+    if (last < s.length) plain(s.slice(last))
+    if (!made) continue
+    const frag = doc.createDocumentFragment()
+    for (const node of parts) frag.appendChild(node)
     t.replaceWith(frag)
+    count += made
   }
   return count
 }
@@ -200,10 +293,22 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
  *  holds NOW. The chip is a picture of a past decision; acting on the picture
  *  would open a target that has since gone. */
 export function refClickHandler(worldOf: () => RefWorld | null | undefined,
-  onOpen: (r: ResolvedRef) => void) {
+  onOpen: (r: ResolvedRef) => void,
+  mentionsOf?: () => MentionWorld | null | undefined) {
   return (e: Event): void => {
-    const el = (e.target as Element | null)?.closest?.(`[${TOK}]`)
+    const el = (e.target as Element | null)?.closest?.(`[${TOK}],[${MEN}]`)
     if (!el) return
+    const name = el.getAttribute(MEN)
+    if (name !== null) {
+      // ⚠ DECIDED AGAIN AT CLICK TIME, like a typed reference: the index the
+      // chip was drawn against may no longer hold the name.
+      const m = mentionsOf?.()
+      if (!m?.onPick || m.index.get(name)?.kind !== 'item') return
+      e.stopPropagation()
+      e.preventDefault()
+      m.onPick(name)
+      return
+    }
     const parsed = parseRef(el.getAttribute(TOK) ?? '')
     if (!parsed) return
     // ⚠ THE WORLD IS CHECKED BEFORE IT IS USED. The listener outlives the
@@ -236,17 +341,23 @@ export function refClickHandler(worldOf: () => RefWorld | null | undefined,
  *  The listener is attached ONCE and reads the current world through a ref,
  *  because the chips it serves are replaced under it on every rebuild. */
 export function useRefMd(world: RefWorld | null | undefined,
-  onOpen?: (r: ResolvedRef) => void) {
+  onOpen?: (r: ResolvedRef) => void,
+  mentions?: MentionWorld | null) {
   const host = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef(world)
   worldRef.current = world
   const openRef = useRef(onOpen)
   openRef.current = onOpen
+  // read through a ref for the same reason the world is: the listener is
+  // attached once and outlives every index it was attached with
+  const mentionRef = useRef(mentions)
+  mentionRef.current = mentions
   useEffect(() => {
     const el = host.current
     if (!el) return
     const h = refClickHandler(() => worldRef.current,
-      (r) => { if (worldRef.current) openRef.current?.(r) })
+      (r) => { if (worldRef.current) openRef.current?.(r) },
+      () => mentionRef.current)
     el.addEventListener('click', h)
     return () => el.removeEventListener('click', h)
   }, [])
@@ -260,7 +371,10 @@ export function useRefMd(world: RefWorld | null | undefined,
     // ⚠ AND LOSING THE WORLD TAKES THE CHIPS WITH IT: buttons that still look
     // live and have nothing behind them. Undoing the injection restores
     // exactly the token the author wrote.
-    if (world) linkifyRefs(host.current, world, !!onOpen)
+    // ⚠ AND IT TAKES THE BARE NAMES WITH IT. A surface that has lost its
+    // world reverts ALL of its chips, not the typed half: half-live prose is
+    // harder to read than plain prose, and says nothing true about the rest.
+    if (world) linkifyRefs(host.current, world, !!onOpen, mentions)
     else unlinkifyRefs(host.current)
   })
   return host
@@ -272,18 +386,22 @@ export function useRefMd(world: RefWorld | null | undefined,
  *  `html` is what `md()` returned. It is passed in rather than produced here
  *  because the call sites already choose their own image base, and the base
  *  is per-author. */
-export function RefMdBody({ html, world, onOpen, className, el }: {
+export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
   html: { __html: string }
   world?: RefWorld | null
   onOpen?: (r: ResolvedRef) => void
   className?: string
+  /** bare docket names to mark as well as canonical tokens. Omitted by every
+   *  surface but the docket's own description, which is where prose naming an
+   *  item by its plain slug is the normal way to write. */
+  mentions?: MentionWorld | null
   /** the element to render, because a call site's LAYOUT is not this
    *  component's business: the folded-notice list puts its body in a `span`
    *  inside a flex row, and quietly promoting it to a `div` would be this
    *  wrapper changing a page it was only meant to decorate. */
   el?: 'div' | 'span'
 }) {
-  const host = useRefMd(world, onOpen)
+  const host = useRefMd(world, onOpen, mentions)
   const Tag = (el ?? 'div') as 'div'
   return <Tag ref={host} className={className}
     dangerouslySetInnerHTML={html} />

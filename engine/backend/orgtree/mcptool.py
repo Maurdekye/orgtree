@@ -385,9 +385,19 @@ TOOLS: list[dict[str, Any]] = [
             "code|non-code, owner = you or a subordinate, participants, "
             "acceptance conditions, optional first done_so_far/"
             "working_on_next). `objective` is the item's DESCRIPTION and may "
-            "not be blank: state the PROBLEM being faced FIRST, then the "
-            "proposed solution — the user reads it to know why the item "
-            "exists, and a title alone never says what is wrong. `update` "
+            "not be blank: the FIRST PARAGRAPH states the PROBLEM being faced "
+            "and then, briefly, the proposed solution — the user reads it to "
+            "know why the item exists, and a title alone never says what is "
+            "wrong — and EVERY SUBSEQUENT PARAGRAPH carries all the rest: "
+            "every specification, requirement, default, exclusion, edge case, "
+            "detail and ruling. It is the item's AUTHORITATIVE STANDALONE "
+            "SCOPE, has NO LENGTH LIMIT and is never truncated, and is "
+            "written in Markdown (the docket renders it in full and folds a "
+            "long one behind an expand control). Acceptance conditions may "
+            "test or restate it and mail may coordinate it; neither stands in "
+            "for anything absent from it. Leave out only what the user has "
+            "not specified, and ask a material gap as an explicit question. "
+            "`update` "
             "(THE status update: ALWAYS carries "
             "done_so_far AND working_on_next as lists of individual entries "
             "— either may be empty, both empty is refused — plus optional "
@@ -486,7 +496,7 @@ TOOLS: list[dict[str, Any]] = [
                 "include_archived": {"type": "boolean", "description": "list: include archived items"},
                 "include_backlogged": {"type": "boolean", "description": "list: include backlogged (not yet started) items"},
                 "title": {"type": "string", "description": "create/update: short concrete title"},
-                "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description — the PROBLEM faced first, then the proposed solution"},
+                "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},
                 "owner": {"type": "string", "description": "create/assign: owner node (you or a subordinate) · update: the explicit assignment — name the CURRENT owner to keep an item where it is when you update somebody else's"},
                 "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
@@ -1493,8 +1503,14 @@ TOOLS: list[dict[str, Any]] = [
                 "title": {"type": "string", "description": "create: short concrete title"},
                 "objective": {"type": "string",
                               "description": "create (REQUIRED): the item's "
-                                             "description — the PROBLEM faced "
-                                             "first, then the proposed solution"},
+                                             "description and authoritative "
+                                             "standalone scope — first "
+                                             "paragraph the PROBLEM faced then "
+                                             "the proposed solution, later "
+                                             "paragraphs every remaining "
+                                             "requirement, default, exclusion, "
+                                             "edge case and ruling. Full "
+                                             "Markdown, no length limit"},
                 "kind": {"type": "string", "description": "create: code|non-code"},
                 "status": {"type": "string",
                            "description": "backlogged|open|in_progress|blocked|review|deploy_ready"},

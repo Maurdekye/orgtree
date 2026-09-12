@@ -3,36 +3,12 @@ import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { RefMdBody } from './refmd'
+import { foldAt, NO_FOLD } from './foldlines'
 
-/** Text fragments on the same visual row overlap vertically, including
- * inline links/code with different font sizes. Paragraph spacing is not a
- * line. Measure the unclipped body so expanding cannot change this answer. */
-function fiveLineHeight(body: HTMLElement): { limit: number | null; lines: number } {
-  const box = body.getBoundingClientRect()
-  if (!box.width || !body.offsetWidth) return { limit: null, lines: 0 }
-  const fragments: DOMRect[] = []
-  const walk = body.ownerDocument.createTreeWalker(body, 4)
-  const range = body.ownerDocument.createRange()
-  for (let node = walk.nextNode(); node; node = walk.nextNode()) {
-    if (!node.textContent?.trim()) continue
-    range.selectNodeContents(node)
-    fragments.push(...Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0))
-  }
-  fragments.sort((a, b) => a.top - b.top || a.left - b.left)
-  const rows: { top: number; bottom: number }[] = []
-  for (const rect of fragments) {
-    const last = rows[rows.length - 1]
-    if (last && rect.top < last.bottom - 1 && rect.bottom > last.top + 1) {
-      last.top = Math.min(last.top, rect.top)
-      last.bottom = Math.max(last.bottom, rect.bottom)
-    } else rows.push({ top: rect.top, bottom: rect.bottom })
-  }
-  if (rows.length <= 5) return { limit: null, lines: rows.length }
-  // Range rects include the canvas/desk transform; CSS height does not.
-  const scale = box.width / body.offsetWidth
-  const fifth = rows[4]!, sixth = rows[5]!
-  return { limit: (fifth.bottom + Math.max(0, sixth.top - fifth.bottom) / 2 - box.top) / scale, lines: rows.length }
-}
+/** Received mail folds at five rendered lines. The measurement itself is
+ * shared with the docket description's ten-line fold (`foldlines.ts`) — one
+ * definition of "a line", because two would disagree. */
+const MAIL_FOLD_LINES = 5
 
 /** Only received-mail transcript bodies use this preview. Headers and
  * attachments stay outside it; the existing markdown/link DOM stays mounted. */
@@ -43,12 +19,12 @@ export function ReceivedMailBody({ html, world, onOpen, children }: {
   const ownerDocument = useSurfaceDocument()
   const content = useRef<HTMLDivElement>(null)
   const id = useId()
-  const [{ limit, lines }, setMeasure] = useState({ limit: null as number | null, lines: 0 })
+  const [{ limit, lines }, setMeasure] = useState(NO_FOLD)
   const [expanded, setExpanded] = useState(false)
   useLayoutEffect(() => {
     const body = content.current?.firstElementChild as HTMLElement | null
     if (!body) return
-    const measure = () => setMeasure(fiveLineHeight(body))
+    const measure = () => setMeasure(foldAt(body, MAIL_FOLD_LINES))
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     observer?.observe(body)

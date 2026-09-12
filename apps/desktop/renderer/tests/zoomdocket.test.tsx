@@ -1,5 +1,10 @@
-import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
+// ⚠ THE HARNESS IMPORT COMES FIRST — see the import-order note in harness.ts.
+// `shared.ts` pulls in DOMPurify, which binds to `window` in its module body,
+// and the docket pane renders markdown now (the description, user requirement
+// 2026-09-12). Loaded before the harness installs jsdom, DOMPurify binds to
+// nothing and `sanitize` is not a function.
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { tree, payload } from './zoomdocket.fixture'

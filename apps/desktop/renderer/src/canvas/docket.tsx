@@ -45,6 +45,7 @@ import { fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
 import { RefProse, refToken } from './reflinks'
+import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
@@ -1696,16 +1697,20 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         </div>
       )}
       {/* THE DESCRIPTION, first thing in the pane (user 2026-09-05): the
-          problem currently faced, then the proposed solution. Mandatory on
-          every item created from now on; older items may genuinely have none,
-          and that is said plainly rather than papered over. */}
+          problem currently faced, then the proposed solution, then every
+          remaining requirement (user 2026-09-12). Mandatory on every item
+          created from now on; older items may genuinely have none, and that
+          is said plainly rather than papered over.
+
+          It is the one prose field on this pane that is FULL MARKDOWN and
+          may be arbitrarily long, so it gets its own component: the rest of
+          the pane's prose is short, single-paragraph and stays `RefProse`. */}
       <div className="docket-desc">
         <div className="docket-list-heading dim">DESCRIPTION</div>
         {item.objective
-          ? <div className="docket-desc-body">
-              <RefProse text={item.objective} world={refWorld}
-                onOpen={onOpenRef} index={refIndex} onPick={onGoToItem} />
-            </div>
+          ? <DocketDescription text={item.objective} slug={slug}
+              world={refWorld} onOpen={onOpenRef}
+              index={refIndex} onPick={onGoToItem} />
           : <div className="dim docket-list-empty">
               no description — this item predates the rule that every item
               states its problem and proposed solution

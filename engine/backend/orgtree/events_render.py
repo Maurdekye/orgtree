@@ -48,6 +48,34 @@ def _obj(ev: _R) -> dict[str, Any]:
     return dict(o) if isinstance(o, dict) else {}
 
 
+#: how much of a description a docket NOTIFICATION carries inline.
+_DESC_EXCERPT = 600
+
+
+def _desc(ev: _R) -> str:
+    """The description as a notification shows it: an EXCERPT that says so.
+
+    ⚠ THE STORED DESCRIPTION HAS NO LENGTH LIMIT (user requirement
+    2026-09-12) — it is the item's authoritative standalone specification, and
+    `ledger.work_create`/`work_update` keep every character of it. This is the
+    one place a shortened copy is legitimate: a mail body is a nudge to go and
+    read the item, and every one of these renderers already says how. What was
+    wrong before was doing it SILENTLY: the excerpt ended mid-word and read as
+    a complete, rather short description, so an agent could act on two thirds
+    of a spec believing it had all of it. The cut now announces itself and
+    names the tool that returns the whole thing.
+    """
+    text = str(ev.get("objective") or "")
+    if not text:
+        return "(none recorded)"
+    if len(text) <= _DESC_EXCERPT:
+        return text
+    return (text[:_DESC_EXCERPT]
+            + f"… [EXCERPT — {len(text)} characters in full; this mail shows "
+              f"the first {_DESC_EXCERPT}. Read the whole description with "
+              f"orgtree_work get before acting on it]")
+
+
 # ================================================================== ordinary / reply
 for _v in ("ordinary.message", "ordinary.question", "ordinary.request",
            "ordinary.decision", "ordinary.status", "ordinary.notice",
@@ -91,7 +119,7 @@ def _r_assigned(ev: _R) -> str:
               "it come to you, and you are who the docket names as responsible."
             + f"\nAssigned by {_user_or(str(ev['assigner']))}"
             + (f" (previously {prev})" if prev and prev != own else "") + "."
-            + f"\nDescription: {(ev['objective'] or '(none recorded)')[:600]}"
+            + f"\nDescription: {_desc(ev)}"
             + "\nLatest status — done so far: "
             + ("; ".join(ev["done_so_far"]) or "(nothing recorded)")
             + "\nWorking on / next: "
@@ -113,7 +141,7 @@ def _r_review_requested(ev: _R) -> str:
               "back to the owner as in_progress, and your note is what they act "
               "on). Until you decide, the next action on this item is yours."
             + f"\nRequested by {_user_or(str(ev['requested_by']))}."
-            + f"\nDescription: {(ev['objective'] or '(none recorded)')[:600]}"
+            + f"\nDescription: {_desc(ev)}"
             + "\nWhat the owner says is done: "
             + ("; ".join(ev["done_so_far"]) or "(nothing recorded)"))
 
@@ -157,7 +185,7 @@ def _r_participant(ev: _R) -> str:
               "read it, update it, add evidence and attach questions, and the "
               "user's replies addressed to you on it arrive as item-linked mail. "
               f"Added by {_user_or(str(ev['added_by']))}."
-            + f"\nDescription: {(ev['objective'] or '(none recorded)')[:600]}"
+            + f"\nDescription: {_desc(ev)}"
             + f"\nRead it with orgtree_work get slug={o['slug']} when your work "
               "touches it; no reply is expected to this notice.")
 
