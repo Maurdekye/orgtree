@@ -176,6 +176,16 @@ class FrozenInfo(TypedDict, total=False):
     # `observed-deadline` is the latest observed active constraint, not a
     # promise of capacity. `probe` is explicitly only a time to re-check.
     schedule_kind: str
+    # multi-account: "observed" | "inferred" — how THE NUMBER IN `until_ts`
+    # was come by, which is not always how the account's mark was: a deadline
+    # the 429 itself stated is observed even while an inferred mark sits
+    # beside it (`supervisor._mark_supersedes_message`). "inferred" is the
+    # D-152 ride-along — a pooled limit marking fable at the same horizon —
+    # and never a measurement. `ledger.tree()` projects this so the badge
+    # prints "(inferred)" exactly where the Usage modal does. ⚠ A STRING for
+    # the same reason `cause` is one: `_resumable` refuses a record carrying
+    # an unknown True key, which would make ▶ skip the node forever.
+    provenance: str
     # where `until_ts` came from (user ruling 2026-08-18): "text" (parsed out
     # of the CLI's error prose), "usage:<lane>" (looked up in the account's
     # own usage readout — see limits.reset_for), "probe" (nothing could

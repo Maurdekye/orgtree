@@ -5309,6 +5309,29 @@ REREAD_TRIES = 3
 REREAD_BACKOFF = 2.0        # seconds, multiplied by the attempt number
 
 
+def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
+                             msg_src: str) -> bool:
+    """May the account MARK replace the deadline the 429 itself produced?
+
+    THE MANDATORY PRECEDENCE (user ruling 2026-09-12): the specific 429's own
+    timing first; authoritative usage/reset data only when that response is
+    inconclusive. `text` (parsed out of this error's prose) and `provider` (a
+    machine reset the lane stated for this turn) are the 429 speaking; every
+    other source is the fallback, and a fallback may not overwrite it.
+
+    ⚠ AND YET THE MARK IS STILL A FLOOR, because it is what the PRE-SLOT GATE
+    admits against: a freeze that wakes before the mark wakes into a refusal
+    and re-freezes (Opus Q1's loop). `record_mark` never shortens, so the two
+    disagree only when an older, LATER mark survived — and there the mark is
+    the honest wake. So: the mark wins only by being LATER, never by being
+    last to write.
+
+    Answers True when the record has no 429 deadline to protect."""
+    if msg_src not in ("text", "provider") or not msg_ts:
+        return True
+    return mark_ts > float(msg_ts)
+
+
 def _record_account_reset(account: str, tier: str, blob: str,
                           ts: float | None, source: str, trusted: bool) -> bool:
     """Record the deadline with its actual evidence; a retry floor is a guess."""
@@ -18406,18 +18429,18 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # field's whole job is saying what the window was
                             # priced on (redteam 2026-08-18)
                             fz["reset_src"] = _rsrc if _rts else "inherited"
-                            # ── multi-account D2c: THE FREEZE'S HORIZON IS
-                            # THE MARK'S HORIZON, by READING THE MARK — not
-                            # by a parallel computation that can diverge
-                            # (Opus Q1: earlier-waking freeze ⇒ wake/refuse/
-                            # re-freeze loop; later ⇒ over-park). For a
-                            # bound (registry-id) serving account the mark
-                            # recorded moments ago is the single source of
-                            # truth, and its provenance rides along so the
-                            # desk never renders an inferred park as a
-                            # measured one (both STRING values — the
-                            # `_resumable` unknown-True-key trap takes
-                            # booleans only, see the `auth` comment above).
+                            # ── multi-account D2c: THE FREEZE NEVER WAKES
+                            # BEFORE THE MARK, by READING THE MARK — not by a
+                            # parallel computation that can diverge (Opus Q1:
+                            # earlier-waking freeze ⇒ wake/refuse/re-freeze
+                            # loop; later ⇒ over-park). For a bound
+                            # (registry-id) serving account the mark is what
+                            # the pre-slot gate admits against, so it is the
+                            # floor. Its provenance rides along so the desk
+                            # never renders an inferred park as a measured one
+                            # (both STRING values — the `_resumable`
+                            # unknown-True-key trap takes booleans only, see
+                            # the `auth` comment above).
                             _acct_served = str(st.get("ran_as") or "")
                             if _acct_served:
                                 try:
@@ -18428,11 +18451,40 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 except registry.UnknownAccount:
                                     _m = None
                                 if _m:
-                                    fz["until_ts"] = float(_m["until"])
-                                    fz["provenance"] = str(_m["provenance"])
-                                    fz["reset_src"] = "account-mark"
-                                    fz['schedule_kind'] = ('observed-deadline'
-                                        if _m['provenance'] == 'observed' else 'probe')
+                                    _m_ts = float(_m["until"])
+                                    # ⚠ THE 429 FIRST, AND THE MARK MAY ONLY
+                                    # PUSH IT LATER (user ruling 2026-09-12).
+                                    # The mark is normally written from THIS
+                                    # blob moments ago, so the two agree — and
+                                    # overwriting `reset_src` with
+                                    # "account-mark" anyway threw away the one
+                                    # fact that says a provider STATED this
+                                    # time. After which the tree projection,
+                                    # which keys on that field, could not tell
+                                    # a measured deadline from a guess and let
+                                    # the roster erase it. They disagree only
+                                    # when an older, LATER mark survived
+                                    # `record_mark`'s never-shorten rule; that
+                                    # mark really does gate admission (the
+                                    # pre-slot gate freezes on any live mark),
+                                    # so the record follows it there or the
+                                    # node wakes into a refusal and re-freezes.
+                                    #
+                                    # `provenance` describes THE NUMBER THIS
+                                    # RECORD CARRIES, not whatever sits in the
+                                    # marks file beside it — the desk prints
+                                    # "(inferred)" from it, and qualifying a
+                                    # provider-stated time as a guess is the
+                                    # same over-claim as the reverse.
+                                    if _mark_supersedes_message(
+                                            _m_ts, _rts, _rsrc):
+                                        fz["until_ts"] = _m_ts
+                                        fz["provenance"] = str(_m["provenance"])
+                                        fz["reset_src"] = "account-mark"
+                                        fz['schedule_kind'] = ('observed-deadline'
+                                            if _m['provenance'] == 'observed' else 'probe')
+                                    else:
+                                        fz["provenance"] = "observed"
                             _uts = fz.get("until_ts")
                             # a readout time is minute-exact, timezone-safe
                             # and lane-aware, so it OVERWRITES a prose label

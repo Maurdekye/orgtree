@@ -64,9 +64,14 @@ OWNERS = frozenset({"unrecoverable", "filter", "account_switch",
                     "limit_freeze", "net_retry", "net_exhausted", "terminal",
                     "provider_limit"})
 FREEZE_KINDS = frozenset({"limit", "connection"})
-# FrozenInfo.reset_src (schema.py): "usage:<lane>" collapses to "usage"
+# FrozenInfo.reset_src (schema.py): "usage:<lane>" collapses to "usage".
+# ⚠ AN UNLISTED WORD COLLAPSES TO "other" (`_vocab`), silently — which is how
+# every registry-bound freeze came to log its provenance as "other": both
+# `account-mark` (the account's own recorded mark) and `account` (a `missing:`
+# binding, parked with no horizon) are written by supervisor and neither was
+# named here. Add the word in the same commit as the branch that writes it.
 RESET_SRCS = frozenset({"text", "usage", "probe", "capped", "inherited",
-                        "provider", "auth"})
+                        "provider", "auth", "account-mark", "account"})
 PARKED = frozenset({"untrusted", "auth", "balance"})
 SCHEDULES = frozenset({"observed-deadline", "probe", "backoff"})
 DOORS = frozenset({"pre_model", "ran_then_failed", "killed"})

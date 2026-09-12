@@ -1712,6 +1712,36 @@ def revoke_net_invitation(slug: str, peer_id: str, request: Request) -> dict[str
 _tree_slow_warned: set[str] = set()
 
 
+#: `reset_src` values that describe a deadline somebody MEASURED, as opposed
+#: to a floor somebody guessed. `text`/`provider` are the specific 429's own
+#: answer; `account-mark` is the account's recorded mark, and `usage:<lane>`
+#: (tested by prefix, so not listable here) its usage readout — the same
+#: numbers the Usage modal renders as "<pool> limited until …". Membership,
+#: not ranking: the precedence between them lives in the body below.
+_MEASURED_SRCS = ("text", "provider", "account-mark")
+
+
+def _capacity_label(ts: float, src: str, schedule_kind: str) -> str:
+    """The words beside a freeze's own live deadline.
+
+    "capacity resets X" is a claim that capacity RETURNS at X and may only be
+    made for a measured deadline. Everything else — a blind probe floor, an
+    inherited horizon, an inferred (ride-along) mark, which `schedule_kind`
+    already reports as `probe` — is a bounded RECHECK, and says so.
+
+    ⚠ `schedule_kind` decides it wherever the record carries one, because that
+    is the field the supervisor, the correction pass and the provider freeze
+    all write through one rule (`_usage_schedule_kind`). The source test is the
+    fallback for older records written before that field existed; without it
+    they would silently promote a probe floor to a reset promise."""
+    if schedule_kind:
+        probe = schedule_kind != "observed-deadline"
+    else:
+        probe = not (src in _MEASURED_SRCS or src.startswith("usage:"))
+    return (("capacity recheck " if probe else "capacity resets ")
+            + supervisor._reset_label(ts))
+
+
 def _rederive_freeze_reset(node: dict[str, Any],
                            cache: dict[str, dict[str, Any]]) -> None:
     """Re-derive a usage-limit freeze's reset from the CURRENT account roster.
@@ -1724,20 +1754,26 @@ def _rederive_freeze_reset(node: dict[str, Any],
     keys being added / removed". The record is the supervisor's to stamp, so
     the only honest place to CORRECT it is where it is read.
 
-    ⚠ IT REPORTS CAPACITY, NEVER A WAKE — and that is the deeper half of the
-    same bug. The old wording promised "resumes <time>", which is false on
-    any org with `auto_resume` OFF (the default): nothing wakes the node when
-    capacity returns, the operator does. User ruling 2026-08-26 — "off means
-    off" — so a second account appearing is not consent nobody gave. This
-    says what the ROSTER supports and leaves resuming to ▶.
+    ⚠ IT REPORTS CAPACITY, NEVER A WAKE. The old wording promised "resumes
+    <time>", which is false on any org with `auto_resume` OFF (the default):
+    nothing wakes the node when capacity returns, the operator does. User
+    ruling 2026-08-26 — "off means off" — so a second account appearing is
+    not consent nobody gave. "resets"/"recheck" describe the CLOCK and
+    promise nobody's action.
 
-    ⚠ THREE STATES, AND THE THIRD IS THE POINT. When no account carries a
-    real refresh time there is NO T — an auth freeze marks no lane by design
-    — and computing a plausible-looking countdown for it is exactly the
-    invented-T failure the expired-login rule exists to prevent. It says the
-    time is unknown instead. It also never SHORTENS a mark: it reads the
-    marks rather than recomputing a horizon, so it inherits the pool `max()`
-    floor by construction.
+    ⚠ IT CORRECTS A STALE RECORD; IT DOES NOT OUTRANK A LIVE ONE (user ruling
+    2026-09-12). The roster speaks only for a freeze that has no live deadline
+    of its own — see the precedence list in the body. Before that ruling it
+    overwrote every source but the 429's own prose, which erased the estimate
+    on every registry-bound node in the org.
+
+    ⚠ WHEN NOTHING CAN ANSWER THERE IS NO T. No live deadline on the record
+    and no refresh time on the roster means the wake is genuinely unknown —
+    an auth freeze marks no lane by design — and computing a plausible-looking
+    countdown for it is exactly the invented-T failure the expired-login rule
+    exists to prevent. It says the time is unknown instead. It also never
+    SHORTENS a mark: it reads the marks rather than recomputing a horizon, so
+    it inherits the pool `max()` floor by construction.
 
     Scope is deliberately narrow — a pure `limit` freeze that is not
     `limit_locked`. A connection freeze owns its own timer and both consumers
@@ -1776,20 +1812,37 @@ def _rederive_freeze_reset(node: dict[str, Any],
     tier = str(node.get("tier") or "")
     if tier not in accounts.TIERS:
         return
-    # ⚠ THE MESSAGE'S OWN DEADLINE OUTRANKS THE ROSTER, WHATEVER IT SAYS
+    # ⚠ THE FREEZE'S OWN DEADLINE OUTRANKS THE ROSTER, WHATEVER IT SAYS
     # (user ruling 2026-09-07 14:56Z; coordinator decisions 15:03Z and
-    # 15:32Z). A freeze whose reset was parsed from the limit message
-    # (`text`) or stated by the provider for that turn (`provider`) carries
-    # the one time that describes THIS wall, for this model. The roster's
+    # 15:32Z; user ruling 2026-09-12 restating it as MANDATORY precedence).
+    # The order is one sentence: the specific 429 first, authoritative
+    # usage/reset data only when that 429 was inconclusive, the roster only
+    # when the record carries no live deadline at all.
+    #
+    #   1. `text` / `provider` — parsed out of THIS 429's prose, or stated by
+    #      the provider for THIS turn. The one time that describes THIS wall,
+    #      for this model.
+    #   2. `account-mark` / `usage:<lane>` — the account's own recorded mark
+    #      or usage readout, i.e. exactly the number the Usage modal renders
+    #      as "<pool> limited until …". A fallback, and a real one.
+    #   3. anything else with a live `until_ts` — an inherited horizon, the
+    #      blind 5-minute probe floor. Weak, but it is a scheduled wake and
+    #      the badge must not deny that a wake is coming.
+    #   4. only THEN the roster.
+    #
+    # ⚠ WHY THIS WAS THE BUG (user report 2026-09-12, screenshot). Only rank 1
+    # used to be protected. `accounts.resolve` reads the LEGACY roster, which
+    # never learns registry account ids — `accounts.record_limit` refuses
+    # unknown ids by design — so for every registry-BOUND node it answers
+    # "available" unconditionally, and the branch below erased the node's real
+    # estimate and wrote "capacity available" over it. A fable agent parked
+    # until 3:30pm, with that very time on its record and in the Usage modal,
+    # wore "capacity available — ▶ to resume" instead. The roster's
     # `refresh_at` is the pool mark — mirrored across haiku/sonnet/opus with
-    # `max()` and, until that ruling, recorded from the cached readout — so
-    # it could show a sibling tier's later, cache-derived time in place of
-    # the reset the provider actually named; and a roster that reports
-    # capacity AVAILABLE (another account, an unmarked fallback) is a
-    # separate fact about routing that must not ERASE the stated time.
-    # While the message deadline is still ahead it is displayed; the roster
-    # answers only for a freeze with no applicable message deadline. Routing
-    # itself (`accounts.resolve` at spawn) is untouched by this projection.
+    # `max()` — and a roster that reports capacity AVAILABLE (another account,
+    # an unmarked fallback) is a fact about ROUTING that must never ERASE this
+    # node's stated wake. Routing itself (`accounts.resolve` at spawn) is
+    # untouched by this projection.
     fzd = cast("dict[str, Any]", fz)
     src = str(fzd.get("reset_src") or "")
     try:
@@ -1797,39 +1850,20 @@ def _rederive_freeze_reset(node: dict[str, Any],
     except (TypeError, ValueError):
         own = 0.0
     now = time.time()
-    if src in ("text", "provider") and now < own <= now + limits.MAX_HORIZON:
-        fz["until"] = (
-            ("capacity recheck " if fzd.get("schedule_kind") == "probe"
-             else "capacity resets ") + supervisor._reset_label(own))
+    if now < own <= now + limits.MAX_HORIZON:
+        fz["until"] = _capacity_label(own, src, str(fzd.get("schedule_kind") or ""))
         fz["until_ts"] = own
         return
     if tier not in cache:
         cache[tier] = accounts.resolve(tier)
     got = cache[tier]
-    if got.get("available"):
-        # An open pool can still contain an unmarked fallback whose capacity
-        # is not observable until a turn is attempted. Do not erase a valid
-        # retry deadline merely because routing still sees that lane as
-        # eligible. A probe is a bounded recheck, not a reset promise.
-        if fz.get("pool") == "open":
-            try:
-                ts = float(fz.get("until_ts") or 0)
-            except (TypeError, ValueError):
-                ts = 0.0
-            now = time.time()
-            if now < ts <= now + limits.MAX_HORIZON:
-                src = str(fz.get("reset_src") or "")
-                kind = str(fz.get("schedule_kind") or "")
-                if (kind == "probe" or src not in ("provider", "text")
-                        and not src.startswith("usage:")):
-                    fz["until"] = "capacity recheck " + supervisor._reset_label(ts)
-                else:
-                    fz["until"] = "capacity resets " + supervisor._reset_label(ts)
-                return
-        fz["until"], fz["until_ts"] = "capacity available — ▶ to resume", None
-        return
-    ts = got.get("refresh_at")
+    ts = None if got.get("available") else got.get("refresh_at")
     if not ts:
+        # ⚠ NEITHER "capacity available" NOR "▶ to resume" (user ruling
+        # 2026-09-12). Manual resume is retired copy, and a frozen agent whose
+        # wake is unknown must not be captioned with somebody ELSE's capacity:
+        # the roster answering "available" says another account could serve a
+        # NEW turn, not that this node is about to run. Neutral, and true.
         fz["until"], fz["until_ts"] = "reset time unknown", None
         return
     fz["until"] = f"capacity resets {supervisor._reset_label(float(ts))}"

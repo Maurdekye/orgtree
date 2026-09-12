@@ -2373,14 +2373,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 // own words ("balance refused — …"); strip them the same way
                 : node.frozen.cause === 'balance'
                 ? node.frozen.until.replace(/^balance refused /, '')
-                // ⚠ NO VERB. The backend re-derives this string from the live
-                // account roster and it already says what it means ("capacity
-                // resets 3:10pm" / "capacity available — ▶ to resume" /
-                // "reset time unknown"). It used to read `resumes ${until}`,
-                // which promised a wake that never comes on an org with
-                // auto_resume off — the default. Reporting capacity is the
-                // whole point; do not put "resumes" back.
-                : node.frozen.until, node.frozen.until_ts)}` : ''}</span>}
+                // ⚠ NO VERB. The backend composes this string and it already
+                // says what it means ("capacity resets 3:10pm" / "capacity
+                // recheck 3:10pm" / "reset time unknown"). It used to read
+                // `resumes ${until}`, which promised a wake that never comes
+                // on an org with auto_resume off — the default. Reporting the
+                // clock is the whole point; do not put "resumes" back.
+                : node.frozen.until, node.frozen.until_ts)}` : ''}
+            {/* …and WHOSE CLOCK IT IS (user ruling 2026-09-12: the badge must
+                agree with the Usage modal). Usage prints "(inferred)" beside a
+                mark it did not measure; without the same marker here a D-152
+                ride-along guess wore exactly the words a provider-stated time
+                does. Same expression as the compact card in cards.tsx. */}
+            {!node.limit_locked && node.frozen.provenance === 'inferred'
+              ? ' (inferred)' : ''}</span>}
         {node.limit_locked &&
           <span className="badge dim"><LockIcon fontSize="inherit" /> limit</span>}
         {/* ⭐ the user's per-node override (ruling 2026-08-06): one click

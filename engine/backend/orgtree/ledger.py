@@ -9603,6 +9603,21 @@ class Org:
                                          # eligible. These are non-secret
                                          # scheduling facts.
                                          "pool", "schedule_kind", "reset_src",
+                                         # user ruling 2026-09-12: the frozen
+                                         # badge must AGREE WITH THE USAGE
+                                         # MODAL, which prints "(inferred)"
+                                         # beside a mark it did not measure.
+                                         # `cards.tsx` and `desk.tsx` both
+                                         # render this and both were dead —
+                                         # the filter below dropped it, so a
+                                         # ride-along guess wore the same
+                                         # words as a provider-stated time.
+                                         # `account` rides with it because the
+                                         # badge's title names WHOSE lane the
+                                         # wait belongs to — the same registry
+                                         # id already projected on the node
+                                         # itself for the account tint.
+                                         "provenance", "account",
                                          # D-156: WHY, when the answer is not
                                          # "capacity ran out". "auth" = the
                                          # credential was rejected, so the

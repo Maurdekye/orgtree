@@ -1694,7 +1694,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                   .catch((e2: Error) => toast([`error: ${e2.message}`]))
               }}><FrozenIcon fontSize="inherit" />{' '}
               {FREEZE_LABEL_SHORT[freezeKind(node.frozen, node.limit_locked) ?? 'limit']}
-              {node.frozen.provenance === 'inferred' ? ' (inferred)' : ''}</ActionBadge>}
+              {/* ⚠ not on a HALTED badge: a fable lock's clock can never fire,
+                  so it carries no estimate for a provenance to qualify and
+                  "halted (inferred)" would read as doubt about the halt
+                  itself. Same guard as the desk badge in desk.tsx. */}
+              {!node.limit_locked && node.frozen.provenance === 'inferred'
+                ? ' (inferred)' : ''}</ActionBadge>}
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">
