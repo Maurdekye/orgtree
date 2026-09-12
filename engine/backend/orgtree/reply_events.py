@@ -131,9 +131,16 @@ def incarnation(org, nid):
         current.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
         if persisted:
             store.save_org(current)
-        org.d['reply_incarnation'] = current.d['reply_incarnation']
-        org.node(nid)['reply_incarnation'] = current.node(nid)['reply_incarnation']
-    return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
+        if not getattr(org, '_shared_snapshot', False):
+            # memoize onto a request-private org so later calls in the same
+            # pass fast-path. A SHARED snapshot (store.cached_org) is
+            # read-only by contract (perf-review round 2) and is never
+            # stamped: the mint's save bumped the org seq, so the next
+            # cached_org() reload carries the minted ids anyway.
+            org.d['reply_incarnation'] = current.d['reply_incarnation']
+            org.node(nid)['reply_incarnation'] = current.node(nid)['reply_incarnation']
+        return (current.d['reply_incarnation'] + ':'
+                + current.node(nid)['reply_incarnation'])
 
 
 def lookup(slug, nid, generation, eid, scope):

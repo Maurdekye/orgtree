@@ -421,10 +421,17 @@ def incarnation(org, nid):
     with store.DOC_LOCK:
         persisted = Path(store.org_path(org.d['slug'])).exists()
         current = store.load_org(org.d['slug']) if persisted else org
+        had = bool(current.node(nid).get('transcript_incarnation'))
         value = current.node(nid).setdefault('transcript_incarnation', identity)
-        if persisted:
+        if persisted and not had:
+            # save only a real mint — a value another pass minted since our
+            # fast-path miss needs no rewrite
             store.save_org(current)
-        org.node(nid)['transcript_incarnation'] = value
+        if not getattr(org, '_shared_snapshot', False):
+            # never stamp a shared snapshot (store.cached_org — read-only by
+            # contract, perf-review round 2); the mint's save bumps the seq
+            # and the next cached_org() reload carries the value
+            org.node(nid)['transcript_incarnation'] = value
     return value
 
 
