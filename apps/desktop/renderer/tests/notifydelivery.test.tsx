@@ -201,27 +201,37 @@ test('REPRO: a work-attention row in the live projection reaches the OS', async 
   assert.deepEqual(shown, ['work-attention:work-cold'])
 })
 
-// ── THE CROSS-WINDOW CASE ────────────────────────────────────────────────────
-// Raised in independent review by notify-review, and it is a fair question:
-// the renderer now refuses to let an UNFOCUSED card suppress its own question,
-// but the main process still applies `notifyWhileFocused`, so with the main
-// window focused and the card sitting on a second monitor nothing toasts.
+// ── THE TWO-WINDOW CASE ──────────────────────────────────────────────────────
+// Raised in independent review by notify-review, and ANSWERED BY THE USER on
+// 2026-09-12 21:03 when they were shown this exact collision and picked "keep
+// it as it is".
 //
-// That is not the defect this branch fixes, and the difference is the whole
-// point. The visibility bug DISCARDED the alert: it wrote the notice into
-// `seen` in localStorage and no later poll would ever raise it again. The
-// focus preference DEFERS it — `notify()` returns before `gate.take`, so
-// nothing is marked seen, and the moment the user leaves Orgtree the next
-// ordinary poll delivers it. One loses the request; the other holds it until
-// the user is somewhere it can be seen, which is what they asked the
-// preference for.
+// The collision: their ruling says a question card suppresses its toast only
+// when it is in the window they are actually in — so a card on a second monitor
+// should still toast. Their `notifyWhileFocused` setting says nothing should
+// interrupt them while they are inside Orgtree at all. With the main window
+// focused and the card in an unfocused popout, those two disagree.
 //
-// Whether the question focus rule should ALSO override an explicitly chosen
-// `notifyWhileFocused` is a product decision the ticket does not settle, and
-// it is with the user. This test pins what the code does today either way, so
-// a change to that answer has to come with a deliberate edit here.
-const crossAsk = { id: 'q-cross', node: 'agent', kind: 'question', status: 'open',
-  question: 'Which lane should this run on?' } as AskInfo
+// The user chose the setting. That is coherent rather than a compromise,
+// because THE TWO SUPPRESSIONS ARE DIFFERENT IN KIND and only one of them loses
+// anything:
+//   · the card-visibility rule DISCARDS — `questionVisible` writes the notice
+//     into the seen history in localStorage and no later poll ever raises it
+//     again. That was the defect; fixing it is what this branch is for.
+//   · `notifyWhileFocused` DEFERS — `notify()` returns before the gate takes
+//     the key, so nothing is marked seen, and the next ordinary poll after they
+//     leave Orgtree delivers it.
+// So the answer costs the user a few seconds, never a request.
+//
+// Both cases below differ in EXACTLY ONE variable: which window the user is in.
+// Same card, same popout, same preferences, Orgtree focused in both. Each then
+// watches what happens once the user leaves Orgtree entirely, which is where
+// "deferred" and "discarded" stop looking alike.
+//
+// ⚠ The two cases use DISTINCT identities on purpose. `seen` in notifications.ts
+// is module state shared by every test in this process, and `localStorage.clear()`
+// does not touch it — reusing an id here made the second case silently skip
+// dispatch on the first case's delivery record rather than on its own logic.
 function geometry(el: HTMLElement) {
   const rect = { left: 10, top: 10, right: 300, bottom: 200, width: 290, height: 190 }
   el.getBoundingClientRect = () => rect as DOMRect
@@ -231,11 +241,21 @@ function stateFocus(doc: Document, value: boolean) {
   Object.defineProperty(doc, 'hasFocus', { configurable: true, value: () => value })
 }
 
-test('CROSS-WINDOW: a card on a second monitor never silences its question, and the focus preference defers the alert rather than losing it', async () => {
+/** Drives the real renderer hook against the real main-process notifier with the
+ *  question card living in a popped-out window. Orgtree holds focus in phase
+ *  one either way; `userIsWithTheCard` chooses WHICH window they are in. Then
+ *  the user leaves Orgtree and it polls again. A work-attention row rides along
+ *  as the control: nothing about it is decided per window, so it must behave
+ *  identically in both cases. */
+async function twoWindows(userIsWithTheCard: boolean) {
+  const tag = userIsWithTheCard ? 'with' : 'away'
+  const askId = `q-${tag}`, question = `question:ask-${tag}`, control = `work-attention:work-${tag}`
+  const crossAsk = { id: askId, node: 'agent', kind: 'question', status: 'open',
+    question: 'Which lane should this run on?' } as AskInfo
   localStorage.clear(); useFakeClock()
   const original = globalThis.fetch
   const shown: string[] = []
-  let appFocused = true                      // the user is in the MAIN window
+  let inOrgtree = true
   const native = new NativeNotifications(
     (data: DesktopNotice) => {
       const listeners: Record<string, (() => void)[]> = {}
@@ -246,10 +266,14 @@ test('CROSS-WINDOW: a card on a second monitor never silences its question, and 
       }
     },
     () => {},
-    () => appFocused)
+    () => inOrgtree)
   let emit: (event: { type: string; data: unknown }) => void = () => {}
-  const rows = projection([{ id: 'ask-cross', org: 'orgtree', kind: 'question', source_id: 'q-cross',
-    title: 'Question from a peer', body: 'Which lane should this run on?' }])
+  const rows = projection([
+    { id: `ask-${tag}`, org: 'orgtree', kind: 'question', source_id: askId,
+      title: 'Question from a peer', body: 'Which lane should this run on?' },
+    { id: `work-${tag}`, org: 'orgtree', kind: 'work-attention', item: 'some-ticket',
+      title: 'Some ticket', body: 'Confirm the edge case.' },
+  ])
   Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
     getPreferences: async () => ({ ...LIVE_PREFS }),
     notify: (n: unknown) => native.notify(n, LIVE_PREFS),
@@ -266,34 +290,54 @@ test('CROSS-WINDOW: a card on a second monitor never silences its question, and 
   }
   const v = await mountView(<View />, el => el)
   const popout = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true })
+  let whileInside: string[] = []
   try {
     const card = v.el.querySelector<HTMLElement>('.askcard')!
-    const home = card.parentElement!     // React owns this node; put it back before unmount
+    const home = card.parentElement!          // React owns this node; put it back
     geometry(card)
-    stateFocus(document, true)
-    // the card is moved to the popout on the second monitor, which is open and
-    // uncovered but is NOT the window the user is typing in
+    // The card lives in the popout in both cases. Only the user moves.
     popout.window.document.body.appendChild(popout.window.document.adoptNode(card))
     geometry(card)
-    stateFocus(popout.window.document as unknown as Document, false)
-    assert.equal(questionVisible('orgtree', 'q-cross'), false,
-      'a card in a window the user is not in has reached nobody, so it must not suppress anything')
-
+    stateFocus(popout.window.document as unknown as Document, userIsWithTheCard)
+    stateFocus(document, !userIsWithTheCard)
     await inAct(async () => { await flush(20) })
     await inAct(async () => { emit({ type: 'notification-poll', data: null }); await flush(20) })
-    assert.deepEqual(shown, [],
-      'the user is inside Orgtree and chose notifyWhileFocused=false, so nothing interrupts them there')
+    whileInside = [...shown]
 
-    // THE POINT: the request was not consumed. Leaving Orgtree delivers it on
-    // the very next ordinary poll — no restart, no new event, nothing lost.
-    appFocused = false
+    // …and now they click away to something that is not Orgtree at all.
+    inOrgtree = false
+    stateFocus(popout.window.document as unknown as Document, false)
+    stateFocus(document, false)
     await inAct(async () => { emit({ type: 'notification-poll', data: null }); await flush(20) })
-    assert.deepEqual(shown, ['question:ask-cross'],
-      'the focus preference defers the alert; the visibility bug this branch fixes DISCARDED it')
     home.appendChild(document.adoptNode(card))
   } finally {
     await v.unmount(); globalThis.fetch = original
     Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true })
     realClock()
   }
+  return { whileInside, afterLeaving: shown, question, control }
+}
+
+test('TWO WINDOWS: a question on the other monitor waits for the user to leave Orgtree, and is never lost', async () => {
+  const { whileInside, afterLeaving, question, control } = await twoWindows(false)
+  console.log('user in the MAIN window -> inside:', whileInside, 'after leaving:', afterLeaving)
+  assert.deepEqual(whileInside, [],
+    'the user is inside Orgtree and chose notifyWhileFocused=false, so nothing interrupts them there '
+    + '(user ruling 2026-09-12 21:03, shown this exact case)')
+  assert.ok(afterLeaving.includes(question),
+    'THE POINT: the card was never in front of them, so the request was not consumed — '
+    + 'it arrives on the first poll after they leave, with no new event and nothing prompting it')
+  assert.ok(afterLeaving.includes(control),
+    'and the attention row, which no window decides, behaves the same way')
+})
+
+test('TWO WINDOWS: the same question is consumed for good when the user IS in the window showing it', async () => {
+  const { whileInside, afterLeaving, question, control } = await twoWindows(true)
+  console.log('user in the POPOUT with the card -> inside:', whileInside, 'after leaving:', afterLeaving)
+  assert.deepEqual(whileInside, [], 'nothing interrupts them while they are inside Orgtree either way')
+  assert.ok(!afterLeaving.includes(question),
+    'this card WAS in front of them, so it has reached them: leaving must not raise it later. '
+    + 'This is the one suppression that is permanent, and it is permanent on purpose')
+  assert.ok(afterLeaving.includes(control),
+    'the control still arrives, so the absence above is the question rule and not a dead poll')
 })
