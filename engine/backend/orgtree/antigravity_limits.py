@@ -34,9 +34,10 @@ import threading
 import time
 from typing import Any, Final, cast
 
-from . import providers
+from . import capability, providers
 
 PROVIDER: Final = "Antigravity"
+CLI: Final = "antigravity"
 ACCOUNT: Final = "antigravity"
 CACHE_TTL: Final = 30.0
 MAX_EVIDENCE_AGE: Final = 900.0
@@ -53,7 +54,8 @@ _UNIT: Final = {"d": 86400.0, "h": 3600.0, "m": 60.0, "s": 1.0}
 
 _lock = threading.Lock()
 _fetch_lock = threading.Lock()
-_cache: dict[str, Any] = {"at": 0.0, "data": None, "account": None}
+_cache: dict[str, Any] = {"at": 0.0, "data": None, "account": None,
+                          "version": capability.UNOBSERVED}
 
 
 def reset_in_seconds(text: str) -> float | None:
@@ -148,14 +150,43 @@ def _account_key(status: dict[str, Any]) -> str | None:
 
 
 def _clear_unlocked() -> None:
-    _cache.update(at=0.0, data=None, account=None)
+    _cache.update(at=0.0, data=None, account=None,
+                  version=capability.UNOBSERVED)
 
 
-def _reconcile_unlocked(account: str | None) -> dict[str, Any] | None:
-    """Return cached data only when it belongs to this exact account."""
+def _capability(status: dict[str, Any], supported: bool) -> dict[str, Any]:
+    """This read's capability provenance — the version it was judged against.
+
+    ⚠ THE VERSION IS OBSERVED, NEVER ASSUMED. `MIN_USAGE_VERSION` is the build
+    whose read-only behaviour was measured; what goes on the record beside it
+    is the version `agy --version` actually reported, so a negative reached
+    against 1.1.x is visibly a statement about 1.1.x and `capability.stale`
+    can retire it the moment the installed CLI changes (AU01, 2026-09-12).
+    """
+    return capability.observation(
+        cli=CLI, basis="version", version=status.get("version"),
+        supported=supported, observed_at=time.time(),
+        requires=".".join(str(part) for part in MIN_USAGE_VERSION))
+
+
+def _reconcile_unlocked(account: str | None,
+                        version: str = capability.UNOBSERVED,
+                        ) -> dict[str, Any] | None:
+    """Return cached data only when it belongs to this exact account AND was
+    read through this exact CLI version.
+
+    ⚠ THE VERSION IS PART OF THE CACHE KEY, not decoration. A `/usage` board
+    is the output of one CLI build's command; the build that replaces it may
+    report different buckets, different windows, or (in the direction that
+    started all this) may be the first build able to answer at all. Holding
+    the old build's answer across the change is the same mistake as holding a
+    stale `unsupported` — just harder to notice, because stale data looks like
+    data. So an upgrade, a downgrade or a vanished CLI all drop the board and
+    the next ordinary read re-derives it.
+    """
     cached = _cache.get("data")
     if isinstance(cached, dict) and _cache.get("account") == account \
-            and account is not None:
+            and account is not None and _cache.get("version") == version:
         return cached
     if cached is not None:
         _clear_unlocked()
@@ -166,7 +197,8 @@ def _reconcile_observed_status_unlocked() -> dict[str, Any] | None:
     """Reconcile with status another surface observed, without a CLI call."""
     status = providers.antigravity_cached_status()
     if status is not None:
-        _reconcile_unlocked(_account_key(status))
+        _reconcile_unlocked(_account_key(status),
+                            capability.version_key(status.get("version")))
     return status
 
 
@@ -295,8 +327,9 @@ def fetch(force: bool = False) -> dict[str, Any]:
     now = time.time()
     status = providers.antigravity_status(force=force)
     account = _account_key(status)
+    version = capability.version_key(status.get("version"))
     with _lock:
-        cached = _reconcile_unlocked(account)
+        cached = _reconcile_unlocked(account, version)
 
     if not status.get("installed"):
         with _lock:
@@ -320,6 +353,7 @@ def fetch(force: bool = False) -> dict[str, Any]:
             "unsupported": True,
             "error": ("Antigravity usage requires CLI 1.2.0 or newer; "
                       "update the Antigravity CLI to enable it"),
+            "capability": _capability(status, supported=False),
         }, status)
     if (not force and isinstance(cached, dict)
             and now - float(_cache.get("at") or 0) <= CACHE_TTL):
@@ -328,7 +362,7 @@ def fetch(force: bool = False) -> dict[str, Any]:
     with _fetch_lock:
         now = time.time()
         with _lock:
-            cached = _reconcile_unlocked(account)
+            cached = _reconcile_unlocked(account, version)
             if (not force and isinstance(cached, dict)
                     and now - float(_cache.get("at") or 0) <= CACHE_TTL):
                 return _account(dict(cached), status)
@@ -344,6 +378,7 @@ def fetch(force: bool = False) -> dict[str, Any]:
                 data["error"] = "Antigravity reported no usage-limit windows"
             after = providers.antigravity_status(force=True)
             after_account = _account_key(after)
+            after_version = capability.version_key(after.get("version"))
             if after_account is None or after_account != account:
                 with _lock:
                     _clear_unlocked()
@@ -352,8 +387,32 @@ def fetch(force: bool = False) -> dict[str, Any]:
                     "error": ("Antigravity account changed during the usage "
                               "read; the result was not cached"),
                 }, after)
+            if after_version != version:
+                # The CLI was replaced while its own answer was in flight, so
+                # nothing here knows which build produced the board.
+                #
+                # ⚠ AND SO IT CARRIES NO CAPABILITY RECORD AT ALL (review,
+                # py-runner 2026-09-12). This branch first shipped stamping the
+                # record with the version observed AFTER the change, which
+                # attributed a successful read to a build that may never have
+                # performed it — the same wrong-provenance mistake the whole
+                # package exists to stop, one layer up. An ABSENT record is the
+                # honest shape: it says no capability conclusion was reached,
+                # and `capability.stale(None, …)` is True for every version, so
+                # any holder recomputes instead of inheriting an answer nobody
+                # measured. The error text below is what says why.
+                with _lock:
+                    _clear_unlocked()
+                return _account({
+                    "available": False,
+                    "error": ("Antigravity CLI version changed during the "
+                              "usage read; the result was not cached and is "
+                              "attributed to neither version"),
+                }, after)
+            data["capability"] = _capability(after, supported=True)
             with _lock:
-                _cache.update(at=observed, data=data, account=account)
+                _cache.update(at=observed, data=data, account=account,
+                              version=version)
             return _account(dict(data), after)
         except Exception as error:  # noqa: BLE001 - provider failures degrade the panel
             try:
@@ -368,7 +427,8 @@ def fetch(force: bool = False) -> dict[str, Any]:
                 }, status)
             after_account = _account_key(after)
             with _lock:
-                stale = _reconcile_unlocked(after_account)
+                stale = _reconcile_unlocked(
+                    after_account, capability.version_key(after.get("version")))
             message = f"Antigravity usage refresh failed: {error}"
             if after_account == account and isinstance(stale, dict):
                 return _account({**stale, "error": message}, after)

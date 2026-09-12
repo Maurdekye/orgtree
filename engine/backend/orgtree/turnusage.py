@@ -514,6 +514,77 @@ def _roster_entry(provider: str, lane: str, identity: dict[str, str]) -> str:
     return " ".join(bits)
 
 
+def spent_windows(tier: str, *, prefer_reserve: bool = True,
+                  ) -> tuple[list[str], str]:
+    """`(windows, conditional)` — which of ONE account's usage windows a turn
+    of `tier` actually accumulates in, named exactly as the rows above name
+    them.
+
+    ⚠ THIS IS THE BILLING QUESTION, NOT THE WALL-MATCHING ONE. `limits.
+    lane_applies` answers "which window is this limit MESSAGE about", and its
+    answer is deliberately different: a Fable wall is never explained by the
+    pooled weekly lane. What a Fable turn SPENDS is both — the standard weekly
+    limit and Fable's own (user accounting, 2026-09-12) — and an agent reading
+    the board needs this half, because the row it must not start work against
+    is the row its own model draws down.
+
+    ⚠ AND IT IS WHY A 100% ROW CAN SIT BESIDE AN ADMITTED TURN. The report
+    that started this (perf-pass, 2026-09-12) was a Fable weekly window
+    reading 100% on one account all session while turns kept being admitted —
+    read as the usage board contradicting itself. Most of the time it is not:
+    the exhausted window belongs to an account, and a turn on a DIFFERENT
+    account, or a model that does not draw on that window, spends none of it.
+    The board names every account, so this line names the ones this turn is
+    actually spending and leaves the contradiction visible only when it is
+    real.
+
+    The empty list plus `"not published for this lane"` is the honest answer
+    for a provider whose per-model window mapping this codebase has not
+    measured — never a guess, and never a turns-remaining estimate, which no
+    lane publishes at all.
+    """
+    tier = str(tier or "").strip().lower()
+    if tier in limits.CLAUDE_TIERS:
+        windows = ["session", "weekly_all"]
+        if tier == "fable":
+            windows.append("weekly_scoped:fable")
+        return windows, ""
+    from . import codex_route, providers          # noqa: PLC0415 — one lane
+    if tier in providers.CODEX_TIERS:
+        if tier == codex_route.ROUTED_TIER and prefer_reserve:
+            return (["session", f"weekly_scoped:{codex_route.RESERVE_MODEL}"],
+                    f"weekly_all only once {codex_route.RESERVE_MODEL} is full "
+                    "or the reserve preference is off")
+        return ["session", "weekly_all"], ""
+    return [], "not published for this lane"
+
+
+def _spend_line(tier: str, lines: list[str], *,
+                prefer_reserve: bool = True) -> str:
+    """The board's closing sentence: what THIS turn draws down, and where.
+
+    The account is read back out of the rendered rows — the one the `*` marker
+    already selected — so the sentence and the marker cannot name different
+    accounts. An unselected board (no marker) still names the windows, because
+    the model's own accounting is useful even before a lane is chosen.
+    """
+    account = ""
+    for line in lines:
+        if line.count("|") < 6:
+            continue
+        cell = _cells(line)[0]
+        if cell.endswith("*"):
+            account = cell[:-1]
+            break
+    windows, conditional = spent_windows(tier, prefer_reserve=prefer_reserve)
+    who = f"{tier} on {account}" if account else (tier or "this model")
+    what = ", ".join(windows) if windows else conditional
+    if conditional and windows:
+        what += f" ({conditional})"
+    return (f"this turn spends: {who} → {what}; other windows are not spent "
+            "by it, and no lane publishes a turns-remaining figure.")
+
+
 def _cells(line: str) -> list[str]:
     """One rendered row, split back into its columns.
 
@@ -770,6 +841,19 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
 
         rows.sort(key=_row_order)
         lines = [line for _key, line in rows]
+        # ── WHAT THIS TURN ACTUALLY DRAWS DOWN (W15) ──────────────────────
+        # The rows say what every account's standing is; they never said which
+        # of those windows the running model spends, and an agent cannot act on
+        # the load-balancing rule without that half — it is the difference
+        # between "an account is exhausted" and "MY account is exhausted for
+        # MY model". See `spent_windows`.
+        try:
+            # `model` is the node's tier — the field is named for what the
+            # agent RUNS, and `tier` is the word the seat table uses for it
+            spend = _spend_line(str(node.get("model") or ""), lines,
+                                prefer_reserve=org.prefer_reserve_for(nid))
+        except Exception:                                      # noqa: BLE001
+            spend = ""                     # one absent fact never fails a board
         # the roster is NOT a usage row and must never read as one: no pipes,
         # its own prefix, and it is keyed into `material_key` separately so a
         # renamed or re-identified account still re-sends the board
@@ -777,6 +861,11 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
         key = material_key(lines)
         if roster:
             key = f"{ROSTER}{' · '.join(roster)}\n{key}"
+        # the spend sentence is keyed like the roster — a model switch changes
+        # which windows the turn draws down, and a suppressed board would
+        # otherwise leave the old accounting standing
+        if spend:
+            key = f"{spend}\n{key}"
         return ((f"{OPEN} — current as of {_iso(now)}; "
                  f"dynamic/cache-only]\n"
                  + roster_line
@@ -785,6 +874,7 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
                  + "\n".join(lines)
                  + "\n* selected for this turn; - = not authoritatively "
                    "reported.\n"
+                 + (f"{spend}\n" if spend else "")
                  + CLOSE), key)
     except Exception:  # noqa: BLE001 - telemetry is never an admission gate
         # ⚠ A DISTINCT KEY, not "". Two failures in a row are not evidence that

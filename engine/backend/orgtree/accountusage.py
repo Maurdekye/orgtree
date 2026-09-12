@@ -55,7 +55,8 @@ import os
 import time
 from typing import Any, Final, cast
 
-from . import accounts, antigravity_limits, codex_limits, limits, registry
+from . import (accounts, antigravity_limits, capability, codex_limits, limits,
+               registry)
 
 #: Provider order, the modal's own: Claude, Codex, Antigravity.
 PROVIDER_ORDER: Final[dict[str, int]] = {"claude": 0, "openai": 1, "google": 2}
@@ -225,6 +226,16 @@ def _google_view(row: dict[str, Any], out: dict[str, Any], *,
         unsupported=True,
         error=("Antigravity usage is unavailable for this non-ambient "
                "profile because the CLI has no profile selector"),
+        # Dated and versioned like every other capability negative (AU01): the
+        # CLI grew a structured `/usage` between two of this org's own
+        # sessions, and an undated "unsupported" is how that went unnoticed
+        # for weeks. `cli_version_cached` reads an already-observed version
+        # only — this branch is on the turn-envelope path.
+        capability=capability.observation(
+            cli="antigravity", basis="no-profile-selector",
+            version=capability.cli_version_cached("antigravity"),
+            detail="the Antigravity CLI answers only for the account it is "
+                   "ambiently signed into"),
     )
     return out
 
@@ -234,7 +245,16 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
     """ONE registered account's usage payload — the modal's own shape.
 
     `{account, provider, standing, available, error?, unsupported?, limits?[],
-      plan?, tiers?[], detail?, reauth_required?, reauth_evidence?}`
+      plan?, tiers?[], detail?, reauth_required?, reauth_evidence?,
+      capability?}`
+
+    `capability` is present whenever this lane's INABILITY to report usage was
+    a measurement rather than a momentary failure — see `capability`: it dates
+    the conclusion and names the CLI version it was reached against, so an
+    `unsupported` that a newer CLI has outgrown can be recognised as old
+    instead of being republished forever (AU01, 2026-09-12). It says nothing
+    about capacity: `available: False` means no reading, which is neither zero
+    nor room.
 
     Support matrix, honest: claude profile rows read their own credentials
     file (same scopes as the ambient login); the aliased AMBIENT claude row
@@ -257,7 +277,12 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
         ref = str(cred.get("token_ref") or "")
         if ref.startswith("org-api-key:"):
             out.update(available=False,
-                       error="API-key billing — no subscription windows")
+                       error="API-key billing — no subscription windows",
+                       capability=capability.observation(
+                           cli="claude", basis="billing",
+                           version=capability.cli_version_cached("claude"),
+                           detail="an API key is billed per request and has "
+                                  "no subscription window to report"))
         elif not allow_fetch and ref == accounts.PRIMARY:
             # `accounts.account_usage("primary")` reaches the host subscription
             # through a fetch. Nothing on the envelope path may fetch, so the

@@ -56,7 +56,7 @@ import threading
 import time
 from typing import Any
 
-from . import limits, store, subproxy, tokens
+from . import capability, limits, store, subproxy, tokens
 
 REGISTRY_NAME = "accounts.json"
 VERSION = 2
@@ -973,6 +973,20 @@ def account_usage(account: str) -> dict[str, Any]:
     return {"account": account, "label": label,
             "available": False, "unsupported": True,
             "tiers": tier_standing(doc, account),
+            # ⚠ THE CONCLUSION CARRIES ITS OWN PROVENANCE (AU01, 2026-09-12).
+            # D-147 is a scope fact, not a version fact — no Claude CLI build
+            # grants a `setup-token` key the `user:profile` scope — so this is
+            # the one basis an upgrade is not expected to change. It is still
+            # stamped with the CLI version that was observed, because the
+            # alternative is exactly what went wrong for Antigravity: a
+            # capability measured once, published forever, and impossible to
+            # date. Cache-only (`capability.cli_version_cached`): this row is
+            # reached from the turn envelope, which spawns nothing.
+            "capability": capability.observation(
+                cli="claude", basis="scope",
+                version=capability.cli_version_cached("claude"),
+                detail="D-147: `claude setup-token` keys are inference-only "
+                       "and the usage endpoint needs the `user:profile` scope"),
             "error": "usage limits can't be read for a `claude setup-token` "
                      "key — these are inference-only, and the usage endpoint "
                      "needs a permission they are never granted. Nothing is "

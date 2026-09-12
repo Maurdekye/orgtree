@@ -463,6 +463,20 @@ def cli_version() -> str:
     return ver
 
 
+def cli_version_cached() -> str | None:
+    """The Claude CLI version SOMETHING ALREADY OBSERVED, or None.
+
+    `cli_version` above may fall through to a `claude --version` subprocess.
+    That is right for the surfaces that need an answer (image tagging, the
+    host report) and wrong for the turn envelope, whose promise is that it
+    opens no process at all — see `capability.cli_version_cached`, the one
+    caller. An unobserved version is reported as unobserved; nothing here
+    probes to avoid saying so.
+    """
+    c = _cli_version_cache
+    return c[2] if c and c[2] and c[2] != "unknown" else None
+
+
 _build_info_cache: dict[str, Any] | None = None
 
 
@@ -7549,6 +7563,14 @@ ACCOUNT_LANE_DOCTRINE = (
     "are exactly two exceptions — the user has turned the reserve preference "
     "off for that agent, or the gpt-reserve lane is unavailable — and in "
     "either of those Luna spends the normal weekly limit instead. "
+    "AND THE BOARD DOES THAT ARITHMETIC FOR THE TURN YOU ARE IN: its closing "
+    "line reads `this turn spends: <model> on <account> → <windows>`, and "
+    "those named windows are the ones your own turn draws down. So a window "
+    "sitting at 100% on an account or a model that line does not name is not "
+    "a constraint on you — that is usually the whole explanation when an "
+    "exhausted-looking row sits beside turns that keep being admitted. The "
+    "line never states how many turns you have left, because no lane "
+    "publishes that: do not derive one. "
     "NEVER START A MODEL ON AN ACCOUNT WHERE A WINDOW IT SPENDS IS AT 100% "
     "(user rule 2026-09-12). That is a hard ineligibility, not a preference: "
     "no astra on a Codex account whose weekly window is full, no fable on a "
