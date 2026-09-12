@@ -10308,16 +10308,18 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     """The node's OWN mailbox (user ruling: separate from the events/history
     view): mail still waiting for its next turn, plus recently delivered mail
     with full bodies (the event log keeps only a gist)."""
-    # tails first (no Org, no archive materialization): this endpoint used to
+    # bounded tails (no archive materialization): this endpoint used to
     # preload EVERY owner's mail_log and scan the whole org archive (9.9 MB /
     # 156 ms at the live root, growing forever) to mirror one node's Sent
     # folder (REPORT.md #6). The org itself is still loaded — eager sections
-    # only — for the waiting box and the delivery journal.
-    tails = None
+    # only — for the waiting box and the delivery journal, FIRST, so the
+    # delivered tail can be sized past every still-pending duplicate the
+    # filter below will drop (perf-review reproduction #3: a fixed slack
+    # under-filled the delivered box once pending outgrew it).
     try:
-        tails = store.read_mail_tails(slug, nid, keep=50)
+        supports_tails = store.STORE_BACKEND == "sqlite"
         org = (store.load_org_snapshot(slug, ())
-               if tails is not None
+               if supports_tails
                else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))
         org.node(nid)
     except LedgerError as e:
@@ -10326,6 +10328,17 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
                      + list((org.d.get("mail") or {}).get(nid, [])),
                      key=lambda m: m.get("at") or "")
     keys = {(m["at"], m["from"], m["body"]) for m in waiting}
+    tails = (store.read_mail_tails(slug, nid, keep=50,
+                                   slack=len(waiting) + 40)
+             if supports_tails else None)
+    if tails is None and supports_tails:
+        # blob-shaped legacy sections: re-load with the full archives, the
+        # exact pre-tails path
+        try:
+            org = store.load_org_snapshot(slug, ("mail_log", "user_mail_log"))
+            org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
     if tails is not None:
         delivered_src, sent = tails
         delivered = [m for m in delivered_src

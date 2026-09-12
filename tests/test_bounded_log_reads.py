@@ -71,21 +71,27 @@ class BoundedLogReads(unittest.TestCase):
         if store.STORE_BACKEND != 'sqlite':
             self.skipTest('sqlite reader only')
         fresh = store.load_org('bounded')
+        at = lambda e: e.get('at') or ''   # noqa: E731 — the handler's sort key
         for nid in ('alpha', 'beta'):
-            want_ev = [e for e in fresh.d['events']
-                       if (lambda det: det.get('node') == nid
-                           or det.get('to') == nid or e.get('actor') == nid
-                           or det.get('grantee') == nid
-                           or det.get('from') == nid)(e.get('detail', {}))]
-            want_nl = [n for n in fresh.d['notice_log'] if n['node'] == nid]
+            want_ev = sorted((e for e in fresh.d['events']
+                              if (lambda det: det.get('node') == nid
+                                  or det.get('to') == nid
+                                  or e.get('actor') == nid
+                                  or det.get('grantee') == nid
+                                  or det.get('from') == nid)(
+                                      e.get('detail', {}))), key=at)
+            want_nl = sorted((n for n in fresh.d['notice_log']
+                              if n['node'] == nid), key=at)
             got = store.read_node_history_rows('bounded', nid, 1000)
             self.assertIsNotNone(got)
             got_ev, got_nl = got
-            self.assertEqual(got_ev, want_ev)
-            self.assertEqual(got_nl, want_nl)
+            # the handler sorts by `at` before slicing, so at-order is the
+            # consumption order the reader must reproduce
+            self.assertEqual(sorted(got_ev, key=at), want_ev)
+            self.assertEqual(sorted(got_nl, key=at), want_nl)
             capped = store.read_node_history_rows('bounded', nid, 5)
-            self.assertEqual(capped[0], want_ev[-5:])
-            self.assertEqual(capped[1], want_nl[-5:])
+            self.assertEqual(sorted(capped[0], key=at), want_ev[-5:])
+            self.assertEqual(sorted(capped[1], key=at), want_nl[-5:])
 
     def test_mail_tails_match_full_scan(self):
         if store.STORE_BACKEND != 'sqlite':
@@ -106,6 +112,66 @@ class BoundedLogReads(unittest.TestCase):
         delivered, sent = got
         self.assertEqual(delivered, want_delivered[-90:])
         self.assertEqual(sent, want_sent[-90:])
+
+    def test_events_negative_since_slices_like_python(self):
+        # perf-review reproduction #1: events[since:] with a NEGATIVE index
+        # means the tail, exactly as the list slice always did
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        fresh = store.load_org('bounded')
+        ev = list(fresh.d['events'])
+        for since in (-1, -2, -7, -len(ev), -len(ev) - 5):
+            total, rows = store.read_events_page('bounded', since=since)
+            self.assertEqual(rows, ev[since:], f'since={since}')
+            self.assertEqual(total, len(ev))
+
+    def test_history_tail_is_by_timestamp_not_insertion(self):
+        # perf-review reproduction #2: rows appended in REVERSE timestamp
+        # order — the capped tail must keep the newest BY `at`, because that
+        # is the key the handler sorts and slices by
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        org = store.create_org('Revorg')
+        org.d['slug'] = 'revorg'
+        org.hire(ledger.USER, None, 'haiku', 0, 'alpha')
+        for i in range(10):
+            store.log_append(org.d, 'events', {
+                'op': 'mail', 'actor': 'alpha',
+                'at': f'2026-09-01T00:00:{99 - i:02d}.000Z',   # descending
+                'detail': {'to': 'alpha'}, 'warnings': []})
+        store.save_org(org)
+        fresh = store.load_org('revorg')
+        want = sorted(fresh.d['events'], key=lambda e: e['at'])[-3:]
+        got_ev, _ = store.read_node_history_rows('revorg', 'alpha', 3)
+        self.assertEqual([e['at'] for e in got_ev], [e['at'] for e in want])
+
+    def test_mail_tail_slack_covers_pending_duplicates(self):
+        # perf-review reproduction #3: when many delivered-tail rows are
+        # still-pending duplicates the filter drops, the slack must cover
+        # them or the delivered box under-fills. The handler sizes slack
+        # from len(waiting); this pins the reader honouring a large slack.
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        org = store.create_org('Slackorg')
+        org.d['slug'] = 'slackorg'
+        org.hire(ledger.USER, None, 'haiku', 0, 'alpha')
+        org.hire(ledger.USER, None, 'haiku', 0, 'beta')
+        for i in range(100):
+            org.post_mail('beta', 'alpha', f'archived {i}')
+        store.save_org(org)
+        fresh = store.load_org('slackorg')
+        archive = list((fresh.d.get('mail_log') or {}).get('alpha', []))
+        # emulate 41 of the newest rows still pending (the handler's keys)
+        pending = archive[-41:]
+        keys = {(m['at'], m['from'], m['body']) for m in pending}
+        delivered_src, _sent = store.read_mail_tails(
+            'slackorg', 'alpha', keep=50, slack=len(pending) + 40)
+        delivered = [m for m in delivered_src
+                     if (m['at'], m['from'], m['body']) not in keys]
+        want = [m for m in archive
+                if (m['at'], m['from'], m['body']) not in keys][-50:]
+        self.assertEqual(delivered[-50:], want)
+        self.assertGreaterEqual(len(delivered), 50)
 
     def test_node_row_exists(self):
         if store.STORE_BACKEND != 'sqlite':

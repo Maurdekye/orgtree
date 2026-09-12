@@ -2995,9 +2995,13 @@ def read_events_page(slug: str, since: int = 0, last: int | None = None
                 "SELECT val FROM log_l WHERE sect='events' "
                 "ORDER BY seq DESC LIMIT ?", (max(0, last),)).fetchall()
             return total, [json.loads(cast(str, r[0])) for r in reversed(rows)]
+        # `events[since:]`, EXACTLY — including Python's negative-index
+        # meaning (perf-review reproduction #1: since=-2 must be the last
+        # two rows, not the whole log)
+        offset = since if since >= 0 else max(0, total + since)
         rows = conn.execute(
             "SELECT val FROM log_l WHERE sect='events' "
-            "ORDER BY seq LIMIT -1 OFFSET ?", (max(0, since),)).fetchall()
+            "ORDER BY seq LIMIT -1 OFFSET ?", (offset,)).fetchall()
         return total, [json.loads(cast(str, r[0])) for r in rows]
     return _bounded_read(slug, body)
 
@@ -3007,9 +3011,11 @@ def read_node_history_rows(slug: str, nid: str, cap: int
     """The newest `cap` event rows touching one node, plus its newest `cap`
     notice rows, both oldest-first — the exact inputs /nodes/{nid}/history
     projects. The five-field OR mirrors the handler's `touches` test; JSON1
-    runs it inside SQLite instead of parsing 19k rows in Python. Per-source
-    tails are by insertion order (seq), which is also how the merged view has
-    always effectively been ordered — both logs append at event time.
+    runs it inside SQLite instead of parsing 19k rows in Python. Tails are
+    by `at` (then seq for ties) because that is the key the handler sorts
+    and slices by — a seq tail keeps the newest-by-insertion instead of the
+    newest-by-timestamp and diverges the moment the two orders disagree
+    (perf-review reproduction #2, reverse-timestamp fixture).
     None = fall back (JSON backend or blob-shaped section)."""
     def body(conn: sqlite3.Connection) -> tuple[list[Any], list[Any]] | None:
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
@@ -3022,11 +3028,14 @@ def read_node_history_rows(slug: str, nid: str, cap: int
             "json_extract(val,'$.actor')=? OR "
             "json_extract(val,'$.detail.grantee')=? OR "
             "json_extract(val,'$.detail.from')=?) "
-            "ORDER BY seq DESC LIMIT ?",
+            "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+            "LIMIT ?",
             (nid, nid, nid, nid, nid, cap)).fetchall()
         nl = conn.execute(
             "SELECT val FROM log_l WHERE sect='notice_log' AND "
-            "json_extract(val,'$.node')=? ORDER BY seq DESC LIMIT ?",
+            "json_extract(val,'$.node')=? "
+            "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+            "LIMIT ?",
             (nid, cap)).fetchall()
         return ([json.loads(cast(str, r[0])) for r in reversed(ev)],
                 [json.loads(cast(str, r[0])) for r in reversed(nl)])
