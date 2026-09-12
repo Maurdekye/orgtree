@@ -47,7 +47,7 @@ import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
@@ -397,7 +397,12 @@ export default function App() {
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
   const [showAccounts, setShowAccounts] = useState(false)   // D-144 account registry
-  const [showUsage, setShowUsage] = useState(false)         // host subscription usage bars
+  // host subscription usage bars. SCOPED, not one boolean: home and each
+  // organization are separate places to have this open (user 2026-09-12) -
+  // see useScopedOpen in canvas/modalpin.tsx for what went wrong without it.
+  const usageOpen = useScopedOpen(slug)
+  const showUsage = usageOpen.open
+  const setShowUsage = usageOpen.set
 
   // the documents gallery (user request 2026-09-03): every presented card,
   // org-wide, one place. It reads in its OWN right-hand pane (the mail
@@ -516,7 +521,7 @@ export default function App() {
     })
   }, [setSlug])
   useEffect(() => {
-    setShowUsage((isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
+    usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
@@ -526,7 +531,7 @@ export default function App() {
     restoredOrg.current = slug
     const pinned = readModalOpen(slug)
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
-    setShowUsage(pinnedKind('usage') || restoreWindowKind('usage', slug))
+    usageOpen.setIn(slug, pinnedKind('usage') || restoreWindowKind('usage', slug))
     setShowSettings(pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))

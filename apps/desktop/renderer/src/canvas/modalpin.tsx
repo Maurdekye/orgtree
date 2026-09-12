@@ -201,6 +201,45 @@ export const forgetModalOpen = (kind: string, org: string | null): void => {
   if (next.length !== all.length) writeOpen(next)
 }
 export const forgetModalOpenCache = (): void => { openCache = null; openSuppressed.clear() }
+/** Open state for a surface that exists SEPARATELY in every scope.
+ *
+ * ONE BOOLEAN IS NOT ONE SURFACE. The Usage panel is the same component
+ * everywhere, but the home screen and each organization are different PLACES
+ * to have it open: an org pins it where the user put it, home shows a centred
+ * modal. Holding that in a single `useState(false)` is what produced the
+ * three faults reported on 2026-09-12 - an org's pinned Usage reappearing at
+ * home as an ordinary modal, closing it there taking the org's pin with it,
+ * and two organizations sharing one answer.
+ *
+ * This is the IN-MEMORY half catching up with the durable half: `openKey` and
+ * `modalPinKey` have always been keyed by `(kind, org)`. `org ?? ''` is
+ * `openKey`'s own convention for "home", not a new one.
+ *
+ * `setIn` exists because two callers know a scope that is NOT the one on
+ * screen: App's mount effect restores HOME's state while an organization may
+ * already be open, and the per-org restore effect runs for the org whose tree
+ * has just arrived. Writing those through `set` would file them under
+ * whichever scope happened to be current.
+ *
+ * Behaviour: tests/usagescope.test.tsx drives the real App through the
+ * reported navigation.
+ */
+export interface ScopedOpen {
+  /** is it open in the scope on screen */
+  open: boolean
+  /** open or close it in the scope on screen */
+  set: (open: boolean) => void
+  /** open or close it in a NAMED scope, whatever is on screen */
+  setIn: (org: string | null, open: boolean) => void
+}
+export const useScopedOpen = (org: string | null): ScopedOpen => {
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const setIn = useCallback((scope: string | null, next: boolean) =>
+    setOpen((all) => ({ ...all, [scope ?? '']: next })), [])
+  const set = useCallback((next: boolean) => setIn(org, next), [setIn, org])
+  return { open: !!open[org ?? ''], set, setIn }
+}
+
 /** Keep the durable open marker aligned with an owning component's state.
  * The first render is intentionally not treated as a close: restoration sets
  * state in an effect after the component mounts. */
