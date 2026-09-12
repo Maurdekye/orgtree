@@ -7337,7 +7337,17 @@ class Org:
     #: on an item that carries a node id records who did something THEN, and
     #: is authored history: `created_by`, `history[].by`, `history[].from`,
     #: `evidence[].by`, `delivery.*.claimed_by`, `accepted.by`.
-    WORK_IDENTITY_FIELDS: tuple[str, ...] = ("owner", "last_updater")
+    #:
+    #: ⚠ `reviewer` IS ONE OF THEM (rename ticket acceptance 1). It was absent
+    #: while `owner` and `last_updater` were listed "because the authority
+    #: paths read both" — but `work_review_decide` reads the reviewer the same
+    #: way (`actor != rev_node` refuses the verdict), so a renamed reviewer
+    #: silently lost the seat it was holding: the item still said `review`,
+    #: still named the old id, and the only agent entitled to decide no longer
+    #: matched it. Nothing recovered that on its own, because `_work_sweep`
+    #: looks at owners.
+    WORK_IDENTITY_FIELDS: tuple[str, ...] = ("owner", "reviewer",
+                                             "last_updater")
 
     @staticmethod
     def _work_ref(it: WorkItem) -> str:
@@ -7431,7 +7441,23 @@ class Org:
         None means every item (the rename path). Returns (item ref, field) per
         move so a caller can report exactly what it did. `rev`, `updated_at`,
         `docket_at` and `history` are deliberately untouched — this is an
-        identity re-key, not a docket update."""
+        identity re-key, not a docket update.
+
+        ⚠ THE FIELD IS REBOUND, NEVER MUTATED IN PLACE. The holder dict this
+        function finds on `owner` or `reviewer` is THE VERY SAME OBJECT an
+        authored history row is holding: `_work_assign_core` records the
+        assignment as `_work_hist(..., {"from": frm, "to": it["owner"]})` and
+        `_work_name_reviewer` does the same with the reviewer, storing the live
+        dict rather than a copy of it. So `a["node"] = new` reached through the
+        alias and rewrote history — a row authored before the rename came back
+        naming the new id, with no `rev` bump, no `updated_at` move and no
+        event, while this docstring promised history was untouched and the
+        rename's own warning told the caller that historical records keep the
+        old name. Binding a fresh dict leaves every alias reading exactly what
+        it read before, which is what makes that promise true.
+        `_work_mark_deleted_holders` takes the same care for the same reason
+        (state-review's 2026-09-12 finding, on the delete path); this is the
+        rename twin of it, and the two are now the same shape on purpose."""
         moved: list[tuple[str, str]] = []
         for key in ("work_items", "work_items_archive"):
             for it in self.d.get(key) or []:
@@ -7441,7 +7467,10 @@ class Org:
                 for f in self.WORK_IDENTITY_FIELDS:
                     a = it.get(f)
                     if isinstance(a, dict) and a.get("node") in renamed:
-                        a["node"] = renamed[str(a["node"])]
+                        it[f] = cast(  # type: ignore[literal-required]
+                            "WorkActor",
+                            {**cast("dict[str, Any]", a),
+                             "node": renamed[str(a["node"])]})
                         moved.append((wid, f))
                 ps = it.get("participants")
                 if isinstance(ps, list) and any(
