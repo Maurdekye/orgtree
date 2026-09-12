@@ -4171,11 +4171,11 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     docstring anticipates); the aliased AMBIENT claude row serves the rich
     host board. Codex: the ambient-home row serves the real board; another
     codex profile answers a structured not-yet-supported (a per-profile read
-    requires launching that home's app-server). AG stays explicitly
-    unsupported — no usage surface exists to read, and no environment
-    selector is invented. Token rows: legacy key rows answer from local
-    routing state; an org-key row bills an API key and has no subscription
-    windows.
+    requires launching that home's app-server). Antigravity's ambient profile
+    serves the real /usage board; a non-ambient profile stays explicitly
+    unsupported because the CLI has no profile selector. Token rows: legacy
+    key rows answer from local routing state; an org-key row bills an API key
+    and has no subscription windows.
 
     ⚠ THE RESOLUTION ITSELF MOVED (user ruling 2026-09-12): it is
     `accountusage.view`, which the AGENT TURN ENVELOPE also calls — with

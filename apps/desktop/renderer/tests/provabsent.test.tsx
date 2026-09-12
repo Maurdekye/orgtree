@@ -432,7 +432,8 @@ test('§5 …and keeps it when Codex is installed', async () => {
 })
 
 test('§5 usageTitle names only the providers present', () => {
-  assert.equal(usageTitle(ALL_PRESENT), 'usage limits — Claude and Codex')
+  assert.equal(usageTitle(ALL_PRESENT),
+    'usage limits — Claude, Codex and Antigravity')
   assert.equal(usageTitle({ claude: true, openai: false, google: false, openrouter: false }),
     'usage limits — Claude')
   assert.equal(usageTitle({ claude: false, openai: true, google: false, openrouter: false }),
@@ -440,7 +441,7 @@ test('§5 usageTitle names only the providers present', () => {
   // no dangling "— " when neither is present
   assert.equal(usageTitle({ claude: false, openai: false, google: false, openrouter: false }),
     'usage limits')
-  // Antigravity has no usage route, so its presence must not add a name
+  // Antigravity now has the same real usage surface as the other two lanes.
   assert.equal(usageTitle({ claude: true, openai: false, google: true, openrouter: false }),
-    'usage limits — Claude')
+    'usage limits — Claude and Antigravity')
 })

@@ -170,18 +170,21 @@ export const patchMcpReadinessNode = (
 }
 
 /** D-202: the usage button's tooltip named "Claude and Codex" as a literal,
- *  which is a Codex mention on a machine that has never had Codex. The bars
- *  behind it exist for exactly these two providers (Antigravity has no usage
- *  route), so the label is the shown subset of them.
+ *  which is a Codex mention on a machine that has never had Codex. Name the
+ *  shown subset of subscription providers that expose real usage bars.
  *
  *  Falls back to the bare "usage limits" rather than an empty tail if neither
  *  is present — a state that only arises with Claude itself missing, where
  *  the button is nearly moot anyway and a dangling "usage limits — " would be
  *  the more visible defect. */
 export const usageTitle = (pres: ProviderPresence): string => {
-  const names = [pres.claude && 'Claude', pres.openai && 'Codex']
+  const names = [pres.claude && 'Claude', pres.openai && 'Codex',
+    pres.google && 'Antigravity']
     .filter((s): s is string => !!s)
-  return names.length ? `usage limits — ${names.join(' and ')}` : 'usage limits'
+  if (!names.length) return 'usage limits'
+  const label = names.length === 1 ? names[0]
+    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  return `usage limits — ${label}`
 }
 
 /** The activity chip is scoped to the current tree, but its tooltip answers
