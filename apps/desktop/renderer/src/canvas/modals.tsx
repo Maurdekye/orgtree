@@ -670,7 +670,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   // position:fixed would resolve against the SCALED ancestor (giant modal)
   return (
     <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings" close={close} pinnable={false}>
-        <h3><SettingsIcon fontSize="inherit" /> permissions <span className="dim">
+        <h3><SettingsIcon fontSize="inherit" /> Permissions <span className="dim">
           · applied with the hire</span></h3>
         <div className="field-label">folder access</div>
         <div className="dirlist">
@@ -1664,7 +1664,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
   return (
     <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings content-height pile-picker" onClick={(e) => e.stopPropagation()}>
-        <h3><LayersIcon fontSize="inherit" /> {crowd ? 'team stack' : 'retired pile'}
+        <h3><LayersIcon fontSize="inherit" /> {crowd ? 'Team stack' : 'Retired pile'}
           <span className="dim"> · {pile.list.length} agents</span></h3>
         <div className="hint">
           {crowd

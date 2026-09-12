@@ -47,7 +47,8 @@ test('DefaultsPanel renders without React #310 hook ordering error across loadin
   try {
     await inAct(async () => { await flush() })
     assert.ok(view.el.querySelector('.settings'), 'DefaultsPanel rendered settings container')
-    assert.match(view.el.textContent ?? '', /default org settings/)
+    assert.match(view.el.textContent ?? '', /Default org settings/)
+    assert.doesNotMatch(view.el.textContent ?? '', /default org settings/)
   } finally {
     await view.unmount()
     delete g.fetch

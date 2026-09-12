@@ -48,9 +48,9 @@ ROWS = "".join(f"""
 HTML = f"""
 <div class="overlay">
   <div class="settings wide gallery-modal">
-    <h3>presented documents</h3>
+    <h3>Presented documents</h3>
     <label class="checkline gallery-showretired">
-      <input type="checkbox" checked /> show retired agents<span class="dim"> · 12</span>
+      <input type="checkbox" checked /> Show retired agents<span class="dim"> · 12</span>
     </label>
     <div class="mailpane">
       <div class="mailer">

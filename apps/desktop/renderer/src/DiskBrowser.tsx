@@ -153,7 +153,7 @@ export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
     // modal. Pinned, PinFrame's own inline z-index overrides that class and
     // the window joins the 21-29 band with the rest of them — which is what
     // lets another pinned window be raised over it.
-    <PinFrame kind="disk" title="org disk" panel="settings disk-browser"
+    <PinFrame kind="disk" title="Org disk" panel="settings disk-browser"
       overlayClass="disk-overlay" close={close}>
         {/* ⚠ THE CONTROLS ARE OUT OF THE HEADING ON PURPOSE. A pinned window
             hides the panel's own title h3 (its title bar already says it), so
@@ -161,13 +161,13 @@ export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
             among them, kept its mode tabs and its close button in there. They
             are the same row, and they look the same centred; they are just no
             longer inside the element that stands down. */}
-        <h3><StorageIcon fontSize="inherit" /> org disk</h3>
+        <h3><StorageIcon fontSize="inherit" /> Org disk</h3>
         <div className="disk-head">
           <span className="disk-tabs">
             <button className={mode === 'largest' ? 'on' : ''}
-              onClick={() => setMode('largest')}>largest files</button>
+              onClick={() => setMode('largest')}>Largest files</button>
             <button className={mode === 'browse' ? 'on' : ''}
-              onClick={() => setMode('browse')}>browse</button>
+              onClick={() => setMode('browse')}>Browse</button>
           </span>
           <span className="spacer" />
           <button className="iconbtn" title="close" onClick={close}>

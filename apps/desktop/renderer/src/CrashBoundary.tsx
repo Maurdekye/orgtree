@@ -42,7 +42,7 @@ export default class CrashBoundary extends React.Component<{ children: React.Rea
             background: '#1a1a1a', minHeight: '100vh', boxSizing: 'border-box',
           }}
         >
-          <h2 style={{ color: '#f66', margin: '0 0 12px' }}>orgtree hit a problem and had to stop.</h2>
+          <h2 style={{ color: '#f66', margin: '0 0 12px' }}>Orgtree hit a problem and had to stop.</h2>
           <p style={{ margin: '0 0 8px' }}>
             A crash report was saved and sent automatically — no action needed to preserve it.
           </p>

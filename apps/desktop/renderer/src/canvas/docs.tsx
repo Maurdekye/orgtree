@@ -224,7 +224,7 @@ export function DocReader({ slug, docId, toast, close, refs,
   pinKind?: string
 }) {
   const { doc, err } = useDoc(slug, docId)
-  if (!doc) return <PinFrame kind={pinKind} pinnable={false} title="presented documents"
+  if (!doc) return <PinFrame kind={pinKind} pinnable={false} title="Presented documents"
     panel="settings wide gallery-modal" close={close}>
     <div className={err ? 'ask-warn' : 'dim pad'}>{err ? `Could not load presentation: ${err}` : 'Loading presentation?'}</div>
   </PinFrame>

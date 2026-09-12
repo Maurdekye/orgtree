@@ -295,7 +295,7 @@ DRAFT = "a half-typed draft that must survive being pinned"
 # load: (fixture, panel, the title element under it, the words it says, what to
 # wait for). `.gallery-head` is the gallery's own markup, worn by the docket.
 HEAD_ROW_SURFACES = [
-    ("gallery", ".gallery-modal", ".gallery-head > h3", "presented documents",
+    ("gallery", ".gallery-modal", ".gallery-head > h3", "Presented documents",
      ".gallery-modal .mailer-list"),
     ("docket", ".docket-modal", ".gallery-head > h3", "Work docket",
      ".docket-modal .gallery-head"),

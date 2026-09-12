@@ -877,7 +877,7 @@ export default function App() {
           </button>}
         {showControls && <UpdateNotice />}
         {showControls && <WindowControls />}</h1>
-      {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> all organizations</button>}
+      {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> All organizations</button>}
       <nav>
         <OrgRows orgs={orgs} slug={slug} onPick={pick}
           onDelete={(o) => setDoomedOrg(o)} />
@@ -889,7 +889,7 @@ export default function App() {
       {/* global default org settings (user spec): every NEW org is born with
           these — admin only */}
       {!BASE && <button className="home" onClick={() => setShowDefaults(v => isModalPinned('defaults') ? !v : true)}>
-        <SettingsIcon fontSize="inherit" /> default org settings</button>}
+        <SettingsIcon fontSize="inherit" /> Default org settings</button>}
       {/* kiosk dashboard: admin only — a public visitor never sees this panel
           (and the server refuses the endpoints regardless) */}
     </>
@@ -1833,7 +1833,7 @@ export function NewOrg({ onCreate }: {
     setOpen(false); setAdvanced(false); setName(''); setDirs([])
     setNetAuto(true); setNetHubs([])
   }
-  if (!open) return <button className="primary" onClick={() => setOpen(true)}>+ new organization</button>
+  if (!open) return <button className="primary" onClick={() => setOpen(true)}>+ New organization</button>
   return (
     <form className="stack" onSubmit={(e) => {
       e.preventDefault()
@@ -1859,13 +1859,13 @@ export function NewOrg({ onCreate }: {
         <AdvancedOrgModal title={name.trim() || 'new organization'}
           close={() => setAdvanced(false)}
           tabs={[
-            { label: 'general', content: (
+            { label: 'General', content: (
               <>
                 <div className="field-label">also grant existing folders</div>
                 <DirList dirs={dirs} onChange={setDirs} />
               </>
             ) },
-            { label: 'mailserver', content: (
+            { label: 'Mailserver', content: (
               <>
                 <label className="row kiosk-sbx"
                   title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
@@ -2274,9 +2274,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     )
   }
   return (
-    <PinFrame kind="inbox" title="your inbox" panel="settings wide"
+    <PinFrame kind="inbox" title="Your inbox" panel="settings wide"
       close={close}>
-        <h3><MailIcon fontSize="inherit" /> your inbox</h3>
+        <h3><MailIcon fontSize="inherit" /> Your inbox</h3>
         {userReqs.length > 0 && (
           <>
             <div className="field-label">audience requests</div>
@@ -2392,7 +2392,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
           {folder === 'inbox' && (box?.pending.length ?? 0) > 0 && <button onClick={() =>
             clearInbox(slug)
               .then(() => { setReadBump((n) => n + 1); refresh?.() })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>mark all read</button>}
+              .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>}
           <button className="primary" onClick={close}>close</button>
         </div>
     </PinFrame>
@@ -2412,7 +2412,7 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
     [provPayload, d?.fable_filter_model])
   if (d == null) {
     return (
-      <PinFrame kind="defaults" title="default org settings"
+      <PinFrame kind="defaults" title="Default org settings"
         panel="settings" close={close}>
         <div className="dim pad">loading…</div>
       </PinFrame>
@@ -2420,9 +2420,9 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
   }
   const set = (k: string, v: unknown) => setD({ ...d, [k]: v })
   return (
-    <PinFrame kind="defaults" title="default org settings"
+    <PinFrame kind="defaults" title="Default org settings"
       panel="settings" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> default org settings</h3>
+        <h3><SettingsIcon fontSize="inherit" /> Default org settings</h3>
         {/* WHICH ORGS THIS APPLIES TO is the panel's most load-bearing
             sentence, and it used to live inside the h3 — where a pinned window
             hides it along with the duplicated heading. Outside it, visible in
@@ -2703,9 +2703,9 @@ export function SettingsPanel({ tree, toast, close }: {
     return () => { current = false }
   }, [tree.slug, orgMdRetry])
   return (
-    <PinFrame kind="org-settings" title={`${tree.name} - org settings`}
+    <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
       panel="settings" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> {tree.name} - org settings</h3>
+        <h3><SettingsIcon fontSize="inherit" /> {tree.name} - Org settings</h3>
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab}
           idBase="org-settings" label="Organization settings sections" />
 

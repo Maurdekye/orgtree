@@ -646,3 +646,18 @@ uiTest('org gallery row uses its own preview even when shell navigation is avail
   assert.match(pane(el)?.textContent ?? '', /A document visible inside the organization gallery/)
   assert.deepEqual(opened, [], 'must not open another agent modal')
 })
+
+uiTest('DocGalleryModal heading and toggle wear consistent Sentence Case', async mount => {
+  mockDocs([])
+  const { el } = await mount(<DocGalleryModal slug="org1" close={noop} toast={noop} />)
+  await flush()
+  const heading = el.querySelector('.gallery-head h3')
+  assert.ok(heading, 'heading exists')
+  assert.match(heading.textContent ?? '', /Presented documents/)
+  assert.doesNotMatch(heading.textContent ?? '', /presented documents/)
+  const toggle = el.querySelector('.gallery-showretired')
+  assert.ok(toggle, 'show retired toggle exists')
+  assert.match(toggle.textContent ?? '', /Show retired agents/)
+  assert.doesNotMatch(toggle.textContent ?? '', /show retired agents/)
+})
+

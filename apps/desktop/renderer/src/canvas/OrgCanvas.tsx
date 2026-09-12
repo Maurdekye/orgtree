@@ -3438,7 +3438,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   return (
     <ModalOverPins><div className="overlay" onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings hire-sheet">
-        <h3>hire{placement === 'below' ? ` under ${anchor.id}`
+        <h3>Hire{placement === 'below' ? ` under ${anchor.id}`
           : placement === 'above' ? ` above ${anchor.id}`
           : ` beside ${anchor.id}`}</h3>
         {/* each provider's tiers on their own row (user spec 2026-08-28) —

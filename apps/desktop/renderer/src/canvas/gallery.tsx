@@ -159,11 +159,11 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     // same fix as DocReader (docs.tsx) — an eligible image is opened from
     // `onPanelClick`, which the frame runs BEFORE the stopPropagation every
     // other click in the modal still needs to keep the backdrop from closing
-    <PinFrame kind="gallery" title="presented documents"
+    <PinFrame kind="gallery" title="Presented documents"
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
         <div className="gallery-head">
-          <h3><DocIcon fontSize="inherit" /> presented documents</h3>
+          <h3><DocIcon fontSize="inherit" /> Presented documents</h3>
           {/* one control, not two views: the retired cards JOIN the list
               below the active ones rather than replacing them. The count
               rides the label so the archive is discoverable even while it
@@ -174,7 +174,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
           <label className="checkline gallery-showretired">
             <input type="checkbox" checked={showRetired}
               onChange={(e) => setShowRetired(e.target.checked)} />
-            show retired agents
+            Show retired agents
             {retiredCt > 0 && <span className="dim"> · {retiredCt}</span>}
           </label>
         </div>
@@ -372,7 +372,7 @@ export interface AgentGalleryViewProps {
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
   return (
-    <PinFrame kind={pinKind} title={`presented documents for ${nid}`}
+    <PinFrame kind={pinKind} title={`Presented documents for ${nid}`}
       restore={{ agent: nid, generation: node?.generation, ...(initialDocument ? {document:initialDocument} : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>

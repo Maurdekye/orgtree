@@ -83,3 +83,10 @@ test('every visible app title reads exactly Orgtree — no case drift, no spark 
   assert.doesNotMatch(h1![1]!, /text-transform/,
     'no transform may rewrite the one spelling the titles share')
 })
+
+test('CrashBoundary heading reads exactly Orgtree with initial capital', () => {
+  const crash = src('CrashBoundary.tsx')
+  assert.match(crash, /<h2[^>]*>Orgtree hit a problem and had to stop\.<\/h2>/)
+  assert.doesNotMatch(crash, /<h2[^>]*>orgtree hit a problem/)
+})
+
