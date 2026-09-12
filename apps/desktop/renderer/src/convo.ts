@@ -166,6 +166,9 @@ interface Entry {
    * settling older-page response is DISCARDED rather than allowed to
    * restore the history the reader just left (perf-review round 3). */
   pendingCollapse?: boolean
+  /** how many rows the caller that recorded `pendingCollapse` said its
+   * viewport was still drawing — see collapseWindow's `keep`. */
+  pendingKeep?: number
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -345,23 +348,45 @@ function patch(k: string, p: Partial<Convo>): void {
  *  thousands of rows for as long as the entry lived (perf-redesign
  *  2026-09-12, REPORT.md #10; perf-review round 2 pinned the mounted case).
  *  The next fetch returns to the small tail; scrolling up again pages the
- *  history back in exactly like a cold visit. */
-export function collapseWindow(slug: string, nid: string): void {
+ *  history back in exactly like a cold visit.
+ *
+ *  ⚠ `keep` IS WHAT THE VISIBLE DESK STILL NEEDS, and it is the difference
+ *  between narrowing a poll window and yanking rows out from under a reader.
+ *  This used to collapse to CHAT_WINDOW — EIGHT rows — no matter how tall the
+ *  desk was. On a tall pinned desk showing ~24 rows, that discarded two
+ *  thirds of what was on screen: the transcript visibly collapsed to the last
+ *  handful of events and the viewport jumped, then `fillViewport` paged the
+ *  very same rows straight back in and it jumped again (user report
+ *  2026-09-12: "sending a message collapses visible history for a split
+ *  second", "on a tall pinned Desk the view jumps upward substantially, then
+ *  comes back down"). The caller measures its own viewport and says how many
+ *  rows it is actually drawing; nothing below that is ever dropped.
+ *
+ *  The performance win is untouched. What made polls expensive was an
+ *  UNBOUNDED window — the full depth of a history visit, thousands of rows.
+ *  Bounding it to the two screens the desk renders is the same order of cost
+ *  as the old floor and is what the desk would immediately re-fetch anyway. */
+export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): void {
   const e = M.get(key(slug, nid))
   if (!e) return
   if (e.s.loadingOlder || e.pageInFlight) {
     // mid-flight: record the intent instead of dropping it (perf-review
     // round 3 — a dropped intent left the expanded window polling
     // thousands of rows forever). The flight's settle points run it.
+    // The largest `keep` asked for wins: a later caller must never shrink
+    // what an earlier one said it was still drawing.
     e.pendingCollapse = true
+    e.pendingKeep = Math.max(e.pendingKeep ?? 0, keep)
     return
   }
   e.pendingCollapse = false
-  if (e.s.win <= CHAT_WINDOW && !e.s.paged) return
+  const floor = Math.max(CHAT_WINDOW, Math.ceil(keep) || 0, e.pendingKeep ?? 0)
+  e.pendingKeep = undefined
+  if (e.s.win <= floor && !e.s.paged) return
   patchEntry(e, {
-    win: CHAT_WINDOW, paged: false,
+    win: floor, paged: false,
     ...(e.s.chat ? { chat: { ...e.s.chat,
-      messages: e.s.chat.messages.slice(-CHAT_WINDOW), before: undefined } } : {}),
+      messages: e.s.chat.messages.slice(-floor), before: undefined } } : {}),
   })
   e.dirty = true
   void refreshConvo(slug, nid, { force: true })
@@ -758,7 +783,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) return
       e.pageInFlight = false
-      if (!e.subs.size || conversation !== e.s.chat.conversation_id) { e.pendingCollapse = false; patchEntry(e, { loadingOlder: false }, version); return }
+      if (!e.subs.size || conversation !== e.s.chat.conversation_id) { e.pendingCollapse = false; e.pendingKeep = undefined; patchEntry(e, { loadingOlder: false }, version); return }
       if (e.pendingCollapse) {
         // the reader left history while this page was in flight: DISCARD
         // the page and run the recorded collapse — applying it would

@@ -1649,24 +1649,82 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const loadingOlder = convo.loadingOlder
   // distance-from-bottom is invariant when older rows are PREPENDED, so it is
   // the anchor that keeps the reader's place instead of jumping them down
-  const growAnchor = useRef<number | null>(null)
+  // ⚠ AND IT REMEMBERS THE HEIGHT IT WAS TAKEN AT, which is what makes it
+  // survive long enough to be used. A plain number was consumed by the FIRST
+  // render after it was recorded — and that render is almost always the
+  // `loadingOlder: true` state change, which happens while the page is still
+  // in flight and nothing has been prepended yet. The restore computed the
+  // offset the reader was already at, cleared the anchor, and by the time the
+  // rows actually landed there was nothing left to anchor with: the reader was
+  // left wherever the prepend shoved them. Measured in §2: 1600px from the
+  // newest message before the page, 2400px after. Keyed on the height, the
+  // anchor is spent on the render that GROWS the content and no other.
+  const growAnchor = useRef<{ fromBottom: number; height: number } | null>(null)
   useLayoutEffect(() => {
     const el = scroller.current
-    fillViewportRef.current()
-    if (stickRef.current) { pin(); calcPin(); return }
-    if (el && growAnchor.current != null) {
-      el.scrollTop = el.scrollHeight - growAnchor.current
-      growAnchor.current = null
+    // ⚠ THE ANCHOR IS RESTORED BEFORE ANYTHING ELSE MEASURES.
+    // `fillViewport` can ask for another page, and `loadOlder` records the
+    // next anchor as `scrollHeight - scrollTop` — so running it first had it
+    // measuring the offset this render STARTED with, before the restore below
+    // moved the reader. It then overwrote the anchor it was standing on: the
+    // restore computed `scrollHeight - (scrollHeight - staleTop)` and put the
+    // reader back at the un-restored offset, i.e. left them where the prepend
+    // had shoved them instead of where they were reading. Measured: 1600px
+    // from the newest message before a page settled, 2400px after.
+    const anchor = growAnchor.current
+    if (!stickRef.current && el && anchor) {
+      if (el.scrollHeight !== anchor.height) {
+        // the prepend landed: the reader's distance from the NEWEST message
+        // is what is invariant when rows are added above them
+        el.scrollTop = el.scrollHeight - anchor.fromBottom
+        growAnchor.current = null
+      } else if (!loadingOlder) {
+        // the request settled and grew nothing, so this anchor has no page
+        // left to answer for — and an anchor that outlives its page is
+        // exactly the trap described below
+        growAnchor.current = null
+      }
     }
+    fillViewportRef.current()
+    if (stickRef.current) {
+      // ⚠ AND THE ANCHOR DIES HERE (user bug 2026-09-12: "scrolling up forces
+      // the view back to the bottom"). `growAnchor` is a DISTANCE FROM THE
+      // BOTTOM, recorded so that prepended rows do not move the reader. While
+      // the reader is stuck at the tail there is nothing to preserve — the
+      // pin below is the whole behaviour — but the branch used to `return`
+      // without clearing it, so an anchor captured at the bottom (where the
+      // distance IS the viewport height) simply waited. The moment the reader
+      // scrolled up, `stickRef` went false, the next render took the branch
+      // below, and it restored them to the exact distance-from-bottom it had
+      // recorded: the bottom. Tall desks hit this on the FIRST scroll, because
+      // `fillViewport` issues a `loadOlder` for every screen it still needs
+      // while the reader sits at the tail. An anchor that outlives the visit
+      // it belongs to is not an anchor, it is a trap.
+      growAnchor.current = null
+      pin(); calcPin(); return
+    }
+    // (no second restore here on purpose: `fillViewport` above may have just
+    // recorded the anchor for a page that is still IN FLIGHT, and consuming
+    // it now would spend it on a prepend that has not happened yet — leaving
+    // the real one unanchored.)
     calcPin()   // FR-20: content growth moves the target without a scroll event
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
+  /** the rows this desk needs to fill itself — the floor a window collapse
+   *  must never cut below, or it takes away what is on screen. A tall pinned
+   *  desk needs many more than CHAT_WINDOW, which is the whole reason the
+   *  send-time collapse was visible (user report 2026-09-12). */
+  const viewportRows = () => {
+    const el = scroller.current
+    return el ? transcriptViewport(el).page : CHAT_WINDOW
+  }
   const toBottom = () => {
     setStuck(true); pin()
     // jumping to the tail LEAVES history — the expanded poll window goes
-    // back to the small tail with it (perf-review round 2)
-    collapseWindow(slug, node.id)
+    // back to what this desk is drawing (perf-review round 2; bounded by the
+    // viewport since 2026-09-12 so the jump-to-tail is not also a collapse)
+    collapseWindow(slug, node.id, viewportRows())
   }
   // Only explicit canonical actors establish authorship; legacy text stays readable.
   const userTurns = useMemo(() => {
@@ -1782,7 +1840,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const loadOlder = (count?: number) => {
     const el = scroller.current
     if (!el) return
-    growAnchor.current = el.scrollHeight - el.scrollTop
+    // …and it is not RECORDED while stuck either, for the same reason it is
+    // cleared above: a reader at the tail is pinned there, so the only thing
+    // this anchor could ever restore them to is the bottom they never left.
+    growAnchor.current = stickRef.current ? null
+      : { fromBottom: el.scrollHeight - el.scrollTop, height: el.scrollHeight }
     if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)) growAnchor.current = null
   }
 
@@ -2567,9 +2629,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             const wasStuck = stickRef.current
             setStuck(nearBottom())
             // scrolling BACK DOWN to the tail leaves history: the expanded
-            // window collapses so the poll returns to the small tail
-            // (perf-review round 2 — the mounted-desk case)
-            if (!wasStuck && stickRef.current) collapseWindow(slug, node.id)
+            // window collapses so the poll returns to the tail (perf-review
+            // round 2 — the mounted-desk case), but never below what this
+            // desk is drawing (user report 2026-09-12)
+            if (!wasStuck && stickRef.current) collapseWindow(slug, node.id, viewportRows())
             calcPin()
             // within a screen of the top: page in the previous window
             if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
