@@ -101,6 +101,16 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertEqual(after["rev"], before["rev"])
         self.assertIsNone(after["acceptance"][0]["checked"])
 
+    def test_known_negative_requires_an_executed_or_reported_control(self):
+        with self.assertRaises(LedgerError) as error:
+            self.org.work_check(
+                "owner", self.wid, 0, "blocked.log", classification="known_negative",
+                artifact="blocked.log", runner="source reader",
+                execution="source_inspection", result="expected_negative",
+                gate="agent-token", blocked_count=1)
+        self.assertIn("executed or reported", str(error.exception))
+        self.assertIsNone(self.org.work_get("owner", self.wid)["acceptance"][0]["checked"])
+
     def test_met_requires_explicit_pass_and_history_is_append_only(self):
         base = dict(artifact="tests/run.log", runner="python", execution="independent",
                     result="passed", composition="unit")

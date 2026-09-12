@@ -224,6 +224,9 @@ def validate_acceptance_evidence(*, classification: Any = None,
     if cls == "environment_limited" and res not in ("crashed", "failed", "not_executed"):
         raise ReceiptError("environment_limited acceptance evidence requires "
                            "result crashed, failed, or not_executed")
+    if cls == "known_negative" and ex == "source_inspection":
+        raise ReceiptError("known_negative acceptance evidence must be an "
+                           "executed or reported control, not source_inspection")
     if (gate is None) != (blocked_count is None):
         raise ReceiptError("gate and blocked_count must be supplied together")
     if cls == "known_negative" and gate is None:
