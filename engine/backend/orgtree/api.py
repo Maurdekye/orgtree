@@ -5975,29 +5975,48 @@ def _agent_work_artifact(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any
     # the stored filename carries the content hash, so two runs of the same
     # probe never collide and the file on disk says which bytes it is
     stored = f"{sha.split(':', 1)[1][:12]}-{stem[:100]}{ext[:20]}"
+    # ⚠ DID THIS CALL CREATE THE FILE? Everything below hangs on the answer.
+    # The stored name is the content hash, so an identical file may ALREADY be
+    # on disk from an earlier record — and that one belongs to that record and
+    # must survive whatever happens here. Only bytes this call introduced are
+    # this call's to clean up.
+    dest = os.path.join(adir, stored)
+    created = False
     try:
         os.makedirs(adir, exist_ok=True)
-        dest = os.path.join(adir, stored)
         if not os.path.exists(dest):
             shutil.copy2(src, dest)
+            created = True
     except OSError as e:
         raise LedgerError(f"could not store the artifact: {e}")
+    grants: list[str] = []
     try:
         rec = org.work_artifact_record(
             nid, wid, str(a.get("name") or os.path.basename(src)), size, stored,
             sha, scope=str(a.get("scope") or "item"),
             note=(None if a.get("note") is None else str(a.get("note"))),
             expected_rev=a.get("expected_rev"))
-    except LedgerError:
-        # the record was refused, so bytes this call introduced must not linger
-        # unlisted. A file that was ALREADY there belongs to the earlier record
-        # and is left exactly where it is.
+        # ⚠ THE GRANTS ARE INSIDE THIS BLOCK ON PURPOSE. The caller's org is
+        # saved by the route AFTER this function returns, so a grant that
+        # raises discards the record as well — the write never reaches disk.
+        # Leaving the copied bytes behind in that case would strand a file that
+        # no record on any item names, unreadable and unlistable, forever.
+        # `_work_list_arg` is None when the argument is absent, not an empty list
+        for who in (_work_list_arg(a, "grant_to") or []):
+            org.work_artifact_grant(nid, wid, str(rec["id"]), str(who))
+            grants.append(str(who))
+    except BaseException:
+        # EVERY failed path, not just LedgerError: a refused record, a stale
+        # expected_rev, a name collision, a bad scope, a grant to an agent that
+        # does not exist — none of them are saved, so none of them may leave an
+        # unlisted copy on disk. Best-effort: a file we cannot remove is worth
+        # far less than the refusal reaching the caller intact.
+        if created:
+            try:
+                os.unlink(dest)
+            except OSError:
+                pass
         raise
-    grants: list[str] = []
-    # `_work_list_arg` is None when the argument is absent, not an empty list
-    for who in (_work_list_arg(a, "grant_to") or []):
-        org.work_artifact_grant(nid, wid, str(rec["id"]), str(who))
-        grants.append(str(who))
     return {"artifact": rec, "granted": grants, "item": item_slug,
             "hint": ("recorded immutably — the name is now taken on this item "
                      "and the bytes cannot be replaced"

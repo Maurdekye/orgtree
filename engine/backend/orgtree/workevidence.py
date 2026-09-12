@@ -548,6 +548,56 @@ def _row_mark(line: str) -> str:
 
 # --------------------------------------------------------------- receipts
 
+def _checked_base(base: Any, candidate: str, checkout: str) -> str:
+    """A CALLER-SUPPLIED `base`, CHECKED AGAINST GIT — never copied in.
+
+    ⚠ THIS IS THE ONE FIELD A CALLER CHOOSES, so it is the one that has to be
+    proved. `candidate` is validated and every other provenance field is
+    measured here; a `base` taken verbatim would be a free-text claim sitting
+    inside a fingerprinted record and looking exactly as checked as the fields
+    beside it. "This ran on top of main" is precisely the assertion a later
+    range-diff relies on, so a wrong or invented one is worse than an absent
+    one — and absent is a perfectly good answer, because the parent of the
+    candidate is read from git when nothing is supplied.
+
+    Three ways to fail, all refusals rather than silent acceptance:
+      · it is not a sha at all  → `ShaError`, the same as a bad candidate;
+      · it does not resolve in this checkout  → it names nothing here;
+      · it resolves but is NOT an ancestor of the candidate  → the candidate
+        does not sit on it, which is the false claim this exists to stop.
+
+    Returns the FULL resolved sha, so an abbreviation recorded by one agent
+    compares equal to the full one recorded by another.
+    """
+    want = _validate_sha(base)
+    if candidate.startswith(want) or want.startswith(candidate):
+        raise ReceiptError(
+            f"base {want} and candidate {candidate} are the same commit. A "
+            f"commit does not sit on itself — the base is what it was built "
+            f"ON TOP OF, and a receipt saying otherwise makes every range-diff "
+            f"against it vacuous")
+    code, out, err = _git(["rev-parse", "--verify", f"{want}^{{commit}}"],
+                          os.path.realpath(os.path.abspath(checkout)))
+    if code != 0 or not out.strip():
+        raise ReceiptError(
+            f"base {want} does not resolve to a commit in {checkout} "
+            f"({err.strip() or 'no such object'}). A receipt records the "
+            f"commit the candidate ACTUALLY sits on — omit `base` and the "
+            f"parent of the candidate is read from git for you")
+    full = out.splitlines()[0].strip()
+    code, _out, err = _git(["merge-base", "--is-ancestor", full, candidate],
+                           os.path.realpath(os.path.abspath(checkout)))
+    if code != 0:
+        raise ReceiptError(
+            f"base {want} is not an ancestor of candidate {candidate}"
+            + (f" ({err.strip()})" if err.strip() else "")
+            + ". A base the candidate does not sit on describes a history "
+              "that did not happen, and a later range-diff would compare "
+              "against the wrong endpoint. Omit `base` to record the "
+              "candidate's real parent")
+    return full
+
+
 def receipt(*, candidate: str, checkout: str, command: list[str] | None,
             execution: str, result: str, runner: dict[str, Any] | None = None,
             logs: list[LogText] | None = None, note: str = "",
@@ -589,7 +639,8 @@ def receipt(*, candidate: str, checkout: str, command: list[str] | None,
     body: dict[str, Any] = {
         "schema": SCHEMA,
         "candidate": sha,
-        "base": base or st.get("base"),
+        "base": (_checked_base(base, sha, checkout) if base
+                 else st.get("base")),
         "tree": st,
         "execution": execution,
         "result": result,

@@ -601,5 +601,170 @@ class ExpectedRevTests(W08Base):
         self.assertIn('expected_rev must be', str(ref))
 
 
+class SuppliedBaseIsChecked(W08Base):
+    """⚠ REVIEW FINDING (notify-review, 2026-09-12, on 504407e). `base` was the
+    one provenance field a caller CHOSE, and it was written verbatim into a
+    record whose whole purpose is that its fields were measured rather than
+    asserted — then fingerprinted, so the false claim was sealed in beside the
+    true ones and looked exactly as checked.
+
+    "This ran on top of main" is the claim a later range-diff leans on. So the
+    supplied value is now resolved in the checkout and proved to be an ancestor
+    of the candidate, and each way of being wrong is refused separately.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from tests.test_work_evidence_receipts import git
+        d = Path(supervisor.scratch_dir(self.slug, 'author'))
+        d.mkdir(parents=True, exist_ok=True)
+        self.repo_dir = d / 'wt'
+        self.repo_dir.mkdir()
+        self._git = git
+        git(self.repo_dir, 'init', '--initial-branch=main', '-q')
+        (self.repo_dir / 'a.txt').write_text('one\n', encoding='utf-8')
+        git(self.repo_dir, 'add', 'a.txt')
+        git(self.repo_dir, 'commit', '-q', '-m', 'first')
+        self.head = git(self.repo_dir, 'rev-parse', 'HEAD')
+        # a second commit, so there is a real parent/child pair to reason about
+        (self.repo_dir / 'b.txt').write_text('two\n', encoding='utf-8')
+        self._git(self.repo_dir, 'add', 'b.txt')
+        self._git(self.repo_dir, 'commit', '-q', '-m', 'second')
+        self.child = self._git(self.repo_dir, 'rev-parse', 'HEAD')
+        # …and an unrelated commit on a disjoint history, which resolves fine
+        # but is nobody's ancestor — the case a format check cannot catch
+        self._git(self.repo_dir, 'checkout', '-q', '--orphan', 'elsewhere')
+        (self.repo_dir / 'c.txt').write_text('three\n', encoding='utf-8')
+        self._git(self.repo_dir, 'add', 'c.txt')
+        self._git(self.repo_dir, 'commit', '-q', '-m', 'unrelated')
+        self.unrelated = self._git(self.repo_dir, 'rev-parse', 'HEAD')
+        self._git(self.repo_dir, 'checkout', '-q', 'main')
+
+    def receipt(self, **args: object) -> tuple[int, dict]:
+        return self.call('author', action='receipt', candidate=self.child,
+                         checkout=str(self.repo_dir), command=['pytest'],
+                         execution='independent', result='passed', **args)
+
+    def test_the_real_parent_is_accepted_and_stored_in_full(self):
+        """POSITIVE CONTROL FIRST, and it also proves the abbreviation is
+        expanded: two agents naming the same base must record equal strings."""
+        code, body = self.receipt(base=self.head[:9])
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['receipt']['base'], self.head)
+
+    def test_an_omitted_base_is_still_read_from_git(self):
+        code, body = self.receipt()
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body['receipt']['base'], self.head,
+                         'the candidate’s real parent, measured not asserted')
+
+    def test_a_base_that_is_not_a_sha_is_refused(self):
+        code, ref = self.receipt(base='main')
+        self.assertEqual(code, 422, ref)
+
+    def test_a_well_formed_base_that_is_not_in_this_checkout_is_refused(self):
+        code, ref = self.receipt(base='b' * 40)
+        self.assertEqual(code, 422, ref)
+        self.assertIn('does not resolve', str(ref))
+
+    def test_a_real_commit_that_is_not_an_ancestor_is_refused(self):
+        """THE CASE VALIDATION ALONE MISSES. `unrelated` is a genuine commit in
+        this very repository — well-formed, resolvable, and utterly false as a
+        base for this candidate."""
+        code, ref = self.receipt(base=self.unrelated)
+        self.assertEqual(code, 422, ref)
+        self.assertIn('not an ancestor', str(ref))
+
+    def test_the_candidate_is_refused_as_its_own_base(self):
+        code, ref = self.receipt(base=self.child)
+        self.assertEqual(code, 422, ref)
+        self.assertIn('same commit', str(ref))
+
+    def test_a_refused_base_writes_no_evidence_row(self):
+        code, seen = self.call('author', action='get')
+        before = len(seen['item']['evidence'])
+        self.receipt(base=self.unrelated)
+        code, after = self.call('author', action='get')
+        self.assertEqual(len(after['item']['evidence']), before,
+                         'a receipt refused for a false base leaves nothing '
+                         'on the item')
+
+
+class RefusedWritesLeaveNoBytes(W08Base):
+    """⚠ REVIEW FINDING (notify-review, 2026-09-12, on 504407e). The artifact
+    route copied the file to storage BEFORE recording it, and every failure
+    after the copy — a refused record, a stale expected_rev, a bad scope, a
+    failing grant — left those bytes on disk with nothing naming them.
+
+    An unlisted copy is not a cosmetic leak in THIS package: an artifact is
+    meant to be immutable and accounted for, and a file no record names can
+    never be read, revoked or audited, while still sitting in the item's
+    storage directory. So every refusal is asserted twice — the call fails AND
+    the directory is exactly as it was.
+    """
+
+    def files(self) -> set:
+        d = Path(api_mod._work_artifact_dir(self.slug, self.wid))
+        return {p.name for p in d.iterdir()} if d.exists() else set()
+
+    def test_a_refused_record_leaves_no_file_behind(self):
+        before = self.files()
+        # a scope the ledger does not know: refused inside work_artifact_record,
+        # which is AFTER the bytes have been copied
+        code, ref = self.record('author', 'probe.py', 'print(1)',
+                                scope='everyone')
+        self.assertEqual(code, 422, ref)
+        self.assertEqual(self.files(), before,
+                         'the copy this call introduced was removed with it')
+
+    def test_a_stale_expected_rev_leaves_no_file_behind(self):
+        code, seen = self.call('author', action='get')
+        stale = int(seen['item']['rev']) - 1
+        before = self.files()
+        code, ref = self.record('author', 'late.py', 'print(2)',
+                                expected_rev=stale)
+        self.assertEqual(code, 422, ref)
+        self.assertEqual(self.files(), before)
+
+    def test_a_failing_grant_leaves_no_file_behind(self):
+        """THE SECOND HALF OF THE FINDING, and the subtler one: the record
+        SUCCEEDS, then a grant raises. The route saves the org only after this
+        returns, so the successful record is discarded too — leaving bytes that
+        no record anywhere names."""
+        before = self.files()
+        code, ref = self.record('author', 'granted.py', 'print(3)',
+                                scope='named', grant_to=['nobody-here'])
+        self.assertEqual(code, 422, ref)
+        self.assertEqual(self.files(), before,
+                         'the record was rolled back with the grant, so its '
+                         'bytes must go too')
+        code, seen = self.call('author', action='get')
+        self.assertEqual(seen['item']['artifacts'], [],
+                         'and nothing was recorded on the item either')
+
+    def test_bytes_an_earlier_record_owns_are_never_removed(self):
+        """THE NEGATIVE CONTROL, and the reason this is not just `unlink` in a
+        finally. The stored name is the CONTENT HASH, so re-recording identical
+        bytes finds the file already there. A cleanup that deleted whatever it
+        found would destroy the first artifact's storage while refusing the
+        second call — turning a safe refusal into data loss."""
+        code, first = self.record('author', 'same.py', 'identical bytes')
+        self.assertEqual(code, 200, first)
+        after_first = self.files()
+        self.assertTrue(after_first)
+        # same BYTES, so the same stored filename; refused for the name clash
+        code, ref = self.record('author', 'same.py', 'identical bytes')
+        self.assertEqual(code, 422, ref)
+        self.assertEqual(self.files(), after_first,
+                         'the surviving file belongs to the first record')
+        # and the first artifact still reads
+        code, got = self.call('author', action='artifact_read',
+                              artifact=first['artifact']['id'])
+        self.assertEqual(code, 200, got)
+        self.assertEqual(got['content'], 'identical bytes')
+        self.assertTrue(got['sha256_matches'],
+                        'the surviving bytes are still the recorded ones')
+
+
 if __name__ == '__main__':
     unittest.main()
