@@ -68,8 +68,6 @@ class Desks {
 }
 const DeskContext = createContext<Desks | null>(null)
 const DeskMapReady = createContext(true)
-const emptySubscribe = () => () => {}
-const emptySnapshot = () => 0
 
 export function DeskHosts({ children, map, slug, treeSlug = slug }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
@@ -210,15 +208,20 @@ export function DeskSlot(outer: DeskChatProps) {
   return <RegisteredSlot desks={desks} props={props} />
 }
 
-/** Actions shared by agent-list rows. The list may be rendered before a desk
- * host exists (because the card is outside the viewport), so popout requests
- * are retained until that desk registers its native surface. */
-export function useDeskActions(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>) {
-  const desks = useContext(DeskContext)
-  const mapReady = useContext(DeskMapReady)
-  const subscribe = desks?.subscribe ?? emptySubscribe
-  const snapshot = desks?.snapshot ?? emptySnapshot
-  useSyncExternalStore(subscribe, snapshot)
+export interface DeskActions {
+  /** this seat can own a desk at all (a generation is what identifies one) */
+  valid: boolean
+  /** its desk is mounted somewhere right now */
+  present: boolean
+  /** its desk is already open as a native window */
+  detached: boolean
+  /** raise that native window */
+  show?: () => void
+  requestPopout: () => void
+}
+
+function deskActionsOf(desks: Desks | null, mapReady: boolean, slug: string,
+  node: Pick<CanvasNode, 'id' | 'generation'>): DeskActions {
   const valid = typeof node.generation === 'number'
     && Number.isSafeInteger(node.generation) && node.generation >= 0
   const key = valid ? deskIdentity(slug, node) : null
@@ -228,41 +231,31 @@ export function useDeskActions(slug: string, node: Pick<CanvasNode, 'id' | 'gene
     present: !!entry,
     detached: !!entry?.detached,
     show: entry?.show,
+    // The list may ask before a desk host exists (the card is outside the
+    // viewport), so the request is RETAINED until that desk registers its
+    // native surface.
     requestPopout: () => { if (key) desks?.requestPopout(key) },
   }
 }
 
-export function DeskListControls({ slug, node, onPin, onShowPin, onOpen }: {
-  slug: string
-  node: Pick<CanvasNode, 'id' | 'generation'>
-  onPin?: () => void
-  onShowPin?: () => void
-  onOpen?: () => void
-}) {
-  const actions = useDeskActions(slug, node)
-  if (actions.detached) return <span className="agent-list-controls" onClick={(e) => e.stopPropagation()}>
-    <button type="button" className="agent-list-control"
-      aria-label={`show ${node.id}'s desk`}
-      title={`show ${node.id}'s desk`}
-      onClick={(e) => { e.stopPropagation(); actions.show?.() }}>↗</button>
-  </span>
-  return <span className="agent-list-controls" onClick={(e) => e.stopPropagation()}>
-    {onPin && !onShowPin && <button type="button" className="agent-list-control"
-      aria-label={`pin ${node.id}'s desk as a window`}
-      title={`pin ${node.id}'s desk as a window`}
-      onClick={(e) => { e.stopPropagation(); onPin() }}>⌖</button>}
-    {onShowPin && <button type="button" className="agent-list-control"
-      aria-label={`show ${node.id}'s pinned desk`}
-      title={`show ${node.id}'s pinned desk`}
-      onClick={(e) => { e.stopPropagation(); onShowPin() }}>⌖</button>}
-    {actions.valid && <button type="button" className="agent-list-control"
-      aria-label={`open ${node.id}'s desk in a new window`}
-      title={`open ${node.id}'s desk in a new window`}
-      onClick={(e) => {
-        e.stopPropagation(); actions.requestPopout()
-        if (!actions.present) onOpen?.()
-      }}>↗</button>}
-  </span>
+/** An agent's desk-window actions, read at the moment they are needed — a
+ *  context menu builds its entries when the menu OPENS, not on every render.
+ *
+ *  ⚠ IT DELIBERATELY DOES NOT SUBSCRIBE, which is what lets every agent card
+ *  on the canvas and every row of the Agents List hold one: a
+ *  `useSyncExternalStore` per caller would be hundreds of subscriptions to a
+ *  store that only the open menu is looking at. The returned reader walks the
+ *  live registry when it is called, so a menu opened a second later still sees
+ *  the truth. A surface that DRAWS this state (a control that has to say
+ *  "show" while the desk is detached and "pop out" while it is not) would need
+ *  the subscription — there is no such control any more: the user had the
+ *  per-agent pin and popout buttons removed from the list on 2026-09-12, in
+ *  favour of the menu these entries live in. */
+export function useDeskActionsNow(slug: string):
+(node: Pick<CanvasNode, 'id' | 'generation'>) => DeskActions {
+  const desks = useContext(DeskContext)
+  const mapReady = useContext(DeskMapReady)
+  return (node) => deskActionsOf(desks, mapReady, slug, node)
 }
 
 function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }) {

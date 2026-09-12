@@ -2,7 +2,7 @@ import { adoptPinLayer, usePinSurfaces } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
-import { DeskHosts, DeskListControls } from './deskhosts'
+import { DeskHosts, useDeskActionsNow } from './deskhosts'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
 // mail sparks, node dragging and re-parenting, the retired/crowd piles, the
@@ -226,19 +226,27 @@ export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
  * confirm. The shared menu records its row anchor so the list's click-away
  * rule recognizes a press in its own menu even though it lives in the body.
  */
-function AgentListMenuHost({ render, map, op, toast }: {
+function AgentListMenuHost({ render, map, op, slug, toast }: {
   render: (menu: ContextMenuHandle,
-    ask: (a: { id: string; kind: RetireKind }) => void) => ReactNode
+    ask: (a: { id: string; kind: RetireKind }) => void,
+    deskNow: ReturnType<typeof useDeskActionsNow>) => ReactNode
   map: Map<string, CanvasNode>
   op: OpFn
+  /** for the desk registry: the popout entries read it when the menu opens */
+  slug: string
   toast: ToastFn
 }) {
   const menu = useContextMenu()
+  // ⚠ HERE AND NOT IN OrgCanvas's BODY: the desk registry's context provider is
+  // `<DeskHosts>`, which OrgCanvas RENDERS — a hook called in its body would
+  // read the context from outside the provider and get null. This host is
+  // inside it, with the rows.
+  const deskNow = useDeskActionsNow(slug)
   const [asking, setAsking] = useState<{ id: string; kind: RetireKind } | null>(null)
   const body = useSurfaceDocument().body
   const node = asking ? map.get(asking.id) : null
   return <>
-    {render(menu, setAsking)}
+    {render(menu, setAsking, deskNow)}
     {menu.node}
     {/* the confirm is the CARD's confirm — same wording, same op, same undo
         toast (canvas/agentmenu.tsx). It is portaled out of the list's own
@@ -2347,8 +2355,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // its pile first, and at compact it opens the sheet) — the row's answer to
   // the card's "re-centre on me".
   const trayRowMenu = (n: CanvasNode, go: () => void,
-    ask: (a: { id: string; kind: RetireKind }) => void): MenuEntry[] =>
-    agentMenuEntries(n, {
+    ask: (a: { id: string; kind: RetireKind }) => void,
+    deskNow: ReturnType<typeof useDeskActionsNow>): MenuEntry[] => {
+    // read at menu-open time, never subscribed to (deskhosts.tsx)
+    const desk = deskNow(n)
+    return agentMenuEntries(n, {
       onOpenDesk: go,
       onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
       onDocket: () => toggleNodeSurface('agent-docket', n.id, setAgentDocketId),
@@ -2359,17 +2370,28 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // the same gate the card gets: there is no pinning on mobile
       onPin: !isMobile ? () => pinDesk(n.id) : undefined,
       onShowPin: () => showPin(slug, n.id, vpSizeNow()),
+      // ⚠ THE ROW'S POPOUT IS WHAT THE ROW'S ↗ BUTTON USED TO BE, verbatim
+      // (user 2026-09-12 removed those buttons in favour of this menu): ask
+      // the desk registry to pop out, and when that desk is not mounted yet,
+      // ALSO walk to the agent — the request is retained until the desk
+      // registers, and walking there is what mounts it.
+      onPopout: !isMobile && desk.valid
+        ? () => { desk.requestPopout(); if (!desk.present) go() }
+        : undefined,
+      onShowWindow: desk.show,
       // the hire chips live ON THE CARD, so this walks to the agent and asks
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
     }, {
       pinned: pinnedIds.has(n.id),
+      detached: desk.detached,
       // a piled agent's card is (or becomes, once the row brings it to the
       // front) a pile front, and a pile front hires nowhere: its edges are the
       // stack. Same answer the card gives, decided before the walk.
       piled: pileByFront.has(n.id) || hidden.has(n.id),
     })
+  }
 
   // edge JUMP CARDS (user spec 2026-08-17): at desk zoom the focused agent's
   // coworkers (live siblings) are usually off-screen — one small card per
@@ -3128,8 +3150,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 </button>
               )
             })()}
-            <AgentListMenuHost map={map} op={op} toast={toast}
-              render={(menu, ask) => {
+            <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
+              render={(menu, ask, deskNow) => {
               // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
               // every direct report immediately after its superior, indented a
               // step — replacing the old canvas-position sort, which put a
@@ -3221,7 +3243,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                      with. A right-click never navigates: `contextmenu` is not
                      `click`, and `go` is on the click. */
                   onContextMenu={(e) => {
-                    if (!compact) menu.open(e, () => trayRowMenu(n, go, ask))
+                    if (!compact) menu.open(e, () => trayRowMenu(n, go, ask, deskNow))
                   }}>
                   <div className="tray-primary">
                     <button type="button" className="tray-main"
@@ -3236,11 +3258,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                       est={n.occupancy_est} compactAt={tree.compact_at} />
                     <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
                     </button>
-                  {!isMobile && <DeskListControls slug={slug} node={n}
-                    onPin={!pinnedIds.has(n.id) ? () => pinDesk(n.id) : undefined}
-                    onShowPin={pinnedIds.has(n.id)
-                      ? () => showPin(slug, n.id, vpSizeNow()) : undefined}
-                    onOpen={go} />}
+                  {/* ⚠ NO PER-AGENT CONTROLS HERE ANY MORE (user ruling
+                      2026-09-12): the row's ⌖ pin and ↗ popout buttons are
+                      gone, and both actions live in the row's context menu
+                      with everything else the agent can do. The row is one
+                      object again — a name you press to go there — rather
+                      than a name with two tiny controls competing for the
+                      same press. */}
                   </div>
                   {/* ⚠ THE WHOLE SUMMARY, MATCHED BEFORE ANY TRUNCATION: a
                       slice here cuts tokens in half, and the clipping is the

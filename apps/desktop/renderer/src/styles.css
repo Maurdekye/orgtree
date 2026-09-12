@@ -4392,15 +4392,11 @@ svg.MuiSvgIcon-root {
 .tray-status-label.working { color: var(--work); }
 .tray-status-label.working.active,
 .tray-status-label.active { color: var(--accent); }
-.agent-list-controls { display: inline-flex; align-items: center; gap: 1px;
-  flex: none; margin-left: auto; }
-.agent-list-control { display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 3px;
-  background: transparent; color: var(--dim); cursor: pointer; font-size: 14px;
-  line-height: 1; }
-.agent-list-control:hover, .agent-list-control:focus-visible {
-  color: var(--ink-strong); background: var(--panel-2); }
-.desk-nav-entry .agent-list-control { font-size: 13px; }
+/* the per-agent pin (⌖) and popout (↗) controls that sat at the end of every
+   Agents List row are GONE (user ruling 2026-09-12) — both actions moved into
+   the row's context menu, where the rest of the agent's actions already were,
+   so `.agent-list-controls`/`.agent-list-control` went with them. The list's
+   OWN pin/popout — the whole panel's, drawn by PinFrame — is untouched. */
 .tray-status-label.waiting, .tray-status-label.queued { color: var(--work); }
 /* fixed, like the banner's .compacting: not an in-turn state, so not the
    provider theme (user 2026-09-07 15:32Z) */

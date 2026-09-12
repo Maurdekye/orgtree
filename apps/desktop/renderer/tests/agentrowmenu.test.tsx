@@ -32,6 +32,7 @@ import {
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { JSDOM } from 'jsdom'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
 import { addPin, forgetPins } from '../src/canvas/pins'
@@ -202,7 +203,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     // catch a change made to both surfaces at once; this can.
     assert.deepEqual(have, [
       'Copy agent name', 'Open desk', 'Open inbox', 'Open docket', 'Settings',
-      'Pin desk as a window', 'Hire a subordinate…', 'Retire…',
+      'Pin desk as a window', 'Open desk in a new window',
+      'Hire a subordinate…', 'Retire…',
     ], 'the agent menu, in order')
   })
 
@@ -457,6 +459,71 @@ uiTest('§5b a superior\'s Dissolve confirm is the same one the card raises',
     await inAct(() => { (box.querySelector('button.danger.solid') as HTMLButtonElement).click() })
     await flush(2)
     assert.deepEqual(c.ops, [{ op: 'dissolve', node: 'boss' }])
+  })
+
+// ------------------------------------------------------ §7 the native window
+/** the child window a popout opens, stubbed as agentstray §9 stubs it */
+function stubPopoutWindow(t: TestContext) {
+  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>',
+    { url: 'http://localhost/' })
+  const originalOpen = window.open
+  const originalObserver = globalThis.MutationObserver
+  const childWindow = child.window as unknown as Window
+  const count = { opens: 0, focuses: 0 }
+  childWindow.focus = () => { count.focuses++ }
+  childWindow.requestAnimationFrame = () => 1
+  childWindow.cancelAnimationFrame = () => {}
+  window.open = (() => { count.opens++; return childWindow }) as typeof window.open
+  globalThis.MutationObserver = child.window.MutationObserver
+  t.after(() => {
+    window.open = originalOpen
+    globalThis.MutationObserver = originalObserver
+    child.window.close()
+  })
+  return { child, count }
+}
+
+uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entry then says so',
+  async (t) => {
+    // the action the row's ↗ button used to run, now the menu's (user ruling
+    // 2026-09-12). A desk that is not mounted yet cannot pop out on the spot:
+    // the request is RETAINED and the walk to the agent is what mounts it.
+    const pop = stubPopoutWindow(t)
+    const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
+    await openTray(c.el)
+    await rightClick(rowFor(c.el, 'other')!)
+    await pick('Open desk in a new window')
+    await advance(600, 30); await flush(8)
+    assert.equal(pop.count.opens, 1, 'the entry reached MovableSurface.open')
+    assert.ok(pop.child.window.document.querySelector('.popout-mount'),
+      'the native surface adopted the desk into the opened window')
+    // the menu now offers the other half of the pair
+    await rightClick(rowFor(c.el, 'other')!)
+    const have = labels()
+    assert.ok(have.includes('Show desk window'), JSON.stringify(have))
+    assert.ok(!have.includes('Open desk in a new window'),
+      'a desk that is already out is not popped out again')
+    await pick('Show desk window')
+    assert.ok(pop.count.focuses >= 1, 'it raises the window that is already open')
+    assert.equal(pop.count.opens, 1, 'and does not open a second one')
+  })
+
+uiTest('§7b the row has no per-agent pin or popout buttons any more — both live in its menu',
+  async (t) => {
+    addPin('mine', 'pinned-one', { x: 10, y: 10, w: 300, h: 200 })
+    const c = await mountCanvas(t, [mkNode('worker'), mkNode('pinned-one')])
+    const tray = await openTray(c.el)
+    assert.equal(tray.querySelectorAll('.agent-list-controls, .agent-list-control').length, 0,
+      'the ⌖ and ↗ row controls are gone from every row, pinned ones included')
+    const row = rowFor(c.el, 'worker')!
+    assert.deepEqual([...row.querySelectorAll('button')].map((b) => b.className), ['tray-main'],
+      'the row is one object again: its main line is the only control in it')
+    // …and nothing was lost: both actions are in the menu the row now carries
+    const have = await menuOf(row, 'the row')
+    assert.ok(have.includes('Pin desk as a window'), JSON.stringify(have))
+    assert.ok(have.includes('Open desk in a new window'), JSON.stringify(have))
+    const pinned = await menuOf(rowFor(c.el, 'pinned-one')!, 'the pinned row')
+    assert.ok(pinned.includes('Show pinned window'), JSON.stringify(pinned))
   })
 
 uiTest('§6 Hire a subordinate… from a row walks to the agent and opens ITS card\'s hire chips',

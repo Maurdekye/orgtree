@@ -38,6 +38,7 @@ import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
+import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName } from './identity'
 import { PinnedPlaceholder } from './pins'
@@ -1380,19 +1381,34 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     revealedCb.current?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealHire])
-  const menuEntries = (): MenuEntry[] => agentMenuEntries(node, {
-    onOpenDesk: onRecenter,
-    onInbox,
-    onDocket,
-    onPresentations: onOpenAgentGallery
-      ? () => onOpenAgentGallery(node.id) : undefined,
-    onLineage,
-    onSettings: onConfig,
-    onPin,
-    onShowPin,
-    onHire: revealHireChips,
-    onRetireAsk: setAsking,
-  }, { pinned, piled: !!pile })
+  // the desk's NATIVE window, read at menu-open time (deskhosts.tsx): whether
+  // this agent's desk is already popped out decides which of the two entries
+  // the builder offers, and a card must not hold a store subscription for it
+  const deskNow = useDeskActionsNow(slug)
+  const menuEntries = (): MenuEntry[] => {
+    const desk = deskNow(node)
+    return agentMenuEntries(node, {
+      onOpenDesk: onRecenter,
+      onInbox,
+      onDocket,
+      onPresentations: onOpenAgentGallery
+        ? () => onOpenAgentGallery(node.id) : undefined,
+      onLineage,
+      onSettings: onConfig,
+      onPin,
+      onShowPin,
+      // no native windows on mobile — the same reason the card has no `onPin`
+      // there. A desk that is not mounted yet cannot be popped out on the
+      // spot, so the request is retained and the camera goes to the agent,
+      // which mounts it (deskhosts.tsx keeps the pending request).
+      onPopout: !isMobile && desk.valid
+        ? () => { desk.requestPopout(); if (!desk.present) onRecenter?.() }
+        : undefined,
+      onShowWindow: desk.show,
+      onHire: revealHireChips,
+      onRetireAsk: setAsking,
+    }, { pinned, piled: !!pile, detached: desk.detached })
+  }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
     if (!r.width || !r.height) return

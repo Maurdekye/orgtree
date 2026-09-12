@@ -307,10 +307,15 @@ uiTest('§7 tray navigation survives: the row still goes to its agent',
     const rows = [...el.querySelectorAll('.tray-row .tray-main')] as HTMLElement[]
     assert.equal(rows.length, 2, 'positive control: both agents are in the tray')
     const primary = rows[1]!.parentElement
-    assert.ok(primary?.classList.contains('tray-primary'), 'controls stay in the primary row')
+    assert.ok(primary?.classList.contains('tray-primary'), 'the main line stays in the primary row')
+    // ⚠ AND NOTHING BESIDE IT (user ruling 2026-09-12). The row carried a ⌖
+    // pin and an ↗ popout button here; both moved into the row's context menu,
+    // where the rest of the agent's actions already were, so the row is one
+    // object you press to go somewhere. The actions themselves are covered in
+    // tests/agentrowmenu.test.tsx §7/§7b.
     const controls = primary?.querySelectorAll('.agent-list-control')
-    assert.equal(controls?.length, 2,
-      'each tray row exposes native pin and popout controls beside navigation')
+    assert.equal(controls?.length, 0,
+      'the per-agent pin and popout buttons are gone from the row')
     // ⚠ SETTLE FIRST, THEN READ THE BEFORE. The camera is still animating from
     // mount, so a `before` taken immediately drifts on its own and the check
     // passes whether or not the click did anything — measured: the mutant that
@@ -467,40 +472,12 @@ uiTest('§12 a detached whole-agent list stays open through main clicks and redo
     child.window.close()
   }
 })
-uiTest('Â§9 a registered list row opens its native desk surface', async ({ mount }) => {
-  const { DeskHosts, DeskListControls, DeskSlot } = await import('../src/canvas/deskhosts')
-  const node = tree(['desk']).roots[0] as unknown as CanvasNode
-  const map = new Map([[node.id, node]])
-  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
-    url: 'http://localhost/',
-  })
-  const originalOpen = window.open
-  const originalObserver = globalThis.MutationObserver
-  let opens = 0
-  const childWindow = child.window as unknown as Window
-  childWindow.focus = () => {}
-  childWindow.requestAnimationFrame = () => 1
-  childWindow.cancelAnimationFrame = () => {}
-  window.open = (() => { opens++; return childWindow }) as typeof window.open
-  globalThis.MutationObserver = child.window.MutationObserver
-  try {
-    const { el } = await mount(<DeskHosts map={map} slug="mine">
-      <DeskSlot node={node} map={map} slug="mine" pub={false}
-        op={() => Promise.resolve({} as never)} toast={noop} onJump={noop} />
-      <DeskListControls slug="mine" node={node} />
-    </DeskHosts>)
-    assert.ok(el, 'the DeskHosts fixture mounted')
-    await inAct(async () => { await flush(8) })
-    const button = el.querySelector<HTMLButtonElement>(
-      '[aria-label="open desk\'s desk in a new window"]')
-    assert.ok(button, 'a registered desk row exposes native popout')
-    await inAct(async () => { button!.click(); await flush(5) })
-    assert.equal(opens, 1, 'the list action reaches MovableSurface.open')
-    assert.ok(child.window?.document?.querySelector('.popout-mount'),
-      'the native surface adopted the desk into the opened window')
-  } finally {
-    window.open = originalOpen
-    globalThis.MutationObserver = originalObserver
-    child.window.close()
-  }
-})
+// §9 WAS "a registered list row opens its native desk surface", mounting the
+// row's own ↗ popout button (DeskListControls) beside a DeskSlot. The user had
+// the per-agent pin and popout buttons removed from the Agents List on
+// 2026-09-12 and that component went with them, so the same journey — a list
+// row asking for a popout, the desk registering, MovableSurface.open reached,
+// the child window adopting `.popout-mount` — is now measured through the row's
+// CONTEXT MENU on the real canvas, in tests/agentrowmenu.test.tsx §7. Deleted
+// here rather than rewritten: that test drives the shipping surface end to end,
+// where this one drove a fixture of a component that no longer exists.

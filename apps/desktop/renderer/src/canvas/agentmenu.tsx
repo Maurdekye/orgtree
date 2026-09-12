@@ -60,6 +60,11 @@ export interface AgentMenuHandlers {
   /** pin this agent's desk as a window / raise the one already pinned */
   onPin?: () => void
   onShowPin?: () => void
+  /** pop this agent's desk out into a NATIVE window / raise the one already
+   *  popped out (user request 2026-09-12: popout belongs in every agent menu,
+   *  and the per-agent pin and popout buttons left the Agents List with it) */
+  onPopout?: () => void
+  onShowWindow?: () => void
   /** reveal the card's bottom hire chips. There is no single "hire" handler —
    *  the tier choice and its provider gating live in SpawnChips — so this
    *  opens the chips the way a bottom-edge hover does. */
@@ -71,6 +76,10 @@ export interface AgentMenuHandlers {
 export interface AgentMenuState {
   /** this agent's desk is already open as a pinned window */
   pinned?: boolean
+  /** …or already popped out into a native window of its own. The two are
+   *  independent: a desk can be pinned into the canvas's screen space and
+   *  popped out to the OS, so both pairs of entries can appear together. */
+  detached?: boolean
   /** the card is (or would become) a pile/crowd FRONT: its edges belong to
    *  the stack, so there is no free side to hire into */
   piled?: boolean
@@ -108,6 +117,18 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const pin = h.onPin, showPin = h.onShowPin
   if (pin && !s.pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
   if (s.pinned && showPin) entries.push({ label: 'Show pinned window', onSelect: () => showPin() })
+  // …and the OS window beside the in-app one. "Open desk in a new window" and
+  // not the bare "Open in new window" every pinnable panel uses (modalpin.tsx,
+  // popout.tsx): there the object IS the surface, here the object is an agent
+  // and what pops out is its desk — and the menu already says "Open desk" for
+  // the camera.
+  const popout = h.onPopout, showWindow = h.onShowWindow
+  if (popout && !s.detached) {
+    entries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
+  }
+  if (s.detached && showWindow) {
+    entries.push({ label: 'Show desk window', onSelect: () => showWindow() })
+  }
   const hire = h.onHire
   if (canHire && hire) {
     entries.push({
