@@ -17,6 +17,7 @@
 
 export interface OrgActivityRow { slug: string; name: string; working: number; live: number }
 export interface Rect { x: number; y: number; width: number; height: number }
+import { themeAccent, type VisualTheme } from '../../../packages/contracts/visual-theme'
 
 // the backend's own org path-segment alphabet (api.py route patterns)
 const SLUG_RE = /^[a-z0-9@-]+$/
@@ -58,14 +59,21 @@ const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 export const TRAY_ROW_H = 28
-export const TRAY_LIST_W = 288
+export const TRAY_LIST_W = 200
 const TRAY_LIST_PAD = 12
+
+/** The spinning-arrows working icon matching AutorenewIcon and active agents. */
+export const AUTORENEW_SVG =
+  '<svg class="spin" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">' +
+  '<path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6m6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26"/>' +
+  '</svg>'
 
 /** The popup's complete document. One CSS grid holds every cell and the rows
  *  are `display: contents`, so all three columns align ACROSS rows (a grid
  *  per row would size its own columns). The spinner cell exists in every row
  *  — the animation only when that org is active — so names start flush. */
-export function trayListHtml(rows: OrgActivityRow[] | null): string {
+export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme | string | null): string {
+  const accent = themeAccent(theme)
   const body = rows === null
     ? '<div class="empty">The organization list is unavailable.</div>'
     : rows.length === 0
@@ -73,24 +81,25 @@ export function trayListHtml(rows: OrgActivityRow[] | null): string {
       : '<div class="list">' + rows.map(r =>
         `<a class="row" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
         ` title="${escapeHtml(r.name)} — ${r.working} active / ${r.live} hired">` +
-        `<span class="act">${r.working > 0 ? '<span class="spin"></span>' : ''}</span>` +
+        `<span class="act">${r.working > 0 ? AUTORENEW_SVG : ''}</span>` +
         `<span class="name">${escapeHtml(r.name)}</span>` +
         `<span class="ct">${r.working}/${r.live}</span></a>`).join('') + '</div>'
   return '<!doctype html><html><head><meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">' +
     '<style>' +
-    ':root{color-scheme:dark}*{box-sizing:border-box;margin:0;padding:0}' +
+    `:root{color-scheme:dark;--accent:${accent}}*{box-sizing:border-box;margin:0;padding:0}` +
     'html,body{background:#181818;color:#dedede;overflow-x:hidden}' +
     'body{font:13px \'Segoe UI\',system-ui,sans-serif;border:1px solid #333;padding:5px}' +
     `.list{display:grid;grid-template-columns:18px minmax(0,1fr) max-content;align-items:center;line-height:${TRAY_ROW_H - 10}px}` +
     '.row{display:contents;color:inherit;text-decoration:none;cursor:default}' +
     '.row>span{padding:5px 5px;white-space:nowrap}' +
-    '.row:hover>span{background:#2c2c2c}' +
+    '.row:hover>span{background:color-mix(in srgb,var(--accent) 10%,transparent);color:#f0f0f0}' +
+    '.row:focus-visible>span{background:color-mix(in srgb,var(--accent) 15%,transparent);color:#fff;outline:none}' +
     '.name{overflow:hidden;text-overflow:ellipsis}' +
     '.ct{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a9a}' +
     '.act{display:inline-flex;align-items:center;justify-content:center}' +
-    '.spin{display:inline-block;width:10px;height:10px;border:2px solid #4f8aef;border-top-color:transparent;border-radius:50%;animation:s .9s linear infinite}' +
-    '@keyframes s{to{transform:rotate(360deg)}}' +
+    '.spin{display:inline-block;line-height:1;color:var(--accent);animation:actspin 1.6s linear infinite;flex:none}' +
+    '@keyframes actspin{to{transform:rotate(360deg)}}' +
     '.empty{padding:9px 7px;color:#9a9a9a}' +
     '</style></head><body>' + body + '</body></html>'
 }

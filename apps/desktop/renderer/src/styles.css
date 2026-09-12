@@ -238,7 +238,10 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   color: var(--dim); font-size: 12px; border-radius: 4px;
 }
 .home:hover { background: var(--panel-2); color: var(--ink); }
-.org:hover { background: var(--panel-2); }
+.org:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--ink-strong);
+}
 .org.current {
   background: var(--accent-soft); border-left-color: var(--accent);
   color: var(--ink-strong);
@@ -2969,7 +2972,7 @@ main.solo { width: 100%; }
    underlying header region while the drawer is open so its controls click. */
 .drawer-backdrop, .drawer-backdrop * { -webkit-app-region: no-drag; }
 .drawer {
-  position: fixed; left: 0; top: 0; bottom: 0; width: 280px; z-index: 19;
+  position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 19;
   box-shadow: 8px 0 30px rgba(0, 0, 0, .5);
   animation: slidein .18s ease-out;
 }

@@ -7,3 +7,19 @@ export const isCustomTheme = (value: unknown): value is `custom:#${string}` =>
 export function isVisualTheme(value: unknown): value is VisualTheme {
   return typeof value === 'string' && ((VISUAL_THEMES as readonly string[]).includes(value) || isCustomTheme(value))
 }
+
+export const THEME_ACCENTS: Record<PresetVisualTheme, string> = {
+  orgtree: '#b6bdc8',
+  claude: '#d97757',
+  codex: '#22c4bd',
+  antigravity: '#75a5ff',
+  openrouter: '#b69afa',
+}
+
+export function themeAccent(theme?: VisualTheme | string | null): string {
+  if (typeof theme === 'string') {
+    if (isCustomTheme(theme)) return theme.slice(7)
+    if (theme in THEME_ACCENTS) return THEME_ACCENTS[theme as PresetVisualTheme]
+  }
+  return THEME_ACCENTS.claude
+}
