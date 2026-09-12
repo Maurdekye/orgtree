@@ -1337,6 +1337,26 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // those buttons' `click` does NOT stop `dblclick`, so the guard is here.
     if ((e.target as Element | null)?.closest?.(
       'button, input, textarea, select, a, .docket-copied')) return
+    // ⚠ THE GESTURE IS OURS, SO ITS SELECTION IS OURS TO CLEAR (user report
+    // 2026-09-12: "double-clicking a ticket to copy its slug leaves that
+    // ticket in a temporary interaction state where right-click cannot open
+    // its context menu until the operator opens another menu or clicks a
+    // different ticket").
+    //
+    // A double-click is the browser's select-the-word gesture as well as our
+    // copy, and the word it selects lies inside this row. A live selection
+    // touching the object is EXACTLY when the context menu stands aside for
+    // the browser's own (`nativeMenuPreferred`, canvas/contextmenu.tsx) — so
+    // the selection this gesture left behind suppressed the row's own menu
+    // until some later press collapsed it, which is why clicking another
+    // ticket "fixed" it.
+    //
+    // Cleared HERE and nowhere wider, because the rule it works around is a
+    // good one: a selection the READER made deliberately must still keep the
+    // browser's menu, with its Copy and its search. This clears only the
+    // selection the app's own gesture just caused. The row's OWN window, for
+    // the reason `copySlugAt` gives below.
+    e.currentTarget.ownerDocument.defaultView?.getSelection()?.removeAllRanges()
     copySlugAt(e.currentTarget, e.clientX, e.clientY)
   }
   // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07). Every entry is a
