@@ -15,6 +15,7 @@ import type { AskInfo } from '../src/types'
 
 // exactly what is on the user's disk right now
 const LIVE_PREFS = {
+  notificationsEnabled: true,
   notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true,
   notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false,
 }
