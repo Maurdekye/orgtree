@@ -142,5 +142,12 @@ The guarantee relies on provider occurrence IDs and ordered provider delta
 protocols. Arbitrary replay of an identity-free raw delta is indistinguishable
 from a genuinely repeated fragment. Such events and historical records are never
 collapsed by text guesses. Raw provider processes and visible application windows
-were not used for this verification. The patch awaits coordinator review and
-integration; it has not been landed, pushed or deployed.
+were not used for this verification.
+
+The coordinator approved the implementation after inspecting the full pipeline
+and independently rerunning the 20 backend and nine focused renderer tests.
+Integration includes the rich reply source/ObjectMenuBoundary change at
+`57b2e6e` and the Antigravity completion classification at `ab40c6b`; neither
+required an implementation change to this patch. Final integration, build and
+landing evidence is recorded on the `eliminate-duplicate-live-and-transcript-messages`
+docket item. Publication of the combined 2.1.0 release belongs to the coordinator.
