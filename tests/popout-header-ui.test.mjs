@@ -17,7 +17,7 @@ import { createRequire } from 'node:module'
 import Module from 'node:module'
 
 const root = path.resolve(import.meta.dirname, '..')
-// Inside node_modules so the bundle's `require('react')` resolves to the SAME
+// Inside a disposable temp directory; NODE_PATH makes the bundle's `require('react')` resolve to the SAME
 // React this test uses - two copies would break every hook - and removed again
 // rather than left behind.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-popout-ui-test-'))
