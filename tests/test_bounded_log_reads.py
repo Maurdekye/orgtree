@@ -118,6 +118,46 @@ class BoundedLogReads(unittest.TestCase):
         self.assertEqual(delivered, want_delivered[-cap:])
         self.assertEqual(sent, want_sent[-cap:])
 
+    def test_sent_equal_timestamp_ties_keep_owner_then_list_order(self):
+        # perf-review round 3: equal-`at` sent rows across recipients. The
+        # legacy path walks recipient owners in dict order, each list in
+        # order, then STABLE-sorts by `at` — so ties keep (owner position,
+        # list position). A global-seq tiebreak returns a different last 50
+        # the moment a later save interleaves one owner's appends past
+        # another owner's block. Fixture: 65 same-time mails each to beta
+        # and gamma, save; 20 more same-time beta mails, save.
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        org = store.create_org('Ties')
+        org.d['slug'] = 'ties'
+        for nid in ('alpha', 'beta', 'gamma'):
+            org.hire(ledger.USER, None, 'haiku', 0, nid)
+        at = '2026-09-12T00:00:00.000Z'
+        log = org.d.setdefault('mail_log', {})
+        for owner in ('beta', 'gamma'):
+            rows = log.setdefault(owner, [])
+            for i in range(65):
+                rows.append({'from': 'alpha', 'at': at, 'body': f'{owner} {i}'})
+        store.save_org(org)
+        org = store.load_org('ties')
+        for i in range(65, 85):
+            org.d['mail_log']['beta'].append(
+                {'from': 'alpha', 'at': at, 'body': f'beta {i}'})
+        store.save_org(org)
+
+        fresh = store.load_org('ties')
+        want = []
+        for to, lst in (fresh.d.get('mail_log') or {}).items():
+            want += [{**m, 'to': to} for m in lst if m['from'] == 'alpha']
+        want.sort(key=lambda m: m['at'])
+        got = store.read_mail_tails('ties', 'alpha', keep=50)
+        self.assertIsNotNone(got)
+        sent = got[3]
+        self.assertEqual(sent, want[-(50 + 40):])
+        self.assertEqual([m['body'] for m in sent[-50:]],
+                         [f'gamma {i}' for i in range(15, 65)])
+        store._POOL.close_all('ties')
+
     def test_events_negative_since_slices_like_python(self):
         # perf-review reproduction #1: events[since:] with a NEGATIVE index
         # means the tail, exactly as the list slice always did
