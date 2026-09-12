@@ -4470,6 +4470,20 @@ def spawn_env(org: Org, tier: str | None = None,
                     f"admission should hold this turn; refusing an unbound "
                     f"spawn")
             row = registry.get_account(bound)
+            if (row.get("provider") == "claude"
+                    and registry.account_mode(row) != "apikey"
+                    and not appsettings.subscription_inference_enabled(
+                        "claude")):
+                # The machine switch says NEVER (user decision 2026-09-12),
+                # and a binding is explicit — silently rerouting it onto a
+                # key row would be the automatic movement the rules forbid,
+                # so the admission gate parks such a node and this raise is
+                # the belt behind it.
+                raise RuntimeError(
+                    f"node {_bnid} is bound to claude subscription account "
+                    f"{bound} but claude subscription inference is disabled "
+                    f"on this machine — admission should hold this turn; "
+                    f"refusing a subscription spawn")
             def _secret(ref: str) -> str:
                 if ref.startswith("org-api-key:"):
                     slug = ref.split(":", 1)[1]
@@ -4484,6 +4498,23 @@ def spawn_env(org: Org, tier: str | None = None,
                 return tokens.get(ref) or ""
             return registry.inject_binding(env, row,
                                            secret_resolver=_secret)
+    # ── the metered ACCOUNT lane (user redesign 2026-09-12): an UNBOUND
+    # claude spawn may route to an enabled API-key account row — real
+    # attribution via the marker, spend metered to the row. Placed after the
+    # binding (which wins uniformly) and before the V1 org-key branch it
+    # replaces (stage e removes that one). `tier=None` (watchdog shells,
+    # forks pass bind_node instead) stays ambient, as ever.
+    if tier:
+        _ak_row = apikey_route_for(tier)
+        if _ak_row is not None:
+            return registry.inject_binding(env, _ak_row,
+                                           secret_resolver=tokens.get)
+        if (api_fallback_tier(tier)
+                and not appsettings.subscription_inference_enabled("claude")):
+            raise RuntimeError(
+                "claude subscription inference is disabled on this machine "
+                "and no enabled API-key account has capacity — admission "
+                "should hold this turn; refusing a subscription spawn")
     key = str(org.d.get("api_key") or "")
     if key:
         # api_fallback (user feature 2026-08-17): with the option ON the key
@@ -4739,6 +4770,93 @@ def api_fallback_tier(tier: str) -> bool:
     their walls buys nothing and moves every Claude sibling onto the metered
     key for a limit they never hit. Unknown tiers read as ineligible."""
     return tier in {t["tier"] for t in providers.claude_tiers()}
+
+
+# ── the metered API-key ACCOUNT lane (user redesign 2026-09-12) ─────────────
+# These replace the V1 org-key window above: routing is STATELESS, decided at
+# each spawn from the registry's own capacity marks — whose expiry is what
+# lets turns drift back to the subscription — so there is no stamped window
+# to open, re-price or expire.
+
+def apikey_lane_rows(provider: str) -> list[dict[str, Any]]:
+    """This provider's ENABLED API-key account rows, in registry list order —
+    the candidates fallback routing may spend. Disabled rows are invisible
+    here by design: that is the enable switch's entire meaning (explicit
+    operator BINDING is not gated on it — validate_binding's business)."""
+    try:
+        rows = registry.list_accounts()
+    except Exception:                                        # noqa: BLE001
+        return []
+    return [r for r in rows
+            if r.get("provider") == provider
+            and registry.account_mode(r) == "apikey"
+            and registry.is_enabled(r)]
+
+
+def apikey_lane_row(provider: str, tier: str,
+                    now: float | None = None) -> dict[str, Any] | None:
+    """The row a metered turn would bill RIGHT NOW: the first enabled key
+    account without a live capacity mark for this tier (the documented
+    multiple-key rule — list order, like the 2026-08-25 fallback keys). None
+    means the lane is SHUT — every key account marked, or none enabled —
+    not merely unpreferred."""
+    now = time.time() if now is None else now
+    for row in apikey_lane_rows(provider):
+        if registry.active_mark(str(row["id"]), tier, now) is None:
+            return row
+    return None
+
+
+def _claude_subscription_exhausted(tier: str,
+                                   now: float | None = None) -> bool:
+    """Has EVERY applicable claude subscription lane run out for this tier —
+    the ticket's fallback precondition, machine-wide on purpose. The ambient
+    login and the legacy setup-token keys answer through `accounts.resolve`
+    (one rule, theirs); every OTHER claude subscription PROFILE row counts
+    as capacity unless a live mark or an explicit `unauthenticated` verdict
+    says otherwise. Absence of evidence reads as capacity, so fallback fires
+    late rather than early — the cost of being wrong is one subscription
+    spawn that re-marks itself, never a metered turn nobody consented to."""
+    now = time.time() if now is None else now
+    if accounts.resolve(tier, now).get("available"):
+        return False
+    try:
+        rows = registry.list_accounts()
+        primary = registry.resolve_alias("primary")
+    except Exception:                                        # noqa: BLE001
+        return True          # unreadable registry: resolve() already said no
+    for row in rows:
+        cred = row.get("credential") or {}
+        if (row.get("provider") != "claude"
+                or registry.account_mode(row) == "apikey"
+                or cred.get("kind") not in ("imported", "managed")
+                or row.get("id") == primary
+                or row.get("auth") == "unauthenticated"):
+            continue
+        if registry.active_mark(str(row["id"]), tier, now) is None:
+            return False
+    return True
+
+
+def apikey_route_for(tier: str,
+                     now: float | None = None) -> dict[str, Any] | None:
+    """THE claude-lane metered routing decision at the spawn seam: the key
+    account this UNBOUND turn should bill, or None for the subscription
+    lanes. Exactly two doors (user decisions 2026-09-12): subscription
+    inference switched OFF for claude sends every claude turn here, and the
+    machine fallback consent (default OFF) sends turns here only once every
+    applicable subscription lane is exhausted. A BOUND node never asks —
+    its binding won upstream."""
+    if not api_fallback_tier(tier):
+        return None
+    now = time.time() if now is None else now
+    if not appsettings.subscription_inference_enabled("claude"):
+        return apikey_lane_row("claude", tier, now)
+    if not appsettings.apikey_fallback_enabled("claude"):
+        return None
+    if not _claude_subscription_exhausted(tier, now):
+        return None
+    return apikey_lane_row("claude", tier, now)
 
 
 def _bank_api_cost(org: Org, amount: float) -> None:
@@ -16673,6 +16791,61 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         _g_acct, str(_g_node.get("model") or ""))
                 except registry.UnknownAccount:
                     _g_mark = None
+            # ── metered-lane admission (user redesign 2026-09-12): with
+            # claude subscription inference OFF a subscription-lane spawn
+            # must never happen. A node BOUND to a subscription account is
+            # held regardless of key capacity — the binding is explicit, and
+            # silently rerouting it onto a key row would be the automatic
+            # movement the rules forbid — while an unbound node is held only
+            # when no ENABLED key account has capacity to serve it. Same
+            # park as `missing:` (cause="account": ▶ still exits, no timer)
+            # because every exit is an operator act: enable/register a key
+            # account, rebind, or re-enable subscription inference. The
+            # spawn seam's matching raises are the belt behind this gate.
+            _g_tier0 = str(_g_node.get("model") or "")
+            if (providers.provider_of(_g_tier0) == "claude"
+                    and not _g_acct.startswith("missing:")
+                    and not appsettings.subscription_inference_enabled(
+                        "claude")):
+                _g_sub_bound = False
+                if _g_acct:
+                    try:
+                        _g_sub_bound = registry.account_mode(
+                            registry.get_account(_g_acct)) != "apikey"
+                    except registry.UnknownAccount:
+                        _g_sub_bound = True
+                if _g_sub_bound or (not _g_acct and apikey_lane_row(
+                        "claude", _g_tier0) is None):
+                    _g_parked2 = False
+                    with store.DOC_LOCK:
+                        o_g = store.load_org(slug)
+                        if (nid in o_g.nodes
+                                and not o_g.node(nid).get("frozen")):
+                            fzg = _ensure_frozen(o_g.node(nid))
+                            fzg["limit"] = True
+                            fzg["cause"] = "account"
+                            fzg["provider"] = "claude"
+                            fzg["account"] = _g_acct or "subscription"
+                            fzg["until_ts"] = None
+                            fzg["until"] = (
+                                "claude subscription inference is disabled "
+                                "on this machine — " + (
+                                    "this node is bound to a subscription "
+                                    "account; rebind it to an API-key "
+                                    "account or re-enable subscription "
+                                    "inference, then resume"
+                                    if _g_sub_bound else
+                                    "no enabled API-key account has "
+                                    "capacity; register or enable one (or "
+                                    "re-enable subscription inference), "
+                                    "then resume"))
+                            fzg["reset_src"] = "account"
+                            fzg["resource_pool"] = ""
+                            store.save_org(o_g)
+                            _g_parked2 = True
+                    if _g_parked2:
+                        _parked_announce(slug, nid, "account",
+                                         limit_lane_label(_g_tier0))
             if _g_mark and _g_pass:
                 # the pass is spent on exactly this: the mark is real and
                 # still live, and this ONE admission goes through anyway so
