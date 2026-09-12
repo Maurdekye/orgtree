@@ -194,6 +194,9 @@ _COVERAGE_STATIC: dict[str, str] = {
     "orgtree_reservation": TX_POST,
     "orgtree_resource_reservation": TX_POST,
     "orgtree_present": TX_POST,       # routed when it lands on a superior
+    # combined report submission creates a presentation and a mail receipt;
+    # the latter may wake a local superior after the document commits
+    "orgtree_submit_report": TX_POST,
     # -- document transaction only ----------------------------------------
     "orgtree_withdraw_ask": TX,
     "orgtree_move": TX,
@@ -291,6 +294,10 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_request_scope": ("id", "routed", "deferred"),
     "orgtree_request_credits": ("id", "routed", "deferred"),
     "orgtree_present": ("id", "presented", "routed", "deferred"),
+    "orgtree_submit_report": (
+        "submitted", "presentation_ref", "forwarded", "mail_ref",
+        "mail_recipient", "mail_id", "delivery_accepted",
+        "delivery_deferred", "ref"),
     "orgtree_watchdog": ("id", "state", "created", "removed"),
     "orgtree_audience": ("granted", "revoked", "routed"),
     "orgtree_move": ("moved",),

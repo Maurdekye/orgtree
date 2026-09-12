@@ -7722,6 +7722,7 @@ _ARG_STRS = ("node", "to", "from", "target", "grantee", "parent", "new_parent",
              "reason", "charter", "team_charter", "org_visibility", "effort",
              "path",
              "operation",
+             "title",
              # D-160: the one-call hire's own text arguments. `permission_mode`
              # joins them at the same time — it has always been text-only, and
              # retool simply never had it normalised, so a container landed in
@@ -9806,6 +9807,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_present":
                 # FR-03: a reading card beside the node — non-blocking
                 result = _agent_present(org, body.node, a)
+            elif body.tool == "orgtree_submit_report":
+                # W21: one scoped report submission. The helper records a
+                # presentation only after the direct-audience check and mails
+                # the submitting node's superior in the same transaction.
+                result = _agent_submit_report(org, body.node, a)
+                _mail_target = result.pop("_mail_to", None)
+                if _mail_target:
+                    mail_to = str(_mail_target)
             elif body.tool == "orgtree_hire":
                 result = _hire_seat(org, body.org, body.node, a, drive)
             elif body.tool == "orgtree_account_assign":
@@ -10266,6 +10275,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the answer, and it was the one flying blind.
         if target == mail_to and isinstance(result, dict):
             result["delivery"] = supervisor.delivery_note(body.org, target, r)
+            receipt = result.get("delivery_receipt")
+            if isinstance(receipt, dict):
+                # Keep the durable-shaped receipt bounded: the carrier note
+                # says where the accepted mail went without exposing the
+                # internal wake record or changing the read=false claim.
+                receipt["carrier_note"] = result["delivery"]
     # a provider crossing cleared these nodes' freezes (each described the
     # provider it just left) — wake them now, rather than leaving them
     # "live" but idle until something else happens to message them. If the
@@ -10589,6 +10604,125 @@ def _agent_present(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
                                    always_copy=True, html_bundle=True)
     return org.present_document(nid, title, "", a.get("replaces"),
                                 html_file=f"outbox/{final}", html_bytes=size)
+
+
+def _report_artifact_refs(org: Org, nid: str, raw: Any) -> list[dict[str, Any]]:
+    """Validate report citations without widening a W08 artifact's scope.
+
+    A report may cite an immutable artifact that the submitting agent can
+    already read.  The citation is an item+artifact id pair because W08 ids
+    are scoped to their docket item.  Resolve through the ledger's read gate
+    and return metadata only; in particular, never copy the stored path or
+    filename into a report or its forwarding mail.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise LedgerError("artifacts must be a list of scoped references")
+    if len(raw) > 20:
+        raise LedgerError("at most 20 scoped artifacts may be cited")
+    out: list[dict[str, Any]] = []
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise LedgerError(f"artifacts[{i}] must be an object with work_item and artifact")
+        item = str(entry.get("work_item") or entry.get("slug") or "").strip()
+        aid = str(entry.get("artifact") or entry.get("id") or "").strip()
+        if not item or not aid:
+            raise LedgerError(f"artifacts[{i}] needs work_item and artifact")
+        rec = org.work_artifact_for_read(nid, item, aid)
+        # The returned shape is deliberately a citation, not an artifact
+        # record: W08's `path`, `name`, and grants are not report payload.
+        out.append({"work_item": item, "artifact": str(rec["id"]),
+                    "sha256": str(rec.get("sha256") or ""),
+                    "bytes": int(rec.get("bytes") or 0),
+                    "scope": str(rec.get("scope") or "item")})
+    return out
+
+
+def _agent_submit_report(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
+    """Submit one report to the chain, presenting only when authorized.
+
+    The operation is intentionally one transaction at the API boundary:
+    artifact citations are checked first, then a user presentation is made
+    only for a direct user-audience holder, and the same report is mailed to
+    the submitting agent's superior.  Without that audience the mail is a
+    scoped forwarding action and no document record is created.
+    """
+    # Match the established presentation title bound even on the forwarding
+    # path, so a report has one stable title regardless of audience outcome.
+    title = str(a.get("title") or "").strip()[:120]
+    body = str(a.get("body") or "")
+    if not title:
+        raise LedgerError("a report title is required")
+    if not body.strip():
+        raise LedgerError("a report body is required")
+    citations = _report_artifact_refs(org, nid, a.get("artifacts"))
+    node = org.node(nid)
+    superior = str(node.get("parent") or USER)
+    direct_user = node.get("parent") is None or org._has_audience(nid, USER)
+
+    def citation_lines() -> str:
+        if not citations:
+            return ""
+        return ("\n\nScoped artifact citations (read scope unchanged):\n" +
+                "\n".join(f"- {x['work_item']} / {x['artifact']}"
+                          for x in citations))
+
+    presentation: dict[str, Any] | None = None
+    if direct_user:
+        doc = org.present_document(nid, title, body)
+        did = str(doc["presented"])
+        presentation = {"id": did, "ref": refs.doc(org.d["slug"], did),
+                        "immutable": True}
+        mail_body = (f"REPORT SUBMITTED: {title}\n\n{body}"
+                     f"\n\nUser presentation: {presentation['ref']}"
+                     + citation_lines())
+        mail_kind = "message"
+    else:
+        # This is an action for the superior, not a hidden presentation and
+        # not a grant.  Citations name only W08 records; the superior must
+        # obtain any named-artifact access through the artifact author.
+        mail_body = (f"REPORT FORWARDING ACTION: {title}\n\n{body}\n\n"
+                     "No user presentation was created: the submitting agent "
+                     "holds no direct user audience. Present this report only "
+                     "if you hold that audience; cited named artifacts remain "
+                     "scoped and were not granted by this submission."
+                     + citation_lines())
+        mail_kind = "request"
+
+    mailed = org.post_mail(nid, superior, mail_body, kind=mail_kind)
+    mail_id = str(mailed.get("id") or "")
+    mail_ref = refs.mail(org.d["slug"], str(mailed.get("delivered") or ""), mail_id)
+    result: dict[str, Any] = {
+        "submitted": True,
+        "title": title,
+        "presentation": presentation,
+        "presentation_ref": (presentation["ref"] if presentation else None),
+        "forwarded": not direct_user,
+        "artifacts": citations,
+        "mail": {"recipient": superior, "id": mail_id,
+                 "delivered": mailed.get("delivered"),
+                 "deferred": mailed.get("deferred", False),
+                 "ref": mail_ref},
+        "mail_ref": mail_ref,
+        "mail_recipient": superior,
+        "mail_id": mail_id,
+        # A stable, truthful receipt: accepted into a mailbox is not a claim
+        # that a recipient has read it. The outer dispatch adds its richer
+        # carrier note when a live agent is driven.
+        "delivery_receipt": {"recipient": superior, "id": mail_id,
+                             "accepted": True, "read": False,
+                             "deferred": mailed.get("deferred", False)},
+        "delivery_accepted": True,
+        "delivery_deferred": bool(mailed.get("deferred", False)),
+        "ref": presentation["ref"] if presentation else mail_ref,
+        "status": ("presented to the user and delivered to the superior"
+                   if presentation else
+                   "forwarded to the superior; no user presentation was created"),
+        "_mail_to": (superior if superior != USER and not mailed.get("deferred")
+                     else None),
+    }
+    return result
 
 
 def _agent_send_file(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:

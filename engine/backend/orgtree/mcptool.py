@@ -937,6 +937,42 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "orgtree_submit_report",
+        "description": (
+            "Submit one report through the chain while preserving audience "
+            "boundaries. The report is always delivered to your direct "
+            "superior. If you are top-level or hold a DIRECT user audience, "
+            "the same call also creates one immutable user presentation "
+            "reference. Otherwise it sends your superior a scoped forwarding "
+            "action and creates NO user presentation. Named W08 artifacts "
+            "may be cited by their work-item and artifact ids only when you "
+            "can already read them; this never grants artifact access or "
+            "exposes a scratch folder. The result includes the presentation "
+            "reference (when authorized), the mail reference and accurate "
+            "delivery receipt."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "short report title"},
+                "body": {"type": "string", "description": "report body in markdown"},
+                "artifacts": {
+                    "type": "array", "maxItems": 20,
+                    "description": "scoped W08 citations; each object has work_item and artifact",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "work_item": {"type": "string"},
+                            "artifact": {"type": "string"},
+                        },
+                        "required": ["work_item", "artifact"],
+                    },
+                },
+            },
+            "required": ["title", "body"],
+        },
+    },
+    {
         "name": "orgtree_request_credits",
         "description": (
             "Ask the user directly for a larger credit grant — allowed for "
