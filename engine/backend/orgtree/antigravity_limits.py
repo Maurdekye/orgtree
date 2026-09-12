@@ -138,6 +138,8 @@ def _supports_usage(version: object) -> bool:
 
 def _account_key(status: dict[str, Any]) -> str | None:
     """Stable identity for cache isolation; never display or persist it."""
+    if not status.get("installed") or not status.get("connected"):
+        return None
     email = status.get("email")
     if not isinstance(email, str) or not email.strip():
         return None
@@ -158,6 +160,14 @@ def _reconcile_unlocked(account: str | None) -> dict[str, Any] | None:
     if cached is not None:
         _clear_unlocked()
     return None
+
+
+def _reconcile_observed_status_unlocked() -> dict[str, Any] | None:
+    """Reconcile with status another surface observed, without a CLI call."""
+    status = providers.antigravity_cached_status()
+    if status is not None:
+        _reconcile_unlocked(_account_key(status))
+    return status
 
 
 def _read_only(result: dict[str, Any]) -> bool:
@@ -287,9 +297,6 @@ def fetch(force: bool = False) -> dict[str, Any]:
     account = _account_key(status)
     with _lock:
         cached = _reconcile_unlocked(account)
-        if (not force and isinstance(cached, dict)
-                and now - float(_cache.get("at") or 0) <= CACHE_TTL):
-            return _account(dict(cached), status)
 
     if not status.get("installed"):
         with _lock:
@@ -314,6 +321,9 @@ def fetch(force: bool = False) -> dict[str, Any]:
             "error": ("Antigravity usage requires CLI 1.2.0 or newer; "
                       "update the Antigravity CLI to enable it"),
         }, status)
+    if (not force and isinstance(cached, dict)
+            and now - float(_cache.get("at") or 0) <= CACHE_TTL):
+        return _account(dict(cached), status)
 
     with _fetch_lock:
         now = time.time()
@@ -346,17 +356,29 @@ def fetch(force: bool = False) -> dict[str, Any]:
                 _cache.update(at=observed, data=data, account=account)
             return _account(dict(data), after)
         except Exception as error:  # noqa: BLE001 - provider failures degrade the panel
+            try:
+                after = providers.antigravity_status(force=True)
+            except Exception as status_error:  # noqa: BLE001 - refuse unverified fallback
+                with _lock:
+                    _clear_unlocked()
+                return _account({
+                    "available": False,
+                    "error": ("Antigravity usage refresh failed: "
+                              f"{error}; account recheck failed: {status_error}"),
+                }, status)
+            after_account = _account_key(after)
             with _lock:
-                stale = _reconcile_unlocked(account)
+                stale = _reconcile_unlocked(after_account)
             message = f"Antigravity usage refresh failed: {error}"
-            if isinstance(stale, dict):
-                return _account({**stale, "error": message}, status)
-            return _account({"available": False, "error": message}, status)
+            if after_account == account and isinstance(stale, dict):
+                return _account({**stale, "error": message}, after)
+            return _account({"available": False, "error": message}, after)
 
 
 def peek() -> dict[str, Any]:
     """Cache-only read for the always-on header warning glow."""
     with _lock:
+        _reconcile_observed_status_unlocked()
         raw = _cache.get("data")
         age = time.time() - float(_cache.get("at") or 0)
         data = dict(raw) if isinstance(raw, dict) else None
@@ -373,6 +395,7 @@ def snapshot(now: float | None = None) -> dict[str, Any]:
     """Cache-only timestamped evidence for dynamic turn envelopes."""
     now = time.time() if now is None else now
     with _lock:
+        _reconcile_observed_status_unlocked()
         raw = _cache.get("data")
         observed = float(_cache.get("at") or 0.0)
         if not isinstance(raw, dict):

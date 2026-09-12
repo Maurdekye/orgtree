@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -115,6 +116,9 @@ class FetchTests(unittest.TestCase):
 
     def setUp(self):
         antigravity_limits.invalidate()
+        prior = providers._antigravity_status_cache
+        providers._antigravity_status_cache = None
+        self.addCleanup(setattr, providers, "_antigravity_status_cache", prior)
 
     def test_fetch_uses_cache_and_force_bypasses_it(self):
         with mock.patch.object(providers, "antigravity_status",
@@ -175,6 +179,49 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(out["label"], "b@example.test")
         self.assertIn("changed during", out["error"])
         self.assertFalse(antigravity_limits.snapshot()["available"])
+
+    def test_account_change_during_failed_read_refuses_old_fallback(self):
+        account_a = {**self.status, "email": "a@example.test"}
+        account_b = {**self.status, "email": "b@example.test"}
+        with mock.patch.object(providers, "antigravity_status",
+                               return_value=account_a), \
+             mock.patch.object(antigravity_limits, "_run_usage",
+                               return_value=usage_result()):
+            antigravity_limits.fetch(force=True)
+        with mock.patch.object(providers, "antigravity_status",
+                               side_effect=[account_a, account_b]), \
+             mock.patch.object(antigravity_limits, "_run_usage",
+                               side_effect=RuntimeError("offline")):
+            out = antigravity_limits.fetch(force=True)
+        self.assertFalse(out["available"])
+        self.assertEqual(out["label"], "b@example.test")
+        self.assertFalse(antigravity_limits.snapshot()["available"])
+
+    def test_snapshot_and_peek_reconcile_status_observed_elsewhere(self):
+        with mock.patch.object(providers, "antigravity_status",
+                               return_value=self.status), \
+             mock.patch.object(antigravity_limits, "_run_usage",
+                               return_value=usage_result()):
+            antigravity_limits.fetch(force=True)
+        signed_out = {**self.status, "connected": False, "email": None}
+        providers._antigravity_status_cache = (time.time(), signed_out)
+        self.assertFalse(antigravity_limits.peek()["available"])
+        self.assertFalse(antigravity_limits.snapshot()["available"])
+
+    def test_fast_cache_return_rechecks_connection_state(self):
+        with mock.patch.object(providers, "antigravity_status",
+                               return_value=self.status), \
+             mock.patch.object(antigravity_limits, "_run_usage",
+                               return_value=usage_result()):
+            antigravity_limits.fetch(force=True)
+        signed_out = {**self.status, "connected": False, "email": None}
+        with mock.patch.object(providers, "antigravity_status",
+                               return_value=signed_out), \
+             mock.patch.object(antigravity_limits, "_run_usage") as run:
+            out = antigravity_limits.fetch()
+        self.assertFalse(out["available"])
+        self.assertTrue(out["reauth_required"])
+        run.assert_not_called()
 
     def test_refresh_failure_serves_last_good_board_with_error(self):
         with mock.patch.object(providers, "antigravity_status",
