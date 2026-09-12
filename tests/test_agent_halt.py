@@ -809,6 +809,161 @@ class AgentHaltTests(unittest.TestCase):
             drive.assert_not_called()
             run.assert_not_called()
 
+    def test_halt_arriving_during_error_cleanup_suppresses_terminal_alarm(self):
+        # User invariant: a turn cannot run while its agent is halted. The
+        # existing worker must settle before halt succeeds, even when a late
+        # exception is passing through state-audit's terminal-error handler.
+        accounting, release = threading.Event(), threading.Event()
+
+        class Recorder:
+            disposition = None
+            def set(self, **kwargs):
+                pass
+            def book(self, **kwargs):
+                pass
+            def error(self, error):
+                pass
+            def dispose(self, disposition):
+                self.disposition = disposition
+            def close(self):
+                pass
+
+        def charge(*args, **kwargs):
+            accounting.set()
+            release.wait(3)
+
+        self.st["busy"] = True
+        with patch.object(sup, "_InterruptibleTurnSlot",
+                          side_effect=RuntimeError("fixture admission failure")), \
+             patch.object(sup, "_charge_reported_spend", side_effect=charge), \
+             patch.object(sup.turnlog, "start", return_value=Recorder()), \
+             patch.object(sup, "_bump_hard_fail") as bump, \
+             patch.object(sup, "_turn_abandoned") as abandon:
+            worker = threading.Thread(target=sup._run_one_turn,
+                                      args=(self.slug, self.nid, "pending input"))
+            worker.start()
+            try:
+                self.assertTrue(accounting.wait(2), "exception passed its first halt check")
+                result = self.stop(timeout=0)
+                self.assertTrue(result["halting"])
+                self.assertFalse(result["settled"])
+            finally:
+                release.set()
+                worker.join(3)
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(self.stop()["halted"])
+            bump.assert_not_called()
+            abandon.assert_not_called()
+        self.assertFalse(halt._workers.get((self.slug, self.nid)))
+        self.assertEqual(self.org().node(self.nid)["halt_queue"][0]["text"],
+                         "pending input")
+
+    def queue_cross_provider_switch(self):
+        with store.DOC_LOCK:
+            org = self.org()
+            n = org.node(self.nid)
+            n["model"] = "opus"
+            n["frozen"] = {"limit": True, "provider": "claude",
+                           "until_ts": time.time() + 3600,
+                           "resume_texts": ["work before the limit"], "at": "x"}
+            n["pending_switch"] = {"tier": "luna", "from": "opus",
+                                   "by": "USER", "at": "x",
+                                   "crossing": True, "account": None}
+            store.save_org(org)
+
+    def assert_switch_wake_held(self):
+        node = self.org().node(self.nid)
+        self.assertEqual(node["model"], "luna")
+        self.assertIsNone(node.get("frozen"))
+        self.assertNotIn("pending_switch", node)
+        self.assertEqual(node["halt"]["phase"], "halted")
+        wakes = [c for c in node["halt_queue"]
+                 if c.get("ping_reason") == "unfrozen_by_switch"]
+        self.assertEqual(len(wakes), 1)
+        self.assertEqual(wakes[0]["text"], sup.UNFROZEN_BY_SWITCH_TEXT)
+        self.assertFalse(sup.state(self.slug, self.nid)["busy"])
+        self.assertFalse(halt._workers.get((self.slug, self.nid)))
+
+    def test_queued_switch_at_halted_turn_boundary_retains_wake(self):
+        self.queue_cross_provider_switch()
+        self.st["busy"] = True
+        with patch.object(sup, "_turn_slots", threading.Semaphore(0)), \
+             patch.object(sup, "_run_turn") as run:
+            worker = threading.Thread(target=sup._run_one_turn,
+                                      args=(self.slug, self.nid, "waiting input"))
+            worker.start()
+            try:
+                deadline = time.monotonic() + 2
+                while not self.st.get("admission_waiting") and time.monotonic() < deadline:
+                    time.sleep(.005)
+                self.assertTrue(self.st.get("admission_waiting"))
+                self.assertTrue(self.stop()["halted"])
+            finally:
+                self.st["admission_cancelled"] = True
+                worker.join(3)
+            self.assertFalse(worker.is_alive())
+            run.assert_not_called()
+        self.assert_switch_wake_held()
+
+    def test_restart_queued_switch_cannot_release_halt_or_deliver_mail(self):
+        self.queue_cross_provider_switch()
+        self.stop()
+        self.mail("queued across provider change and restart")
+        before = copy.deepcopy(self.org().d["mail"][self.nid])
+        with sup._state_lock:
+            sup._state.pop((self.slug, self.nid), None)
+        with patch.object(sup, "_run_turn") as run, \
+             patch.object(sup, "_transcript_evidence", return_value=set()), \
+             patch.object(sup, "_native_context_hold", return_value=None):
+            sup.reconcile(self.slug)
+            run.assert_not_called()
+        self.assert_switch_wake_held()
+        self.assertEqual(self.org().d["mail"][self.nid], before)
+
+    def test_assigning_missing_account_clears_only_account_park(self):
+        with store.DOC_LOCK:
+            org = self.org()
+            node = org.node(self.nid)
+            node["model"] = "opus"
+            node["account"] = "missing:claude"
+            node["frozen"] = {"limit": True, "cause": "account",
+                              "provider": "claude", "until_ts": None, "at": "x"}
+            store.save_org(org)
+        self.stop()
+        self.mail("unread while account is repaired")
+        before = copy.deepcopy(self.org().d["mail"][self.nid])
+        with patch.object(sup, "_run_turn") as run:
+            result = sup.assign_account(self.slug, self.nid, "primary", actor=ledger.USER)
+            run.assert_not_called()
+        self.assertTrue(result["unparked"])
+        node = self.org().node(self.nid)
+        self.assertIsNone(node.get("frozen"))
+        self.assertEqual(node["halt"]["phase"], "halted")
+        self.assertEqual([c["text"] for c in node["halt_queue"]], [sup.ACCOUNT_UNPARK_TEXT])
+        self.assertEqual(self.org().d["mail"][self.nid], before)
+        self.assertFalse(sup.state(self.slug, self.nid)["busy"])
+
+    def test_dead_remote_recovery_preserves_halt_and_waiting_mail(self):
+        self.stop()
+        self.mail("waiting after the remote driver died")
+        with store.DOC_LOCK:
+            org = self.org()
+            org.node(self.nid)["remote_controlled"] = {"at": "x", "pid": 123}
+            store.save_org(org)
+        before = copy.deepcopy(self.org().d["mail"][self.nid])
+        with patch.object(sup, "_pid_provably_dead", return_value=True), \
+             patch.object(sup, "remote_reap"), \
+             patch.object(sup, "_run_turn") as run:
+            sup._invariant_sweep_org(self.slug)
+            run.assert_not_called()
+        node = self.org().node(self.nid)
+        self.assertIsNone(node.get("remote_controlled"))
+        self.assertEqual(node["halt"]["phase"], "halted")
+        self.assertEqual(len(node["halt_queue"]), 1)
+        self.assertIn("Remote control ended", node["halt_queue"][0]["text"])
+        self.assertEqual(self.org().d["mail"][self.nid], before)
+        self.assertFalse(self.st["busy"])
+
 
 if __name__ == "__main__":
     unittest.main()

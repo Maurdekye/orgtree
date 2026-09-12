@@ -19168,10 +19168,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # `_belt_owned` = some OTHER mechanism owns this node's stopped
             # state, so the belt must NOT announce a terminal error over it:
             # a freeze (the resume machinery owns it), an archived/unrecoverable
-            # node (its own lifecycle), or a deliberate HALT — today the fable
-            # `limit_locked` marker, and the extension point where halt-state's
-            # first-class halted state adds itself when it rebases on top of
-            # this. An unreadable doc proves nothing and stays silent (never a
+            # node (its own lifecycle), or a deliberate halt. Re-read halt
+            # here: it may have arrived after the exception handler's first
+            # check, while accounting or error recording was finishing.
+            # An unreadable doc proves nothing and stays silent (never a
             # false announcement).
             # The set matches the ACTUAL admission gate (the raises at the top
             # of the turn slot, ~15811-15824) exactly, so the belt never
@@ -19188,6 +19188,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     _bn = _bo.node(nid) if nid in _bo.nodes else None
                     _belt_owned = bool(
                         _bn is None
+                        or _bn.get("halt")
                         or _bn.get("frozen")
                         or _bn.get("limit_locked")
                         or _bn.get("remote_controlled")
