@@ -1,0 +1,58 @@
+{
+  "schema": "orgtree.verification-recipes/v1",
+  "generated_at": "2026-09-13",
+  "candidate": "72a94d3bec7d4aa9f08767c8bdff06fb17e770d4",
+  "owner": "notify-review",
+  "handoff": {
+    "purpose": "Successor and reviewer entry point for reproducible checks",
+    "working_tree_policy": "Run commands from the checkout named by the receipt; never infer a candidate from a short display SHA.",
+    "receipt_tool": "tools/verification-receipt.py",
+    "last_verified": "2026-09-13"
+  },
+  "suites": [
+    {
+      "area": "root",
+      "runner": "node --test",
+      "command": "node --test tests/notifications.test.mjs tests/taskbarattention.test.mjs tests/icon-assets.test.mjs",
+      "covers": "desktop notification lifecycle, taskbar/native source guards, and icon assets"
+    },
+    {
+      "area": "renderer",
+      "runner": "apps/desktop/renderer/tests/run.mjs",
+      "command": "node apps/desktop/renderer/tests/run.mjs pendingattention notifydelivery notificationsettings",
+      "covers": "focused renderer suites for attention, delivery, and preferences"
+    },
+    {
+      "area": "native",
+      "runner": "tools/test-*.mjs probes",
+      "command": "node tools/test-popout-header-regions.mjs; node tools/test-taskbar-native.mjs",
+      "covers": "real Electron/native probes where the platform boundary is in scope"
+    },
+    {
+      "area": "backend",
+      "runner": "python -m unittest",
+      "command": "python -m unittest tests.test_work_evidence_receipts tests.test_python_verification_runner",
+      "covers": "receipt schema, isolated Python runner, and failure classification"
+    },
+    {
+      "area": "quality guards",
+      "runner": "node --test plus the Python runner",
+      "command": "node --test tests/portal-fixture.test.mjs tests/benchmark-controls.test.mjs tests/w07-acceptance-isolation.test.mjs",
+      "covers": "fixture cleanup, benchmark negative controls, and acceptance isolation"
+    }
+  ],
+  "guards": [
+    { "name": "renderer timeout/concurrency", "source": "apps/desktop/renderer/tests/run.mjs", "command": "ORGTREE_TEST_CONCURRENCY=4 node apps/desktop/renderer/tests/run.mjs --reps 1" },
+    { "name": "receipt provenance", "source": "tools/verification-receipt.py", "command": "python tools/verification-receipt.py --repo-root <checkout> --candidate <full-sha> -- <command>" },
+    { "name": "acceptance isolation", "source": "tests/acceptance/isolation.mjs", "command": "node --test tests/w07-acceptance-isolation.test.mjs" }
+  ],
+  "controls": [
+    { "name": "fixture teardown", "status": "executed", "command": "node --test tests/portal-fixture.test.mjs", "negative_control": "failed assertion followed by a fresh fixture" },
+    { "name": "benchmark no-op", "status": "executed", "command": "node --test tests/benchmark-controls.test.mjs", "negative_control": "inert transition is rejected rather than reported as a measurement" }
+  ],
+  "skipped": [
+    { "area": "installer", "status": "skipped", "reason": "not part of the focused recipe; requires a freshly built installer and isolated installation authorization" },
+    { "area": "real provider turn", "status": "skipped", "reason": "requires explicit external authorization; no receipt is implied by omission" },
+    { "area": "full renderer sweep", "status": "unexecuted", "reason": "use bounded batches; the canonical focused commands above are the reproducible smoke check" }
+  ]
+}
