@@ -73,7 +73,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine", "back
 # and its completeness check fires on an empty table.
 from orgtree import events  # noqa: E402,F401
 from orgtree import events_render  # noqa: E402,F401
-from orgtree import ledger, mcptool, workfields, workitems  # noqa: E402
+from orgtree import ledger, mcptool, store, workfields, workitems  # noqa: E402
 from orgtree.ledger import LedgerError, USER  # noqa: E402
 
 _n = 0
@@ -190,6 +190,39 @@ class LosslessNotes(unittest.TestCase):
         self.assertGreater(len(note), 500)
         org.work_evidence("owner-a", wid, "note", "ref", note)
         self.assertEqual(item(org, wid)["evidence"][0]["note"], note)
+
+
+class NotesThroughStorage(unittest.TestCase):
+    """§1g — the durable half. `work_get` reading back an in-memory object
+    proves the projection; only a save-and-reload proves the STORE, which is
+    what acceptance asks for ("survives storage") and what an org export is a
+    copy of."""
+
+    def test_s1g_notes_survive_save_and_reload(self):
+        slug = f"ll-store-{os.getpid()}"
+        org = store.create_org(slug)
+        try:
+            org.hire(USER, None, "haiku", 0, "owner-a", add_dirs=[],
+                     tools={"bash": False, "web": False, "edit": False,
+                            "subagents": False, "mcp": []},
+                     org_visibility="self", charter="fixture agent")
+            created = org.work_create("owner-a", "Stored notes",
+                                      objective="Problem. Solution.",
+                                      acceptance=["notes survive storage"])
+            wid = created["created"]
+            org.work_evidence("owner-a", wid, "log", "tests/run.log", LONG_NOTE)
+            org.work_check("owner-a", wid, 0, "tests/run.log", LONG_NOTE)
+            org.work_accept("owner-a", wid, LONG_NOTE)
+            store.save_org(org)
+            store._POOL.close_all(slug)
+
+            back = store.load_org(slug).work_get("owner-a", wid)
+            self.assertEqual(back["evidence"][0]["note"], LONG_NOTE)
+            self.assertEqual(back["acceptance"][0]["checked"]["note"],
+                             LONG_NOTE)
+            self.assertEqual(back["accepted"]["note"], LONG_NOTE)
+        finally:
+            store._POOL.close_all(slug)
 
 
 class AtomicRefusal(unittest.TestCase):
