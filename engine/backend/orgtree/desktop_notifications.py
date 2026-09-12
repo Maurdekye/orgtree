@@ -3,6 +3,27 @@ import hashlib
 from . import store
 from .notification_state import question_items
 
+# Terminal outcomes are actionable even when they were not authored as urgent
+# mail.  Keep this classification structural: changing the rendered prose
+# must not turn a failure into an FYI.
+_TERMINAL_VARIANTS = frozenset({
+    'runtime.turn_failed_terminal',
+    'runtime.background_task_stopped',
+    'runtime.subagent_died',
+})
+
+
+def _terminal_failure(mail):
+    event = mail.get('ev') if isinstance(mail, dict) else None
+    if not isinstance(event, dict):
+        return False
+    if event.get('variant') in _TERMINAL_VARIANTS:
+        return True
+    # A stalled report carries the terminal/repeated distinction as data; a
+    # terminal stall is actionable even when the sender did not set urgent.
+    return (event.get('variant') == 'runtime.report_stalled'
+            and event.get('cause') == 'terminal')
+
 
 def notices(limit=200, offset=0):
     rows = []
@@ -20,7 +41,9 @@ def notices(limit=200, offset=0):
                 add(org, 'ask:'+str(ask.get('id')), 'question', 'Question from '+str(ask.get('node')),
                     ask.get('question') or next((q.get('question') for q in ask.get('questions',[]) if q.get('question')), 'A question needs your answer.'), ask.get('node'), source_id=ask.get('id'))
         for mail in org.d.get('user_inbox') or []:
-            add(org,'mail:'+str(mail.get('id')), 'urgent-mail' if mail.get('urgent') else 'routine',
+            kind = ('terminal-failure' if _terminal_failure(mail) else
+                    'urgent-mail' if mail.get('urgent') else 'routine')
+            add(org,'mail:'+str(mail.get('id')), kind,
                 'Message from '+str(mail.get('from') or org.d.get('name')),
                 (mail.get('urgent_reason') if mail.get('urgent') else None) or mail.get('body') or mail.get('text') or 'Open the message in Orgtree.',
                 mail.get('from'), source_id=mail.get('id'))
@@ -41,7 +64,8 @@ def notices(limit=200, offset=0):
                 generation = int(node.get('generation') or 0)
                 add(org, f"frozen:{nid}:{generation}:{frozen.get('at')}", 'agent-frozen',
                     'Agent frozen: '+nid, 'Open the agent to see its current state.', nid, generation=generation)
-    priority = {'question':0,'urgent-mail':1,'work-attention':2,'routine':3,'document':4,'agent-frozen':5}
+    priority = {'question':0,'terminal-failure':1,'urgent-mail':2,
+                'work-attention':3,'routine':4,'document':5,'agent-frozen':6}
     rows.sort(key=lambda row:(priority[row['kind']],row['org'],row['id']))
     offset = max(0, offset)
     end = offset + max(1, limit)

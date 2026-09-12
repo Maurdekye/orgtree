@@ -17,6 +17,7 @@ import type { AskInfo } from '../src/types'
 const LIVE_PREFS = {
   notificationsEnabled: true,
   notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true,
+  notifyTerminalFailures: true,
   notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false,
 }
 

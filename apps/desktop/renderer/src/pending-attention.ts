@@ -4,7 +4,7 @@ import type { DesktopNotification } from '../../../../packages/contracts'
 /** WHAT IS STILL WAITING ON THE USER, across every organization.
  *
  *  User ruling 2026-09-12: while any attached question, attention ticket or
- *  urgent mail remains present, the Windows taskbar icon pulses and the
+ *  urgent mail or terminal failure remains present, the Windows taskbar icon pulses and the
  *  matching in-app toolbar icon carries a small bright dot. Both indicators
  *  read THIS one aggregate, so they can never disagree: resolving one item
  *  leaves both standing while another qualifying item remains, and they clear
@@ -18,11 +18,11 @@ import type { DesktopNotification } from '../../../../packages/contracts'
  *  interrupts the user through the operating system's notification centre;
  *  these indicators only report that something is waiting, which is the same
  *  claim the existing header badges already make. */
-export type PendingKind = Extract<DesktopNotification['kind'], 'question' | 'urgent-mail' | 'work-attention'>
-const PENDING_KINDS: readonly PendingKind[] = ['question', 'urgent-mail', 'work-attention']
+export type PendingKind = Extract<DesktopNotification['kind'], 'question' | 'urgent-mail' | 'terminal-failure' | 'work-attention'>
+const PENDING_KINDS: readonly PendingKind[] = ['question', 'urgent-mail', 'terminal-failure', 'work-attention']
 
 export interface PendingAttention {
-  /** questions and urgent mail — the inbox bell's claim */
+  /** questions, urgent mail and terminal failures — the inbox bell's claim */
   mail: number
   /** tickets flagged for the user — the docket button's claim */
   docket: number

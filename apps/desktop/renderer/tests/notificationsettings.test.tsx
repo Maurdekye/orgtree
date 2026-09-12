@@ -14,8 +14,8 @@ import type { NativeNotice } from '../src/desktop'
 import type { AskInfo } from '../src/types'
 import { DEFAULT_NOTIFICATIONS, notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
 
-const labels = ['Questions', 'Urgent mail', 'Docket attention', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
-const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyDocketAttention', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
+const labels = ['Questions', 'Urgent mail', 'Terminal failures', 'Docket attention', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
+const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyTerminalFailures', 'notifyDocketAttention', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
 const response = (data: unknown) => ({ ok: true, headers: new Headers(), json: async () => data } as Response)
 const native = (value?: unknown) => Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
 const settle = () => inAct(async () => { await flush(30) })
@@ -31,7 +31,7 @@ function focused(doc: Document, value: boolean) {
   Object.defineProperty(doc, 'hasFocus', { configurable: true, value: () => value })
 }
 
-test('seven native settings use exact defaults, save separately and accept broadcasts over stale load', async () => {
+test('eight native settings use exact defaults, save separately and accept broadcasts over stale load', async () => {
   let resolve!: (value: unknown) => void, event!: (e: { type: string; data: unknown }) => void
   let prefs = { ...DEFAULT_NOTIFICATIONS }
   const writes: unknown[] = []
@@ -46,13 +46,13 @@ test('seven native settings use exact defaults, save separately and accept broad
     assert.equal(masterSwitch.disabled, false)
     const switches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
     assert.ok(switches.every(Boolean))
-    assert.deepEqual(switches.map(e => e.checked), [true, true, true, false, false, false, false])
+    assert.deepEqual(switches.map(e => e.checked), [true, true, true, true, false, false, false, false])
     for (let i = 0; i < keys.length; i++) {
       await inAct(async () => { switches[i]!.click(); await flush(6) })
       assert.deepEqual(writes.at(-1), { [keys[i]!]: !DEFAULT_NOTIFICATIONS[keys[i]!] })
     }
     await inAct(async () => { resolve(DEFAULT_NOTIFICATIONS); await flush(6) })
-    assert.deepEqual(switches.map(e => e.checked), [false, false, false, true, true, true, true])
+    assert.deepEqual(switches.map(e => e.checked), [false, false, false, false, true, true, true, true])
   } finally { await v.unmount(); native() }
 })
 
@@ -264,7 +264,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
     const categorySwitches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
     assert.ok(categorySwitches.every(Boolean))
     assert.ok(categorySwitches.every(s => !s.disabled), 'all category toggles are enabled while master is on')
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false])
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false])
 
     // Click master switch to turn it off
     await inAct(async () => { masterSwitch.click(); await flush(6) })
@@ -280,7 +280,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
     // While master switch is off, all individual category toggles remain visible but disabled
     assert.ok(categorySwitches.every(s => s.disabled), 'all specific category toggles are disabled while master is off')
     // Stored values are preserved and still reflected in the toggles
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false], 'category values preserved while disabled')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false], 'category values preserved while disabled')
 
     // Click master switch to turn it back on
     await inAct(async () => { masterSwitch.click(); await flush(6) })
@@ -292,7 +292,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
 
     assert.equal(masterSwitch.checked, true)
     assert.ok(categorySwitches.every(s => !s.disabled), 'all specific category toggles re-enabled when master is on')
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, false, true, true, false, false], 'exact prior configuration restored')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false], 'exact prior configuration restored')
   } finally { await v.unmount(); native() }
 })
 
@@ -303,6 +303,7 @@ test('notificationPreferences and notificationEnabled enforce safe defaults, pre
   assert.equal(fresh.notifyAllMail, false, 'All mail defaults to off')
   assert.equal(fresh.notifyQuestions, true)
   assert.equal(fresh.notifyUrgentMail, true)
+  assert.equal(fresh.notifyTerminalFailures, true)
   assert.equal(fresh.notifyDocketAttention, true)
   assert.equal(fresh.notifyDocuments, false)
   assert.equal(fresh.notifyFrozen, false)
@@ -325,7 +326,7 @@ test('notificationPreferences and notificationEnabled enforce safe defaults, pre
   assert.equal(legacyExplicit.notifyAllMail, false)
 
   // 4. notificationEnabled authoritatively returns false for all kinds when notificationsEnabled is false
-  const kinds = ['question', 'urgent-mail', 'work-attention', 'routine', 'document', 'agent-frozen'] as const
+  const kinds = ['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'document', 'agent-frozen'] as const
   const enabledPrefs = notificationPreferences({ notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true })
   for (const kind of kinds) assert.equal(notificationEnabled(kind, enabledPrefs), true, `${kind} enabled when master is on`)
 

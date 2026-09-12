@@ -161,6 +161,7 @@ def _r_review_requested(ev: _R) -> str:
               "back to the owner as in_progress, and your note is what they act "
               "on). Until you decide, the next action on this item is yours."
             + f"\nRequested by {_user_or(str(ev['requested_by']))}."
+            + f"\nIssued at item revision {int(ev.get('revision') or 0)}; candidate {ev.get('candidate') or '(none claimed)'}."
             + f"\nDescription: {_desc(ev)}"
              + "\nAcceptance conditions: "
              + ("; ".join(ev["acceptance"]) or "(none recorded)")

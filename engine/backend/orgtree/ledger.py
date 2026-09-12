@@ -12557,6 +12557,10 @@ class Org:
         self._work_hist(it, actor, "update",
                         {"changes": changes, "done": len(done), "next": len(nxt)})
         self._work_stamp_docket(it, actor)
+        # Any revision advance invalidates an older review request, even when
+        # the item remains in review.  Keep the authored event intact and mark
+        # the delivery row/lifecycle state instead.
+        self._work_mark_review_requests_stale(it)
         self._log("work_update", actor,
                   {"item": wid, **({"status": status} if status else {})}, [])
         # ---- and the assignment, LAST: the lists are already written, so the
@@ -12702,6 +12706,65 @@ class Org:
                      working_on_next=[str(x) for x in (it.get("working_on_next") or [])],
                      acceptance=[str(x) for x in (it.get("acceptance") or [])]))
 
+    @staticmethod
+    def _work_candidate_ref(it: WorkItem) -> str | None:
+        """Return the newest claimed candidate SHA, if one exists."""
+        delivery = it.get("delivery") or {}
+        for stage in ("in_build", "deployed", "pushed", "committed",
+                      "implemented"):
+            row = delivery.get(stage)
+            if isinstance(row, dict) and row.get("ref"):
+                return str(row["ref"])
+        return None
+
+    def _work_mark_review_requests_stale(self, it: WorkItem) -> None:
+        """Mark older review-request mail when the item advances.
+
+        The request's event is authored history and remains unchanged.  The
+        stale marker is delivery metadata on the pending/archive row, while
+        the lifecycle record makes the transition durable even if that row is
+        no longer in the mailbox projection.
+        """
+        current_rev = int(it.get("rev") or 0)
+        candidate = self._work_candidate_ref(it)
+        slug = str(it.get("slug") or "")
+        sections: list[Iterable[dict[str, Any]]] = []
+        mail = self.d.get("mail") or {}
+        if isinstance(mail, dict):
+            sections.extend(cast(Iterable[dict[str, Any]], rows)
+                            for rows in mail.values() if isinstance(rows, list))
+        mail_log = self.d.get("mail_log") or {}
+        if isinstance(mail_log, dict):
+            sections.extend(cast(Iterable[dict[str, Any]], rows)
+                            for rows in mail_log.values() if isinstance(rows, list))
+        for rows in sections:
+            for row in rows:
+                ev = row.get("ev")
+                if not isinstance(ev, dict) \
+                        or ev.get("variant") != "docket.review_requested":
+                    continue
+                obj = ev.get("object")
+                if not isinstance(obj, dict) or str(obj.get("slug") or "") != slug:
+                    continue
+                try:
+                    issued_rev = int(ev.get("revision"))
+                except (TypeError, ValueError):
+                    issued_rev = 0
+                if issued_rev >= current_rev or row.get("stale"):
+                    continue
+                row["stale"] = True
+                row["stale_at"] = now()
+                row["stale_revision"] = current_rev
+                row["stale_candidate"] = candidate
+                op_id = str(row.get("operation_id") or
+                            lifecycle.identity("review", row.get("id") or slug))
+                lifecycle.record(
+                    self.d, operation_id=op_id, kind="review", state="stale",
+                    at=str(row.get("stale_at") or now()), item=slug,
+                    issued_revision=issued_rev, current_revision=current_rev,
+                    issued_candidate=ev.get("candidate"),
+                    current_candidate=candidate)
+
     def _work_reviewer_check(self, actor: str, it: WorkItem,
                              reviewer: str | None, status: str | None,
                              prev_status: str, pre_manage: bool,
@@ -12831,6 +12894,7 @@ class Org:
         if want == actor:
             return None                 # naming yourself mails nobody
         # typed (family review): docket.review_requested (test_events_producers §D)
+        candidate = self._work_candidate_ref(it)
         self.post_mail(
             actor, want, "", "request",
             ev=_mint("docket.review_requested", actor_of(actor), self.work_item_ref(it),
@@ -12838,7 +12902,8 @@ class Org:
                      owner=str(self._work_actor_node(it.get("owner")) or ""),
                      objective=str(it.get("objective") or ""),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
-                     acceptance=[str(x) for x in (it.get("acceptance") or [])]))
+                     acceptance=[str(x) for x in (it.get("acceptance") or [])],
+                     revision=int(it.get("rev") or 0), candidate=candidate))
         return want
 
     def work_reassign_abandoned(self, now_ts: float | None = None,
@@ -14166,6 +14231,7 @@ class Org:
                         {"from": frm, "note": (_prose(note) if note else None),
                          **({"review_packet_was": packet_was}
                             if packet_was is not None else {})})
+        self._work_mark_review_requests_stale(it)
         it["docket_at"] = now()
         self._log("work_review", actor, {"item": wid, "decision": dec}, [])
         return {"reviewed": wid, "decision": "changes", "rev": it["rev"],

@@ -343,6 +343,13 @@ def mint(variant: str, actor: Mapping[str, Any], object: Mapping[str, Any] | Non
     if variant in ("docket.assigned", "docket.review_requested") \
             and "acceptance" not in ev:
         ev["acceptance"] = []
+    # Review requests created before candidate-bound review metadata was
+    # introduced remain valid fixtures and historical producers.  New rows
+    # always carry the revision/candidate pair; an absent candidate is an
+    # explicit "no delivery SHA claimed yet", not an inferred value.
+    if variant == "docket.review_requested":
+        ev.setdefault("revision", 0)
+        ev.setdefault("candidate", None)
     validate_event(ev)
     return ev
 

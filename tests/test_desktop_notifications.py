@@ -81,6 +81,21 @@ class NotificationsTests(unittest.TestCase):
         store.save_org(org)
         self.assertEqual(current(), [], 'mail leaves the attention set when read')
 
+    def test_terminal_failure_is_distinct_from_filtered_routine_mail(self):
+        org = fixture_org('terminal-failure')
+        org.d['user_inbox'] = [
+            {'id': 'routine', 'from': 'peer', 'body': 'FYI'},
+            {'id': 'failed', 'from': 'runtime', 'body': 'failure',
+             'ev': {'variant': 'runtime.turn_failed_terminal'}},
+            {'id': 'stalled', 'from': 'runtime', 'body': 'stalled',
+             'ev': {'variant': 'runtime.report_stalled', 'cause': 'terminal'}},
+        ]
+        store.save_org(org)
+        rows = [r for r in desktop_notifications.notices(limit=1000)['notices']
+                if r['org'] == 'terminal-failure']
+        self.assertEqual([r['kind'] for r in rows],
+                         ['terminal-failure', 'terminal-failure', 'routine'])
+
     def test_pages_cover_all_attention_and_cleanup_sees_beyond_the_page(self):
         org = fixture_org('pages')
         org.d['user_inbox'] = [{'id':f'm{i}', 'from':'agent', 'urgent':True,

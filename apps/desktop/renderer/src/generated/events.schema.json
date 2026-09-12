@@ -1588,6 +1588,19 @@
           "items": {
             "type": "string"
           }
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1601,7 +1614,9 @@
         "owner",
         "objective",
         "done_so_far",
-        "acceptance"
+        "acceptance",
+        "revision",
+        "candidate"
       ],
       "additionalProperties": false
     },
@@ -6782,6 +6797,19 @@
           "items": {
             "type": "string"
           }
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -6795,7 +6823,9 @@
         "owner",
         "objective",
         "done_so_far",
-        "acceptance"
+        "acceptance",
+        "revision",
+        "candidate"
       ],
       "additionalProperties": false
     },

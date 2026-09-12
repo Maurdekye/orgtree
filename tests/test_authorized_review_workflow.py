@@ -160,6 +160,26 @@ class AuthorizedReviewTests(unittest.TestCase):
         reopen = [h for h in row["history"] if h.get("op") == "reopen"][-1]
         self.assertEqual(reopen["candidate_verdict_was"]["candidate"], "d" * 40)
 
+    def test_review_request_records_revision_and_becomes_stale_after_item_revision(self):
+        org, slug = fixture()
+        review(org, slug)
+        request = org.d["mail"]["peer-b"][-1]
+        self.assertEqual(request["ev"]["variant"], "docket.review_requested")
+        issued = request["ev"]["revision"]
+        self.assertIsInstance(issued, int)
+        self.assertIsNone(request["ev"]["candidate"])
+
+        org.work_update("owner-a", slug, ["new evidence"], [],
+                        status="review", reviewer="peer-b")
+        self.assertTrue(request["stale"])
+        self.assertLess(request["stale_revision"], item(org, slug)["rev"])
+        self.assertEqual(request["stale_candidate"], None)
+        stale = [row for row in org.d["lifecycle"]
+                 if row.get("operation_id") == request["operation_id"]
+                 and row.get("state") == "stale"]
+        self.assertEqual(len(stale), 1)
+        self.assertEqual(stale[0]["issued_revision"], issued)
+
 
 if __name__ == "__main__":
     unittest.main()

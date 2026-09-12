@@ -32,7 +32,7 @@ export interface DesktopNotification {
   /** The inbox row's source ID; the notification ID is an opaque dedup key. */
   source_id?: string
   generation?: number
-  kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine' | 'document' | 'agent-frozen'
+  kind: 'question' | 'urgent-mail' | 'terminal-failure' | 'work-attention' | 'routine' | 'document' | 'agent-frozen'
 }
 export interface NotificationIdentity { id: string; org: string }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }

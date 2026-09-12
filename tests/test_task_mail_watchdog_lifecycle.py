@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import sys
 import tempfile
 import unittest
 
@@ -10,6 +11,7 @@ _data = Path(_tmp.name) / "data"
 _home = Path(_tmp.name) / "home"
 _data.mkdir()
 _home.mkdir()
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home),
                   USERPROFILE=str(_home))
 for _key in ("ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT"):
@@ -80,6 +82,17 @@ class TaskMailWatchdogLifecycleTests(unittest.TestCase):
         self.assertEqual(row["count"], 2)
         self.assertEqual(row["last_at"], "t2")
         self.assertEqual(row["boundary_for"], "7s")
+
+    def test_delay_deduplication_survives_the_bounded_observation_ring(self):
+        doc = {}
+        delivery = lifecycle.identity("delivery", "stuck")
+        lifecycle.record(doc, operation_id=delivery, kind="delivery",
+                         state="delay_reported", at="t0", observed=True)
+        for index in range(lifecycle.MAX_RECORDS):
+            lifecycle.record(doc, operation_id=lifecycle.identity("mail", index),
+                             kind="mail", state="accepted", at=f"m{index}")
+        self.assertLessEqual(len(doc["lifecycle"]), lifecycle.MAX_RECORDS)
+        self.assertTrue(lifecycle.has_state(doc, delivery, "delay_reported"))
 
 
 if __name__ == "__main__":

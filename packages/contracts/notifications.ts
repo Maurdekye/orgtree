@@ -3,6 +3,7 @@ import type { DesktopNotification } from './index'
 export const NOTIFICATION_OPTIONS = [
   { key: 'notifyQuestions', label: 'Questions', default: true },
   { key: 'notifyUrgentMail', label: 'Urgent mail', default: true },
+  { key: 'notifyTerminalFailures', label: 'Terminal failures', default: true },
   { key: 'notifyDocketAttention', label: 'Docket attention', default: true },
   { key: 'notifyAllMail', label: 'All mail', default: false },
   { key: 'notifyDocuments', label: 'New presented document', default: false },
@@ -32,6 +33,7 @@ export function notificationEnabled(kind: DesktopNotification['kind'], prefs: No
   switch (kind) {
     case 'question': return prefs.notifyQuestions
     case 'urgent-mail': return prefs.notifyUrgentMail || prefs.notifyAllMail
+    case 'terminal-failure': return prefs.notifyTerminalFailures !== false
     case 'work-attention': return prefs.notifyDocketAttention
     case 'routine': return prefs.notifyAllMail
     case 'document': return prefs.notifyDocuments

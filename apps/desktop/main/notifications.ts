@@ -19,7 +19,7 @@ export function notification(value: unknown): DesktopNotification {
     return v[key] as string
   }
   const kind = text('kind', 30)
-  if (!['question', 'urgent-mail', 'work-attention', 'routine', 'document', 'agent-frozen'].includes(kind)) throw new Error('Unknown notification kind')
+  if (!['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'document', 'agent-frozen'].includes(kind)) throw new Error('Unknown notification kind')
   const result: DesktopNotification = { id: text('id', 200), title: text('title', 200), body: text('body', 2000), org: text('org', 128), kind: kind as DesktopNotification['kind'] }
   for (const key of ['agent', 'item', 'source_id'] as const) if (v[key] !== undefined) result[key] = text(key, 128)
   if (v.generation !== undefined) {

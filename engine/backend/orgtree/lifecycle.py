@@ -12,6 +12,10 @@ import uuid
 from typing import Any, Mapping
 
 MAX_RECORDS = 512
+# A delay report is a durable de-duplication decision for a delivery that can
+# remain unread longer than the ordinary traffic ring.  It must outlive
+# unrelated observations, but the ring must still have a hard bound.
+_STICKY_STATES = frozenset({"delay_reported"})
 
 
 def identity(kind: str, value: Any) -> str:
@@ -53,7 +57,15 @@ def record(doc: dict[str, Any], *, operation_id: str, kind: str,
         "at": at, "count": 1, **fields,
     }
     rows.append(row)
-    del rows[:-MAX_RECORDS]
+    # Evict ordinary observations first.  A sticky decision is retained while
+    # there is any non-sticky history to discard, so a long-stuck delivery
+    # cannot re-alarm merely because 512 unrelated writes occurred.  If the
+    # ledger is made entirely of sticky decisions, the same hard cap still
+    # applies and the oldest decision is removed.
+    while len(rows) > MAX_RECORDS:
+        index = next((i for i, item in enumerate(rows)
+                      if item.get("state") not in _STICKY_STATES), 0)
+        rows.pop(index)
     return row
 
 

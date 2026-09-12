@@ -200,7 +200,8 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         "review", "WorkItemRef",
         reviewer=F("str", B, True, _YOU), requested_by=F("str", B, True),
         owner=F("str", B, True), objective=F("str", B, True),
-        done_so_far=F("[str]", B, True), acceptance=F("[str]", B, True)),
+        done_so_far=F("[str]", B, True), acceptance=F("[str]", B, True),
+        revision=F("int", B, True), candidate=F("str?", B, True)),
     "docket.review_changes": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),
