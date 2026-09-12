@@ -86,7 +86,8 @@ interface Canvas {
   ops: OpRequest[]
   galleries: string[]
 }
-async function mountCanvas(t: TestContext, roots: unknown[]): Promise<Canvas> {
+async function mountCanvas(t: TestContext, roots: unknown[],
+  patch: Record<string, unknown> = {}): Promise<Canvas> {
   t.after(stubPointerCapture())
   resetConvos()
   const had = (globalThis as { fetch?: typeof fetch }).fetch
@@ -95,7 +96,7 @@ async function mountCanvas(t: TestContext, roots: unknown[]): Promise<Canvas> {
   const ops: OpRequest[] = []
   const galleries: string[] = []
   const v = await mountView(
-    <OrgCanvas tree={tree(roots)} slug="mine"
+    <OrgCanvas tree={asTree({ ...tree(roots), ...patch })} slug="mine"
       op={(b) => { ops.push(b); return Promise.resolve({} as never) }} toast={noop}
       mailEvt={null} onOpenAgentGallery={(id) => { galleries.push(id) }} />,
     (h) => h)
@@ -299,6 +300,38 @@ uiTest('§2e a CROWD-piled agent offers no hire on either surface, and a piled-a
       `the row is the buried agent's only door — have ${JSON.stringify(away)}`)
     assert.ok(!away.includes('Hire a subordinate…'),
       'it comes to the front of its pile when picked, and a front hires nowhere')
+  })
+
+uiTest('§2f busy, halted, frozen and read-only seats keep the card\'s rules on both surfaces',
+  async (t) => {
+    // none of these states gates an entry on the CARD, and that is the point:
+    // the row must not invent a rule the card does not have, and if a future
+    // change adds one to either surface this case fails until both agree
+    const c = await mountCanvas(t, [
+      mkNode('busy-one', { busy: true, proc_warm: true }),
+      mkNode('halted-one', { limit_locked: true, frozen: { limit: true, error: 'rate limit' } }),
+      mkNode('frozen-one', { frozen: { connection: true, error: 'offline' } }),
+      mkNode('ro-one', {
+        scope: { permission_mode: 'default', add_dirs: [], tools: { edit: false }, org_visibility: 'team' },
+      }),
+    ])
+    await openTray(c.el)
+    for (const id of ['busy-one', 'halted-one', 'frozen-one', 'ro-one']) {
+      const have = await assertParity(c, id, `a ${id.replace('-one', '')} seat`)
+      assert.ok(have.includes('Retire…') && have.includes('Settings'),
+        `${id}: a live seat keeps its lifecycle entries — have ${JSON.stringify(have)}`)
+    }
+  })
+
+uiTest('§2g a PUBLIC (kiosk) org gets the same menu on the row as on the card',
+  async (t) => {
+    // the ceiling spec's rule is that a visitor retools within the ceiling —
+    // the card's menu is not gated on `public`, so the row's must not be
+    const c = await mountCanvas(t, [mkNode('worker')],
+      { public: true, kiosk: { max_tier: 'sonnet', credits: 10 } })
+    await openTray(c.el)
+    const have = await assertParity(c, 'worker', 'a seat in a public org')
+    assert.ok(have.includes('Settings') && have.includes('Retire…'), JSON.stringify(have))
   })
 
 // ----------------------------------------------------- §3 it is not a click
