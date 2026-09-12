@@ -11586,6 +11586,13 @@ class Org:
                               f"subordinate — {own!r} is neither")
         frm = it.get("owner")
         it["owner"] = cast(WorkActor, self._work_actor(own))
+        # Assignment starts work that was explicitly left in the backlog.
+        # Keep every other status untouched: assignment is ownership, not a
+        # general-purpose status update.
+        previous_status = str(it.get("status") or "")
+        if previous_status == self.WORK_BACKLOG:
+            it["status"] = "open"
+            self._work_stamp_status(it)
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
         if self._work_actor_node(it.get("reviewer")) == own:
@@ -11598,11 +11605,15 @@ class Org:
                             {"from": own, "to": None, "why": "became owner"})
             it["reviewer"] = None
         self._work_hist(it, actor, "assign",
-                        {"from": frm, "to": it["owner"], "why": why})
+                        {"from": frm, "to": it["owner"], "why": why,
+                         **({"status_from": previous_status,
+                            "status_to": str(it["status"])}
+                           if previous_status != str(it["status"]) else {})})
         self._log("work_assign", actor,
                   {"item": it["slug"], "to": own, "why": why}, [])
         out: dict[str, Any] = {"assigned": it["slug"], "owner": it["owner"],
-                               "rev": it["rev"], "notified": None}
+                               "rev": it["rev"], "notified": None,
+                               "status": it["status"]}
         if not notify or own == actor or own == USER:
             return out
         m = self._work_assign_mail(actor, it, own, self._work_actor_node(frm))
