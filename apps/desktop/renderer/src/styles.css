@@ -5867,6 +5867,18 @@ label.set-row { cursor: pointer; }
 .agy-est { font-size: 12px; line-height: 1.45; }
 .agy-est-n { font-variant-numeric: tabular-nums; }
 .agy-est-why { font-size: 11px; opacity: 0.8; }
+/* stacked standing/limit notes inside a usage section (e.g. Fable + pooled limits)
+   read as one compact group rather than scattering across paragraph-sized gaps */
+.standing-marks { display: flex; flex-direction: column; gap: 2px; }
+.standing-marks .standing-mark,
+.standing-marks p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.account-usage { display: flex; flex-direction: column; gap: 6px; }
 /* mid-turn steer-window warning (D-235): conditional on missing the window,
    so the composer banner yellow, never the red that promises a miss */
 .cache-forecast.steer {

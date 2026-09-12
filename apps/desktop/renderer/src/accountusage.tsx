@@ -20,13 +20,15 @@ type PerAccountUsage = RegisteredAccountUsage
  *  a mark (and its observed/inferred provenance) identically */
 export function StandingMarks({ standing }: { standing?: AccountStanding }) {
   if (!standing) return null
-  return <>
-    {Object.entries(standing.marks).map(([pool, m]) =>
-      <p key={pool} className="dim">
+  const entries = Object.entries(standing.marks)
+  if (!entries.length) return null
+  return <div className="standing-marks">
+    {entries.map(([pool, m]) =>
+      <p key={pool} className="dim standing-mark">
         {pool} limited until {new Date(m.until * 1000).toLocaleString()}
         {m.provenance === 'inferred' ? ' (inferred)' : ''}
       </p>)}
-  </>
+  </div>
 }
 
 export function AccountUsagePanel({ accountId }: { accountId: string }) {
