@@ -538,11 +538,10 @@ export const getCodexUsage = (force = false): Promise<AccountUsage> =>
   req(`/api/codex/usage${force ? '?force=true' : ''}`)
 // cache-only, like the Claude peek above
 export const getCodexUsagePeek = (): Promise<UsagePeek> => req('/api/codex/usage/peek')
-// the Antigravity standing is OBSERVED from turns (the CLI has no readout),
-// so both doors are cache-only; the modal one still owns the install/sign-in
-// wording and the always-on glow polls the bare peek
-export const getAntigravityUsage = (_force = false): Promise<AccountUsage> =>
-  req('/api/antigravity/usage')
+// the modal may run Antigravity's zero-token /usage command; the always-on
+// glow remains cache-only so background UI polling never spawns a process
+export const getAntigravityUsage = (force = false): Promise<AccountUsage> =>
+  req(`/api/antigravity/usage${force ? '?force=true' : ''}`)
 export const getAntigravityUsagePeek = (): Promise<UsagePeek> =>
   req('/api/antigravity/usage/peek')
 // OpenRouter: a prepaid credit balance read off the stored key's

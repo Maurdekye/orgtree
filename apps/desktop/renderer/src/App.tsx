@@ -63,7 +63,6 @@ import type {
   DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
   OrgMdPayload, ToastFn,
   ProvidersPayload, ToolGrant,
-  AntigravityEstimate as AgyEstimate,
   AccountRegistryRow,
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
@@ -171,18 +170,21 @@ export const patchMcpReadinessNode = (
 }
 
 /** D-202: the usage button's tooltip named "Claude and Codex" as a literal,
- *  which is a Codex mention on a machine that has never had Codex. The bars
- *  behind it exist for exactly these two providers (Antigravity has no usage
- *  route), so the label is the shown subset of them.
+ *  which is a Codex mention on a machine that has never had Codex. Name the
+ *  shown subset of subscription providers that expose real usage bars.
  *
  *  Falls back to the bare "usage limits" rather than an empty tail if neither
  *  is present — a state that only arises with Claude itself missing, where
  *  the button is nearly moot anyway and a dangling "usage limits — " would be
  *  the more visible defect. */
 export const usageTitle = (pres: ProviderPresence): string => {
-  const names = [pres.claude && 'Claude', pres.openai && 'Codex']
+  const names = [pres.claude && 'Claude', pres.openai && 'Codex',
+    pres.google && 'Antigravity']
     .filter((s): s is string => !!s)
-  return names.length ? `usage limits — ${names.join(' and ')}` : 'usage limits'
+  if (!names.length) return 'usage limits'
+  const label = names.length === 1 ? names[0]
+    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  return `usage limits — ${label}`
 }
 
 /** The activity chip is scoped to the current tree, but its tooltip answers
@@ -1521,74 +1523,6 @@ const noUsagePeek = (): Promise<UsagePeek> => Promise.resolve(NO_PEEK)
 const noProviders = (): Promise<ProvidersPayload> =>
   Promise.resolve({ providers: [] })
 
-/** 1_234_567 -> "1.2M". Token counts here run to hundreds of millions and the
- *  reader wants the ORDER of the number, not its digits. */
-const fmtTokens = (n: number): string =>
-  n >= 1e9 ? (n / 1e9).toFixed(1) + 'B'
-  : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
-  : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k'
-  : String(n)
-
-/** What the Antigravity lane's recorded intervals support.
- *
- *  ⚠ NEVER A BAR AND NEVER A PERCENTAGE — a percentage implies a denominator,
- *  and the account ceiling is published nowhere orgtree can read. So: a token
- *  count, and the qualifications that must travel with it. It is an inference
- *  from walls actually hit, not a reported limit; it is a LOWER bound, since
- *  the same account is spendable in the Antigravity IDE where orgtree sees
- *  nothing; it is ONE interval whose comparability to any other is unknown;
- *  and when `limit_continuity` is unknown, one limit is not even established
- *  to span the interval itself.
- *
- *  ⚠ ONE OBSERVATION, WHICH MUST NOT READ AS SEVERAL AGREEING. Other recorded
- *  intervals are a count, never a range.
- *
- *  With no measurable interval it prints the REASON and no number: a section
- *  that quietly rendered nothing would look identical to a missing one. */
-export function AntigravityEstimateNote(
-  { est }: { est?: AgyEstimate | null },
-) {
-  if (!est) return null
-  if (!est.available) {
-    return (
-      <div className="agy-est dim" data-testid="agy-estimate">
-        no usage estimate yet{est.reason ? ` — ${est.reason}` : ''}
-      </div>
-    )
-  }
-  const e = est.estimate
-  if (!e) return null
-  const cov = est.coverage ?? {}
-  const unsummable = cov.unsummable_receipts ?? 0
-  const others = est.other_intervals?.reset_to_wall ?? 0
-  return (
-    <div className="agy-est" data-testid="agy-estimate"
-         title={[est.basis, est.warning, est.comparability_note,
-                 est.limit_continuity_note,
-                 unsummable ? cov.unsummable_note : '']
-           .filter(Boolean).join('\n\n')}>
-      <span className="agy-est-n">~{fmtTokens(e.tokens)} tokens</span>
-      <span className="dim"> spent between an observed {est.limit ?? 'quota'}
-        {' '}reset and the wall that followed it{' · '}{est.confidence}</span>
-      <div className="dim agy-est-why">
-        inferred from walls orgtree hit, not a reported limit — a LOWER bound,
-        so any budget left reads high; comparability to any other interval is
-        UNKNOWN, so this is not corroborated
-        {est.limit_continuity === 'unknown'
-          && '; and one limit is not even known to span this interval'}
-        {others > 0 && `; ${others} other recorded interval`
-          + `${others === 1 ? ' is' : 's are'} counted but never combined `
-          + `with it`}
-        {unsummable > 0 && `; ${unsummable} older receipt`
-          + `${unsummable === 1 ? '' : 's'} could not be counted`}
-        {(cov.windows_with_unobserved_gaps ?? 0) > 0
-          && `; ${cov.windows_with_unobserved_gaps} interval(s) span a period `
-            + `orgtree was not running`}
-      </div>
-    </div>
-  )
-}
-
 type UsageReadout = UsagePayload | AccountUsage
 const readoutObservedAt = (readout: UsageReadout): number => {
   const raw = readout.observed_at
@@ -1753,9 +1687,8 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // and the panel's per-row buttons cannot drift apart.
   const claude = useUsageReadout(getUsage)
   const codex = useUsageReadout(getCodexUsage)
-  // Antigravity: the last wall a turn hit and its parsed reset (the CLI
-  // publishes no readout — see antigravity_limits); with no wall on record
-  // the section carries the settled `unsupported` note, not an error
+  // Antigravity's zero-token /usage command supplies real quota percentages
+  // and reset timestamps through the same shared usage renderer.
   const agy = useUsageReadout(getAntigravityUsage)
   // OpenRouter: a prepaid credit balance read off the stored key, not a
   // subscription lane — see openrouter_limits's module docstring. `fetch`
@@ -1849,8 +1782,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
             {agy.value?.reauth_required && <ProviderSignIn provider="antigravity"
               connected toast={toast} onRefresh={() => { void agy.refresh(true) }} />}
             {agy.value
-              ? <><UsageBars u={agy.value} />
-                <AntigravityEstimateNote est={agy.value.usage_estimate} /></>
+              ? <UsageBars u={agy.value} />
               : <div className="dim">usage unavailable until refresh succeeds</div>}
           </div>}
           {shown.openrouter && (orr.value || orr.failure || orr.pending) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>

@@ -200,11 +200,28 @@ test('§3 the tray’s max-height is bound to the canvas, not a small fixed slic
   // percentage max-height to mean anything (a flex item's % height resolves
   // to nothing against an auto-height container) — asserted structurally so
   // a revert that keeps "100%" but drops `top` silently breaks it again
+  //
+  // ⚠ THE VALUE STOPPED BEING A BARE LITERAL on 2026-09-12: the bounded
+  // anchor preference (canvas/canvasanchor.tsx) measures these offsets from
+  // the rectangle pins leave free, so they read
+  // `calc(var(--free-top, 0px) + 10px)`. THE GUARANTEE IS UNCHANGED and is
+  // still exactly what is asserted here — both edges set, to something that
+  // resolves to a length rather than `auto`. Checked by reading the two
+  // declarations instead of pattern-matching their text, so the next legal
+  // way of writing a length does not read as a regression either.
   const wrapCss = rule('.tray-wrap')
-  assert.match(wrapCss, /top:\s*[\d.]+px/,
-    '.tray-wrap needs both top and bottom set — bottom alone leaves its '
-    + 'height auto, and .tray’s max-height: 100% would resolve to nothing')
-  assert.match(wrapCss, /bottom:\s*[\d.]+px/)
+  const edge = (name: string) => {
+    const line = wrapCss.split('\n').map(l => l.trim())
+      .find(l => l.startsWith(name + ':'))
+    assert.ok(line,
+      `.tray-wrap needs both top and bottom set — bottom alone leaves its `
+      + `height auto, and .tray’s max-height: 100% would resolve to nothing `
+      + `(no \`${name}\` declaration found)`)
+    assert.ok(line!.includes('px'),
+      `.tray-wrap's \`${name}\` must resolve to a length, not auto: "${line}"`)
+  }
+  edge('top')
+  edge('bottom')
 })
 
 // ═══════════════════════════════════════════════════════════════ §5-§7

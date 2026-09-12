@@ -23,7 +23,7 @@ original = launch.load_app
 
 def load():
     result = original()
-    from orgtree import api, startup, store, supervisor, warmpool, net, transcript_ingest, antigravity_limits
+    from orgtree import api, startup, store, supervisor, warmpool, net, transcript_ingest
     from orgtree.fleet_walk import fleet_walk_budget
     assert Path(store.DATA_ROOT).resolve() == root
     # Keep real ASGI startup, HTTP, guardian and persistence. Explicitly disable
@@ -33,7 +33,6 @@ def load():
             setattr(supervisor, name, lambda: None)
     supervisor.send_message = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("fixture must not dispatch a turn"))
     warmpool.start_warm_pool = lambda: None
-    antigravity_limits.note_boot = lambda: None
     net.start_net_client = lambda: None
     transcript_ingest.start = lambda: None
     api.restart_wake.on_backend_startup = lambda: None

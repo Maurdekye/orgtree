@@ -32,8 +32,9 @@ is rendered on every turn of every agent; if it could fetch, the org would
 issue one provider request per agent per turn and rate-limit itself. So the
 cache-only path calls only `snapshot`-family readers (`limits.snapshot`,
 `limits.snapshot_for_key`, `codex_limits.snapshot`,
-`codex_limits.snapshot_for_key`) — never `fetch`, never an app-server process,
-and never the credential reads (`subproxy.profile_access_token`,
+`codex_limits.snapshot_for_key`, `antigravity_limits.snapshot`) — never
+`fetch`, never an app-server process, and never the credential reads
+(`subproxy.profile_access_token`,
 `providers._codex_account`) that exist to feed one. It opens no process, no
 socket and no credentials file.
 
@@ -50,7 +51,7 @@ import os
 import time
 from typing import Any, Final, cast
 
-from . import accounts, codex_limits, limits, registry
+from . import accounts, antigravity_limits, codex_limits, limits, registry
 
 #: Provider order, the modal's own: Claude, Codex, Antigravity.
 PROVIDER_ORDER: Final[dict[str, int]] = {"claude": 0, "openai": 1, "google": 2}
@@ -167,6 +168,30 @@ def _codex_view(row: dict[str, Any], out: dict[str, Any], *,
     return out
 
 
+def _google_view(row: dict[str, Any], out: dict[str, Any], *,
+                 allow_fetch: bool, now: float) -> dict[str, Any]:
+    """The ambient Antigravity profile, or an honestly unsupported redirect."""
+    from .registry_migration import observe_ambient   # noqa: PLC0415
+    cred = cast("dict[str, Any]", row["credential"])
+    try:
+        ambient = str(observe_ambient().get("google") or "")
+    except Exception:                                          # noqa: BLE001
+        ambient = ""
+    path = str(cred.get("path") or "")
+    if ambient and path and os.path.normcase(os.path.normpath(path)) \
+            == os.path.normcase(os.path.normpath(ambient)):
+        out.update(antigravity_limits.fetch() if allow_fetch
+                   else antigravity_limits.snapshot(now))
+        return out
+    out.update(
+        available=False,
+        unsupported=True,
+        error=("Antigravity usage is unavailable for this non-ambient "
+               "profile because the CLI has no profile selector"),
+    )
+    return out
+
+
 def view(row: dict[str, Any], *, allow_fetch: bool = True,
          now: float | None = None) -> dict[str, Any]:
     """ONE registered account's usage payload — the modal's own shape.
@@ -177,11 +202,11 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
     Support matrix, honest: claude profile rows read their own credentials
     file (same scopes as the ambient login); the aliased AMBIENT claude row
     serves the rich host board. Codex: the ambient-home row serves the real
-    board; another codex profile gets its own pinned-home read. Antigravity
-    stays explicitly unsupported — no usage surface exists to read, and no
-    environment selector is invented. Token rows: legacy key rows answer from
-    local routing state; an org-key row bills an API key and has no
-    subscription windows.
+    board; another codex profile gets its own pinned-home read. Antigravity's
+    ambient profile serves the real /usage board; another Antigravity profile
+    stays explicitly unsupported because the CLI has no profile selector.
+    Token rows: legacy key rows answer from local routing state; an org-key row
+    bills an API key and has no subscription windows.
     """
     now = time.time() if now is None else now
     standing = registry.standing_of(row, now)
@@ -190,9 +215,7 @@ def view(row: dict[str, Any], *, allow_fetch: bool = True,
                            "provider": row["provider"],
                            "standing": standing}
     if row["provider"] == "google":
-        out.update(available=False, unsupported=True,
-                   error="Antigravity exposes no usage surface")
-        return out
+        return _google_view(row, out, allow_fetch=allow_fetch, now=now)
     if cred["kind"] == "token":
         ref = str(cred.get("token_ref") or "")
         if ref.startswith("org-api-key:"):

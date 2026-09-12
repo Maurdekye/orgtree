@@ -22,6 +22,7 @@ import {
 import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
+import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
   TIER_LETTER,
@@ -505,7 +506,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /></SetGroup>
+      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>

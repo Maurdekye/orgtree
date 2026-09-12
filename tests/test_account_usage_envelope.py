@@ -51,8 +51,9 @@ for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
 from engine.launch import load_app                                   # noqa: E402
 load_app()
-from orgtree import (accountusage, api, codex_limits, ledger,        # noqa: E402
-                     limits, registry, store, turnusage)
+from orgtree import (accountusage, antigravity_limits, api,          # noqa: E402
+                     codex_limits, ledger, limits, registry, store,
+                     turnusage)
 assert Path(store.DATA_ROOT).resolve() == Path(os.environ['ORGTREE_DATA']).resolve(), \
     'this process would have written to the live root'
 
@@ -206,6 +207,29 @@ class AccountUsageEnvelope(unittest.TestCase):
         f.assert_called_once_with(codex['credential']['path'],
                                   'acct:' + codex['id'])
 
+    def test_s2c_ambient_antigravity_uses_one_reader_for_modal_and_envelope(self):
+        import asyncio
+        row = self.account('google', 'ambient-agy', 'agy@example.test')
+        path = row['credential']['path']
+        usage = {'available': True,
+                 'limits': [limit('session', 42.0, NOW + 3600)]}
+        from orgtree import registry_migration
+        with patch.object(registry_migration, 'observe_ambient',
+                          return_value={'google': path}), \
+             patch.object(antigravity_limits, 'fetch',
+                          return_value=usage) as fetch, \
+             patch.object(antigravity_limits, 'snapshot',
+                          return_value=usage) as snapshot:
+            modal = asyncio.run(api.accounts_usage(row['id']))
+            envelope = accountusage.view(row, allow_fetch=False, now=NOW)
+        fetch.assert_called_once_with()
+        snapshot.assert_called_once_with(NOW)
+        self.assertEqual(modal['limits'], usage['limits'])
+        self.assertEqual(modal['account'], row['id'])
+        self.assertEqual(envelope['limits'], usage['limits'])
+        self.assertNotIn('unsupported', modal)
+        self.assertNotIn('unsupported', envelope)
+
     # ── §3 a lane per registered account, with its own windows ────────────
     def test_s3_every_registered_account_gets_its_own_rows(self):
         a = self.account('claude', 'Work', 'work@example.com')
@@ -315,12 +339,12 @@ class AccountUsageEnvelope(unittest.TestCase):
 
     # ── §6 "can't" and "didn't" still do not look alike ───────────────────
     def test_s6_unsupported_and_never_read_are_different_rows(self):
-        # control: green before and after — the antigravity host lane has
-        # always said `unsupported`, and this pins that the new unavailable
-        # branches did not flatten it into the generic no-cache reason.
+        # The ambient Antigravity lane has a real /usage reader, so before its
+        # first warm pass it says no-cache. A redirected Antigravity profile
+        # still lacks a CLI profile selector and remains unsupported.
         self.account('google', 'AG Account')
         text = self.board()
-        self.assertRegex(text, r'google/primary \|.*unavailable\(unsupported\).*unsupported')
+        self.assertRegex(text, r'google/primary \|.*unavailable\(no-cache\).*unavailable')
         self.assertRegex(text, r'google-1 \|.*unavailable\(unsupported\).*unsupported')
         self.assertRegex(text, r'claude/primary\* \|.*unavailable\(no-cache\).*unavailable')
 

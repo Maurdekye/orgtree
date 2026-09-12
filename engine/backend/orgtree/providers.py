@@ -1013,6 +1013,20 @@ def _antigravity_account(exe: str) -> dict[str, Any]:
 _antigravity_status_cache: tuple[float, dict[str, Any]] | None = None
 
 
+def antigravity_cached_status() -> dict[str, Any] | None:
+    """Return the latest observed Antigravity status without running the CLI.
+
+    Cache-only consumers use this to invalidate account-scoped evidence when
+    another surface has already observed a sign-out or account switch.  The
+    cached observation is useful for invalidation even after its normal
+    60-second refresh TTL has elapsed.
+    """
+    cached = _antigravity_status_cache
+    if cached is None:
+        return None
+    return dict(cached[1])
+
+
 def antigravity_status(force: bool = False) -> dict[str, Any]:
     """Install + connect state for the accounts panel, cached 60s — the same
     contract (and the same reasons) as `codex_status`. The connect probe is
