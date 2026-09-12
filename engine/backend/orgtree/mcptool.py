@@ -423,6 +423,28 @@ TOOLS: list[dict[str, Any]] = [
             "deploy_ready|dropped, blocked_reason, dropped_reason, "
             "attention:true + attention_reason for a concrete reason the user "
             "must see, reopen:true to resume an archived item), `assign` "
+            "THE DESCRIPTION IS VERSIONED, NEVER OVERWRITTEN: changing "
+            "`objective` — or widening it with `objective_append` instead of "
+            "re-typing the whole thing — appends a row to the item's "
+            "append-only `scope` record holding the complete before AND after, "
+            "so the specification that used to be authoritative is still "
+            "readable. The CURRENT objective stays the authoritative scope; "
+            "`scope` is the history beside it. `decision` (text, optional "
+            "supersedes) records a RULING there too — a decision, trade-off or "
+            "agreed constraint — because a ruling typed into done_so_far is "
+            "overwritten by the very next update, and the reason a thing is "
+            "the way it is then survives only in commit messages. Scope rows "
+            "are never rewritten and never folded; superseding one adds a "
+            "back-pointer and leaves its text alone. "
+            "TO UPDATE SAFELY WITHOUT RE-SENDING EVERYTHING: pass "
+            "`expected_rev` (the rev you read) and then `keep_done`/"
+            "`keep_next` to carry a stored list forward, or `done_append`/"
+            "`next_append` to add to one. expected_rev is COMPARE-AND-SET — a "
+            "concurrent write refuses your whole call before any mutation "
+            "rather than interleaving with it — and it is REQUIRED with any "
+            "keep/append, because those are statements about a list you have "
+            "read. What gets STORED is always the complete summary either way, "
+            "and the result returns exactly what it materialized. "
             "(owner), `participants` (add/remove collaborators: since the "
             "user's 2026-09-10 ruling a participant holds FULL STATE "
             "control — any status including done, dropped and reopen, no "
@@ -430,13 +452,15 @@ TOOLS: list[dict[str, Any]] = [
             "only retitling/re-scoping and handing the item to a third party "
             "stay owner-level), `evidence` "
             "(kind note|link|file|commit|log, ref, note — cap 50, refused "
-            "not truncated), `claim` (a delivery stage implemented|committed|"
+            "not truncated; `items` records several at once), `claim` (a delivery stage implemented|committed|"
             "pushed|deployed|in_build with a sha for the git-checkable ones), "
             "`verify` (checks a committed/pushed/in_build claim against THIS "
             "repository's git — object exists / ancestor of the local "
             "origin/main tracking ref / ancestor of the booted commit; three-"
             "valued, never a functional check), `check` (mark acceptance "
-            "condition `index` met with evidence_ref), `accept` (→ done, by "
+            "condition `index` met with evidence_ref — or several at once with "
+            "`checks`, which is atomic and reads as one completion event), "
+            "`accept` (→ done, by "
             "anyone with standing on the item — owner and participants "
             "included since the user's 2026-09-10 ruling; setting status "
             "done in `update` is the same completion), "
@@ -479,9 +503,15 @@ TOOLS: list[dict[str, Any]] = [
             "reviewer is named by the update that enters status review "
             "(`reviewer`), may never be the owner, and gets read + evidence + "
             "that one decision — never ownership. "
+            "An update that does not pass "
             "attention:true CLEARS a standing attention flag; a user "
             "dismissal makes the item blocked and an exact repeat of the "
-            "dismissed reason is refused. `backlogged` means NOT YET "
+            "dismissed reason is refused. To ADD DETAIL to a flag the user is "
+            "already looking at, use `attention_amend` rather than raising "
+            "again — it edits the standing reason in place, keeps its set_rev, "
+            "and so does not read as a second nag or ping them a second time "
+            "(the dismissed-repeat refusal still applies to it). "
+            "`backlogged` means NOT YET "
             "APPROACHED OR APPROVED: it is kept out of the toolbar's active "
             "count and hidden behind its own toggle, so use it only for work "
             "genuinely not started — do not reclassify open work that is "
@@ -507,6 +537,7 @@ TOOLS: list[dict[str, Any]] = [
                 "action": {"type": "string",
                            "enum": ["list", "get", "create", "update", "assign",
                                     "review", "participants", "evidence",
+                                    "decision",
                                     "claim", "verify", "check", "accept",
                                     "archive", "supersede", "move",
                                     "delete"]},
@@ -539,7 +570,7 @@ TOOLS: list[dict[str, Any]] = [
                 "attention": {"type": "boolean",
                               "description": "update: raise the manual attention flag (needs attention_reason)"},
                 "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
-                "reopen": {"type": "boolean", "description": "update: resume an archived/closed item"},
+                "reopen": {"type": "boolean", "description": "update: resume an archived/closed item. It may carry a TERMINAL status (done|dropped) in the same call, for work that was finished, then extended, then finished again — one call records both the reopening and its outcome, instead of passing through an in_progress state that was never true. A reopen to dropped owes a fresh dropped_reason: the one it just overturned goes with the outcome it described"},
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
                 "ref": {"type": "string", "description": "claim: lowercase hex sha, 7-40 lowercase hex characters, nothing else accepted (a refusal echoes what you sent, exactly, and names the character at fault) · evidence: path/url/sha/log." + _cap("ref") + " Prose goes in `note`."},
@@ -547,6 +578,23 @@ TOOLS: list[dict[str, Any]] = [
                 "index": {"type": "integer", "description": "check: acceptance condition index (0-based)"},
                 "evidence_ref": {"type": "string", "description": "check: what shows the condition is met (path/url/sha/log)." + _cap("evidence_ref") + " Prose goes in `note`."},
                 "by": {"type": "string", "description": "supersede: the replacing item's name"},
+                # ---- W03. Every one of these is OPTIONAL: a call that omits
+                # them behaves exactly as it did before they existed.
+                "checks": {"type": "array", "items": {"type": "object"},
+                           "description": "check: a BATCH — [{index, evidence_ref, note}] — instead of one index. ATOMIC: every element is validated before any is written, so one bad index changes nothing, and the whole batch writes ONE history row so it reads as a single completion event rather than four. Cannot be combined with index/evidence_ref/note, and the same index twice in one batch is refused"},
+                "items": {"type": "array", "items": {"type": "object"},
+                          "description": "evidence: a BATCH — [{kind, ref, note}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Cannot be combined with kind/ref/note"},
+                "text": {"type": "string", "description": "decision: the ruling, trade-off or agreed constraint being recorded — what was decided, and enough of why that the next reader does not re-argue it." + _NOCAP},
+                "supersedes": {"type": "integer", "description": "decision: the `seq` of an earlier scope record this ruling replaces. The superseded row keeps its own text forever and gains only a back-pointer, so the record shows both what was ruled and that it was later replaced"},
+                "expected_rev": {"type": "integer", "description": "update: COMPARE-AND-SET. The item `rev` you composed this update against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ"},
+                "objective_append": {"type": "string", "description": "update: text ADDED to the end of the description instead of replacing it — for a scope addition that arrived after the item was written, so the original wording is not lost to re-typing it by hand. Owner-level like `objective`, and mutually exclusive with it. Either route VERSIONS the description into the item's append-only `scope` record, which keeps the complete before and after" + _NOCAP},
+                "keep_done": {"type": "boolean", "description": "update: carry the stored done_so_far forward unchanged instead of re-sending it. Needs expected_rev. What is STORED is still the complete list — this changes who assembles it, not what is written"},
+                "keep_next": {"type": "boolean", "description": "update: carry the stored working_on_next forward unchanged instead of re-sending it. Needs expected_rev"},
+                "done_append": {"type": "array", "items": {"type": "string"},
+                                "description": "update: entries appended to the stored done_so_far. Needs expected_rev. The backend materializes and stores the COMPLETE merged list and returns it, so there is never a partial summary on the item; the 40-entry cap is measured on the merge"},
+                "next_append": {"type": "array", "items": {"type": "string"},
+                                "description": "update: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
+                "attention_amend": {"type": "boolean", "description": "update: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged"},
                 "parent": {"type": "string", "description": "create/move: the name of the item to nest this one under. move with an empty string returns it to the top level. A child keeps its own owner, status and authority — nesting says how work is ORGANISED, it does not grant or inherit anything"},
             },
             "required": ["action"],

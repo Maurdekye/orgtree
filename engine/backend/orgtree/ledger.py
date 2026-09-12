@@ -37,7 +37,8 @@ from typing import Any, Final, Literal, cast
 from . import clipin, deployment, events, events_render, opreceipts, workfields
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
-                     UserMailEntry, WorkActor, WorkItem, WorkStage)
+                     UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
+                     WorkStage)
 
 # §3.1 — derived from published API pricing: a seat is the API $ per M INPUT
 # tokens at the STANDING price. Promos never set seats — the sonnet-intro
@@ -10001,6 +10002,12 @@ class Org:
     WORK_EVIDENCE_MAX: Final = 50
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
+    # THE SCOPE RECORD (W03): every version of the description and every
+    # decision, append-only. Capped BY REFUSAL like evidence — never by
+    # truncation and never by folding, because the whole reason this list is
+    # not `history` is that history's fold would eventually summarise away the
+    # before/after pair it exists to keep.
+    WORK_SCOPE_MAX: Final = 100
     # the attention reason, which now has to hold requested-against-delivered,
     # the extra, and the confirmation wanted (user 2026-09-05).
     # ⚠ READ FROM THE SHARED CONTRACT, not restated: `workfields.LIMITS` is
@@ -10991,6 +10998,12 @@ class Org:
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
+            # THE SCOPE RECORD (W03): every version of the description, with
+            # its complete before and after, and every decision — in order,
+            # with supersession. Served WHOLE to a viewer that may read the
+            # item, exactly like `evidence`: the objective above is the
+            # authoritative current scope, and this is how it got there.
+            "scope": list(it.get("scope") or []),
             # ⚠ DERIVED ON READ FOR OLDER ITEMS, never written back. Deriving
             # in place would stamp a "state changed" time onto items during an
             # ordinary read, which is a durable claim made by a viewer.
@@ -11315,6 +11328,75 @@ class Org:
         it["rev"] = int(it.get("rev") or 0) + 1
         it["updated_at"] = now()
 
+    # ---- THE SCOPE RECORD (W03). What the item's specification became, and
+    # why. Append-only: `_work_scope_append` is the ONLY writer, and the only
+    # field it ever puts on an already-stored row is the `superseded_by`
+    # back-pointer — never text.
+    def _work_scope_room(self, it: WorkItem, adding: int = 1) -> None:
+        """Refuse a scope append that would pass the cap — BEFORE the caller
+        mutates anything. Capped by refusal, never by truncation and never by
+        folding: this list exists precisely because `history`'s fold would
+        eventually summarise away the before/after pair it keeps."""
+        have = len(it.get("scope") or [])
+        if have + adding > self.WORK_SCOPE_MAX:
+            raise LedgerError(
+                f"this item already holds {have} scope record(s) (cap "
+                f"{self.WORK_SCOPE_MAX}) and nothing here is ever truncated or "
+                f"folded. Consolidate the settled rulings into the description "
+                f"(`objective`), which has no limit, or attach the long-form "
+                f"record as `evidence`")
+
+    def _work_scope_seq(self, it: WorkItem, seq: int) -> WorkScopeRecord | None:
+        for row in it.get("scope") or []:
+            if int(row.get("seq") or 0) == int(seq):
+                return row
+        return None
+
+    def _work_scope_last(self, it: WorkItem, kind: str) -> WorkScopeRecord | None:
+        """The newest not-yet-superseded row of `kind`, or None."""
+        for row in reversed(it.get("scope") or []):
+            if str(row.get("kind")) == kind and row.get("superseded_by") is None:
+                return row
+        return None
+
+    def _work_scope_append(self, it: WorkItem, actor: str, kind: str,
+                           *, before: str | None = None,
+                           after: str | None = None, mode: str | None = None,
+                           text: str | None = None,
+                           supersedes: int | None = None) -> WorkScopeRecord:
+        """Append ONE scope row and return it. Room is the caller's to check
+        first (`_work_scope_room`), so that a refusal lands before any other
+        part of the call has written anything.
+
+        `by` is an AUTHORED actor — `_work_actor`, never `_work_holder`: it
+        names who acted THEN and is never re-resolved against the node table,
+        exactly as `history[].by` and `created_by` are (schema.WorkActor).
+        """
+        rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
+        seq = int(it.get("scope_seq") or 0) + 1
+        it["scope_seq"] = seq
+        row: WorkScopeRecord = {"seq": seq, "at": now(),
+                                "by": self._work_actor(actor), "kind": kind}
+        if before is not None:
+            row["before"] = before
+        if after is not None:
+            row["after"] = after
+        if mode is not None:
+            row["mode"] = mode
+        if text is not None:
+            row["text"] = text
+        row["supersedes"] = (int(supersedes) if supersedes is not None else None)
+        row["superseded_by"] = None
+        if supersedes is not None:
+            prior = self._work_scope_seq(it, int(supersedes))
+            if prior is not None:
+                # ⚠ THE ONE WRITE ONTO AN EXISTING ROW, and it is a POINTER.
+                # The superseded row's own text is untouched forever, so the
+                # record shows both what was ruled and that it was replaced.
+                prior["superseded_by"] = seq
+        rows.append(row)
+        return row
+
     def _work_status_at(self, it: WorkItem) -> str:
         """WHEN THIS ITEM LAST ACTUALLY CHANGED STATE.
 
@@ -11374,8 +11456,11 @@ class Org:
             it["last_updater"] = cast(WorkActor, self._work_actor(actor))
 
     @staticmethod
-    def _work_norm_list(raw: Any, name: str) -> list[str]:
+    def _work_norm_entries(raw: Any, name: str, label: str | None = None
+                           ) -> list[str]:
         """Individual nonblank strings — never a prose string to be parsed.
+        The per-entry bound, WITHOUT the whole-list count cap: the patch forms
+        have to count the MERGED list, not the fragment they were handed.
 
         ⚠ AN OVER-LENGTH ENTRY REFUSES THE WHOLE UPDATE; it is not shortened.
         These lists are the user's scannable summary, so the per-entry bound
@@ -11383,33 +11468,118 @@ class Org:
         something to say and reported success, which is how a "done so far"
         line ended mid-word in the pane. The refusal names the entry by its
         position, because a list of forty is not searchable by eye.
+
+        `name` is the CONTRACT field (its limit is read from `workfields`);
+        `label` is what the refusal calls it, so an entry rejected out of
+        `done_append` says `done_append` rather than the field it feeds.
         """
+        said = label or name
         if raw is None:
             return []
         if isinstance(raw, str):
             raise LedgerError(
-                f"{name} must be a LIST of individual entries, not a string "
+                f"{said} must be a LIST of individual entries, not a string "
                 f"(each entry is one completed thing / one next step)")
         if not isinstance(raw, list):
-            raise LedgerError(f"{name} must be a list of strings")
+            raise LedgerError(f"{said} must be a list of strings")
         out: list[str] = []
         for i, x in enumerate(cast("list[Any]", raw)):
             if isinstance(x, (dict, list)):
-                raise LedgerError(f"{name} entries must be plain strings")
+                raise LedgerError(f"{said} entries must be plain strings")
             s = str(x if x is not None else "").strip()
             if s:
                 try:
                     out.append(workfields.bounded(name, s))
                 except workfields.FieldLimitError as e:
                     raise LedgerError(
-                        f"{name} entry {i + 1} of {len(cast('list[Any]', raw))}: "
+                        f"{said} entry {i + 1} of {len(cast('list[Any]', raw))}: "
                         f"{e}") from None
+        return out
+
+    @staticmethod
+    def _work_list_room(out: list[str], name: str, note: str = "") -> list[str]:
         if len(out) > Org.WORK_LIST_ENTRY_MAX:
-            raise LedgerError(f"{name} carries {len(out)} entries — keep the "
-                              f"displayed lists scannable (max "
+            raise LedgerError(f"{name} carries {len(out)} entries{note} — keep "
+                              f"the displayed lists scannable (max "
                               f"{Org.WORK_LIST_ENTRY_MAX}); detail belongs in "
                               f"evidence")
         return out
+
+    @classmethod
+    def _work_norm_list(cls, raw: Any, name: str) -> list[str]:
+        """A WHOLE docket list, as `work_create` and the plain `work_update`
+        path take it: normalised entries, then the count cap."""
+        return cls._work_list_room(cls._work_norm_entries(raw, name), name)
+
+    def _work_patch_list(self, it: WorkItem, name: str, supplied: Any,
+                         keep: bool, append: Any, expected_rev: int | None,
+                         ) -> list[str]:
+        """MATERIALIZE one docket list from whichever form the caller used.
+
+        Three forms, and exactly one of them per list:
+          · the WHOLE list, as it has always been — the default;
+          · `keep_*`   — carry the stored list forward unchanged;
+          · `*_append` — the stored list plus these entries.
+
+        ⚠ WHAT IS STORED IS ALWAYS THE COMPLETE LIST. The user's standing rule
+        is that an update carries the latest COMPLETE summary, and these forms
+        do not weaken it — they change who assembles it, not what is written.
+        The backend merges and writes the whole thing, the result returns what
+        it materialized, and there is never a partial list on the item.
+
+        ⚠ AND `expected_rev` IS REQUIRED FOR keep/append. That is the entire
+        safety property: an append or a keep is a statement ABOUT A LIST YOU
+        HAVE READ, so you name the revision you read it at, and another agent
+        writing in between refuses your call instead of silently interleaving
+        with it. The whole-list form needs no such promise — it states the
+        summary outright — so it stays optional there.
+        """
+        patching = bool(keep) or append is not None
+        if not patching:
+            return self._work_norm_list(supplied, name)
+        kept = "keep_" + ("done" if name == "done_so_far" else "next")
+        added = ("done" if name == "done_so_far" else "next") + "_append"
+        if supplied is not None:
+            raise LedgerError(
+                f"pass either the whole {name} or a patch of it, not both: "
+                f"{name} states the complete summary outright, while {kept}/"
+                f"{added} build it from the stored one")
+        if keep and append is not None:
+            raise LedgerError(
+                f"{kept} carries the stored {name} forward unchanged and "
+                f"{added} adds to it — pass one or the other")
+        if expected_rev is None:
+            raise LedgerError(
+                f"{kept if keep else added} needs `expected_rev`: it is a "
+                f"statement about the {name} you have READ, so name the "
+                f"revision you read it at and a concurrent write refuses your "
+                f"call instead of interleaving with it. `get` returns `rev`")
+        stored = [str(x) for x in (it.get(name) or [])]
+        if keep:
+            return self._work_list_room(stored, name, " already stored")
+        add = self._work_norm_entries(append, name, added)
+        return self._work_list_room(
+            stored + add, name,
+            f" after the append ({len(stored)} stored + {len(add)} appended)")
+
+    @staticmethod
+    def _work_attention_repeat_guard(it: WorkItem, reason: str) -> None:
+        """A reason the user has already DISMISSED may not come back unchanged
+        — whether it arrives as a fresh raise or as an amendment of the flag
+        still standing. Amendment must not become the way around a dismissal.
+
+        ⚠ CALLED BEFORE THE FIRST MUTATION. It used to run two thirds of the
+        way down `work_update`, so the refusal landed after the status, title
+        and description had already been rewritten."""
+        last = (it.get("dismissals") or [])[-1:]
+        if last and " ".join(str(last[0].get("reason") or "").lower().split()) \
+                == " ".join(reason.lower().split()):
+            raise LedgerError(
+                f"the user DISMISSED exactly this reason at {last[0]['at']} "
+                f"— the same string is an exact repeat and is refused. "
+                f"Re-raise only with material new information, stated "
+                f"in the reason (doctrine; the backend checks the exact "
+                f"repeat only). NOTHING WAS WRITTEN")
 
     def _work_require_live_agent_or_user(self, actor: str) -> None:
         if actor != USER:
@@ -11661,7 +11831,12 @@ class Org:
                     waiting_reason: str | None = None,
                     dropped_reason: str | None = None,
                     owner: str | None = None,
-                    reviewer: str | None = None) -> dict[str, Any]:
+                    reviewer: str | None = None,
+                    expected_rev: int | None = None,
+                    objective_append: str | None = None,
+                    keep_done: bool = False, keep_next: bool = False,
+                    done_append: Any = None, next_append: Any = None,
+                    attention_amend: bool = False) -> dict[str, Any]:
         """THE docket status update. Always carries both lists (either may be
         empty, not both — Astra ruling 2026-09-05, no status-only bypass),
         moves `docket_at` and `last_updater`, and restates the manual flag:
@@ -11693,10 +11868,39 @@ class Org:
         claim is uniform on purpose and has no ancestor exception. It passes
         `owner=<the current owner>` and keeps it where it is: naming the target
         that is already there changes nothing at all, so there is no history
-        row, no notification and no reassignment to undo afterwards."""
+        row, no notification and no reassignment to undo afterwards.
+
+        ---- W03 adds five things to this one method, all of them OPTIONAL and
+        none of them changing what a call that does not use them does:
+
+        · `expected_rev` — compare-and-set. Refuses the whole call, before any
+          mutation, when somebody has written to the item since you read it.
+        · `objective_append` — widen the description without re-typing it, and
+          `objective` either way now VERSIONS into the append-only scope record
+          instead of overwriting the old specification with no trace at all.
+        · `keep_done`/`keep_next`/`done_append`/`next_append` — assemble the
+          progress lists from the stored ones, revision-checked. What is
+          STORED is still always the complete summary.
+        · `attention_amend` — edit the reason of the flag already standing, in
+          place, keeping its `set_rev`, so it is not a second raise and mints
+          no new notification edge.
+        · `reopen` may now carry a TERMINAL status, recording the reopening and
+          the outcome in one call instead of passing through a state that was
+          never true."""
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, phys = self._work_get_for(actor, wid)
+        # ---- COMPARE-AND-SET, FIRST OF ALL. Before the lists are even parsed:
+        # a caller that names the revision it read is telling us its whole
+        # update was composed against that state, so if the state moved there
+        # is nothing here worth validating, let alone writing.
+        if expected_rev is not None and int(expected_rev) != int(it.get("rev") or 0):
+            raise LedgerError(
+                f"expected_rev {int(expected_rev)}, but this item is at rev "
+                f"{int(it.get('rev') or 0)} — somebody wrote to it since you "
+                f"read it, so your update was composed against a state that no "
+                f"longer stands. NOTHING WAS WRITTEN. Re-read it with `get` and "
+                f"send the call again against the revision you actually saw")
         pre_manage = self._work_can_manage(actor, it)
         # the status this update FOUND. The reviewer rule keys on entering
         # review, and the status field is rewritten further down — read from
@@ -11715,8 +11919,14 @@ class Org:
         # claims, and the assignment core then empties the review seat.
         reviewer_only = (actor != USER and not pre_manage
                          and actor not in (it.get("participants") or []))
-        done = self._work_norm_list(done_so_far, "done_so_far")
-        nxt = self._work_norm_list(working_on_next, "working_on_next")
+        # ---- THE TWO LISTS, MATERIALIZED. Whole-list, keep or append — what
+        # comes out is the COMPLETE current summary either way, and every rule
+        # below is measured on that result rather than on the fragment the
+        # caller happened to send.
+        done = self._work_patch_list(it, "done_so_far", done_so_far,
+                                     keep_done, done_append, expected_rev)
+        nxt = self._work_patch_list(it, "working_on_next", working_on_next,
+                                    keep_next, next_append, expected_rev)
         if not done and not nxt:
             raise LedgerError(
                 "a docket update needs at least one entry in done_so_far or "
@@ -11752,17 +11962,33 @@ class Org:
         # owner-level is the item's IDENTITY — retitling and re-scoping are
         # not state — and handing it to a third party (below).
         if not pre_manage:
-            if title is not None or objective is not None:
+            if title is not None or objective is not None \
+                    or objective_append is not None:
                 raise LedgerError("only the owner, the creator, their superiors "
                                   "or the user may retitle or re-scope an item")
-        if attention is True and not str(attention_reason or "").strip():
+        if attention is True and attention_amend:
             raise LedgerError(
-                "attention=true needs a nonblank attention_reason — the "
+                "`attention: true` RAISES a flag and `attention_amend` edits "
+                "the text of the one already standing — they are different "
+                "acts on purpose (an amendment keeps the same set_rev, so it "
+                "does not read as a second nag and does not ping the user "
+                "again). Pass one or the other")
+        if (attention is True or attention_amend) \
+                and not str(attention_reason or "").strip():
+            raise LedgerError(
+                f"{'attention_amend' if attention_amend else 'attention=true'} "
+                "needs a nonblank attention_reason — the "
                 "concrete thing the user must see: what was asked against what "
                 "was built, the exact decision, edge case or definition you "
                 "added beyond the spec, and the confirmation you want. This "
                 "field is what they read to know what they are approving, so "
                 "it carries the detail rather than pointing at evidence")
+        if attention_amend and not it.get("manual_attention"):
+            raise LedgerError(
+                "there is no attention flag standing on this item, so there is "
+                "nothing to amend — raise one with attention=true and a reason. "
+                "(`attention_amend` exists so that adding detail to a question "
+                "the user is already looking at does not read as a second one)")
         # ---- EVERY BOUNDED FIELD, HERE, BEFORE THE FIRST MUTATION.
         #
         # This is the atomicity the contract promises: an update carrying one
@@ -11783,14 +12009,79 @@ class Org:
                        ("dropped_reason", dropped_reason)):
             if _v is not None:
                 _bounded(_f, _v)
+        # the attention reason and its DISMISSED-REPEAT guard, decided here for
+        # the same reason — the guard used to run two thirds of the way down,
+        # so a refused re-raise had already rewritten the status and the lists
+        att_reason: str | None = None
+        if attention is True or attention_amend:
+            att_reason = _bounded("attention_reason", attention_reason)
+            self._work_attention_repeat_guard(it, att_reason)
+        # ---- THE DESCRIPTION, and the scope row it is about to mint. Both
+        # routes resolve to one (before, after, mode) triple, decided BEFORE
+        # anything is written, so every refusal below leaves the item alone.
+        obj_change: tuple[str, str, str] | None = None
+        if objective is not None and objective_append is not None:
+            raise LedgerError(
+                "pass either `objective` (the whole description, replacing "
+                "what is there) or `objective_append` (text added to the end "
+                "of it), not both")
+        if objective is not None or objective_append is not None:
+            prev_obj = str(it.get("objective") or "")
+            if objective_append is not None:
+                # ⚠ WIDENING, NOT REWRITING (the case this exists for: a scope
+                # addition that arrived as mail). Re-typing the whole
+                # description by hand to add a paragraph is how the original
+                # wording gets quietly lost.
+                addition = _prose(objective_append)
+                if not addition:
+                    raise LedgerError(
+                        "`objective_append` adds text to the end of the "
+                        "description — a blank one adds nothing. To replace "
+                        "the description instead, pass `objective`")
+                if not prev_obj.strip():
+                    raise LedgerError(
+                        "this item has no description to append to — state it "
+                        "whole with `objective`: the problem being faced first, "
+                        "then the proposed solution")
+                obj_change = (prev_obj, prev_obj + "\n\n" + addition, "append")
+            else:
+                # rewriting the description is fine; ERASING it is not — the
+                # field is mandatory at creation, so a blanking update would be
+                # a way to end up with the very item the create guard refuses.
+                # Items that predate the rule keep whatever they have,
+                # including nothing: nothing here rewrites history or invents
+                # prose for them. Uncapped for the same reason as
+                # `work_create` — an edit that silently dropped the tail would
+                # turn "I completed the spec" into a shorter spec that still
+                # looks whole.
+                newobj = _prose(objective)
+                if not newobj:
+                    raise LedgerError(
+                        "the description (`objective`) may be rewritten but not "
+                        "emptied — state the problem first, then the solution")
+                obj_change = (prev_obj, newobj, "replace")
+            if obj_change[0] == obj_change[1]:
+                obj_change = None         # restating it verbatim changed nothing
+            else:
+                self._work_scope_room(it)
+        reopened_terminal = False
         if reopen:
             if it.get("status") not in self.WORK_CLOSED and not phys:
                 pass                      # nothing to reopen; harmless
             status = status or "in_progress"
-            if status in self.WORK_CLOSED:
-                raise LedgerError("reopen needs an open status "
-                                  "(open|in_progress|blocked|review|"
-                                  "deploy_ready)")
+            # ⚠ `superseded` needs no guard of its own here. It is not an agent
+            # status, so the validation far above has already refused it — it
+            # is written only by `supersede`, which names the replacing item.
+            # The two terminal statuses an update MAY name are done and
+            # dropped, and both pass that check already.
+            # ---- ATOMIC REOPEN-PLUS-COMPLETION (W03). Work that was finished,
+            # then extended, then finished again used to need two calls: reopen
+            # to in_progress, then complete. The middle state was never true for
+            # an instant, and the docket recorded it as though it had been.
+            # With a terminal status here, ONE call records both halves — the
+            # historical transition (what it was closed as, and the acceptance
+            # or drop reason that is now overturned) and the new outcome.
+            reopened_terminal = status in self.WORK_CLOSED
             if phys:
                 self._work_archive().remove(it)
                 self.d.setdefault("work_items", []).append(it)
@@ -11801,12 +12092,20 @@ class Org:
             # resuming clears the live field and that sentence is the whole
             # record of the outcome being overturned
             self._work_hist(it, actor, "reopen",
-                            {"from": it.get("status"),
+                            {"from": it.get("status"), "to": status,
+                             **({"atomic_completion": True}
+                                if reopened_terminal else {}),
                              "accepted_was": it.get("accepted"),
                              "dropped_reason_was": it.get("dropped_reason"),
                              "superseded_by_was": it.get("superseded_by")})
             it["accepted"] = None
             it["superseded_by"] = None
+            if reopened_terminal:
+                # the overturned outcome's REASON goes with the outcome — a
+                # reason must never survive the state it describes, and the
+                # requirement below then asks this call for a fresh one rather
+                # than silently re-using the sentence it just overturned
+                self._work_clear_state_info(it)
         changes: dict[str, Any] = {}
         was = it.get("status")
         if was in self.WORK_LEGACY_STATUSES:
@@ -11837,10 +12136,24 @@ class Org:
             # Reopen assigns through this same branch, so it needs no second
             # call.
             self._work_stamp_status(it)
-        self._work_state_info(it, was, {"blocked_reason": blocked_reason,
-                                        "waiting_reason": waiting_reason,
-                                        "dropped_reason": dropped_reason})
-        if it.get("status") == "done" and was != "done":
+        elif reopened_terminal:
+            # ⚠ THE VALUE DID NOT MOVE, BUT THE STATE DID: this item was
+            # closed, this call reopened it, and this call closed it again. The
+            # `!=` branch above cannot see that — from==to — so without this
+            # the atomic reopen would leave `status_at` pointing at the FIRST
+            # completion and the history showing no outcome for the second.
+            changes["reopened_to"] = status
+            self._work_stamp_status(it)
+        # ⚠ `was` IS THE STATE THE CALL FOUND — except on an atomic reopen,
+        # where what it found has just been overturned. Passing it there would
+        # read as "already in this state, leave its reason alone" and let a
+        # re-drop silently inherit the sentence explaining the drop it just
+        # undid, so the reopen is treated as an ENTRY and owes a fresh one.
+        self._work_state_info(it, None if reopened_terminal else was,
+                              {"blocked_reason": blocked_reason,
+                               "waiting_reason": waiting_reason,
+                               "dropped_reason": dropped_reason})
+        if it.get("status") == "done" and (was != "done" or reopened_terminal):
             # completion by the collaborators themselves (user 2026-09-10
             # 13:47): `done` set through `update` is a first-class completion
             # — the same acceptance record `accept` writes, so nothing
@@ -11849,7 +12162,7 @@ class Org:
             self._work_clear_state_info(it)
             it["accepted"] = {"at": now(), "by": self._work_actor(actor),
                               "note": None, "via": "update"}
-        if it.get("status") == "dropped" and was != "dropped":
+        if it.get("status") == "dropped" and (was != "dropped" or reopened_terminal):
             # the OUTCOME outlives the field. A later reopen clears
             # `dropped_reason` (a reason must not survive its state), so
             # without this line the docket would end up with no trace at all
@@ -11860,46 +12173,70 @@ class Org:
             newtitle = _bounded("title", title)     # checked above; cannot raise
             changes["title"] = {"from": it.get("title"), "to": newtitle}
             it["title"] = newtitle
-        if objective is not None:
-            # rewriting the description is fine; ERASING it is not — the field
-            # is mandatory at creation, so a blanking update would be a way to
-            # end up with the very item the create guard refuses. Items that
-            # predate the rule keep whatever they have, including nothing:
-            # nothing here rewrites history or invents prose for them.
-            # uncapped for the same reason as `work_create` — an edit that
-            # silently dropped the tail would turn "I completed the spec" into
-            # a shorter spec that still looks whole
-            newobj = _prose(objective)
-            if not newobj:
-                raise LedgerError(
-                    "the description (`objective`) may be rewritten but not "
-                    "emptied — state the problem first, then the solution")
-            it["objective"] = newobj
+        scope_row: WorkScopeRecord | None = None
+        if obj_change is not None:
+            # ---- THE DESCRIPTION IS VERSIONED, NOT OVERWRITTEN (W03). This
+            # used to be a bare assignment with no history row of any kind, so
+            # the sentence that WAS the authoritative specification simply
+            # stopped existing the moment somebody widened it. The new row
+            # keeps both sides in full, and supersedes the previous objective
+            # row because a new version of the spec replaces the old one by
+            # definition. Room was checked above, so this cannot raise here.
+            before, after, mode = obj_change
+            prior = self._work_scope_last(it, "objective")
+            scope_row = self._work_scope_append(
+                it, actor, "objective", before=before, after=after, mode=mode,
+                supersedes=(int(prior["seq"]) if prior else None))
+            it["objective"] = after
+            # history carries the SHAPE of the change and points at the row;
+            # the text itself lives in `scope`, which is never folded
+            changes["objective"] = {"scope_seq": int(scope_row["seq"]),
+                                    "mode": mode, "chars_from": len(before),
+                                    "chars_to": len(after)}
         it["done_so_far"] = done
         it["working_on_next"] = nxt
         # the manual flag is restated by every update
         prev = it.get("manual_attention")
-        if attention is True:
+        if attention_amend and prev:
+            # ---- AMENDED IN PLACE, KEEPING `set_rev` (W03). Adding detail to
+            # a question the user is already looking at used to mean raising a
+            # second flag: one question with three parts ended up as six
+            # consecutive raises in the history, reading as six nags.
+            #
+            # Keeping `set_rev` is what makes this not a raise, and it settles
+            # three things at once: `manual_attention_rev` does not advance, so
+            # the history gains no raise; the dismissal compare-and-set stamp
+            # still points at the flag the user is actually looking at; and
+            # `notification_state.reconcile_attention` sees active→active
+            # rather than absent→present, so no new notification edge is minted
+            # and the desktop epoch does not move. No change to that module is
+            # needed — it already answers correctly once the flag is never
+            # taken down in between.
+            reason = cast(str, att_reason)      # bounded + dismissal-guarded above
+            was_reason = str(prev.get("reason") or "")
+            prev["reason"] = reason
+            prev["amended_at"] = now()
+            prev["amended_by"] = self._work_actor(actor)
+            changes["attention_amend"] = {"set_rev": prev.get("set_rev")}
+            self._work_hist(it, actor, "attention_amend",
+                            {"set_rev": prev.get("set_rev"),
+                             "from": was_reason, "to": reason})
+        elif attention is True:
             # bounded, and REFUSED WHOLE above rather than truncated here —
             # the warning this replaced arrived after the truncated reason had
             # already been written, which is how the user ended up reading a
-            # sentence that stopped mid-thought
-            reason = _bounded("attention_reason", attention_reason)
-            last = (it.get("dismissals") or [])[-1:]
-            if last and " ".join(str(last[0].get("reason") or "").lower().split()) \
-                    == " ".join(reason.lower().split()):
-                raise LedgerError(
-                    f"the user DISMISSED exactly this reason at {last[0]['at']} "
-                    f"— the same string is an exact repeat and is refused. "
-                    f"Re-raise only with material new information, stated "
-                    f"in the reason (doctrine; the backend checks the exact "
-                    f"repeat only)")
+            # sentence that stopped mid-thought. The dismissed-repeat guard
+            # ran up there too, for the same reason.
+            reason = cast(str, att_reason)
             it["manual_attention_rev"] = int(it.get("manual_attention_rev") or 0) + 1
             it["manual_attention"] = {"reason": reason, "at": now(),
                                       "by": self._work_actor(actor),
                                       "set_rev": it["manual_attention_rev"]}
             changes["manual_attention"] = {"set_rev": it["manual_attention_rev"]}
         elif prev:
+            # ⚠ AN AMENDMENT COUNTS AS RESTATING THE FLAG, and reaches this
+            # branch only when there was none to amend — which is refused far
+            # above. So an amending update never falls through to the clear.
             it["manual_attention"] = None
             changes["manual_attention"] = {"cleared_set_rev": prev.get("set_rev"),
                                            "by": "status update"}
@@ -11943,6 +12280,13 @@ class Org:
                 actor, it, tgt, True,
                 "update" if tgt == actor else "update+assign")
         return {"updated": wid, "rev": it["rev"], "status": it["status"],
+                # ⚠ WHAT WAS ACTUALLY STORED, always — the complete lists, not
+                # the fragment a keep/append call sent. A caller that patched
+                # can see the whole summary its patch produced without a second
+                # read, which is the point of materializing rather than
+                # appending: there is never a partial list on the item.
+                "done_so_far": list(done), "working_on_next": list(nxt),
+                "scope_seq": (int(scope_row["seq"]) if scope_row else None),
                 "owner": it.get("owner"),
                 "reviewer": it.get("reviewer"),
                 "assigned_to": (str(tgt) if assigned else None),
@@ -12262,32 +12606,136 @@ class Org:
             out["notice_refused"] = refused
         return out
 
+    def _work_evidence_row(self, actor: str, kind: str, ref: Any,
+                           note: Any, where: str = "") -> dict[str, Any]:
+        """Validate ONE evidence element and build its row. Raises rather than
+        writing, so a batch can validate every element before any of them
+        lands. `where` names the element's position for a batch refusal.
+
+        ⚠ THE NOTE IS LOSSLESS. It used to be `[:500]`, which cut one agent's
+        evidence note off inside a filename — the row then pointed at a path
+        that does not exist. Evidence is the place the contract sends every
+        detail too long for a bounded field, so it cannot itself have a bound
+        (user-visible effect: `orgtree_work get` returns it entire).
+        """
+        if kind not in self.WORK_EVIDENCE_KINDS:
+            raise LedgerError(f"evidence kind must be one of "
+                              f"{'|'.join(self.WORK_EVIDENCE_KINDS)}{where}")
+        try:
+            r = workfields.bounded("ref", ref)
+        except workfields.FieldLimitError as e:
+            raise LedgerError(f"{e}{where}") from None
+        if not r:
+            raise LedgerError(f"evidence needs a ref (path, url, sha, log "
+                              f"name){where}")
+        return {"at": now(), "by": self._work_actor(actor), "kind": kind,
+                "ref": r, **({"note": _prose(note)} if note else {})}
+
     def work_evidence(self, actor: str, wid: str, kind: str, ref: str,
-                      note: str | None = None) -> dict[str, Any]:
+                      note: str | None = None,
+                      items: Any = None) -> dict[str, Any]:
+        """Append evidence — one row, or a BATCH through `items`.
+
+        THE BATCH IS ATOMIC (W03): every element is validated, and the cap is
+        measured against the batch AS A WHOLE, before any of them is written.
+        One bad element changes nothing at all — no row, no history entry, no
+        rev bump — and the refusal names the element by its position. It writes
+        ONE history row, so recording a candidate's SHA, its test log and its
+        delivery caveat together reads as one act rather than three.
+        """
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
-        if kind not in self.WORK_EVIDENCE_KINDS:
-            raise LedgerError(f"evidence kind must be one of "
-                              f"{'|'.join(self.WORK_EVIDENCE_KINDS)}")
-        r = _bounded("ref", ref)
-        if not r:
-            raise LedgerError("evidence needs a ref (path, url, sha, log name)")
-        ev = it.setdefault("evidence", [])
-        if len(ev) >= self.WORK_EVIDENCE_MAX:
+        rows: list[dict[str, Any]] = []
+        if items is not None:
+            if kind or ref or note:
+                raise LedgerError(
+                    "pass either ONE piece of evidence (kind + ref + note) or "
+                    "a batch of them in `items`, not both")
+            batch = self._work_batch_arg(items, "items")
+            for i, el in enumerate(batch):
+                rows.append(self._work_evidence_row(
+                    actor, str(el.get("kind") or "note"), el.get("ref"),
+                    el.get("note"), f" (items[{i}], of {len(batch)})"))
+        else:
+            rows.append(self._work_evidence_row(actor, kind, ref, note))
+        ev = cast("list[dict[str, Any]]", it.setdefault("evidence", []))
+        if len(ev) + len(rows) > self.WORK_EVIDENCE_MAX:
             raise LedgerError(
-                f"this item already holds {len(ev)} evidence rows (cap "
-                f"{self.WORK_EVIDENCE_MAX}); nothing is truncated — consolidate "
-                f"into a file and reference that")
-        # ⚠ THE NOTE IS LOSSLESS. It used to be `[:500]`, which cut one agent's
-        # evidence note off inside a filename — the row then pointed at a path
-        # that does not exist. Evidence is the place the contract sends every
-        # detail too long for a bounded field, so it cannot itself have a
-        # bound (user-visible effect: `orgtree_work get` returns it entire).
-        ev.append({"at": now(), "by": self._work_actor(actor), "kind": kind,
-                   "ref": r, **({"note": _prose(note)} if note else {})})
-        self._work_hist(it, actor, "evidence", {"kind": kind})
-        return {"evidence": len(ev), "rev": it["rev"]}
+                f"this item holds {len(ev)} evidence rows and this call adds "
+                f"{len(rows)} (cap {self.WORK_EVIDENCE_MAX}); nothing is "
+                f"truncated and nothing was written — consolidate into a file "
+                f"and reference that")
+        ev.extend(rows)
+        self._work_hist(it, actor, "evidence",
+                        ({"kind": rows[0]["kind"]} if len(rows) == 1 else
+                         {"batch": len(rows),
+                          "kinds": [str(r["kind"]) for r in rows]}))
+        return {"evidence": len(ev), "added": len(rows), "rev": it["rev"]}
+
+    @staticmethod
+    def _work_batch_arg(raw: Any, name: str) -> list[dict[str, Any]]:
+        """A batch argument: a nonempty list of objects. Shape errors are
+        refused here, before the caller has touched the item."""
+        if not isinstance(raw, list):
+            raise LedgerError(f"`{name}` must be a list of objects")
+        out = cast("list[Any]", raw)
+        if not out:
+            raise LedgerError(
+                f"`{name}` is empty — a batch of nothing is not a call. Omit "
+                f"it to use the single form")
+        for i, el in enumerate(out):
+            if not isinstance(el, dict):
+                raise LedgerError(f"`{name}`[{i}] must be an object, not "
+                                  f"{type(el).__name__}")
+        return cast("list[dict[str, Any]]", out)
+
+    def work_decision(self, actor: str, wid: str, text: str,
+                      supersedes: int | None = None) -> dict[str, Any]:
+        """Record a RULING on the item — a decision, trade-off or agreed
+        constraint — in the append-only scope record.
+
+        WHY THIS IS NOT `evidence` AND NOT `done_so_far`. Agents were typing
+        their rulings into `done_so_far`, which the very next update overwrites
+        wholesale, so the record of WHY a thing is the way it is survived only
+        in commit messages and private breadcrumbs. One review cycle re-argued
+        the same settled point in four separate rounds for exactly this reason.
+        `evidence` appends but is the wrong shape — it points AT an artifact.
+        A decision is the ruling itself, and it is durable.
+
+        OPEN TO ANYONE WHO MAY ALREADY WRITE TO THE ITEM — owner, creator,
+        superiors, participants, the reviewer and the user. A ruling is a
+        record of what was agreed, and the agent that was told it is the one
+        holding it; making this owner-level would mean the reviewer whose
+        ruling it usually is could not write it down.
+
+        `supersedes` names an earlier row this replaces. The superseded row
+        keeps its own text forever and gains only a back-pointer.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        body = _prose(text)             # lossless: a ruling is a `note`
+        if not body:
+            raise LedgerError(
+                "a decision needs its text — what was ruled, and enough of why "
+                "that the next reader does not re-argue it. There is no length "
+                "limit: this field is stored and returned entire")
+        if supersedes is not None:
+            if self._work_scope_seq(it, int(supersedes)) is None:
+                raise LedgerError(
+                    f"no scope record with seq {int(supersedes)} on this item "
+                    f"— `get` returns `scope`, and every row carries its `seq`")
+        self._work_scope_room(it)
+        row = self._work_scope_append(it, actor, "decision", text=body,
+                                      supersedes=supersedes)
+        self._work_hist(it, actor, "decision",
+                        {"scope_seq": int(row["seq"]),
+                         **({"supersedes": int(supersedes)}
+                            if supersedes is not None else {})})
+        return {"decision": int(row["seq"]), "rev": it["rev"],
+                "supersedes": (int(supersedes) if supersedes is not None else None),
+                "scope": len(it.get("scope") or [])}
 
     def work_attach(self, actor: str, wid: str, name: str, nbytes: int,
                     stored: str) -> dict[str, Any]:
@@ -12403,29 +12851,84 @@ class Org:
         return {"stale": False, "rev": it["rev"], "stage": stage,
                 "verified": st.get("verified"), "detail": st.get("detail")}
 
-    def work_check(self, actor: str, wid: str, index: int,
-                   evidence_ref: str, note: str | None = None) -> dict[str, Any]:
-        """Mark ONE acceptance condition checked — acceptance evidence,
-        distinct from delivery stages and never inferred from them."""
+    def _work_check_one(self, actor: str, acc: list[Any], index: Any,
+                        evidence_ref: Any, note: Any, where: str = ""
+                        ) -> tuple[int, dict[str, Any]]:
+        """Validate ONE acceptance check and build its record. Raises rather
+        than writing, so a batch validates everything before anything lands."""
+        try:
+            i = int(index)
+        except (TypeError, ValueError):
+            raise LedgerError(f"acceptance `index` must be an integer "
+                              f"(0-based){where}") from None
+        if not 0 <= i < len(acc):
+            raise LedgerError(f"acceptance index {i} out of range "
+                              f"(0..{len(acc) - 1}){where}")
+        try:
+            r = workfields.bounded("evidence_ref", evidence_ref)
+        except workfields.FieldLimitError as e:
+            raise LedgerError(f"{e}{where}") from None
+        if not r:
+            raise LedgerError(f"checking a condition needs an "
+                              f"evidence_ref{where}")
+        return i, {"at": now(), "by": self._work_actor(actor),
+                   "evidence_ref": r,
+                   "note": (_prose(note) if note else None)}   # lossless
+
+    def work_check(self, actor: str, wid: str, index: Any = None,
+                   evidence_ref: Any = None, note: str | None = None,
+                   checks: Any = None) -> dict[str, Any]:
+        """Mark acceptance conditions checked — acceptance evidence, distinct
+        from delivery stages and never inferred from them. One condition, or a
+        BATCH through `checks`.
+
+        THE BATCH IS ATOMIC (W03): every element is validated before any of
+        them is written, so one bad index changes nothing at all. It writes ONE
+        history row, which is the other half of the point — four conditions
+        met by one body of work used to cost four round trips and read on the
+        docket as four separate completion events instead of one.
+
+        A repeated index inside one batch is refused rather than silently
+        letting the last one win: two different evidence refs for the same
+        condition means the caller believes something this call cannot honour.
+        """
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
         if not self._work_can_manage(actor, it):
             raise LedgerError("checking an acceptance condition is an owner-level "
                               "act - a participant records `evidence` instead")
-        acc = it.get("acceptance") or []
-        if not 0 <= int(index) < len(acc):
-            raise LedgerError(f"acceptance index {index} out of range "
-                              f"(0..{len(acc) - 1})")
-        r = _bounded("evidence_ref", evidence_ref)
-        if not r:
-            raise LedgerError("checking a condition needs an evidence_ref")
-        checked_note = _prose(note) if note else None    # lossless
-        acc[int(index)]["checked"] = {"at": now(), "by": self._work_actor(actor),
-                                      "evidence_ref": r,
-                                      "note": checked_note}
-        self._work_hist(it, actor, "check", {"index": int(index)})
-        return {"checked": int(index), "rev": it["rev"]}
+        acc = cast("list[Any]", it.get("acceptance") or [])
+        done: list[tuple[int, dict[str, Any]]] = []
+        if checks is not None:
+            if index is not None or evidence_ref is not None or note is not None:
+                raise LedgerError(
+                    "pass either ONE check (index + evidence_ref + note) or a "
+                    "batch of them in `checks`, not both")
+            batch = self._work_batch_arg(checks, "checks")
+            seen: set[int] = set()
+            for n, el in enumerate(batch):
+                i, rec = self._work_check_one(
+                    actor, acc, el.get("index"), el.get("evidence_ref"),
+                    el.get("note"), f" (checks[{n}], of {len(batch)})")
+                if i in seen:
+                    raise LedgerError(
+                        f"checks[{n}] marks acceptance index {i} again — one "
+                        f"batch may not check the same condition twice, since "
+                        f"only one of the two evidence refs could survive. "
+                        f"NOTHING WAS WRITTEN")
+                seen.add(i)
+                done.append((i, rec))
+        else:
+            done.append(self._work_check_one(actor, acc, index, evidence_ref, note))
+        for i, rec in done:
+            acc[i]["checked"] = rec
+        idxs = [i for i, _ in done]
+        self._work_hist(it, actor, "check",
+                        ({"index": idxs[0]} if len(idxs) == 1 else
+                         {"batch": len(idxs), "indexes": idxs}))
+        return {"checked": (idxs[0] if len(idxs) == 1 else idxs),
+                "indexes": idxs, "rev": it["rev"]}
 
     def work_accept(self, actor: str, wid: str,
                     note: str | None = None) -> dict[str, Any]:

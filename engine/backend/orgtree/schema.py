@@ -711,6 +711,42 @@ class WorkAcceptance(TypedDict):
     checked: dict[str, Any] | None  # {at, by, evidence_ref, note} — acceptance evidence, distinct from delivery
 
 
+class WorkScopeRecord(TypedDict):
+    """One row of a work item's APPEND-ONLY scope record (`WorkItem.scope`) —
+    what this item's specification became, and why.
+
+    ⚠ WHY THIS IS NOT A HISTORY ROW. `history` folds its oldest rows into a
+    summary past `Org.WORK_HISTORY_MAX`, so a before/after pair stored there
+    would eventually be summarised away — and the before/after pair is the one
+    thing that has to survive. This list is never folded and never rewritten.
+
+    ⚠ `superseded_by` IS THE ONLY FIELD EVER WRITTEN TO AN EXISTING ROW, and
+    it is a pointer rather than content. `text`, `before` and `after` are
+    written once, at the instant of the act, and are untouched forever: a
+    reader can always see both what was ruled and that it was later replaced.
+
+    `by` is an AUTHORED actor, in the sense `WorkActor` defines — it names who
+    acted THEN and is never re-resolved against the node table, exactly like
+    `history[].by` and `created_by`. It never carries a holder's `born` or
+    `deleted`, because this is not a live pointer at anybody.
+    """
+    seq: int                        # 1-based, monotonic per item (WorkItem.scope_seq)
+    at: str
+    by: WorkActor | str
+    kind: str                       # "objective" | "decision"
+    #: kind=objective: the COMPLETE text on each side, lossless (workfields.prose)
+    before: NotRequired[str]
+    after: NotRequired[str]
+    mode: NotRequired[str]          # kind=objective: "replace" | "append"
+    #: kind=decision: the ruling, trade-off or agreed constraint, lossless
+    text: NotRequired[str]
+    #: the seq this row REPLACES. An objective row supersedes the previous
+    #: objective row by definition; a decision says so explicitly.
+    supersedes: NotRequired[int | None]
+    #: back-pointer, written onto the superseded row when a later one lands
+    superseded_by: NotRequired[int | None]
+
+
 class WorkItem(TypedDict):
     """A durable unit of work in the org document (`OrgDoc.work_items`,
     archived ones in `OrgDoc.work_items_archive`). Survives retirement,
@@ -779,6 +815,15 @@ class WorkItem(TypedDict):
     # a lifecycle edge.
     parent: NotRequired[str | None]
     evidence: list[dict[str, Any]]  # {at, by, kind: note|link|file|commit|log, ref, note?} — cap by refusal, never truncated
+    # ---- THE SCOPE RECORD (W03). Append-only, never folded, never rewritten:
+    # every version of `objective` with its full before/after, and every
+    # decision recorded against the item, with actor, time and supersession.
+    # `objective` above stays THE authoritative scope — this is the history
+    # beside it, never a competing second source of truth.
+    # Absent on items written before the field existed; absent and empty mean
+    # the same thing (nothing has been recorded), and neither is back-filled.
+    scope: NotRequired[list[WorkScopeRecord]]
+    scope_seq: NotRequired[int]     # monotonic; mints the next row's `seq`
     delivery: dict[str, WorkStage | None] | None   # keys = workitems.STAGES
     accepted: dict[str, Any] | None  # {at, by, note, via} — completion record: work_accept, a reviewer approval, or a done set through work_update (any collaborator, user 2026-09-10)
     history: list[dict[str, Any]]   # {at, by, field, from, to}; oldest fold into ONE {kind: "folded", ...} row past the cap

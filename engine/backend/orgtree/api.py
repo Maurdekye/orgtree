@@ -6149,6 +6149,19 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             dropped_reason=_s("dropped_reason"),
             title=_s("title"), objective=_s("objective"),
             reopen=_arg_flag(a, "reopen"),
+            # ---- W03, all optional; a call that omits them behaves exactly as
+            # it did before. `expected_rev` is compare-and-set; the keep/append
+            # forms materialize the COMPLETE list from the stored one and
+            # REQUIRE it; `objective_append` widens the description instead of
+            # replacing it; `attention_amend` edits the standing flag in place.
+            expected_rev=(None if a.get("expected_rev") is None
+                          else _arg_int(a, "expected_rev", -1)),
+            objective_append=_s("objective_append"),
+            keep_done=_arg_flag(a, "keep_done"),
+            keep_next=_arg_flag(a, "keep_next"),
+            done_append=a.get("done_append"),
+            next_append=a.get("next_append"),
+            attention_amend=_arg_flag(a, "attention_amend"),
             # the explicit assignment target. Absent, the update claims the
             # item for its author (ledger.work_update); present, it WINS —
             # there is no transient assign-to-author in between.
@@ -6164,8 +6177,19 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_participants(nid, wid, add=_work_list_arg(a, "add"),
                                      remove=_work_list_arg(a, "remove"))
     if act == "evidence":
+        # ⚠ THE BATCH FORM MUST NOT BE HANDED DEFAULTS. `kind` defaults to
+        # "note" and `ref` to "" on the single path; passing those alongside
+        # `items` would trip the ledger's either/or guard on every batch call,
+        # so the single-form arguments go through as literally absent.
+        if a.get("items") is not None:
+            return org.work_evidence(nid, wid, "", "", None,
+                                     items=a.get("items"))
         return org.work_evidence(nid, wid, str(a.get("kind") or "note"),
                                  str(a.get("ref") or ""), _s("note"))
+    if act == "decision":
+        return org.work_decision(nid, wid, str(a.get("text") or ""),
+                                 supersedes=(None if a.get("supersedes") is None
+                                             else _arg_int(a, "supersedes", -1)))
     if act == "claim":
         try:
             return org.work_claim(nid, wid, str(a.get("stage") or ""),
@@ -6173,6 +6197,9 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         except workitems.ShaError as e:
             raise LedgerError(str(e))
     if act == "check":
+        # same either/or care as `evidence`: absent stays absent on the batch
+        if a.get("checks") is not None:
+            return org.work_check(nid, wid, checks=a.get("checks"))
         return org.work_check(nid, wid, _arg_int(a, "index", -1),
                               str(a.get("evidence_ref") or ""), _s("note"))
     if act == "accept":
@@ -6198,7 +6225,8 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_delete(nid, wid, _s("note"))
     raise LedgerError(
         "action must be list|get|create|update|assign|review|participants|"
-        "evidence|claim|verify|check|accept|archive|supersede|move|delete")
+        "evidence|decision|claim|verify|check|accept|archive|supersede|move|"
+        "delete")
 
 
 class AskAnswer(Body):
