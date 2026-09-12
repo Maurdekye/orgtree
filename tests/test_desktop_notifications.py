@@ -11,14 +11,22 @@ for key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'): os.envi
 from engine.launch import load_app
 app,*_ = load_app()
 from orgtree import store, desktop_notifications
+from orgtree.ledger import USER
+
+_orgs = []
+def fixture_org(slug):
+    org = store.create_org(slug)
+    _orgs.append(slug)
+    org.hire(USER, None, 'haiku', 0, 'agent', charter='fixture')
+    return org
 
 def tearDownModule():
-    for slug in ('one','two'): store._POOL.close_all(slug)
+    for slug in _orgs: store._POOL.close_all(slug)
     _temp.cleanup()
 
 class NotificationsTests(unittest.TestCase):
     def test_cross_org_projection_dismissal_and_gate(self):
-        first=store.create_org('one'); second=store.create_org('two')
+        first=fixture_org('one'); second=fixture_org('two')
         first.d['asks']=[{'id':'q1','node':'agent','status':'open','questions':[{'question':'answer me'}]}]
         second.d['user_inbox']=[{'id':'m1','from':'peer','urgent':True,'body':'urgent detail'}]
         second.d['work_items']=[{'slug':'needs-decision','title':'Work decision',
@@ -40,5 +48,55 @@ class NotificationsTests(unittest.TestCase):
         self.assertEqual(len(desktop_notifications.notices()['notices']),2)
         second.d['work_items'][0].pop('manual_attention'); store.save_org(second)
         self.assertEqual([r['kind'] for r in desktop_notifications.notices()['notices']],['urgent-mail'])
+
+    def test_question_lifecycle_and_urgent_read_state(self):
+        org = fixture_org('lifecycle')
+        org.ask_user('agent', 'Which approach?')
+        store.save_org(org)
+        def current():
+            return [r for r in desktop_notifications.notices()['notices'] if r['org'] == 'lifecycle']
+        notice = current()[0]
+        self.assertEqual(notice['source_id'], org.node_ask('agent')['id'])
+        self.assertEqual(notice['agent'], 'agent')
+        org.ask_user('agent', 'Also choose a color?')
+        store.save_org(org)
+        self.assertEqual(len(current()), 1, 'amending an unresolved batch does not mint another alert')
+        self.assertEqual(current()[0]['id'], notice['id'])
+        org.withdraw_ask('agent'); store.save_org(org)
+        self.assertEqual(current(), [])
+        org.ask_user('agent', 'A new question?'); store.save_org(org)
+        self.assertNotEqual(current()[0]['id'], notice['id'])
+        ask = org.d['asks'][-1]
+        for state in ('answered', 'withdrawn', 'moot', 'interrupted'):
+            ask['status'] = state; store.save_org(org)
+            self.assertEqual(current(), [], state)
+        ask['status'] = 'open'
+        org.node('agent')['state'] = 'archived'; store.save_org(org)
+        self.assertEqual(current(), [], 'an obsolete request on a retired seat cannot alert')
+        org.d['user_inbox'] = [{'id':'urgent','from':'agent','urgent':True,
+            'urgent_reason':'A decision is needed now', 'body':'Longer details'}]
+        store.save_org(org)
+        self.assertEqual(current()[0]['body'], 'A decision is needed now')
+        org.d['user_mail_log'] = org.d['user_inbox']; org.d['user_inbox'] = []
+        store.save_org(org)
+        self.assertEqual(current(), [], 'mail leaves the attention set when read')
+
+    def test_pages_cover_all_attention_and_cleanup_sees_beyond_the_page(self):
+        org = fixture_org('pages')
+        org.d['user_inbox'] = [{'id':f'm{i}', 'from':'agent', 'urgent':True,
+            'body':f'Action {i}'} for i in range(205)]
+        store.save_org(org)
+        client = TestClient(app)
+        headers = {'X-Orgtree-Desktop-Token':'operator'}
+        page = client.get('/api/desktop/notifications', headers=headers).json()
+        self.assertEqual(len(page['notices']), 200)
+        self.assertTrue(page['truncated'])
+        self.assertEqual(len(page['active']), page['total'])
+        more = client.get('/api/desktop/notifications?offset='+str(page['next_offset']), headers=headers).json()
+        self.assertFalse(more['truncated'])
+        self.assertIsNone(more['next_offset'])
+        identities = {(r['org'], r['id']) for r in page['notices']+more['notices']}
+        self.assertEqual(len(identities), page['total'])
+        self.assertEqual(identities, {(r['org'], r['id']) for r in page['active']})
 
 if __name__ == '__main__': unittest.main()

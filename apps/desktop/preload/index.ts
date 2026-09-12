@@ -21,6 +21,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     closeWindow: () => ipcRenderer.invoke('desktop:window-close'),
     getHarnesses: () => ipcRenderer.invoke('desktop:harnesses'),
     notify: notification => ipcRenderer.invoke('desktop:notify', notification),
+    syncNotifications: active => ipcRenderer.invoke('desktop:sync-notifications', active),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),

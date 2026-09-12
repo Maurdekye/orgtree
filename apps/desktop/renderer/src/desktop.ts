@@ -1,9 +1,6 @@
-import type { DesktopBridge, DesktopControlsState, DesktopPreferences, DesktopWindowState } from '../../../../packages/contracts'
+import type { DesktopBridge, DesktopControlsState, DesktopNotification, DesktopPreferences, DesktopWindowState } from '../../../../packages/contracts'
 
-export interface NativeNotice {
-  id: string; title: string; body: string; org: string; agent?: string; item?: string
-  kind: 'question' | 'urgent-mail' | 'work-attention' | 'routine'
-}
+export type NativeNotice = DesktopNotification
 export type NativePreferences = DesktopPreferences & { routineNotifications?: boolean }
 // The bridge belongs to the authoritative opener. React handlers retain this
 // module's window when their existing DOM is adopted by an isolated popout.

@@ -67,7 +67,7 @@ test('harness detection has positive fixture and never executes it', () => {
   assert.equal(detectHarnesses('', { antigravity: path.join(temp, name) }).find(r => r.id === 'antigravity').detected, true, 'known native install location outside PATH')
 })
 
-test('native notification defaults are attention-only, with bounded validated identity dedup', () => {
+test('native notification defaults are attention-only, with validated identity dedup', () => {
   const gate = new NotificationGate(), base = { id: 'n1', org: 'org', title: 'Title', body: 'Body', kind: 'routine' }
   assert.equal(gate.take(base, false), null)
   assert.ok(gate.take(base, true))

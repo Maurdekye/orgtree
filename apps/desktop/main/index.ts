@@ -11,7 +11,7 @@ import { appUserModelId, configureTaskbar } from './taskbar'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry } from './windows'
 import { detectHarnesses } from './harnesses'
-import { NotificationGate } from './notifications'
+import { NativeNotifications } from './notifications'
 import { MaintenanceController } from './maintenance'
 import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater } from './updater'
@@ -100,7 +100,9 @@ else {
     }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
-  const notifications = new NotificationGate()
+  const notifications = new NativeNotifications(
+    data => new Notification({ title: data.title, body: data.body }),
+    data => { show(); broadcast({ type: 'notification-click', data }) })
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
@@ -605,13 +607,9 @@ else {
     handle('desktop:harnesses', () => detectHarnesses())
     handle('desktop:notify', value => {
       if (!Notification.isSupported()) return false
-      const data = notifications.take(value, preferences.get().routineNotifications)
-      if (!data) return false
-      const notice = new Notification({ title: data.title, body: data.body })
-      notice.on('click', () => { show(); broadcast({ type: 'notification-click', data }) })
-      notice.show()
-      return true
+      return notifications.notify(value, preferences.get().routineNotifications)
     })
+    handle('desktop:sync-notifications', value => notifications.sync(value))
     handle('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
@@ -719,6 +717,9 @@ else {
       if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       const refresh = async () => {
         if (quitting) return
+        // Native timers keep running when Chromium throttles a hidden window.
+        // Wake only the attention read; leave ordinary UI polling unchanged.
+        broadcast({ type: 'notification-poll', data: null })
         stats = await engine.stats(); rebuildTray()
         void updater.tick().catch(() => {})
         if (stats === null && !engine.managed) {

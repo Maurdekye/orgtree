@@ -2182,6 +2182,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     setJumpAsk(null)
     if (!jumpTo || !box) return
     foldedJump.current = req
+    // Requests are synthetic inbox rows, never a mail lookup. This also
+    // brings a notification's question into view from Sent or Record.
+    if (jumpTo.startsWith('ask:')) { setFolder('inbox'); return }
     const here = (rows: { id?: string }[] | undefined) =>
       (rows ?? []).some((m) => m.id === jumpTo)
     if (here(box.pending) || here(box.delivered)) { setFolder('inbox'); return }

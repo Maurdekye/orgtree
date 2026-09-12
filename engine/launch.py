@@ -253,9 +253,9 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
         return {"protocol": 1, "pid": os.getpid(), "dataRootId": data_root_id(data)}
 
     @api_app.get("/api/desktop/notifications")
-    def desktop_notifications() -> dict[str, Any]:
+    def desktop_notifications(offset: int = 0) -> dict[str, Any]:
         from orgtree.desktop_notifications import notices
-        return notices()
+        return notices(offset=offset)
 
     @api_app.get("/api/desktop/hub")
     def desktop_hub() -> dict[str, Any]:
