@@ -7304,6 +7304,37 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     return result
 
 
+def _rehire_account(org: Org, tier: str, a: dict[str, Any]) -> str:
+    """The account a rehire should come back on — validated, not yet applied.
+
+    Returns "" for "change nothing", which is what an omitted field means: a
+    rehire has always restored the agent on its stored binding, and that stays
+    the default.
+
+    ⚠ AN EMPTY STRING IS REFUSED RATHER THAN READ AS "UNBIND". On the HIRE path
+    `account=""` is a meaningful value — it seats a new agent explicitly
+    unbound, overriding the org default. There is no writer that can take an
+    existing binding away again (`supervisor.assign_account` validates a row
+    and writes it; nothing clears one), so accepting the same spelling here
+    would quietly do nothing while reading like an instruction that was obeyed.
+    """
+    raw = a.get("account")
+    if raw is None:
+        return ""
+    want = str(raw).strip()
+    if not want:
+        raise LedgerError(
+            "account='' seats a NEW hire unbound; it cannot clear the binding "
+            "of an agent that already has one (there is no unbind writer). "
+            "Omit `account` to restore it on the account it was archived "
+            "with, or name the account it should come back on")
+    try:
+        registry.validate_binding(str(org.d.get("slug") or ""), tier, want)
+    except ValueError as e:          # registry.BindingRefused is one of these
+        raise LedgerError(str(e))
+    return want
+
+
 def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                  drive: list[str], renamed_to: str | None,
                  rename_warnings: list[str]) -> dict[str, Any]:
@@ -7322,6 +7353,19 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
         org.node(_rehire_node).get("model") or "")  # type: ignore[arg-type]
     provider_hire_gate(
         org, _rehire_tier, user_choice_only=True)
+    # ACCOUNT SELECTION ON THE WAY BACK (user decision 2026-09-12: "the agent
+    # hire / rehire / retool tools should be able to decide which account to
+    # hire on"). An archived agent returns on the account it was archived
+    # with — which is, very often, precisely the account that was exhausted
+    # when it stopped. Naming one here is how a rehire lands on a lane that
+    # has room now.
+    #
+    # ⚠ VALIDATED HERE, APPLIED BELOW. The binding is checked BEFORE
+    # `org.rehire` so a refusal wakes nobody: past that point the node is live,
+    # `drive` may hold it, and a refusal would have to be unwound rather than
+    # simply raised. The check is the same `registry.validate_binding` every
+    # other door calls — this one cannot accept what they refuse.
+    _acct_want = _rehire_account(org, _rehire_tier, a)
     # `grant` now goes through _arg_int like every other int
     # argument. It was the ONE that did not, so {"grant": "abc"}
     # reached `int(grant)` in the ledger and 500ed (mcptool suite,
@@ -7368,6 +7412,19 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     # already the post-rename id (rebound above).
     _rid = str(a.get("node") or "")
     result["node"] = _rid
+    if _acct_want:
+        # THE ONE WRITER, not a second one. `supervisor.assign_account` is what
+        # the operator panel and the downward rebind both go through, and it
+        # carries the parts a direct `node["account"] = x` would silently skip:
+        # the codex session boundary (a restored thread cannot follow its agent
+        # onto a different CODEX_HOME, so the pre-switch self is archived as a
+        # knowledge bearer), the warm-pool continuity record, and the audit
+        # entry the USER reads. `org=org` keeps it inside this transaction —
+        # a separate load/save would be clobbered by the dispatch's own save.
+        _rh_disc = supervisor.assign_account(
+            slug, _rid, _acct_want, actor=actor, org=org, via="rehire")
+        result["account"] = _rh_disc.get("account")
+        result["account_binding"] = _rh_disc
     _seat_finish(org, slug, actor, _rid, a, result, drive,
                  fields=_SEAT_SCOPE_REHIRE)
     if _dest:
@@ -8735,6 +8792,50 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # superior may set it on REPORTS — never on itself (set_scope's
                 # authority check refuses self). raise_ceiling is deliberately
                 # NOT plumbed: an agent can never raise a kiosk ceiling.
+                #
+                # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
+                # 2026-09-12: "the agent hire / rehire / retool tools should be
+                # able to decide which account to hire on"). This is the surface
+                # for an agent that is ALREADY LIVE — the hire fields choose an
+                # account at the moment a seat is created, and until now nothing
+                # agent-facing could move one afterwards.
+                #
+                # ⚠ CHECKED HERE, WRITTEN BELOW, and the split is the point.
+                # The CHECKS come first so a refusal names the rule the caller
+                # actually broke: `set_scope` would otherwise answer a
+                # self-rebind with "a self-retool sets team_charter only", which
+                # reads as "pass team_charter too" when the real answer is that
+                # an agent never chooses its own billing. The WRITE comes after
+                # set_scope, because `assign_account` notifies outside the
+                # document lock and a scope refusal arriving afterwards would
+                # have announced an account change this transaction discarded.
+                #
+                # ⚠ AND THE AUTHORITY IS NOT retool's. The scope fields are
+                # governed by set_scope's ancestor check; billing is governed by
+                # the stricter rule `orgtree_account_assign` already enforces —
+                # strictly DOWNWARD, never on yourself, because an agent
+                # choosing which account it bills is the one thing neither its
+                # superiors nor the user ever delegated.
+                _rt_acct: str | None = None
+                _rt_target = str(a.get("node") or "")
+                if a.get("account") is not None:
+                    if _rt_target == body.node:
+                        raise HTTPException(
+                            403, "you cannot choose your own account — a "
+                                 "node's billing is its supervisors' and the "
+                                 "user's decision, never its own (a "
+                                 "self-retool carries team_charter only)")
+                    if not org.is_ancestor(body.node, _rt_target):
+                        raise HTTPException(
+                            403, f"you can only rebind accounts of your "
+                                 f"subordinates ({_rt_target!r} is not one)")
+                    _rt_acct = str(a.get("account") or "").strip()
+                    if not _rt_acct:
+                        raise LedgerError(
+                            "account='' seats a NEW hire unbound; it cannot "
+                            "clear the binding of an agent that already has "
+                            "one (there is no unbind writer). Name the account "
+                            "this agent should run on instead")
                 rdirs, dwarns = supervisor.sandbox_dirs_to_host(
                     org, a.get("add_dirs"))
                 result = org.set_scope(body.node, a.get("node", ""),
@@ -8753,6 +8854,23 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                        clear_account_fallback=bool(a.get("clear_account_fallback")))
                 if dwarns:
                     result.setdefault("warnings", []).extend(dwarns)
+                if _rt_acct:
+                    try:
+                        _rt_disc = supervisor.assign_account(
+                            body.org, _rt_target, _rt_acct,
+                            actor=body.node, org=org, via="retool")
+                    except (RuntimeError, ValueError) as e:
+                        raise HTTPException(422, str(e))
+                    # the id as a plain string for a caller that only wants to
+                    # read back what it asked for, and the FULL disclosure set
+                    # beside it — billing mode, auth, standing with provenance,
+                    # the continuity record and the knowledge bearer a codex
+                    # switch just created. None of that is noise: a rebind that
+                    # silently flipped an agent onto API-key billing, or that
+                    # archived its session, is exactly the thing the caller has
+                    # to be told about at the moment it happens.
+                    result["account"] = _rt_disc.get("account")
+                    result["account_binding"] = _rt_disc
             elif body.tool == "orgtree_retire":
                 result = org.retire(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:

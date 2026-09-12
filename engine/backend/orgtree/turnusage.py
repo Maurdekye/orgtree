@@ -490,6 +490,39 @@ def _registered_rows(org: Org, now: float, seen_token_refs: set[str],
     return rows
 
 
+def _host_roster(org: Org, roster: list[str]) -> None:
+    """The HOST lanes' own roster entries — `claude/primary`, `codex/account`.
+
+    ⚠ WHY THESE ARE HERE AT ALL, when their usage rows are drawn far above.
+    `_registered_rows` deliberately skips the registry rows a host lane already
+    serves, so that one account is never counted as two. Skipping the row
+    skipped its ID as well, and the id is the half an agent acts on: with the
+    ambient sign-in plus one more account — the ordinary two-account setup on
+    this machine — exactly one of the two lanes could be named, and "put this
+    work on the account that still has capacity" was an instruction an agent
+    could read and not carry out for half the board.
+
+    So the usage stays where it is, once, and the NAME rides the roster beside
+    it. `accountusage.ambient_identities` decides which rows those are by the
+    same `ambient_covered` rule that drops them below, so these entries and
+    those rows are complements by construction.
+
+    A host lane with no registry row behind it gets no entry — nothing was
+    observed to name, and inventing a label for it would be worse than silence.
+    """
+    try:
+        idents = accountusage.ambient_identities(
+            str(org.d.get("slug") or "") or None)
+    except Exception:                                          # noqa: BLE001
+        return                    # the roster is context, never a turn blocker
+    for identity in idents:
+        provider = _REGISTRY_PROVIDER.get(identity.get("provider") or "")
+        if provider is None:
+            continue
+        roster.append(_roster_entry(provider, _HOST_LANE.get(provider, "account"),
+                                    identity))
+
+
 def _roster_entry(provider: str, lane: str, identity: dict[str, str]) -> str:
     """One account's line in the roster — who this lane actually is.
 
@@ -499,8 +532,20 @@ def _roster_entry(provider: str, lane: str, identity: dict[str, str]) -> str:
     provider are two lane names an agent cannot connect to anything the user
     would recognise. Label, the email the registry already observed, and the
     auth state — never a credential path, a token ref or key material.
+
+    ⚠ AND `account=<id>` IS THE ACTIONABLE HALF, not decoration. `orgtree_hire`,
+    `orgtree_rehire`, `orgtree_retool` and `orgtree_staff` all take an `account`
+    argument, and the ONE value they accept is the registry row id — a lane
+    name is this module's own slug, a label is the user's free text and an
+    email is an observation, so none of the other three can be passed. Printing
+    the id here is what turns "this account has room" into something an agent
+    can do: read the board, pass the id. A registry id is an opaque counter
+    (`claude-2`), not a secret.
     """
     bits = [f"{provider}/{lane}"]
+    rid = identity.get("id") or ""
+    if rid:
+        bits.append(f"account={rid}")
     label = identity.get("label") or ""
     if label and label != lane:
         bits.append(f'"{label}"')
@@ -644,7 +689,17 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
     Provider order is Claude, Codex, Antigravity.  Claude accounts are primary,
     fallback ordinal, then this org's API-key lane.  Window order is session,
     weekly-all, weekly-scoped, then provider-specific.  Raw provider errors,
-    account ids, emails, model labels and groups never enter the text.
+    model labels and groups never enter the text.
+
+    ⚠ ACCOUNT IDS, LABELS AND OBSERVED EMAILS DO — on the `accounts:` roster
+    line only, and by user ruling 2026-09-12 ("i want you to be able to see the
+    same information i see in the current usage modal"). The id is the
+    load-bearing one: it is the exact value `orgtree_hire` / `orgtree_rehire` /
+    `orgtree_retool` / `orgtree_staff` take as `account`, so without it the
+    board could say an account had capacity and an agent still could not place
+    work there. Credential paths, token refs and key material remain out,
+    always — those an agent cannot act on and an operator never expected to
+    leave the app.
 
     Side effect: the rendered rows' structured records are recorded for
     `board_rows` (thread-local, cleared here).
@@ -755,6 +810,10 @@ def board(org: Org, nid: str, *, selected_provider: str = "",
         taken_lanes = {"primary", "account", "org-api-key", "fallbacks",
                        *(f"fallback-{i}" for i in range(1, 21))}
         roster: list[str] = []
+        # the host lanes' NAMES first (their rows are already above), then
+        # every other registered account with its rows — so the roster reads in
+        # the same order as the board it describes
+        _host_roster(org, roster)
         rows += _registered_rows(org, now, legacy_keys, taken_lanes, roster)
 
         rows.sort(key=_row_order)

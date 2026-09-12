@@ -79,6 +79,101 @@ TOOLS_SCHEMA: dict[str, Any] = {
     "required": ["bash", "web", "edit", "subagents", "mcp"],
 }
 
+# ⚠ ACCOUNT SELECTION — ONE DEFINITION, FOUR SURFACES (user decision
+# 2026-09-12: "yes, the agent hire / rehire / retool tools should be able to
+# decide which account to hire on").
+#
+# The backend has read `args["account"]` on the hire path for as long as the
+# account registry has existed, and `supervisor.assign_account` has been the
+# one writer for a rebind. NEITHER WAS IN ANY SCHEMA, so the field was
+# reachable only by an agent that had read the source: the turn envelope told
+# it which account had capacity, and nothing told it how to place work there.
+# Exposing the field is the whole difference between guidance and an action.
+#
+# The text says WHICH VALUE, and says it by example, because that is where
+# this goes wrong: the board shows a lane name, a label, an email and an id,
+# and only the id is accepted. One constant rather than four hand-written
+# copies — four copies are four chances for one of them to name a value the
+# validator refuses.
+_ACCOUNT_VALUE: str = (
+    "Pass the REGISTRY ACCOUNT ID, exactly as the `accounts:` roster on your "
+    "turn envelope's [PROVIDER USAGE] board prints it. That line reads "
+    "`accounts: claude/primary account=claude-1 \"Main\" · claude/side "
+    "account=claude-2 \"Side\"`, so the value to pass is `claude-2` — the "
+    "`account=` field and nothing else: not the lane name, not the quoted "
+    "label, not the email. The board is how you SEE which account has "
+    "capacity; this field is how you ACT on it. The binding must match the "
+    "tier's own provider (a Claude tier takes a Claude account, a Codex tier "
+    "a Codex account) and an account of the wrong provider is REFUSED, never "
+    "silently ignored — as is an id that is not registered.")
+
+ACCOUNT_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "description":
+        "WHICH PROVIDER ACCOUNT this agent runs on, when more than one is "
+        "signed in. " + _ACCOUNT_VALUE
+        + " Omit it to take the org's default account for the tier's "
+          "provider; pass the empty string to leave the seat explicitly "
+          "UNBOUND (it then runs on this machine's ambient sign-in for that "
+          "provider), which is the one way to override a default account "
+          "without naming another.",
+}
+
+#: ⚠ THE CODEX SESSION BOUNDARY, stated wherever an EXISTING agent can be
+#: moved. `CODEX_HOME` is never repointed under a live session, so a Codex
+#: agent that changes Codex account cannot carry its thread across: its
+#: pre-switch self is archived in place as a readable knowledge bearer
+#: (`<node>@<gen>`) and it starts fresh. Saying so is the difference between
+#: an agent choosing that cost and discovering it.
+_ACCOUNT_BOUNDARY: str = (
+    "⚠ MOVING A CODEX AGENT TO A DIFFERENT CODEX ACCOUNT IS A SESSION "
+    "BOUNDARY (CODEX_HOME is never repointed under a live session): its "
+    "pre-switch self is archived in place as a readable knowledge bearer and "
+    "it starts a fresh session, so do it at a natural break rather than "
+    "mid-thread. And it cannot CLEAR a binding — there is no unbind writer; "
+    "name another account, or seat the work on a NEW hire with account='' "
+    "for an unbound one.")
+
+#: The same field on the surface that rebinds a LIVE agent.
+ACCOUNT_REBIND_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "description":
+        "REBIND this agent to a different provider account. " + _ACCOUNT_VALUE
+        + " Strictly downward: you may rebind a subordinate, never yourself — "
+          "an agent's own billing is its superiors' and the user's decision. "
+          "Refused while the agent is mid-turn (a rebind is a session "
+          "boundary, and a live session is never repointed under itself). "
+        + _ACCOUNT_BOUNDARY,
+}
+
+#: …and on the surface that brings an ARCHIVED agent back. Omitted, the agent
+#: returns on whatever account it was archived with — which is the behaviour a
+#: rehire has always had, and is why this field defaults to changing nothing.
+ACCOUNT_RESTORE_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "description":
+        "WHICH PROVIDER ACCOUNT this agent comes back on. Omit it and it "
+        "returns on the account it was archived with — naming one here is how "
+        "you bring an agent back onto a lane that has capacity now, rather "
+        "than onto the one that was exhausted when it stopped. " + _ACCOUNT_VALUE
+        + " " + _ACCOUNT_BOUNDARY,
+}
+
+#: …and on `orgtree_staff`, which is whichever of the two its `staff_mode`
+#: chose. It says so rather than describing one of them and hoping: staff
+#: composes the same two helpers, so it must not be a route to an account
+#: binding that either tool on its own would refuse.
+ACCOUNT_STAFF_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "description":
+        "WHICH PROVIDER ACCOUNT the staffed agent runs on — the same field "
+        "the underlying tool takes, with the same checks: on a hire (the "
+        "default) it is orgtree_hire's `account`, empty string included for "
+        "an explicitly unbound seat; with staff_mode='rehire' it is "
+        "orgtree_rehire's, so omitting it restores the agent on the account "
+        "it was archived with. " + _ACCOUNT_VALUE,
+}
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "orgtree_message",
@@ -935,6 +1030,12 @@ TOOLS: list[dict[str, Any]] = [
             "flash 1, pro 2 (Antigravity — hireable only while the "
             "Antigravity CLI is signed in on this machine); "
             "seat + grant must fit within YOUR free credits. "
+            "WHICH ACCOUNT IT RUNS ON IS YOURS TO CHOOSE (user decision "
+            "2026-09-12): with more than one account of a provider signed in, "
+            "`account` places this seat on the one you name — the load-"
+            "balancing rules in your instructions say which that should be, "
+            "and the `accounts:` roster on your [PROVIDER USAGE] board gives "
+            "you the id to pass. Omit it and the seat takes the org default. "
             "ONE CALL IS ENOUGH: this tool also takes the fields you would "
             "otherwise have to orgtree_retool in straight afterwards "
             "(permission_mode — SET IT, see below; effort; team_charter), the "
@@ -1041,6 +1142,7 @@ TOOLS: list[dict[str, Any]] = [
                            "description": "thinking effort for the hire — a "
                                           "cost/quality dial ('' = the CLI "
                                           "default)"},
+                "account": ACCOUNT_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
                 "clear_account_fallback": {"type": "boolean",
@@ -1114,7 +1216,9 @@ TOOLS: list[dict[str, Any]] = [
             "Re-scope an agent in your subtree — ANY depth, not just direct "
             "reports: its folder grants, "
             "tool set, MCP servers, org visibility, permission mode, charter, team "
-            "charter, or its "
+            "charter, the PROVIDER ACCOUNT it runs on (`account` — a REBIND, how "
+            "you move a report onto a lane that has capacity; read that field "
+            "for what it costs a Codex agent), or its "
             "thinking effort (a cost/quality dial for your REPORTS — you never set "
             "your own). Only the fields you pass change. The capability rule still "
             "binds — you cannot grant anything you do not hold yourself, and "
@@ -1172,6 +1276,7 @@ TOOLS: list[dict[str, Any]] = [
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort for this report "
                                           "('' clears to the CLI default)"},
+                "account": ACCOUNT_REBIND_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
                 "clear_account_fallback": {"type": "boolean",
@@ -1242,6 +1347,9 @@ TOOLS: list[dict[str, Any]] = [
             "`name` (rename it as it wakes), the scope fields you would "
             "otherwise orgtree_retool in (charter, tools, add_dirs, "
             "org_visibility, permission_mode, effort, team_charter), the "
+            "PROVIDER ACCOUNT to bring it back on (`account` — omit it and it "
+            "returns on the account it was archived with, which may be the one "
+            "that was exhausted when it stopped), the "
             "`audiences` to grant, and a `kickoff` prompt. They apply in that "
             "order, kickoff LAST, so the agent never starts its turn as "
             "something other than what you described. ⚠ ONE ASYMMETRY worth "
@@ -1300,6 +1408,7 @@ TOOLS: list[dict[str, Any]] = [
                 "effort": {"type": "string",
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort ('' = CLI default)"},
+                "account": ACCOUNT_RESTORE_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
                 "clear_account_fallback": {"type": "boolean",
@@ -1433,6 +1542,7 @@ TOOLS: list[dict[str, Any]] = [
                 "team_charter": {"type": "string",
                                  "description": "standing instruction for the "
                                                 "agent's own team"},
+                "account": ACCOUNT_STAFF_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
                 "clear_account_fallback": {"type": "boolean",

@@ -120,3 +120,50 @@ reset deadline. It reuses frozen-turn replay and validates settings, account,
 node generation and freeze identity again before saving a switch. Account
 switches are recorded with their cache/session continuity effects. A provider
 cache starts cold; Codex crosses a session boundary.
+
+
+## 2026-09-12: every account's usage is visible, and agents choose the lane
+
+Two decisions on the same day, the second answering a gap found while reviewing
+the first.
+
+**08:0x UTC — show agents what the user sees, and tell them how to use it.**
+"i want you to be able to see the same information i see in the current usage
+modal", and: load-balance among the accounts signed in at once, taking remaining
+usage and time until refresh into account. The rules the operator stated, which
+the managed instructions now carry verbatim in effect:
+
+- when every account of a provider is far from its reset, prefer the one with
+  LOWER usage;
+- when one account resets sooner than another, spend that one FIRST and leave
+  the later-resetting account alone until the first is used up or has reset;
+- Claude: a Fable model spends BOTH the standard weekly limit and the Fable
+  weekly limit, while Opus and the lower tiers spend only the standard one;
+- Codex: Luna accumulates only in the gpt-reserve limit and does not touch the
+  normal weekly limit until reserve is completely full — the two exceptions
+  being the reserve preference turned off, or the reserve lane unavailable;
+- never start a model on an account where a window it spends is at 100%. This is
+  per ACCOUNT and not per model: "don't hire a model on a specific account when
+  [an] allowance it consumes on that account is at 100%, but if that allowance
+  is available elsewhere, then you can still hire it."
+
+The turn envelope's `[PROVIDER USAGE]` board therefore carries one lane per
+registered account, with its own windows, reset instants, freshness and honest
+unavailability, plus an `accounts:` roster naming each lane. It is a cache-only
+read: a board rendered on every turn of every agent spends no upstream request.
+
+**08:36 UTC — and the tools must let them act on it.** "yes, the agent hire /
+rehire / retool tools should be able to decide which account to hire on." The
+board could say which account had room while nothing agent-facing could place
+work there, so `account` is now an argument of `orgtree_hire` (which account a
+new seat runs on), `orgtree_rehire` (which account an archived agent comes back
+on — omitted, it returns on the one it was archived with), `orgtree_retool`
+(rebind a live report) and `orgtree_staff` (whichever of the two it composed).
+
+The value is the registry account id, which the roster prints as
+`account=<id>`; a lane name, label or email is refused, as is an account whose
+provider does not match the tier's. Every retained rule from 2026-09-11 and
+2026-09-09 still binds: authority is strictly downward and an agent never
+chooses its own billing; there is no automatic movement; a rebind cannot clear a
+binding; and a Codex account change remains a session boundary whose continuity
+effect is disclosed rather than hidden.

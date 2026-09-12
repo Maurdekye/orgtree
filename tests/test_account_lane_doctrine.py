@@ -257,6 +257,49 @@ class AccountLaneDoctrine(unittest.TestCase):
                       'the rule points at a roster line by a name the board '
                       'does not use')
 
+    # ── §6h the rule names the ACTION, not just the comparison ─────────────
+    def test_s6h_it_says_which_field_places_work_on_an_account(self):
+        """Coordinator review 2026-09-12, and the user's answer to it: "the
+        agent hire / rehire / retool tools should be able to decide which
+        account to hire on". Guidance that stops at "prefer the account with
+        room" leaves an agent holding a conclusion and no move — so the rule
+        has to name the field, and the value that field takes."""
+        body = norm(sup.ACCOUNT_LANE_DOCTRINE)
+        self.assertIn('account=<id>', body)
+        for tool in ('orgtree_hire', 'orgtree_rehire', 'orgtree_retool',
+                     'orgtree_staff'):
+            self.assertIn(tool, body, f'{tool} takes `account` and the rule '
+                                      f'never mentions it')
+        # and the two traps: the board prints four things per account and only
+        # one of them binds; a wrong-provider id is refused, not ignored
+        self.assertIn('never pass the lane name, the quoted label or the email',
+                      body)
+        self.assertIn('refused rather than quietly ignored', body)
+
+    def test_s6i_the_tools_it_names_really_take_the_field(self):
+        """The prose quotes four tool names and a parameter name. If any of
+        them stopped taking `account`, this goes red rather than leaving every
+        agent on the machine acting on an instruction the API refuses."""
+        from orgtree import mcptool
+        body = norm(sup.ACCOUNT_LANE_DOCTRINE)
+        for card in mcptool.TOOLS:
+            if card['name'] in body:
+                with self.subTest(tool=card['name']):
+                    props = card['inputSchema']['properties']
+                    self.assertIn('account', props,
+                                  f"the rule tells agents to pass `account` to "
+                                  f"{card['name']}, which does not take it")
+
+    def test_s6j_and_the_roster_really_prints_that_value(self):
+        """The other end of the same seam: the rule says to read `account=<id>`
+        off the roster, so the roster has to write it."""
+        from orgtree import turnusage
+        import inspect
+        self.assertIn('account={rid}',
+                      inspect.getsource(turnusage._roster_entry),
+                      'the roster no longer prints the id the rule tells '
+                      'agents to pass')
+
     # ── §7 it contradicts nothing already in the prompt ────────────────────
     def test_s7a_cache_continuity_doctrine_is_still_there(self):
         # control: green before and after. If a change to the prompt dropped

@@ -255,9 +255,13 @@ def provable_absence(cls: str) -> bool:
 _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_message": ("delivered", "deferred", "id"),
     "orgtree_send_notice": ("delivered", "deferred", "id"),
-    "orgtree_hire": ("node", "name", "tier", "grant", "started"),
-    "orgtree_rehire": ("node", "name", "tier", "started"),
-    "orgtree_retool": ("node", "started"),
+    # `account` rides the three seat verbs (user decision 2026-09-12: agents
+    # choose the provider account). A binding is a BILLING fact, so which one a
+    # seat landed on is exactly the sort of thing a receipt should still say
+    # when the response that carried it was lost.
+    "orgtree_hire": ("node", "name", "tier", "grant", "started", "account"),
+    "orgtree_rehire": ("node", "name", "tier", "started", "account"),
+    "orgtree_retool": ("node", "started", "account"),
     "orgtree_retire": ("archived", "node"),
     "orgtree_dissolve": ("archived", "node"),
     "orgtree_reallocate": ("node", "delta", "grant"),
@@ -269,7 +273,7 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
                      "ref", "rev", "status", "notified"),
     # the seat AND the item, because that is what one staff call did
     "orgtree_staff": ("node", "name", "tier", "grant", "started", "item",
-                      "created", "updated", "assigned_to"),
+                      "created", "updated", "assigned_to", "account"),
     "orgtree_ask": ("id", "routed", "deferred"),
     "orgtree_request_scope": ("id", "routed", "deferred"),
     "orgtree_request_credits": ("id", "routed", "deferred"),
@@ -292,7 +296,10 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
 # ids/slugs, delivery stages and refs. Bodies, charters, kickoffs, questions
 # and summaries are deliberately absent.
 _TARGET_ARGS = ("node", "to", "id", "slug", "work_item", "ref", "action",
-                "stage", "tier", "target", "grantee", "from", "name")
+                "stage", "tier", "target", "grantee", "from", "name",
+                # the provider account a seat verb was asked to use: a registry
+                # id, identity-shaped and never a credential
+                "account")
 
 
 def _canonical(obj: Any) -> str:

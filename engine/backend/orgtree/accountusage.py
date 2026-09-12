@@ -228,6 +228,43 @@ def identity_of(row: dict[str, Any]) -> dict[str, str]:
             "provider": str(row.get("provider") or "")}
 
 
+def ambient_identities(org: str | None = None) -> list[dict[str, str]]:
+    """The IDENTITIES of the registry rows the HOST lanes already serve.
+
+    ⚠ WHY THE IDENTITY TRAVELS WHEN THE USAGE DOES NOT. `registered_views`
+    deliberately drops these rows: their usage IS the host board, and drawing
+    them a second time would have an agent believe this machine holds two
+    accounts where it holds one. But dropping the row dropped its NAME too,
+    and the name is the half an agent has to be able to act on — the
+    load-balancing rule it is given says "place this work on the account with
+    room", and placing work on an account means naming that account's registry
+    id to `orgtree_hire`. In the commonest multi-account setup on this machine
+    — the ambient sign-in plus one more — the ambient one is exactly the
+    account whose id was missing, so HALF the board was unnameable and
+    "balance across them" could not be carried out.
+
+    So: the usage stays on the host lane (once), and the id rides the board's
+    roster beside it. Decided by the same `ambient_covered` rule, from the same
+    module, so the set this returns and the set `registered_views` skips are
+    complements by construction rather than by coincidence.
+    """
+    try:
+        rows = registry.list_accounts(org)
+        primary = registry.resolve_alias("primary")
+        from .registry_migration import observe_ambient   # noqa: PLC0415
+        ambient_paths = observe_ambient()
+    except Exception:                                          # noqa: BLE001
+        return []
+    out: list[dict[str, str]] = []
+    for row in sorted(rows, key=_row_rank):
+        try:
+            if ambient_covered(row, primary, ambient_paths):
+                out.append(identity_of(row))
+        except Exception:                                      # noqa: BLE001
+            continue                 # one unreadable row never costs the rest
+    return out
+
+
 def registered_views(*, allow_fetch: bool = False, now: float | None = None,
                      org: str | None = None,
                      include_ambient: bool = False,
