@@ -143,6 +143,27 @@ test('draft displays and saves the canonical primary name for a legacy default b
   assert.equal(saved.at(-1)?.account, 'openai/primary')
 })
 
+test('draft selects an inherited canonical primary default without a registry row', async (t: TestContext) => {
+  useFakeClock()
+  installFetch(new FakeServer())
+  const saved: DraftScope[] = []
+  const view = await mountView(
+    <DraftScopeModal draft={{ parent: null, tier: 'astra' }} map={new Map()}
+      tree={tree('openai/primary')} scope={null} accounts={[]}
+      onSave={(s) => saved.push(s)} close={noop} />,
+    (el) => el
+  )
+  t.after(async () => { await view.unmount(); realClock() })
+  await flush()
+  const body = document.body as unknown as HTMLElement
+  const select = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
+  assert.equal(select.value, 'openai/primary')
+  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const { act } = await import('react')
+  await act(async () => { apply.click() })
+  assert.equal(saved.at(-1)?.account, 'openai/primary')
+})
+
 test('draft modal ignores incompatible org default account and starts unbound', async (t: TestContext) => {
   useFakeClock()
   installFetch(new FakeServer())

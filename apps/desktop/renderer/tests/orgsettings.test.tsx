@@ -432,7 +432,7 @@ test('⑨  Hire defaults renders long registered server lists in a scrollable co
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('⑩  Hire defaults renders account selector with (unbound — machine default) when no accounts are registered', async () => {
+test('⑩  Hire defaults offers canonical primary accounts even when no accounts are registered', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen, ['mcp-a'], [])
   const { view } = await mountOrg()
@@ -445,9 +445,8 @@ test('⑩  Hire defaults renders account selector with (unbound — machine defa
     assert.ok(sel, 'account selector found')
     assert.equal(sel.value, '')
     const opts = [...sel.querySelectorAll('option')]
-    assert.equal(opts.length, 1)
-    assert.equal(opts[0]?.value, '')
-    assert.equal(opts[0]?.textContent?.trim(), '(unbound — machine default)')
+    assert.deepEqual(opts.map((o) => o.value), ['', 'claude/primary', 'openai/primary', 'google/primary'])
+    assert.equal(opts[0]?.textContent?.trim(), '(machine default)')
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -467,9 +466,9 @@ test('⑪  Hire defaults exposes live account options, updates selection, and pe
     assert.ok(sel, 'account selector found')
     assert.equal(sel.value, '')
     const opts = [...sel.querySelectorAll('option')]
-    assert.equal(opts.length, 2)
-    assert.equal(opts[1]?.value, 'acct-claude-primary')
-    assert.match(opts[1]?.textContent ?? '', /Primary Claude\s*\(claude\)/)
+    assert.equal(opts.length, 5)
+    const accountOption = opts.find((o) => o.value === 'acct-claude-primary')!
+    assert.match(accountOption.textContent ?? '', /acct-claude-primary\s*\(claude\)/)
 
     // select the account
     await setField(sel, 'acct-claude-primary')
@@ -514,9 +513,11 @@ test('⑫  Hire defaults handles multiple accounts across providers with limited
     assert.equal(sel.value, 'acct-claude-2')
 
     const opts = [...sel.querySelectorAll('option')]
-    assert.equal(opts.length, 4) // unbound + 3 accounts
-    assert.match(opts[2]?.textContent ?? '', /Backup Claude\s*\(claude\)\s*\(limited — will wait\)/)
-    assert.match(opts[3]?.textContent ?? '', /Codex Main\s*\(openai\)/)
+    assert.equal(opts.length, 7) // machine default + 3 primaries + 3 accounts
+    assert.match(opts.find((o) => o.value === 'acct-claude-2')?.textContent ?? '',
+      /acct-claude-2\s*\(claude\)\s*\(limited — will wait\)/)
+    assert.match(opts.find((o) => o.value === 'acct-codex-1')?.textContent ?? '',
+      /acct-codex-1\s*\(openai\)/)
 
     // Select unbound
     await setField(sel, '')
@@ -532,6 +533,40 @@ test('⑫  Hire defaults handles multiple accounts across providers with limited
     const defaultsBody = defaultsCall!.body as Record<string, unknown>
     assert.equal(defaultsBody.default_account, '')
   } finally { await view.unmount(); delete g.fetch }
+})
+
+test('Settings selects and saves each canonical primary name with or without an ambient registry row', async () => {
+  for (const provider of ['claude', 'openai', 'google']) {
+    const name = `${provider}/primary`
+    for (const registered of [false, true]) {
+      const seen: { method: string; path: string; body: unknown }[] = []
+      stubFetch(seen, [], registered ? [{ id: `${provider}-1`, provider,
+        label: 'Historical label', name, ambient: true, standing: { state: 'ready' } }] : [])
+      const { view, closed } = await mountOrg({ default_account: name })
+      try {
+        await open(view.el, 'Hire defaults')
+        await inAct(async () => { await flush(10) })
+        const sel = view.el.querySelector<HTMLSelectElement>(
+          'select[aria-label="default provider account for new hires"]')!
+        const options = [...sel.options].filter((o) => o.value === name)
+        assert.equal(options.length, 1, `${name} is shown exactly once`)
+        assert.equal(options[0].textContent, name)
+        assert.equal(sel.value, name, 'the stored primary default remains selected')
+        await setField(sel, '')
+        await setField(sel, name)
+        seen.length = 0
+        const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+          .find((b) => b.textContent?.trim() === 'save')!
+        await inAct(async () => { save.click(); await flush(12) })
+        for (const endpoint of ['defaults', 'settings']) {
+          const request = seen.find((r) => r.method === 'POST' && r.path === `/api/orgs/acme/${endpoint}`)
+          assert.ok(request)
+          assert.equal((request.body as Record<string, unknown>).default_account, name)
+        }
+        assert.equal(closed.length, 1)
+      } finally { await view.unmount(); delete g.fetch }
+    }
+  }
 })
 
 

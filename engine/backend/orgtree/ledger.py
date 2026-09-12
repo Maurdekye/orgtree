@@ -3185,6 +3185,7 @@ class Org:
         # default account: if explicit account given, validate and assign it;
         # otherwise inherit org default_account if compatible with this tier
         node_account: str | None = None
+        primary_selected = account is not None and not account.strip()
         if account is not None and account.strip():
             acct_clean = account.strip()
             try:
@@ -3193,6 +3194,7 @@ class Org:
             except Exception as e:
                 raise LedgerError(str(e))
             node_account = acct_row["id"] or None
+            primary_selected = not node_account
         elif account is None and self.d.get("default_account"):
             def_acct = str(self.d.get("default_account") or "").strip()
             if def_acct:
@@ -3200,6 +3202,7 @@ class Org:
                     from . import registry
                     acct_row = registry.validate_selection(self.d.get("slug", ""), tier, def_acct)
                     node_account = acct_row["id"] or None
+                    primary_selected = not node_account
                 except Exception:
                     node_account = None
 
@@ -3207,7 +3210,9 @@ class Org:
                              str(charter).strip() if charter else None)
         if node_account:
             self.nodes[nid]["account"] = node_account
-        elif account is not None:
+        elif primary_selected:
+            # An inherited primary choice is just as deliberate as an
+            # explicit one; migration must not turn it into a row binding.
             self.nodes[nid]["account_primary"] = True
         if handles:
             self.nodes[nid]["external_handles"] = handles

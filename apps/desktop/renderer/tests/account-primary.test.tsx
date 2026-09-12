@@ -5,23 +5,25 @@ import { NodeConfig } from '../src/canvas/modals'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
-test('operator selects the displayed primary name and posts it to account assignment', async () => {
+for (const registered of [true, false]) {
+test(`operator selects primary ${registered ? 'from a secondary' : 'with an empty registry'}`, async () => {
   const posted: { path: string; body: Record<string, unknown> }[] = []
   const saved: string[] = []
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = init?.body ? JSON.parse(String(init.body)) : {}
     if (init?.method && init.method !== 'GET') posted.push({ path, body })
-    const result = path === '/api/accounts' ? { accounts: [
+    const result = path === '/api/accounts' ? { accounts: registered ? [
       { id: 'claude-4', provider: 'claude', name: 'claude-4', label: 'old alias', standing: { state: 'ready' } },
-    ] } : path.endsWith('/account') ? {
+    ] : [] } : path.endsWith('/account') ? {
       account: body.account, billing_mode: 'ambient', standing: { state: 'unobserved' },
       session_boundary: false, cache_namespace_changed: true,
     } : { servers: [], turns: [], warnings: [] }
     return { ok: true, status: 200, headers: new Headers(), json: async () => result }
   }) as typeof fetch
   const node = { id: 'agent', title: 'agent', state: 'live', tier: 'haiku', model_id: 'haiku',
-    parent: 'USER', children: [], seat: 1, grant: 10, free: 10, account: 'claude-4',
+    parent: 'USER', children: [], seat: 1, grant: 10, free: 10,
+    account: registered ? 'claude-4' : 'missing:claude',
     scope: { permission_mode: 'acceptEdits', add_dirs: [], tools: {
       bash: true, web: true, edit: true, subagents: true, mcp: [],
     }, org_visibility: 'team' }, charter: '', team_charter: '', turns: [], audiences_held: [],
@@ -38,7 +40,7 @@ test('operator selects the displayed primary name and posts it to account assign
     assert.ok(select)
     const primary = [...select.options].find(o => o.value === 'claude/primary')
     assert.equal(primary?.textContent, primary?.value)
-    assert.equal(select.value, 'claude-4')
+    if (registered) assert.equal(select.value, 'claude-4')
     assert.ok(!select.textContent?.includes('old alias'))
     await inAct(async () => {
       select.value = primary!.value
@@ -53,3 +55,4 @@ test('operator selects the displayed primary name and posts it to account assign
     assert.ok(saved.some(line => line.includes('claude/primary')))
   } finally { await view.unmount() }
 })
+}

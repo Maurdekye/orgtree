@@ -493,7 +493,10 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             aria-label="default provider account for new hires"
             onChange={(e) => setAccount?.(e.target.value)}>
             <option value="">(machine default)</option>
-            {acctRows.map((r) => (
+            {['claude', 'openai', 'google'].map((provider) => (
+              <option key={provider} value={`${provider}/primary`}>{provider}/primary</option>
+            ))}
+            {acctRows.filter((r) => !r.ambient).map((r) => (
               <option key={r.id} value={r.name || r.id}>
                 {r.name || r.id}{r.provider ? ` (${r.provider})` : ''}
                 {r.standing?.state === 'limited' ? ' (limited — will wait)' : ''}
@@ -641,26 +644,25 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   }, [tree.slug, propAccounts])
 
   const targetProvider = providerOf(draft.tier)
+  const primaryAccount = `${targetProvider}/primary`
+  const orgAccount = tree.default_account === 'primary' ? primaryAccount : tree.default_account
   const defaultAccountMatches = Boolean(
-    tree.default_account &&
-    acctRows.some((r) => r.id === tree.default_account && r.provider === targetProvider)
+    orgAccount && (orgAccount === primaryAccount ||
+      acctRows.some((r) => (r.id === orgAccount || r.name === orgAccount) && r.provider === targetProvider))
   )
   const [acct, setAcct] = useState<string>(
     base.account !== undefined
       ? base.account
-      : (defaultAccountMatches ? (tree.default_account ?? '') : '')
+      : (defaultAccountMatches ? (orgAccount ?? '') : '')
   )
   const [acctTouched, setAcctTouched] = useState(base.account !== undefined)
   const selectedAccount = acctRows.find((r) => r.id === acct)?.name ?? acct
 
   useEffect(() => {
-    if (!acctTouched && base.account === undefined && tree.default_account) {
-      const match = acctRows.some((r) => r.id === tree.default_account && r.provider === targetProvider)
-      if (match) {
-        setAcct(tree.default_account)
-      }
+    if (!acctTouched && base.account === undefined) {
+      setAcct(defaultAccountMatches ? (orgAccount ?? '') : '')
     }
-  }, [acctRows, acctTouched, base.account, tree.default_account, targetProvider])
+  }, [acctTouched, base.account, defaultAccountMatches, orgAccount])
 
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -1476,10 +1478,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             </div>
           </>
         )}
-        {/* multi-account (D5): placement — visible whenever the registry
-            has rows; the picker filters to the SELECTED model's provider
-            (the binding validator's rule shown, not just enforced) */}
-        {acctRows.length > 0 && (
+        {/* Primary is selectable even if no registry row exists. */}
+        {['claude', 'openai', 'google'].includes(providerOf(model)) && (
           <>
             <div className="field-label">account
               {node.account?.startsWith('missing:') &&

@@ -81,6 +81,30 @@ class PrimarySelection(unittest.TestCase):
                 self.assertIsNone(self.bound(name))
                 self.assertEqual(out['account'], 'claude/primary')
 
+    def test_inherited_primary_default_survives_registry_migration(self):
+        from orgtree import registry_migration
+        self.org.set_hire_defaults(default_account='claude/primary')
+        fx.store.save_org(self.org)
+        hired = []
+        for tool, extra in [('orgtree_hire', {}), ('orgtree_staff', {
+                'title': 'Inherited primary', 'objective': 'Use the org account default.'})]:
+            name = 'inherit-' + tool.replace('_', '-')
+            out = self.call(tool, name=name, tier='haiku', grant=0,
+                            charter='fixture', add_dirs=[], tools=fx.NO_TOOLS,
+                            org_visibility='self', **extra)
+            self.assertEqual(out['account'], 'claude/primary')
+            hired.append(name)
+        restored = fx.store.load_org(self.slug)
+        ambient = self.account()
+        migration = registry_migration.run_migration([restored.d], {
+            'claude': ambient['credential']['path'], 'openai': None, 'google': None})
+        # The unmarked fixture worker is a control: migration actually ran.
+        self.assertEqual(restored.node('worker')['account'], migration['ambient_rows']['claude'])
+        for name in hired:
+            with self.subTest(node=name):
+                self.assertIsNone(restored.node(name).get('account'))
+                self.assertTrue(restored.node(name).get('account_primary'))
+
     def test_rehire_primary_persisted_before_drive_and_notice(self):
         self.bind_worker('openai', ran=True)
         self.call('orgtree_retire', node='worker')
