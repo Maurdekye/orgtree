@@ -1,6 +1,7 @@
 """Immutable reply snapshots: references never relocate to another event."""
 import hashlib
 import json
+import threading
 from pathlib import Path
 import sqlite3
 import uuid
@@ -11,25 +12,101 @@ def _connect():
     path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
     connection = sqlite3.connect(path, timeout=15)
     connection.execute('CREATE TABLE IF NOT EXISTS events (org TEXT, agent TEXT, generation INTEGER, id TEXT, text TEXT, scope TEXT, PRIMARY KEY(org,agent,generation,id))')
+    # WAL so a commit is one WAL append instead of a rollback-journal
+    # create/fsync/delete pair, and NORMAL because these are display-layer
+    # snapshots: losing the tail of the WAL on a power cut re-mints the same
+    # deterministic ids on the next render (the id is a hash of its content,
+    # INSERT OR IGNORE), so full-durability fsyncs per delta bought nothing.
+    connection.execute('PRAGMA journal_mode=WAL')
+    connection.execute('PRAGMA synchronous=NORMAL')
     return connection
+
+
+def _eid(scope, source, kind, quote):
+    identity = json.dumps([scope, str(source), kind, quote], ensure_ascii=False)
+    return 'reply_' + hashlib.sha256(identity.encode()).hexdigest()
 
 
 def remember(org, nid, source, kind, text, *, connection=None):
     generation = int(org.node(nid).get('generation') or 0)
     quote = str(text or '')[:4000]
-    identity = json.dumps([incarnation(org, nid), str(source), kind, quote], ensure_ascii=False)
-    eid = 'reply_' + hashlib.sha256(identity.encode()).hexdigest()
+    scope = incarnation(org, nid)
+    eid = _eid(scope, source, kind, quote)
     owned = connection is None
     connection = connection or _connect()
     try:
         connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?)',
-                           (org.d['slug'], nid, generation, eid, quote, incarnation(org,nid)))
+                           (org.d['slug'], nid, generation, eid, quote, scope))
         if owned:
             connection.commit()
     finally:
         if owned:
             connection.close()
     return eid
+
+
+def remember_ident(slug, nid, scope, generation, source, kind, text):
+    """`remember` for a caller that resolved identity via `identity()` —
+    the stream hot path, which must not load the org document per delta.
+    The connect-per-call is deliberate: WAL+NORMAL above already removed the
+    per-commit fsync pain, and a cached cross-thread handle outlives its
+    thread (it held test teardown hostage on Windows for exactly that)."""
+    quote = str(text or '')[:4000]
+    eid = _eid(scope, source, kind, quote)
+    connection = _connect()
+    try:
+        connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?)',
+                           (slug, nid, generation, eid, quote, scope))
+        connection.commit()
+    finally:
+        connection.close()
+    return eid
+
+
+# ---------------------------------------------------------- identity cache
+# (slug, nid) → (org_seq at population, scope, generation). The incarnation
+# pair is immutable once minted, and generation only changes through ops that
+# save the document — so "the org's save seq is unchanged" proves the cached
+# values are exactly current. This is what lets capture_reply_stream shed the
+# DOC_LOCK + full load_org it used to pay per streamed delta (67 ms at 449
+# nodes, measured; REPORT.md #1).
+_ident_lock = threading.Lock()
+_ident_cache = {}
+
+
+def _ident_forget(slug=None):
+    """Test seam / delete hook: drop cached identities (one org or all)."""
+    with _ident_lock:
+        if slug is None:
+            _ident_cache.clear()
+        else:
+            for key in [k for k in _ident_cache if k[0] == slug]:
+                _ident_cache.pop(key, None)
+
+
+def identity(slug, nid):
+    """(scope, generation) without DOC_LOCK and — once cached — without a
+    document load. Raises LedgerError if the node does not exist, exactly as
+    the load-based path did."""
+    key = (slug, nid)
+    seq = store.org_seq(slug)
+    with _ident_lock:
+        hit = _ident_cache.get(key)
+    if hit is not None and hit[0] == seq:
+        return hit[1], hit[2]
+    org = store.load_org(slug)          # read-only: DOC_LOCK is for cycles
+    if not (org.d.get('reply_incarnation')
+            and org.node(nid).get('reply_incarnation')):
+        incarnation(org, nid)           # mints under DOC_LOCK and saves
+        seq = store.org_seq(slug)       # the mint's save bumped it
+    scope = org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
+    generation = int(org.node(nid).get('generation') or 0)
+    if store.org_seq(slug) == seq:
+        # unchanged across our read — safe to remember under that seq. A save
+        # that landed mid-read just costs one more load on the next call.
+        with _ident_lock:
+            _ident_cache[key] = (seq, scope, generation)
+    return scope, generation
 
 
 def incarnation(org, nid):

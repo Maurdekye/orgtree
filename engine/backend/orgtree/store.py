@@ -3023,6 +3023,34 @@ on_save: Callable[[str], None] = lambda slug: None   # no-op until wired
 # mutation that removes a controlled seat must take its server with it.
 save_hooks: list[Callable[[str], None]] = []
 
+# ------------------------------------------------- per-org change sequence
+# A PROCESS-LOCAL monotonic counter per org, bumped by every committed save
+# (and by delete). One backend per data root is already enforced by the
+# `.owner` claim, so "no save bumped it" really does mean "the document did
+# not change" — which makes this the one cheap validity test every derived
+# cache in the process can share: the reply-identity cache, the org_tree
+# ETag, and the background loops' shared snapshot all compare a remembered
+# seq against `org_seq(slug)` instead of re-reading megabytes to discover
+# nothing moved (perf-redesign 2026-09-12; REPORT.md #1/#3/#7).
+#
+# Deliberately NOT persisted: a fresh process starts every org at 0, which
+# just means every cache's first read is a miss and every client's first
+# conditional fetch rebuilds once. Persisting it would buy nothing but a
+# schema row and a migration.
+_org_seq_lock = threading.Lock()
+_org_seq: dict[str, int] = {}
+
+
+def org_seq(slug: str) -> int:
+    """The org's current change sequence (0 until its first save here)."""
+    with _org_seq_lock:
+        return _org_seq.get(slug, 0)
+
+
+def _bump_org_seq(slug: str) -> None:
+    with _org_seq_lock:
+        _org_seq[slug] = _org_seq.get(slug, 0) + 1
+
 
 def _save_json(org: Org) -> None:
     p = _json_path(org.d["slug"])
@@ -3074,6 +3102,7 @@ def save_org(org: Org) -> None:
     else:
         _save_json(org)
     REVISION += 1  # pyright: ignore[reportConstantRedefinition]  # uppercase mutable counter is the public API; renaming is forbidden this wave
+    _bump_org_seq(org.d["slug"])
     # never let a fanout failure fail the write — the doc is already on disk
     try:
         on_save(org.d["slug"])
@@ -3230,6 +3259,7 @@ def delete_org(slug: str) -> None:
                 _put_back()
                 raise
             _remove_reply_snapshots()
+            _bump_org_seq(slug)
             return
         with _POOL.acquire(slug) as conn:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -3254,6 +3284,9 @@ def delete_org(slug: str) -> None:
                 with contextlib.suppress(OSError):
                     os.replace(side, dside)
         _remove_reply_snapshots()
+        # deletion is a change too: derived caches validated by the seq
+        # (reply identity, tree ETag, loop snapshots) must not survive it
+        _bump_org_seq(slug)
 
 
 # ---------------------------------------------------- external peer sightings
