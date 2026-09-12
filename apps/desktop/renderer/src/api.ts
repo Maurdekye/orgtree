@@ -609,7 +609,10 @@ export const reorderNode = (
     body: JSON.stringify(body),
   })
 export const getEvents = (slug: string): Promise<EventsPayload> =>
-  req(`/api/orgs/${slug}/events`)
+  // the record tab renders a recent slice, so ask for one — the bare form
+  // used to make the server materialize and ship the ENTIRE event log
+  // (19k rows / 357 ms measured) every 5 s poll while the tab was up
+  req(`/api/orgs/${slug}/events?last=300`)
 export const retractMail = (
   slug: string, nid: string, mid: string,
 ): Promise<{ retracted: string }> =>
