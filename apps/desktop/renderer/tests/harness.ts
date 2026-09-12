@@ -152,6 +152,8 @@ export class FakeServer {
    *  asserts against this rather than the fetch call directly, the same
    *  shape `requests` already gives the `/chat` poller */
   uploads: { path: string; name: string }[] = []
+  /** transcript order generation (`order_epoch`); undefined = not reported */
+  orderEpoch: number | undefined = undefined
   /** truncation tier the real `node_chat` applies to a pending body */
   bodyCap = 2000
   /** next response fails with this status until cleared */
@@ -260,6 +262,11 @@ export class FakeServer {
       occupancy_estimated: this.occupancy_estimated,
       messages: this.messages.slice(-n).map((m) => ({ ...m })),
       live: this.live.map((r) => ({ ...r })),
+      // the server's transcript ORDER generation. Omitted unless a test sets
+      // it, so every existing suite sees exactly what it saw before; set it
+      // to model a compaction or reorder landing under an in-flight page,
+      // which is a branch of loadOlder nothing could otherwise reach.
+      ...(this.orderEpoch !== undefined ? { order_epoch: this.orderEpoch } : {}),
       draft_epoch: this.draftEpoch(),
       mail_pending: this.pending_mail.length,
       pending_mail: this.projectedPending().map((m) => ({ ...m, body: (m.body || '').slice(0, cap) })),

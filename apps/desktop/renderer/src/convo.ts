@@ -807,7 +807,17 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         // rather than a reproduced defect — but a leak that silently disables
         // the feature is not worth leaving in on the strength of "I could not
         // get there from here".
+        // ⚠ AND `loadingOlder` IS HALF OF THAT GATE. Clearing only
+        // `pageInFlight` left the other half set, so paging stayed refused and
+        // the desk still read "loading earlier messages…" forever — the same
+        // wedge, one field along (desk-review, second pass). Patched WITHOUT a
+        // version guard on purpose: this branch is reached precisely because
+        // the version moved on, and the stuck flag belongs to the entry, not
+        // to the request that set it.
         e.pageInFlight = false
+        e.pendingCollapse = false
+        e.pendingKeep = undefined
+        patchEntry(e, { loadingOlder: false })
         return
       }
       e.pageInFlight = false
@@ -823,7 +833,29 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       }
       const current = e.s.chat
       if ((page.order_epoch ?? 0) !== (current.order_epoch ?? 0)) {
+        // The transcript was re-ordered under this page (a compaction, a
+        // concurrent send) so the page cannot be merged.
+        //
+        // ⚠ THE LEAVE-HISTORY INTENT IS NOT ACTUALLY REACHABLE HERE, and the
+        // note matters more than the code. desk-review and I independently
+        // read this branch as leaking `pendingCollapse` — it returns, so a
+        // recorded intent would stay set and fire on some later refresh
+        // settle, collapsing the window under a reader mid-read. Tracing it
+        // says otherwise: `if (e.pendingCollapse)` is checked ABOVE and
+        // returns, so by the time control reaches here that flag is always
+        // false and there is nothing to leak. A probe confirmed the branch is
+        // never entered with an intent pending.
+        //
+        // The clearing below therefore does nothing today. It is kept because
+        // the guarantee is an ORDERING one — move the epoch check above the
+        // pendingCollapse check and the leak becomes real and silent — and
+        // because a reader of this branch alone cannot see what protects it.
+        const wanted = e.pendingCollapse
+        const keep = e.pendingKeep
+        e.pendingCollapse = false
+        e.pendingKeep = undefined
         patchEntry(e, { loadingOlder: false, paged: false }, version)
+        if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
         void refreshConvo(slug, nid, { force: true })
         return
       }
@@ -834,14 +866,28 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
           before: page.before, has_older: page.has_older }) }, version)
     }).catch(() => {
       e.pageInFlight = false
-      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) return
+      if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) {
+        // the same wedge as the success path's stale branch: `loadingOlder` is
+        // the OTHER half of the request guard, and a surviving entry — the one
+        // a rename just re-versioned and moved — keeps it stuck true, refusing
+        // every later page and sitting on "loading earlier messages…"
+        e.pendingCollapse = false
+        e.pendingKeep = undefined
+        patchEntry(e, { loadingOlder: false })
+        return
+      }
       const wanted = e.pendingCollapse
+      // ⚠ READ THE KEEP BEFORE CLEARING IT. Dropping it here made the collapse
+      // below fall back to CHAT_WINDOW (8) however tall the desk was — which
+      // is precisely the short-window frame this whole item exists to remove,
+      // reintroduced through the failure path (desk-review, second pass).
+      const keep = e.pendingKeep
       e.pendingCollapse = false
       e.pendingKeep = undefined
       // the reader asked for earlier messages and did not get them: say so,
       // because nothing here will ask again by itself (see `olderError`)
       patchEntry(e, { loadingOlder: false, paged: false, olderError: true }, version)
-      if (wanted) collapseWindow(slug, nid)
+      if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
       void refreshConvo(slug, nid, { force: true })
     })
     return true
