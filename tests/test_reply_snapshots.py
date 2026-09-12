@@ -14,6 +14,19 @@ from orgtree import ledger, reply_events, supervisor, store
 
 
 class ReplySnapshotsTests(unittest.TestCase):
+    def test_connection_keeps_full_durability(self):
+        """perf-review round 3: an intermediate stream quote is NOT
+        re-mintable from the final row, so the snapshot store must keep
+        synchronous=FULL (2) — WAL is for journal churn, not durability."""
+        con = reply_events._connect()
+        try:
+            self.assertEqual(
+                con.execute('PRAGMA synchronous').fetchone()[0], 2)
+            self.assertEqual(
+                con.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+        finally:
+            con.close()
+
     def test_canonical_preview_fields_equal_stored_quotes(self):
         org=store.create_org('canonical-quotes')
         org.hire(ledger.USER,None,'haiku',0,'agent')
