@@ -1398,7 +1398,12 @@ class SectionMap(dict[str, Any]):
         if owner in self:
             return self[owner]
         self[owner] = default
-        return default
+        # hand back what `__setitem__` actually STORED, never `default`
+        # itself: in a keyed section a plain dict is normalized to a fresh
+        # AttemptMap, and a caller mutating the detached original ({} from
+        # `supervisor._steer_attempts`) wrote rows no save could see
+        # (perf-review round 3, first attempt for a new owner lost)
+        return self[owner]
 
     def update(self, *a: Any, **kw: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
         for owner, value in dict(*a, **kw).items():

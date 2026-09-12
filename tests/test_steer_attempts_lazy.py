@@ -206,6 +206,25 @@ class SteerAttemptsLazyTests(unittest.TestCase):
                          "unconfirmable")
         self.assertIn("views", fresh.d["steer_attempts"]["n1"]["d2"])
 
+    def test_first_attempt_for_a_new_owner_survives_save(self):
+        """perf-review round 3: on an already CONVERTED section,
+        `SectionMap.setdefault(new_owner, {})` stored a normalized AttemptMap
+        but returned the DETACHED plain `{}` — the supervisor's first steering
+        attempt for that node landed in the detached dict and no save saw it."""
+        from orgtree import supervisor
+        org, slug = self._seeded("Steer New Owner")
+        sect = org.d["steer_attempts"]
+        self.assertIsInstance(sect, store.SectionMap)
+        attempts = supervisor._steer_attempts(org, "n-new")
+        self.assertIs(attempts, sect["n-new"],
+                      "setdefault must return the STORED map, not its default")
+        attempts["d-first"] = _att(9, open_=True)
+        self.assertIn("d-first", org.d["steer_attempts"]["n-new"])
+        store.save_org(org)
+        fresh = store.load_org(slug)
+        self.assertEqual(fresh.d["steer_attempts"]["n-new"]["d-first"],
+                         _att(9, open_=True))
+
     def test_consecutive_saves_keep_appended_row_identity(self):
         """The save-adoption regression: the backing log of an AttemptMap must
         adopt its committed seqs, or every later save deletes and re-inserts
