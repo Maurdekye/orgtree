@@ -206,3 +206,44 @@ session. Account names, previous binding, session/cache boundary and bearer
 are disclosed in the result/audit, with a safe summary retained in operation
 receipts. An account switch is a new cache namespace; publishing the updated
 managed instructions and tool definitions also changes their cached prefix.
+
+## 12 September 2026 — agent state-machine audit decisions
+
+Decided by the user on the state-audit report (presented document, 2026-09-12
+~10:03 UTC). The audit mapped every agent state transition and the surface
+(operator UI/API, agent MCP, automatic, none) that can reach it.
+
+**Topology verbs stay agent-only, by explicit decision.** `swap_seats`,
+`subjugate` and `move_batch` are reachable only from the agent MCP surface and
+have NO operator door; the user ruled they are to remain UNTOUCHABLE by the
+operator UI. They are complex, unusual operations the user does not need to
+perform directly, and leaving them agent-only is the intended design — not a
+gap. (The inverse of an agent's swap/subjugate is another swap/subjugate; an
+operator who needs to undo one does it with ordinary `move`s.)
+
+**Insert-superior is consolidated onto one implementation.** Inserting a
+parent was reachable two ways — the operator's hire-with-`above` (which
+reimplemented the splice as hire-beside + reorder + move) and the agent
+door's `insert_parent` — and they were NOT equivalent: the operator path
+could silently clamp the anchor's whole branch down when the draft's chosen
+scope was narrower than the anchor's. Both paths now use the single
+`insert_parent` verb, so the inserted seat always takes the anchor's own
+scope (child ⊆ parent holds, nothing is clamped) and the accounting is
+budget-neutral. A draft's staged scope for an above-hire is dropped with an
+explaining warning; retool the inserted seat afterwards to change it.
+
+**Self-healing for invalid/lockout states (authorized, implemented):** a
+queued cross-provider model switch now performs the same unfreeze-wake its
+immediate twin does, at the turn boundary and at startup reconcile (no more
+live-but-idle stranding after a crossing clears a stale freeze); a
+`missing:<provider>` account binding parks the agent with a clear "no account
+registered" wait instead of failing its turns terminally, assigning an
+account clears the park, and registering an account announces which parked
+agents it could serve (never auto-binds — the account choice stays a
+person's); a continuous invariant sweep quarantines an unknown freeze flag
+that would otherwise make a node unresumable forever and announces it; and a
+node that reaches ANY terminal state via ANY error — a pre-spawn failure, an
+unrecoverable marking, a provider-leg death — now always notifies its parent
+(or the user at the top). Stranding a node's rehireable capacity notifies the
+affected node. F5 (load-hook fable-lock release on an unsaved read) and the
+SH-5 operator topology doors are deliberately left unchanged.

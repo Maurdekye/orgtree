@@ -4119,6 +4119,13 @@ async def accounts_create(body: AccountCreate) -> dict[str, Any]:
     except ValueError as e:
         raise HTTPException(422, str(e))
     name = registry.account_name(row)
+    # state-audit SH-2: nodes parked on a `missing:<provider>` binding can
+    # now be served — announce the candidates to their superiors (never
+    # auto-bind; the choice stays a person's or a superior's).
+    try:
+        supervisor.announce_missing_rebind_candidates(body.provider, name)
+    except Exception:                                        # noqa: BLE001
+        pass
     return {**row, "name": name, "label": name,
             "standing": registry.standing_of(row)}
 
@@ -9198,20 +9205,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the answer, and it was the one flying blind.
         if target == mail_to and isinstance(result, dict):
             result["delivery"] = supervisor.delivery_note(body.org, target, r)
-    for target in stale_freeze_resumed:
-        # a provider crossing cleared this node's freeze (it described the
-        # provider it just left) — wake it now, rather than leaving it
-        # "live" but idle until something else happens to message it. If
-        # the new provider is ALSO out of capacity, this turn simply
-        # re-freezes it for that provider's own reason.
-        supervisor.send_message(
-            body.org, target,
-            "(orgtree) You were frozen by a usage limit, connection problem, "
-            "or rejected credential on your PREVIOUS provider — a model "
-            "switch has moved you to a different provider, so that freeze "
-            "no longer describes anything and has been cleared. Handle any "
-            "mail above and continue.", mail_ping=True,
-            ping_reason="unfrozen_by_switch")
+    # a provider crossing cleared these nodes' freezes (each described the
+    # provider it just left) — wake them now, rather than leaving them
+    # "live" but idle until something else happens to message them. If the
+    # new provider is ALSO out of capacity, the turn simply re-freezes for
+    # that provider's own reason. ONE implementation with the boundary and
+    # reconcile paths (state-audit F1) — supervisor.drive_unfrozen_by_switch.
+    supervisor.drive_unfrozen_by_switch(body.org, stale_freeze_resumed)
     # A NEW PARTICIPANT IS TOLD, NOT WOKEN (user 2026-09-06): whichever tool
     # added it (orgtree_work create/participants, orgtree_staff create),
     # the ledger posted a notice and named the member in `noticed`.
@@ -10652,15 +10652,9 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     # message above. Wake it with the accurate one instead.
     stale_freeze_resumed: list[str] = (
         result.pop("resume_stale_freeze", []) if isinstance(result, dict) else [])
-    for t in stale_freeze_resumed:
-        supervisor.send_message(
-            slug, t,
-            "(orgtree) You were frozen by a usage limit, connection problem, "
-            "or rejected credential on your PREVIOUS provider — a model "
-            "switch has moved you to a different provider, so that freeze "
-            "no longer describes anything and has been cleared. Handle any "
-            "mail above and continue.", mail_ping=True,
-            ping_reason="unfrozen_by_switch")
+    # ONE implementation with the agent door, the turn boundary and reconcile
+    # (state-audit F1) — supervisor.drive_unfrozen_by_switch.
+    supervisor.drive_unfrozen_by_switch(slug, stale_freeze_resumed)
     return result
 
 
@@ -10678,14 +10672,46 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
             if body.tier is None or body.name is None:
                 raise LedgerError("hire needs tier and name")
             provider_hire_gate(org, body.tier)
-            if body.above is not None \
-                    and org.node(body.above)["parent"] != body.parent:
-                raise LedgerError(
-                    f"insert-superior: {body.above} does not report to "
-                    f"{body.parent or 'the top level'}")
-            result = org.hire(body.actor, body.parent, body.tier,
-                              body.grant or 0, body.name, body.add_dirs,
-                              tools=body.tools, org_visibility=body.org_visibility,
+            # state-audit F2 (user ruling 2026-09-12): ONE insert-superior
+            # implementation, shared with the agent door (`_hire_seat`,
+            # hire_type='superior'). The operator path used to reimplement
+            # the splice as hire-beside + reorder + move — a SECOND
+            # expression of one operation (D-182), and a subtly wrong one:
+            # when the draft's chosen scope was NARROWER than the anchor's,
+            # the `move` of the anchor under the new seat ran `_sweep_dirs`
+            # and silently CLAMPED the anchor's whole branch down to the new
+            # seat. `insert_parent` is the purpose-built verb that cannot do
+            # that — the inserted seat is given the anchor's own scope so
+            # child ⊆ parent holds, and its accounting is budget-neutral by
+            # construction. So an above-hire now hires UNDER the anchor and
+            # calls `insert_parent`, exactly as the agent door does.
+            _hire_parent = body.parent
+            _hire_dirs = body.add_dirs
+            _hire_tools = body.tools
+            _hire_vis = body.org_visibility
+            if body.above is not None:
+                if org.node(body.above)["parent"] != body.parent:
+                    raise LedgerError(
+                        f"insert-superior: {body.above} does not report to "
+                        f"{body.parent or 'the top level'}")
+                # pre-validate the destination (depth, lineage bearers, the
+                # top-level-is-user-only rule) before anything is created —
+                # the same gate the agent door runs
+                org.check_placement(body.actor, body.above, "superior")
+                # the inserted seat takes the ANCHOR's scope (child ⊆ parent):
+                # a draft's staged add_dirs/tools/visibility for an above-hire
+                # is dropped here, and insert_parent's own result warning says
+                # the seat holds the anchor's scope. Hire UNDER the anchor so
+                # insert_parent's "nid reports to target" precondition holds.
+                _tsc = org.node(body.above)["scope"]
+                _hire_parent = body.above
+                _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
+                _hire_tools = {**_tsc["tools"],
+                               "mcp": list(_tsc["tools"].get("mcp") or [])}
+                _hire_vis = _tsc.get("org_visibility", "full")
+            result = org.hire(body.actor, _hire_parent, body.tier,
+                              body.grant or 0, body.name, _hire_dirs,
+                              tools=_hire_tools, org_visibility=_hire_vis,
                               charter=body.charter,
                               external_handles=body.external_handles,
                               raise_ceiling=rc,
@@ -10703,18 +10729,17 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                 org.set_scope(body.actor, result["node"],
                               account_fallback=body.account_fallback)
             if body.above is not None:
-                # FR-25 rework (2026-08-19): the splice is atomic with the
-                # hire. Pin the fresh node at the anchor's slot FIRST — they
-                # are siblings for exactly this moment, so reorder can use the
-                # anchor itself — then reparent the anchor beneath it. One
-                # save ⇒ one broadcast: the tree lands in its final shape,
-                # and a refused move can no longer strand a hired-but-
-                # unspliced sibling (the old client-chained failure mode).
-                org.reorder(body.actor, result["node"], before=body.above)
-                mv = org.move(body.actor, body.above, result["node"])
-                result["warnings"] = [*result.get("warnings", []),
-                                      *mv.get("warnings", [])]
+                # the atomic splice: one save ⇒ one broadcast, the tree lands
+                # in its final shape, and a refused insertion strands nothing
+                # (§2b — insert_parent mutates only after every refusal).
+                _ins = org.insert_parent(body.actor, str(result["node"]),
+                                         body.above)
+                result["inserted_above"] = body.above
+                result["reports_to"] = _ins["under"] or "the top level"
+                result["grant"] = _ins["grant"]
                 result["spliced"] = body.above
+                result["warnings"] = [*result.get("warnings", []),
+                                      *_ins.get("warnings", [])]
         # body.node is Optional on the wire (hire has none); the target ops
         # take str because Org.node(None) already raises LedgerError → 422,
         # hence the arg-type ignores below rather than a behavior-changing check

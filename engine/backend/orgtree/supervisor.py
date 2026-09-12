@@ -11417,11 +11417,50 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
               "via": "switch_model"}, [])
 
 
-def _apply_pending_switch_locked(o2: Org, slug: str, nid: str) -> bool:
+#: The accurate wake for a node whose stale provider freeze a crossing
+#: cleared (`ledger.switch_model`'s `resume_stale_freeze`). ONE string with
+#: four senders — both immediate API doors, the turn-boundary apply and the
+#: startup reconcile — because the wake IS part of the freeze-clear contract
+#: (the ledger's comment: "a freeze this pops is not silently forgotten"),
+#: and the boundary path shipping without it left a node live, unfrozen and
+#: idle with nothing ever re-driving it (state-audit F1, user-authorized fix
+#: 2026-09-12). Wording matches what the API doors always sent.
+UNFROZEN_BY_SWITCH_TEXT: Final = (
+    "(orgtree) You were frozen by a usage limit, connection problem, "
+    "or rejected credential on your PREVIOUS provider — a model "
+    "switch has moved you to a different provider, so that freeze "
+    "no longer describes anything and has been cleared. Handle any "
+    "mail above and continue.")
+
+
+def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
+    """Wake every node whose provider freeze a crossing just cleared. Must be
+    called OFF DOC_LOCK (send_message loads the org itself). Safe on a busy
+    node: the carrier queues and rides the next boundary."""
+    for t in dict.fromkeys(nids):
+        try:
+            send_message(slug, t, UNFROZEN_BY_SWITCH_TEXT,
+                         mail_ping=True, ping_reason="unfrozen_by_switch")
+        except Exception:                                    # noqa: BLE001
+            # a failed wake must not take the boundary/reconcile with it —
+            # the node is live and any later mail still drives it
+            print(f"[orgtree] {slug}/{t}: unfrozen-by-switch wake failed")
+
+
+def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
+                                 wake: list[str] | None = None) -> bool:
     """D-234: apply the model switch queued behind `nid`'s turn, on the doc
     the caller already holds under DOC_LOCK (the caller saves). True when the
     doc changed. The transcript copy a crossing owes the successor rides the
-    same save window, exactly as the API doors do for an immediate switch."""
+    same save window, exactly as the API doors do for an immediate switch.
+
+    `wake` (state-audit F1): a crossing may clear a freeze that described the
+    OLD provider; the ledger reports those nodes in `resume_stale_freeze` and
+    the immediate API doors drive them awake. This runs under DOC_LOCK, so it
+    cannot drive — the caller passes a list and, after releasing the lock,
+    hands it to `drive_unfrozen_by_switch`. Without that the node ends live,
+    unfrozen and idle with its interrupted work discarded and nothing ever
+    re-driving it."""
     if nid not in o2.nodes or not o2.node(nid).get("pending_switch"):
         return False
     # multi-account D2d, checked BEFORE the ledger pops and applies: an
@@ -11455,6 +11494,8 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str) -> bool:
     r = o2.apply_pending_switch(nid)
     if r is None:
         return False
+    if wake is not None and r.get("resume_stale_freeze"):
+        wake.extend(str(x) for x in r["resume_stale_freeze"])
     if not r.get("dropped"):
         finish_switch_binding(o2, slug, nid, _p_acct,
                               str(_pend.get("by") or "USER"))
@@ -12065,6 +12106,18 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             node.pop("account", None)
             # Distinguish an explicit choice from an old unmigrated seat.
             node["account_primary"] = True
+        # state-audit SH-2 (user ruling 2026-09-12): an account-park
+        # (`cause == "account"` — the node was bound to a `missing:`
+        # placeholder) stops describing anything once a real selection
+        # lands, a registry row and the ambient primary alike. Cleared IN
+        # THIS TRANSACTION so the park and the binding cannot disagree; the
+        # wake happens after the save, off DOC_LOCK.
+        unparked = False
+        _apark = node.get("frozen")
+        if isinstance(_apark, dict) and _apark.get("cause") == "account":
+            node.pop("frozen", None)
+            node.pop("parked_run", None)
+            unparked = True
         try:
             next_hash, next_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
@@ -12094,13 +12147,98 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                          "are observed when the next turn starts."}
                if not row["id"] else {}),
             **({"bearer": pred_id} if pred_id else {}),
+            **({"unparked": True} if unparked else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
         if not _caller_owns_save:
             store.save_org(org)
     if notify_change:
         notify(slug, nid, "account")
+    if unparked and not _caller_owns_save:
+        # state-audit SH-2: the park is gone and the node can finally run —
+        # wake it with the accurate reason. Skipped when the caller owns the
+        # save (its doc lands later; the disclosure's `unparked` tells that
+        # door what happened, and the node wakes on its next mail).
+        try:
+            send_message(
+                slug, nid,
+                "(orgtree) You were parked with no registered account for "
+                "your provider — an account has now been assigned to you, "
+                "so you can run again. Handle any mail above and continue.")
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: unpark wake failed — the node "
+                  f"is unparked and any later mail drives it")
     return disclosure
+
+
+def announce_missing_rebind_candidates(provider: str,
+                                       account_name: str) -> int:
+    """state-audit SH-2 (user ruling 2026-09-12): an account for `provider`
+    was just REGISTERED — tell the superiors of every node still bound to
+    the `missing:<provider>` placeholder that a binding is now possible.
+
+    ANNOUNCE, NEVER AUTO-BIND: choosing an account for a node silently is
+    the implicit account decision rule 2 forbids (the same reason
+    `check_switch_account` demands the choice ride the switch). One drive
+    per superior however many of its reports qualify; a top-level node's
+    audience is the user, who just performed the registration and gets an
+    inbox note naming the parked nodes. Never raises — a failed sweep must
+    not fail the registration that triggered it. Returns how many nodes
+    were named."""
+    total = 0
+    sentinel = f"missing:{provider}"
+    try:
+        orgs = store.list_orgs()
+    except Exception:                                        # noqa: BLE001
+        return 0
+    for o in orgs:
+        slug = str(o.get("slug") or "")
+        by_sup: dict[str, list[str]] = {}
+        user_nodes: list[str] = []
+        try:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                for _mn, _n in org.nodes.items():
+                    if _n.get("state") != "live" \
+                            or str(_n.get("account") or "") != sentinel:
+                        continue
+                    _msup = str(_n.get("parent") or "")
+                    if _msup and _msup in org.nodes \
+                            and org.nodes[_msup]["state"] == "live":
+                        by_sup.setdefault(_msup, []).append(_mn)
+                    else:
+                        user_nodes.append(_mn)
+                if user_nodes:
+                    org.to_user_inbox({
+                        "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                        "at": now_iso(),
+                        "body": (f"The new {provider} account "
+                                 f"'{account_name}' could serve "
+                                 f"{', '.join(sorted(user_nodes))} — "
+                                 f"currently parked with no account for "
+                                 f"that provider. Assign it to them to let "
+                                 f"them run.")})
+                    store.save_org(org)
+        except Exception:                                    # noqa: BLE001
+            continue
+        total += len(user_nodes) + sum(len(v) for v in by_sup.values())
+        for _msup, _mns in by_sup.items():
+            try:
+                send_message(
+                    slug, _msup,
+                    f"(orgtree) A new {provider} account "
+                    f"('{account_name}') was just registered on this "
+                    f"machine. Your report"
+                    + ("s " if len(_mns) > 1 else " ")
+                    + ", ".join(sorted(_mns))
+                    + (" are" if len(_mns) > 1 else " is")
+                    + " parked with NO account for that provider — if "
+                    "they should run on the new account, assign it to "
+                    "them (their park clears with the assignment).")
+            except Exception:                                # noqa: BLE001
+                print(f"[orgtree] {slug}/{_msup}: rebind-candidate "
+                      f"announcement failed")
+    return total
 
 
 def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
@@ -15565,7 +15703,42 @@ def _run_one_turn_recorded(slug: str, nid: str,
         if _g_node is not None and not _g_node.get("frozen"):
             _g_acct = str(_g_node.get("account") or "")
             _g_mark = None
-            if _g_acct and not _g_acct.startswith("missing:"):
+            # ── state-audit SH-2 (user ruling 2026-09-12): a `missing:`
+            # binding is held HERE, as the spawn seam's comment always
+            # promised, instead of proceeding to a spawn that raises — one
+            # terminal failure per drive with a manual-only exit. The park is
+            # the ordinary limit-kind record with `cause="account"` (a STRING
+            # like `auth`, so `_resumable` still lets ▶ act on it and
+            # `freeze_describes_provider` still owns it), NO horizon (the
+            # auto-resume timer skips it — nothing about a missing account
+            # improves on a clock), and the parked-kind announcement so the
+            # manager learns of it once. `assign_account` clears it in the
+            # same transaction that makes the binding real.
+            if _g_acct.startswith("missing:"):
+                _g_parked = False
+                with store.DOC_LOCK:
+                    o_g = store.load_org(slug)
+                    if (nid in o_g.nodes
+                            and not o_g.node(nid).get("frozen")):
+                        _g_tier = str(o_g.node(nid).get("model") or "")
+                        fzg = _ensure_frozen(o_g.node(nid))
+                        fzg["limit"] = True
+                        fzg["cause"] = "account"
+                        fzg["provider"] = providers.provider_of(_g_tier)
+                        fzg["account"] = _g_acct
+                        fzg["until_ts"] = None
+                        fzg["until"] = ("no account registered for its "
+                                        "provider — register one and assign "
+                                        "it, then resume")
+                        fzg["reset_src"] = "account"
+                        fzg["resource_pool"] = ""
+                        store.save_org(o_g)
+                        _g_parked = True
+                if _g_parked:
+                    _parked_announce(slug, nid, "account",
+                                     limit_lane_label(
+                                         str(_g_node.get("model") or "")))
+            elif _g_acct:
                 try:
                     registry.get_account(_g_acct)
                     _g_mark = registry.active_mark(
@@ -18896,6 +19069,49 @@ def _run_one_turn_recorded(slug: str, nid: str,
                          reset_known=e.reset_ts is not None)
             if _trec is not None:
                 _trec.dispose("frozen")
+        # ── state-audit SH-4 (user ruling 2026-09-12): THE TERMINAL BELT.
+        # Every failure the inner dispatch OWNS has already spoken for itself
+        # — Door 1/Door 2 and the net-exhausted branch announce to the
+        # superior, the freeze branches write a record the resume machinery
+        # owns — and each of those sets a disposition before raising. What
+        # reaches here with NO disposition is the class that used to go
+        # silent: a raise BEFORE the dispatch (spawn_env refusing a
+        # missing/foreign binding, a dead argv, an admission error), a
+        # codex/antigravity `_ProviderTurnFailed` that is NOT a usage limit,
+        # and any unexpected crash. Those left the node live and unfrozen
+        # with only a turn_error_log row — from one level up
+        # indistinguishable from an agent quietly working, which is the
+        # incident class the user reported (parents had to be told by hand).
+        # Same counter, same once-per-episode rule as every other door
+        # (`hard_fail_run`, cleared only by a completed turn); the narrow
+        # empty err is deliberate (rule 2: failure text in mail kills
+        # fable-tier sessions — the detail is already in last_error and the
+        # turn_error_log row). A node that ended FROZEN is owned by the
+        # resume machinery and is never terminal — checked against the doc,
+        # and an unreadable doc proves nothing and stays silent (the old
+        # behaviour, never a false announcement).
+        if _trec is not None and _trec.disposition is None:
+            _belt_frozen = True
+            try:
+                with store.DOC_LOCK:
+                    _bo = store.load_org(slug)
+                    _belt_frozen = bool(
+                        nid not in _bo.nodes
+                        or _bo.node(nid).get("frozen")
+                        or _bo.node(nid)["state"] != "live")
+            except Exception:                                # noqa: BLE001
+                _belt_frozen = True
+            if not _belt_frozen:
+                _belt_door = (
+                    "its provider leg failed with a terminal error"
+                    if isinstance(e, _ProviderTurnFailed) else
+                    "the turn failed before the CLI could run — its "
+                    "account binding, environment or arguments are wrong")
+                _hf = _bump_hard_fail(slug, nid)
+                if _hf == 1:
+                    _turn_abandoned(slug, nid, _belt_door, "")
+                    turnlog.emit(_trec, "abandon", door="belt",
+                                 hard_fail_run=_hf)
         if _trec is not None and _trec.disposition is None:
             # no exit path named a disposition: an expected RuntimeError (a
             # written message from this machinery) is a failed turn, any
@@ -18923,6 +19139,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
     finally:
         # the turn is over one way or another — it is no longer in-flight
         pardon_pending = False
+        # state-audit F1: nodes whose stale provider freeze the queued
+        # switch just cleared — driven AFTER the lock releases, exactly as
+        # the immediate API doors do. The carrier queues behind this very
+        # boundary and rides out as `follow`, so the node continues instead
+        # of ending live-but-idle with nothing ever re-driving it.
+        _switch_wake: list[str] = []
         try:
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
@@ -18936,7 +19158,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # crossing mints the successor's session and re-arms its
                 # pardon, while `ran_sid` names the session this turn
                 # actually ran — the bearer's now — so that spend is a no-op.
-                if _apply_pending_switch_locked(o2, slug, nid):
+                if _apply_pending_switch_locked(o2, slug, nid,
+                                                wake=_switch_wake):
                     changed = True
                 if changed:
                     store.save_org(o2)
@@ -18947,6 +19170,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                   and "session_unrun" in o2.node(nid))
         except Exception:                                    # noqa: BLE001
             pass
+        if _switch_wake:
+            drive_unfrozen_by_switch(slug, _switch_wake)
         if pardon_pending:
             # …however the turn ended: if the CLI wrote a transcript for the
             # session it ran, the pardon is spent (see spend_unrun_pardon)
@@ -19348,6 +19573,19 @@ _PARKED_KINDS: Final[dict[str, tuple[str, str]]] = {
         "settings → Providers shows the key's credit) or wait for in-flight "
         "requests to settle, then ▶ resume it. Resuming it first only spends "
         "another turn on the same refusal." % NET_RETRY_MAX),
+    "account": (
+        "is parked with NO REGISTERED ACCOUNT for its provider",
+        "This agent's account binding is a placeholder from a migration that "
+        "found no signed-in account for its provider — there is no "
+        "credential it could run on.\n\n"
+        "⚠ THIS IS NOT A USAGE LIMIT AND NOT A PROVIDER REFUSAL. Orgtree "
+        "parked the agent BEFORE spawning anything, because a turn without "
+        "an account fails without ever reaching a provider. There is no "
+        "reset time and nothing will wake it on its own.\n\n"
+        "The remedy is the operator's: register an account for this "
+        "provider (App settings → Accounts), assign it to this agent, and "
+        "the park clears with the assignment. When an account is registered "
+        "orgtree announces which parked agents it could serve."),
     "untrusted": (
         "is parked after repeated SELF-REPORTED limits",
         "Several turns in a row, this agent's OWN final answer looked like a "
@@ -23628,6 +23866,15 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         fz = _resumable(n)
         if fz is None:
             continue
+        if fz.get("cause") == "account":
+            # state-audit SH-2: a missing-binding park. There is no capacity
+            # to wait for and nothing a timer can discover — the node has NO
+            # account to run on. The exits are `assign_account` (which
+            # clears the park in the same transaction that makes the binding
+            # real) and ▶ after the operator registers and assigns one; the
+            # registration sweep announces candidates. This suppresses the
+            # TIMER, not the person.
+            continue
         if fz.get("cause") == "auth":
             # D-156: the credential was REJECTED, not exhausted. There is
             # nothing to wait for and nothing a retry can discover — every
@@ -23709,6 +23956,138 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     return ready
 
 
+#: per (slug, nid, issue) dedupe for invariant-sweep announcements that do NOT
+#: mutate the doc (the orphan-parent case) — the mutating repairs dedupe by
+#: construction (the bad state is gone next tick). Process-local: a restart
+#: re-announces once, which is correct (the operator may have missed it).
+_invariant_announced: set[tuple[str, str, str]] = set()
+
+
+def _invariant_sweep_org(slug: str) -> None:
+    """state-audit SH-3 + SH-6 (user-authorized 2026-09-12): continuously
+    detect and repair the invalid node states the ledger's load-hooks do NOT
+    already cover, so a node cannot sit silently unrecoverable between
+    backend restarts.
+
+    ⚠ DELIBERATELY NOT a re-implementation of the load-hook heals. The ledger
+    `__init__` already clears an orphaned `limit_locked` and a timed/elapsed
+    `fable_lock` on EVERY `load_org`, which is continuous already — doing it
+    again here would be two expressions of one rule (D-182). This sweep owns
+    only what nothing else does:
+
+      · SH-6 — a `frozen` record carrying a True-valued key that NO mechanism
+        knows. `_resumable` refuses any such record FOREVER (the pre-№41
+        spend-freeze trap; `untrusted` fell into it the day it was added), so
+        the node can never be woken by ▶, the timer, OR anything else, and
+        nobody is told. The key is moved into a diagnostic `_quarantined`
+        field (so the record stops silently-skipping) and the superior is
+        told — a loud needs-attention state instead of a silent permanent
+        one. The KNOWN set is the ledger's own provider-scoped tuple plus the
+        org-owned `spend` kind, so a flag added to the ledger is inherited
+        here and never mis-quarantined.
+      · a dead remote-control driver — `remote_controlled` whose pid is
+        PROVABLY gone. reconcile clears every such flag at startup (the
+        server is leashed to the backend), but a phone process that dies
+        mid-run leaves the node parked until the next restart. Cleared only
+        when liveness is decisively False; any uncertainty leaves it (a false
+        positive would detach a live session).
+      · a live node under an archived/unrecoverable parent — an invalid tree
+        the ledger refuses to CREATE, but which a bug elsewhere could leave
+        behind. Detection only: announced, never silently re-parented.
+
+    Rides the auto-resume loop (one pass per org per 30 s, already wrapped in
+    survive-anything). Off-lock drives after the save. Never raises."""
+    from .ledger import _PROVIDER_SCOPED_FREEZE_FLAGS
+    known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
+    announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
+    rc_cleared: list[str] = []
+    try:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            changed = False
+            for nid, n in org.nodes.items():
+                if n.get("state") != "live":
+                    continue
+                name = str(n.get("name") or nid)
+                sup = str(n.get("parent") or "")
+                # SH-6: quarantine an unknown True freeze key
+                fz = n.get("frozen")
+                if isinstance(fz, dict):
+                    bad = sorted(k for k, v in fz.items()
+                                 if v is True and k not in known)
+                    if bad:
+                        q = cast("dict[str, Any]",
+                                 fz.setdefault("_quarantined", {}))
+                        for k in bad:
+                            q[k] = fz.pop(k)
+                        fz["_quarantined_at"] = now_iso()
+                        changed = True
+                        announce.append((
+                            nid, name, sup,
+                            f"{name}'s freeze carried an unrecognised flag "
+                            f"({', '.join(bad)}) that NOTHING could clear — it "
+                            f"could never be woken by resume, the timer, or "
+                            f"anything else. The flag has been quarantined so "
+                            f"it can be resumed again; check it and ▶ resume "
+                            f"it (or unstick it) if the work should continue."))
+                # dead remote-control driver
+                rc = n.get("remote_controlled")
+                if isinstance(rc, dict):
+                    pid = rc.get("pid")
+                    if isinstance(pid, int) and pid > 0 \
+                            and not _wd_proc_alive(f"pid:{pid}"):
+                        n.pop("remote_controlled", None)
+                        changed = True
+                        rc_cleared.append(nid)
+                        print(f"[orgtree] {slug}/{nid}: cleared a "
+                              f"remote-control flag whose driver (pid {pid}) "
+                              f"is gone — the node is live again")
+                # live node under a non-live parent (detection only)
+                if sup and sup in org.nodes \
+                        and org.nodes[sup]["state"] != "live":
+                    key = (slug, nid, "orphan")
+                    if key not in _invariant_announced:
+                        _invariant_announced.add(key)
+                        announce.append((
+                            nid, name, sup,
+                            f"{name} is live but its superior {sup!r} is "
+                            f"{org.nodes[sup]['state']} — an invalid tree "
+                            f"state. Rehire {sup!r} (which rehires the chain), "
+                            f"or move {name} to a live superior."))
+            if changed:
+                store.save_org(org)
+    except Exception as exc:                                 # noqa: BLE001
+        print(f"[orgtree] {slug}: invariant sweep skipped "
+              f"({type(exc).__name__})", flush=True)
+        return
+    if rc_cleared:
+        try:
+            remote_reap(slug)
+        except Exception:                                    # noqa: BLE001
+            pass
+    for nid, name, sup, body in announce:
+        # tell the one party who can act — the superior, or the user at the
+        # top. PASSIVE (a notice-kind row, read at the recipient's next turn):
+        # a self-heal finding is an FYI, not an interruption, and several at
+        # once on a restart must not wake a manager once per node.
+        try:
+            with store.DOC_LOCK:
+                o2 = store.load_org(slug)
+                live_sup = (sup and sup in o2.nodes
+                            and o2.nodes[sup]["state"] == "live")
+                if live_sup:
+                    o2.d.setdefault("mail", {}).setdefault(sup, []).append({
+                        "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                        "at": now_iso(), "body": "(orgtree) " + body})
+                else:
+                    o2.to_user_inbox({
+                        "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                        "at": now_iso(), "body": body})
+                store.save_org(o2)
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: invariant announcement failed")
+
+
 def start_auto_resume_loop() -> None:
     """Background timer for frozen-agent wakes. Two regimes since D-122
     (user ruling 2026-08-14): PURE connection freezes always retry on their
@@ -23739,6 +24118,13 @@ def start_auto_resume_loop() -> None:
                         _auto_resume_org(str(o["slug"]))
                     except Exception as exc:
                         print(f"[orgtree] auto-resume org skipped ({type(exc).__name__})", flush=True)
+                    # state-audit SH-3+SH-6: the continuous invariant sweep
+                    # rides the same per-org tick — its own try so a sweep
+                    # failure never costs the resume pass, and vice versa.
+                    try:
+                        _invariant_sweep_org(str(o["slug"]))
+                    except Exception as exc:
+                        print(f"[orgtree] invariant sweep org skipped ({type(exc).__name__})", flush=True)
             except Exception:
                 pass    # the timer must survive anything — next tick retries
 
@@ -28074,6 +28460,41 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     org.mark_unrecoverable(nid,
                                            "transcript missing at startup (№31)")
                     marked.append(nid)
+        # ── state-audit SH-4 (user ruling 2026-09-12): a condemned node is a
+        # TERMINAL state and its superior must be TOLD, not merely noticed.
+        # `mark_unrecoverable` writes a passive notice, which an idle parent
+        # may not read for days (and a TOP-LEVEL condemnation reached nobody
+        # at all — `_notify_ev([None])` is a no-op). Durable mail here, under
+        # the same save; the DRIVE happens after the lock, batched one per
+        # superior (a whole-org condemnation must not cost a turn per node).
+        _unrec_by_sup: dict[str, list[str]] = {}
+        for _un in marked:
+            _n = org.nodes.get(_un) or {}
+            _uname = str(_n.get("name") or _un)
+            _usup = str(_n.get("parent") or "")
+            _udoor = ("its session transcript was missing at startup — it "
+                      "was marked UNRECOVERABLE (№31); re-seed it to give "
+                      "it a fresh session, or retire it")
+            if _usup and _usup in org.nodes \
+                    and org.nodes[_usup]["state"] == "live":
+                org.append_system_mail(
+                    _usup, events.mint(
+                        "runtime.report_stalled", _SYSTEM_ACTOR,
+                        _node_ref(org, _un), report=_un, report_name=_uname,
+                        cause="terminal", audience="superior",
+                        attempts=None, classified=None, door=_udoor, err=""),
+                    kind="message", sender="@system",
+                    relationship="the orgtree engine")
+                _unrec_by_sup.setdefault(_usup, []).append(_un)
+            else:
+                _uev = events.mint(
+                    "runtime.report_stalled", _SYSTEM_ACTOR,
+                    _node_ref(org, _un), report=_un, report_name=_uname,
+                    cause="terminal", audience="user",
+                    attempts=None, classified=None, door=_udoor, err="")
+                org.to_user_inbox({
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "at": now_iso(), "body": events.render_agent(_uev)}, _uev)
         if marked or healed:
             store.save_org(org)
         # FR-01: a remote-control server is leashed to the backend, so after
@@ -28143,11 +28564,18 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # D-234: a switch queued behind a turn the backend's death ended
         # applies NOW, before that turn is replayed below — the replay is the
         # successor's first turn, on the lane the user asked for
+        # (state-audit F1: `switch_wake` collects nodes whose stale provider
+        # freeze the crossing cleared — a node frozen-with-a-queued-switch at
+        # shutdown was skipped by the inflight collection above WHILE frozen,
+        # and its freeze then popped here with nobody left to drive it. The
+        # dispatch below wakes them, unconditionally like the inflight
+        # replays — active_only gates only the generic mail revive.)
+        switch_wake: list[str] = []
         queued = [k for k, n in org.nodes.items()
                   if n["state"] == "live" and n.get("pending_switch")]
         if queued:
             for nid in queued:
-                _apply_pending_switch_locked(org, slug, nid)
+                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake)
             store.save_org(org)
         # delivery-journal fold-back: batches drained for a turn whose
         # delivery never confirmed — the backend died in between. The mail
@@ -28262,7 +28690,33 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     store.save_org(back)
                     print(f"[orgtree] {slug}: restored {len(restored)} "
                           f"undispatched turn marker(s): {restored}")
-    for nid in ([] if active_only else revive):
+    # state-audit F1: nodes the queued-switch apply just unfroze. Driven with
+    # the ACCURATE wake, unconditionally (like the inflight replays — a node
+    # this list names was stranded by the crossing, and active_only gates only
+    # the generic mail revive below). `resumed` nodes cannot overlap (their
+    # inflight collection required not-frozen, and these were frozen then);
+    # the revive loop below skips this set so nobody is driven twice.
+    _sw = [t for t in dict.fromkeys(switch_wake) if t not in resumed]
+    if _sw:
+        print(f"[orgtree] {slug}: waking {_sw} — a queued provider switch "
+              f"cleared their stale freeze at startup")
+        drive_unfrozen_by_switch(slug, _sw)
+    # state-audit SH-4: the condemned nodes' superiors get their DRIVE now,
+    # off the lock — one wake per superior however many of its reports were
+    # condemned (the durable mail above already carries the per-node detail).
+    for _usup, _uns in _unrec_by_sup.items():
+        try:
+            mail_spark(slug, "@system", _usup)
+            send_message(
+                slug, _usup,
+                "(orgtree) Your report" + ("s " if len(_uns) > 1 else " ")
+                + ", ".join(_uns) + (" were" if len(_uns) > 1 else " was")
+                + " marked UNRECOVERABLE at startup — the mail above has "
+                "the details and the remedy (re-seed or retire).")
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{_usup}: unrecoverable-report drive "
+                  f"failed — the durable mail still waits in its box")
+    for nid in ([] if active_only else [r for r in revive if r not in _sw]):
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,
                      "(orgtree) You have mail above — some of it waited across "
