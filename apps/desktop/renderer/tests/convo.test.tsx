@@ -24,7 +24,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { useEffect } from 'react'
 import {
-  addPending, bindPendingMail, CHAT_WINDOW, CMD_GRACE, dismissPending, dropPending, ingestPulse,
+  addPending, bindPendingMail, CHAT_WINDOW, CMD_GRACE, collapseWindow, dismissPending, dropPending, ingestPulse,
   ingestStream, loadOlder, MAX_WINDOW, markBusy, markGhostCommand,
   dropConvo, refreshConvo, renameConvo, resetConvos, STALL_MS, useConvo,
 } from '../src/convo'
@@ -1390,6 +1390,46 @@ convoTest('page returned from a changed ordering epoch is discarded before refre
   assert.equal(d.now().chat!.messages.length,8)
   await inAct(()=>loadOlder(SL,ND,8));await advance(100)
   assert.equal(d.now().chat!.messages.length,16)
+})
+
+convoTest('leaving history during an in-flight older page collapses on settle and drops the page', async ({SL,ND,s,desk}) => {
+  // perf-review round 3: collapseWindow returned while a page was in
+  // flight, permanently dropping the leave-history intent — the settled
+  // page then kept the expanded window polling thousands of rows.
+  s.cursorPages=true
+  for(let i=0;i<3000;i++)s.assistantMsg(`row ${i}`)
+  const d=await desk();await advance(3000)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(100)
+  assert.equal(d.now().paged,true,'history open')
+  s.latency=1000
+  await inAct(()=>loadOlder(SL,ND,8))            // second page hangs in flight
+  await inAct(()=>collapseWindow(SL,ND))         // reader jumps to the tail NOW
+  s.latency=100
+  await advance(3000)                            // page settles; intent runs
+  assert.equal(d.now().paged,false,'the settled page must not keep history open')
+  assert.equal(d.now().win,CHAT_WINDOW)
+  assert.equal(d.now().chat!.messages.length,CHAT_WINDOW)
+  assert.equal(d.now().loadingOlder,false)
+})
+
+convoTest('a first page settling after the reader left history does not open it', async ({SL,ND,s,desk}) => {
+  // same intent, worse shape: with the FIRST page in flight there is
+  // nothing to collapse yet, so the old guard order silently dropped the
+  // intent and the page then opened the history the reader had left.
+  s.cursorPages=true
+  for(let i=0;i<3000;i++)s.assistantMsg(`row ${i}`)
+  const d=await desk();await advance(3000)
+  s.latency=1000
+  await inAct(()=>loadOlder(SL,ND,8))            // first history page in flight
+  await inAct(()=>collapseWindow(SL,ND))         // reader re-sticks to the tail
+  s.latency=100
+  await advance(3000)
+  assert.ok(!d.now().paged,'the settled page must not reopen history')
+  assert.equal(d.now().chat!.messages.length,CHAT_WINDOW)
+  assert.equal(d.now().loadingOlder,false)
+  await inAct(()=>loadOlder(SL,ND,8));await advance(200)
+  assert.equal(d.now().chat!.messages.length,CHAT_WINDOW*2,
+    'paging works again after the discarded page')
 })
 
 convoTest('proof paging never merges records from a new order epoch into the old tail', async ({SL,ND,s,desk}) => {
