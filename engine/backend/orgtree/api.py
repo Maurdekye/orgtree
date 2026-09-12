@@ -6645,6 +6645,11 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_evidence(nid, wid, str(a.get("kind") or "note"),
                                  str(a.get("ref") or ""), _s("note"),
                                  execution=a.get("execution"),
+                                 classification=_s("classification"),
+                                 artifact=_s("artifact"), runner=_s("runner"),
+                                 result=_s("result"), gate=_s("gate"),
+                                 blocked_count=a.get("blocked_count"),
+                                 composition=_s("composition"),
                                  expected_rev=a.get("expected_rev"))
     if act == "decision":
         return org.work_decision(nid, wid, str(a.get("text") or ""),
@@ -6681,7 +6686,13 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         if a.get("checks") is not None:
             return org.work_check(nid, wid, checks=a.get("checks"))
         return org.work_check(nid, wid, _arg_int(a, "index", -1),
-                              str(a.get("evidence_ref") or ""), _s("note"))
+                              str(a.get("evidence_ref") or ""), _s("note"),
+                              classification=_s("classification"),
+                              artifact=_s("artifact"), runner=_s("runner"),
+                              execution=_s("execution"), result=_s("result"),
+                              gate=_s("gate"),
+                              blocked_count=a.get("blocked_count"),
+                              composition=_s("composition"))
     if act == "accept":
         return org.work_accept(nid, wid, _s("note"))
     if act == "archive":
@@ -7732,6 +7743,10 @@ _ARG_STRS = ("node", "to", "from", "target", "grantee", "parent", "new_parent",
              "permission_mode", "kickoff", "kickoff_kind",
              "candidate", "candidate_sha", "review_candidate", "review_note",
              "next_actor", "verdict", "reviewer",
+             # W09 acceptance evidence metadata.  `blocked_count` remains a
+             # numeric value and is validated by the ledger without coercion.
+             "classification", "artifact", "runner", "result", "gate",
+             "composition", "execution",
              # D-224's topology verbs. `moves` is deliberately ABSENT for the
              # same reason as `audiences` — it is a list, and the move branch
              # type-checks it itself.

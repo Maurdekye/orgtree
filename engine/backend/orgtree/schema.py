@@ -708,7 +708,8 @@ class WorkStage(TypedDict, total=False):
 
 class WorkAcceptance(TypedDict):
     text: str
-    checked: dict[str, Any] | None  # {at, by, evidence_ref, note} — acceptance evidence, distinct from delivery
+    checked: dict[str, Any] | None
+    check_history: NotRequired[list[dict[str, Any]]]
 
 
 class WorkScopeRecord(TypedDict):

@@ -155,6 +155,100 @@ EXECUTION_MEANS: Final[dict[str, str]] = {
                          "with nothing executed",
 }
 
+# W09: an acceptance check is not just a string pointing at a log.  The
+# classification is deliberately separate from RESULT: a crashed run and an
+# intentionally blocked request can both be non-green observations, while
+# only an explicit successful ``met`` or ``known_negative`` classification can
+# satisfy a docket condition.
+ACCEPTANCE_CLASSES: Final = (
+    "met", "not_exercised", "environment_limited", "known_negative")
+ACCEPTANCE_CLASS_MEANS: Final[dict[str, str]] = {
+    "met": "the condition was explicitly verified",
+    "not_exercised": "the composition was not run, so it has no verdict",
+    "environment_limited": "the check could not run or conclude in this environment",
+    "known_negative": "an expected negative control fired; this is evidence, not a met condition",
+}
+
+
+def validate_acceptance_evidence(*, classification: Any = None,
+                                 execution: Any = None,
+                                 result: Any = None,
+                                 artifact: Any = None,
+                                 runner: Any = None,
+                                 gate: Any = None,
+                                 blocked_count: Any = None,
+                                 composition: Any = None) -> dict[str, Any]:
+    """Validate the metadata attached to a durable acceptance check.
+
+    All fields are optional for legacy checks.  Once ``classification`` is
+    supplied, however, the record is self-describing: artifact, runner and
+    execution provenance are required, and incompatible result/class pairs
+    are refused before the ledger mutates.  ``gate`` and ``blocked_count``
+    stay together so an expected blocked-request control cannot be confused
+    with an application crash.
+    """
+    present = any(x is not None for x in (
+        classification, execution, result, artifact, runner, gate,
+        blocked_count, composition))
+    if not present:
+        return {}
+    if classification is None or str(classification).strip() not in ACCEPTANCE_CLASSES:
+        raise ReceiptError(
+            "acceptance classification must be one of "
+            + "|".join(ACCEPTANCE_CLASSES)
+            + "; it is required when acceptance evidence metadata is supplied")
+    cls = str(classification).strip()
+    if execution is None or str(execution).strip() not in EXECUTION:
+        raise ReceiptError("acceptance evidence needs execution: "
+                           + "|".join(EXECUTION))
+    ex = str(execution).strip()
+    def text(name: str, value: Any) -> str:
+        s = str(value or "").strip()
+        if not s:
+            raise ReceiptError(f"acceptance evidence needs {name}")
+        return s
+    art = text("artifact", artifact)
+    run = text("runner", runner)
+    if result is None or str(result).strip() not in RESULTS:
+        raise ReceiptError("acceptance evidence result must be one of "
+                           + "|".join(RESULTS))
+    res = str(result).strip()
+    expected: dict[str, str] = {
+        "met": "passed",
+        "not_exercised": "not_executed",
+        "known_negative": "expected_negative",
+    }
+    if cls in expected and res != expected[cls]:
+        raise ReceiptError(f"acceptance classification {cls!r} requires "
+                           f"result {expected[cls]!r}, not {res!r}")
+    if cls == "environment_limited" and res not in ("crashed", "failed", "not_executed"):
+        raise ReceiptError("environment_limited acceptance evidence requires "
+                           "result crashed, failed, or not_executed")
+    if (gate is None) != (blocked_count is None):
+        raise ReceiptError("gate and blocked_count must be supplied together")
+    if cls == "known_negative" and gate is None:
+        raise ReceiptError("known_negative acceptance evidence needs the exact "
+                           "gate and blocked_count")
+    out: dict[str, Any] = {
+        "classification": cls, "artifact": art, "runner": run,
+        "execution": ex, "execution_means": EXECUTION_MEANS[ex],
+        "result": res, "classification_means": ACCEPTANCE_CLASS_MEANS[cls],
+    }
+    if gate is not None:
+        out["gate"] = text("gate", gate)
+        if isinstance(blocked_count, bool):
+            raise ReceiptError("blocked_count must be a non-negative integer")
+        try:
+            count = int(blocked_count)
+        except (TypeError, ValueError, OverflowError):
+            raise ReceiptError("blocked_count must be a non-negative integer") from None
+        if count < 0 or str(count) != str(blocked_count).strip():
+            raise ReceiptError("blocked_count must be a non-negative integer")
+        out["blocked_count"] = count
+    if composition is not None:
+        out["composition"] = text("composition", composition)
+    return out
+
 #: WHAT CAME BACK. Five members, because collapsing any two of them is how a
 #: suite reports green while a negative control never fired.
 RESULTS: Final = ("passed", "expected_negative", "failed", "crashed",

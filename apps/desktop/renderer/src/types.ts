@@ -2094,6 +2094,29 @@ export interface WorkItemAttachment {
  *  somebody else's log overstates its own scope. */
 export type WorkExecution = 'independent' | 'owner_report' | 'source_inspection'
 
+/** W09 — explicit acceptance evidence state. `met` and an explicit successful
+ * `known_negative` satisfy a condition; the other classes remain visible
+ * qualifications. */
+export type WorkAcceptanceClass =
+  'met' | 'not_exercised' | 'environment_limited' | 'known_negative'
+
+export interface WorkAcceptanceCheck {
+  at: string
+  by: WorkActor | string
+  evidence_ref?: string
+  note?: string
+  classification?: WorkAcceptanceClass
+  artifact?: string
+  runner?: string
+  execution?: WorkExecution
+  execution_means?: string
+  result?: WorkResult
+  classification_means?: string
+  gate?: string
+  blocked_count?: number
+  composition?: string
+}
+
 /** W08 — WHAT CAME BACK. Five values, because collapsing any two of them is
  *  how a suite reports green while a negative control never fired.
  *  `expected_negative` is a PASS (it failed as designed); `crashed` reached no
@@ -2280,7 +2303,8 @@ export interface WorkItem {
   /** manual_attention != null OR questions.length > 0 */
   effective_attention: boolean
   attention_sources: ('manual' | 'question')[]
-  acceptance: { text: string; checked: null | { at: string; by: string; evidence_ref?: string; note?: string } }[]
+  acceptance: { text: string; checked: null | WorkAcceptanceCheck
+    check_history?: WorkAcceptanceCheck[] }[]
   /** ⚠ AN UNREADABLE DEPENDENCY IS ANONYMOUS. It used to arrive as
    *  `{id, visible:false}` — safe, because an opaque id carried no title.
    *  The name is DERIVED from the title, so it is withheld entirely from a

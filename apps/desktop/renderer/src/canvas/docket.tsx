@@ -1573,6 +1573,41 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   )
 }
 
+/** W09 — acceptance is distinct from a receipt: show the latest explicit
+ * classification and retain the complete check sequence for auditability.
+ * In particular, a crash and an expected blocked-request control must not
+ * collapse into a generic green check. */
+function DocketAcceptance({ item }: { item: WorkItem }) {
+  if (!item.acceptance?.length) return null
+  return (
+    <div className="docket-acceptance">
+      <div className="docket-list-heading dim">ACCEPTANCE CONDITIONS</div>
+      <ol className="docket-acceptance-list">
+        {item.acceptance.map((a, i) => {
+          const c = a.checked
+          const cls = c?.classification
+          const history = a.check_history ?? []
+          return <li key={i} className={'docket-acceptance-item' + (cls === 'met' ? ' is-met' : '')}>
+            <div>{a.text}</div>
+            {c
+              ? <div className="dim docket-acceptance-evidence">
+                  <span className="badge">{cls ?? 'legacy check'}</span>
+                  {c.result && <span> · result: {c.result}</span>}
+                  {c.artifact && <span> · artifact: {c.artifact}</span>}
+                  {c.runner && <span> · runner: {c.runner}</span>}
+                  {c.execution && <span> · {c.execution}</span>}
+                  {c.gate && <span> · gate: {c.gate} ({c.blocked_count ?? 0} blocked)</span>}
+                  {c.composition && <span> · composition: {c.composition}</span>}
+                  {history.length > 1 && <span> · {history.length} checks retained</span>}
+                </div>
+              : <div className="dim docket-list-empty">not checked</div>}
+          </li>
+        })}
+      </ol>
+    </div>
+  )
+}
+
 /** The latest integration verdict and review packet are deliberately shown
  * separately from status/acceptance: approving a candidate does not complete
  * the docket item, and a packet belongs only to the current review cycle. */
@@ -1987,6 +2022,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         mark="next" refIndex={refIndex} onGoToItem={onGoToItem}
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
+      <DocketAcceptance item={item} />
       <DocketVerification slug={slug} item={item} />
       <DocketAttachments slug={slug} item={item} toast={toast}
         refresh={refresh} />
