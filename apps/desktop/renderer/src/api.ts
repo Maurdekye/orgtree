@@ -514,6 +514,27 @@ export function getProviders(): Promise<ProvidersPayload> {
   providerRequest = request
   return request
 }
+/** The two machine-wide per-provider lane choices (2026-09-12 redesign).
+ *  Both answer with the SAME providers document a settings read returns, so
+ *  the panel cannot end up disagreeing with what was just written. */
+export const setApikeyFallbackEnabled = (
+  provider: string, enabled: boolean,
+): Promise<ProvidersPayload> =>
+  req<ProvidersPayload>(`/api/providers/${encodeURIComponent(provider)}/apikey-fallback`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  }).then(payload => { providerSnapshot = payload; return payload })
+
+export const setSubscriptionInferenceEnabled = (
+  provider: string, enabled: boolean,
+): Promise<ProvidersPayload> =>
+  req<ProvidersPayload>(`/api/providers/${encodeURIComponent(provider)}/subscription-inference`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  }).then(payload => { providerSnapshot = payload; return payload })
+
 export const setProviderEnabled = (
   provider: string, enabled: boolean,
 ): Promise<ProvidersPayload> =>

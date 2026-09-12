@@ -41,7 +41,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
@@ -70,13 +70,15 @@ import type {
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 
-/** the cost chip's hover split: how much of the org total was billed to the
- *  api_fallback key vs the subscription. '' when the org has never used (and
- *  doesn't hold) a fallback key — the tooltip stays quiet rather than showing
- *  a meaningless $0.00 lane. */
+/** the cost chip's hover split: how much of the org total was served by
+ *  API-key accounts vs subscriptions. Attribution is now per TURN, from the
+ *  serving account's mode (2026-09-12 redesign), rather than from whether a
+ *  fallback window happened to be open. '' when no key account has ever
+ *  served this org — the tooltip stays quiet rather than showing a
+ *  meaningless $0.00 lane. */
 const costSplitTitle = (tree: TreePayload): string => {
   const api = tree.api_cost_usd_total ?? 0
-  if (!(api > 0 || tree.api_fallback)) return ''
+  if (!(api > 0)) return ''
   return `subscription $${Math.max(0, tree.cost_usd_total - api).toFixed(2)}`
     + ` · api key $${api.toFixed(2)}`
 }
@@ -1935,11 +1937,9 @@ export function NewOrg({ onCreate }: {
 /** §9.5/§9.6: per-org API key + headless mode. Saves IMMEDIATELY (the
  *  couplings are server-enforced 422s — instant feedback beats a buffered
  *  save that fails later). */
-function AutonomyTab({ tree, toast, keyDraft, setKeyDraft }: {
+function AutonomyTab({ tree, toast }: {
   tree: TreePayload
   toast: ToastFn
-  keyDraft: string
-  setKeyDraft: (value: string) => void
 }) {
   const save = (opts: Parameters<typeof saveSettings>[1], note: string) =>
     saveSettings(tree.slug, opts)
@@ -1947,29 +1947,13 @@ function AutonomyTab({ tree, toast, keyDraft, setKeyDraft }: {
       .catch((e: Error) => toast([`error: ${e.message}`]))
   return (
     <>
-      <div className="field-label">API key (§9.5 — the org's own metered
-        billing)</div>
-      <div className="row">
-        {tree.api_key_set
-          ? <>
-              <span className="badge free">{'key set — turns bill the key'}</span>
-              <button onClick={() => save({ clear_api_key: true },
-                'API key cleared')}>clear</button>
-            </>
-          : <>
-              <input style={{ flex: 1 }} type="password"
-                placeholder="sk-ant-… (stored server-side, never shown again)"
-                value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} />
-              <button disabled={!keyDraft.trim()}
-                onClick={() => { save({ api_key: keyDraft.trim() }, 'API key set')
-                  setKeyDraft('') }}>set</button>
-            </>}
-      </div>
-      <div className="dim hub-hint">an API key removes the subscription's
-        refresh-token ceiling — required for headless, useful for any
-        unattended org; it never reaches an agent's context</div>
+      {/* ⚠ HEADLESS NO LONGER REQUIRES A KEY OF ANY SORT (2026-09-12
+          redesign). It is a BEHAVIORAL mode — nobody is watching — and the
+          V1 org-key rows that used to sit above it went with the path they
+          belonged to. API-key accounts are ordinary accounts now and live in
+          App settings › Providers, not in one org's autonomy tab. */}
       <label className="checkline"
-        title="no user is present: questions, credit requests and user audiences auto-deny; mail to you is stored with a no-reply note; requires an API key and non-halt fable policies">
+        title="no user is present: questions, credit requests and user audiences auto-deny; mail to you is stored with a no-reply note">
         <input type="checkbox" checked={!!tree.headless}
           onChange={(e) => save({ headless: e.target.checked },
             e.target.checked ? 'headless ON — nobody is watching now'
@@ -2639,7 +2623,6 @@ export function SettingsPanel({ tree, toast, close }: {
   // future field added to those tabs inherits the protection instead of
   // having to rediscover it.
   const [netHubDraft, setNetHubDraft] = useState('')
-  const [apiKeyDraft, setApiKeyDraft] = useState('')
 
   // the shadowing pair below keeps every USE SITE unchanged: same name, same
   // setter signature — only where the value comes from has changed
@@ -2963,7 +2946,7 @@ export function SettingsPanel({ tree, toast, close }: {
         <SettingsTabPanel id="autonomy" idBase="org-settings"
             active={tab === 'autonomy'}>
             {visited('autonomy') && <AutonomyTab tree={tree} toast={toast}
-              keyDraft={apiKeyDraft} setKeyDraft={setApiKeyDraft} />}
+              />}
           </SettingsTabPanel>
 
         {/* ── History — the retained-records browser, a tab since the header

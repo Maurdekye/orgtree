@@ -738,9 +738,6 @@ export interface CanvasNode {
   waiting?: boolean
   responding?: boolean
   phase?: string | null
-  /** api_fallback: this node's in-flight turn is billing the org's own API
-   *  key (absent on the synthetic cards, which never run turns) */
-  on_fallback?: boolean
   /** which account actually served the last turn (resolved at spawn) */
   ran_as?: string | null
   /** "fallback 2 · <uuid>" when that account is a fallback row, else null */
@@ -1271,15 +1268,6 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
       ? place(tree.roots.map(mk)) : tree.roots.map(mk),
   }
 }
-
-/** api_fallback (2026-08-17): is this org billing its own API key RIGHT NOW?
- *  The server ships the option plus the window edge and leaves "active" to the
- *  client's own clock (ledger.tree) — this is the single reader, so the
- *  settings banner, the canvas border and anything later added cannot drift
- *  apart on where the edge is. Re-evaluated on every tree poll, which is what
- *  makes an expiring window drop the red without an event. */
-export const fallbackActive = (tree: TreePayload): boolean =>
-  !!tree.api_fallback && (tree.api_fallback_until ?? 0) * 1000 > Date.now()
 
 /** Print a credit quantity. Seats are FRACTIONAL below $1/M (user ruling
  *  2026-09-03 — a $0.20 model seats at 0.2, a `:free` one at the 0.1 floor),

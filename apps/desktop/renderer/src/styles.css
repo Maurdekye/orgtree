@@ -1893,19 +1893,12 @@ button.cc-name:hover {
       0 0 0 8px color-mix(in srgb, var(--accent) 14%, transparent);
   }
 }
-/* api_fallback (user feature 2026-08-19): RED means "this is spending the
-   org's own API key, right now". Two scopes, one colour: the office border
-   wears it for as long as the fallback window is open (org-wide fact), a card
-   wears it while ITS in-flight turn is the one billing (per-turn fact, captured
-   at spawn — see supervisor `on_fallback`). Deliberately placed after .busy,
-   .desk, .asking and the .tier-* top-colour block: all four set border-color at
-   this same specificity, and the money fact outranks every one of them. */
-.viewport.onfallback { border-color: var(--bad); }
-.sq.onfallback { border-color: var(--bad); border-top-color: var(--bad); }
-/* the glow is what makes it findable at map zoom; the desk card is excluded
-   because its own drop shadow is doing structural work (it is the focused
-   window), and the border alone reads fine at that size */
-.sq.onfallback:not(.desk) { box-shadow: 0 0 12px rgba(241, 76, 76, .38); }
+/* ⚠ NO RED FOR API-KEY BILLING (2026-09-12 redesign). The V1 `.onfallback`
+   border and glow are gone with the org-key path they described: an API-key
+   account is an ordinary account mode, not an alarm state, and dressing it in
+   the error colour told the user something was wrong when nothing was. What
+   an account costs is answered in App settings › Providers, where the row
+   shows its spend total. */
 
 /* status chips */
 .statuschip { font-size: 9px; padding: 0 6px; border-radius: 8px; font-family: var(--mono); }

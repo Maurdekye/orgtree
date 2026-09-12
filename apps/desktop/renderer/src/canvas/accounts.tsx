@@ -7,15 +7,17 @@ import { CharterDocumentsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
 import type {
-  AccountUsage, ProviderInfo, RuntimeSettingsPayload,
+  AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
   TierStanding, ToastFn, UsageLimit,
 } from '../types'
 import {
   getProviders, peekProviders, getRuntimeSettings,
   setIdleDocketRemindersEnabled, setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
+import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
   SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
@@ -98,7 +100,41 @@ export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
 }
 
 /** one account's bars — the same markup family as the header usage modal */
+/** An API-key account's answer in the Usage panel: WHAT IT HAS COST, never a
+ *  limit bar (user decision 2026-09-12). A metered key has no subscription
+ *  window to report, so bars here could only ever read 0% — which would state
+ *  "nothing spent" about the one account kind where spending is the whole
+ *  fact. The figure is local metering, which IS authoritative for this row:
+ *  an inference key cannot reach a billing endpoint (D-147), so nothing is
+ *  being withheld in favour of a number we could have fetched. */
+export function SpendTotal({ u }: { u: AccountUsage }) {
+  const spend = u.spend
+  const total = spend?.usd_total ?? 0
+  const turns = spend?.turns ?? 0
+  return <div className="acct-spend">
+    <div className="acct-spend-total">
+      <span className="acct-spend-amount">${total.toFixed(2)}</span>
+      <span className="dim"> {u.currency ?? 'USD'} total</span>
+      {u.enabled === false && <span className="badge" title={
+        'This account is switched off: it is excluded from API-key fallback '
+        + 'routing. What it already spent still counts.'}>off</span>}
+    </div>
+    {/* Zero turns and zero dollars are DIFFERENT statements — "never used"
+        against "used and cost nothing measurable" — so the turn count is
+        always shown rather than hidden when the total rounds to $0.00. */}
+    <div className="dim">{turns === 0
+      ? 'no turns billed to this key yet'
+      : `${turns} turn${turns === 1 ? '' : 's'}`
+        + (spend?.since ? ` since ${fmtStamp(spend.since)}` : '')}</div>
+  </div>
+}
+
 export function UsageBars({ u }: { u: AccountUsage }) {
+  // AN API-KEY ROW IS ANSWERED BEFORE ANY LIMIT BRANCH. It carries no tiers
+  // and no limits, so falling through would render an empty card that looks
+  // like a failed read rather than the settled fact that this kind of account
+  // reports spend instead of windows.
+  if (u.mode === 'apikey') return <SpendTotal u={u} />
   // A row that has a standing table shows THE TABLE AND NOTHING ELSE (user
   // ruling 2026-08-25): no note explaining why this row reads differently
   // from the primary's, and no footnote about the shared pool. The table
@@ -401,6 +437,15 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
   const registry = useAccountRegistry()
   const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[] | null>(() => peekProviders()?.providers ?? null)
+  // The two machine-wide lane choices ride the same providers document, so
+  // they are refreshed from every read AND every write rather than tracked
+  // separately — a toggle response cannot disagree with the panel.
+  const [lanes, setLanes] = useState<Pick<ProvidersPayload,
+    'apikey_fallback' | 'subscription_inference'>>(() => {
+    const seed = peekProviders()
+    return { apikey_fallback: seed?.apikey_fallback,
+             subscription_inference: seed?.subscription_inference }
+  })
   const [runtime, setRuntime] = useState<RuntimeSettingsPayload | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -410,6 +455,8 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     setDiscovering(true)
     return getProviders().then(p => {
       setProviders(p.providers)
+      setLanes({ apikey_fallback: p.apikey_fallback,
+                 subscription_inference: p.subscription_inference })
       setOpenRouterTiers(p.providers.find(p => p.id === 'openrouter')?.tiers)
       setError('')
     }).catch((e: Error) => setError(e.message))
@@ -431,6 +478,31 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       .catch((e: Error) => { setError(e.message); toast([e.message]) })
       .finally(() => setBusy(false))
   }
+  /** Both lane toggles answer with the whole providers document (see
+   *  api.ts), so one handler shape serves both and the panel re-seats every
+   *  provider's state from the response rather than patching one key. */
+  const changeLane = (
+    put: (provider: string, value: boolean) => Promise<ProvidersPayload>,
+    provider: string, value: boolean,
+  ) => {
+    setBusy(true)
+    put(provider, value).then(p => {
+      setProviders(p.providers)
+      setLanes({ apikey_fallback: p.apikey_fallback,
+                 subscription_inference: p.subscription_inference })
+      setError('')
+    }).catch((e: Error) => { setError(e.message); toast([e.message]) })
+      .finally(() => setBusy(false))
+  }
+  /** ⚠ THE FALLBACK TOGGLE IS HIDDEN UNTIL THERE IS SOMETHING FOR IT TO ROUTE
+   *  TO (ticket requirement): a switch that can only ever do nothing is worse
+   *  than absent, because it reads as a capability the machine has. A
+   *  DISABLED key account does not count — turning fallback on would still
+   *  route nowhere. */
+  const hasEnabledKeyAccount = (provider: string): boolean =>
+    registry.rows.some(r => r.provider === provider && r.mode === 'apikey'
+      && r.enabled !== false)
+
   const downloads: Record<string, string> = {
     claude: 'https://code.claude.com/docs/en/setup',
     openai: 'https://developers.openai.com/codex/cli/',
@@ -497,6 +569,26 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         </div> : <p className='dim acct-provider-empty'>No model tiers reported</p>}
         {p.cli_version?.update_available === true && <p className='acct-provider-update'>CLI update available: {p.cli_version.latest ?? 'newer version'}</p>}
         <AccountRegistrySection provider={p.id as AccountProvider} registry={registry} toast={toast} />
+        {/* THE TWO MACHINE-WIDE LANE CHOICES, per provider. They sit under the
+            account list because they are statements ABOUT these accounts:
+            which of them may serve a turn, and in what order. Both are
+            omitted when the backend does not publish the map at all — an old
+            build has no such lane, which is not the same as having it off. */}
+        {lanes.subscription_inference?.[p.id] !== undefined &&
+          <SetToggle label={`use signed-in ${p.label} subscription accounts`}
+            checked={lanes.subscription_inference[p.id] !== false}
+            disabled={busy}
+            onChange={v => changeLane(setSubscriptionInferenceEnabled, p.id, v)}
+            hint={`Off: no ${p.label} subscription account serves turns on this `
+              + 'machine. API-key accounts stay available, which is how Orgtree '
+              + 'runs on keys alone.'} />}
+        {lanes.apikey_fallback?.[p.id] !== undefined && hasEnabledKeyAccount(p.id) &&
+          <SetToggle label={`fall back to ${p.label} API-key accounts`}
+            checked={lanes.apikey_fallback[p.id] === true}
+            disabled={busy}
+            onChange={v => changeLane(setApikeyFallbackEnabled, p.id, v)}
+            hint={'Off by default. When on, a turn may bill an API-key account '
+              + 'only after every applicable subscription limit is exhausted.'} />}
       </div>)}
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}

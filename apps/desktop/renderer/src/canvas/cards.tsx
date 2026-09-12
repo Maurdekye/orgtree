@@ -1429,12 +1429,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (node.tier) cls.push('prov-' + providerOf(node.tier))
   if (live) cls.push(node.proc_warm ? 'proc-warm' : 'proc-cold')
   if (node.busy) cls.push('busy')
-  // api_fallback (user feature 2026-08-19): a turn RUNNING on the org's own
-  // API key wears the same red as the canvas border. No `busy` companion
-  // check on purpose — the server writes this flag at spawn and clears it in
-  // the turn's finally, and it lives in memory only, so it cannot outlast the
-  // turn it describes (nor survive a backend restart).
-  if (node.on_fallback) cls.push('onfallback')
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
   if (node.bearer_state) cls.push('bearer')

@@ -14,6 +14,8 @@ export type AccountProvider = 'claude' | 'openai' | 'google'
 type AccountRow = {
   id: string; provider: string; label: string; name?: string; ambient?: boolean
   credential: { kind: string; path?: string; default_config?: boolean }
+  /** 'apikey' = a metered API-key account (absent = subscription) */
+  mode?: string; enabled?: boolean
   identity: Record<string, string>; tint_ordinal: number; origin_org?: string
   standing: { auth: string }
   bound: { org: string; node: string; state: string }[]
@@ -92,16 +94,25 @@ export function AddAccountDialog({ provider, onAdded, close }: {
   provider: AccountProvider; onAdded: () => Promise<void>; close: () => void
 }) {
   const [path, setPath] = useState('')
+  const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const lock = useRef(false)
   const dismiss = () => { if (!lock.current) close() }
-  const create = async (kind: 'managed' | 'imported') => {
-    if (lock.current || (kind === 'imported' && !path.trim())) return
+  const create = async (kind: 'managed' | 'imported' | 'apikey') => {
+    if (lock.current || (kind === 'imported' && !path.trim())
+      || (kind === 'apikey' && !key.trim())) return
     lock.current = true; setBusy(true); setError('')
     try {
       await req('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, kind, ...(kind === 'imported' ? { path: path.trim() } : {}) }) })
+        body: JSON.stringify({ provider, kind,
+          ...(kind === 'imported' ? { path: path.trim() } : {}),
+          ...(kind === 'apikey' ? { key: key.trim() } : {}) }) })
+      // ⚠ THE KEY LEAVES THE RENDERER'S HANDS HERE and is never read back:
+      // the server stores it and echoes only a reference. Clearing the field
+      // keeps the one copy we held from sitting in component state after the
+      // dialog has done its job.
+      setKey('')
       await onAdded()
       close()
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not add account') }
@@ -131,6 +142,23 @@ export function AddAccountDialog({ provider, onAdded, close }: {
         <button disabled={busy || !path.trim()} onClick={() => { void create('imported') }}>Import folder</button>
       </div>
     </section>
+    {/* ⚠ OFFERED WHETHER OR NOT THE PROVIDER'S SUBSCRIPTION IS SIGNED IN
+        (ticket requirement): an API-key account is an ordinary account, not a
+        spare bolted onto a subscription, and Orgtree can run on keys alone.
+        Google is excluded because it has no API-key login at all (measured
+        1.1.24) — the note below already says so. */}
+    {provider !== 'google' && <section className="account-add-option">
+      <h4>Use an API key</h4>
+      <p className="dim">Bill this account directly to {LABELS[provider]} API
+        credit. It shows total spend instead of subscription limits, and is
+        never used for fallback unless you turn that on.</p>
+      <label>API key<input aria-label="API key" type="password" value={key}
+        disabled={busy} placeholder={provider === 'claude' ? 'sk-ant-…' : 'sk-…'}
+        onChange={e => setKey(e.target.value)} /></label>
+      <p className="dim">Stored on this machine and never shown again.</p>
+      <button disabled={busy || !key.trim()}
+        onClick={() => { void create('apikey') }}>Add API-key account</button>
+    </section>}
     {provider === 'google' && <p className="dim">Secondary Antigravity sign-in is not supported yet. Importing a folder does not verify its sign-in.</p>}
     {error && <p className="ask-warn" role="alert">{error}</p>}
     <button disabled={busy} onClick={dismiss}>Cancel</button>

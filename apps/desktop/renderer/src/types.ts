@@ -447,10 +447,6 @@ export interface TreeNode {
   waiting: boolean
   responding: boolean
   phase: string | null
-  /** api_fallback: this node's IN-FLIGHT turn bills the org's own API key
-   *  (captured at spawn, so it holds for the whole turn even once the window
-   *  shuts). The card wears the fallback red while it is true. */
-  on_fallback?: boolean
   /** WHICH account actually served this node's last turn, captured at spawn
    *  from the RESOLVED environment. "primary", a key row id, "api-key", or
    *  "key:unattributed". ⚠ Never a credential. Backend telemetry only since
@@ -790,8 +786,9 @@ export interface TreePayload {
   audit: AuditReport
   cost_usd_total: number
   cost_usd_unknown?: boolean
-  /** slice of cost_usd_total billed to the org's key while an api_fallback
-   *  window was open — the cost chip's hover split */
+  /** slice of cost_usd_total served by API-key accounts — the cost chip's
+   *  hover split. Attributed per turn from the serving account's mode
+   *  (2026-09-12 redesign), replacing the V1 fallback-window slice. */
   api_cost_usd_total?: number
   /** F-04: every ask card the inbox interleaves (open + recent resolved);
    *  the header ask-icon glows iff asks_open > 0 */
@@ -854,14 +851,6 @@ export interface TreePayload {
   public?: boolean             // only through the public gateway
   net?: NetBlock | null        // F-06 (null for kiosks; absent for visitors)
   headless?: boolean           // §9.6
-  api_key_set?: boolean        // §9.5: whether, never the key itself
-  /** 2026-08-17: the key is a usage-limit SPARE (subscription-first) */
-  api_fallback?: boolean
-  /** epoch seconds; the fallback window is open while now < this */
-  api_fallback_until?: number | null
-  /** 2026-08-23: a TRUSTED weekly Fable-tier hit opens this same window too
-   *  (requires api_fallback + a key), instead of only fable_limit_policy */
-  fable_api_fallback?: boolean
   /** FR-27 (2026-08-27): a restart armed with orgtree_prime_restart, waiting
    *  for the machine to go quiet. ⚠ MACHINE-WIDE, not org-scoped: api.py
    *  injects the same record into EVERY org's tree, because the restart it is
@@ -1503,7 +1492,15 @@ export interface CodexCliVersion {
   update_available: boolean | null
   evidence: string
 }
-export interface ProvidersPayload { providers: ProviderInfo[] }
+export interface ProvidersPayload {
+  providers: ProviderInfo[]
+  /** ⚠ MACHINE-WIDE, PER PROVIDER — not per org (user decision 2026-09-12).
+   *  Orgs inherit both. Keyed by provider id; only API-key-capable providers
+   *  appear in `apikey_fallback`, and an older backend omits both maps
+   *  entirely, which reads as "this build has no such lane" rather than off. */
+  apikey_fallback?: Record<string, boolean>
+  subscription_inference?: Record<string, boolean>
+}
 
 /** GET/PUT /api/app-settings/runtime — machine behavior, never org state. */
 export interface RuntimeSettingsPayload {
@@ -1690,6 +1687,18 @@ export interface TierStanding {
   pool: string[] | null
 }
 
+/** GET /api/accounts/usage — an API-key account's accumulated local metering
+ *  (registry `spend_of`). Zeros, never absent fields, when it never ran. */
+export interface AccountSpend {
+  usd_total: number
+  turns: number
+  /** epoch SECONDS (registry `add_spend` stamps `time.time()`), not ISO:
+   *  when metering for this row began, and its last update. null while it
+   *  has never served a turn. */
+  since?: number | null
+  updated_at?: number | null
+}
+
 export interface AccountUsage {
   account: string
   label: string
@@ -1739,6 +1748,20 @@ export interface AccountUsage {
    *  rejecting an access token, and from `'not_connected'`, a purely local
    *  observation that no credential is present to try. */
   reauth_evidence?: 'measured_403' | 'measured_refresh_rejected' | 'not_connected'
+  /** ⚠ THIS ROW IS AN API-KEY ACCOUNT, and its answer is a SPEND TOTAL, not
+   *  a limit. A metered key has no subscription windows to report, so the
+   *  panel shows what it has cost instead of bars that could only ever read
+   *  0%. Local metering IS the authoritative figure here (user decision
+   *  2026-09-12): no provider billing call stands behind it, because an
+   *  inference key cannot reach a billing endpoint (D-147). */
+  mode?: 'apikey'
+  /** the unit `spend` is denominated in — 'USD', the unit the harness
+   *  reports. Present with `mode`. */
+  currency?: string
+  spend?: AccountSpend
+  /** an API-key row the operator has switched off: excluded from fallback
+   *  routing, still listed and still showing what it has already cost. */
+  enabled?: boolean
   limits?: UsageLimit[]
   plan?: string
   /** Time of the provider observation, not merely when the UI read it. */
@@ -1901,13 +1924,6 @@ export interface SettingsRequest {
   net_autoconnect?: boolean | null     // per-org: keep/join the local hub
   net_hubs?: { id?: string; address: string; enabled?: boolean }[] | null
   headless?: boolean | null            // §9.6 (server enforces the couplings)
-  api_key?: string | null              // §9.5 (write-only)
-  clear_api_key?: boolean
-  /** the key as a usage-limit SPARE — server enforces the couplings */
-  api_fallback?: boolean | null
-  /** also spend that spare on a trusted weekly Fable-tier hit (requires
-   *  api_fallback already on) — server enforces the coupling */
-  fable_api_fallback?: boolean | null
 }
 
 // F-06: GET /api/orgs/{slug}/net — loopback-admin reveal (the ONE place the
