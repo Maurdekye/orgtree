@@ -1,7 +1,7 @@
 {
   "schema": "orgtree.verification-recipes/v1",
   "generated_at": "2026-09-13",
-  "candidate": "8e4f2cdd39023f76c0a66250ee17d71da99bc5b2",
+  "candidate": "541ae3e8209b015988dc32c3f11f0a9d7bd6a3d6",
   "owner": "notify-review",
   "handoff": {
     "purpose": "Successor and reviewer entry point for reproducible checks",

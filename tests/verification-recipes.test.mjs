@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
@@ -10,6 +11,8 @@ const recipes = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'verification
 test('recipe metadata names real runners and a pinned candidate', () => {
   assert.equal(recipes.schema, 'orgtree.verification-recipes/v1')
   assert.match(recipes.candidate, /^[0-9a-f]{40}$/)
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
+  assert.equal(recipes.candidate, head, 'recipe metadata must pin this reviewed checkout HEAD')
   assert.equal(recipes.owner, 'notify-review')
   assert.ok(recipes.suites.length >= 5)
   for (const suite of recipes.suites) {
