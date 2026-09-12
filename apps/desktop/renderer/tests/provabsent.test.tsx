@@ -417,7 +417,8 @@ test('§5 the usage modal drops the Codex block on a Codex-less machine',
   async () => {
     const text = await usageModal({ providers: [
       ON('claude'), ABSENT('openai'), ABSENT('google')] })
-    assert.ok(text.includes('usage limits'))
+    assert.ok(text.includes('Usage limits'))
+    assert.ok(!text.includes('usage limits'))
     assert.ok(text.includes('Claude Code'), 'Claude bars still render')
     assert.ok(!text.includes('Codex'),
       'a "Codex" heading over "not installed" is an advertisement, not a bar')

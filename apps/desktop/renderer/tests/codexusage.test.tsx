@@ -38,7 +38,8 @@ test('usage modal renders Claude and Codex limit bars together', async () => {
       <UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
-    assert.match(text, /usage limits/)
+    assert.match(text, /Usage limits/)
+    assert.doesNotMatch(text, /usage limits/)
     assert.match(text, /Claude Code/)
     assert.match(text, /Codex · codex@example\.test/)
     assert.match(text, /Codex Pro Lite/)

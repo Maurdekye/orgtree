@@ -1748,9 +1748,9 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   }, [])
   const registered = (registry ?? []).filter((r) => !r.ambient)
   return (
-    <PinFrame kind="usage" title="usage limits" panel="settings usage-modal"
+    <PinFrame kind="usage" title="Usage limits" panel="settings usage-modal"
       close={close}>
-        <h3><DataUsageIcon fontSize="inherit" /> usage limits</h3>
+        <h3><DataUsageIcon fontSize="inherit" /> Usage limits</h3>
         {/* the codex half only counts toward "still loading" while it is a
             half this machine has — otherwise a Codex-less box would skip the
             spinner and show a blank modal until the Claude bars land */}

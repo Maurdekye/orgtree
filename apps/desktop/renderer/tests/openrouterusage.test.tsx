@@ -58,7 +58,8 @@ test('usage modal renders OpenRouter uncapped credits honestly without fake bar'
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })
     const text = view.el.textContent ?? ''
-    assert.match(text, /usage limits/)
+    assert.match(text, /Usage limits/)
+    assert.doesNotMatch(text, /usage limits/)
     assert.match(text, /Claude Code/)
     assert.match(text, /OpenRouter · sk-or-v1-d3e\.\.\.22c/)
     assert.match(text, /\$0\.16 spent · no spend cap/)
