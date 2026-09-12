@@ -19017,7 +19017,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # D-201: whatever this turn did to the seat's process (parked it,
         # killed it, outran a prompt change), the keeper re-checks NOW —
         # "respawn the instant the turn completes", not at the next poll
-        warmpool.poke()
+        warmpool.poke(slug)
         _release_limit_probe(slug, nid, token=probe_token)
     return follow
 

@@ -2456,10 +2456,24 @@ def discard(wp: WarmProcess, reason: str) -> None:
     _journal_exit_once(wp, reason)
 
 
-def poke() -> None:
+#: orgs whose docs changed since the keeper's last drain (fed by the save
+#: hook). A poke that names its slug gets a SCOPED pass — one org's load
+#: instead of the whole-root rescan every save used to buy (REPORT.md #2).
+_dirty_lock = threading.Lock()
+_dirty: set[str] = set()
+_dirty_all = [False]
+
+
+def poke(slug: str | None = None) -> None:
     """Wake the keeper now — called from store.save_hooks (any org change may
     have dirtied a prompt) and from hire/retire/turn-end sites. Idempotent
-    and cheap; the keeper does the hashing."""
+    and cheap; the keeper does the hashing. With `slug`, only that org needs
+    re-checking; without one, the next pass is a full reconcile."""
+    with _dirty_lock:
+        if slug:
+            _dirty.add(slug)
+        else:
+            _dirty_all[0] = True
     _poke.set()
 
 
@@ -2477,7 +2491,13 @@ def _busy(slug: str, nid: str) -> bool:
         return bool(ent.get("busy") or ent.get("proc_control"))
 
 
-def _keeper_pass() -> None:
+def _keeper_pass(slugs: set[str] | None = None) -> None:
+    """One reconcile. `slugs=None` is the FULL pass (root listing + deleted-
+    org reap + every org); a set is the SCOPED pass a save poke buys — only
+    the named orgs are loaded, which is what stopped every save_org from
+    costing a whole-root rescan (~160-250 ms at the live root; REPORT.md #2).
+    The periodic full pass remains the backstop for anything a scoped poke
+    cannot know (foreign deletions, a missed hook)."""
     from . import supervisor as sup                 # noqa: PLC0415
     if not warm_enabled():
         # the OFF arm must be clean for the A/B: parked processes are torn
@@ -2487,19 +2507,29 @@ def _keeper_pass() -> None:
         for slug, nid in keys:
             kill_node(slug, nid, "disabled")
         return
-    orgs = store.list_orgs()
-    known = {o["slug"] for o in orgs}
-    # a DELETED org never appears in the loop below — its parked processes
-    # would otherwise be orphans no pass ever visits
-    with _pool_lock:
-        gone = [k for k in _pool if k[0] not in known]
-    for slug, nid in gone:
-        kill_node(slug, nid, "org-deleted")
-    for o in orgs:
-        slug = o["slug"]
+    if slugs is None:
+        orgs = store.list_orgs()
+        known = {o["slug"] for o in orgs}
+        # a DELETED org never appears in the loop below — its parked
+        # processes would otherwise be orphans no pass ever visits
+        with _pool_lock:
+            gone = [k for k in _pool if k[0] not in known]
+        for slug, nid in gone:
+            kill_node(slug, nid, "org-deleted")
+        targets = [o["slug"] for o in orgs]
+    else:
+        targets = sorted(slugs)
+    for slug in targets:
         try:
             org = store.load_org(slug)
         except Exception:                           # noqa: BLE001
+            if slugs is not None:
+                # scoped poke for an org that no longer loads — deleted or
+                # broken; reap its parked processes as the full pass would
+                with _pool_lock:
+                    held = [k for k in _pool if k[0] == slug]
+                for _s, nid in held:
+                    kill_node(slug, nid, "org-deleted")
             continue
         live = {k for k, n in org.nodes.items() if n.get("state") == "live"}
         # reap processes whose seat is gone or no longer eligible — retire
@@ -2676,13 +2706,34 @@ def keeper_pass_now() -> None:
     _keeper_pass()
 
 
+#: trailing debounce after a poke: a turn saves the doc several times in a
+#: burst (mail drain, budget, status, journal) and they should land as ONE
+#: scoped pass, not one pass per save
+_POKE_SETTLE = float(os.environ.get("ORGTREE_WARM_POKE_SETTLE", "0.75"))
+
+
 def _keeper() -> None:
     last_snap = 0.0
+    last_full = 0.0
     while True:
-        _poke.wait(WARM_POLL)
+        poked = _poke.wait(WARM_POLL)
+        if poked:
+            time.sleep(_POKE_SETTLE)   # coalesce the burst behind one drain
         _poke.clear()
+        with _dirty_lock:
+            dirty = set(_dirty)
+            _dirty.clear()
+            want_all = _dirty_all[0]
+            _dirty_all[0] = False
         try:
-            _keeper_pass()
+            if (not poked or want_all or not dirty
+                    or time.time() - last_full >= WARM_POLL):
+                # timeout tick, an unscoped poke, or the periodic backstop —
+                # a stream of scoped pokes must not starve full reconciles
+                last_full = time.time()
+                _keeper_pass()
+            else:
+                _keeper_pass(dirty)
         except Exception as e:                      # noqa: BLE001
             print(f"[orgtree] warmpool keeper pass failed: "
                   f"{type(e).__name__}: {e}")
@@ -2704,7 +2755,7 @@ def start_warm_pool() -> None:
     if _started:
         return
     _started = True
-    store.save_hooks.append(lambda _slug: _poke.set())
+    store.save_hooks.append(poke)   # the hook passes the saved slug → scoped
     # THE FIRST PASS RUNS SYNCHRONOUSLY, before this returns and therefore
     # before any driver (auto-resume, reconcile's re-drives, the first API
     # request) can start a turn. The user's ruling is "start all active
