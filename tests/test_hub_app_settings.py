@@ -157,6 +157,7 @@ class InstallationGrantTests(unittest.TestCase):
     def test_desktop_routes_expose_grants_and_reject_malformed_administration(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+        from orgtree import api
         import engine.launch as launch
 
         with tempfile.TemporaryDirectory(prefix='v2-routes-') as folder:
@@ -165,7 +166,8 @@ class InstallationGrantTests(unittest.TestCase):
             previous = launch._HUB_RUNTIME
             launch._HUB_RUNTIME = host.runtime
             try:
-                launch._install_desktop_routes(app, Path(folder), lambda: None)
+                launch._install_desktop_routes(app, Path(folder), lambda: None,
+                                               api.__file__)
                 client = TestClient(app)
 
                 self.assertEqual(client.get('/api/desktop/hub/peers').json(),
