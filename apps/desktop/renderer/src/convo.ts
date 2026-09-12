@@ -161,6 +161,11 @@ interface Entry {
   assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
   pageInFlight?: boolean
+  /** the reader left history while a page/grow request was in flight — the
+   * intent survives the flight and runs at its settle points, and the
+   * settling older-page response is DISCARDED rather than allowed to
+   * restore the history the reader just left (perf-review round 3). */
+  pendingCollapse?: boolean
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -343,7 +348,15 @@ function patch(k: string, p: Partial<Convo>): void {
  *  history back in exactly like a cold visit. */
 export function collapseWindow(slug: string, nid: string): void {
   const e = M.get(key(slug, nid))
-  if (!e || e.s.loadingOlder || e.pageInFlight) return
+  if (!e) return
+  if (e.s.loadingOlder || e.pageInFlight) {
+    // mid-flight: record the intent instead of dropping it (perf-review
+    // round 3 — a dropped intent left the expanded window polling
+    // thousands of rows forever). The flight's settle points run it.
+    e.pendingCollapse = true
+    return
+  }
+  e.pendingCollapse = false
   if (e.s.win <= CHAT_WINDOW && !e.s.paged) return
   patchEntry(e, {
     win: CHAT_WINDOW, paged: false,
@@ -714,9 +727,14 @@ export function refreshConvo(slug: string, nid: string,
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
     patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire }, ownerVersion)
+    // the grow-path settle: a leave-history recorded while this (viewport
+    // window growth) refresh was the in-flight work runs now, once no page
+    // request remains to own it
+    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).catch(() => {
     if (!stillFreshest()) return
     patchEntry(e, { loadingOlder: Boolean(e.pageInFlight) }, ownerVersion)
+    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
   })
@@ -740,7 +758,16 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) return
       e.pageInFlight = false
-      if (!e.subs.size || conversation !== e.s.chat.conversation_id) { patchEntry(e, { loadingOlder: false }, version); return }
+      if (!e.subs.size || conversation !== e.s.chat.conversation_id) { e.pendingCollapse = false; patchEntry(e, { loadingOlder: false }, version); return }
+      if (e.pendingCollapse) {
+        // the reader left history while this page was in flight: DISCARD
+        // the page and run the recorded collapse — applying it would
+        // restore the history the reader just left (perf-review round 3)
+        e.pendingCollapse = false
+        patchEntry(e, { loadingOlder: false }, version)
+        collapseWindow(slug, nid)
+        return
+      }
       const current = e.s.chat
       if ((page.order_epoch ?? 0) !== (current.order_epoch ?? 0)) {
         patchEntry(e, { loadingOlder: false, paged: false }, version)
@@ -755,7 +782,10 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     }).catch(() => {
       e.pageInFlight = false
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) return
+      const wanted = e.pendingCollapse
+      e.pendingCollapse = false
       patchEntry(e, { loadingOlder: false, paged: false }, version)
+      if (wanted) collapseWindow(slug, nid)
       void refreshConvo(slug, nid, { force: true })
     })
     return true
