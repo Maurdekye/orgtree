@@ -4581,8 +4581,9 @@ svg.MuiSvgIcon-root {
 .tray-row:hover { background: var(--panel-2); }
 .tray-row.off { opacity: .5; }
 /* The tray is outside a card's provider-theme root, so give its context wheel
-   the row's provider accent explicitly. Without this, Codex rows inherit the
-   page's Claude-orange --accent instead of their own #22c4bd teal. */
+   the row's provider accent explicitly. Without this, rows inherit the page's
+   accent instead of their own provider token. */
+.tray-row.prov-claude { --accent: var(--prov-claude); }
 .tray-row.prov-openai { --accent: var(--prov-openai); }
 .tray-row.prov-google { --accent: var(--prov-google); }
 .tray-row.prov-openrouter { --accent: var(--prov-openrouter); }

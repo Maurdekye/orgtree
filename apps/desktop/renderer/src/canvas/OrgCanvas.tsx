@@ -3268,9 +3268,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 <div key={n.id} data-copy-agent-name={n.id}
                   className={'tray-row' + (n.state !== 'live' ? ' off' : '')
                     + (ghost ? ' ghost' : '')
-                    + (n.tier && CODEX_TIERS.includes(n.tier) ? ' prov-openai'
-                       : n.tier && ANTIGRAVITY_TIERS.includes(n.tier)
-                         ? ' prov-google' : '')}
+                    + ' prov-' + providerOf(n.tier ?? '')}
                   style={{ paddingLeft: 8 + depth * 14 }}
                   title={ghost
                     ? 'shown for context — this row does not match the '

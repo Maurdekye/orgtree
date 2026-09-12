@@ -171,6 +171,35 @@ uiTest('§2b a Codex agent row carries the provider-theme class for its context 
       'the fixture context wheel did not render')
   })
 
+uiTest('every Claude tier in the Agents list uses the shared Claude theme',
+  async ({ mount }) => {
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    const fixture = tree(['haiku-agent', 'sonnet-agent', 'opus-agent', 'fable-agent',
+      'codex-agent', 'antigravity-agent'])
+    const tiers = ['haiku', 'sonnet', 'opus', 'fable', 'sol', 'flash']
+    fixture.roots.forEach((node, i) => {
+      node.tier = tiers[i]!
+      node.model_id = tiers[i]!
+    })
+    const { el } = await mount(
+      <OrgCanvas tree={fixture} op={() => Promise.resolve({} as never)}
+        slug="mine" toast={noop} mailEvt={null} />)
+    await flush()
+    await inAct(() => { (el.querySelector('.tray-toggle') as HTMLElement).click() })
+    await flush()
+
+    const rows = [...el.querySelectorAll('.tray-row')] as HTMLElement[]
+    assert.equal(rows.length, tiers.length, 'all fixture agents rendered in the tray')
+    for (const [i, tier] of tiers.entries()) {
+      const row = rows[i]!
+      assert.ok(row.classList.contains(i < 4 ? 'prov-claude'
+        : i === 4 ? 'prov-openai' : 'prov-google'),
+        `${tier} row uses the shared providerOf theme class`)
+      assert.equal(row.classList.contains('prov-claude'), i < 4,
+        `${tier} row does not receive the Claude class when it is non-Claude`)
+    }
+  })
+
 // ------------------------------------------------------------------- height
 // jsdom does no layout (see the file banner), so the CSS is read back from
 // the real stylesheet the app ships, not from a computed box.
@@ -185,6 +214,12 @@ function rule(selector: string): string {
   assert.ok(m, `no "${selector}" rule found in styles.css`)
   return m![1]!
 }
+
+test('Claude tray rows bind the established Claude accent token', () => {
+  assert.match(rule('.tray-row.prov-claude'),
+    /--accent:\s*var\(--prov-claude\)/,
+    'Claude rows must select the shared Claude provider token')
+})
 
 test('§3 the tray’s max-height is bound to the canvas, not a small fixed slice', () => {
   const trayCss = rule('.tray')
