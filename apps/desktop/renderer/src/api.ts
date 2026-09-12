@@ -3,6 +3,8 @@ import type { ReplyTarget } from './generated/events'
 // kiosk v2: when the SPA is served from a preauthenticated public URL
 // (/k/<token>/…), every API call and the WS must carry the token prefix —
 // the public listener serves nothing outside it.
+import { forgetNodeDetail, hydrateTree } from './archived'
+import type { NodeDetail } from './archived'
 import { bumpLive } from './livebus'
 import { backendRestart } from './windowlife'
 import type {
@@ -101,7 +103,14 @@ export const req = <T,>(path: string, init?: RequestInit,
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
     // makes wakes every mounted polled surface — centrally, so no call site
     // has to remember a refetch and none can be forgotten
-    if ((init?.method ?? 'GET') !== 'GET') bumpLive()
+    if ((init?.method ?? 'GET') !== 'GET') {
+      // §4.8: any mutation can change a seat's charter, scope or turn history,
+      // and the detail cache is keyed on generation — which an EDIT does not
+      // bump. Dropping the whole cache here costs at most one refetch, and
+      // only when an archived card is actually open.
+      forgetNodeDetail()
+      bumpLive()
+    }
     return r.json() as Promise<T>
   })
 
@@ -120,8 +129,15 @@ export const createOrg = (
       ...(netHubs.length ? { net_hubs: netHubs } : {}),
     }),
   }, SLOW_TIMEOUT_MS)
+// §4.8: archived seats arrive without their runtime fields; `hydrateTree`
+// refills them from the payload's own `archived_defaults` before anything
+// downstream sees the tree, so no reader has to know the seat was summarised.
 export const getTree = (slug: string): Promise<TreePayload> =>
-  req(`/api/orgs/${slug}`)
+  req<TreePayload>(`/api/orgs/${slug}`).then(hydrateTree)
+/** §4.8: the fields a summarised (archived) seat does not carry — full
+ *  charter, scope, lineage, turn history. Fetched when a seat is opened. */
+export const getNodeDetail = (slug: string, id: string): Promise<NodeDetail> =>
+  req(`/api/orgs/${slug}/nodes/${encodeURIComponent(id)}/detail`)
 export const deleteOrg = (slug: string): Promise<{ ok: boolean }> =>
   req(`/api/orgs/${slug}`, { method: 'DELETE' })
 export const runOp = (slug: string, body: OpRequest): Promise<OpResult> =>

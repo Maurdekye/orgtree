@@ -6,6 +6,7 @@ import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
 import type { CanvasNode } from './shared'
+import { useNodeDetail } from '../nodedetail'
 
 export function deskGeneration(node: Pick<CanvasNode, 'generation'>): number {
   if (typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) {
@@ -193,9 +194,16 @@ function InDesksPlace({ bare, children }: { bare?: boolean; children: ReactNode 
   </div>
 }
 
-export function DeskSlot(props: DeskChatProps) {
+export function DeskSlot(outer: DeskChatProps) {
   const desks = useContext(DeskContext)
   const mapReady = useContext(DeskMapReady)
+  // §4.8: an archived seat arrives summarised, and the desk reads its full
+  // charter and turn history. Resolved HERE because this is the one door every
+  // desk goes through — five call sites, one fetch rule. It does NOT gate:
+  // the desk renders from the summary and upgrades when detail lands, so
+  // opening a retired agent never waits on a spinner.
+  const { node } = useNodeDetail(outer.slug, outer.node)
+  const props = node === outer.node ? outer : { ...outer, node }
   if (!mapReady) return <InDesksPlace bare={props.bare}>Loading organization...</InDesksPlace>
   if (!desks || isMobile || typeof props.node.generation !== 'number'
     || !Number.isSafeInteger(props.node.generation) || props.node.generation < 0) return <OwnedDeskChat {...props} />

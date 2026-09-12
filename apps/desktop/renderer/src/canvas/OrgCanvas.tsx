@@ -42,6 +42,8 @@ import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
+import { charterLine } from '../archived'
+import { NodeDetailGate } from './nodedetailgate'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -3120,7 +3122,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                       <span className="queued-mark" title={queuedSwitchTitle(n)}>
                         →{TIER_LETTER[n.pending_switch.tier] ?? '?'}</span>}
                     <span className="tray-name"
-                      title={(n.charter || '').split('\n')[0] || n.id}>{n.id}</span>
+                      title={charterLine(n) || n.id}>{n.id}</span>
                     <ContextWheel occ={n.occupancy} cw={n.context_window}
                       est={n.occupancy_est} compactAt={tree.compact_at} />
                     <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
@@ -3164,17 +3166,25 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           never scroll by touch — the portal moves the overlay out of that
           DOM subtree ON MOBILE ONLY; desktop renders exactly as before. */}
       {configId && map.get(configId) && (
-        <MaybePortal><NodeConfig node={map.get(configId)!} map={map} tree={tree} slug={slug}
+        /* §4.8: an archived seat arrives summarised and this panel needs its
+           `scope`, so it waits for the detail fetch rather than throwing */
+        <MaybePortal><NodeDetailGate slug={slug} node={map.get(configId)!}>
+          {(n) => (
+        <NodeConfig node={n} map={map} tree={tree} slug={slug}
           op={op} toast={toast} codexProvider={codexProvider}
           antigravityProvider={antigravityProvider} openrouterProvider={openrouterProvider}
           presence={presence}
-          close={() => setConfigId(null)} /></MaybePortal>
+          close={() => setConfigId(null)} />)}
+        </NodeDetailGate></MaybePortal>
       )}
       {lineageId && map.get(lineageId) && (
-        <MaybePortal><LineagePanel node={map.get(lineageId)!} op={op} slug={slug}
+        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!}>
+          {(ln) => (
+        <LineagePanel node={ln} op={op} slug={slug}
           presence={presence} userDisabled={userDisabled}
           map={map} onFocusAgent={centerOn}
-          close={() => setLineageId(null)} /></MaybePortal>
+          close={() => setLineageId(null)} />)}
+        </NodeDetailGate></MaybePortal>
       )}
       {dogView && (tree.watchdogs ?? []).some((w) => w.id === dogView) && (
         <MaybePortal><WatchdogPanel slug={slug} toast={toast}

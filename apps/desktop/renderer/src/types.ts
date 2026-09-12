@@ -315,6 +315,19 @@ export interface PendingSwitch {
 }
 
 export interface TreeNode {
+  /** §4.8 — `false` means this is an ARCHIVED seat's SUMMARY: its
+   *  supervisor-derived runtime fields were refilled from the payload's
+   *  `archived_defaults` (api.ts `getTree` → `hydrateTree`), and its per-seat
+   *  detail — full `charter`, `scope`, `lineage`, `session_id`, the whole
+   *  `turns` history, `documents`, `last_denials`, `last_approvals` — is
+   *  absent until `useNodeDetail` fetches it.
+   *  ABSENT on every live seat and on anything an older engine sent, both of
+   *  which are complete. A panel that dereferences one of those fields must go
+   *  through `useNodeDetail`/`NodeDetailGate` first. */
+  detail?: boolean
+  /** §4.8 — the first line of the charter, which is all the tray tooltip uses.
+   *  Only on a summary; the whole charter comes with the detail fetch. */
+  charter_line?: string | null
   id: string
   title: string
   tier: string
@@ -726,6 +739,11 @@ export interface SweepResult {
 }
 
 export interface TreePayload {
+  /** §4.8 — what an archived seat's omitted runtime fields are worth, sent
+   *  once per payload instead of 242 times inside it. `hydrateTree` refills
+   *  from THIS rather than from a copy of the rule written in TypeScript.
+   *  Absent from an older engine, which omitted nothing. */
+  archived_defaults?: Partial<TreeNode>
   slug: string
   name: string
   workspace: string | null

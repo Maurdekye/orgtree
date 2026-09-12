@@ -1838,8 +1838,104 @@ def _rederive_freeze_reset(node: dict[str, Any],
     fz["until_ts"] = float(ts)
 
 
+#: §4.8 — ARCHIVED SEATS TRAVEL AS A SUMMARY.
+#
+# MEASURED 2026-09-11 on the operator's org: the tree payload was 1,281,721
+# bytes, of which 242 archived seats accounted for 1,232,054 (96%) while the
+# two live ones took 18,478. The desk draws those 242 as ONE collapsed pile
+# badge, and the app refetches the whole payload on every lifecycle operation
+# and every 6 s heartbeat — about 11 MB per 30 idle seconds.
+#
+# Two different things were being paid for, so there are two lists.
+#
+# `_ARCHIVED_RUNTIME_FIELDS` are what `annotate` derives from the SUPERVISOR:
+# is it busy, what is it doing, is a process warm. For an archived seat every
+# one is a constant — it has no turn and no process — and they cost 330 KB of
+# this payload IN KEY NAMES ALONE (`"mcp_readiness_waiting":false,` is 33
+# bytes, times 242). They are omitted from the wire and the client refills the
+# same constants (`hydrateArchived` in tree.ts). The engine also stops CALLING
+# the supervisor for them, which is the larger half of the saving.
+#
+# `_ARCHIVED_DETAIL_FIELDS` are real per-seat data that only a seat someone has
+# OPENED needs: its full charter, scope, lineage, turn history. They are
+# omitted here and served by `GET /api/orgs/{slug}/nodes/{nid}/detail`.
+#
+# ⚠ THE TRAY IS NOT A DETAIL VIEW AND MUST NOT FETCH. `OrgCanvas`'s row for an
+# archived seat renders `last_status`, `prev_status`, the LAST turn and the
+# FIRST LINE of the charter, so those four stay — the last two in reduced form
+# (`charter_line`, `turns` capped at one). A summary that dropped them would
+# turn one payload into 242 detail fetches, which is worse than the problem.
+#
+# ⚠ THE VALUES TRAVEL, THE RULE DOES NOT GET COPIED. These constants ride every
+# tree payload as `archived_defaults` and the client refills from THAT, never
+# from a second list written in TypeScript — the same reason `ran_as_label` is
+# composed here rather than in the renderer. `test_archived_summary` asserts
+# each one against what a full annotation actually produces for an archived
+# seat, so a wrong constant is a failing test rather than a wrong card.
+_ARCHIVED_RUNTIME_DEFAULTS: dict[str, Any] = {
+    "busy": False, "waiting": False, "responding": False, "phase": None,
+    "queued": 0, "tasks": 0, "bg_tasks": 0, "last_error": None,
+    "activity": {"phase": "thinking"},
+    "on_fallback": False, "ran_as": None, "ran_as_label": None,
+    "codex_route": None, "resumable": False, "cache_forecast": None,
+    "proc_warm": False, "proc_live": False, "proc_relaunch": False,
+    "proc_relaunch_reason": None, "proc_paused": False,
+    "mcp_tool_count": None, "mcp_tool_count_source": None,
+    "mcp_tool_count_reason": "no live provider process",
+    "mcp_readiness_waiting": False, "mcp_readiness_state": None,
+    "mcp_readiness_reason": None,
+}
+_ARCHIVED_RUNTIME_FIELDS: tuple[str, ...] = tuple(_ARCHIVED_RUNTIME_DEFAULTS)
+_ARCHIVED_DETAIL_FIELDS: tuple[str, ...] = (
+    "charter", "team_charter", "scope", "lineage", "session_id",
+    "last_denials", "last_approvals", "documents",
+)
+
+
+def _summarise_archived(node: dict[str, Any]) -> None:
+    """Reduce one archived node in place to what the tray actually draws.
+
+    `detail: False` is the contract marker: it says the two field lists above
+    were removed and names this node as fetchable. A node WITHOUT the marker is
+    complete, which is what keeps every live seat and every older client
+    working unchanged."""
+    charter = node.get("charter")
+    node["charter_line"] = (
+        str(charter).split("\n", 1)[0] if isinstance(charter, str) else None)
+    # the tray reads `turns[turns.length - 1]`; the desk's five come with detail
+    turns = node.get("turns")
+    node["turns"] = list(turns)[-1:] if isinstance(turns, list) else []
+    # ⚠ BOTH lists are popped, not just the detail one. Most runtime fields are
+    # simply never added for an archived seat (`annotate` returns before them),
+    # but `Org.tree()` sets a few of them itself — `cache_forecast` is the one
+    # that caught this — so "not added" is not the same as "not present".
+    for k in (*_ARCHIVED_DETAIL_FIELDS, *_ARCHIVED_RUNTIME_FIELDS):
+        node.pop(k, None)
+    node["detail"] = False
+
+
 @app.get("/api/orgs/{slug}")
 def org_tree(slug: str, request: Request) -> dict[str, Any]:
+    return _org_view(slug, request, None)
+
+
+@app.get("/api/orgs/{slug}/nodes/{nid}/detail")
+def org_node_detail(slug: str, nid: str, request: Request) -> dict[str, Any]:
+    """§4.8: the fields `org_tree` leaves off an ARCHIVED seat.
+
+    Answers the same node the full tree would have carried, built by the same
+    projection and the same `annotate` — never a second rendering of the same
+    facts, because a second one is a second thing to disagree.
+
+    ⚠ NO `children`. The caller already has the shape from the tree; this is
+    the seat's own detail, and recursing would rebuild the pile it was fetched
+    to avoid. 404 for a node that is not in this org — a seat can be deleted
+    between the tree that listed it and the click that opens it."""
+    return _org_view(slug, request, nid)
+
+
+def _org_view(slug: str, request: Request,
+              detail_node: str | None) -> dict[str, Any]:
     profile = (getattr(request.state, "profile_timing", None)
                if _PROFILE_TIMING else None)
     try:
@@ -1876,12 +1972,22 @@ def org_tree(slug: str, request: Request) -> dict[str, Any]:
     # Resolve display metadata once for the graph, never once per card.
     account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
 
-    def annotate(node: dict[str, Any]) -> None:
+    def annotate(node: dict[str, Any], *, full: bool = False) -> None:
         account_row = account_rows.get(node.get("account"))
         if account_row:
             node["account_tint_ordinal"] = account_row["tint_ordinal"]
             node["account_label"] = account_row["label"]
         _rederive_freeze_reset(node, _cap_cache)
+        # §4.8: an archived seat has no turn and no process, so every field
+        # below is a constant for it — and deriving 242 constants from the
+        # supervisor was most of this handler's own time. `full=True` is the
+        # detail endpoint asking for the whole node anyway.
+        if node["state"] == "archived" and not full:
+            node["context_window"] = supervisor.context_window(node)
+            _summarise_archived(node)
+            for c in node["children"]:
+                annotate(c)
+            return
         # A model capability is derived from the tier, not historical turn
         # state. Existing nodes may still carry an older CLI observation in
         # their document after a provider updates its published window; never
@@ -2113,6 +2219,28 @@ def org_tree(slug: str, request: Request) -> dict[str, Any]:
             annotate(c)
 
     _stage = time.perf_counter()
+    if detail_node is not None:
+        # §4.8 detail: annotate exactly the seat that was asked for. `tree()`
+        # built the projection for every node — that half is ~8 ms and shared
+        # with the tree handler on purpose, so the two views cannot drift —
+        # but nothing else is annotated, and no pile is rebuilt.
+        found: dict[str, Any] | None = None
+        stack = list(tree["roots"])
+        while stack:
+            n = stack.pop()
+            if n["id"] == detail_node:
+                found = n
+                break
+            stack.extend(n["children"])
+        if found is None:
+            raise HTTPException(404, f"no such node: {detail_node!r}")
+        found["children"] = []
+        annotate(found, full=True)
+        if profile is not None:
+            profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
+        if _public_slug(request):
+            _scrub_public({"roots": [found]})
+        return found
     for r in tree["roots"]:
         annotate(r)
     if profile is not None: profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
@@ -2176,6 +2304,9 @@ def org_tree(slug: str, request: Request) -> dict[str, Any]:
                                    if str(r.get("slug")) in local_net
                                    else ["net"])
     tree["headless"] = bool(org.d.get("headless"))
+    # §4.8: what an archived seat's omitted runtime fields are worth, sent once
+    # per payload instead of 242 times inside it. The client refills from this.
+    tree["archived_defaults"] = _ARCHIVED_RUNTIME_DEFAULTS
     # WHETHER a key is set, never the key (settings needs the fact)
     tree["api_key_set"] = bool(org.d.get("api_key"))
     if _public_slug(request):
