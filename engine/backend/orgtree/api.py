@@ -3560,6 +3560,35 @@ def charters_populate() -> dict[str, Any]:
     return {"dir": folder, "created": created, "existing": existing}
 
 
+@app.post("/api/charters/open")
+def charters_open() -> dict[str, Any]:
+    """Open the canonical user charters directory using desktop shell integration,
+    creating only that directory if it does not already exist."""
+    folder = user_charters_dir()
+    if os.path.exists(folder) and not os.path.isdir(folder):
+        raise HTTPException(409, f"Charter path exists but is not a directory: {folder}")
+    try:
+        folder = _checked_user_charters(create=True)
+    except FileExistsError as exc:
+        raise HTTPException(409, f"Charter path exists but is not a directory: {folder}") from exc
+    except OSError as exc:
+        raise HTTPException(500, f"Could not create charter directory: {exc}") from exc
+
+    if not os.path.isdir(folder):
+        raise HTTPException(409, f"Charter path exists but is not a directory: {folder}")
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(folder)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+        else:
+            subprocess.Popen(["xdg-open", folder])
+        return {"ok": True, "path": folder}
+    except OSError as exc:
+        raise HTTPException(500, f"Could not open charter directory: {exc}") from exc
+
+
 class CharterDoc(BaseModel):
     content: str
 

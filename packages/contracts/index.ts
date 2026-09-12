@@ -107,6 +107,7 @@ export interface DesktopBridge {
   /** Close native alerts whose attention item no longer exists. */
   syncNotifications?(active: NotificationIdentity[]): Promise<void>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
+  openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   /** Window commands for ONE popped-out desk or modal, named by the frame name

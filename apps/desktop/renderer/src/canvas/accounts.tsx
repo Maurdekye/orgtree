@@ -440,14 +440,24 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
       {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
-      {providers && <p className="dim" role="status">{discovering
-        ? 'Refreshing provider status... Showing the last result.'
-        : <button type="button" className="usage-refresh-button"
+      {providers && (
+        <div className="acct-providers-bar" role="status">
+          <span className="acct-providers-msg dim">
+            {discovering ? 'Refreshing provider status… Showing the last result.' : 'Installed harnesses and accounts'}
+          </span>
+          <button
+            type="button"
+            className="acct-secondary-btn acct-refresh-btn"
             aria-label="refresh provider status"
             title="refresh provider status"
-            onClick={() => { void loadProviders() }}>
-            <AutorenewIcon fontSize="inherit" />
-          </button>}</p>}
+            disabled={discovering}
+            onClick={() => { void loadProviders() }}
+          >
+            <AutorenewIcon fontSize="inherit" className={discovering ? 'cc-spin' : undefined} />
+            <span>{discovering ? 'refreshing…' : 'refresh'}</span>
+          </button>
+        </div>
+      )}
       {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
       {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className='set-group acct-provider-group'>
@@ -506,8 +516,8 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk" note="saved on this computer"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
-      <SetGroup title="Startup" note="saved on this computer"><StartupView /></SetGroup>
+      <SetGroup title="Desk"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Startup"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
     <button onClick={close}>close</button>

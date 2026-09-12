@@ -200,7 +200,7 @@ export function ThemeSetting() {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
   }
-  return <SetGroup title="Appearance" note="saved on this computer">
+  return <SetGroup title="Appearance">
     <SetRow label="visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">
       <select aria-label="Visual theme" value={isCustomTheme(theme) ? 'custom' : theme} disabled={!ready || busy} onChange={e => void change(e.target.value === 'custom' ? `custom:${customColor}` : e.target.value)}>
         {VISUAL_THEMES.map(id => <option key={id} value={id}>{THEMES[id].label}</option>)}

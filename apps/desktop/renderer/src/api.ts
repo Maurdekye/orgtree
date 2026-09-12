@@ -7,6 +7,7 @@ import { forgetNodeDetail, hydrateTree } from './archived'
 import type { NodeDetail } from './archived'
 import { bumpLive } from './livebus'
 import { backendRestart } from './windowlife'
+import { desktop } from './desktop'
 import type {
   AudiencesPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
@@ -249,6 +250,25 @@ export const getCharters = (): Promise<ChartersPayload> =>
 // user file, so calling it again is safe. Ran when onboarding completes.
 export const populateCharters = (): Promise<{ dir: string; created: string[]; existing: string[] }> =>
   req('/api/charters/populate', { method: 'POST' })
+/** Open the canonical user charter directory (~/.orgtree/charters) using
+ *  desktop shell integration, creating it first if missing. */
+export const openCharterFolder = async (): Promise<{ ok: boolean; path?: string; error?: string }> => {
+  const bridge = desktop()
+  if (typeof bridge?.openCharterFolder === 'function') {
+    try {
+      return await bridge.openCharterFolder()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: message }
+    }
+  }
+  try {
+    return await req('/api/charters/open', { method: 'POST' })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: message }
+  }
+}
 export const getFs = (path = ''): Promise<FsPayload> =>
   req(`/api/fs?path=${encodeURIComponent(path)}`)
 export const getInbox = (slug: string): Promise<InboxPayload> =>

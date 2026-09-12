@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
@@ -647,6 +648,32 @@ else {
     handle('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
+    })
+    handle('desktop:open-charter-folder', async () => {
+      const dir = path.join(os.homedir(), '.orgtree', 'charters')
+      try {
+        if (fs.existsSync(dir)) {
+          const stat = fs.statSync(dir)
+          if (!stat.isDirectory()) {
+            return { ok: false, error: `Charter path exists but is not a directory: ${dir}` }
+          }
+        } else {
+          fs.mkdirSync(dir, { recursive: true })
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `Could not create charter directory: ${message}` }
+      }
+      try {
+        const errorMsg = await shell.openPath(dir)
+        if (errorMsg) {
+          return { ok: false, error: `Could not open charter directory: ${errorMsg}` }
+        }
+        return { ok: true, path: dir }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `Could not open charter directory: ${message}` }
+      }
     })
     handle('desktop:update-status', () => updater.current())
     handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))

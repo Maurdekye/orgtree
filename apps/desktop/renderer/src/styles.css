@@ -5744,6 +5744,20 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 .acct-secondary-btn:disabled {
   opacity: 0.6; cursor: not-allowed; }
 
+/* compact header bar in App settings → Providers with status and refresh */
+.acct-providers-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; min-height: 26px; margin: 0 0 -4px;
+}
+.acct-providers-msg {
+  font-size: 12px; line-height: 1.4;
+}
+.acct-refresh-btn {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+}
+.acct-refresh-btn:disabled {
+  opacity: 0.6; cursor: wait; }
+
 /* ------------------------------------------ D-222: the settings row ------
    ONE GRID FOR EVERY ADJUSTABLE THING, in App settings and org settings
    alike. Three columns that are the same in every row of every tab:
