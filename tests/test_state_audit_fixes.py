@@ -18,6 +18,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # the backend's [orgtree] diagnostics use unicode (→, ⚠, №); a bare Windows
 # console is cp1252 and would crash the print, not the code under test. The
@@ -224,24 +225,43 @@ class AccountUnparkTests(unittest.TestCase):
             store.save_org(org)
         return s, nid
 
-    def test_operator_assign_clears_park_and_reports_unparked(self):
+    def test_operator_assign_clears_park_and_drives_the_wake(self):
+        # send_message MOCKED so the assertion is exact and no CLI can spawn
         slug, nid = self._parked("unpark-op")
-        out = supervisor.assign_account(slug, nid, "primary", actor="USER")
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            out = supervisor.assign_account(slug, nid, "primary", actor="USER")
         self.assertTrue(out.get("unparked"))
         self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+        # the operator door owns its save, so assign_account drives the wake
+        self.assertEqual(drive.call_count, 1)
+        self.assertEqual(drive.call_args.args[1], nid)
+        self.assertIn("assigned to you", drive.call_args.args[2])
 
-    def test_caller_owned_assign_reports_unparked_for_the_door_to_drive(self):
+    def test_caller_owned_assign_reports_unparked_but_does_not_drive(self):
+        # the agent dispatch owns the save, so assign_account must NOT drive
+        # here (the doc has not landed) — it returns `unparked` and the door
+        # calls drive_account_unpark after ITS save. The round-1 regression
+        # was the park cleared with NO wake because the flag was ignored.
         slug, nid = self._parked("unpark-agent")
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            out = supervisor.assign_account(slug, nid, "primary",
-                                            actor="USER", org=org)
-            store.save_org(org)
-        # the disclosure is how the caller-owned door (agent dispatch) knows
-        # to call drive_account_unpark after ITS save — the regression was a
-        # cleared park with no wake because the flag was ignored
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                out = supervisor.assign_account(slug, nid, "primary",
+                                                actor="USER", org=org)
+                store.save_org(org)
         self.assertTrue(out.get("unparked"))
         self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+        self.assertEqual(drive.call_count, 0)
+
+    def test_drive_account_unpark_sends_the_wake(self):
+        # the shared sender both doors use after their save
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor.drive_account_unpark("any", "node")
+        self.assertEqual(drive.call_count, 1)
+        self.assertIn("assigned to you", drive.call_args.args[2])
 
 
 class ProvenDeathTests(unittest.TestCase):
@@ -264,7 +284,7 @@ class DeadRemoteRecoveryTests(unittest.TestCase):
     """state-review fix 3: a provably-dead remote flag is cleared AND its
     waiting mail is delivered; a live driver is left alone."""
 
-    def test_dead_driver_flag_cleared(self):
+    def test_dead_driver_flag_cleared_and_waiting_mail_driven(self):
         import subprocess
         p = subprocess.Popen([sys.executable, "-c", "pass"])
         p.wait()
@@ -276,9 +296,14 @@ class DeadRemoteRecoveryTests(unittest.TestCase):
                 {"id": "m1", "from": "USER", "kind": "message",
                  "body": "waited", "at": "x"}]
             store.save_org(org)
-        supervisor._invariant_sweep_org(slug)
+        # send_message MOCKED — assert the waiting mail is driven, no CLI spawn
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor._invariant_sweep_org(slug)
         self.assertIsNone(
             store.load_org(slug).node(nid).get("remote_controlled"))
+        self.assertEqual(drive.call_count, 1)         # the queued mail
+        self.assertEqual(drive.call_args.args[1], nid)
 
     def test_live_driver_flag_is_left_alone(self):
         slug, nid = _fresh("rc-live", model="opus")
@@ -286,9 +311,12 @@ class DeadRemoteRecoveryTests(unittest.TestCase):
             org = store.load_org(slug)
             org.node(nid)["remote_controlled"] = {"at": "x", "pid": os.getpid()}
             store.save_org(org)
-        supervisor._invariant_sweep_org(slug)
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor._invariant_sweep_org(slug)
         self.assertIsNotNone(
             store.load_org(slug).node(nid).get("remote_controlled"))
+        self.assertEqual(drive.call_count, 0)         # nothing cleared/driven
 
 
 if __name__ == "__main__":

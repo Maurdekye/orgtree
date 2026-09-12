@@ -19116,6 +19116,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # first-class halted state adds itself when it rebases on top of
             # this. An unreadable doc proves nothing and stays silent (never a
             # false announcement).
+            # The set matches the ACTUAL admission gate (the raises at the top
+            # of the turn slot, ~15811-15824) exactly, so the belt never
+            # announces a terminal error for a turn a deliberate hold stopped:
+            # a freeze, a node limit_locked, remote control, a non-live node,
+            # the kiosk spend freeze, or the disk soft-cap pause. ⚠ It is
+            # `storage_blocked and on_disk`, NOT the dead `storage_frozen`
+            # flag (no writer since D-063) — matching the gate, per
+            # state-review 2026-09-12.
             _belt_owned = True
             try:
                 with store.DOC_LOCK:
@@ -19127,10 +19135,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         or _bn.get("limit_locked")
                         or _bn.get("remote_controlled")
                         or _bn["state"] != "live"
-                        # org-wide holds own their nodes too (a spend/storage
-                        # freeze stops every turn deliberately)
                         or _bo.d.get("spend_frozen")
-                        or _bo.d.get("storage_frozen"))
+                        or (_bo.d.get("storage_blocked")
+                            and sbx.on_disk(slug)))
             except Exception:                                # noqa: BLE001
                 _belt_owned = True
             if not _belt_owned:
