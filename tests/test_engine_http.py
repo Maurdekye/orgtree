@@ -205,6 +205,16 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(body['activeAgents'], 0)
         self.assertTrue(body['idle'])
 
+    def test_desktop_identity_reports_runtime_and_build_identity(self):
+        status, body = self.request('/api/desktop/identity', operator=True)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['protocol'], 1)
+        self.assertEqual(body['pid'], self.process.pid)
+        self.assertEqual(body['dataRootId'], str(self.data.resolve()))
+        self.assertTrue(Path(body['runtimeRoot']).is_dir())
+        self.assertTrue(Path(body['pythonExecutable']).is_file())
+        self.assertIn(body['buildIdentity']['provenance'], ('source', 'packaged', 'unknown'))
+
     def test_scoped_steering_route_and_sanitized_hook(self):
         route = '/api/orgs/auth-fixture/nodes/caller/steer'
         payload = {'tool_use_id':'probe-tool','transcript_path':''}

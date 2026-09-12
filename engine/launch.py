@@ -190,7 +190,8 @@ class TokenGate:
         await self.app(scope, receive, send)
 
 
-def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) -> None:
+def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
+                            api_module_file: str) -> None:
     from orgtree import desktop_recovery
     from orgtree.ledger import LedgerError
     from fastapi import HTTPException
@@ -254,7 +255,7 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None]) 
     @api_app.get("/api/desktop/identity")
     def desktop_identity() -> dict[str, Any]:
         from orgtree.build_identity import artifact_root_for, resolve_build_identity
-        runtime_root = artifact_root_for(api.__file__)
+        runtime_root = artifact_root_for(api_module_file)
         return {
             "protocol": 1,
             "pid": os.getpid(),
@@ -318,7 +319,8 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     api.app.include_router(desktop_import.router)
     desktop_policy.install_routes(api.app)
     stopping = {"value": False}
-    _install_desktop_routes(api.app, data, lambda: stopping.__setitem__("value", True))
+    _install_desktop_routes(api.app, data, lambda: stopping.__setitem__("value", True),
+                            api.__file__)
     # The copied API installs its SPA fallback during import, before desktop
     # routers exist. Keep that fallback last when a packaged UI is present.
     routes = api.app.router.routes
