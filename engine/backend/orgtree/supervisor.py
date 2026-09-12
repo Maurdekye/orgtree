@@ -5352,8 +5352,28 @@ def _mark_supersedes_message(mark_ts: float, msg_ts: float | None,
     return not _message_is_conclusive(msg_ts, msg_src)
 
 
+def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
+    """Is this freeze a wait for an ACCOUNT'S CAPACITY — the only kind the
+    marks and the roster describe?
+
+    ⚠ THE SCOPE GUARD, AND IT BELONGS HERE (review 2026-09-12, round 4). The
+    display path had it all along (`api._rederive_freeze_reset` returns early
+    for a connection, an auth/balance refusal and a non-limit record), but
+    when the ranking moved into `effective_freeze_deadline` the SCHEDULER
+    started asking the same question about every freeze it saw — so a
+    connection freeze whose own deadline had passed got parked behind an
+    unrelated usage mark on its account, and an unbound one lost its deadline
+    entirely and fell to the org's 5-minute floor. A connection drop is not a
+    usage wall; a rejected credential is not a usage wall. They own their own
+    clocks, and the account's capacity has no standing over them."""
+    return bool(fz.get("limit")) and not fz.get("connection") \
+        and fz.get("cause") not in ("auth", "balance")
+
+
 def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
-                              now: float | None = None) -> dict[str, Any] | None:
+                              now: float | None = None,
+                              roster: Mapping[str, Any] | None = None,
+                              ) -> dict[str, Any] | None:
     """THE deadline a usage-limit freeze has — the one the badge shows AND the
     one the wake timer uses. There is only ever one number (USER RULING
     2026-09-12: "the wake timer should follow whats shown, and what's shown
@@ -5369,27 +5389,57 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
     Both callers ask THIS function now. Do not re-derive a deadline anywhere
     else; add the rank here and both surfaces move together.
 
-    `mark` is the serving account's live registry mark (or None) — passed in
-    rather than fetched, because each caller memoises it differently and a
-    pure function is the point. Answers None when nothing can name a time:
-    display then falls to the roster, the scheduler to its probe floor.
+    `mark` is the serving account's RECORDED registry mark (or None) — live
+    or elapsed, `registry.recorded_mark` — and `roster` is
+    `accounts.resolve(tier)` (or None). Both are passed in rather than
+    fetched, because each caller memoises them differently and a pure function
+    is the point. Answers None only when NOTHING can name a time; the
+    scheduler then falls to its probe floor and the badge says so.
+
+    ⚠ A STATEMENT ABOUT A WALL KEEPS ITS TIME AFTER THAT TIME PASSES — IT
+    MEANS THE NODE IS DUE (review 2026-09-12, round 4). Ranks 1 and 2 are
+    statements ("the provider said 3:30pm", "this account is marked until
+    3:30pm"); when their moment arrives the wall they described is DOWN, and
+    the caller reads the past time as "wake now". Dropping an elapsed one to
+    the rank below is how a node promised a wake at +30m got silently
+    re-parked on its own record's inherited +2h the second that promise came
+    due: the badge jumped FORWARD and the wake never happened.
+
+    Rank 3 is the exception, and deliberately so: an inherited horizon or a
+    blind probe floor is a GUESS with no wall behind it, and an expired guess
+    says nothing at all. It is live-only, so an elapsed one falls through to
+    the roster and then to "reset time unknown" — the honest answer, and the
+    one the badge already gave.
 
     The ranks, in order:
 
       1. THE SPECIFIC 429. `reset_src` text (parsed from this error's prose)
          or provider (a machine reset the lane stated for this turn), with a
-         time. ⚠ KEPT EVEN WHEN IT HAS ELAPSED, which is the second half of
-         the user's ruling: the moment the provider named is when this node is
-         DUE, and it is owed one real attempt at that time. Letting a longer
-         account mark take over at that point would silently re-park it on
-         usage data and make the stated time cosmetic. If the wall really is
-         still up, the attempt returns a new 429 and that 429 rewrites this
-         record with its own timing — the precedence working, not a hole.
-      2. THE ACCOUNT'S OWN LIVE MARK — the number the Usage modal prints.
-         The fallback the precedence allows when the 429 said nothing.
+         time. The moment the provider named is when this node is DUE, and it
+         is owed one real attempt at that time. Letting a longer account mark
+         take over at that point would silently re-park it on usage data and
+         make the stated time cosmetic. If the wall really is still up, the
+         attempt returns a new 429 and that 429 rewrites this record with its
+         own timing — the precedence working, not a hole.
+      2. THE ACCOUNT'S OWN MARK — the number the Usage modal prints. The
+         fallback the precedence allows when the 429 said nothing. Elapsed, it
+         still answers: the wall it described is DOWN, which is a fact about
+         this node's lane that outranks a horizon the record inherited from
+         somewhere else. (Bounded to ±`MAX_HORIZON` so a row nobody has
+         touched in a fortnight cannot speak for a freeze taken today.)
       3. ANY OTHER LIVE HORIZON the record carries: an inherited one, the
-         blind probe floor. Weak, but a scheduled wake is coming and neither
-         surface may deny it.
+         blind probe floor. Weak, but a wake is coming and neither surface may
+         deny it.
+      4. THE ROSTER — `accounts.resolve` for the tier, when it reports the
+         pool unavailable. ⚠ SHARED, not display-only (round 4): while this
+         rank lived in `api._rederive_freeze_reset` alone, a node with no time
+         of its own wore the roster's "+2h" while the scheduler, seeing no
+         deadline at all, fired on its 5-minute probe floor. Same disagreement
+         as rounds 2 and 3, one rank further down.
+
+    ⚠ Ranks 2-4 are the ACCOUNT'S CAPACITY talking, so they apply only to a
+    freeze that is actually waiting for capacity — see
+    `freeze_waits_on_capacity`. Everything else keeps its own clock.
     """
     now = time.time() if now is None else now
     try:
@@ -5397,26 +5447,46 @@ def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
     except (TypeError, ValueError):
         own = 0.0
     src = str(fz.get("reset_src") or "")
-    if own and own <= now + limits.MAX_HORIZON and src in ("text", "provider"):
+    in_range = bool(own) and own <= now + limits.MAX_HORIZON
+
+    def _own(default_kind: str = "", default_prov: str = "") -> dict[str, Any]:
         return {"ts": own, "src": src,
-                "schedule_kind": str(fz.get("schedule_kind")
-                                     or "observed-deadline"),
-                "provenance": str(fz.get("provenance") or "observed")}
+                "schedule_kind": str(fz.get("schedule_kind") or default_kind),
+                "provenance": str(fz.get("provenance") or default_prov)}
+
+    if in_range and src in ("text", "provider"):
+        return _own("observed-deadline", "observed")
+    if not freeze_waits_on_capacity(fz):
+        # a connection drop, a rejected credential, a park that is not a
+        # usage wall: its own deadline or nothing. The marks and the roster
+        # describe capacity, and capacity is not what this node is waiting on.
+        return _own() if in_range else None
     if mark:
         try:
             m_ts = float(mark["until"])
         except (KeyError, TypeError, ValueError):
             m_ts = 0.0
-        if m_ts > now:
+        if now - limits.MAX_HORIZON <= m_ts <= now + limits.MAX_HORIZON:
             prov = str(mark.get("provenance") or "")
             return {"ts": m_ts, "src": "account-mark",
                     "schedule_kind": ("observed-deadline" if prov == "observed"
                                       else "probe"),
                     "provenance": prov}
     if now < own <= now + limits.MAX_HORIZON:
-        return {"ts": own, "src": src,
-                "schedule_kind": str(fz.get("schedule_kind") or ""),
-                "provenance": str(fz.get("provenance") or "")}
+        return _own()
+    if roster and not roster.get("available"):
+        try:
+            r_ts = float(roster.get("refresh_at") or 0.0)
+        except (TypeError, ValueError):
+            r_ts = 0.0
+        if now < r_ts <= now + limits.MAX_HORIZON:
+            # A POOL fact, not this node's own measurement, and it claims
+            # nothing about how it was taken: `src` names the rank so the
+            # display can keep the wording it already had for it, and
+            # `schedule_kind`/`provenance` stay empty rather than stamping a
+            # kind onto a number the record does not own.
+            return {"ts": r_ts, "src": "roster", "schedule_kind": "",
+                    "provenance": ""}
     return None
 
 
@@ -5459,34 +5529,60 @@ def _issue_admit_once(n: NodeDoc, fz: FrozenInfo, now: float) -> bool:
 
     Everything else — a connection freeze, an auth freeze, a probe wake, a
     node that was never frozen — is admitted exactly as before. The pass is
-    ONE node's, for ONE admission, and `_consume_admit_once` spends it."""
+    ONE node's, for ONE admission, and `_consume_admit_once` spends it.
+
+    ⚠ AND IT IS BOUND TO THE ATTEMPT IT WAS EARNED FOR (review 2026-09-12,
+    round 4). The pass used to be a bare timestamp, so it said only WHEN it
+    was issued and nothing about WHAT it was for: a pass earned by a fable
+    429 on account A survived a rebinding and was spent by an opus turn on
+    account B — a different lane's live mark waved through on the strength of
+    a wall that was never that lane's. It carries the account and the model
+    it was issued against, and the gate spends it only on that pair."""
     if not fz.get("limit"):
         return False
     if not _message_is_conclusive(fz.get("until_ts"), str(fz.get("reset_src") or "")):
         return False
     if now < float(cast(float, fz["until_ts"])):
         return False
-    n["admit_once"] = now
+    n["admit_once"] = {"at": now,
+                       "account": freeze_account_of(fz, n),
+                       "model": str(n.get("model") or "")}
     return True
 
 
 def _consume_admit_once(slug: str, nid: str, now: float | None = None) -> bool:
-    """Spend the node's gate pass, if it has a live one. ALWAYS clears it.
+    """Spend the node's gate pass, if it has a live one FOR THIS ATTEMPT.
+    ALWAYS clears it.
 
     Durable (the pass lives on the node document, so it survives the restart
     between a wake and its turn) and strictly one-shot: this is the only
     reader, and it removes the field whether or not the pass was still good.
-    An expired pass is cleared and refused — see `ADMIT_ONCE_TTL`."""
+
+    Three ways a pass is refused, and all three clear it:
+    · it expired — see `ADMIT_ONCE_TTL`;
+    · the node's account or model CHANGED since it was issued, so the wall it
+      was earned against is not the wall this attempt faces (round 4);
+    · it is not a bound record at all — a bare timestamp written by a build
+      before the binding existed. It cannot prove what it was for, and the
+      120-second window makes losing one a re-gated admission, not a stuck
+      node."""
     now = time.time() if now is None else now
     spent = False
     with store.DOC_LOCK:
         o = store.load_org(slug)
         if nid in o.nodes:
-            issued = o.node(nid).pop("admit_once", None)
-            try:
-                spent = bool(issued) and now - float(issued) <= ADMIT_ONCE_TTL
-            except (TypeError, ValueError):
-                spent = False
+            n = o.node(nid)
+            issued = n.pop("admit_once", None)
+            if isinstance(issued, dict):
+                try:
+                    fresh = now - float(issued.get("at") or 0.0) <= ADMIT_ONCE_TTL
+                except (TypeError, ValueError):
+                    fresh = False
+                spent = (fresh
+                         and str(issued.get("account") or "")
+                         == str(n.get("account") or "")
+                         and str(issued.get("model") or "")
+                         == str(n.get("model") or ""))
             if issued is not None:
                 store.save_org(o)
     return spent
@@ -24358,10 +24454,10 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
     # through DELIBERATELY: this function takes an injected clock so its tests
     # are deterministic, and a resolver reading the wall clock behind its back
     # would make exactly the timing-sensitive branches untestable.
-    _pool_seen: dict[str, bool] = {}
+    _pool_seen: dict[str, dict[str, Any] | None] = {}
     # …and one registry answer per (account, tier), for the same reason: the
-    # deadline contract needs the account's live mark per node, and
-    # `registry.active_mark` re-reads and re-parses the whole registry FILE
+    # deadline contract needs the account's mark per node, and
+    # `registry.recorded_mark` re-reads and re-parses the whole registry FILE
     # per call. It takes no lock of its own, so there is no inversion with the
     # DOC_LOCK this runs under.
     _mark_seen: dict[tuple[str, str], dict[str, Any] | None] = {}
@@ -24372,24 +24468,34 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         key = (acct, tier)
         if key not in _mark_seen:
             try:
-                _mark_seen[key] = registry.active_mark(acct, tier, now)
+                # ⚠ RECORDED, not ACTIVE — the same reader the badge uses
+                # (review round 4). An elapsed mark still answers the wake
+                # question, and the two surfaces must be asking one question
+                # of one source. `effective_freeze_deadline` decides what an
+                # elapsed one means; this only fetches it.
+                _mark_seen[key] = registry.recorded_mark(acct, tier)
             except Exception:               # noqa: BLE001 — unreadable registry
                 _mark_seen[key] = None
         return _mark_seen[key]
 
-    def _pool_open(tier: str) -> bool:
+    def _roster_for(tier: str) -> dict[str, Any] | None:
+        """The tier's roster answer, or None when it cannot be had. None and
+        "unreadable" are the same thing to both readers of it below."""
         if not tier:
-            return False        # no tier, no lane — never "capacity exists"
+            return None
         if tier not in _pool_seen:
             try:
-                _pool_seen[tier] = bool(
-                    accounts.resolve(tier, now).get("available"))
+                _pool_seen[tier] = dict(accounts.resolve(tier, now))
             except Exception:   # noqa: BLE001 — unreadable roster
-                # fail CLOSED. An unreadable roster is not evidence of
-                # capacity, and this branch's whole job is spending a turn on
-                # the belief that capacity exists.
-                _pool_seen[tier] = False
+                _pool_seen[tier] = None
         return _pool_seen[tier]
+
+    def _pool_open(tier: str) -> bool:
+        # fail CLOSED on an unreadable roster. That is not evidence of
+        # capacity, and the branch asking this spends a turn on the belief
+        # that capacity exists.
+        got = _roster_for(tier)
+        return bool(got and got.get("available"))
 
     ready: set[str] = set()
     for nid, n in org.nodes.items():
@@ -24486,9 +24592,10 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         # added a private `admit_ts` floor that the badge could not see, and
         # the version before that let this function read a stamped `until_ts`
         # the projection had already overruled. Both were the same bug.
+        _tier = str(n.get("model") or "")
         _eff = effective_freeze_deadline(
-            fz, _mark_for(freeze_account_of(fz, n),
-                          str(n.get("model") or "")), now)
+            fz, _mark_for(freeze_account_of(fz, n), _tier), now,
+            _roster_for(_tier) if _tier in accounts.TIERS else None)
         ts = _eff["ts"] if _eff else None
         if ts:
             if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):

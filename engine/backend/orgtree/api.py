@@ -1833,13 +1833,12 @@ def _rederive_freeze_reset(node: dict[str, Any],
     #      the badge must not deny that a wake is coming.
     #   4. only THEN the roster.
     #
-    # Each rank is its own branch below, in that order. Rank 2 is read from
-    # `registry` rather than from the record, because the mark is DURABLE and
-    # the record's `until_ts` is a snapshot taken when this node froze — a
-    # sibling seat hitting the same account's wall moves the mark afterwards,
-    # and nothing rewrites the stamp. Collapsing ranks 1-3 into one "has a live
-    # `until_ts`" test is the round-2 defect: it let a rank-3 probe floor
-    # suppress a rank-2 observed mark.
+    # Rank 2 is read from `registry` rather than from the record, because the
+    # mark is DURABLE and the record's `until_ts` is a snapshot taken when this
+    # node froze — a sibling seat hitting the same account's wall moves the
+    # mark afterwards, and nothing rewrites the stamp. Collapsing ranks 1-3
+    # into one "has a live `until_ts`" test is the round-2 defect: it let a
+    # rank-3 probe floor suppress a rank-2 observed mark.
     #
     # ⚠ WHY THIS WAS THE BUG (user report 2026-09-12, screenshot). Only rank 1
     # used to be protected. `accounts.resolve` reads the LEGACY roster, which
@@ -1854,14 +1853,21 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # an unmarked fallback) is a fact about ROUTING that must never ERASE this
     # node's stated wake. Routing itself (`accounts.resolve` at spawn) is
     # untouched by this projection.
-    # ── RANKS 1-3 ARE NOT DECIDED HERE. `supervisor.effective_freeze_deadline`
-    # owns them, and `auto_resume_ready` asks it the same question, so the time
+    # ── NO RANK IS DECIDED HERE. `supervisor.effective_freeze_deadline` owns
+    # all four, and `auto_resume_ready` asks it the same question, so the time
     # on the badge and the time the node actually wakes are ONE NUMBER (user
     # ruling 2026-09-12; review round 3 caught them disagreeing). This used to
     # rank the sources itself, on the payload, writing nothing durable — while
     # the scheduler read the stamped `frozen.until_ts` off the document. A
     # `probe` floor at +300 under an observed mark at +1800 then displayed
     # +1800 and woke at +300.
+    #
+    # ⚠ RANK 4 MOVED IN TOO (review round 4). Keeping the roster here, as the
+    # one rank the contract did not know about, reproduced the same bug one
+    # level down: a node with no time of its own wore the roster's "+2h" while
+    # the scheduler saw no deadline at all and fired on its 5-minute probe
+    # floor. This function still WORDS that rank (below) — the wording is
+    # display's business — but it no longer decides it.
     #
     # ⚠ MEMOISED IN THE SAME `cache` AS THE ROSTER: `registry.active_mark`
     # re-reads and re-parses the whole registry FILE per call, and an org with
@@ -1877,11 +1883,26 @@ def _rederive_freeze_reset(node: dict[str, Any],
         _mkey = f"mark:{_acct}:{tier}"
         if _mkey not in cache:
             try:
-                cache[_mkey] = registry.active_mark(_acct, tier, now) or {}
+                # ⚠ `recorded_mark`, NOT `active_mark`: the wake question is
+                # "when is this node due", and a mark whose time has PASSED
+                # answers it (review round 4 — the account's wall came down at
+                # the moment it named). `effective_freeze_deadline` owns what
+                # an elapsed one means; this only has to fetch it.
+                cache[_mkey] = registry.recorded_mark(_acct, tier) or {}
             except Exception:                                # noqa: BLE001
                 cache[_mkey] = {}                            # unreadable registry
         _mark = cache[_mkey] or None
-    _eff = supervisor.effective_freeze_deadline(fz, _mark, now)
+    if tier not in cache:
+        cache[tier] = accounts.resolve(tier)
+    _eff = supervisor.effective_freeze_deadline(fz, _mark, now, cache[tier])
+    if _eff and _eff["src"] == "roster":
+        # ── RANK 4, with the wording it has always had. The roster's
+        # `refresh_at` is a POOL horizon, so the record gains no `reset_src`,
+        # `schedule_kind` or `provenance` from it — it is not this node's own
+        # measurement and must not be stamped as one.
+        fz["until"] = f"capacity resets {supervisor._reset_label(_eff['ts'])}"
+        fz["until_ts"] = _eff["ts"]
+        return
     if _eff:
         fz["until"] = _capacity_label(
             _eff["ts"], _eff["src"], _eff["schedule_kind"])
@@ -1892,21 +1913,12 @@ def _rederive_freeze_reset(node: dict[str, Any],
         if _eff["provenance"]:
             fz["provenance"] = _eff["provenance"]
         return
-    # ── RANK 4. Only now the roster.
-    if tier not in cache:
-        cache[tier] = accounts.resolve(tier)
-    got = cache[tier]
-    ts = None if got.get("available") else got.get("refresh_at")
-    if not ts:
-        # ⚠ NEITHER "capacity available" NOR "▶ to resume" (user ruling
-        # 2026-09-12). Manual resume is retired copy, and a frozen agent whose
-        # wake is unknown must not be captioned with somebody ELSE's capacity:
-        # the roster answering "available" says another account could serve a
-        # NEW turn, not that this node is about to run. Neutral, and true.
-        fz["until"], fz["until_ts"] = "reset time unknown", None
-        return
-    fz["until"] = f"capacity resets {supervisor._reset_label(float(ts))}"
-    fz["until_ts"] = float(ts)
+    # ⚠ NEITHER "capacity available" NOR "▶ to resume" (user ruling
+    # 2026-09-12). Manual resume is retired copy, and a frozen agent whose
+    # wake is unknown must not be captioned with somebody ELSE's capacity:
+    # the roster answering "available" says another account could serve a
+    # NEW turn, not that this node is about to run. Neutral, and true.
+    fz["until"], fz["until_ts"] = "reset time unknown", None
 
 
 #: §4.8 — ARCHIVED SEATS TRAVEL AS A SUMMARY.

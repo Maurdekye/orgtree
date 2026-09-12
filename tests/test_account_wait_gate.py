@@ -113,6 +113,60 @@ class WaitGateTests(unittest.TestCase):
         self.assertEqual(second["until_ts"], first["until_ts"])
         self.assertEqual(second["reset_src"], "account-mark")
 
+    # ── THE ONE-SHOT PASS, THROUGH THE REAL ADMISSION PATH ────────────────
+    # (user ruling 2026-09-12; coordinator's narrowest path; identity binding
+    # from review round 4.) A wake at a conclusive 429's own stated time gets
+    # ONE real attempt instead of being re-frozen on the spot by an older,
+    # longer mark. `spend_frozen` stops every one of these inside the slot for
+    # an unrelated reason, so a pass that WORKS still launches nothing — and
+    # the freeze record is the observable either way, exactly as above.
+    def _pass_fixture(self, slug, pass_):
+        row = self._fixture(slug, until=86400.0, spend=True)
+        org = self.store.load_org(slug)
+        org.node("root")["admit_once"] = pass_(row)
+        self.store.save_org(org)
+        return row
+
+    def _admit_once(self, slug):
+        return (self.store.load_org(slug).node("root") or {}).get("admit_once")
+
+    def test_a_bound_pass_carries_the_wake_through_the_gate(self):
+        import time as _t
+        self._pass_fixture("wg-pass-ok",
+                           lambda row: {"at": _t.time(),
+                                        "account": row["id"],
+                                        "model": "opus"})
+        self._drive("wg-pass-ok")
+        self.assertIsNone(self._frozen("wg-pass-ok"),
+                          "the live mark re-froze the wake it was owed")
+        self.assertIsNone(self._admit_once("wg-pass-ok"),
+                          "the pass must be spent, not reusable")
+
+    def test_a_pass_from_another_identity_does_not_open_the_gate(self):
+        """Round 4: the pass is for the wall it was earned against. Rebind the
+        seat, or run it on another model, and the gate is the gate again."""
+        import time as _t
+        for slug, pass_ in (
+                ("wg-pass-acct",
+                 lambda row: {"at": _t.time(), "account": "someone-else",
+                              "model": "opus"}),
+                ("wg-pass-model",
+                 lambda row: {"at": _t.time(), "account": row["id"],
+                              "model": "fable"}),
+                ("wg-pass-legacy", lambda row: _t.time()),
+                ("wg-pass-stale",
+                 lambda row: {"at": _t.time() - 600, "account": row["id"],
+                              "model": "opus"})):
+            with self.subTest(slug):
+                self._pass_fixture(slug, pass_)
+                self._drive(slug)
+                fz = self._frozen(slug)
+                self.assertIsInstance(
+                    fz, dict, "the account gate must still have fired")
+                self.assertEqual(fz["reset_src"], "account-mark")
+                self.assertIsNone(self._admit_once(slug),
+                                  "a refused pass must not sit waiting")
+
     def test_stateless_over_durable_state(self):
         # the wait re-derives from the DOC + registry alone: wipe the
         # per-process runtime state (the restart-shaped in-memory loss) and
