@@ -686,7 +686,7 @@ uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact
   assert.equal(await rightClick(parent), true)
   assert.ok(!parent.classList.contains('on'), 'not selected by the right-click')
   const have = labels()
-  assert.deepEqual(have, ['Open details', 'Hide 1 sub-item', 'Open owner (agent1)', 'Copy slug', 'Copy reference'])
+  assert.deepEqual(have, ['Copy ticket title', 'Open details', 'Hide 1 sub-item', 'Open owner (agent1)', 'Copy slug', 'Copy reference'])
   assert.equal(itemNamed('Copy reference')!.title, '@item:org1/parent-item')
   await pick('Copy slug')
   await flush(3)
@@ -753,7 +753,7 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
   const title = document.querySelector('.pin-layer .pinwin-title') as HTMLElement
   assert.ok(title, 'positive control: the pinned window rendered')
   await rightClick(title)
-  assert.deepEqual(labels(), ['Show on canvas', 'Unpin'])
+  assert.deepEqual(labels(), ['Copy agent name', 'Show on canvas', 'Unpin'])
   await pick('Show on canvas')
   // user bug 2026-09-11: this entry takes the CANVAS route, never the generic
   // jump - a generic jump to a pinned agent raises the window the reader is

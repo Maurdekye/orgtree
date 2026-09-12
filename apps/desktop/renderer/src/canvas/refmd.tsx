@@ -66,7 +66,8 @@ function inSkipped(node: Node): boolean {
  *  on screen belongs in here, or the pass skips a rebuild it needed. */
 function chipSig(r: ResolvedRef, live: boolean): string {
   return [r.outcome, live ? '1' : '0', r.label, r.why,
-    r.tier ?? '', r.atDestination ? '1' : '0'].join('')
+    r.tier ?? '', r.atDestination ? '1' : '0', r.copyTitle === undefined ? '0' : '1',
+    r.copyTitle ?? ''].join('')
 }
 
 /** build one chip as DOM. Mirrors `RefChip`; `refchip.test` holds the two
@@ -82,6 +83,8 @@ function chipEl(doc: Document, r: ResolvedRef,
   el.setAttribute(TOK, r.token)
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
+  if (r.ref.kind === 'agent') el.setAttribute('data-copy-agent-name', r.ref.id)
+  if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
   // an agent's CURRENT model, the same claim its name carries elsewhere. No
   // tier means no icon and a working control — an unknown model is not an
   // unknown agent.

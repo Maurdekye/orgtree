@@ -35,7 +35,7 @@ import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
 import type { WindowRestore } from '../windowlayout'
 import { useEsc } from './shared'
-import { useContextMenu } from './contextmenu'
+import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 
 /** One org modal pin; geometry persists independently from transient shared stacking. */
@@ -624,9 +624,13 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
         style={{ ...style, ...(pinned && overlapSetting.enabled && overlapsDesk
           ? { opacity: overlapSetting.opacity } : {}) }}
         onClick={(e) => { onPanelClick?.(e); e.stopPropagation() }}
-        onPointerDownCapture={pinned ? () => raisePinnedModal(kind, orgScope) : undefined}
-        onClickCapture={pinned ? () => raisePinnedModal(kind, orgScope) : undefined}>
-        <div className={'modalpin-bar' + (pinned ? ' on' : '')}
+        onPointerDownCapture={pinned ? e => {
+          if (!contextMenuBelongsTo(e.target, e.currentTarget)) raisePinnedModal(kind, orgScope)
+        } : undefined}
+        onClickCapture={pinned ? e => {
+          if (!contextMenuBelongsTo(e.target, e.currentTarget)) raisePinnedModal(kind, orgScope)
+        } : undefined}>
+        <div className={'modalpin-bar' + (pinned ? ' on' : '')} data-copy-agent-name={restore?.agent}
           title={pinned
             ? 'drag to move this window; drag an edge to resize. Escape cancels a drag.'
             : undefined}

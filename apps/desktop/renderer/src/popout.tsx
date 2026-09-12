@@ -2,6 +2,7 @@ import type { WindowRestore } from './windowlayout'
 import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
+import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode, SyntheticEvent } from 'react'
 import { desktop } from './desktop'
@@ -468,7 +469,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       </DetachedNotice>}
     </div>
     {ready && createPortal(<SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
-      <div className="movable-events" onPointerDown={detached ? stop : undefined}
+      <ObjectMenuBoundary className="movable-events" onPointerDown={detached ? stop : undefined}
         onPointerMove={detached ? stop : undefined} onPointerUp={detached ? stop : undefined}
         onPointerCancel={detached ? stop : undefined} onClick={detached ? stop : undefined}
         onDoubleClick={detached ? stop : undefined} onWheel={detached ? stop : undefined}
@@ -480,7 +481,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         {detached && <RestartNotice />}
         {error && <div role="alert" className="popout-error">{error}</div>}
         {children}
-      </div>
+      </ObjectMenuBoundary>
     </SurfaceContext.Provider>, parts.content)}
   </>
 }

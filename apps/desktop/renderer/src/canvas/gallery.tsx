@@ -222,7 +222,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mfrom">{r.title || '(untitled)'}</span>
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
-                        <div className="l2">
+                        <div className="l2" data-copy-agent-name={r.node || undefined}>
                           <TierChip tier={r.tier} />
                           {r.node || '?'}
                           {r.format === 'html' && <MockupBadge />}
@@ -454,7 +454,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       onClick={openLightboxIfEligibleImage}>
       <div className="gallery-head desk-presented-head">
         <b>Presented</b>
-        <span className="dim">documents and HTML previews from {nid}</span>
+        <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}</span>
       </div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <button disabled={pageOffset === 0} onClick={() => setPageOffset(v => Math.max(0, v - 100))}>Newer</button>
@@ -486,7 +486,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   <span className="mfrom">{r.title || '(untitled)'}</span>
                   <span className="mtime">{ago(r.at)}</span>
                 </div>
-                <div className="l2">
+                <div className="l2" data-copy-agent-name={r.node || undefined}>
                   <TierChip tier={r.tier} />
                   {r.node || '?'}
                   {r.format === 'html' && <MockupBadge />}

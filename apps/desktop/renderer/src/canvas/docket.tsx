@@ -327,7 +327,7 @@ export const itemName = (item: WorkItem): string => item.slug
  *  new ruling. */
 function SlugText({ item }: { item: WorkItem }) {
   return (
-    <span className="docket-slug-text"
+    <span className="docket-slug-text" data-copy-ticket-title={item.title}
       >
       {itemName(item)}
     </span>
@@ -730,6 +730,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       items: data
         ? new Map([...allKnown.keys()].map((s) => [s, s]))
         : 'loading',
+      itemTitles: new Map([...allKnown].map(([s, item]) => [s, item.title])),
       agents: new Map([...facts.keys()].map((id) => [id, id])),
       // ⚠ A NODE'S INBOX IS ONLY REAL IF THE NODE IS. The user's box and the
       // org's box always exist; a NODE box named after somebody this org has
@@ -1120,10 +1121,11 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
    *  anything else through the desk's work route. */
   const refWorld = useMemo<RefWorld>(() => ({
     ...refs.world,
+    itemTitles: new Map([...(refs.world.itemTitles ?? []), ...rows.map(it => [it.slug, it.title] as const)]),
     handles: refs.world.handles
       ? new Set<RefKind>([...refs.world.handles, 'item'])
       : undefined,
-  }), [refs.world])
+  }), [refs.world, mine])
   /** An item this tab HOLDS selects in place — the row is right there, and
    *  navigating the whole canvas to the Work panel to show a row already on
    *  screen is the surprising behaviour. Anything else is the desk's, which is
@@ -1381,7 +1383,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // THE NAME IN THE LIST IS THE SLUG (user 2026-09-05). The full descriptive
     // title is printed only in the detail pane; here it is the row's hover
     // title, so nothing is lost and the row stays one line of name.
-    <div className={cls} title={item.title} onClick={onClick}
+    <div data-copy-ticket-title={item.title} className={cls} title={item.title} onClick={onClick}
       onDoubleClick={copySlug} ref={rowRef}
       onContextMenu={(e) => menu.open(e, () => rowMenu(e))}
       style={depth ? { '--docket-depth': depth } as React.CSSProperties : undefined}>
@@ -1622,7 +1624,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
     <>
       {/* THE ONLY PLACE THE FULL DESCRIPTIVE TITLE IS PRINTED (user
           2026-09-05) — the list is named by slug alone. */}
-      <div className="mailer-head docket-pane-head">
+      <div className="mailer-head docket-pane-head" data-copy-ticket-title={item.title}>
         <b>{item.title || '(untitled)'}</b>
         <span className="spacer" />
         

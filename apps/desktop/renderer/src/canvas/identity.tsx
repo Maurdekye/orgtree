@@ -26,10 +26,10 @@ import { TIER_LETTER, tierLabel } from './shared'
  *  an omission. Moved here from gallery.tsx (user request 2026-09-03, "for
  *  each agent entry, show its model icon card"); gallery re-exports it so
  *  existing importers are untouched. */
-export function TierChip({ tier }: { tier?: string | null }) {
+export function TierChip({ tier, agentName }: { tier?: string | null; agentName?: string }) {
   if (!tier) return null
   return (
-    <span className={'tier t-' + tier} title={tierLabel(tier)}>
+    <span data-copy-agent-name={agentName} className={'tier t-' + tier} title={tierLabel(tier)}>
       {TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()}
     </span>
   )
@@ -85,17 +85,17 @@ export function AgentName({
   if (!onFocus || atDestination) {
     return (
       <>
-        <TierChip tier={tier} />
-        <span className={'cc-name' + extra} title={why ?? undefined}>{label}</span>
+        <TierChip tier={tier} agentName={id} />
+        <span data-copy-agent-name={id} className={'cc-name' + extra} title={why ?? undefined}>{label}</span>
       </>
     )
   }
   return (
     <>
-      <TierChip tier={tier} />
+      <TierChip tier={tier} agentName={id} />
       {/* type="button": this is embedded inside forms, where the default
           submit behaviour would be wrong */}
-      <button type="button" className={'cc-name cc-name-jump' + extra}
+      <button type="button" data-copy-agent-name={id} className={'cc-name cc-name-jump' + extra}
         title={why ?? `focus ${id}'s desk`}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         {label}

@@ -129,10 +129,11 @@ test('§4 right-clicking it raises no menu of its own', async (t) => {
   const ev = new (W().MouseEvent)('contextmenu',
     { bubbles: true, cancelable: true, button: 2, clientX: 5, clientY: 5 })
   await inAct(() => { chip(view.el)!.dispatchEvent(ev) })
-  assert.equal(document.querySelector('.ctxmenu [role="menuitem"]')?.textContent,
+  const labels = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(el => el.textContent)
+  assert.deepEqual(labels.slice(0, 2),
     // the CARD's menu may legitimately open (the event bubbles to it); what
     // must not appear is the presentation card's own "Open"/"Copy"/"Download"
-    'Open desk',
+    ['Copy agent name', 'Open desk'],
     'the chip raised its own menu instead of letting the card have the press')
 })
 

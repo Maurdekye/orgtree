@@ -48,6 +48,8 @@ export interface RefWorld {
   /** the org actually on screen. A token naming any other org is `foreign`. */
   org: string
   items?: RefIndexOf
+  /** Copy text is separate from the chip label: docket chips display slugs. */
+  itemTitles?: ReadonlyMap<string, string>
   docs?: RefIndexOf
   agents?: RefIndexOf
   /** mail is not a list this side holds — the boxes are fetched per box, so a
@@ -90,6 +92,8 @@ export interface ResolvedRef {
   outcome: RefOutcome
   /** what to put on the chip: a real title where we have one, never a guess */
   label: string
+  /** The exact ticket title, only when an authoritative index supplied it. */
+  copyTitle?: string
   /** why, in words, for the tooltip and for the unavailable chip */
   why: string
   /** an AGENT's current model, when the surface can say. Absent = no icon,
@@ -137,6 +141,8 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   // statement about the DATA made because of a limit of the PANEL.
   if (world.handles && !world.handles.has(ref.kind)) {
     return { ref, token, outcome: 'elsewhere', label: ref.id,
+      ...(ref.kind === 'item' && world.itemTitles?.has(ref.id)
+        ? { copyTitle: world.itemTitles.get(ref.id)! } : {}),
       why: `this ${kind} is not opened from this panel` }
   }
   if (ref.kind === 'mail') {
@@ -168,6 +174,8 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
     && !!world.destination && world.destination === ref.id
   return {
     ref, token, outcome, label: label ?? ref.id, tier, atDestination,
+    ...(ref.kind === 'item' && outcome === 'ready' && world.itemTitles?.has(ref.id)
+      ? { copyTitle: world.itemTitles.get(ref.id)! } : {}),
     why: atDestination ? `${ref.id} — this is its own desk`
       : outcome === 'ready' ? `open the ${kind} ${ref.id}`
         : outcome === 'pending' ? `still loading this org's ${kind}s`
@@ -331,6 +339,10 @@ export function RefChip({ r, onOpen }: {
   r: ResolvedRef
   onOpen?: (r: ResolvedRef) => void
 }) {
+  const copy = {
+    'data-copy-agent-name': r.ref.kind === 'agent' ? r.ref.id : undefined,
+    'data-copy-ticket-title': r.copyTitle,
+  }
   const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
     + (r.atDestination ? ' ref-here' : '')
   // an agent's CURRENT model, the same claim its name carries elsewhere. No
@@ -343,20 +355,20 @@ export function RefChip({ r, onOpen }: {
   // nowhere to go, so it keeps its icon and loses its control.
   if (r.outcome === 'ready' && onOpen && !r.atDestination) {
     return (
-      <button type="button" className={cls} title={r.why}
+      <button type="button" {...copy} className={cls} title={r.why}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {icon}{r.label}
       </button>
     )
   }
   if (r.outcome === 'ready') {
-    return <span className={cls} title={r.why}>{icon}{r.label}</span>
+    return <span {...copy} className={cls} title={r.why}>{icon}{r.label}</span>
   }
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, not the bare id. Whoever has to fix
   // the reference needs to see what was actually written, and on `foreign`
   // the org segment is the entire explanation.
   return (
-    <span className={cls} title={r.why}>
+    <span {...copy} className={cls} title={r.why}>
       {r.token}
       <span className="ref-why">{r.outcome === 'pending' ? '…'
         : r.outcome === 'foreign' ? 'other org'

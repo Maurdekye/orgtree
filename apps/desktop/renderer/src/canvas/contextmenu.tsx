@@ -47,12 +47,13 @@
 // event's React propagation — the same reason ModalOverPins swallows
 // pointerdown.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent,
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent,
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
 import { useEsc } from './shared'
+import type { ToastFn } from '../types'
 
 export interface MenuItem {
   label: string
@@ -64,6 +65,55 @@ export interface MenuItem {
   title?: string
 }
 export type MenuEntry = MenuItem | 'sep'
+
+// Explicit object identities, never inferred from textContent: a card also
+// contains status/model text, and a ticket row displays its slug, not title.
+const COPY_OBJECT = '[data-copy-agent-name], [data-copy-ticket-title]'
+const CopyFeedback = createContext<ToastFn | undefined>(undefined)
+const menuAnchors = new WeakMap<Element, Element>()
+
+/** Portals sit outside their surface's DOM. Outside-click guards must still
+ * treat a press in that surface's own menu as an inside press. */
+export function contextMenuBelongsTo(target: EventTarget | null, surface: Element): boolean {
+  const menu = (target as Element | null)?.closest?.('.ctxmenu')
+  const anchor = menu && menuAnchors.get(menu)
+  return !!anchor && surface.contains(anchor)
+}
+
+function copyObjectAt(target: EventTarget | null, within?: Element): Element | null {
+  const object = (target as Element | null)?.closest?.(COPY_OBJECT)
+  return object && (!within || within.contains(object)) ? object : null
+}
+
+function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
+  const agent = object.getAttribute('data-copy-agent-name')
+  const label = agent !== null ? 'Copy agent name' : 'Copy ticket title'
+  const text = agent ?? object.getAttribute('data-copy-ticket-title')!
+  return { label, onSelect: () => {
+    void copyToClipboard(object, text).then(ok => toast?.([
+      ok ? (agent !== null ? 'copied agent name' : 'copied ticket title')
+        : 'could not copy — clipboard unavailable',
+    ]))
+  } }
+}
+
+/** One fallback per surface for object names without another menu. Existing
+ * menus take the event first and receive the same copy entry in `open`.
+ * Replaces the surface's div, preserving its layout and event boundaries. */
+export function ObjectMenuBoundary({ children, toast, onContextMenu, ...props }:
+  HTMLAttributes<HTMLDivElement> & { toast?: ToastFn }) {
+  const inheritedFeedback = useContext(CopyFeedback)
+  const feedback = toast ?? inheritedFeedback
+  const menu = useContextMenu(feedback)
+  return <CopyFeedback.Provider value={feedback}>
+    <div {...props} onContextMenu={e => {
+      const object = copyObjectAt(e.target)
+      if (object) menu.open(e, [], object)
+      onContextMenu?.(e)
+    }}>{children}</div>
+    {menu.node}
+  </CopyFeedback.Provider>
+}
 
 /** gap kept between the menu and the viewport edge, px */
 const EDGE_GAP = 4
@@ -122,26 +172,32 @@ interface MenuState {
 export interface ContextMenuHandle {
   /** the object's `onContextMenu`. `entries` may be a thunk so a list that
    *  renders many rows builds only the pressed row's items. */
-  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[])) => void
+  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => void
   close: () => void
   isOpen: boolean
   /** render this once, anywhere in the component's tree */
   node: ReactNode
 }
 
-export function useContextMenu(): ContextMenuHandle {
+export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const [state, setState] = useState<MenuState | null>(null)
+  const inheritedFeedback = useContext(CopyFeedback)
+  const feedback = toast ?? inheritedFeedback
   const overlayRoot = useSurfaceDocument().body
   const close = useCallback(() => setState(null), [])
-  const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[])) => {
+  const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
     if (e.defaultPrevented) return           // an inner object already took it
-    if (nativeMenuPreferred(e)) return
-    const list = (typeof entries === 'function' ? entries() : entries)
+    const el = anchor ?? e.currentTarget as HTMLElement
+    if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
+    const entriesList = (typeof entries === 'function' ? entries() : entries)
+    const object = copyObjectAt(e.target, el)
+    const list: MenuEntry[] = object
+      ? [objectCopyEntry(object, feedback), ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
+      : entriesList
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return
     e.preventDefault()
     e.stopPropagation()
-    const el = e.currentTarget as HTMLElement
     const r = el.getBoundingClientRect()
     const measured = r.width > 0 || r.height > 0
     const inside = measured && e.clientX >= r.left && e.clientX <= r.right
@@ -154,7 +210,7 @@ export function useContextMenu(): ContextMenuHandle {
       anchor: el,
       keyboard: !inside,
     })
-  }, [])
+  }, [feedback])
   const node = state
     ? createPortal(<ContextMenu state={state} close={close} />, overlayRoot)
     : null
@@ -252,8 +308,8 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
     const active = restore?.ownerDocument.activeElement
     const inMenu = !active || active === restore?.ownerDocument.body
       || active.closest?.('.ctxmenu')
-    if (inMenu && restore instanceof HTMLElement && restore.isConnected) {
-      restore.focus({ preventScroll: true })
+    if (inMenu && restore?.isConnected && typeof (restore as HTMLElement).focus === 'function') {
+      (restore as HTMLElement).focus({ preventScroll: true })
     }
   }, [restore])
 
@@ -275,7 +331,8 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
 
   const style: CSSProperties = { left: pos.x, top: pos.y }
   return (
-    <div ref={ref} className="ctxmenu" role="menu" tabIndex={-1} style={style}
+    <div ref={el => { ref.current = el; if (el && state.anchor) menuAnchors.set(el, state.anchor) }}
+      className="ctxmenu" role="menu" tabIndex={-1} style={style}
       onKeyDown={onKeyDown}
       onPointerDown={stop} onPointerUp={stop} onPointerMove={stop}
       onMouseDown={stop} onMouseUp={stop} onClick={stop} onDoubleClick={stop}
@@ -304,8 +361,13 @@ function ContextMenu({ state, close }: { state: MenuState; close: () => void }) 
  *  Resolves true only when the write actually resolved: an absent, blocked
  *  or denied clipboard says nothing rather than reporting a copy that did
  *  not happen. */
-export function copyToClipboard(el: Element | null, text: string): Promise<boolean> {
-  const clip = (el?.ownerDocument ?? document).defaultView?.navigator?.clipboard
-  if (!clip) return Promise.resolve(false)
-  return clip.writeText(text).then(() => true, () => false)
+export async function copyToClipboard(el: Element | null, text: string): Promise<boolean> {
+  try {
+    const clip = (el?.ownerDocument ?? document).defaultView?.navigator?.clipboard
+    if (!clip?.writeText) return false
+    await clip.writeText(text)
+    return true
+  } catch {
+    return false
+  }
 }

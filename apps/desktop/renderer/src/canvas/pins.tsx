@@ -43,7 +43,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
-import { useContextMenu } from './contextmenu'
+import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
 import { AgentName } from './identity'
 import { providerOf, TIER_LETTER } from './shared'
@@ -592,16 +592,16 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
       /* ⚠ CAPTURE, and it is load-bearing: the desk body stops this
          pointerdown's React propagation for its own content (desk.tsx's
          canvas-pan rule), so a bubble-phase raise here never ran. */
-      onPointerDownCapture={raise}
+      onPointerDownCapture={e => { if (!contextMenuBelongsTo(e.target, e.currentTarget)) raise() }}
       /* keyboard only — a pointer press has already raised, and a second
          raise would advance the shared ordinal twice for one press */
-      onClickCapture={(e) => { if (e.detail === 0) raise() }}
+      onClickCapture={(e) => { if (e.detail === 0 && !contextMenuBelongsTo(e.target, e.currentTarget)) raise() }}
       /* the WHOLE window is a screen-space surface: a press anywhere inside
          it is never a canvas pan (this is the stopPropagation half of the
          two-list rule in styles.css — `.pinwin` is also in the user-select
          re-enable list there; KEEP THEM IN STEP) */
       onPointerDown={(e) => e.stopPropagation()}>
-      <div className="pinwin-title"
+      <div className="pinwin-title" data-copy-agent-name={node.id}
         title="Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels."
         onPointerDown={(e) => {
           nameDown.current = Boolean(
@@ -672,7 +672,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
  *  as "show me this" would throw away a hand-arranged position with no undo. */
 export function PinnedPlaceholder({ id, onShow }: { id: string; onShow: () => void }) {
   return (
-    <div className="pin-placeholder" role="button" tabIndex={0}
+    <div className="pin-placeholder" data-copy-agent-name={id} role="button" tabIndex={0}
       title={`${id}'s desk is open as a pinned window — click to show it`}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => { e.stopPropagation(); onShow() }}

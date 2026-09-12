@@ -38,7 +38,7 @@ export type RefIndex<T> = Map<string, T>
  *  that agent runs under NOW. One index holds both kinds — two would mean two
  *  scans with two sets of boundary rules, free to drift. */
 export type MentionRef =
-  | { kind: 'item'; slug: string }
+  | { kind: 'item'; slug: string; title?: string }
   | { kind: 'agent'; id: string; tier?: string | null }
 
 export type MentionIndex = RefIndex<MentionRef>
@@ -59,7 +59,7 @@ export function buildMentionIndex(
   for (const [id, tier] of agents ?? []) {
     if (id) out.set(id, { kind: 'agent', id, tier })
   }
-  for (const it of items) if (it?.slug) out.set(it.slug, { kind: 'item', slug: it.slug })
+  for (const it of items) if (it?.slug) out.set(it.slug, { kind: 'item', slug: it.slug, title: it.title })
   return out
 }
 
@@ -164,33 +164,31 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
   onPick?: (name: string) => void
   onFocusAgent?: (id: string) => void
 }) {
-  const render = (onPick || onFocusAgent)
-    ? (ref: MentionRef, shown: string, key: number): ReactNode => {
-      if (ref.kind === 'agent') {
-        return onFocusAgent
-          ? (
-            <span key={key} className="docket-mention">
-              <AgentName id={ref.id} tier={ref.tier}
-                nameClass="docket-ref docket-ref-agent"
-                why={ref.tier
-                  ? `${ref.id} — current model, ${ref.tier}. Go to its desk.`
-                  : `${ref.id} — current model not known. Go to its desk.`}
-                onFocus={(id) => onFocusAgent(id)} />
-            </span>
-          )
-          : <span key={key}>{shown}</span>
-      }
-      return onPick
+  const render = (ref: MentionRef, shown: string, key: number): ReactNode => {
+    if (ref.kind === 'agent') {
+      return onFocusAgent
         ? (
-          <button key={key} type="button" className="docket-ref"
-            title={`go to ${shown}`}
-            onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
-            {shown}
-          </button>
+          <span key={key} className="docket-mention">
+            <AgentName id={ref.id} tier={ref.tier}
+              nameClass="docket-ref docket-ref-agent"
+              why={ref.tier
+                ? `${ref.id} — current model, ${ref.tier}. Go to its desk.`
+                : `${ref.id} — current model not known. Go to its desk.`}
+              onFocus={(id) => onFocusAgent(id)} />
+          </span>
         )
-        : <span key={key}>{shown}</span>
+        : <span key={key} data-copy-agent-name={ref.id}>{shown}</span>
     }
-    : undefined
+    return onPick
+      ? (
+        <button key={key} type="button" data-copy-ticket-title={ref.title} className="docket-ref"
+          title={`go to ${shown}`}
+          onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
+          {shown}
+        </button>
+      )
+      : <span key={key} data-copy-ticket-title={ref.title}>{shown}</span>
+  }
   return <RefText<MentionRef> text={text} index={index} render={render} />
 }
 

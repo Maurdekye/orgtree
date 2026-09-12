@@ -438,7 +438,7 @@ export function EyeDesk({ map, op, slug, toast,
           </svg>
           <div className="eye-tabs">
           {agents.map((a) => (
-            <span key={a.id} className={'eye-tab'
+            <span key={a.id} data-copy-agent-name={a.id} className={'eye-tab'
               + (isPinned(a.id) ? ' pinned' : minned.has(a.id) ? '' : ' on')}>
               {/* The tab name selects its panel. Agent navigation belongs
                   only to the separate jump button (user 2026-09-10). */}
@@ -1468,7 +1468,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (mapMode) {
     const stat = node.last_status
     return (
-      <div className={cls.join(' ') + ' maplod'} style={style}>
+      <div data-copy-agent-name={node.id} className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
           <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           {node.pending_switch &&
@@ -1491,7 +1491,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     )
   }
   return (
-    <div className={cls.join(' ')} style={style}
+    <div data-copy-agent-name={focused ? undefined : node.id} className={cls.join(' ')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)

@@ -1197,7 +1197,7 @@ export function NavChip({ n, dir, onJump }:
   // to whichever provider's themed desk this chip happens to render inside
   const prov = !eye && n.tier ? ' prov-' + providerOf(n.tier) : ''
   return <span className="desk-nav-entry">
-    <button className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
+    <button data-copy-agent-name={eye ? undefined : n.id} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
         title={eye ? 'jump to the switchboard'
           : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
         onClick={() => onJump(n.id)}>
@@ -2115,7 +2115,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     <AgentDirectoryProvider value={agentDir}>
       <div className="cc-head">
         <div className="cc-head-top">
-        <span className="cc-head-left">
+        <span className="cc-head-left" data-copy-agent-name={node.id}>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
               `atDestination={!bare}` and never compares ids. A switchboard
               panel and a pinned window BOTH show this agent's own name, and
@@ -2461,7 +2461,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             return prior ? (
               <div className="dim pad">
                 this session is fresh — the earlier conversation is archived as{' '}
-                <b className="mono">{prior.id}</b> (read it from the lineage panel)
+                <b className="mono" data-copy-agent-name={prior.id}>{prior.id}</b> (read it from the lineage panel)
               </div>) : null
           })()}
           {viewMessages.map((m, i) => {
@@ -3078,7 +3078,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   return (
     <PinFrame kind="lineage" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} — lineage`}
       panel="settings lineage-panel" close={close}>
-        <h3><LayersIcon fontSize="inherit" /> {node.id} — lineage</h3>
+        <h3 data-copy-agent-name={node.id}><LayersIcon fontSize="inherit" /> {node.id} — lineage</h3>
         <div className="dim lin-blurb">
           Every generation is this agent's pre-compaction self, archived in
           place with its full context. Rehire one as a consultable knowledge
@@ -3087,7 +3087,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
         </div>
         {gens.map((b) => (
           <div key={b.id}>
-            <div className={'lin-row' + (b.state === 'archived' ? '' : ' live')}>
+            <div data-copy-agent-name={b.id} className={'lin-row' + (b.state === 'archived' ? '' : ' live')}>
               <span className={'tier t-' + b.tier}>{TIER_LETTER[b.tier] ?? '?'}</span>
               <div className="lin-id">
                 <b className="mono">{b.id}</b>

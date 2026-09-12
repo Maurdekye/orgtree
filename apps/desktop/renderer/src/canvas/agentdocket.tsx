@@ -23,7 +23,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
     refs.onOpen(r)
   } }
   return <PinFrame kind="agent-docket" restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation }} title={`${nid} · Docket`} panel="settings wide" close={close}>
-    <h3><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· Docket</span></h3>
+    <h3 data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· Docket</span></h3>
     <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
       showArchived={showArchived} onShowArchived={setShowArchived}
       onChanged={() => setBump(n => n + 1)} refs={routes}

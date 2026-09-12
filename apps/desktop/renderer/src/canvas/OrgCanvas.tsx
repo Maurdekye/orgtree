@@ -45,7 +45,7 @@ import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
-import { useContextMenu } from './contextmenu'
+import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
@@ -223,28 +223,19 @@ export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
  *
  * The rows stay where they are, rendered by the canvas, because they are built
  * from the canvas's own handlers; this only lends them the menu handle and the
- * confirm. `onMenuOpen` reports the menu's state to the list's click-away rule
- * (see `listMenuOpen`): the menu lives in the document body, so without it the
- * press that chooses an entry dismisses the list out from under itself.
+ * confirm. The shared menu records its row anchor so the list's click-away
+ * rule recognizes a press in its own menu even though it lives in the body.
  */
-function AgentListMenuHost({ render, map, op, toast, onMenuOpen }: {
+function AgentListMenuHost({ render, map, op, toast }: {
   render: (menu: ContextMenuHandle,
     ask: (a: { id: string; kind: RetireKind }) => void) => ReactNode
   map: Map<string, CanvasNode>
   op: OpFn
   toast: ToastFn
-  onMenuOpen: (open: boolean) => void
 }) {
   const menu = useContextMenu()
   const [asking, setAsking] = useState<{ id: string; kind: RetireKind } | null>(null)
   const body = useSurfaceDocument().body
-  // through a ref so the report is keyed on the menu's state alone — the
-  // callback is a fresh closure on every canvas render
-  const report = useRef(onMenuOpen); report.current = onMenuOpen
-  useEffect(() => {
-    report.current(menu.isOpen)
-    return () => report.current(false)
-  }, [menu.isOpen])
   const node = asking ? map.get(asking.id) : null
   return <>
     {render(menu, setAsking)}
@@ -330,21 +321,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const [hireOpen, setHireOpen] = useState(false)     // compact hire form
   const [, setVpTick] = useState(0)                   // re-render on resize
 
-  // ⚠ THE LIST'S OWN CONTEXT MENU IS NOT "OUTSIDE" IT (user request
-  // 2026-09-12, the Agents List row menu). Every menu portals into the
-  // document BODY — that is how a menu raised inside a transformed or clipped
-  // panel escapes it (contextmenu.tsx) — so the press that CHOOSES an entry
-  // lands outside `.tray-wrap`. Dismissing the list there would unmount the
-  // menu mid-press and the entry's own click would never arrive: the action
-  // would silently do nothing. The flag is set by the list's menu host, so
-  // another surface's menu still dismisses the list as before.
-  const listMenuOpen = useRef(false)
   useEffect(() => {
     if (!trayOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      const pressed = event.target as Element | null
-      if (listMenuOpen.current && pressed && typeof pressed.closest === 'function'
-        && pressed.closest('.ctxmenu')) return
       // A pinned or detached PinFrame is a window, not a centred modal. Its
       // panel may be portalled away from trayWrapRef, so the ordinary tray
       // containment check must not dismiss it from a main-window gesture.
@@ -357,6 +336,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         : []
       if (path.includes(root)) return
       if (event.target instanceof Node && root.contains(event.target)) return
+      // Its own menu portals to the body. Keep the list alive through the
+      // press that chooses an entry; other surfaces' menus remain outside.
+      if (contextMenuBelongsTo(event.target, root)) return
       // Capture observes the gesture but never consumes it: the outside
       // control or canvas still receives the same pointerdown/click/drag.
       setTrayOpen(false)
@@ -3147,7 +3129,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               )
             })()}
             <AgentListMenuHost map={map} op={op} toast={toast}
-              onMenuOpen={(open) => { listMenuOpen.current = open }}
               render={(menu, ask) => {
               // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
               // every direct report immediately after its superior, indented a
@@ -3218,7 +3199,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                    of that button. Nothing in the main line is interactive:
                    ContextWheel is only a button when given `onCompact`, which
                    the tray does not pass. */
-                <div key={n.id}
+                <div key={n.id} data-copy-agent-name={n.id}
                   className={'tray-row' + (n.state !== 'live' ? ' off' : '')
                     + (ghost ? ' ghost' : '')
                     + (n.tier && CODEX_TIERS.includes(n.tier) ? ' prov-openai'
@@ -3385,7 +3366,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             <div className="mobsheet">
               <header className="mobsheet-head">
                 <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
-                <b className="ms-name">{n.id}</b>
+                <b className="ms-name" data-copy-agent-name={n.id}>{n.id}</b>
                 <TrayStatus node={n} turn={sheetLastTurn} live={n.state === 'live'} />
                 <span className="spacer" />
                 {myDogs.length > 0 &&
@@ -3471,7 +3452,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
         const n = map.get(id)!
         return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
-          <div className="row"><b>{id} restored desk</b><button onClick={() => {
+          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
             centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
           }}>Return to canvas</button></div>
           <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}

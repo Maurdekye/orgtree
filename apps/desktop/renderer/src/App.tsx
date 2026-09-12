@@ -41,6 +41,7 @@ import { FolderPickerHost } from './picker'
 import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fallbackActive, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
+import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
@@ -896,7 +897,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><div className="app">
+    <CurrentOrg.Provider value={slug}><ObjectMenuBoundary className="app" toast={toast}>
       <RestartNotice />
       {orgTransitionPrompt}
       {/* no active org: the org list IS the screen */}
@@ -1350,7 +1351,7 @@ export default function App() {
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
-    </div></CurrentOrg.Provider>
+    </ObjectMenuBoundary></CurrentOrg.Provider>
   )
 }
 
@@ -2047,7 +2048,7 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
   // stays readable and loses a route that was never there.
   if (!n) return <b>{id}</b>
   const chip = (
-    <span className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
+    <span data-copy-agent-name={id} className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
       {n && <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier] ?? '?'}</span>}
       <b>{id}</b>
     </span>

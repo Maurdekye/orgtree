@@ -1135,7 +1135,7 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
   return (
     <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · inbox`} panel="settings wide"
       close={close}>
-        <h3><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· inbox</span></h3>
+        <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· inbox</span></h3>
         {/* ⚠ A REFERENCE CLOSES THIS MODAL ON THE WAY OUT, as the name beside
             it does. Everything a token can open is UNDER this overlay, so
             following one without closing looks like a click that did nothing.

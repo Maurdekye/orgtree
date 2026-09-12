@@ -1186,7 +1186,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     // the click, so backdrop-close and every button in here silently broke
     <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · configuration`}
       panel="settings cfg" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> {node.id}</h3>
+        <h3 data-copy-agent-name={node.id}><SettingsIcon fontSize="inherit" /> {node.id}</h3>
         {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this
             agent's process is warm, relaunching or mid-turn is the reason to
             keep this panel open at all, and it used to sit inside the h3, which
@@ -1689,7 +1689,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
           // than "never" — FR-23's rule, kept so the two surfaces match.
           const lastTurn = n.turns?.[n.turns.length - 1]
           return (
-            <button key={id} className={'pile-row' + (id === pile.front ? ' on' : '')}
+            <button key={id} data-copy-agent-name={id} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
               <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>

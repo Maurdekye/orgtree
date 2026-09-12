@@ -278,7 +278,7 @@ function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }
   const elsewhere = e?.detached || (e && e.last.id !== id)
   return <div className="desk-slot" ref={anchor} data-desk-slot={key}>
     {elsewhere && <InDesksPlace bare={props.bare}>
-      <span>{props.node.id}'s desk is open elsewhere.</span>
+      <span data-copy-agent-name={props.node.id}>{props.node.id}'s desk is open elsewhere.</span>
       <button onPointerDown={stopPress} onClick={() => e.show?.()}>Show desk</button>
       {/* `id` is THIS slot: the desk comes back where it was asked for, which
           need not be the host it was popped out of. */}

@@ -392,7 +392,7 @@ function AskHead({ label, node, busy, onClose, closeTitle }: {
   return (
     <div className="ask-tab">
       <span className="ask-tab-label">{label}</span>
-      <span className="dim">· {node}</span>
+      <span className="dim" data-copy-agent-name={node}>· {node}</span>
       <span className="spacer" />
       <button className="chip-x" title={closeTitle} disabled={busy}
         onClick={onClose}><CloseIcon fontSize="inherit" /></button>
@@ -704,7 +704,7 @@ function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
   return (
     <div className={'askcard nulled ' + (interrupted ? 'orange' : 'grey')}>
       <div className="ask-head">
-        <b>{ask.node}</b> {credit
+        <b data-copy-agent-name={ask.node}>{ask.node}</b> {credit
           ? <>asked for credits: {ask.old} → {ask.new}</>
           : scope ? <>requested scope</> : <>asked</>}
         <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
