@@ -19091,17 +19091,26 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # and an unreadable doc proves nothing and stays silent (the old
         # behaviour, never a false announcement).
         if _trec is not None and _trec.disposition is None:
-            _belt_frozen = True
+            # `_belt_owned` = some OTHER mechanism owns this node's stopped
+            # state, so the belt must NOT announce a terminal error over it:
+            # a freeze (the resume machinery owns it), an archived/unrecoverable
+            # node (its own lifecycle), or a deliberate HALT — today the fable
+            # `limit_locked` marker, and the extension point where halt-state's
+            # first-class halted state adds itself when it rebases on top of
+            # this. An unreadable doc proves nothing and stays silent (never a
+            # false announcement).
+            _belt_owned = True
             try:
                 with store.DOC_LOCK:
                     _bo = store.load_org(slug)
-                    _belt_frozen = bool(
+                    _belt_owned = bool(
                         nid not in _bo.nodes
                         or _bo.node(nid).get("frozen")
+                        or _bo.node(nid).get("limit_locked")
                         or _bo.node(nid)["state"] != "live")
             except Exception:                                # noqa: BLE001
-                _belt_frozen = True
-            if not _belt_frozen:
+                _belt_owned = True
+            if not _belt_owned:
                 _belt_door = (
                     "its provider leg failed with a terminal error"
                     if isinstance(e, _ProviderTurnFailed) else
