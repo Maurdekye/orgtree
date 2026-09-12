@@ -132,6 +132,15 @@ Var pid
 !macroend
 !macro customInstall
   !ifndef ORGTREE_DEV_CHANNEL
+  # Releases used to create an `Orgtree v2.lnk` start-menu entry before the
+  # explicit `shortcutName` was introduced.  Leave no legacy shell entry for
+  # Explorer to resolve when it groups the running release taskbar window.
+  # Keep this exact and per-user: do not remove arbitrary user shortcuts or
+  # disturb the side-by-side development channel.
+  Delete "$SMPROGRAMS\Orgtree v2.lnk"
+  Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
+  !endif
+  !ifndef ORGTREE_DEV_CHANNEL
   ${if} $installMode == "all"
     !insertmacro BootHelpers
     nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Register -InstallMode all -InstallDir "$INSTDIR"'

@@ -77,6 +77,17 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.equal(pkg.build.nsis.createStartMenuShortcut, true)
   assert.equal(pkg.build.nsis.shortcutName, 'Orgtree')
   assert.equal(pkg.build.nsis.menuCategory, 'Orgtree')
+  const installer = read('build/installer.nsh')
+  const customInstallStart = installer.indexOf('!macro customInstall')
+  const customInstall = installer.slice(customInstallStart, installer.indexOf('!macroend', customInstallStart))
+  assert.match(customInstall, /!ifndef ORGTREE_DEV_CHANNEL[\s\S]*Delete "\$SMPROGRAMS\\Orgtree v2\.lnk"[\s\S]*!endif/,
+    'release installs remove the legacy generic-icon shortcut')
+  assert.match(customInstall, /Delete "\$SMPROGRAMS\\Orgtree\\Orgtree v2\.lnk"/,
+    'release installs remove the legacy shortcut from the categorized menu')
+  assert.equal(customInstall.indexOf('Delete "$SMPROGRAMS\\Orgtree v2.lnk"') < customInstall.indexOf('!endif'), true,
+    'legacy cleanup is release-only so dev installs remain side-by-side')
+  assert.doesNotMatch(installer, /Quick Launch\\User Pinned|IconCache|ie4uinit|taskkill/i,
+    'installer does not delete user pins or force a global icon-cache reset')
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /app\.isPackaged\s*\?\s*path\.join\(process\.resourcesPath, 'runtime-icons'\)/)
   assert.match(main, /path\.join\(app\.getAppPath\(\), 'apps\/desktop\/assets'\)/)
