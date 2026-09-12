@@ -188,6 +188,11 @@ _COVERAGE_STATIC: dict[str, str] = {
     "orgtree_ask": TX_POST,           # `routed` → drives the superior
     "orgtree_request_scope": TX_POST,  # ditto
     "orgtree_request_credits": TX_POST,
+    # W09 reservation state is wholly document-backed. A release may stage a
+    # single successor notification, but the durable transition remains the
+    # covered effect.
+    "orgtree_reservation": TX_POST,
+    "orgtree_resource_reservation": TX_POST,
     "orgtree_present": TX_POST,       # routed when it lands on a superior
     # -- document transaction only ----------------------------------------
     "orgtree_withdraw_ask": TX,
@@ -256,6 +261,12 @@ def provable_absence(cls: str) -> bool:
 # truncating a body still stores a body.
 _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_message": ("delivered", "deferred", "id"),
+    "orgtree_reservation": ("reservation", "reservations", "overlaps", "landed",
+                             "released", "recovered", "release_receipt",
+                             "integration_receipt", "replayed", "notified", "stale", "count"),
+    "orgtree_resource_reservation": ("reservation", "reservations", "overlaps", "landed",
+                                      "released", "recovered", "release_receipt",
+                                      "integration_receipt", "replayed", "notified", "stale", "count"),
     "orgtree_send_notice": ("delivered", "deferred", "id"),
     # `account` rides the three seat verbs (user decision 2026-09-12: agents
     # choose the provider account). A binding is a BILLING fact, so which one a
@@ -303,7 +314,8 @@ _TARGET_ARGS = ("node", "to", "id", "slug", "work_item", "ref", "action",
                 "stage", "tier", "target", "grantee", "from", "name",
                 # the provider account a seat verb was asked to use: a registry
                 # id, identity-shaped and never a credential
-                "account")
+                "account", "reservation", "resource", "candidate", "base",
+                "item", "integration_key", "successor")
 
 
 def _canonical(obj: Any) -> str:
@@ -334,6 +346,30 @@ def result_slice(tool: str, result: Any) -> dict[str, Any]:
     for k in _RESULT_FIELDS.get(tool, ()):
         if k in r and isinstance(r[k], (str, int, float, bool)):
             out[k] = r[k] if not isinstance(r[k], str) else r[k][:200]
+    if tool in ("orgtree_reservation", "orgtree_resource_reservation"):
+        # Reservation results contain nested metadata.  Replay must retain
+        # the identity/receipt needed by a caller, but never copy arbitrary
+        # nested caller data into the durable operation log.
+        fields = ("id", "owner", "item", "resource", "candidate", "base",
+                  "paths", "state", "release_receipt", "successor",
+                  "integration_receipt", "landed_at", "expires_at")
+
+        def safe(row: Any) -> dict[str, Any]:
+            if not isinstance(row, dict):
+                return {}
+            src = cast("dict[str, Any]", row)
+            return {k: src[k] for k in fields if k in src
+                    and isinstance(src[k], (str, int, float, bool, list))}
+
+        if isinstance(r.get("reservation"), dict):
+            out["reservation"] = safe(r["reservation"])
+        if isinstance(r.get("reservations"), list):
+            out["reservations"] = [safe(x) for x in r["reservations"][:128]]
+        if isinstance(r.get("overlaps"), list):
+            out["overlaps"] = [
+                {"reservation": safe(x.get("reservation")),
+                 "overlap": list(x.get("overlap") or [])[:128]}
+                for x in r["overlaps"][:128] if isinstance(x, dict)]
     if tool in ("orgtree_hire", "orgtree_rehire", "orgtree_retool", "orgtree_staff"):
         binding = r.get("account_binding")
         if isinstance(binding, dict):

@@ -943,6 +943,10 @@ class OrgDoc(TypedDict):
     # on purpose — the admission path reads it before deciding whether the
     # log is worth materialising.
     op_receipts_meta: NotRequired[dict[str, Any]]
+    # W09: bounded durable resource reservations. Rows contain only owner,
+    # candidate/base identity, declared paths and transition receipts;
+    # declared paths never imply filesystem access.
+    reservations: NotRequired[list[dict[str, Any]]]
     org_inbox: NotRequired[list[OrgInboxEntry]]
     org_inbox_read: NotRequired[int]
     kiosk: NotRequired[KioskCfg | None]

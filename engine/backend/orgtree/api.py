@@ -89,6 +89,7 @@ from . import frozen_install
 from . import workitems
 from . import workevidence
 from . import opreceipts
+from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
@@ -9646,6 +9647,61 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     # a deferred (archived) recipient reads it on rehire
                     if not result.get("deferred") and _n not in drive:
                         drive.append(_n)
+            elif body.tool in ("orgtree_reservation",
+                               "orgtree_resource_reservation"):
+                # W09 reservations are org-document metadata.  The item
+                # reader answers only whether this actor can read it, never
+                # returning or copying the item's contents into the
+                # reservation path.  A declared path is consequently not an
+                # access grant.
+                org._require_live(body.node)
+
+                def _item_visible(item: str, *, _org: Org = org,
+                                  _actor: str = body.node) -> bool:
+                    try:
+                        _org._work_get_for(_actor, item)
+                        return True
+                    except LedgerError:
+                        return False
+
+                def _live_node(node: str, *, _org: Org = org) -> bool:
+                    try:
+                        return _org.node(node).get("state") == "live"
+                    except LedgerError:
+                        return False
+
+                def _successor_allowed(node: str, item: str,
+                                       *, _org: Org = org) -> bool:
+                    if not item:
+                        return False
+                    try:
+                        _org._work_get_for(node, item)
+                        return True
+                    except LedgerError:
+                        return False
+
+                try:
+                    result = reservations.execute(
+                        cast("dict[str, Any]", org.d), body.node, a,
+                        item_reader=_item_visible, node_exists=_live_node,
+                        successor_allowed=_successor_allowed)
+                except reservations.ReservationError as e:
+                    raise LedgerError(str(e)) from e
+                # Release notification is one post-commit wake, not a poll
+                # loop or broadcast.  The message carries only the receipt
+                # and resource id, never paths, prompts or credentials.
+                _succ = str(result.get("notified") or "")
+                if _succ:
+                    _rid = str((result.get("reservation") or {}).get("id") or "")
+                    _posted = org.post_mail(
+                        body.node, _succ,
+                        f"Reservation {_rid} was released; its release receipt "
+                        f"is {str(result.get('release_receipt') or '')}.",
+                        "status")
+                    mail_notify(body.org, body.node, _succ)
+                    mail_to = _succ
+                    if not _posted.get("deferred"):
+                        drive.append(_succ)
             elif body.tool == "orgtree_withdraw_ask":
                 result = org.withdraw_ask(body.node)
             elif body.tool in ("orgtree_self_restart", "orgtree_self_update"):

@@ -1021,6 +1021,45 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "orgtree_reservation",
+        "description": (
+            "Reserve a shared resource with durable candidate/base identity. "
+            "Actions: acquire, renew, recover, release, overlap, land, "
+            "list and landing. Reservations are operator-authorized and "
+            "bounded; paths are declarations only and never grant file access. "
+            "Use an integration_key to make retries idempotent. A release "
+            "may notify one authorized successor."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": [
+                    "acquire", "renew", "recover", "release", "overlap",
+                    "land", "list", "landing", "invalidate"]},
+                "reservation": {"type": "string"},
+                "item": {"type": "string"},
+                "resource": {"type": "string"},
+                "candidate": {"type": "string", "description": "7-40 lowercase hex commit SHA"},
+                "base": {"type": "string", "description": "7-40 lowercase hex commit SHA"},
+                "paths": {"type": "array", "items": {"type": "string"},
+                          "maxItems": 128},
+                "lease_s": {"type": "number"},
+                "stale_s": {"type": "number"},
+                "integration_key": {"type": "string"},
+                "successor": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "orgtree_resource_reservation",
+        "description": "Alias of orgtree_reservation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"action": {"type": "string"}},
+            "required": ["action"],
+        },
+    },
+    {
         "name": "orgtree_watchdog",
         "description": (
             "Keep a WATCHDOG — a free, persistent pet that mails you (waking "
