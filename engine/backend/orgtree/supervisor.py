@@ -25480,6 +25480,17 @@ def _trim_steer_attempts(org: Org, nid: str) -> None:
         ids = {str(i) for i in a.get("mail_ids") or []}
         if (toks or ids) and not (toks & pending_toks) and not (ids & pending_mail)                 and not (ids & recorded_mail):
             a["resolved"] = "delivered-elsewhere"
+    for a in atts.values():
+        if not _attempt_open(a):
+            # the display projections are consumed exactly once, at record
+            # landing (`_record_steer` writes them into steered_log rows);
+            # a resolved-without-landing attempt's record "is not looked
+            # for" (retention rules above). Either way they are dead weight
+            # from here — and they were ~94% of the section's 1.28 MB on
+            # the live org, riding the EAGER document into every load and
+            # every save-compare (perf-redesign 2026-09-12, REPORT.md #8/#12)
+            a.pop("views", None)
+            a.pop("view_segments", None)
     done = sorted((a.get("at") or "", k) for k, a in atts.items() if not _attempt_open(a))
     for _, k in done[:-STEER_ATTEMPTS_KEEP]:
         atts.pop(k, None)
@@ -25752,6 +25763,10 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
                     **({"truncated": True} if len(s) > 100000 else {})})
 
     att["recorded_at"] = stamp
+    # the views above were just spent into their steered_log rows — nothing
+    # reads them off a recorded attempt again (scan skips recorded attempts)
+    att.pop("views", None)
+    att.pop("view_segments", None)
     net_ids = [str(m["net_id"]) for b in batches for m in (b.get("mail") or []) if m.get("net_id")]
     return net_ids, row
 

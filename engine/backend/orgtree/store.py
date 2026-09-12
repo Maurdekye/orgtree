@@ -578,7 +578,19 @@ LIST_LOGS: tuple[str, ...] = ("events", "org_inbox", "notice_log",
                               # it costs the hot path nothing (measured:
                               # untouched 2.5 ms, materialise+append 5.9 ms at
                               # 300 rows — evidence/receipt-cost.json)
-                              "op_receipts")
+                              "op_receipts",
+                              # the closed docket (perf-redesign 2026-09-12,
+                              # REPORT.md #8): 1.89 MB on the live org and
+                              # append-mostly — it rode the EAGER document,
+                              # so every load parsed it and every
+                              # compare-on-save re-serialized it. Reads are
+                              # rare (the archived toggle, repair ops) and
+                              # materialize transparently; appends take
+                              # `log_append`'s pure-INSERT path. An existing
+                              # doc-blob copy loads eagerly once and
+                              # `_write_lazy` converts it to rows on the
+                              # next save — no operator migration.
+                              "work_items_archive")
 LAZY_SECTIONS: frozenset[str] = frozenset(DICT_LOGS) | frozenset(LIST_LOGS)
 
 _SCHEMA_VERSION = "1"

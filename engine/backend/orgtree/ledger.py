@@ -719,6 +719,7 @@ class Org:
                     cast("dict[str, Any]", m).setdefault(
                         "id", uuid.uuid4().hex[:12])
         self._backfill_mail_log_ids()
+        self._strip_settled_steer_views()
 
         # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
         # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
@@ -1834,6 +1835,33 @@ class Org:
     #: bumped only if a future shape needs re-repairing; the marker is what
     #: makes this run once rather than once per load
     MAIL_LOG_ID_MIGRATION = "mail_log_ids"
+    STEER_VIEW_STRIP_MIGRATION = "steer_attempt_views"
+
+    def _strip_settled_steer_views(self) -> None:
+        """Drop `views`/`view_segments` from settled steer attempts, ONCE per
+        document. The supervisor consumes them at record landing and now
+        strips them there (and at the trim boundary), but every document
+        written before that change still carries them on its resolved ring —
+        measured 2026-09-12: ~94% of a 1.28 MB EAGER section, parsed on every
+        load and re-serialized on every save-compare. Same marker convention
+        as `_backfill_mail_log_ids`: run once, record what it removed."""
+        migs = self.d.setdefault("_migrations", {})
+        if self.STEER_VIEW_STRIP_MIGRATION in migs:
+            return
+        stripped = 0
+        for per_node in cast("dict[str, dict[str, Any]]",
+                             self.d.get("steer_attempts") or {}).values():
+            if not isinstance(per_node, dict):
+                continue
+            for a in per_node.values():
+                if (isinstance(a, dict)
+                        and (a.get("recorded_at") or a.get("resolved"))
+                        and ("views" in a or "view_segments" in a)):
+                    a.pop("views", None)
+                    a.pop("view_segments", None)
+                    stripped += 1
+        migs[self.STEER_VIEW_STRIP_MIGRATION] = {"at": now(),
+                                                 "stripped": stripped}
 
     def _backfill_mail_log_ids(self) -> None:
         """Give pre-id `mail_log` entries an id, ONCE per document.
@@ -10516,7 +10544,12 @@ class Org:
             if self._work_eligible(it, now_ts) and not self._work_attention(it):
                 active.remove(it)
                 it["archived_at"] = now()
-                self.d.setdefault("work_items_archive", []).append(it)
+                # `store.log_append`, not `.append`: the archive is a lazy
+                # rowed section now, and the sweep must not materialize the
+                # whole closed docket to add one row (same shape as `_log`)
+                from . import store
+                store.log_append(cast("dict[str, Any]", self.d),
+                                 "work_items_archive", it)
                 moved.append(it["slug"])
                 outcomes[it["slug"]] = self._work_status(it)
         if moved:
@@ -12187,7 +12220,9 @@ class Org:
                               f"{wid} is {it.get('status')}")
         self._work_active().remove(it)
         it["archived_at"] = now()
-        self.d.setdefault("work_items_archive", []).append(it)
+        from . import store
+        store.log_append(cast("dict[str, Any]", self.d),
+                         "work_items_archive", it)
         self._work_hist(it, actor, "archive", {})
         self._log("work_archived", actor, {"ids": [wid], "why": "explicit"}, [])
         return {"archived": wid, "rev": it["rev"]}
