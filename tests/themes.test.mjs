@@ -1,13 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import Module from 'node:module'
 import { build } from 'esbuild'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-const dir = fs.mkdtempSync(path.resolve('node_modules/.theme-test-'))
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-theme-test-'))
+const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('react/package.json')))
+process.env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
+Module._initPaths()
 const output = path.join(dir, 'themes.cjs')
 await build({entryPoints:['apps/desktop/renderer/src/themes.tsx'],outfile:output,bundle:true,platform:'node',format:'cjs',jsx:'automatic',external:['react','react/jsx-runtime']})
 

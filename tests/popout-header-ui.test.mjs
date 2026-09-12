@@ -7,18 +7,23 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { build } from 'esbuild'
 import { JSDOM, VirtualConsole } from 'jsdom'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createRequire } from 'node:module'
+import Module from 'node:module'
 
 const root = path.resolve(import.meta.dirname, '..')
 // Inside node_modules so the bundle's `require('react')` resolves to the SAME
 // React this test uses - two copies would break every hook - and removed again
 // rather than left behind.
-const dir = fs.mkdtempSync(path.join(root, 'node_modules', '.popout-ui-test-'))
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-popout-ui-test-'))
+const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('react/package.json')))
+process.env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
+Module._initPaths()
 // KEEP_POPOUT_UI_BUNDLE leaves it behind, so a stack trace into the bundle can
 // still be read after the run.
 after(() => { if (!process.env.KEEP_POPOUT_UI_BUNDLE) try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* already gone */ } })

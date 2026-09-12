@@ -10,6 +10,7 @@
     "build": "node tools/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
+    "test:renderer": "node apps/desktop/renderer/tests/run.mjs",
     "start": "electron .",
     "dev": "npm run build && electron .",
     "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",

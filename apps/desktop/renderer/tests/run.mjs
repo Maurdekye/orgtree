@@ -16,36 +16,95 @@
 // any app module is reached — see the import-order note there.
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as esbuild from 'esbuild'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
-const repsIdx = process.argv.indexOf('--reps')
-// the value after --reps is not a filename filter
-const filter = argv.filter((a, i) => !a.startsWith('--')
-  && argv[i - 1] !== '--reps')[0] ?? ''
+const filters = []
+let repsValue
+let outputArg
+let prebuiltArg
+let afterOptions = false
+for (let i = 0; i < argv.length; i++) {
+  const arg = argv[i]
+  if (afterOptions) { filters.push(arg); continue }
+  if (arg === '--') { afterOptions = true; continue }
+  const [name, inline] = arg.split('=', 2)
+  if (name === '--reps') {
+    repsValue = inline ?? argv[++i]
+    if (repsValue === undefined) throw new Error('--reps needs a value')
+  } else if (name === '--output' || name === '--out') {
+    outputArg = inline ?? argv[++i]
+    if (!outputArg) throw new Error(`${name} needs a directory`)
+  } else if (name === '--prebuilt') {
+    prebuiltArg = inline ?? argv[++i]
+    if (!prebuiltArg) throw new Error('--prebuilt needs a directory')
+  } else if (name === '--filter') {
+    const value = inline ?? argv[++i]
+    if (!value) throw new Error('--filter needs a value')
+    filters.push(value)
+  } else if (arg === '--help' || arg === '-h') {
+    console.log('Usage: node run.mjs [filter ...] [--reps N] [--output DIR] [--prebuilt DIR]')
+    console.log('Filters are filename substrings combined with OR. --prebuilt skips bundling and never removes DIR.')
+    process.exit(0)
+  } else if (arg.startsWith('-')) {
+    throw new Error(`unknown option ${arg}`)
+  } else {
+    filters.push(arg)
+  }
+}
+if (outputArg && prebuiltArg) throw new Error('--output and --prebuilt cannot be combined')
 
 const entries = readdirSync(HERE)
   .filter((f) => /\.test\.tsx?$/.test(f))
-  .filter((f) => !filter || f.includes(filter))
+  .filter((f) => !filters.length || filters.some((filter) => f.includes(filter)))
+  .sort()
   .map((f) => path.join(HERE, f))
 
-if (!entries.length) {
-  console.error(`no test files match ${filter || '*'}`)
-  process.exit(1)
-}
+if (!prebuiltArg && !entries.length) throw new Error(`no test files match ${filters.join(', ') || '*'}`)
 
 // ⚠ the bundle lands INSIDE node_modules on purpose: it imports jsdom (kept
 // external), and node resolves a bare specifier by walking up from the
 // importing file — from a temp dir that walk never reaches frontend's
 // node_modules. It is also already ignored by every VCS rule in the tree.
-const out = path.join(HERE, '..', 'node_modules', '.orgtree-tests')
-rmSync(out, { recursive: true, force: true })
-mkdirSync(out, { recursive: true })
-await esbuild.build({
+const prebuilt = prebuiltArg ? path.resolve(prebuiltArg) : null
+const requestedOutput = outputArg ? path.resolve(outputArg) : null
+let out
+let ownsOutput = false
+let outputRoot = null
+let argRoot = null
+if (prebuilt) {
+  if (!existsSync(prebuilt)) throw new Error(`prebuilt directory does not exist: ${prebuilt}`)
+  out = prebuilt
+} else if (requestedOutput) {
+  mkdirSync(requestedOutput, { recursive: true })
+  if (readdirSync(requestedOutput).length) throw new Error(`refusing non-empty output directory: ${requestedOutput}`)
+  out = requestedOutput
+  const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
+  symlinkSync(dependencyRoot, path.join(out, 'node_modules'), 'junction')
+  ownsOutput = true
+} else {
+  outputRoot = mkdtempSync(path.join(os.tmpdir(), 'orgtree-renderer-tests-'))
+  out = path.join(outputRoot, 'bundles')
+  mkdirSync(out)
+  // ESM ignores NODE_PATH. A junction beside the bundles keeps external
+  // jsdom/react resolution valid without putting output in a shared checkout.
+  const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
+  symlinkSync(dependencyRoot, path.join(outputRoot, 'node_modules'), 'junction')
+  ownsOutput = true
+}
+const cleanup = () => {
+  if (argRoot) rmSync(argRoot, { recursive: true, force: true })
+  if (ownsOutput && !process.env.KEEP_ORGTREE_TEST_OUTPUT) rmSync(outputRoot ?? out, { recursive: true, force: true })
+}
+process.once('exit', cleanup)
+
+if (!prebuilt) await esbuild.build({
   entryPoints: entries,
   outdir: out,
   bundle: true,
@@ -57,6 +116,8 @@ await esbuild.build({
   outExtension: { '.js': '.mjs' },
   logLevel: 'warning',
   // jsdom is a real node package with native-ish internals — never bundle it
+  // The temp run has a private junction to dependencies beside its bundles.
+  // Keep jsdom external because its native-ish internals do not bundle safely.
   external: ['jsdom', 'node:*'],
   define: {
     'process.env.NODE_ENV': '"development"',
@@ -100,9 +161,7 @@ await esbuild.build({
 // work. A suite may still set its own `{ timeout }` per test, which wins over
 // this default. ORGTREE_TEST_TIMEOUT_MS overrides everything; 0 restores node's
 // old unbounded behaviour and should only ever be temporary.
-const REPS_N = Math.max(1, Number(repsIdx > 0
-  ? process.argv[repsIdx + 1]
-  : process.env.ORGTREE_TEST_REPS) || 1)
+const REPS_N = Math.max(1, Number(repsValue ?? process.env.ORGTREE_TEST_REPS) || 1)
 const TIMEOUT_MS = process.env.ORGTREE_TEST_TIMEOUT_MS ?? String(10_000 * REPS_N)
 
 // ⚠ CONCURRENCY IS BOUNDED, AND IT IS THE OTHER HALF OF D-177 (user, 2026-08-29:
@@ -189,50 +248,85 @@ const envInt = (name, dflt) => {
 const JOB_MB = envInt('ORGTREE_TEST_JOB_MB', 6144)
 const RUN_TIMEOUT_MS = envInt('ORGTREE_TEST_RUN_TIMEOUT_MS', 300_000 * REPS_N)
 
-const files = readdirSync(out).filter((f) => f.endsWith('.mjs'))
+const files = readdirSync(out).filter((f) => f.endsWith('.mjs')).sort()
+  .filter((f) => !filters.length || filters.some((filter) => f.includes(filter)))
+if (!files.length) throw new Error(`no prebuilt test files match ${filters.join(', ') || '*'}`)
 // --test-force-exit: React's scheduler holds a ref'd MessageChannel open for
 // the process's whole life, so node would otherwise sit at 100 % pass and
 // never exit.
-const nodeArgs = ['--test', '--test-force-exit',
+const nodePrefix = ['--test', '--test-force-exit',
   `--test-timeout=${TIMEOUT_MS}`,
-  ...(Number(CONCURRENCY) > 0 ? [`--test-concurrency=${CONCURRENCY}`] : []),
-  ...files.map((f) => path.join(out, f))]
+  ...(Number(CONCURRENCY) > 0 ? [`--test-concurrency=${CONCURRENCY}`] : [])]
 const env = {
   ...process.env,
-  ORGTREE_TEST_REPS: repsIdx > 0 ? process.argv[repsIdx + 1] : process.env.ORGTREE_TEST_REPS,
+  ORGTREE_TEST_REPS: repsValue ?? process.env.ORGTREE_TEST_REPS,
+}
+const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
+env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
+
+// PowerShell's ProcessStartInfo has a finite command-line string even when an
+// argument file is used. Keep each batch below a conservative Windows limit;
+// all batches still receive the same timeout, concurrency and Job Object.
+const maxArgChars = envInt('ORGTREE_TEST_MAX_ARG_CHARS', 24_000)
+const winArgLength = value => 2 + value.replaceAll('"', '\\"').length
+const batches = []
+let batch = []
+let batchLength = nodePrefix.reduce((n, value) => n + winArgLength(value), 0)
+for (const file of files) {
+  const value = path.join(out, file)
+  const addition = winArgLength(value) + 1
+  if (addition + nodePrefix.reduce((n, item) => n + winArgLength(item), 0) > maxArgChars) {
+    throw new Error(`test path exceeds ORGTREE_TEST_MAX_ARG_CHARS: ${value}`)
+  }
+  if (batch.length && batchLength + addition > maxArgChars) {
+    batches.push(batch)
+    batch = []
+    batchLength = nodePrefix.reduce((n, item) => n + winArgLength(item), 0)
+  }
+  batch.push(value)
+  batchLength += addition
+}
+if (batch.length) batches.push(batch)
+
+const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows',
+  'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+argRoot = mkdtempSync(path.join(os.tmpdir(), 'orgtree-renderer-args-'))
+const deadline = RUN_TIMEOUT_MS > 0 ? Date.now() + RUN_TIMEOUT_MS : 0
+let aggregate = 0
+for (let index = 0; index < batches.length; index++) {
+  const args = [...nodePrefix, ...batches[index]]
+  const remaining = deadline ? deadline - Date.now() : 0
+  if (deadline && remaining <= 0) {
+    console.error(`[run.mjs] RUN LIMIT: no batch remained within ${RUN_TIMEOUT_MS} ms`)
+    aggregate = 124
+    break
+  }
+  let status
+  if (process.platform === 'win32') {
+    // The argument list goes through a file one per line. joblimit.ps1 then
+    // creates a contained process tree and enforces the same limits per batch.
+    const argFile = path.join(argRoot, `node-args-${index}.txt`)
+    writeFileSync(argFile, args.join('\n') + '\n')
+    const timeoutSec = deadline ? Math.max(1, Math.ceil(remaining / 1000)) : 0
+    const result = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(HERE, 'joblimit.ps1'), '-LimitMB', String(JOB_MB),
+      '-TimeoutSec', String(timeoutSec), '-WorkDir', path.join(HERE, '..'),
+      '-Exe', process.execPath, '-ArgFile', argFile], { stdio: 'inherit', env })
+    if (result.error) {
+      console.error(`[run.mjs] could not start joblimit.ps1: ${result.error.message}`)
+      status = 1
+    } else status = result.status ?? 1
+    if (status === 124) console.error(`[run.mjs] batch ${index + 1}/${batches.length} hit the run limit or was terminated by containment`)
+    else if (status !== 0) console.error(`[run.mjs] batch ${index + 1}/${batches.length} failed with exit ${status}`)
+  } else {
+    console.error(`[run.mjs] containment OFF: no Job Object launcher on ${process.platform}; run limit applies to the direct child only`)
+    const result = spawnSync(process.execPath, args, { stdio: 'inherit', env,
+      ...(remaining > 0 ? { timeout: remaining, killSignal: 'SIGKILL' } : {}) })
+    status = result.error?.code === 'ETIMEDOUT' ? 124 : (result.status ?? 1)
+    if (status === 124) console.error(`[run.mjs] batch ${index + 1}/${batches.length} hit the run limit; child descendants are not covered without a Job Object`)
+  }
+  if (status !== 0) aggregate = status === 124 ? 124 : (aggregate || 1)
 }
 
-if (process.platform === 'win32' && JOB_MB > 0) {
-  // the argument list goes through a file, one per line: dozens of bundle
-  // paths must not pass through powershell's own quoting a second time
-  const argFile = path.join(out, 'node-args.txt')
-  writeFileSync(argFile, nodeArgs.join('\n') + '\n')
-  const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows',
-    'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  const r = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-File', path.join(HERE, 'joblimit.ps1'),
-    '-LimitMB', String(JOB_MB),
-    '-TimeoutSec', String(Math.ceil(RUN_TIMEOUT_MS / 1000)),
-    '-WorkDir', path.join(HERE, '..'),
-    '-Exe', process.execPath,
-    '-ArgFile', argFile], { stdio: 'inherit', env })
-  if (r.error || r.status !== 0) {
-    if (r.error) console.error(`[run.mjs] could not start joblimit.ps1: ${r.error.message}`)
-    // a ceiling that fires can leave NO output at all (the child dies before
-    // its reporter writes), so name the bounds as candidate causes here
-    else console.error(`[run.mjs] test job exited ${r.status}. If there is no test output above, the ${JOB_MB} MB job ceiling or the ${RUN_TIMEOUT_MS} ms run limit is the likely cause (ORGTREE_TEST_JOB_MB / ORGTREE_TEST_RUN_TIMEOUT_MS; 0 disables).`)
-    process.exit(1)
-  }
-} else {
-  console.error(`[run.mjs] containment OFF: ${process.platform !== 'win32'
-    ? `no Job Object launcher on ${process.platform}`
-    : 'ORGTREE_TEST_JOB_MB=0'}; run limit ${RUN_TIMEOUT_MS > 0 ? `${RUN_TIMEOUT_MS} ms on the direct child only` : 'none'}`)
-  const r = spawnSync(process.execPath, nodeArgs, {
-    stdio: 'inherit', env,
-    ...(RUN_TIMEOUT_MS > 0 ? { timeout: RUN_TIMEOUT_MS, killSignal: 'SIGKILL' } : {}),
-  })
-  if (r.error?.code === 'ETIMEDOUT') {
-    console.error(`[run.mjs] RUN LIMIT: no exit after ${RUN_TIMEOUT_MS} ms - test parent killed (children not covered without the job)`)
-  }
-  if (r.error || r.status !== 0) process.exit(1)
-}
+cleanup()
+process.exitCode = aggregate

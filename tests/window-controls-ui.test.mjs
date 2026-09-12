@@ -1,15 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import Module from 'node:module'
 import { build } from 'esbuild'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 const root = path.resolve(import.meta.dirname, '..')
-const dir = fs.mkdtempSync(path.join(root, 'node_modules', '.window-controls-ui-test-'))
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-window-controls-ui-test-'))
+const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('react/package.json')))
+process.env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
+Module._initPaths()
 const output = path.join(dir, 'window-controls.cjs')
 await build({
   entryPoints: [path.join(root, 'apps/desktop/renderer/src/window-controls.tsx')],
