@@ -220,13 +220,14 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean) => void; flush?: () => void
-  /** This surface's own box on screen, for the shape a first pop-out opens
-   *  at (see `popupSize`). A surface whose visible panel is NOT the whole of
-   *  its DOM has to say so: a centred modal renders a full-screen `.overlay`
-   *  around its panel, and measuring that would ask for a window the shape
-   *  of the screen. A surface that does not declare one keeps the fixed
-   *  default size, exactly as before. */
-  sourceBox?: () => { w: number; h: number } | null
+  /** This surface's own box in its window, for the shape AND the place a
+   *  first pop-out opens at (see `popupSize` and `popupPlacement`). A
+   *  surface whose visible panel is NOT the whole of its DOM has to say so:
+   *  a centred modal renders a full-screen `.overlay` around its panel, and
+   *  measuring that would ask for a window the shape of the screen. A
+   *  surface that does not declare one keeps the fixed default size and lets
+   *  the platform place it, exactly as before. */
+  sourceBox?: () => { x: number; y: number; w: number; h: number } | null
 }) {
   const parent = useSurface()
   const layoutKey = windowLayoutKey(kind, org)
@@ -323,7 +324,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  zero-height or the slot's full width by a sliver - and a sliver asks
    *  for an extremely wide window. A surface that knows its own panel says
    *  so; anything that does not keeps the fixed default it has always had. */
-  const surfaceShape = (): { w: number; h: number } | null => {
+  const surfaceShape = (): { x: number; y: number; w: number; h: number } | null => {
     const declared = latest.current.sourceBox?.()
     return declared && declared.w > 0 && declared.h > 0 ? declared : null
   }
@@ -342,7 +343,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // DOM into the new window, after which there is nothing left here to
       // measure - so the shape has to be read while the surface is still
       // sitting where the user was looking at it.
-      w = owner.defaultView!.open('', popoutName.current, popupFeatures(layoutKey, surfaceShape()))
+      // The owner's own screen origin is what turns the surface's box, which
+      // is in THIS window's client coordinates, into a place on the screen.
+      w = owner.defaultView!.open('', popoutName.current,
+        popupFeatures(layoutKey, surfaceShape(), owner.defaultView))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document

@@ -1760,9 +1760,20 @@ class Org:
 
     # -------------------------------------------------------------- stranding
     def _stranding_warnings(self, payer: str, free_before: float,
-                            free_after: float) -> list[str]:
+                            free_after: float, *,
+                            actor: str | None = None) -> list[str]:
         """§4.4 (corrected): name each archived dependent of `payer` whose rehire cost
-        was affordable at free_before but is not at free_after."""
+        was affordable at free_before but is not at free_after.
+
+        state-audit F4 (user-authorized 2026-09-12): when `actor` is given and
+        the stranding was caused by SOMEONE ELSE (actor != payer), the PAYER
+        is also told — a passive notice, read at its next turn. The
+        2026-09-03 ruling that a reduction's stranding is a consequence and
+        not a popup governs the ACTOR's experience; it never said the node
+        left unable to rehire its own archived reports should find out only
+        by an operator reading the event log. The actor still sees the
+        returned warnings; this adds the missing recipient, and only when the
+        actor is not already the payer (who sees them in its own result)."""
         if payer == USER or free_after >= free_before:
             return []
         warns: list[str] = []
@@ -1776,6 +1787,16 @@ class Org:
                 warns.append(
                     f"{payer} can no longer afford to rehire archived {kind} "
                     f"{c} (needs {cost:g}, free now {free_after:g}) — stranded (§4.4)")
+        if warns and actor is not None and actor != payer \
+                and payer in self.nodes and self.nodes[payer]["state"] == "live":
+            self._notify([payer],
+                         "Your free credits dropped and you can no longer "
+                         "afford to rehire "
+                         + ("some of your archived reports: "
+                            if len(warns) > 1 else "an archived report: ")
+                         + "; ".join(w.split(" — stranded")[0] for w in warns)
+                         + ". Reallocate more credits to yourself (or ask your "
+                         "superior) if you need to bring them back.")
         return warns
 
     # ------------------------------------------------------------------ mail
@@ -3403,7 +3424,8 @@ class Org:
             hop_n = self.nodes[k]
             hop_n["grant"] = _q(hop_n["grant"] + extra)
         for i, k, c in contrib:
-            warnings += self._stranding_warnings(k, frees[i], frees[i] - c)
+            warnings += self._stranding_warnings(k, frees[i], frees[i] - c,
+                                                 actor=actor)
             if i > 0:
                 warnings.append(
                     f"§4.6: {c:g} credit(s) bubbled up to {k}; grants below it "
@@ -4620,8 +4642,10 @@ class Org:
             # interrupts the actor with a popup — it's a consequence, not a
             # refusal (the free-credit check above is the actual refusal).
             # Still recorded to the event log (below) for anyone auditing.
+            # state-audit F4: and the stranded NODE is told (passive notice)
+            # when someone else reduced it — see _stranding_warnings.
             strand = self._stranding_warnings(
-                nid, self.free(nid), self.free(nid) + delta)
+                nid, self.free(nid), self.free(nid) + delta, actor=actor)
         # delta stays WHOLE (int() above): nobody asks for 0.3 of a credit —
         # only seats are fractional. The grant it lands on may not be, though
         # (switch_model's melt), so the write is quantised like every other.
@@ -4919,14 +4943,16 @@ class Org:
                 f"capabilities the new chain does not hold were dropped "
                 f"(№30): {dropped}")
         if s_a != s_b and not siblings:
+            # state-audit F4: actor= so a stranded boundary payer is told
             if p_a is not None:
                 warnings += self._stranding_warnings(
-                    p_a, free_pa0, self.free(p_a))
+                    p_a, free_pa0, self.free(p_a), actor=actor)
             if direct:
-                warnings += self._stranding_warnings(b, free_a0, self.free(b))
+                warnings += self._stranding_warnings(b, free_a0, self.free(b),
+                                                     actor=actor)
             elif p_b is not None:
                 warnings += self._stranding_warnings(
-                    p_b, free_pb0, self.free(p_b))
+                    p_b, free_pb0, self.free(p_b), actor=actor)
 
         # typed (family lifecycle): lifecycle.seat_swapped, one event per
         # audience role; each text is the event's rendering (§L tests)

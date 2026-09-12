@@ -1,0 +1,323 @@
+"""state-audit hardening (user-authorized 2026-09-12): the transitions the
+audit found could strand an agent, and the self-healing added for them.
+
+Covers, at the ledger + supervisor level (no real CLI spawn):
+  · F1/SH-1 — a queued cross-provider switch hands the unfreeze-wake to the
+    caller (`_apply_pending_switch_locked`'s `wake` out-param) instead of
+    dropping it, so the boundary/reconcile paths can drive the node.
+  · SH-2   — a `missing:` binding parks with `cause="account"`; the timer
+    (`auto_resume_ready`) never wakes such a park; `announce_missing_rebind_
+    candidates` finds the parked nodes.
+  · SH-6   — `_invariant_sweep_org` quarantines an unknown True freeze flag
+    (the pre-№41 permanent-skip trap) and tells someone.
+  · F4     — a stranding caused by another actor notifies the stranded node.
+"""
+import os
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+# the backend's [orgtree] diagnostics use unicode (→, ⚠, №); a bare Windows
+# console is cp1252 and would crash the print, not the code under test. The
+# packaged backend runs UTF-8; match that here so the harness is faithful.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")                # type: ignore[union-attr]
+    except Exception:                                    # noqa: BLE001
+        pass
+
+_root = tempfile.mkdtemp(prefix="state-audit-fixes-")
+# the packaged backend's default store; a fresh root needs no migration, and
+# the cross-provider transcript-export path reaches a native-import helper
+# that is sqlite-only, so this matches production rather than forcing json.
+os.environ.update(ORGTREE_DATA=str(Path(_root) / "data"),
+                  HOME=str(Path(_root) / "home"),
+                  USERPROFILE=str(Path(_root) / "home"),
+                  ORGTREE_STORE="sqlite", ORGTREE_V2_TOKEN="op")
+Path(os.environ["ORGTREE_DATA"]).mkdir(parents=True)
+Path(os.environ["HOME"]).mkdir(parents=True)
+
+from engine.backend.orgtree import ledger, store, supervisor  # noqa: E402
+
+NOW = time.time()
+
+
+def _fresh(slug, model="opus"):
+    """A one-node live org saved to the store, ready for supervisor calls."""
+    org = ledger.Org.create(slug)
+    nid = org._new_node(model, None, 0, "root", [],
+                        {"bash": True, "web": True, "edit": True,
+                         "subagents": True, "mcp": []}, "full", "c")
+    store.save_org(org)
+    return slug, nid
+
+
+class SwitchBoundaryWakeTests(unittest.TestCase):
+    """F1/SH-1: the queued-switch applier surfaces resume_stale_freeze."""
+
+    def test_boundary_apply_reports_the_unfrozen_node(self):
+        slug, nid = _fresh("f1-wake", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            n = org.node(nid)
+            # frozen for a usage limit on the CURRENT provider (claude)…
+            n["frozen"] = {"limit": True, "provider": "claude",
+                           "until_ts": NOW + 3600, "until": "later",
+                           "resume_texts": ["the interrupted prompt"],
+                           "at": "2026-09-12T00:00:00Z"}
+            # …with a switch to a DIFFERENT provider (openai) queued behind it
+            n["pending_switch"] = {"tier": "luna", "from": "opus",
+                                   "by": "USER", "at": "2026-09-12T00:00:00Z",
+                                   "crossing": True, "account": None}
+            store.save_org(org)
+
+        wake = []
+        with store.DOC_LOCK:
+            o2 = store.load_org(slug)
+            changed = supervisor._apply_pending_switch_locked(
+                o2, slug, nid, wake=wake)
+            store.save_org(o2)
+
+        self.assertTrue(changed)
+        # the crossing cleared the stale freeze AND reported the node to wake
+        self.assertIn(nid, wake)
+        after = store.load_org(slug).node(nid)
+        self.assertEqual(after["model"], "luna")
+        self.assertIsNone(after.get("frozen"))
+        self.assertNotIn("pending_switch", after)
+
+    def test_same_provider_switch_reports_no_wake(self):
+        slug, nid = _fresh("f1-same", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["pending_switch"] = {
+                "tier": "sonnet", "from": "opus", "by": "USER",
+                "at": "2026-09-12T00:00:00Z", "crossing": False,
+                "account": None}
+            store.save_org(org)
+        wake = []
+        with store.DOC_LOCK:
+            o2 = store.load_org(slug)
+            supervisor._apply_pending_switch_locked(o2, slug, nid, wake=wake)
+            store.save_org(o2)
+        self.assertEqual(wake, [])                       # nothing was frozen
+        self.assertEqual(store.load_org(slug).node(nid)["model"], "sonnet")
+
+
+class MissingAccountParkTests(unittest.TestCase):
+    """SH-2: the missing-binding park never auto-wakes and is discoverable."""
+
+    def test_auto_resume_skips_an_account_park(self):
+        org = ledger.Org.create("sh2-timer")
+        nid = org._new_node("opus", None, 0, "root", [],
+                            {"bash": False, "web": False, "edit": False,
+                             "subagents": False, "mcp": []}, "full", "c")
+        org.node(nid)["frozen"] = {"limit": True, "cause": "account",
+                                   "provider": "claude", "until_ts": None,
+                                   "until": "no account", "at": "x"}
+        # a control node with an ELAPSED ordinary limit IS ready
+        ctl = org._new_node("opus", None, 0, "ctl", [],
+                            {"bash": False, "web": False, "edit": False,
+                             "subagents": False, "mcp": []}, "full", "c")
+        org.node(ctl)["frozen"] = {"limit": True, "provider": "claude",
+                                   "until_ts": NOW - 3600, "until": "past",
+                                   "at": "x"}   # past the limit-kind +60s grace
+        ready = supervisor.auto_resume_ready(org, now=NOW)
+        self.assertNotIn(nid, ready)                     # the account park
+        self.assertIn(ctl, ready)                        # the ordinary limit
+
+    def test_announce_finds_parked_nodes(self):
+        slug, nid = _fresh("sh2-find", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["account"] = "missing:claude"
+            store.save_org(org)
+        n = supervisor.announce_missing_rebind_candidates("claude", "acct-1")
+        self.assertGreaterEqual(n, 1)
+
+
+class FreezeQuarantineTests(unittest.TestCase):
+    """SH-6: an unknown True freeze flag is quarantined, not skipped forever."""
+
+    def test_unknown_flag_is_quarantined_and_announced(self):
+        slug, nid = _fresh("sh6", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["frozen"] = {"error": "x", "bogus_kind": True,
+                                       "at": "2026-09-12T00:00:00Z"}
+            store.save_org(org)
+
+        supervisor._invariant_sweep_org(slug)
+
+        fz = store.load_org(slug).node(nid)["frozen"]
+        self.assertIsNotNone(fz)
+        self.assertNotEqual(fz.get("bogus_kind"), True)   # no longer active
+        self.assertEqual(fz.get("_quarantined", {}).get("bogus_kind"), True)
+        # a top-level node's finding reaches the user (a notice arrives
+        # already-read, so it lands in the read archive by construction)
+        d = store.load_org(slug).d
+        seen = (d.get("user_inbox") or []) + (d.get("user_mail_log") or [])
+        self.assertTrue(any("bogus_kind" in str(m.get("body", ""))
+                            for m in seen))
+
+    def test_known_flags_are_left_alone(self):
+        slug, nid = _fresh("sh6-known", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["frozen"] = {"limit": True, "provider": "claude",
+                                       "until_ts": NOW + 60, "at": "x"}
+            store.save_org(org)
+        supervisor._invariant_sweep_org(slug)
+        fz = store.load_org(slug).node(nid)["frozen"]
+        self.assertEqual(fz.get("limit"), True)           # untouched
+        self.assertNotIn("_quarantined", fz)
+
+
+class StrandingNoticeTests(unittest.TestCase):
+    """F4: a stranding caused by another actor notifies the stranded node."""
+
+    def test_payer_is_notified_when_another_actor_strands_it(self):
+        org = ledger.Org.create("f4")
+        payer = org._new_node("opus", None, 0, "boss", [],
+                              {"bash": False, "web": False, "edit": False,
+                               "subagents": False, "mcp": []}, "full", "c")
+        child = org._new_node("haiku", payer, 0, "kid", [],
+                              {"bash": False, "web": False, "edit": False,
+                               "subagents": False, "mcp": []}, "full", "c")
+        org.node(child)["state"] = "archived"             # rehireable dependent
+
+        cost = org.seat_cost(child) + org.node(child)["grant"]
+        warns = org._stranding_warnings(payer, cost + 1, cost - 1,
+                                        actor="someone-else")
+        self.assertTrue(warns)                            # it WAS stranded
+        notices = org.d.get("notices", {}).get(payer) or []
+        self.assertTrue(any(child in str(x.get("text", "")) for x in notices))
+
+    def test_no_notice_when_the_payer_is_the_actor(self):
+        org = ledger.Org.create("f4-self")
+        payer = org._new_node("opus", None, 0, "boss", [],
+                              {"bash": False, "web": False, "edit": False,
+                               "subagents": False, "mcp": []}, "full", "c")
+        child = org._new_node("haiku", payer, 0, "kid", [],
+                              {"bash": False, "web": False, "edit": False,
+                               "subagents": False, "mcp": []}, "full", "c")
+        org.node(child)["state"] = "archived"
+        cost = org.seat_cost(child) + org.node(child)["grant"]
+        org._stranding_warnings(payer, cost + 1, cost - 1, actor=payer)
+        self.assertFalse(org.d.get("notices", {}).get(payer))
+
+
+class AccountUnparkTests(unittest.TestCase):
+    """SH-2 (state-review fix 1): assigning an account clears the park and the
+    caller-owned path learns it must drive via the `unparked` disclosure."""
+
+    def _parked(self, slug):
+        s, nid = _fresh(slug, model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(s)
+            org.node(nid)["account"] = "missing:claude"
+            org.node(nid)["frozen"] = {"limit": True, "cause": "account",
+                                       "provider": "claude", "until_ts": None,
+                                       "until": "no account", "at": "x"}
+            store.save_org(org)
+        return s, nid
+
+    def test_operator_assign_clears_park_and_drives_the_wake(self):
+        # send_message MOCKED so the assertion is exact and no CLI can spawn
+        slug, nid = self._parked("unpark-op")
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            out = supervisor.assign_account(slug, nid, "primary", actor="USER")
+        self.assertTrue(out.get("unparked"))
+        self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+        # the operator door owns its save, so assign_account drives the wake
+        self.assertEqual(drive.call_count, 1)
+        self.assertEqual(drive.call_args.args[1], nid)
+        self.assertIn("assigned to you", drive.call_args.args[2])
+
+    def test_caller_owned_assign_reports_unparked_but_does_not_drive(self):
+        # the agent dispatch owns the save, so assign_account must NOT drive
+        # here (the doc has not landed) — it returns `unparked` and the door
+        # calls drive_account_unpark after ITS save. The round-1 regression
+        # was the park cleared with NO wake because the flag was ignored.
+        slug, nid = self._parked("unpark-agent")
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                out = supervisor.assign_account(slug, nid, "primary",
+                                                actor="USER", org=org)
+                store.save_org(org)
+        self.assertTrue(out.get("unparked"))
+        self.assertIsNone(store.load_org(slug).node(nid).get("frozen"))
+        self.assertEqual(drive.call_count, 0)
+
+    def test_drive_account_unpark_sends_the_wake(self):
+        # the shared sender both doors use after their save
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor.drive_account_unpark("any", "node")
+        self.assertEqual(drive.call_count, 1)
+        self.assertIn("assigned to you", drive.call_args.args[2])
+
+
+class ProvenDeathTests(unittest.TestCase):
+    """state-review fix 2: only a DECISIVE 'no such process' clears a flag."""
+
+    def test_live_pid_is_not_proven_dead(self):
+        self.assertFalse(supervisor._pid_provably_dead(os.getpid()))
+
+    def test_exited_pid_is_proven_dead(self):
+        import subprocess
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        self.assertTrue(supervisor._pid_provably_dead(p.pid))
+
+    def test_nonpositive_pid_is_never_dead(self):
+        self.assertFalse(supervisor._pid_provably_dead(0))
+
+
+class DeadRemoteRecoveryTests(unittest.TestCase):
+    """state-review fix 3: a provably-dead remote flag is cleared AND its
+    waiting mail is delivered; a live driver is left alone."""
+
+    def test_dead_driver_flag_cleared_and_waiting_mail_driven(self):
+        import subprocess
+        p = subprocess.Popen([sys.executable, "-c", "pass"])
+        p.wait()
+        slug, nid = _fresh("rc-dead", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["remote_controlled"] = {"at": "x", "pid": p.pid}
+            org.d.setdefault("mail", {})[nid] = [
+                {"id": "m1", "from": "USER", "kind": "message",
+                 "body": "waited", "at": "x"}]
+            store.save_org(org)
+        # send_message MOCKED — assert the waiting mail is driven, no CLI spawn
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor._invariant_sweep_org(slug)
+        self.assertIsNone(
+            store.load_org(slug).node(nid).get("remote_controlled"))
+        self.assertEqual(drive.call_count, 1)         # the queued mail
+        self.assertEqual(drive.call_args.args[1], nid)
+
+    def test_live_driver_flag_is_left_alone(self):
+        slug, nid = _fresh("rc-live", model="opus")
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            org.node(nid)["remote_controlled"] = {"at": "x", "pid": os.getpid()}
+            store.save_org(org)
+        with patch.object(supervisor, "send_message",
+                          return_value={}) as drive:
+            supervisor._invariant_sweep_org(slug)
+        self.assertIsNotNone(
+            store.load_org(slug).node(nid).get("remote_controlled"))
+        self.assertEqual(drive.call_count, 0)         # nothing cleared/driven
+
+
+if __name__ == "__main__":
+    unittest.main()
