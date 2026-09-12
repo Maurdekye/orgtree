@@ -2089,6 +2089,105 @@ export interface WorkItemAttachment {
   path?: string
 }
 
+/** W08 — HOW a check reached its conclusion. The distinction is a reviewer's,
+ *  not a formality: an approval reading "tests pass" when the reviewer read
+ *  somebody else's log overstates its own scope. */
+export type WorkExecution = 'independent' | 'owner_report' | 'source_inspection'
+
+/** W08 — WHAT CAME BACK. Five values, because collapsing any two of them is
+ *  how a suite reports green while a negative control never fired.
+ *  `expected_negative` is a PASS (it failed as designed); `crashed` reached no
+ *  verdict at all; `not_executed` never ran and must never read as a pass. */
+export type WorkResult =
+  'passed' | 'expected_negative' | 'failed' | 'crashed' | 'not_executed'
+
+/** W08 — the state of the tree a receipt was measured in. `unresolved` is a
+ *  tree mid-rebase (or one git could not read): it is neither the recorded
+ *  commit nor a clean edit of it, so any number taken from it describes a
+ *  mixture of two commits. */
+export interface WorkTreeState {
+  checkout: string
+  commit: string | null
+  base: string | null
+  state: 'clean' | 'dirty' | 'unresolved'
+  dirty_paths: string[]
+  dirty_count: number
+  /** '' or the git operation half-applied there (rebase, merge, cherry-pick…) */
+  in_progress: string
+  fingerprint: string
+  observed_at: string
+  detail: string
+}
+
+/** W08 — one immutable record of an observation. Never refreshed: the read
+ *  path compares it against the tree NOW and discloses the difference, which
+ *  is what keeps a passing log from before an edit from reading as evidence
+ *  for after it. */
+export interface WorkReceipt {
+  schema: string
+  candidate: string
+  base: string | null
+  tree: WorkTreeState
+  execution: WorkExecution
+  result: WorkResult
+  green: boolean
+  command: string[]
+  runner: Record<string, unknown>
+  logs: { text: string; encoding: string; had_bom: boolean
+    replacements: number; bytes: number; sha256: string; path?: string
+    unreadable?: string }[]
+  replay: { candidate: string; checkout_flag: string; portable: boolean
+    steps: string[]; detail: string }
+  note: string
+  observed_at: string
+  fingerprint: string
+  /** present on a `rangediff` receipt: all four endpoints of the comparison,
+   *  because "the rebase was clean" is unfalsifiable without them */
+  range_diff?: { old_base: string; old_tip: string; new_base: string
+    new_tip: string; identical: boolean | null; detail: string
+    output: string; observed_at: string }
+}
+
+/** W08 — an immutable evidence file on the item. The bytes are addressed by
+ *  record id and their sha256 is recorded, so a download can be checked
+ *  against what was registered. `named` scope is readable only by the
+ *  recorder, its explicit grantees and the user. */
+export interface WorkItemArtifact {
+  id: string
+  seq: number
+  at: string
+  by: WorkActor | string
+  name: string
+  bytes: number
+  sha256: string
+  scope: 'item' | 'named'
+  note?: string
+  visible: true
+  /** agents holding a live (unrevoked) grant — server-derived */
+  grants_live: string[]
+  grants?: { at: string; by: WorkActor | string; to: string
+    revoked_at: string | null; note?: string }[]
+  path?: string
+}
+
+/** W08 — a defect with a citable id and an append-only record of what was
+ *  decided about it, so a later review round can read the ruling instead of
+ *  re-arguing ground an earlier round settled. */
+export interface WorkFinding {
+  id: string
+  seq: number
+  at: string
+  by: WorkActor | string
+  title: string
+  detail?: string
+  severity?: string
+  evidence_ref?: string
+  disposition: 'open' | 'fixed' | 'rejected' | 'deferred' | 'duplicate'
+  /** every decision in order — earlier ones are never overwritten */
+  decisions: { at: string; by: WorkActor | string; disposition: string
+    note?: string }[]
+}
+
 export interface WorkItem {
   /** THE ONLY IDENTIFIER (user 2026-09-05: "uniquely and solely identifiable
    *  by their readable slugs, no more ids of any sort"). Derived from the
@@ -2196,7 +2295,23 @@ export interface WorkItem {
    *  its own owner, status and authority. */
   parent: string | null
   parent_visible?: boolean | null
-  evidence: { at: string; by: string; kind: string; ref?: string; note?: string }[]
+  evidence: { at: string; by: string; kind: string; ref?: string; note?: string
+    /** W08: HOW this row was reached. Absent on every row written before the
+     *  field existed and on every row whose author did not say — and absent
+     *  means UNSTATED, never "independently executed". */
+    execution?: WorkExecution
+    execution_means?: string
+    /** W08: provenance captured BY THE BACKEND (never by the caller). Present
+     *  only on rows recorded through the `receipt`/`rangediff` actions. */
+    receipt?: WorkReceipt }[]
+  /** W08 artifacts: immutable evidence files. A `named` artifact the viewer
+   *  holds no grant on arrives as `{visible: false}` — the row stays (so the
+   *  absence of evidence is never implied) and the filename is withheld (a
+   *  filename says what was measured). */
+  artifacts?: (WorkItemArtifact | { visible: false; scope: string })[]
+  findings?: WorkFinding[]
+  findings_summary?: { total: number; by_disposition: Record<string, number>
+    open: string[] }
   /** files/images attached TO the item itself (user feature 2026-09-10) —
    *  distinct from reply attachments, which are mail. The bytes are served
    *  by GET /work-items/{wid}/attachments/{id}. Optional on the wire: an

@@ -24,6 +24,7 @@ import os
 import posixpath
 import re
 import secrets
+import shlex
 import shutil
 import stat
 import subprocess
@@ -86,12 +87,14 @@ from . import refs
 from . import deployment
 from . import frozen_install
 from . import workitems
+from . import workevidence
 from . import opreceipts
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
                providers, restart_wake, sandbox, store, subproxy, supervisor, warmpool)
-from .ledger import LedgerError, Org, USER, VIS_LEVELS, actor_of, norm_dirs, norm_tools
+from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
+                     actor_of, norm_dirs, norm_tools)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -5903,6 +5906,172 @@ def work_item_attachment_file(slug: str, wid: str, aid: str) -> FileResponse:
                                            or os.path.basename(full)))
 
 
+# ---------------------------- W08 work artifacts (immutable, scoped)
+# Distinct from attachments in both directions: the bytes are addressed by
+# their own sha256 and a name is never reused, and a `named` artifact is
+# readable only by its author, the agents that author granted it to, and the
+# user. The store is keyed by item and by RECORD ID, so no caller-supplied path
+# ever reaches the filesystem on the read side.
+_WORK_ARTIFACT_DIRNAME = "work-artifacts"
+#: An artifact is a probe, a receipt or a captured log — evidence a reviewer
+#: runs or reads, not a media file. Small on purpose: the cap is what keeps
+#: "attach the whole build output" from becoming the habit.
+_ARTIFACT_MAX_BYTES = 8 * 1048576
+
+
+def _work_artifact_dir(slug: str, item_slug: str) -> str:
+    return os.path.join(store.DATA_ROOT, _WORK_ARTIFACT_DIRNAME,
+                        _no_nul(slug), _no_nul(item_slug))
+
+
+def _work_artifact_path(slug: str, item_slug: str, rec: Mapping[str, Any]) -> str:
+    """The stored file for one artifact record, traversal-guarded.
+
+    ⚠ THE RECORD'S `path` IS STILL TREATED AS UNTRUSTED. It is written by the
+    backend, but a document is a file on disk and an artifact record is exactly
+    the kind of row a future migration, an import or a hand-edit could carry a
+    `..\\..` into. Anchoring on the realpath of the item's own directory and
+    refusing anything outside it costs one syscall and removes the question.
+    """
+    base = os.path.realpath(_work_artifact_dir(slug, item_slug))
+    full = os.path.realpath(os.path.join(
+        base, _no_nul(str(rec.get("path") or "")).lstrip("/\\")))
+    if full != base and not full.startswith(base + os.sep):
+        raise LedgerError("artifact path escapes its storage")
+    return full
+
+
+def _agent_work_artifact(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_work action=artifact`: record a file as immutable evidence.
+
+    The source path goes through `_node_reachable_file`, the SAME boundary as
+    orgtree_send_file — so an agent can record its own probe, a file in the
+    workspace or a file in a folder it was granted, and nothing else. That is
+    what stops a named grant from becoming a way to publish a peer's scratch or
+    a credential file: the recorder can only record what it was already allowed
+    to read, and the grant then exposes exactly that one file.
+    """
+    raw = _no_nul(str(a.get("path") or "")).strip()
+    if not raw:
+        raise LedgerError("path is required — the file to record as an artifact")
+    src, _scratch, _roots, _key = _node_reachable_file(org, nid, raw,
+                                                       verb="record")
+    size = os.path.getsize(src)
+    if size == 0:
+        raise LedgerError(f"{raw} is empty — an empty artifact proves nothing")
+    if size > _ARTIFACT_MAX_BYTES:
+        raise LedgerError(
+            f"{raw} is {size // 1048576} MB and the artifact cap is "
+            f"{_ARTIFACT_MAX_BYTES // 1048576} MB. An artifact is a probe, a "
+            f"receipt or a log; bundle a large capture and record the archive, "
+            f"or record the receipt and keep the bulk where it is")
+    sha, _n = workevidence.file_digest(src)
+    wid = _work_ref(a)
+    it, _ = org._work_find(wid)
+    item_slug = str(it["slug"])
+    adir = _work_artifact_dir(org.d["slug"], item_slug)
+    safe = re.sub(r"[^\w .()+\-]", "_", os.path.basename(src)).strip(" .") or "artifact.bin"
+    stem, ext = os.path.splitext(safe)
+    # the stored filename carries the content hash, so two runs of the same
+    # probe never collide and the file on disk says which bytes it is
+    stored = f"{sha.split(':', 1)[1][:12]}-{stem[:100]}{ext[:20]}"
+    try:
+        os.makedirs(adir, exist_ok=True)
+        dest = os.path.join(adir, stored)
+        if not os.path.exists(dest):
+            shutil.copy2(src, dest)
+    except OSError as e:
+        raise LedgerError(f"could not store the artifact: {e}")
+    try:
+        rec = org.work_artifact_record(
+            nid, wid, str(a.get("name") or os.path.basename(src)), size, stored,
+            sha, scope=str(a.get("scope") or "item"),
+            note=(None if a.get("note") is None else str(a.get("note"))),
+            expected_rev=a.get("expected_rev"))
+    except LedgerError:
+        # the record was refused, so bytes this call introduced must not linger
+        # unlisted. A file that was ALREADY there belongs to the earlier record
+        # and is left exactly where it is.
+        raise
+    grants: list[str] = []
+    # `_work_list_arg` is None when the argument is absent, not an empty list
+    for who in (_work_list_arg(a, "grant_to") or []):
+        org.work_artifact_grant(nid, wid, str(rec["id"]), str(who))
+        grants.append(str(who))
+    return {"artifact": rec, "granted": grants, "item": item_slug,
+            "hint": ("recorded immutably — the name is now taken on this item "
+                     "and the bytes cannot be replaced"
+                     + (f"; readable by {', '.join(grants)}" if grants else
+                        "" if rec.get("scope") == "item" else
+                        "; nobody else can read it until you grant it by name"))}
+
+
+def _agent_work_artifact_read(org: Org, nid: str, a: dict[str, Any]
+                              ) -> dict[str, Any]:
+    """`orgtree_work action=artifact_read`: the bytes, if this agent may.
+
+    THIS IS THE PEER-ARTIFACT READ AGENTS ASKED FOR (PP13, WE07, agentlist-01):
+    a reviewer writes an executable reproduction, grants it to the implementer
+    by name, and the implementer reads the exact script instead of transcribing
+    it out of prose. Authorization is the ledger's (`work_artifact_for_read`);
+    the text is decoded BOM-AWARE, because the log a reviewer captured on
+    Windows is UTF-16 and refusing to read it would defeat the purpose.
+    """
+    wid = _work_ref(a)
+    aid = str(a.get("artifact") or "").strip()
+    rec = org.work_artifact_for_read(nid, wid, aid)
+    it, _ = org._work_find(wid)
+    full = _work_artifact_path(org.d["slug"], str(it["slug"]), rec)
+    if not os.path.isfile(full):
+        return {"artifact": rec, "error": "the stored file is missing on disk — "
+                                          "the record stands, the bytes do not"}
+    with open(full, "rb") as f:
+        raw = f.read(_ARTIFACT_MAX_BYTES + 1)
+    log = workevidence.decode_log(raw)
+    got = hashlib.sha256(raw).hexdigest()
+    text = log["text"]
+    cut = len(text) > _AGENT_READ_MAX
+    return {"artifact": {k: v for k, v in rec.items() if k != "path"},
+            "encoding": log["encoding"], "had_bom": log["had_bom"],
+            "replacements": log["replacements"],
+            "sha256_matches": ("sha256:" + got) == str(rec.get("sha256") or ""),
+            "content": text[:_AGENT_READ_MAX],
+            "content_truncated": cut,
+            "chars": len(text),
+            "hint": ("the bytes are decoded and the sha256 is checked against "
+                     "the record, so you can tell a changed file from a changed "
+                     "reading of it")}
+
+
+#: how much artifact text one agent read returns — the scratch-read bound
+_AGENT_READ_MAX = 20000
+
+
+@app.get("/api/orgs/{slug}/work-items/{wid}/artifacts/{aid}")
+def work_item_artifact_file(slug: str, wid: str, aid: str) -> FileResponse:
+    """Raw download of one artifact for the DESKTOP UI, which is the user.
+
+    The user reads every artifact by rule (they own the org), so this route
+    authorizes as the user and the scope filter does not apply to it. Agents do
+    not reach this route at all: they read artifacts through
+    `orgtree_work action=artifact_read`, where the `named` scope is enforced."""
+    try:
+        org = store.load_org(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    _work_identity_guard(org)
+    try:
+        it, _ = org._work_find(wid)
+        rec = org.work_artifact_for_read(USER, wid, aid)
+        full = _work_artifact_path(slug, str(it["slug"]), rec)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    if not os.path.isfile(full):
+        raise HTTPException(404, "the stored file is missing on disk")
+    return FileResponse(full, filename=str(rec.get("name")
+                                           or os.path.basename(full)))
+
+
 @app.delete("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}")
 def work_item_detach(slug: str, wid: str, aid: str) -> dict[str, Any]:
     """Remove one attachment permanently: the record via the ledger, then
@@ -6051,13 +6220,254 @@ def _work_list_arg(a: dict[str, Any], key: str) -> list[Any] | None:
     raise LedgerError(f"{key} must be a list")
 
 
+#: the read-shaped `orgtree_work` actions: they either only read the document,
+#: or (verify, receipt, rangediff) they sequence lock → outside-world → lock
+#: themselves, because git and the filesystem must never run under DOC_LOCK
+_WORK_READ_ACTIONS = ("list", "get", "verify", "receipt", "rangediff",
+                      "receipts", "artifact_read")
+
+
+def _work_refuse_supplied_receipt(rows: Any, *, batch: bool) -> None:
+    """A CALLER MAY NEVER SUPPLY ITS OWN RECEIPT — on the single evidence row
+    or inside any element of a batch.
+
+    The ledger accepts a `receipt` because the BACKEND builds one and writes it
+    through the same path; this is the boundary that decides who is allowed to
+    have built it. Without the batch half of this check, `items:
+    [{receipt: {...}}]` would be a door straight to a hand-written fingerprint,
+    which is precisely the unverifiable claim this package exists to replace.
+    Refused loudly rather than stripped silently: an agent that believes it
+    recorded a receipt, and did not, is worse off than one told it cannot.
+    """
+    for i, row in enumerate(rows if isinstance(rows, list) else []):
+        if isinstance(row, dict) and row.get("receipt") is not None:
+            raise LedgerError(
+                f"a `receipt` cannot be supplied by the caller"
+                f"{f' (items[{i}])' if batch else ''}"
+                f" — it is CAPTURED BY THE BACKEND. Use the `receipt` action: "
+                f"you give the candidate sha, the `checkout` you ran in, the "
+                f"command, `execution` and `result`, and the fingerprint of "
+                f"that tree is measured here. A receipt you wrote yourself "
+                f"would assert exactly the thing a receipt exists to prove")
+
+
+def _work_checkout(org: Org, nid: str, a: dict[str, Any]) -> str:
+    """The checkout a receipt is measured in: the agent's own worktree by
+    default-free choice, and only ever a directory the node actually holds.
+
+    There is no implicit fallback to the orgtree repo root. An agent verifying
+    a candidate is working in its OWN private worktree — that is the whole
+    workflow — so a receipt that quietly described some other checkout would
+    be worse than no receipt. `checkout` is therefore required, and it is
+    resolved through the send_file containment boundary like every other path
+    an agent hands to the backend.
+    """
+    raw = _no_nul(str(a.get("checkout") or "")).strip()
+    if not raw:
+        raise LedgerError(
+            "`checkout` is required: the worktree the check ran in. A receipt "
+            "names the tree it measured — the commit, whether it was dirty, and "
+            "whether a rebase was half-applied — and none of that can be "
+            "guessed on your behalf. Pass the path of your own worktree")
+    src, _s, _r, _k = _node_reachable_file(org, nid, raw, verb="measure",
+                                          allow_dir=True)
+    return src
+
+
+def _work_receipt_logs(org: Org, nid: str, a: dict[str, Any]
+                       ) -> list[dict[str, Any]]:
+    """Captured logs named by the caller, decoded BOM-aware.
+
+    Each is a path the node may reach, read as BYTES and decoded by detection —
+    the UTF-16-from-PowerShell against UTF-8-from-Python case (AP17). A log
+    that cannot be read is DISCLOSED as an unreadable log rather than dropped,
+    because a receipt that silently lost its evidence reads as a receipt with
+    none.
+    """
+    out: list[dict[str, Any]] = []
+    for raw in (_work_list_arg(a, "logs") or [])[:8]:
+        p = _no_nul(str(raw)).strip()
+        if not p:
+            continue
+        try:
+            src, _s, _r, _k = _node_reachable_file(org, nid, p, verb="read")
+            log = workevidence.read_log(src)
+            out.append({**log, "path": p})
+        except (LedgerError, OSError) as e:
+            out.append({"text": "", "encoding": "", "had_bom": False,
+                        "replacements": 0, "bytes": 0, "sha256": "",
+                        "path": p, "unreadable": str(e)})
+    return out
+
+
+def _work_receipt_call(body: AgentCall, a: dict[str, Any], *, rangediff: bool
+                       ) -> dict[str, Any]:
+    """Record an evidence row whose provenance was captured BY THE BACKEND.
+
+    The ordering is the one `work_verify_capture`/`work_verify_commit`
+    established and W03 asked me to reuse: read the item's rev under the lock,
+    do the slow outside-world work (git, log files) with the lock RELEASED,
+    then write only if the item has not moved — otherwise the call is refused
+    with `stale` and nothing is written. That is what makes the fingerprint
+    trustworthy: the tree is measured in the same window the row is written,
+    and a receipt can never be appended to an item that changed underneath it.
+    """
+    wid = _work_ref(a)
+    with store.DOC_LOCK:
+        org = store.load_org(body.org)
+        org._require_live(body.node)
+        _work_identity_guard(org)
+        it, _ = org._work_get_for(body.node, wid)     # read right, or refusal
+        rev = int(it.get("rev") or 0)
+        item_slug = str(it["slug"])
+        checkout = _work_checkout(org, body.node, a)
+        logs = [] if rangediff else _work_receipt_logs(org, body.node, a)
+
+    # ── outside the lock: git and the filesystem ────────────────────────────
+    if rangediff:
+        rd = workevidence.range_diff(
+            checkout, str(a.get("old_base") or ""), str(a.get("old_tip") or ""),
+            str(a.get("new_base") or ""), str(a.get("new_tip") or ""))
+        candidate = rd["new_tip"]
+        command = ["git", "range-diff",
+                   f"{rd['old_base']}..{rd['old_tip']}",
+                   f"{rd['new_base']}..{rd['new_tip']}"]
+        result = ("passed" if rd["identical"] is True
+                  else "crashed" if rd["identical"] is None else "failed")
+        rc = workevidence.receipt(
+            candidate=candidate, checkout=checkout, command=command,
+            execution="independent", result=result,
+            runner={"tool": "git range-diff"},
+            note=str(a.get("note") or ""), base=rd["new_base"])
+        rc = {**rc, "range_diff": rd}
+        ref = f"range-diff {rd['old_tip'][:12]}→{rd['new_tip'][:12]}"
+        kind = "commit"
+    else:
+        cmd = a.get("command")
+        command = ([str(x) for x in cmd] if isinstance(cmd, list)
+                   else shlex.split(str(cmd)) if cmd else [])
+        rc = workevidence.receipt(
+            candidate=str(a.get("candidate") or ""), checkout=checkout,
+            command=command, execution=str(a.get("execution") or ""),
+            result=str(a.get("result") or ""),
+            runner={"interpreter": sys.version.split()[0],
+                    "platform": sys.platform,
+                    **({"runner": str(a.get("runner"))} if a.get("runner") else {})},
+            logs=cast("list[Any]", logs), note=str(a.get("note") or ""),
+            base=(str(a.get("base")) if a.get("base") else None))
+        ref = str(a.get("ref") or "") or (" ".join(command)[:200] or rc["candidate"])
+        kind = str(a.get("kind") or "log")
+
+    with store.DOC_LOCK:
+        org = store.load_org(body.org)
+        try:
+            r = org.work_evidence(body.node, wid, kind, ref,
+                                  str(a.get("note") or "") or None,
+                                  execution=rc["execution"], receipt=rc,
+                                  expected_rev=rev)
+        except StaleRevError:
+            # ⚠ CAUGHT BY TYPE, NOT BY MESSAGE TEXT. This is the one refusal
+            # the route answers rather than surfaces: the item moved while the
+            # tree was being measured, which is normal traffic, not caller
+            # error. Matching on the wording would silently stop working the
+            # first time somebody improved the sentence.
+            return {"stale": True, "item": item_slug,
+                    "hint": "the item changed while the tree was being "
+                            "measured; nothing was written — read it again "
+                            "and repeat the call"}
+        store.save_org(org)
+    tree = rc["tree"]
+    return {**r, "item": item_slug, "ref": refs.item(body.org, item_slug),
+            "receipt": rc,
+            "disclosed": {"tree_state": tree["state"],
+                          "dirty_count": tree["dirty_count"],
+                          "in_progress": tree["in_progress"],
+                          "detail": tree["detail"]},
+            "hint": _work_receipt_hint(rc)}
+
+
+def _work_receipt_hint(rc: Mapping[str, Any]) -> str:
+    """What a reader of this result most needs to be told, in one line."""
+    tree = cast("Mapping[str, Any]", rc.get("tree") or {})
+    bits: list[str] = []
+    if tree.get("in_progress"):
+        bits.append(f"⚠ this tree has a {tree['in_progress']} in progress, so "
+                    f"the result describes a MIXTURE of two commits, not the "
+                    f"candidate")
+    elif tree.get("state") == workevidence.TREE_DIRTY:
+        bits.append(f"⚠ measured on a DIRTY tree ({tree.get('dirty_count')} "
+                    f"uncommitted path(s)) — the record says so, so nobody can "
+                    f"later read it as evidence for the clean commit")
+    if str(rc.get("result")) == "not_executed":
+        bits.append("recorded as NOT EXECUTED — it will never read as a pass")
+    if not cast("Mapping[str, Any]", rc.get("replay") or {}).get("portable"):
+        bits.append("the command takes no explicit checkout flag, so the replay "
+                    "recipe tells a reader to pin a worktree first")
+    return " · ".join(bits) or ("recorded with the candidate, the tree "
+                                "fingerprint and a replay recipe")
+
+
+def _work_receipts_read(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
+    """Every receipt on the item, each with a STALENESS DISCLOSURE computed now.
+
+    This is the read that makes rule 1 of `workevidence` useful: the stored
+    receipt is never touched, and what changes is the disclosure beside it.
+    `current` means the commit AND the tree still match; anything else says in
+    words why this evidence is historical. One `tree_state` per distinct
+    checkout, so a long list costs a handful of git calls rather than one per
+    row.
+    """
+    wid = _work_ref(a)
+    it = org.work_get(nid, wid)
+    seen: dict[str, Any] = {}
+    rows: list[dict[str, Any]] = []
+    for i, ev in enumerate(it.get("evidence") or []):
+        rc = ev.get("receipt")
+        if not isinstance(rc, dict):
+            continue
+        rcd = cast("dict[str, Any]", rc)
+        checkout = str((rcd.get("tree") or {}).get("checkout") or "")
+        if checkout not in seen:
+            seen[checkout] = (workevidence.tree_state(checkout) if checkout
+                              else {"state": "", "commit": None,
+                                    "fingerprint": ""})
+        rows.append({"index": i, "at": ev.get("at"), "by": ev.get("by"),
+                     "ref": ev.get("ref"), "execution": ev.get("execution"),
+                     "result": rcd.get("result"), "candidate": rcd.get("candidate"),
+                     "receipt": rcd,
+                     "disclosure": workevidence.disclose(
+                         cast("Any", rcd), cast("Any", seen[checkout]),
+                         observed_at=str(ev.get("at") or ""))})
+    return {"item": str(it["slug"]), "receipts": rows,
+            "summary": workevidence.summarize(
+                [cast("Any", r["receipt"]) for r in rows]),
+            "findings_summary": it.get("findings_summary"),
+            "hint": ("a receipt is never refreshed — `disclosure.status` says "
+                     "whether it still describes the code, and `commit_changed` "
+                     "or `tree_changed` means it is historical")}
+
+
 def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
-    """`orgtree_work` list|get|verify — the read-shaped actions, outside the
-    doc lock like every other read tool. `verify` is the one that talks to
-    git: capture under the lock, evaluate outside it, write back only if the
+    """`orgtree_work` read-shaped actions, outside the doc lock like every
+    other read tool. `verify`, `receipt` and `rangediff` are the ones that talk
+    to git: capture under the lock, evaluate outside it, write back only if the
     item's rev is unchanged (docs/work-items.md §locking)."""
     act = str(a.get("action") or "")
     try:
+        if act in ("receipt", "rangediff"):
+            try:
+                return _work_receipt_call(body, a, rangediff=(act == "rangediff"))
+            except (workevidence.ReceiptError, workitems.ShaError) as e:
+                # a refused receipt is a 422 that tells the caller what to fix —
+                # the alternative is a 500 that reads as "the backend broke"
+                raise LedgerError(str(e))
+        if act in ("receipts", "artifact_read"):
+            org = store.load_org(body.org)
+            org._require_live(body.node)
+            _work_identity_guard(org)
+            if act == "receipts":
+                return _work_receipts_read(org, body.node, a)
+            return _agent_work_artifact_read(org, body.node, a)
         if act == "verify":
             from . import desktop_policy
             if desktop_policy.enabled():
@@ -6181,15 +6591,48 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         # "note" and `ref` to "" on the single path; passing those alongside
         # `items` would trip the ledger's either/or guard on every batch call,
         # so the single-form arguments go through as literally absent.
+        #
+        # `execution` is accepted on a plain evidence row too — on the single
+        # form as an argument, and inside each element of a batch: a reviewer
+        # that read the owner's log and says so is recording something true,
+        # and it costs one word. A `receipt` is NOT accepted on either form —
+        # it is built by the backend in the `receipt` action, because a
+        # caller-supplied fingerprint would be exactly the unverifiable claim
+        # this package replaces.
         if a.get("items") is not None:
+            _work_refuse_supplied_receipt(a.get("items"), batch=True)
             return org.work_evidence(nid, wid, "", "", None,
-                                     items=a.get("items"))
+                                     items=a.get("items"),
+                                     expected_rev=a.get("expected_rev"))
+        _work_refuse_supplied_receipt([a], batch=False)
         return org.work_evidence(nid, wid, str(a.get("kind") or "note"),
-                                 str(a.get("ref") or ""), _s("note"))
+                                 str(a.get("ref") or ""), _s("note"),
+                                 execution=a.get("execution"),
+                                 expected_rev=a.get("expected_rev"))
     if act == "decision":
         return org.work_decision(nid, wid, str(a.get("text") or ""),
                                  supersedes=(None if a.get("supersedes") is None
                                              else _arg_int(a, "supersedes", -1)))
+    if act == "artifact":
+        return _agent_work_artifact(org, nid, a)
+    if act == "grant":
+        return org.work_artifact_grant(nid, wid, str(a.get("artifact") or ""),
+                                       str(a.get("to") or ""), note=_s("note"),
+                                       expected_rev=a.get("expected_rev"))
+    if act == "revoke":
+        return org.work_artifact_revoke(nid, wid, str(a.get("artifact") or ""),
+                                        str(a.get("to") or ""),
+                                        expected_rev=a.get("expected_rev"))
+    if act == "finding":
+        return org.work_finding(nid, wid, str(a.get("title") or ""), _s("detail"),
+                                severity=_s("severity"),
+                                evidence_ref=_s("evidence_ref"),
+                                expected_rev=a.get("expected_rev"))
+    if act == "dispose":
+        return org.work_finding_dispose(nid, wid, str(a.get("finding") or ""),
+                                        str(a.get("disposition") or ""),
+                                        note=_s("note"),
+                                        expected_rev=a.get("expected_rev"))
     if act == "claim":
         try:
             return org.work_claim(nid, wid, str(a.get("stage") or ""),
@@ -6225,8 +6668,9 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_delete(nid, wid, _s("note"))
     raise LedgerError(
         "action must be list|get|create|update|assign|review|participants|"
-        "evidence|decision|claim|verify|check|accept|archive|supersede|move|"
-        "delete")
+        "evidence|decision|receipt|rangediff|receipts|artifact|artifact_read|"
+        "grant|revoke|finding|dispose|claim|verify|check|accept|archive|"
+        "supersede|move|delete")
 
 
 class AskAnswer(Body):
@@ -8578,8 +9022,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
     if body.tool == "orgtree_work" \
-            and str(a.get("action") or "") in ("list", "get", "verify"):
-        # list/get read the doc; verify sequences lock -> git -> lock itself
+            and str(a.get("action") or "") in _WORK_READ_ACTIONS:
+        # list/get/receipts/artifact_read read the doc (and, for the last two,
+        # the filesystem); verify/receipt/rangediff sequence lock -> git -> lock
+        # themselves, so none of them may run inside the block below
         return _work_read_call(body, a)
     result: dict[str, Any]
     # rename orchestrates its own DOC_LOCK + filesystem moves — it must run
@@ -9757,25 +10203,22 @@ def _require_net_peer(target: str) -> None:
             f"ever deliver it. Known peers: {hint}.")
 
 
-def _outbox_snapshot(org: Org, nid: str, raw: str, *,
-                     max_bytes: int = _SENDFILE_MAX,
-                     always_copy: bool = False,
-                     html_bundle: bool = False) -> tuple[str, int]:
-    """Resolve `raw` as the NODE sees it, prove the node may reach it, and
-    copy it into the node's outbox/ — the orgtree_send_file rule, shared with
-    present-by-path (HTML mockups, 2026-09-06) so both verbs have ONE
-    containment boundary. Returns (outbox-relative posix name, byte size).
-    Copy, not reference: the card keeps working after the agent edits or
-    deletes the original (re-sending an updated file yields report-2.pdf —
-    both cards stay honest). Outbox lives in scratch, so kiosk storage
-    metering already counts it and org deletion sweeps it.
+def _node_reachable_file(org: Org, nid: str, raw: str, *, verb: str = "send",
+                         allow_dir: bool = False
+                         ) -> tuple[str, str, list[str], str]:
+    """Resolve `raw` AS THE NODE SEES IT and prove the node may reach it.
 
-    A source ALREADY in outbox/ is referenced as-is for send_file (its
-    download card names the file the agent put there). `always_copy` is
-    present-by-path's opt-in: a mockup card promises a snapshot, so even an
-    outbox/ source gets its own dedupe-named copy — otherwise editing
-    outbox/x.html after presenting it would silently change a published
-    card (feature-astra review, 2026-09-06)."""
+    ⚠ THIS IS THE ONE CONTAINMENT BOUNDARY for every verb that takes a path
+    from an agent and does something with the bytes: `orgtree_send_file`,
+    present-by-path (HTML mockups, 2026-09-06) and W08's work artifacts. It is
+    a shared function rather than three copies precisely because a second copy
+    is how one of them ends up missing the symlink realpath or the
+    separator anchor — and the failure mode is an agent reading a file it does
+    not hold, which is the whole point of the check.
+
+    Returns (real source path, the node's scratch root, the roots it may reach,
+    the normcased source key). Raises LedgerError with the verb in the message.
+    """
     slug = org.d["slug"]
     scratch = os.path.realpath(supervisor.scratch_dir(slug, nid))
     p = raw.replace("\\", "/").rstrip("/")
@@ -9820,10 +10263,36 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
     if not any(src_key == (b := os.path.normcase(r).rstrip("\\/"))
                or src_key.startswith(b + os.sep) for r in roots):
         raise LedgerError(
-            f"cannot send {raw} — only files in your working folder, the "
-            f"workspace, or a folder you hold are sendable")
-    if not os.path.isfile(src):
+            f"cannot {verb} {raw} — only files in your working folder, the "
+            f"workspace, or a folder you hold are reachable")
+    if allow_dir:
+        if not os.path.isdir(src):
+            raise LedgerError(f"no such directory: {raw}")
+    elif not os.path.isfile(src):
         raise LedgerError(f"no such file: {raw}")
+    return src, scratch, roots, src_key
+
+
+def _outbox_snapshot(org: Org, nid: str, raw: str, *,
+                     max_bytes: int = _SENDFILE_MAX,
+                     always_copy: bool = False,
+                     html_bundle: bool = False) -> tuple[str, int]:
+    """Copy a node-reachable file into the node's outbox/ — the
+    orgtree_send_file rule, shared with present-by-path so both verbs have ONE
+    containment boundary (`_node_reachable_file`). Returns (outbox-relative
+    posix name, byte size). Copy, not reference: the card keeps working after
+    the agent edits or deletes the original (re-sending an updated file yields
+    report-2.pdf — both cards stay honest). Outbox lives in scratch, so kiosk
+    storage metering already counts it and org deletion sweeps it.
+
+    A source ALREADY in outbox/ is referenced as-is for send_file (its
+    download card names the file the agent put there). `always_copy` is
+    present-by-path's opt-in: a mockup card promises a snapshot, so even an
+    outbox/ source gets its own dedupe-named copy — otherwise editing
+    outbox/x.html after presenting it would silently change a published
+    card (feature-astra review, 2026-09-06)."""
+    src, scratch, roots, src_key = _node_reachable_file(org, nid, raw,
+                                                        verb="send")
     size = os.path.getsize(src)
     if size == 0:
         raise LedgerError(f"{raw} is empty — nothing to send")

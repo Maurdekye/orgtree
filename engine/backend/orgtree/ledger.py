@@ -408,6 +408,18 @@ class LedgerError(ValueError):
     """Raised when an operation violates a precondition. Message is user-facing."""
 
 
+class StaleRevError(LedgerError):
+    """A compare-and-set refusal: the item moved between the read and the write.
+
+    A SUBCLASS, so every existing `except LedgerError` still catches it and the
+    message a caller sees is unchanged. It exists because callers need to tell
+    THIS refusal from every other one — the receipt route answers it with "read
+    the item and measure again" rather than surfacing it as a validation error
+    — and matching on the text of a message would break the moment the wording
+    is edited.
+    """
+
+
 def _bounded(field: str, value: Any, *, limit: int | None = None) -> str:
     """A BOUNDED docket field, through the one shared contract
     (`workfields`), with its refusal re-raised as the `LedgerError` every
@@ -10101,6 +10113,26 @@ class Org:
                               "dropped": "dropped_reason"}
     WORK_EVIDENCE_KINDS: Final = ("note", "link", "file", "commit", "log")
 
+    # ── W08: immutable verification evidence and scoped artifacts ──────────
+    #: Artifacts are the bytes a reviewer needs to CHECK a claim (a probe, a
+    #: receipt, a log), so the cap is per item and generous; the per-file size
+    #: bound lives at the upload route, exactly as it does for attachments.
+    WORK_ARTIFACT_MAX: Final = 40
+    #: WHO MAY READ ONE ARTIFACT. `item` is the existing attachment rule —
+    #: anyone who may read the item. `named` is the narrow one agents asked
+    #: for: reviewer/reviewee pairs exchanging probe files without opening a
+    #: scratch folder. A named artifact is readable by its author, by the
+    #: agents it was explicitly granted to, and by the user — NOT by the item's
+    #: owner merely for owning the item, because a file-specific grant that
+    #: silently includes the owner is not file-specific.
+    WORK_ARTIFACT_SCOPES: Final = ("item", "named")
+    #: A finding's CURRENT state. Recorded as an append-only log of decisions,
+    #: so "we already settled this" is answerable from the item instead of
+    #: being re-argued in mail across twelve review rounds (WE14).
+    WORK_DISPOSITIONS: Final = ("open", "fixed", "rejected", "deferred",
+                                "duplicate")
+    WORK_FINDING_MAX: Final = 100
+
     def _work_active(self) -> list[WorkItem]:
         return cast("list[WorkItem]", self.d.get("work_items") or [])
 
@@ -11004,6 +11036,15 @@ class Org:
             # item, exactly like `evidence`: the objective above is the
             # authoritative current scope, and this is how it got there.
             "scope": list(it.get("scope") or []),
+            # W08 artifacts: immutable, and `named` ones are filtered BY THE
+            # SAME DISCLOSURE RULE as `dependencies` — a viewer with no grant
+            # learns that an artifact exists and nothing about it, because the
+            # filename itself ("giantmail-baseline-2.0.9.json") is content.
+            "artifacts": self._work_artifacts_view(it, viewer),
+            # W08 findings: the citable record of what review decided, so a
+            # later round can read the disposition instead of re-arguing it
+            "findings": list(it.get("findings") or []),
+            "findings_summary": self.work_findings_summary(it),
             # ⚠ DERIVED ON READ FOR OLDER ITEMS, never written back. Deriving
             # in place would stamp a "state changed" time onto items during an
             # ordinary read, which is a durable claim made by a viewer.
@@ -11893,14 +11934,10 @@ class Org:
         # ---- COMPARE-AND-SET, FIRST OF ALL. Before the lists are even parsed:
         # a caller that names the revision it read is telling us its whole
         # update was composed against that state, so if the state moved there
-        # is nothing here worth validating, let alone writing.
-        if expected_rev is not None and int(expected_rev) != int(it.get("rev") or 0):
-            raise LedgerError(
-                f"expected_rev {int(expected_rev)}, but this item is at rev "
-                f"{int(it.get('rev') or 0)} — somebody wrote to it since you "
-                f"read it, so your update was composed against a state that no "
-                f"longer stands. NOTHING WAS WRITTEN. Re-read it with `get` and "
-                f"send the call again against the revision you actually saw")
+        # is nothing here worth validating, let alone writing. The rule itself
+        # lives in `_work_expect_rev` so that `work_evidence` enforces the same
+        # one with the same wording rather than a second copy of it (W08).
+        self._work_expect_rev(it, expected_rev)
         pre_manage = self._work_can_manage(actor, it)
         # the status this update FOUND. The reviewer rule keys on entering
         # review, and the status field is rewritten further down — read from
@@ -12720,8 +12757,43 @@ class Org:
             out["notice_refused"] = refused
         return out
 
+    def _work_expect_rev(self, it: WorkItem, expected_rev: Any) -> None:
+        """COMPARE-AND-SET, refused before the first write.
+
+        ⚠ ONE IMPLEMENTATION, AND `work_update` USES IT TOO (W03 wrote this
+        rule inline there; W08 lifted it out rather than adding a second copy
+        with a second wording). The whole call is refused when the item has
+        moved on since the caller read it, so a receipt built against rev 9 can
+        never be appended to an item already at rev 11 — the exact shape of the
+        stale-evidence defect this package exists to close, applied to the
+        write itself. `None` opts out, which is what every older caller does.
+
+        The refusal wording is W03's, unchanged, because it is already the
+        message agents have been reading. The only thing W08 added is that a
+        non-integer `expected_rev` is refused as a LedgerError the caller can
+        read, instead of raising ValueError out of the route.
+        """
+        if expected_rev is None:
+            return
+        try:
+            want = int(expected_rev)
+        except (TypeError, ValueError):
+            raise LedgerError(
+                f"expected_rev must be the integer `rev` you read, not "
+                f"{workfields.echo(expected_rev)}") from None
+        have = int(it.get("rev") or 0)
+        if want != have:
+            raise StaleRevError(
+                f"expected_rev {want}, but this item is at rev "
+                f"{have} — somebody wrote to it since you "
+                f"read it, so your update was composed against a state that no "
+                f"longer stands. NOTHING WAS WRITTEN. Re-read it with `get` and "
+                f"send the call again against the revision you actually saw")
+
     def _work_evidence_row(self, actor: str, kind: str, ref: Any,
-                           note: Any, where: str = "") -> dict[str, Any]:
+                           note: Any, where: str = "", *,
+                           execution: Any = None,
+                           receipt: Any = None) -> dict[str, Any]:
         """Validate ONE evidence element and build its row. Raises rather than
         writing, so a batch can validate every element before any of them
         lands. `where` names the element's position for a batch refusal.
@@ -12731,7 +12803,26 @@ class Org:
         that does not exist. Evidence is the place the contract sends every
         detail too long for a bounded field, so it cannot itself have a bound
         (user-visible effect: `orgtree_work get` returns it entire).
+
+        ⚠ `execution` AND `receipt` ARE WHY W08 EXISTS. An evidence row used to
+        be four fields, and a reader could not tell "I ran the suite and
+        watched it pass" from "the owner told me it passed" from "I read the
+        diff and it looks right" — all three arrive as a note saying tests
+        pass. `execution` names which one it was, in the writer's own record,
+        and `receipt` carries the machine-checkable provenance: the candidate
+        commit, the fingerprint of the tree it ran in, the argv, the runner and
+        a result class that keeps an expected negative apart from a crash apart
+        from a check that never ran.
+
+        Both are OPTIONAL and nothing is inferred when they are absent: a row
+        without them is an ordinary note and says so, rather than being
+        recorded as an unverified claim that looks like a verified one. They
+        are validated HERE, beside the kind and the ref, so a batch element
+        carrying a malformed receipt is refused with the rest of the batch and
+        writes nothing — provenance is not a second-class field validated after
+        the row has already landed.
         """
+        from . import workevidence           # noqa: PLC0415
         if kind not in self.WORK_EVIDENCE_KINDS:
             raise LedgerError(f"evidence kind must be one of "
                               f"{'|'.join(self.WORK_EVIDENCE_KINDS)}{where}")
@@ -12742,12 +12833,55 @@ class Org:
         if not r:
             raise LedgerError(f"evidence needs a ref (path, url, sha, log "
                               f"name){where}")
-        return {"at": now(), "by": self._work_actor(actor), "kind": kind,
-                "ref": r, **({"note": _prose(note)} if note else {})}
+        row: dict[str, Any] = {
+            "at": now(), "by": self._work_actor(actor), "kind": kind,
+            "ref": r,
+            **({"note": _prose(note)} if note else {}),
+        }
+        if execution is not None:
+            ex = str(execution).strip()
+            if ex not in workevidence.EXECUTION:
+                raise LedgerError(
+                    f"execution must be one of "
+                    f"{'|'.join(workevidence.EXECUTION)} — "
+                    + "; ".join(f"{k}: {v}" for k, v in
+                                workevidence.EXECUTION_MEANS.items())
+                    + f". You sent {workfields.echo(execution)}{where}")
+            row["execution"] = ex
+            row["execution_means"] = workevidence.EXECUTION_MEANS[ex]
+        if receipt is not None:
+            if not isinstance(receipt, dict):
+                raise LedgerError(
+                    "receipt must be the object built by the verification "
+                    "receipt tooling (schema "
+                    f"{workevidence.SCHEMA}), not free text — the point of it "
+                    "is that a reader can check the fields, and prose cannot "
+                    f"be checked{where}")
+            rc = cast("dict[str, Any]", receipt)
+            if str(rc.get("schema") or "") != workevidence.SCHEMA:
+                raise LedgerError(
+                    f"receipt schema must be {workevidence.SCHEMA}; this one "
+                    f"says {workfields.echo(rc.get('schema'))}. A receipt is "
+                    f"only evidence while its shape is known{where}")
+            if str(rc.get("result") or "") not in workevidence.RESULTS:
+                raise LedgerError(
+                    f"receipt.result must be one of "
+                    f"{'|'.join(workevidence.RESULTS)}{where}")
+            # ⚠ STORED EXACTLY AS BUILT, AND NEVER REFRESHED. A receipt is a
+            # record of an observation at a moment; the READ path compares it
+            # against the tree now and discloses the difference
+            # (`workevidence.disclose`, called by the API route — git stays out
+            # of the ledger so it stays out of DOC_LOCK). Rewriting a receipt to
+            # match the present is how a pre-edit passing log became an
+            # all-green claim.
+            row["receipt"] = rc
+        return row
 
     def work_evidence(self, actor: str, wid: str, kind: str, ref: str,
                       note: str | None = None,
-                      items: Any = None) -> dict[str, Any]:
+                      items: Any = None, *, execution: Any = None,
+                      receipt: Any = None, expected_rev: Any = None
+                      ) -> dict[str, Any]:
         """Append evidence — one row, or a BATCH through `items`.
 
         THE BATCH IS ATOMIC (W03): every element is validated, and the cap is
@@ -12756,23 +12890,39 @@ class Org:
         rev bump — and the refusal names the element by its position. It writes
         ONE history row, so recording a candidate's SHA, its test log and its
         delivery caveat together reads as one act rather than three.
+
+        PROVENANCE RIDES ON EITHER FORM (W08). The single form takes
+        `execution` and `receipt` as arguments; a batch element carries its own
+        under the same two keys, so a batch that records a candidate SHA beside
+        the run that proved it does not have to degrade to an unverified note.
+        `expected_rev` refuses the whole call if the item moved since you read
+        it — the same compare-and-set `work_update` uses.
         """
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
+        # COMPARE-AND-SET FIRST OF ALL, before an element is even parsed: if
+        # the state the caller composed against has moved, there is nothing
+        # here worth validating, let alone writing.
+        self._work_expect_rev(it, expected_rev)
         rows: list[dict[str, Any]] = []
         if items is not None:
-            if kind or ref or note:
+            if kind or ref or note or execution is not None or receipt is not None:
                 raise LedgerError(
-                    "pass either ONE piece of evidence (kind + ref + note) or "
-                    "a batch of them in `items`, not both")
+                    "pass either ONE piece of evidence (kind + ref + note, "
+                    "with its own execution/receipt) or a batch of them in "
+                    "`items`, not both — in a batch each element carries its "
+                    "own `execution` and `receipt`")
             batch = self._work_batch_arg(items, "items")
             for i, el in enumerate(batch):
                 rows.append(self._work_evidence_row(
                     actor, str(el.get("kind") or "note"), el.get("ref"),
-                    el.get("note"), f" (items[{i}], of {len(batch)})"))
+                    el.get("note"), f" (items[{i}], of {len(batch)})",
+                    execution=el.get("execution"), receipt=el.get("receipt")))
         else:
-            rows.append(self._work_evidence_row(actor, kind, ref, note))
+            rows.append(self._work_evidence_row(
+                actor, kind, ref, note,
+                execution=execution, receipt=receipt))
         ev = cast("list[dict[str, Any]]", it.setdefault("evidence", []))
         if len(ev) + len(rows) > self.WORK_EVIDENCE_MAX:
             raise LedgerError(
@@ -12780,12 +12930,29 @@ class Org:
                 f"{len(rows)} (cap {self.WORK_EVIDENCE_MAX}); nothing is "
                 f"truncated and nothing was written — consolidate into a file "
                 f"and reference that")
+        # every validation above and inside the row builder happened BEFORE
+        # this first mutation, so a refusal leaves no row, no history, no rev
         ev.extend(rows)
         self._work_hist(it, actor, "evidence",
                         ({"kind": rows[0]["kind"]} if len(rows) == 1 else
                          {"batch": len(rows),
                           "kinds": [str(r["kind"]) for r in rows]}))
-        return {"evidence": len(ev), "added": len(rows), "rev": it["rev"]}
+        out: dict[str, Any] = {"evidence": len(ev), "added": len(rows),
+                               "rev": it["rev"]}
+        # ECHO THE PROVENANCE BACK. The writer asked for a receipt to be bound
+        # to this row; returning the fingerprint it actually landed with is how
+        # the caller confirms the binding rather than assuming it.
+        if len(rows) == 1:
+            out["execution"] = rows[0].get("execution")
+            out["receipt_fingerprint"] = (
+                cast("dict[str, Any]", rows[0].get("receipt") or {})
+                .get("fingerprint"))
+        else:
+            out["executions"] = [r.get("execution") for r in rows]
+            out["receipt_fingerprints"] = [
+                cast("dict[str, Any]", r.get("receipt") or {}).get("fingerprint")
+                for r in rows]
+        return out
 
     @staticmethod
     def _work_batch_arg(raw: Any, name: str) -> list[dict[str, Any]]:
@@ -12893,6 +13060,362 @@ class Org:
                                 {"name": str(removed.get("name") or "")})
                 return dict(removed)
         raise LedgerError(f"no attachment {aid!r} on this item")
+
+    # ── W08: scoped immutable artifacts ────────────────────────────────────
+    # WHY THESE ARE NOT ATTACHMENTS. An attachment is for the user to look at:
+    # anyone who can read the item can read it, and re-uploading the same name
+    # quietly stores a second file. An ARTIFACT is the thing a reviewer needs
+    # in order to CHECK something — a probe script, a receipt, a captured log
+    # — and it has two properties an attachment deliberately does not:
+    #
+    #   IMMUTABLE. The bytes are addressed by their own sha256 and a name is
+    #   never reused. Agents reported the failure precisely: "a path to a
+    #   shared checkout that CHANGES BRANCHES BETWEEN READS is insufficient
+    #   provenance for benchmark artifacts" (PR03). A file that can be replaced
+    #   under its own name has the same defect.
+    #
+    #   SCOPED. `named` artifacts are readable by their author, by the agents
+    #   the author explicitly names, and by the user — and by NOBODY ELSE,
+    #   including the item's owner. That is the narrow thing agents asked for
+    #   (PP13, WE07, agentlist-01): a reviewer and an implementer exchanging
+    #   probe files without either of them being handed the other's scratch
+    #   folder. A grant names ONE FILE. It confers no read of the item, no read
+    #   of any other artifact, and no access to anything on disk that the
+    #   record does not name.
+
+    def _work_artifacts_view(self, it: WorkItem, viewer: str
+                             ) -> list[dict[str, Any]]:
+        """The artifact rows this viewer may see, in order.
+
+        A `named` artifact the viewer holds no grant on is served as
+        `{"visible": False}` — the same shape an unreadable dependency uses, and
+        for the same reason: the row must not silently vanish (a reader would
+        then believe there is no evidence), and the name must not be disclosed
+        (a filename says what was measured and against what).
+        """
+        out: list[dict[str, Any]] = []
+        for a in (it.get("artifacts") or []):
+            rec = cast("dict[str, Any]", a)
+            author = self._work_actor_node(rec.get("by"))
+            scope = str(rec.get("scope") or "item")
+            if (viewer == USER or viewer == author
+                    or self._work_grant_live(rec, viewer)
+                    or (scope == "item" and self._work_can_read(viewer, it))):
+                out.append({**rec, "visible": True,
+                            "grants_live": sorted(
+                                {str(g.get("to")) for g in (rec.get("grants") or [])
+                                 if not g.get("revoked_at")})})
+            else:
+                out.append({"visible": False, "scope": scope})
+        return out
+
+    def _work_artifact_find(self, it: WorkItem, aid: str) -> dict[str, Any] | None:
+        for a in (it.get("artifacts") or []):
+            if str(a.get("id")) == str(aid):
+                return cast("dict[str, Any]", a)
+        return None
+
+    @staticmethod
+    def _work_grant_live(rec: Mapping[str, Any], node: str) -> bool:
+        """Does `node` hold a grant on this artifact that has NOT been revoked?
+
+        The grant log is append-only and `revoked_at` is the only field ever
+        written onto an existing row, so a re-grant after a revocation is a NEW
+        row and the history of both survives. Liveness is therefore the newest
+        row for that node, not the first one found.
+        """
+        live = False
+        for g in (rec.get("grants") or []):
+            if str(g.get("to")) == node:
+                live = not g.get("revoked_at")
+        return live
+
+    def work_artifact_record(self, actor: str, wid: str, name: str, nbytes: int,
+                             stored: str, sha256: str, *, scope: str = "item",
+                             note: str | None = None,
+                             expected_rev: Any = None) -> dict[str, Any]:
+        """Register bytes the API layer has already written. Write-once.
+
+        The API layer hashes and stores the file, then records it here; the
+        record carries the hash so a later reader can prove the bytes it
+        downloaded are the bytes that were registered. A second artifact under
+        the same name is REFUSED rather than stored beside it or over it — with
+        the existing id and hash in the refusal, so the caller can tell "I
+        already uploaded this" from "something else owns that name".
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        if scope not in self.WORK_ARTIFACT_SCOPES:
+            raise LedgerError(
+                f"artifact scope must be one of "
+                f"{'|'.join(self.WORK_ARTIFACT_SCOPES)}: `item` is readable by "
+                f"anyone who may read the item, `named` only by you, the agents "
+                f"you grant it to, and the user")
+        nm = _prose(name)
+        if not nm:
+            raise LedgerError("an artifact needs the name of the file that was "
+                              "stored")
+        arts = cast("list[dict[str, Any]]", it.setdefault("artifacts", []))
+        if len(arts) >= self.WORK_ARTIFACT_MAX:
+            raise LedgerError(
+                f"this item already holds {len(arts)} artifacts (cap "
+                f"{self.WORK_ARTIFACT_MAX}) — nothing is removed to make room, "
+                f"because an artifact is immutable evidence; bundle the next "
+                f"ones into one archive and record that")
+        clash = next((a for a in arts if _prose(a.get("name")) == nm), None)
+        if clash is not None:
+            same = str(clash.get("sha256") or "") == str(sha256 or "")
+            raise LedgerError(
+                f"artifact {clash.get('id')!r} is already recorded on this item "
+                f"under the name {nm!r}, and an artifact is IMMUTABLE — the "
+                f"name is never reused and the bytes are never replaced"
+                + (". The sha256 matches, so what you are uploading is already "
+                   "here and nothing needed to change" if same else
+                   f". Its sha256 is {str(clash.get('sha256') or '')[:23]}… and "
+                   f"yours is {str(sha256 or '')[:23]}…, so these are different "
+                   f"bytes: record the new one under a name that says which "
+                   f"run it came from (a sha or a timestamp in the name)"))
+        n = int(it.get("artifact_seq") or 0) + 1
+        it["artifact_seq"] = n
+        rec: dict[str, Any] = {
+            "id": f"r{n}", "seq": n, "at": now(),
+            # AUTHORED, never re-resolved: this says who recorded it THEN, and
+            # it is what the `named` scope authorizes against, so it must not
+            # move when the node table does (schema.WorkActor, W17).
+            "by": self._work_actor(actor),
+            "name": nm, "bytes": int(nbytes), "sha256": str(sha256 or ""),
+            "path": str(stored), "scope": scope, "grants": [],
+            **({"note": _prose(note)} if note else {}),
+        }
+        self._work_expect_rev(it, expected_rev)
+        arts.append(rec)
+        self._work_hist(it, actor, "artifact", {"name": nm, "scope": scope})
+        return dict(rec)
+
+    def work_artifact_grant(self, actor: str, wid: str, aid: str, to: str,
+                            *, note: str | None = None,
+                            expected_rev: Any = None) -> dict[str, Any]:
+        """Let ONE named agent read ONE artifact. The author's call alone.
+
+        Not the owner's and not a superior's: the file is the author's own
+        evidence, and "no blanket peer access is inferred" is an authoritative
+        ruling. Granting is therefore a deliberate act by the agent whose bytes
+        they are, recorded with who did it and when.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        rec = self._work_artifact_find(it, aid)
+        if rec is None:
+            raise LedgerError(f"no artifact {aid!r} on this item")
+        author = self._work_actor_node(rec.get("by"))
+        if actor != USER and actor != author:
+            raise LedgerError(
+                f"only the agent that recorded artifact {aid!r} may grant "
+                f"access to it (that is {author or 'another agent'}) — a "
+                f"file-specific grant is the author's decision, not an "
+                f"owner-level one, so owning the item does not carry it")
+        target = str(to or "").strip()
+        if not target or target == USER:
+            raise LedgerError(
+                "grant `to` names an agent in this organization; the user "
+                "already reads every artifact and needs no grant")
+        if target not in self.nodes:
+            raise LedgerError(
+                f"no agent {workfields.echo(target)} in this organization — a "
+                f"grant must name a live seat, so a typo cannot sit in the "
+                f"record looking like access somebody has")
+        if target == author:
+            raise LedgerError(f"{target} recorded this artifact and already "
+                              f"reads it; a grant to itself records nothing")
+        if self._work_grant_live(rec, target):
+            raise LedgerError(f"{target} already holds a live grant on {aid!r}")
+        self._work_expect_rev(it, expected_rev)
+        row = {"at": now(), "by": self._work_actor(actor), "to": target,
+               "revoked_at": None,
+               **({"note": _prose(note)} if note else {})}
+        cast("list[dict[str, Any]]", rec.setdefault("grants", [])).append(row)
+        self._work_hist(it, actor, "artifact_grant", {"artifact": str(aid),
+                                                      "to": target})
+        return {"artifact": str(aid), "to": target, "rev": it["rev"]}
+
+    def work_artifact_revoke(self, actor: str, wid: str, aid: str, to: str,
+                             *, expected_rev: Any = None) -> dict[str, Any]:
+        """Withdraw one grant. The row STAYS and is stamped `revoked_at`.
+
+        `revoked_at` is the only field ever written onto an existing grant row
+        — the same rule W03 applies to `superseded_by` — so the record still
+        shows that access was given, by whom, and when it ended. Deleting the
+        row instead would make a past disclosure unprovable.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        rec = self._work_artifact_find(it, aid)
+        if rec is None:
+            raise LedgerError(f"no artifact {aid!r} on this item")
+        author = self._work_actor_node(rec.get("by"))
+        if actor != USER and actor != author:
+            raise LedgerError(f"only {author or 'the recording agent'} may "
+                              f"revoke access to artifact {aid!r}")
+        target = str(to or "").strip()
+        rows = [g for g in (rec.get("grants") or [])
+                if str(g.get("to")) == target and not g.get("revoked_at")]
+        if not rows:
+            raise LedgerError(
+                f"{target or 'that agent'} holds no live grant on {aid!r} — "
+                f"there is nothing to revoke, and a revoked grant is never "
+                f"revoked twice")
+        self._work_expect_rev(it, expected_rev)
+        for g in rows:
+            g["revoked_at"] = now()
+        self._work_hist(it, actor, "artifact_revoke", {"artifact": str(aid),
+                                                       "to": target})
+        return {"artifact": str(aid), "to": target, "revoked": len(rows),
+                "rev": it["rev"]}
+
+    def work_artifact_for_read(self, actor: str, wid: str, aid: str
+                               ) -> dict[str, Any]:
+        """The record IF this actor may read these bytes, else ONE refusal.
+
+        The refusal is deliberately the same for "no such artifact", "not on an
+        item you may read" and "you hold no grant", for the reason
+        `_work_get_for` gives: a distinct message would confirm that a file the
+        caller may not read exists. What it does say is the three ways access
+        is held, so an agent that should have it knows what to ask for.
+        """
+        ref = str(wid or "").strip()
+        try:
+            it, _ = self._work_find(ref)
+        except LedgerError:
+            it = None                    # type: ignore[assignment]
+        rec = self._work_artifact_find(it, aid) if it is not None else None
+        if it is not None and rec is not None:
+            author = self._work_actor_node(rec.get("by"))
+            scope = str(rec.get("scope") or "item")
+            allowed = (
+                actor == USER
+                or actor == author
+                or self._work_grant_live(rec, actor)
+                # `item` scope keeps the existing attachment rule; `named` does
+                # NOT fall back to it, which is the whole difference
+                or (scope == "item" and self._work_can_read(actor, it))
+            )
+            if allowed:
+                return dict(rec)
+        raise LedgerError(
+            f"no artifact {workfields.echo(aid)} on work item "
+            f"{workfields.echo(wid)} that you may read — it does not exist, the "
+            f"item is not one you may read, or the artifact is `named` and you "
+            f"hold no live grant on it. Access to a named artifact is held in "
+            f"exactly three ways: you recorded it, its author granted it to you "
+            f"by name, or you are the user. Ask its author for a grant")
+
+    # ── W08: findings with stable ids and dispositions ─────────────────────
+    # WE14, from an agent that had just finished a twelve-round review: "several
+    # rounds RE-OPENED GROUND AN EARLIER ROUND HAD SETTLED … a place on the work
+    # item where rulings accumulate as rulings, not buried in the middle of a
+    # status update where neither party re-reads them". A finding here has an id
+    # that can be cited, and a disposition log that says what was decided about
+    # it and by whom — so "we settled this in round 5" is answerable from the
+    # item rather than from twenty-five messages.
+
+    def _work_finding_find(self, it: WorkItem, fid: str) -> dict[str, Any] | None:
+        for f in (it.get("findings") or []):
+            if str(f.get("id")) == str(fid):
+                return cast("dict[str, Any]", f)
+        return None
+
+    def work_finding(self, actor: str, wid: str, title: str,
+                     detail: str | None = None, *, severity: str | None = None,
+                     evidence_ref: str | None = None,
+                     expected_rev: Any = None) -> dict[str, Any]:
+        """Record one finding, open, with a citable id.
+
+        Open to anyone with read standing on the item: a reviewer raising a
+        defect, an owner recording one they found themselves, a participant
+        noting something in passing. Who raised it is in the row.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        t = _bounded("finding_title", title)
+        if not t:
+            raise LedgerError("a finding needs a title — one line naming the "
+                              "defect, which is what a disposition is later "
+                              "recorded against")
+        fs = cast("list[dict[str, Any]]", it.setdefault("findings", []))
+        if len(fs) >= self.WORK_FINDING_MAX:
+            raise LedgerError(
+                f"this item already holds {len(fs)} findings (cap "
+                f"{self.WORK_FINDING_MAX}); nothing is truncated — settle or "
+                f"drop the open ones, or raise the rest on a new item")
+        n = int(it.get("finding_seq") or 0) + 1
+        it["finding_seq"] = n
+        rec: dict[str, Any] = {
+            "id": f"f{n}", "seq": n, "at": now(),
+            "by": self._work_actor(actor), "title": t,
+            "disposition": "open", "decisions": [],
+            **({"detail": _prose(detail)} if detail else {}),
+            **({"severity": _bounded("ref", severity)} if severity else {}),
+            **({"evidence_ref": _bounded("evidence_ref", evidence_ref)}
+               if evidence_ref else {}),
+        }
+        self._work_expect_rev(it, expected_rev)
+        fs.append(rec)
+        self._work_hist(it, actor, "finding", {"finding": rec["id"]})
+        return dict(rec)
+
+    def work_finding_dispose(self, actor: str, wid: str, fid: str,
+                             disposition: str, *, note: str | None = None,
+                             expected_rev: Any = None) -> dict[str, Any]:
+        """Decide a finding — and KEEP EVERY EARLIER DECISION.
+
+        `disposition` is the current reading; `decisions` is the append-only
+        record of how it got there. Re-deciding is allowed (a finding rejected
+        in round 5 and fixed in round 9 is a real sequence), but a decision is
+        never overwritten and never silently lost, which is the whole reason
+        this is not a mail thread.
+        """
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        rec = self._work_finding_find(it, fid)
+        if rec is None:
+            raise LedgerError(f"no finding {fid!r} on this item")
+        d = str(disposition or "").strip()
+        if d not in self.WORK_DISPOSITIONS:
+            raise LedgerError(f"disposition must be one of "
+                              f"{'|'.join(self.WORK_DISPOSITIONS)}")
+        if d != "open" and not _prose(note):
+            raise LedgerError(
+                f"closing a finding as {d!r} takes a `note` saying why — the "
+                f"reason is the part a later round needs in order not to "
+                f"re-argue it, and it is exactly the part that gets lost in "
+                f"mail. Only reopening (`open`) needs no note")
+        self._work_expect_rev(it, expected_rev)
+        row = {"at": now(), "by": self._work_actor(actor), "disposition": d,
+               **({"note": _prose(note)} if note else {})}
+        cast("list[dict[str, Any]]", rec.setdefault("decisions", [])).append(row)
+        rec["disposition"] = d
+        self._work_hist(it, actor, "disposition", {"finding": str(fid),
+                                                   "disposition": d})
+        return {"finding": str(fid), "disposition": d,
+                "decisions": len(rec["decisions"]), "rev": it["rev"]}
+
+    def work_findings_summary(self, it: Mapping[str, Any]) -> dict[str, Any]:
+        """Counts by disposition plus the open ids, for a reader that needs to
+        know whether anything is still outstanding without reading the list."""
+        counts: dict[str, int] = {k: 0 for k in self.WORK_DISPOSITIONS}
+        open_ids: list[str] = []
+        for f in (it.get("findings") or []):
+            d = str(f.get("disposition") or "open")
+            counts[d] = counts.get(d, 0) + 1
+            if d == "open":
+                open_ids.append(str(f.get("id")))
+        return {"total": sum(counts.values()), "by_disposition": counts,
+                "open": open_ids}
 
     def work_claim(self, actor: str, wid: str, stage: str,
                    ref: str | None = None, note: str | None = None

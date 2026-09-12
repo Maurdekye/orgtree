@@ -1119,11 +1119,22 @@ class ExposedThroughTheTool(unittest.TestCase):
 
     def test_no_new_bounded_field_was_invented_outside_the_W02_contract(self):
         """W03 imports the contract rather than restating numbers; its own new
-        text fields are all lossless, so `LIMITS` must be untouched."""
+        text fields are all lossless, so W03 added nothing here.
+
+        ⚠ `finding_title` IS W08'S, AND IT IS THE ONLY ADDITION. This assertion
+        is the whole point of the test — a bounded field invented in some
+        module's own code, with its own number and its own refusal wording, is
+        exactly what the W02 contract exists to stop — so a new name here is
+        not a line to update casually. W08 added ONE: a finding's title is a
+        label meant to be cited in a sentence ("f2 is still open"), so it is
+        bounded through the shared contract, while the finding's `detail` and
+        every disposition note stay lossless.
+        """
         self.assertEqual(set(workfields.LIMITS), {
             "title", "acceptance", "attention_reason", "blocked_reason",
             "waiting_reason", "dropped_reason", "done_so_far",
-            "working_on_next", "ref", "evidence_ref"})
+            "working_on_next", "ref", "evidence_ref",
+            "finding_title"})
 
 
 # ------------------------------------------------- §11 all-or-nothing, swept

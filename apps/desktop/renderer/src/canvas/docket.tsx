@@ -28,11 +28,12 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import type {
-  AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem,
+  AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem, WorkReceipt,
 } from '../types'
 import {
   deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems,
-  replyWorkItem, uploadWorkItemAttachment, workItemAttachmentUrl,
+  replyWorkItem, uploadWorkItemAttachment, workItemArtifactUrl,
+  workItemAttachmentUrl,
 } from '../api'
 import { CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { AttachThumb, fmtBytes, isImg } from './img'
@@ -1573,6 +1574,146 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
 }
 
 
+/** W08 — VERIFICATION: what was checked, what it proved, and what review
+ *  decided. Three things the pane could not show before, each of which was
+ *  previously either invisible or indistinguishable from something else:
+ *
+ *    · a receipt's RESULT, where an expected negative that fired reads as the
+ *      pass it is, a crash reads as no verdict at all, and a check that never
+ *      ran is named rather than counted as green;
+ *    · the TREE it was measured in, so a result taken on a dirty worktree or
+ *      mid-rebase is marked as such instead of reading as evidence for the
+ *      clean commit;
+ *    · FINDINGS with their dispositions, so "we settled this" is on the item.
+ *
+ *  Read-only by design. An artifact's provenance belongs to the agent that
+ *  recorded it (the recorder is who a `named` grant authorizes against), so
+ *  the user downloads and reads here but does not add — unlike ATTACHMENTS
+ *  just below, which are the user's own files on the ticket. */
+function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
+  const receipts = (item.evidence ?? [])
+    .map((e, i) => ({ i, e, rc: e.receipt }))
+    .filter((r): r is { i: number; e: typeof r.e; rc: WorkReceipt } => !!r.rc)
+  const artifacts = item.artifacts ?? []
+  const findings = item.findings ?? []
+  if (!receipts.length && !artifacts.length && !findings.length) return null
+  const open = item.findings_summary?.open ?? []
+  return (
+    <div className="docket-verification">
+      {findings.length > 0 && (
+        <>
+          <div className="docket-list-heading dim">
+            FINDINGS
+            <span className="dim">
+              {' '}{open.length > 0
+                ? `· ${open.length} still open`
+                : '· all settled'}</span>
+          </div>
+          <ul className="docket-finding-list">
+            {findings.map((f) => (
+              <li key={f.id} className={`docket-finding disp-${f.disposition}`}>
+                <span className="docket-finding-id">{f.id}</span>
+                <span className={`badge disp-badge disp-${f.disposition}`}>
+                  {f.disposition}</span>
+                {f.severity && <span className="dim"> {f.severity}</span>}
+                <span className="docket-finding-title"> {f.title}</span>
+                {f.detail && <div className="docket-finding-detail dim">
+                  {f.detail}</div>}
+                {/* every decision, oldest first — the sequence IS the record */}
+                {f.decisions.length > 0 && (
+                  <ol className="docket-finding-decisions dim">
+                    {f.decisions.map((d, n) => (
+                      <li key={n}>{d.disposition}
+                        {d.note ? ` — ${d.note}` : ''}</li>
+                    ))}
+                  </ol>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {receipts.length > 0 && (
+        <>
+          <div className="docket-list-heading dim">VERIFICATION RECEIPTS</div>
+          <ul className="docket-receipt-list">
+            {receipts.map(({ i, e, rc }) => {
+              const t = rc.tree
+              // the tree warning outranks the result: a green number measured
+              // on a mixture of two commits is not evidence about either
+              const treeWarn = t.in_progress
+                ? `${t.in_progress} in progress — this tree was a mixture of two commits`
+                : t.state === 'dirty'
+                  ? `dirty tree, ${t.dirty_count} uncommitted path(s)`
+                  : t.state === 'unresolved'
+                    ? (t.detail || 'the tree could not be read')
+                    : ''
+              return (
+                <li key={i} className={`docket-receipt res-${rc.result}`}>
+                  <span className={`badge res-badge res-${rc.result}`}>
+                    {rc.result.replace('_', ' ')}</span>
+                  <span className="dim"> {rc.execution.replace('_', ' ')}</span>
+                  <code className="docket-receipt-sha"
+                    title={rc.candidate}>{rc.candidate.slice(0, 12)}</code>
+                  {e.ref && <span className="docket-receipt-ref"> {e.ref}</span>}
+                  {rc.command.length > 0 && (
+                    <div className="docket-receipt-cmd dim">
+                      <code>{rc.command.join(' ')}</code></div>
+                  )}
+                  {rc.range_diff && (
+                    <div className="dim">
+                      range-diff {rc.range_diff.old_tip.slice(0, 8)} →{' '}
+                      {rc.range_diff.new_tip.slice(0, 8)}: {rc.range_diff.detail}
+                    </div>
+                  )}
+                  {treeWarn && (
+                    <div className="docket-receipt-warn">⚠ {treeWarn}</div>
+                  )}
+                  {!rc.replay.portable && (
+                    <div className="dim">replay: {rc.replay.steps[0]}</div>
+                  )}
+                  {rc.logs.some((l) => l.unreadable) && (
+                    <div className="docket-receipt-warn">
+                      ⚠ {rc.logs.filter((l) => l.unreadable).length} log(s) could
+                      not be read
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+      {artifacts.length > 0 && (
+        <>
+          <div className="docket-list-heading dim">ARTIFACTS</div>
+          <div className="attach-row">
+            {artifacts.map((a, n) => a.visible === false
+              // withheld, NOT omitted: the row says evidence exists without
+              // naming it, exactly as an unreadable dependency does
+              ? <span key={`hidden-${n}`} className="attach-chip dim"
+                  title="a named artifact you hold no grant on">
+                  {a.scope} artifact — not shared with you</span>
+              : <a key={a.id} className="attach-chip"
+                  href={workItemArtifactUrl(slug, item.slug, a.id)}
+                  download={a.name}
+                  title={`${a.sha256}\nimmutable — the name is taken and the `
+                    + `bytes cannot be replaced`}>
+                  <DownloadIcon fontSize="inherit" /> {a.name}
+                  <span className="dim"> {fmtBytes(a.bytes)}</span>
+                  {a.scope === 'named' && <span className="badge dim">
+                    {a.grants_live.length > 0
+                      ? `shared with ${a.grants_live.join(', ')}`
+                      : 'not shared'}</span>}
+                </a>)}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+
 /** the ATTACHMENTS section of the pane (user feature 2026-09-10): files and
  *  images ON the ticket itself. Images reuse the chat's own AttachThumb
  *  (bounded thumbnail, lightbox on click, download); everything else is the
@@ -1811,6 +1952,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         mark="next" refIndex={refIndex} onGoToItem={onGoToItem}
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
+      <DocketVerification slug={slug} item={item} />
       <DocketAttachments slug={slug} item={item} toast={toast}
         refresh={refresh} />
       {manualAttn && (

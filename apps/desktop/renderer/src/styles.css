@@ -4949,6 +4949,48 @@ svg.MuiSvgIcon-root {
 .attach-row { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 2px; }
 /* ticket attachments (docket pane): same section margins as .docket-list,
    without wearing that class (it means "a progress list" elsewhere) */
+/* W08 VERIFICATION: receipts, findings and immutable artifacts. The colour
+   carries the one distinction the section exists for — a result that is GREEN
+   (passed, or a negative control that fired as designed) against one that is
+   not, with `crashed` and `not_executed` deliberately looking different from
+   `failed`: they reached no verdict, and a reader must not take either for a
+   plain failure. Warnings about the TREE are red regardless of the result,
+   because a green number measured on a half-rebased worktree is not evidence
+   about either commit. */
+.docket-verification { margin: 0 0 12px; }
+.docket-finding-list, .docket-receipt-list {
+  list-style: none; margin: 2px 0 8px; padding: 0;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.docket-finding, .docket-receipt {
+  border-left: 2px solid var(--line); padding: 1px 0 1px 7px; font-size: 12px;
+}
+.docket-finding.disp-open { border-left-color: var(--warn, #d08b2c); }
+.docket-finding.disp-fixed { border-left-color: var(--ok, #3f9e5a); }
+.docket-finding-id { font-family: var(--mono, monospace); font-size: 11px;
+  opacity: .75; margin-right: 4px; }
+.docket-finding-title { font-weight: 500; }
+.docket-finding-detail, .docket-receipt-cmd { margin: 1px 0 0; font-size: 11px;
+  white-space: pre-wrap; word-break: break-word; }
+.docket-finding-decisions { margin: 2px 0 0; padding-left: 16px;
+  font-size: 11px; }
+.badge.disp-badge, .badge.res-badge { font-size: 10px; padding: 0 5px;
+  text-transform: uppercase; letter-spacing: .02em; }
+.badge.disp-open, .badge.res-failed { color: var(--warn, #d08b2c);
+  border-color: color-mix(in srgb, var(--warn, #d08b2c) 45%, var(--line)); }
+.badge.disp-fixed, .badge.res-passed, .badge.res-expected_negative {
+  color: var(--ok, #3f9e5a);
+  border-color: color-mix(in srgb, var(--ok, #3f9e5a) 45%, var(--line)); }
+/* no verdict at all — visibly not the same thing as a failure */
+.badge.res-crashed, .badge.res-not_executed {
+  color: var(--bad, #c2504b);
+  border-color: color-mix(in srgb, var(--bad, #c2504b) 45%, var(--line));
+  font-style: italic; }
+.docket-receipt-sha { font-family: var(--mono, monospace); font-size: 11px;
+  margin: 0 4px; opacity: .8; }
+.docket-receipt-ref { word-break: break-word; }
+.docket-receipt-warn { color: var(--bad, #c2504b); font-size: 11px;
+  margin: 1px 0 0; }
 .docket-attachments { margin: 0 0 12px; }
 .docket-attachments .docket-attach-add { margin-top: 4px; cursor: pointer; }
 .attach-chip {

@@ -34,7 +34,7 @@ that is not in this repository is UNKNOWN, not nonexistent (Astra ruling
 
 Every subprocess is a list argv with shell=False, cwd=REPO_ROOT and a
 timeout; the only caller-supplied string that reaches argv is a sha that
-matched `_SHA_RE`, and the record stores the exact OID git resolved it to
+matched the sha rule, and the record stores the exact OID git resolved it to
 (an ambiguous or unknown prefix stays unknown). Results are cached for 60 s
 keyed by (repo, stage, sha, target identity) so a target that moves (a
 fetch, a restart, a dirty tree) is never served a stale answer under the old
@@ -52,7 +52,13 @@ import time
 from typing import Any, Callable, Final, TypedDict
 
 from . import sandbox as sbx
-from . import workfields
+# ⚠ THE SHA RULE LIVES IN `workevidence` AND IS RE-EXPORTED HERE, so every
+# existing caller (`ledger.work_claim`, `api`, the docket tests) keeps working
+# unchanged. It moved because the verification receipt tooling has to validate
+# a sha with NO DATA ROOT and no `store` import — this module reaches
+# `sandbox`/`store` for REPO_ROOT, and a probe replayed from another checkout
+# cannot pay that cost. One rule, one implementation, two names for it.
+from .workevidence import ShaError, validate_sha  # noqa: F401
 
 STAGES: Final = ("implemented", "committed", "pushed", "deployed", "in_build")
 #: the stages this module can evaluate; the other two are claims by design
@@ -61,7 +67,6 @@ REMOTE_REF: Final = "refs/remotes/origin/main"
 CACHE_TTL_S: Final = 60.0
 GIT_TIMEOUT_S: Final = 10.0
 
-_SHA_RE: Final = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 class StageResult(TypedDict):
@@ -76,57 +81,8 @@ class StageResult(TypedDict):
     observed_at: str            # when this process ran the comparison
 
 
-class ShaError(ValueError):
-    """The caller-supplied commit reference is not a lowercase 7-40 hex sha."""
-
-
 def repo_label() -> str:
     return f"orgtree@{sbx.REPO_ROOT}"
-
-
-def validate_sha(ref: Any) -> str:
-    """The submitted commit reference, or a refusal that SAYS WHAT IS WRONG.
-
-    ⚠ THE VALUE IS ECHOED EXACTLY AND THE FAULT IS NAMED. The old message
-    printed the first 20 characters of the rejected reference and an ellipsis,
-    which hid the very typo the caller was hunting: a 40-character sha with
-    one wrong character came back as `'b390277706c7977c1853'…`, indisting-
-    uishable from the correct one, and cost a round trip to find. Length and
-    character faults are reported separately, and the offending character is
-    located, because "must be a lowercase hex sha" is already known to anyone
-    who just sent one.
-
-    ⚠ AND NOTHING INVALID IS ACCEPTED TO SAVE THE ROUND TRIP. A short form is
-    already legal (7 characters up), so there is no reference worth admitting
-    that this refuses; loosening the pattern would only let an unverifiable
-    string into a field whose whole purpose is to be checked against git.
-    """
-    s = str(ref or "").strip()
-    if _SHA_RE.match(s):
-        return s
-    why = "it is empty" if not s else ""
-    if not why and len(s) < 7:
-        why = (f"it is {len(s)} character(s) long; the shortest accepted "
-               f"abbreviation is 7")
-    if not why and len(s) > 40:
-        why = (f"it is {len(s)} characters long; a full sha is 40, so this is "
-               f"{len(s) - 40} too many")
-    if not why:
-        bad = next(((i, c) for i, c in enumerate(s)
-                    if c not in "0123456789abcdef"), None)
-        if bad is not None:
-            i, c = bad
-            why = (f"character {i + 1} is {c!r}, which is not a lowercase hex "
-                   f"digit"
-                   + (" (it is the uppercase form — git prints shas in "
-                      "lowercase)" if c.lower() in "0123456789abcdef" else ""))
-        else:                              # unreachable via _SHA_RE, kept honest
-            why = "it does not match the accepted form"
-    raise ShaError(
-        f"a commit reference must be a lowercase hex sha of 7-40 characters "
-        f"(no branch names, no ranges, no ref expressions): {why}. You sent "
-        f"{workfields.echo(s)} — echoed exactly, so a single wrong character "
-        f"is visible here rather than hidden behind a shortened copy")
 
 
 def _default_runner(argv: list[str]) -> tuple[int, str]:

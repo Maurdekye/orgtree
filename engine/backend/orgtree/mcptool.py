@@ -457,7 +457,31 @@ TOOLS: list[dict[str, Any]] = [
             "`verify` (checks a committed/pushed/in_build claim against THIS "
             "repository's git — object exists / ancestor of the local "
             "origin/main tracking ref / ancestor of the booted commit; three-"
-            "valued, never a functional check), `check` (mark acceptance "
+            "valued, never a functional check). "
+            "EVIDENCE THAT CAN BE CHECKED RATHER THAN TAKEN ON TRUST: "
+            "`receipt` records a check WITH ITS PROVENANCE CAPTURED BY THE "
+            "BACKEND — you give the candidate sha, the worktree you ran in, the "
+            "argv, how you reached the conclusion (`execution`) and what came "
+            "back (`result`), and it binds them to the commit AND a fingerprint "
+            "of that tree, so a dirty tree, a half-applied rebase or a log from "
+            "before the edit is DISCLOSED instead of reading as evidence for the "
+            "clean commit; `rangediff` records all four endpoints of a rebase "
+            "comparison, which is what makes 'the rebase changed nothing' "
+            "checkable a day later; `receipts` reads them back with a staleness "
+            "disclosure computed now (a stored receipt is never refreshed — it "
+            "stays historical and says so). "
+            "SCOPED IMMUTABLE ARTIFACTS: `artifact` records a file as evidence "
+            "whose name is never reused and whose bytes are never replaced, "
+            "`scope: named` restricts it to you plus the agents you `grant` it "
+            "to BY NAME (one file each — no item read, no other artifact, "
+            "`revoke` ends it and the grant stays in the record), and "
+            "`artifact_read` is how a peer reads the exact probe you wrote "
+            "instead of transcribing it out of prose. "
+            "FINDINGS INSTEAD OF LOST MAIL: `finding` raises a defect with a "
+            "citable id and `dispose` records what was decided about it "
+            "(fixed|rejected|deferred|duplicate, with the reason) — earlier "
+            "decisions are kept, so a later round can read what was settled "
+            "rather than re-arguing it. `check` (mark acceptance "
             "condition `index` met with evidence_ref — or several at once with "
             "`checks`, which is atomic and reads as one completion event), "
             "`accept` (→ done, by "
@@ -538,6 +562,9 @@ TOOLS: list[dict[str, Any]] = [
                            "enum": ["list", "get", "create", "update", "assign",
                                     "review", "participants", "evidence",
                                     "decision",
+                                    "receipt", "rangediff", "receipts",
+                                    "artifact", "artifact_read", "grant",
+                                    "revoke", "finding", "dispose",
                                     "claim", "verify", "check", "accept",
                                     "archive", "supersede", "move",
                                     "delete"]},
@@ -583,10 +610,10 @@ TOOLS: list[dict[str, Any]] = [
                 "checks": {"type": "array", "items": {"type": "object"},
                            "description": "check: a BATCH — [{index, evidence_ref, note}] — instead of one index. ATOMIC: every element is validated before any is written, so one bad index changes nothing, and the whole batch writes ONE history row so it reads as a single completion event rather than four. Cannot be combined with index/evidence_ref/note, and the same index twice in one batch is refused"},
                 "items": {"type": "array", "items": {"type": "object"},
-                          "description": "evidence: a BATCH — [{kind, ref, note}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Cannot be combined with kind/ref/note"},
+                          "description": "evidence: a BATCH — [{kind, ref, note, execution}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Each element may carry its own `execution`, so a batch that records a candidate sha beside the run that proved it does not lose how each one was reached. Cannot be combined with kind/ref/note. A `receipt` is never accepted here or on the single row — use the `receipt` action, which has the backend capture it"},
                 "text": {"type": "string", "description": "decision: the ruling, trade-off or agreed constraint being recorded — what was decided, and enough of why that the next reader does not re-argue it." + _NOCAP},
                 "supersedes": {"type": "integer", "description": "decision: the `seq` of an earlier scope record this ruling replaces. The superseded row keeps its own text forever and gains only a back-pointer, so the record shows both what was ruled and that it was later replaced"},
-                "expected_rev": {"type": "integer", "description": "update: COMPARE-AND-SET. The item `rev` you composed this update against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ"},
+                "expected_rev": {"type": "integer", "description": "update/evidence/receipt and every other mutating action: COMPARE-AND-SET. The item `rev` you composed this call against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ; and worth passing whenever you built something from a read — a receipt, a disposition — that must not land on a different item state"},
                 "objective_append": {"type": "string", "description": "update: text ADDED to the end of the description instead of replacing it — for a scope addition that arrived after the item was written, so the original wording is not lost to re-typing it by hand. Owner-level like `objective`, and mutually exclusive with it. Either route VERSIONS the description into the item's append-only `scope` record, which keeps the complete before and after" + _NOCAP},
                 "keep_done": {"type": "boolean", "description": "update: carry the stored done_so_far forward unchanged instead of re-sending it. Needs expected_rev. What is STORED is still the complete list — this changes who assembles it, not what is written"},
                 "keep_next": {"type": "boolean", "description": "update: carry the stored working_on_next forward unchanged instead of re-sending it. Needs expected_rev"},
@@ -595,6 +622,41 @@ TOOLS: list[dict[str, Any]] = [
                 "next_append": {"type": "array", "items": {"type": "string"},
                                 "description": "update: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
                 "attention_amend": {"type": "boolean", "description": "update: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged"},
+                # ── W08: verification receipts, scoped artifacts, findings ──
+                "execution": {"type": "string",
+                              "enum": ["independent", "owner_report",
+                                       "source_inspection"],
+                              "description": "receipt/evidence: HOW you reached this conclusion, and it is not a formality — `independent` = you ran the command and watched the result; `owner_report` = another agent reported it and this row carries their claim, not your execution of it; `source_inspection` = you read code or output and ran nothing. An approval that says 'tests pass' when you read somebody else's log overstates its own scope, and this is the field that stops it"},
+                "result": {"type": "string",
+                           "enum": ["passed", "expected_negative", "failed",
+                                    "crashed", "not_executed"],
+                           "description": "receipt: WHAT CAME BACK. Five values because collapsing any two of them is how a suite reports green while a negative control never fired. `expected_negative` = it failed exactly as designed, which is a PASS for the suite; `crashed` = no verdict at all (died, timed out, could not start), which is NOT a failed assertion; `not_executed` = never ran, and it must never read as a pass"},
+                "candidate": {"type": "string", "description": "receipt: the commit this check was measuring — lowercase hex sha, 7-40 characters. The receipt binds the result to it, together with a fingerprint of the tree it actually ran in"},
+                "base": {"type": "string", "description": "receipt: the commit the candidate sits on, when you want it recorded explicitly. Omitted, the parent of the candidate is read from git"},
+                "checkout": {"type": "string", "description": "receipt/rangediff: REQUIRED — the worktree the check ran in. It is never guessed: the receipt records that tree's commit, whether it was dirty and whether a rebase was half-applied, and a receipt describing the wrong checkout is worse than none. Must be a directory you hold"},
+                "command": {"type": "array", "items": {"type": "string"},
+                            "description": "receipt: the argv that was actually run (a string is split like a shell would). Required for `independent` — a check nobody can re-run is prose. Include your explicit --repo-root/--tree flag and the replay recipe will say the probe is portable"},
+                "runner": {"type": "string", "description": "receipt: the runner or interpreter identity, when the command does not say it (e.g. 'python 3.10.11 via tools/run-python-verification.py'). The backend already records its own interpreter and platform"},
+                "logs": {"type": "array", "items": {"type": "string"},
+                         "description": "receipt: paths to captured log files, up to 8. Each is read as BYTES and decoded by detection — UTF-8, UTF-8-with-BOM and both UTF-16 byte orders, because PowerShell redirects as UTF-16 and Python writes UTF-8. The detected encoding and a sha256 of the whole file go into the record; an unreadable log is disclosed as unreadable rather than dropped"},
+                "old_base": {"type": "string", "description": "rangediff: the base of the range BEFORE the rebase"},
+                "old_tip": {"type": "string", "description": "rangediff: the tip of the range BEFORE the rebase (the reviewed commit)"},
+                "new_base": {"type": "string", "description": "rangediff: the base of the range AFTER the rebase"},
+                "new_tip": {"type": "string", "description": "rangediff: the tip AFTER the rebase (what you intend to land). All four are recorded, because 'the range-diff was clean' is unfalsifiable a day later if nobody wrote down which two ranges were compared"},
+                "path": {"type": "string", "description": "artifact: the file to record as immutable evidence — a probe, a receipt, a captured log. Must be in your working folder, the workspace or a folder you hold, exactly like orgtree_send_file"},
+                "scope": {"type": "string", "enum": ["item", "named"],
+                          "description": "artifact: who may read it. `item` (default) = anyone who may read the item. `named` = only you, the agents you grant it to by name, and the user — NOT the item's owner merely for owning it. `named` is how a reviewer hands an implementer one executable reproduction without either of them being given the other's scratch folder"},
+                "grant_to": {"type": "array", "items": {"type": "string"},
+                             "description": "artifact: agents to grant read of THIS ONE FILE to, in the same call. A grant names one artifact: it confers no read of the item, no read of any other artifact, and nothing else on disk"},
+                "artifact": {"type": "string", "description": "artifact_read/grant/revoke: the artifact's record id (r1, r2…)"},
+                "to": {"type": "string", "description": "grant/revoke: the agent gaining or losing read of that one artifact. Only the agent that RECORDED the artifact may grant or revoke it — the file is its evidence, so this is not an owner-level act"},
+                "detail": {"type": "string", "description": "finding: the diagnosis, the reproduction, the argument." + _NOCAP},
+                "severity": {"type": "string", "description": "finding: your own severity word, free text (blocking, minor, question…)"},
+                "finding": {"type": "string", "description": "dispose: the finding's id (f1, f2…)"},
+                "disposition": {"type": "string",
+                                "enum": ["open", "fixed", "rejected",
+                                         "deferred", "duplicate"],
+                                "description": "dispose: what was DECIDED about the finding. Everything but `open` needs a `note` saying why — that reason is the part a later review round needs in order not to re-argue ground an earlier round settled, and it is exactly the part that gets lost in mail. Earlier decisions are never overwritten: the finding keeps the whole sequence"},
                 "parent": {"type": "string", "description": "create/move: the name of the item to nest this one under. move with an empty string returns it to the top level. A child keeps its own owner, status and authority — nesting says how work is ORGANISED, it does not grant or inherit anything"},
             },
             "required": ["action"],

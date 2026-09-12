@@ -87,6 +87,10 @@ LIMITS: Final[dict[str, tuple[int, str]]] = {
                  "which has no limit"),
     "evidence_ref": (500, "a ref is a path, url, sha or log name — prose goes "
                           "in `note`, which has no limit"),
+    "finding_title": (200, "a finding's title is the handle a disposition is "
+                           "recorded against — one line naming the defect; the "
+                           "diagnosis, the reproduction and the argument go in "
+                           "`detail`, which has no limit"),
 }
 
 #: The fields that are LOSSLESS, listed so the contract can be read in one
@@ -95,6 +99,8 @@ LOSSLESS: Final[frozenset[str]] = frozenset({
     "objective",        # the item's authoritative standalone specification
     "note",             # review decisions, acceptance, evidence, checks, claims
     "attachment_name",  # must match the file actually written to disk
+    "artifact_name",    # same rule: the name of the bytes actually stored
+    "finding_detail",   # the diagnosis a finding's disposition is decided from
 })
 
 #: How much of a lossless field a NOTIFICATION carries inline before it says

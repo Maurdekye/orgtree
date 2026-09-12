@@ -436,6 +436,11 @@ export const uploadWorkItemAttachment = (slug: string, id: string, file: File):
 // direct <img>/<a href> target — BASE-aware like fileUrl
 export const workItemAttachmentUrl = (slug: string, id: string, aid: string): string =>
   u(`/api/orgs/${slug}/work-items/${id}/attachments/${encodeURIComponent(aid)}`)
+// W08 artifacts: immutable evidence recorded by an agent. Download only — the
+// UI never uploads one, because an artifact's provenance is the agent's own
+// (the recorder is who a `named` grant authorizes against).
+export const workItemArtifactUrl = (slug: string, id: string, aid: string): string =>
+  u(`/api/orgs/${slug}/work-items/${id}/artifacts/${encodeURIComponent(aid)}`)
 // ⚠ permanent: the record and the stored bytes both go; there is no undelete
 export const deleteWorkItemAttachment = (slug: string, id: string, aid: string):
   Promise<{ removed: string }> =>
