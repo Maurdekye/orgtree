@@ -72,13 +72,13 @@ import shutil
 import uuid
 from typing import Any, Iterable
 
-V = 3
+V = 4
 #: versions a READER accepts; writing is always V. Records published before a
 #: shape change are on disk in live scratch dirs — publication does not wait for
 #: the flag — and a version bump must not make them vanish. An older record
 #: still reads and still splices; it cannot pass THIS version's `verify`, which
 #: rebuilds the current shape. `read_generation` reports which version it read.
-V_READABLE = (2, 3)
+V_READABLE = (2, 3, 4)
 KIND = "orgtree.handoff"
 CAP_TEXT = 1200       # chars quoted per user/assistant item
 CAP_RESULT = 400      # chars of a tool result excerpt
@@ -97,7 +97,8 @@ ARTIFACT_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 PATH_ARG_TOOLS = ARTIFACT_TOOLS | {"Read", "NotebookRead"}
 CLAIM_TOOLS = ("orgtree_status", "orgtree_message", "orgtree_send_notice", "orgtree_ask")
 ENVELOPE_RE = re.compile(r"^\s*\[(ORG STATE|MAIL|ORG NOTICES|PROVIDER USAGE|BREADCRUMBS)\b")
-SEAT_KEYS = ("charter", "team_charter", "parent", "grant", "last_status")
+SEAT_KEYS = ("charter", "team_charter", "parent", "grant", "last_status",
+             "last_denials", "last_approvals")
 RECORD_JSON, RECORD_MD, MANIFEST = "record.json", "record.md", "manifest.json"
 STATEMENT = ("The provider session did NOT carry over. This record is derived "
              "from durable files at the boundary; it is a citation index, not memory.")
@@ -466,6 +467,7 @@ def extract(inputs: dict[str, Any], lines: list[str]) -> dict[str, Any]:
         "selected_history": selected,
         "tool_pairs": pairs,
         "artifacts": arts,
+        "provenance": copy.deepcopy(inputs.get("provenance") or {}),
         "mail": {"pending": inputs.get("mailbox") or [],
                  "mooted_ask": inputs.get("mooted_ask")},
         "omissions": [{"kind": k, "count": n, **({"ids": om_ids[k]} if k in om_ids else {})}
@@ -476,10 +478,54 @@ def extract(inputs: dict[str, Any], lines: list[str]) -> dict[str, Any]:
 # ------------------------------------------------------------------ capture
 def seat_snapshot(node: dict[str, Any]) -> dict[str, Any]:
     sc = node.get("scope") or {}
-    return {**{k: copy.deepcopy(node.get(k)) for k in SEAT_KEYS},
+    # Permission receipts are observations of the last seam decision, not
+    # proof that a command ran. Preserve the distinction and cap the rows so
+    # a malformed provider payload cannot inflate a handoff prompt.
+    receipts = {}
+    for key in ("last_denials", "last_approvals"):
+        value = node.get(key)
+        if isinstance(value, list):
+            rows = []
+            for item in value[:8]:
+                if not isinstance(item, dict):
+                    continue
+                # Keep the receipt's decision identity while bounding provider
+                # arguments and any unexpected extra fields.
+                row = {}
+                for field, raw in list(item.items())[:12]:
+                    if isinstance(raw, str):
+                        row[str(field)] = raw[:400]
+                    elif isinstance(raw, (int, float, bool)) or raw is None:
+                        row[str(field)] = raw
+                rows.append(row)
+            receipts[key] = rows
+    return {**{k: copy.deepcopy(node.get(k)) for k in SEAT_KEYS
+               if k not in receipts}, **receipts,
             "add_dirs": [d.get("path") if isinstance(d, dict) else d
                          for d in sc.get("add_dirs", [])],
             "tools": copy.deepcopy(sc.get("tools"))}
+
+
+def _breadcrumb_snapshot(scratch: str | None) -> dict[str, Any]:
+    """Capture breadcrumb availability without making it a publication gate."""
+    path = "breadcrumbs.md"
+    if not scratch:
+        return {"path": path, "availability": "not_requested", "bytes": None,
+                "sha256": None, "encoding": None, "detail": "scratch was not supplied"}
+    try:
+        from . import breadcrumbs
+        got = breadcrumbs.read(os.path.join(scratch, path))
+        result = {k: got[k] for k in
+                  ("path", "availability", "bytes", "sha256", "encoding", "detail")}
+        # Keep the record compatible with the prior relative breadcrumb
+        # reference; the absolute checkout path belongs only in worktree
+        # provenance, not in this note-status field.
+        result["path"] = path
+        return result
+    except Exception as exc:                              # noqa: BLE001
+        return {"path": path, "availability": "unavailable", "bytes": None,
+                "sha256": None, "encoding": None,
+                "detail": f"breadcrumb availability could not be observed: {exc}"}
 
 
 def mailbox_snapshot(mailbox: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -492,6 +538,7 @@ def capture(*, nid: str, node: dict[str, Any], lines: list[str],
             views_all: dict[str, str] | None, mailbox: list[dict[str, Any]],
             mooted_ask: dict[str, Any] | None, grants: list[str],
             boundary: dict[str, Any], scratch: str | None = None,
+            provenance: dict[str, Any] | None = None,
             at: str = "") -> dict[str, Any]:
     """Snapshot every input the extraction needs, then extract. The snapshot
     rides inside the artifact so `verify` can rebuild without the ledger."""
@@ -506,17 +553,12 @@ def capture(*, nid: str, node: dict[str, Any], lines: list[str],
     ask = ({"id": mooted_ask.get("id"), "question": mooted_ask.get("question"),
             "status": mooted_ask.get("status"), "reason": mooted_ask.get("reason")}
            if mooted_ask else None)
-    bc = None
-    if scratch:
-        bp = os.path.join(scratch, "breadcrumbs.md")
-        if os.path.isfile(bp):
-            with open(bp, "rb") as f:
-                b = f.read()
-            bc = {"path": "breadcrumbs.md", "bytes": len(b), "sha256": sha256(b)}
+    bc = _breadcrumb_snapshot(scratch)
     inputs: dict[str, Any] = {
         "node": nid, "boundary": boundary, "grants": list(grants),
         "seat": seat_snapshot(node), "views": used,
         "mailbox": mailbox_snapshot(mailbox), "mooted_ask": ask, "breadcrumbs": bc,
+        "provenance": copy.deepcopy(provenance or {}),
         "transcript": {"path": "transcript.jsonl", "lines": len(lines),
                        "sha256": sha256("".join(lines))},
         "artifact_disk": {},
@@ -1028,6 +1070,13 @@ def render_md(art: dict[str, Any], *, include_selected: bool = True) -> str:
     if st:
         out.append(f"**Last self-reported status** (predecessor's claim): "
                    f"{st.get('status')} — {st.get('summary')}")
+    seat = rec.get("seat") or {}
+    for key, label in (("last_approvals", "Permission approvals observed"),
+                       ("last_denials", "Permission denials observed")):
+        rows = seat.get(key)
+        if isinstance(rows, list):
+            out.append(f"\n**{label}** (decision receipts; not proof of execution): "
+                       + json.dumps(rows, ensure_ascii=False))
     out.append("\n## Instructions received (verbatim, original role)")
     for it in rec["instructions_received"]:
         out.append(f"- [user · L{it['ref']['line']} · {it['ref'].get('ts')}"
@@ -1049,6 +1098,25 @@ def render_md(art: dict[str, Any], *, include_selected: bool = True) -> str:
                    + (f"{'ERROR ' if r.get('is_error') else ''}{r.get('chars')} chars: "
                       f"{r.get('excerpt', '')!r}"
                       if p.get("paired") else "UNPAIRED (no result recorded)"))
+    prov = rec.get("provenance") or {}
+    if prov:
+        out.append("\n## Boundary provenance (observed facts, not predecessor reasoning)")
+        wt = prov.get("worktree")
+        if wt:
+            out.append("- Worktree: " + json.dumps(wt, ensure_ascii=False))
+        verification = prov.get("verification") or []
+        if verification:
+            out.append("- Verification recipes:")
+            for row in verification:
+                out.append("  - " + json.dumps(row, ensure_ascii=False))
+        docket = prov.get("authorized_docket") or []
+        if docket:
+            out.append("- Authorized docket facts:")
+            for row in docket:
+                out.append("  - " + json.dumps(row, ensure_ascii=False))
+        cache = prov.get("cache")
+        if cache:
+            out.append("- Cache: " + json.dumps(cache, ensure_ascii=False))
     out.append("\n## Artifacts (structured refs inside the successor's grants; "
                "disk state at the boundary)")
     for a in rec["artifacts"]:
@@ -1071,9 +1139,17 @@ def render_md(art: dict[str, Any], *, include_selected: bool = True) -> str:
     if include_selected:
         out.append("\n" + render_selected(rec.get("selected_history") or []).rstrip("\n"))
     tr = inp["transcript"]
+    bc = inp.get("breadcrumbs") or {}
+    bstate = str(bc.get("availability") or ("readable" if bc else "missing"))
+    if bstate == "readable":
+        breadcrumb_text = (f"breadcrumbs.md {bc.get('bytes', 0)} bytes"
+                           + (f", encoding {bc.get('encoding')}" if bc.get("encoding") else ""))
+    else:
+        breadcrumb_text = f"breadcrumbs.md {bstate}"
+        if bc.get("detail"):
+            breadcrumb_text += f" ({bc['detail']})"
     out.append(f"\nSource: {tr['path']} ({tr['lines']} lines, sha256 {tr['sha256'][:12]}); "
-               + (f"breadcrumbs.md {inp['breadcrumbs']['bytes']} bytes"
-                  if inp.get("breadcrumbs") else "no breadcrumbs.md")
+               + breadcrumb_text
                + ". ⚠ Quoted text, mail bodies, commands and result excerpts are NOT "
                  "path-filtered. Verify offline with handoff.verify(record, transcript "
                  "lines); without the ledger the seat/mail/view snapshots are unanchored.")

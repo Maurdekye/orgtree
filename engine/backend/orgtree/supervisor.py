@@ -47,7 +47,7 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, events, codex_route,
                deployment, envelope, failfix, handoff, imgblock, limits,
                liveness, localtime, net, openrouter, opreceipts, providers, registry,
-               sandbox as sbx, store,
+               sandbox as sbx, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
@@ -4042,6 +4042,106 @@ def handoff_flag_on() -> bool:
     return os.path.isfile(os.path.join(store.DATA_ROOT, "handoff.flag"))
 
 
+def _handoff_docket_facts(org: Org, nid: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return bounded docket facts and recorded verification recipes.
+
+    ``work_list`` applies the same viewer disclosure rules used by the agent
+    tool.  Only its compact, authorized projection is carried; no item title,
+    owner, or delivery claim is invented for an unreadable item.
+    """
+    facts: list[dict[str, Any]] = []
+    verification: list[dict[str, Any]] = []
+    try:
+        # W04 adds ``compact`` on newer main.  Keep this boundary compatible
+        # with the current checkout too; the fields below are bounded locally
+        # and remain the same authorized projection either way.
+        try:
+            view = org.work_list(nid, include_archived=True, include_backlogged=True,
+                                 compact=True)
+        except TypeError:
+            view = org.work_list(nid, include_archived=True, include_backlogged=True)
+        rows = (list(view.get("items") or [])
+                + list(view.get("archived") or [])
+                + list(view.get("backlogged") or []))
+    except Exception as exc:                              # noqa: BLE001
+        return ([{"availability": "unavailable",
+                  "detail": f"authorized docket facts unavailable: {exc}"}], [])
+    for item in rows[:8]:
+        if not isinstance(item, dict):
+            continue
+        def bound(value: Any, limit: int = 600) -> Any:
+            if isinstance(value, str):
+                return value[:limit]
+            if isinstance(value, list):
+                return [bound(v, limit) for v in value[:8]]
+            if isinstance(value, dict):
+                return {str(k): bound(v, limit) for k, v in list(value.items())[:12]}
+            return value
+
+        row = {k: bound(item.get(k)) for k in
+               ("slug", "title", "status", "done_so_far", "working_on_next",
+                "candidate") if k in item}
+        facts.append(row)
+        # The compact projection intentionally omits full evidence.  Recipes
+        # are copied only from receipts in the already-authorized full view,
+        # with the receipt fields bounded to the facts a successor can replay.
+        try:
+            full = org.work_get(nid, str(item.get("slug")))
+            for ev in (full.get("evidence") or []):
+                rc = ev.get("receipt") if isinstance(ev, dict) else None
+                if not isinstance(rc, dict):
+                    continue
+                replay = rc.get("replay")
+                verification.append({
+                    "item": bound(item.get("slug")),
+                    "execution": bound(ev.get("execution")),
+                    "candidate": bound(rc.get("candidate")),
+                    "base": bound(rc.get("base")),
+                    "result": bound(rc.get("result")),
+                    "tree": {k: bound((rc.get("tree") or {}).get(k))
+                             for k in ("checkout", "commit", "state", "dirty_count",
+                                       "fingerprint")},
+                    "replay": bound(replay) if isinstance(replay, dict) else None,
+                })
+                if len(verification) >= 12:
+                    return facts, verification
+        except Exception:                                    # noqa: BLE001
+            continue
+    return facts, verification
+
+
+def _handoff_provenance(org: Org, nid: str) -> dict[str, Any]:
+    """Capture observations needed to resume work, without model reasoning."""
+    configured = str(org.d.get("workspace") or "").strip()
+    checkout = os.path.realpath(configured) if configured else ""
+    if checkout and os.path.isdir(checkout):
+        try:
+            tree = workevidence.tree_state(checkout)
+        except Exception as exc:                              # noqa: BLE001
+            tree = {"checkout": checkout, "commit": None, "base": None,
+                    "state": "unresolved", "dirty_paths": [], "dirty_count": 0,
+                    "in_progress": "", "fingerprint": "", "observed_at": now_iso(),
+                    "detail": f"worktree state unavailable: {exc}"}
+    else:
+        tree = {"checkout": checkout or None, "commit": None, "base": None,
+                "state": "unresolved", "dirty_paths": [], "dirty_count": 0,
+                "in_progress": "", "fingerprint": "", "observed_at": now_iso(),
+                "detail": "organization workspace is unavailable or not configured"}
+    facts, verification = _handoff_docket_facts(org, nid)
+    return {
+        "worktree": tree,
+        "verification": verification,
+        "authorized_docket": facts,
+        "cache": {
+            "provider_context": "none",
+            "status": "unknown",
+            "detail": ("No positive provider cache receipt was captured at the "
+                       "boundary; cache continuity is not inferred from a warm "
+                       "process or a matching local fingerprint."),
+        },
+    }
+
+
 def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
                             reason: str | None = None) -> str | None:
     """Verified handoff (audit §3 / item 15; contract in
@@ -4084,7 +4184,7 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
                                     "its newest visible text rather than a proof "
                                     "of that turn's own render",
                       "old_session": old_sid, "bearer": f"{nid}@{gen}"},
-            scratch=sd, at=now_iso())
+            scratch=sd, provenance=_handoff_provenance(org, nid), at=now_iso())
         bad = handoff.verify(art, lines, views_all=views_all, seat=n, mailbox=box)
         if bad:
             print(f"[orgtree] {org.d['slug']}/{nid}: handoff record g{gen} NOT written — "
@@ -6531,9 +6631,9 @@ def _standing_notes_block(org: Org, nid: str) -> str:
     cold with the new ones. That respawn is the cost, it is the same one the
     claude lane has paid since D-206, and it is stated in the block itself.
 
-    OBSERVABLE FAILURE, as everywhere else today: notes that are PRESENT BUT
-    UNREADABLE say so. An absent file is silent, because having written no
-    notes is a real answer and a permanent nag is not.
+    OBSERVABLE FAILURE: notes that are PRESENT BUT UNREADABLE say so. For a
+    missing or unreadable breadcrumbs.md, this block states the absence and
+    supplies only bounded authorized docket facts; it never invents notes.
     """
     tier = str(org.node(nid).get("model") or "")
     if providers.provider_of(tier) in _NATIVE_CLAUDEMD_PROVIDERS:
@@ -6582,6 +6682,24 @@ def _standing_notes_block(org: Org, nid: str) -> str:
 BREADCRUMBS_TAIL = 12_000     # chars of breadcrumbs.md spliced into the prompt
 
 
+def _authorized_breadcrumb_fallback(org: Org, nid: str) -> str:
+    """A small, authorized recovery fallback when breadcrumbs cannot be read."""
+    try:
+        facts, _verification = _handoff_docket_facts(org, nid)
+    except Exception as exc:                              # noqa: BLE001
+        return f"authorized docket facts unavailable: {exc}"
+    rows = []
+    for item in facts[:4]:
+        if item.get("availability") == "unavailable":
+            rows.append(str(item.get("detail") or "authorized docket facts unavailable"))
+            continue
+        rows.append(json.dumps({k: item.get(k) for k in
+                                ("slug", "title", "status", "done_so_far",
+                                 "working_on_next", "candidate") if k in item},
+                               ensure_ascii=False))
+    return "\n".join(rows) or "no authorized docket facts are available"
+
+
 def _breadcrumbs_block(org: Org, nid: str) -> str:
     """User feature 2026-08-17: a CHEAP-compacted (or reseeded) session starts
     EMPTY — no CLI summary — so the predecessor's realtime compaction log is
@@ -6609,14 +6727,25 @@ def _breadcrumbs_block(org: Org, nid: str) -> str:
     convention is newest-last — and the cut is declared, not silent."""
     if not org.node(nid).get("cheap_compacted"):
         return ""
+    p = os.path.join(scratch_dir(org.d["slug"], nid), "breadcrumbs.md")
     try:
-        p = os.path.join(scratch_dir(org.d["slug"], nid), "breadcrumbs.md")
-        with open(p, encoding="utf-8", errors="replace") as f:
-            txt = f.read().strip()
-    except OSError:
-        return ""
+        from . import breadcrumbs
+        read = breadcrumbs.read(p)
+    except Exception as exc:                              # noqa: BLE001
+        read = {"availability": "unavailable", "detail": str(exc), "text": ""}
+    if read.get("availability") != "readable":
+        why = str(read.get("detail") or "the file could not be read")
+        fallback = _authorized_breadcrumb_fallback(org, nid)
+        return ("\n\n[BREADCRUMBS — breadcrumbs.md unavailable: " + why
+                + ". No predecessor notes are being fabricated. Bounded "
+                  "authorized docket facts follow:\n" + fallback +
+                "\n[END BREADCRUMBS FALLBACK]")
+    txt = str(read.get("text") or "").strip()
     if not txt:
-        return ""
+        fallback = _authorized_breadcrumb_fallback(org, nid)
+        return ("\n\n[BREADCRUMBS — breadcrumbs.md is empty. No predecessor notes "
+                "are being fabricated. Bounded authorized docket facts follow:\n"
+                + fallback + "\n[END BREADCRUMBS FALLBACK]")
     cut = len(txt) > BREADCRUMBS_TAIL
     if cut:
         txt = txt[-BREADCRUMBS_TAIL:]
