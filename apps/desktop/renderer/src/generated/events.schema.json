@@ -342,6 +342,13 @@
         },
         "pid": {
           "type": "integer"
+        },
+        "provenance": {
+          "enum": [
+            "source",
+            "packaged",
+            "unknown"
+          ]
         }
       },
       "required": [
@@ -349,7 +356,8 @@
         "commit",
         "short",
         "dirty",
-        "pid"
+        "pid",
+        "provenance"
       ],
       "additionalProperties": false
     },
@@ -5783,6 +5791,13 @@
         },
         "pid": {
           "type": "integer"
+        },
+        "provenance": {
+          "enum": [
+            "source",
+            "packaged",
+            "unknown"
+          ]
         }
       },
       "required": [
@@ -5790,7 +5805,8 @@
         "commit",
         "short",
         "dirty",
-        "pid"
+        "pid",
+        "provenance"
       ],
       "additionalProperties": false
     },

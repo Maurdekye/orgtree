@@ -13,7 +13,8 @@
       "commit": "runtime.restart_notice·object.commit",
       "short": "runtime.restart_notice·object.short",
       "dirty": false,
-      "pid": 3
+      "pid": 3,
+      "provenance": "source"
     },
     "engine_authored": true,
     "prev_pid": 3,
@@ -33,11 +34,12 @@
       "commit": "runtime.restart_notice·object.commit",
       "short": "runtime.restart_notice·object.short",
       "dirty": false,
-      "pid": 3
+      "pid": 3,
+      "provenance": "source"
     },
     "prev_pid": 3,
     "started_at": "runtime.restart_notice·started_at",
     "branch": "runtime.restart_notice·branch"
   },
-  "body": "[ORGTREE RESTART NOTICE] The backend was restarted. This is an informational notice delivered to live agents so you know what code version went live.\n\nRunning build:\n- Commit: runtime.restart_notice·object.commit (short: runtime.restart_notice·object.short)\n- Backend PID: 3\n- Started at: runtime.restart_notice·started_at, branch: runtime.restart_notice·branch\n\nWhat you can do with this:\n- If you were waiting on or verifying a deployed fix, check whether the running commit contains your changes with:\n  git merge-base --is-ancestor <your-commit> runtime.restart_notice·object.commit\n- If you need to be woken immediately with a turn on the NEXT restart, call orgtree_restart_wake.\n- Otherwise, no action is needed; this notice is for your awareness."
+  "body": "[ORGTREE RESTART NOTICE] The backend was restarted. This is an informational notice delivered to live agents so you know what code version went live.\n\nRunning build:\n- Commit: runtime.restart_notice·object.commit (short: runtime.restart_notice·object.short)\n- Identity provenance: source\n- Backend PID: 3\n- Started at: runtime.restart_notice·started_at, branch: runtime.restart_notice·branch\n\nWhat you can do with this:\n- If you were waiting on or verifying a deployed fix, check whether the running commit contains your changes with:\n  git merge-base --is-ancestor <your-commit> runtime.restart_notice·object.commit\n- If you need to be woken immediately with a turn on the NEXT restart, call orgtree_restart_wake.\n- Otherwise, no action is needed; this notice is for your awareness."
 }

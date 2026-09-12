@@ -1034,19 +1034,26 @@ def _build_lines(ev: _R) -> str:
     # the branch rides on the Started-at line, exactly as restart_wake.py wrote it
     branch = f", branch: {ev['branch']}" if ev.get("branch") else ""
     return (f"Running build:\n- Commit: {o['commit']} (short: {o['short']}){dirty}\n"
+            f"- Identity provenance: {o['provenance']}\n"
             f"- Backend PID: {pid}\n- Started at: {ev['started_at']}{branch}")
 
 
 @renderer("runtime.restart_notice")
 def _r_restart_notice(ev: _R) -> str:
     o = _obj(ev)
+    ancestry = (
+        "- If you were waiting on or verifying a deployed fix, the running build "
+        "identity is unknown, so no ancestry check can be made."
+        if o["commit"] == "unknown" else
+        "- If you were waiting on or verifying a deployed fix, check whether the "
+        "running commit contains your changes with:\n"
+        f"  git merge-base --is-ancestor <your-commit> {o['commit']}"
+    )
     return ("[ORGTREE RESTART NOTICE] The backend was restarted. This is an "
             "informational notice delivered to live agents so you know what code "
             "version went live.\n\n" + _build_lines(ev) + "\n\n"
             "What you can do with this:\n"
-            "- If you were waiting on or verifying a deployed fix, check whether the "
-            "running commit contains your changes with:\n"
-            f"  git merge-base --is-ancestor <your-commit> {o['commit']}\n"
+            + ancestry + "\n"
             "- If you need to be woken immediately with a turn on the NEXT restart, "
             "call orgtree_restart_wake.\n"
             "- Otherwise, no action is needed; this notice is for your awareness.")

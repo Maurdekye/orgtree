@@ -19,13 +19,12 @@ from __future__ import annotations
 import datetime as _dtm
 import json
 import os
-import subprocess
 import threading
 import uuid
 from typing import Any, Final
 
 from . import events
-from . import sandbox as sbx
+from . import build_identity
 from . import store
 from . import supervisor
 
@@ -78,42 +77,15 @@ def get_boot_build_info() -> dict[str, Any]:
     """
     global _boot_info_cache
     if _boot_info_cache is None:
-        commit = "unknown"
-        commit_short = "unknown"
-        branch = None
-        dirty = False
-        try:
-            r = subprocess.run(["git", "rev-parse", "HEAD"],
-                               cwd=sbx.REPO_ROOT, capture_output=True,
-                               text=True, timeout=10,
-                               creationflags=(subprocess.CREATE_NO_WINDOW
-                                              if os.name == "nt" else 0))
-            if r.returncode == 0 and r.stdout.strip():
-                commit = r.stdout.strip()
-                commit_short = commit[:7]
-            b = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                               cwd=sbx.REPO_ROOT, capture_output=True,
-                               text=True, timeout=10,
-                               creationflags=(subprocess.CREATE_NO_WINDOW
-                                              if os.name == "nt" else 0))
-            if b.returncode == 0:
-                name = b.stdout.strip()
-                if name and name not in ("HEAD", "main"):
-                    branch = name
-            d = subprocess.run(["git", "status", "--porcelain", "-uno"],
-                               cwd=sbx.REPO_ROOT, capture_output=True,
-                               text=True, timeout=10,
-                               creationflags=(subprocess.CREATE_NO_WINDOW
-                                              if os.name == "nt" else 0))
-            if d.returncode == 0 and d.stdout.strip():
-                dirty = True
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+        identity = build_identity.resolve_build_identity(
+            build_identity.artifact_root_for(__file__),
+            # In an installed runtime this is resources/build-info.json. The
+            # resolver only reads it after proving that no Git checkout owns
+            # the running Python files.
+            packaged_info=build_identity.artifact_root_for(__file__) / "build-info.json",
+        )
         _boot_info_cache = {
-            "commit": commit,
-            "commit_short": commit_short,
-            "branch": branch,
-            "dirty": dirty,
+            **identity,
             "backend_pid": os.getpid(),
             "started_at": now_iso(),
         }
@@ -295,13 +267,19 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             armed_was_pid = wake_rec.get("armed_by_pid") or previous_pid
                             wake_pid_text = f"{current_pid}" + (f" (was: {armed_was_pid})" if armed_was_pid and armed_was_pid != current_pid else "")
                             reason_line = f"\nReason armed: {reason}" if reason else ""
+                            ancestry_line = (
+                                "Ancestry check unavailable: running build identity is unknown."
+                                if current_commit == "unknown" else
+                                f"Ancestry check: git merge-base --is-ancestor <your-commit> {current_commit}"
+                            )
                             wake_text = (
                                 f"[ORGTREE RESTART WAKE] orgtree has restarted and your one-shot wake toggle has fired.\n\n"
                                 f"Running build:\n"
                                 f"- Commit: {current_commit} (short: {current_short}){dirty_info}\n"
+                                f"- Identity provenance: {boot.get('provenance') or 'unknown'}\n"
                                 f"- Backend PID: {wake_pid_text}\n"
                                 f"- Started at: {started_at}{branch_info}{reason_line}\n\n"
-                                f"Ancestry check: git merge-base --is-ancestor <your-commit> {current_commit}\n"
+                                f"{ancestry_line}\n"
                                 f"(Your wake toggle was one-shot and has cleared. To wake on a subsequent restart, re-arm with orgtree_restart_wake.)"
                             )
                             supervisor.send_message(slug, nid, wake_text, wake=True)
@@ -318,7 +296,8 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                                 {"kind": "system", "id": "@system"},
                                 {"kind": "build", "commit": str(current_commit),
                                  "short": str(current_short), "dirty": bool(dirty),
-                                 "pid": int(current_pid)},
+                                 "pid": int(current_pid),
+                                 "provenance": str(boot.get("provenance") or "unknown")},
                                 prev_pid=(int(previous_pid) if previous_pid else None),
                                 started_at=str(started_at),
                                 branch=(str(branch) if branch else None))
