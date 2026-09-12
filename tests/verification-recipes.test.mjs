@@ -8,11 +8,12 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const recipes = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'verification-recipes.json'), 'utf8'))
 
-test('recipe metadata names real runners and a pinned candidate', () => {
+test('recipe metadata names real runners and resolves its symbolic candidate', () => {
   assert.equal(recipes.schema, 'orgtree.verification-recipes/v1')
-  assert.match(recipes.candidate, /^[0-9a-f]{40}$/)
-  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
-  assert.equal(recipes.candidate, head, 'recipe metadata must pin this reviewed checkout HEAD')
+  assert.equal(recipes.candidate_ref, 'HEAD', 'recipe metadata must use the symbolic checkout target')
+  const resolved = execFileSync('git', ['rev-parse', '--verify', `${recipes.candidate_ref}^{commit}`], { cwd: ROOT, encoding: 'utf8' }).trim()
+  assert.match(resolved, /^[0-9a-f]{40}$/)
+  assert.equal(recipes.candidate, undefined, 'the recipe must not claim a literal SHA pins its containing commit')
   assert.equal(recipes.owner, 'notify-review')
   assert.ok(recipes.suites.length >= 5)
   for (const suite of recipes.suites) {

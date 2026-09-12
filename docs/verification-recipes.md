@@ -1,8 +1,8 @@
 # Verification recipes
 
 This document is the handoff entry point for W12. The machine-readable source is
-[`verification-recipes.json`](verification-recipes.json); it records the pinned
-candidate, owner, runner, command, controls, and every intentionally skipped or
+[`verification-recipes.json`](verification-recipes.json); it records the symbolic
+candidate reference, owner, runner, command, controls, and every intentionally skipped or
 unexecuted check.
 
 ## Feature-to-suite map
@@ -91,8 +91,10 @@ the shared Electron install raced another process while creating `locales`.
 
 ## Handoff metadata
 
-Successors should start with `docs/verification-recipes.json`, verify the pinned
-candidate and checkout, then run the focused commands above. Reviewers should
-compare the receipt's full candidate and tree state before interpreting a green
-result. Update the metadata when the canonical runner, candidate, or skip reason
+Successors should start with `docs/verification-recipes.json`, resolve its
+`candidate_ref` (currently `HEAD`) in the checkout, then run the focused commands
+above. A literal SHA cannot be embedded for the commit that contains this file;
+the exact resolved candidate identity belongs in the docket commit evidence and in
+the receipt produced by the runner. Reviewers should compare the receipt's full
+candidate and tree state before interpreting a green result. Update the metadata when the canonical runner, candidate reference, or skip reason
 changes.

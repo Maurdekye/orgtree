@@ -1,11 +1,11 @@
 {
   "schema": "orgtree.verification-recipes/v1",
   "generated_at": "2026-09-13",
-  "candidate": "b03c0eb154d3c9524e4040963364ef41eef674f2",
+  "candidate_ref": "HEAD",
   "owner": "notify-review",
   "handoff": {
     "purpose": "Successor and reviewer entry point for reproducible checks",
-    "working_tree_policy": "Run commands from the checkout named by the receipt; never infer a candidate from a short display SHA.",
+    "working_tree_policy": "Run commands from the checkout named by the receipt; resolve candidate_ref with git rev-parse and retain the full result in the docket evidence. A recipe cannot embed the SHA of the commit that contains it.",
     "receipt_tool": "tools/verification-receipt.py",
     "last_verified": "2026-09-13"
   },
