@@ -872,6 +872,96 @@ class AtomicReopen(unittest.TestCase):
         self.assertEqual(item(org, wid)["dropped_reason"],
                          "Cancelled again, this time for good.")
 
+    def test_a_refused_reopen_to_dropped_LEAVES_THE_ITEM_UNTOUCHED(self):
+        """Found in review by worktree-safe. The reopen used to run its
+        mutations first and let `_work_state_info` refuse afterwards, so a
+        missing fresh reason left behind a `reopen` history row, a bumped rev
+        and — worst of all — a WIPED stored dropped_reason: the refused call
+        destroyed the record of why the work had ended."""
+        org, wid = fixture()
+        upd(org, wid, status="dropped", dropped_reason="Cancelled by the user.")
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            upd(org, wid, reopen=True, status="dropped", done_so_far=["x"])
+        self.assertIn("NOTHING WAS WRITTEN", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+        # the three specifics, named so a regression says which one came back
+        it = item(org, wid)
+        self.assertEqual(it["dropped_reason"], "Cancelled by the user.")
+        self.assertEqual(it["rev"], before["rev"])
+        self.assertNotIn("reopen", [r.get("op") for r in it["history"]])
+
+    def test_a_refused_reopen_from_DONE_to_dropped_is_atomic_too(self):
+        """The done -> dropped direction: a different pre-state, the same
+        promise. Here the acceptance record is what a partial mutation would
+        have destroyed."""
+        org, wid = self.closed()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError):
+            upd(org, wid, reopen=True, status="dropped", done_so_far=["x"])
+        self.assertEqual(snapshot(item(org, wid)), before)
+        self.assertIsNotNone(item(org, wid)["accepted"])
+
+    def test_a_refused_reopen_does_not_move_an_ARCHIVED_item(self):
+        """The reopen physically lifts an archived item back into the active
+        list before the refusal could fire. A refused call must not resurrect
+        an item onto the active docket."""
+        org, wid = fixture()
+        upd(org, wid, status="dropped", dropped_reason="Cancelled.")
+        org.work_archive_now("owner-a", wid)
+        self.assertTrue(any(x["slug"] == wid
+                            for x in org.d.get("work_items_archive") or []))
+        with self.assertRaises(LedgerError):
+            upd(org, wid, reopen=True, status="dropped", done_so_far=["x"])
+        self.assertTrue(any(x["slug"] == wid
+                            for x in org.d.get("work_items_archive") or []))
+        self.assertFalse(any(x["slug"] == wid
+                             for x in org.d.get("work_items") or []))
+
+    def test_a_refused_reopen_to_BLOCKED_is_atomic(self):
+        """Not only the terminal statuses: `blocked` owes a reason on entry
+        too, and that refusal was equally late."""
+        org, wid = self.closed()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            upd(org, wid, reopen=True, status="blocked", done_so_far=["x"])
+        self.assertIn("blocked_reason", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_a_blank_state_reason_is_refused_before_anything_moves(self):
+        """A blank does not erase what is recorded — and refusing it must not
+        itself be the thing that erases it."""
+        org, wid = fixture()
+        upd(org, wid, status="blocked", blocked_reason="Waiting on the slot.")
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            upd(org, wid, status="in_progress", blocked_reason="   ",
+                title="would have been written")
+        self.assertIn("NOTHING WAS WRITTEN", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_an_ordinary_late_entry_refusal_is_atomic_too(self):
+        """Not a reopen at all: plain `status=dropped` with no reason used to
+        set the status and stamp status_at before refusing."""
+        org, wid = fixture()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError):
+            upd(org, wid, status="dropped", title="would have been written")
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_the_legacy_waiting_conversion_still_owes_no_fresh_reason(self):
+        """⚠ The preflight must not break the one write that converts a legacy
+        row: a stored `waiting` READS as blocked, so naming blocked is the
+        conversion, not an entry, and it carries the reason it already had."""
+        org, wid = fixture()
+        it = item(org, wid)
+        it["status"] = "waiting"
+        it["waiting_reason"] = "The original waiting reason."
+        upd(org, wid, status="blocked", done_so_far=["converted"])
+        self.assertEqual(item(org, wid)["status"], "blocked")
+        self.assertEqual(item(org, wid)["blocked_reason"],
+                         "The original waiting reason.")
+
     def test_reopen_to_superseded_is_still_refused(self):
         """`superseded` is written by `supersede`, which names the replacing
         item. It is not an agent status, and opening reopen to terminal

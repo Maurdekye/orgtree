@@ -12064,6 +12064,56 @@ class Org:
                 obj_change = None         # restating it verbatim changed nothing
             else:
                 self._work_scope_room(it)
+        # ---- STATE INFORMATION, ASKED HERE FIRST. `_work_state_info` below is
+        # still the authority and still runs — but it runs AFTER the status has
+        # moved and, on a reopen, after the reopen row has been written, the
+        # rev bumped and the overturned reason cleared. So on its own it can
+        # refuse a call that has ALREADY changed the item, which is precisely
+        # the failure this package exists to remove. (Found in review by
+        # worktree-safe: `reopen` to `dropped` with no fresh reason left behind
+        # a reopen history row, a bumped rev and a wiped dropped_reason.)
+        #
+        # This asks the same two questions before anything is touched. It does
+        # not decide anything the helper does not — it is the same rules, one
+        # step earlier — so the two cannot drift into disagreeing about what is
+        # required, only about how much damage a refusal leaves behind.
+        _state_supplied = {"blocked_reason": blocked_reason,
+                           "waiting_reason": waiting_reason,
+                           "dropped_reason": dropped_reason}
+        for _st, _fl in self.WORK_STATE_INFO.items():
+            _v = _state_supplied.get(_fl)
+            if _v is not None and not str(_v).strip():
+                raise LedgerError(
+                    f"a blank {_fl} does not erase what is recorded — pass "
+                    f"the real text ({self.WORK_STATE_INFO_ASKS[_fl]}), or "
+                    f"omit the field to leave the existing one standing. "
+                    f"NOTHING WAS WRITTEN")
+        _eff = status if status is not None else (
+            "in_progress" if reopen else str(it.get("status") or ""))
+        _fl = self.WORK_STATE_INFO.get(_eff)
+        if _fl:
+            _v = _state_supplied.get(_fl)
+            # ⚠ A STORED LEGACY STATUS IS READ AS ITS REPLACEMENT, so naming
+            # `blocked` on a row stored as `waiting` is not an ENTRY into
+            # blocked — it is the conversion, and the conversion deliberately
+            # owes no fresh reason (it carries the one the item already had).
+            _reads_as = self.WORK_LEGACY_STATUSES.get(str(it.get("status") or ""),
+                                                      str(it.get("status") or ""))
+            if reopen and _eff in self.WORK_CLOSED:
+                # the atomic reopen CLEARS the overturned outcome's reason, so
+                # a stored one cannot satisfy this: the fresh reason describes
+                # the new outcome and must be supplied by this very call
+                _need = not str(_v or "").strip()
+            else:
+                _need = (_reads_as != _eff and not str(_v or "").strip()
+                         and not str(it.get(_fl) or "").strip())
+            if _need:
+                raise LedgerError(
+                    f"moving an item to `{_eff}` needs a nonblank {_fl}: "
+                    f"{self.WORK_STATE_INFO_ASKS[_fl]}. NOTHING WAS WRITTEN — "
+                    f"the call was refused before it touched the item, so "
+                    f"there is no half-finished reopen or status change to "
+                    f"undo")
         reopened_terminal = False
         if reopen:
             if it.get("status") not in self.WORK_CLOSED and not phys:
