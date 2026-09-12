@@ -568,7 +568,23 @@ def _read_bytes(p: str) -> bytes:
 # `delivering`, `net_spool` are dict-of-list shaped too but are MUTABLE
 # QUEUES, not append-only logs: they stay `doc` blobs.
 ROWED: tuple[str, ...] = ("nodes",)
-DICT_LOGS: tuple[str, ...] = ("mail_log", "steered_log", "turn_error_log")
+DICT_LOGS: tuple[str, ...] = ("mail_log", "steered_log", "turn_error_log",
+                              # the steering attempt journal (perf-redesign
+                              # 2026-09-12, coordinator ruling 11:28Z): a
+                              # KEYED dict log — see KEYED_DICT_LOGS. 1.28 MB
+                              # of it rode the eager document; stripping the
+                              # consumed projections cut 94% of the bytes and
+                              # this takes the rest off the hot path.
+                              "steer_attempts")
+#: dict logs whose per-owner value is KEYED — {id: entry} — rather than an
+#: ordered list. Stored as the SAME log_d rows with val = [id, entry] pairs
+#: (one row per entry, identity preserved by the ordinary row differ), and
+#: presented to consumers as an `AttemptMap`: a dict view over the backing
+#: AppendLog whose entry objects are SHARED with the pairs, so the in-place
+#: mutation the steering call sites live by (`att["resolved"] = …`) reaches
+#: the rows through the same re-serialize-and-compare the other dict logs
+#: rely on for nested edits.
+KEYED_DICT_LOGS: frozenset[str] = frozenset({"steer_attempts"})
 LIST_LOGS: tuple[str, ...] = ("events", "org_inbox", "notice_log",
                               "user_mail_log", "user_outbox",
                               "documents", "watchdog_history",
@@ -1118,6 +1134,104 @@ def appended_since_load(value: Any) -> int | None:
     return None
 
 
+class AttemptMap(dict[str, Any]):
+    """{id: entry} view over an AppendLog of ``[id, entry]`` pairs — the
+    consumer face of a KEYED_DICT_LOGS owner (steer_attempts).
+
+    The entry objects in the view ARE the entry halves of the pairs, so the
+    steering code's in-place mutations flow into the backing log with no
+    bookkeeping here; `_write_log_rows` re-serializes every entry of a
+    loaded owner and catches nested edits exactly as it does for mail_log.
+    Structural ops (add / replace / delete an id) are mirrored onto the log,
+    where AppendLog's row-identity tracking turns them into the minimal
+    insert/update/delete. A malformed pair (not ``[str, entry]``) stays in
+    the log untouched — bytes preserved — and simply never shows in the
+    view."""
+
+    __slots__ = ("_log",)
+
+    def __init__(self, log: "AppendLog | None" = None) -> None:
+        super().__init__()
+        self._log: AppendLog = AppendLog() if log is None else log
+        for pair in self._log:
+            if (isinstance(pair, list) and len(pair) == 2
+                    and isinstance(pair[0], str)):
+                dict.__setitem__(self, pair[0], pair[1])
+
+    def _pair_index(self, key: str) -> int:
+        for i, pair in enumerate(self._log):
+            if isinstance(pair, list) and len(pair) == 2 and pair[0] == key:
+                return i
+        return -1
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        i = self._pair_index(key) if dict.__contains__(self, key) else -1
+        if i >= 0:
+            # replace INSIDE the existing pair: the row keeps its seq and
+            # the differ writes one UPDATE
+            cast("list[Any]", self._log[i])[1] = value
+        else:
+            self._log.append([key, value])
+        dict.__setitem__(self, key, value)
+
+    def __delitem__(self, key: str) -> None:
+        if not dict.__contains__(self, key):
+            raise KeyError(key)
+        i = self._pair_index(key)
+        if i >= 0:
+            self._log.pop(i)
+        dict.__delitem__(self, key)
+
+    def pop(self, key: str, *default: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if len(default) > 1:
+            raise TypeError(
+                f"pop expected at most 2 arguments, got {len(default) + 1}")
+        if dict.__contains__(self, key):
+            value = dict.__getitem__(self, key)
+            del self[key]
+            return value
+        if default:
+            return default[0]
+        raise KeyError(key)
+
+    def popitem(self) -> tuple[str, Any]:
+        if not dict.__len__(self):
+            raise KeyError("popitem(): dictionary is empty")
+        key = next(reversed(dict.keys(self)))
+        return key, self.pop(key)
+
+    def setdefault(self, key: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        self[key] = default
+        return default
+
+    def clear(self) -> None:
+        self._log.clear()
+        dict.clear(self)
+
+    def update(self, *a: Any, **kw: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
+        for k, v in dict(*a, **kw).items():
+            self[k] = v
+
+    def __ior__(self, other: Any) -> Any:
+        self.update(other)
+        return self
+
+    def __copy__(self) -> "AttemptMap":
+        return AttemptMap(copy.copy(self._log))
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "AttemptMap":
+        new = AttemptMap(copy.deepcopy(self._log, memo))
+        memo[id(self)] = new
+        return new
+
+    def __reduce_ex__(self, protocol: int) -> Any:
+        # a pickled copy loses row identity on purpose: it rebuilds from a
+        # fresh log, whose next save takes the safe full-rewrite path
+        return (AttemptMap, (AppendLog(list(self._log)),))
+
+
 class SectionMap(dict[str, Any]):
     """A dict-log map that loads row values only for the requested owner.
 
@@ -1166,15 +1280,17 @@ class SectionMap(dict[str, Any]):
         # call our items() instead of short-circuiting an empty backing dict.
         dict.__setitem__(self, cast(str, self._SEED), None)
 
-    def _load_owner(self, owner: str) -> AppendLog:
+    def _load_owner(self, owner: str) -> Any:
         with _POOL.acquire(self._slug) as conn:
             rows = [(cast(int, seq), cast(str, val)) for seq, val in conn.execute(
                 "SELECT seq, val FROM log_d WHERE sect=? AND owner=? ORDER BY seq",
                 (self._sect, owner))]
         log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
         self._snaps[owner] = log._rows
-        dict.__setitem__(self, owner, log)
-        return log
+        value: Any = (AttemptMap(log) if self._sect in KEYED_DICT_LOGS
+                      else log)
+        dict.__setitem__(self, owner, value)
+        return value
 
     def __missing__(self, owner: str) -> Any:
         if owner in self._present and owner not in self._dropped:
@@ -1202,7 +1318,9 @@ class SectionMap(dict[str, Any]):
                 rows = grouped[owner]
                 log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
                 self._snaps[owner] = log._rows
-                dict.__setitem__(self, owner, log)
+                dict.__setitem__(self, owner,
+                                 AttemptMap(log) if self._sect in KEYED_DICT_LOGS
+                                 else log)
         expected = [o for o in self._order if o in self._present]
         if list(dict.keys(self)) != expected:
             values = {o: dict.__getitem__(self, o) for o in expected}
@@ -1225,6 +1343,13 @@ class SectionMap(dict[str, Any]):
             return default
 
     def __setitem__(self, owner: str, value: Any) -> None:
+        if (self._sect in KEYED_DICT_LOGS and isinstance(value, dict)
+                and not isinstance(value, AttemptMap)):
+            # normalize a plain assignment ({} from setdefault, a fixture's
+            # literal) so every later mutation is incremental and the save
+            # adoption below has one shape to reason about
+            value = AttemptMap(AppendLog([[k, v] for k, v in
+                                          cast("dict[str, Any]", value).items()]))
         if owner not in self._present:
             self._order.append(owner)
             self._added.add(owner)
@@ -1674,7 +1799,8 @@ def _read_dict_log(conn: sqlite3.Connection, sect: str, slug: str = ""
         rows = snaps[owner]
         log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
         out._snaps[owner] = log._rows
-        dict.__setitem__(out, owner, log)
+        dict.__setitem__(out, owner,
+                         AttemptMap(log) if sect in KEYED_DICT_LOGS else log)
     # This is the eager reconstruction path used by export/migration.  Drop
     # SectionMap's private JSON-encoder seed before returning a plain-looking
     # fully materialized mapping.
@@ -1876,7 +2002,12 @@ def reconstruct_full(conn: sqlite3.Connection) -> dict[str, Any]:
             out[k] = dict.__getitem__(d, k)
         elif k in DICT_LOGS:
             sm = _read_dict_log(conn, k)[1]
-            out[k] = {o: list(cast("list[Any]", lst)) for o, lst in dict.items(sm)}
+            # a keyed owner's value is an AttemptMap ({id: entry}); rebuild
+            # the DOCUMENT shape — list() on it would enumerate its keys
+            out[k] = {o: (dict(cast("dict[str, Any]", v))
+                          if isinstance(v, AttemptMap)
+                          else list(cast("list[Any]", v)))
+                      for o, v in dict.items(sm)}
         elif k in LIST_LOGS:
             out[k] = list(_read_list_log(conn, k)[1])
     return out
@@ -1957,16 +2088,30 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
                     snap: dict[str, list[tuple[int, str]]] | None
                     ) -> dict[str, list[tuple[int, str]]]:
     """Reconcile loaded owners without touching unloaded owners."""
+    keyed = sect in KEYED_DICT_LOGS
+
+    def owner_entries(owner: str, value: Any) -> "list[Any]":
+        """The row-shaped view of one owner's value. Ordered logs pass
+        through; a keyed owner's dict becomes its [id, entry] pairs — via
+        the backing log when it has one (row identity preserved), or by
+        derivation for a plain dict (a fixture, a blob conversion)."""
+        if isinstance(value, AttemptMap):
+            return value._log                    # the backing log itself
+        if keyed and isinstance(value, dict):
+            return [[k, v] for k, v in cast("dict[str, Any]", value).items()]
+        if not isinstance(value, list):
+            raise LedgerError(
+                f"{sect}[{owner!r}] must be a "
+                f"{'dict' if keyed else 'list'}, not {type(value).__name__}")
+        return cast("list[Any]", value)
+
     if not isinstance(cur, SectionMap) or snap is None:
         # Plain-dict save/migration/full section replacement: exact whole
         # section reconciliation, as before.
         conn.execute("DELETE FROM log_d WHERE sect=?", (sect,))
         new_snap: dict[str, list[tuple[int, str]]] = {}
         for owner, value in cur.items():
-            if not isinstance(value, list):
-                raise LedgerError(
-                    f"{sect}[{owner!r}] must be a list, not {type(value).__name__}")
-            entries = cast("list[Any]", value)
+            entries = owner_entries(owner, value)
             new_snap[owner] = _write_log_rows(
                 conn, "log_d", "sect=? AND owner=?", (sect, owner),
                 "INSERT INTO log_d(sect, owner, at, val) VALUES(?,?,?,?)",
@@ -1987,19 +2132,17 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
         if not dict.__contains__(cur, owner):
             continue
         value = dict.__getitem__(cur, owner)
-        if not isinstance(value, list):
-            raise LedgerError(
-                f"{sect}[{owner!r}] must be a list, not {type(value).__name__}")
-        entries = cast("list[Any]", value)
+        entries = owner_entries(owner, value)
         if owner in cur._replaced:
             baseline = None
         else:
             baseline = snap.get(owner)
+        row_log = value._log if isinstance(value, AttemptMap) else value
         new_snap[owner] = _write_log_rows(
             conn, "log_d", "sect=? AND owner=?", (sect, owner),
             "INSERT INTO log_d(sect, owner, at, val) VALUES(?,?,?,?)",
             (sect, owner), entries, baseline,
-            incremental=value if isinstance(value, AppendLog)
+            incremental=row_log if isinstance(row_log, AppendLog)
             and owner not in cur._replaced else None)
     raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
     # Owner names are a separate journal from loaded row snapshots. Merge
@@ -2231,6 +2374,8 @@ def _save_sqlite(org: Org) -> None:
                     if not dict.__contains__(value, owner):
                         continue
                     log = dict.__getitem__(value, owner)
+                    if isinstance(log, AttemptMap):
+                        log = log._log          # adopt into the backing log
                     owner_rows = committed.get(owner)
                     if isinstance(log, AppendLog) and owner_rows is not None:
                         log._adopt(owner_rows)
@@ -2262,6 +2407,8 @@ def _save_sqlite(org: Org) -> None:
                 for owner in v._order:
                     if dict.__contains__(v, owner):
                         lst = dict.__getitem__(v, owner)
+                        if isinstance(lst, AttemptMap):
+                            lst = lst._log
                         if isinstance(lst, AppendLog):
                             lst.full_rewrite = False
 
@@ -2383,8 +2530,14 @@ def verify_migration(conn: sqlite3.Connection, original: dict[str, Any]) -> dict
     for sect in DICT_LOGS:
         src = original.get(sect)
         if isinstance(src, dict):
-            for owner, lst in cast("dict[str, list[Any]]", src).items():
-                for i, e in enumerate(lst):
+            for owner, lst in cast("dict[str, Any]", src).items():
+                # a KEYED owner's value is {id: entry}; its rows hold
+                # [id, entry] pairs, so the pair is the byte-identity unit
+                # (iterating the dict itself would measure its KEYS)
+                entries = ([[k, v] for k, v in cast("dict[str, Any]", lst).items()]
+                           if sect in KEYED_DICT_LOGS and isinstance(lst, dict)
+                           else cast("list[Any]", lst))
+                for i, e in enumerate(entries):
                     n = len(_dumps(e))
                     if best is None or n > best[0]:
                         best = (n, sect, owner, i)
@@ -2398,7 +2551,12 @@ def verify_migration(conn: sqlite3.Connection, original: dict[str, Any]) -> dict
     if best is not None:
         n, sect, owner, i = best
         if owner is not None:
-            src_e = cast("dict[str, list[Any]]", original[sect])[owner][i]
+            src_v = cast("dict[str, Any]", original[sect])[owner]
+            if sect in KEYED_DICT_LOGS and isinstance(src_v, dict):
+                key = list(src_v)[i]
+                src_e: Any = [key, src_v[key]]
+            else:
+                src_e = cast("list[Any]", src_v)[i]
             row = conn.execute("SELECT val FROM log_d WHERE sect=? AND owner=? "
                                "ORDER BY seq LIMIT 1 OFFSET ?", (sect, owner, i)).fetchone()
         else:
