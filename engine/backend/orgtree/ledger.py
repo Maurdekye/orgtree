@@ -12114,6 +12114,32 @@ class Org:
                     f"the call was refused before it touched the item, so "
                     f"there is no half-finished reopen or status change to "
                     f"undo")
+        # ---- THE ASSIGNMENT AND THE REVIEWER, ASKED HERE TOO. Both are
+        # decided at the very END of this method, after the item has been
+        # fully rewritten — so an update naming an agent it may not name, or
+        # one that does not exist, used to be refused with the status change,
+        # the history row and (on a reopen) the reopen itself already done.
+        # Same finding as the state reasons, same fix: ask first, write after.
+        #
+        # `_eff` stands in for the status the tail will see. It differs from
+        # `status` only where a reopen defaults it or a legacy row converts it,
+        # and neither of those produces `review` — which is the only value the
+        # reviewer rules turn on — so this is exact rather than approximate.
+        _tgt = str(owner or "").strip()
+        if _tgt and _tgt != actor and not pre_manage \
+                and not (reviewer_only
+                         and _tgt == self._work_actor_node(it.get("owner"))):
+            raise LedgerError("only the owner, the creator, their superiors or "
+                              "the user may assign an item to someone else — "
+                              "your update already claims it for you. NOTHING "
+                              "WAS WRITTEN")
+        if not _tgt and actor != USER:
+            _tgt = ((self._work_actor_node(it.get("owner")) or "")
+                    if reviewer_only else actor)
+        self._work_reviewer_check(actor, it, reviewer, _eff, prev_status,
+                                  pre_manage, _tgt)
+        if _tgt and _tgt != self._work_actor_node(it.get("owner")):
+            self._work_assign_dest_check(actor, _tgt)
         reopened_terminal = False
         if reopen:
             if it.get("status") not in self.WORK_CLOSED and not phys:
@@ -12377,10 +12403,11 @@ class Org:
         message — never silently, and never to the actor itself, which would be
         an agent mailing itself every time it updated its own item."""
         own = str(owner or "").strip()
-        self.node(own)
-        if actor not in (USER, SYSTEM) and own != actor and not self.is_ancestor(actor, own):
-            raise LedgerError(f"you may assign an item to yourself or a "
-                              f"subordinate — {own!r} is neither")
+        # the destination rule, in the one place that states it. On the
+        # `work_update` path this has already run before the first mutation
+        # (`_work_assign_dest_check` in its preflight) and so cannot raise
+        # here; the other callers reach it for the first time.
+        self._work_assign_dest_check(actor, own)
         frm = it.get("owner")
         it["owner"] = cast(WorkActor, self._work_holder(own))
         # Assignment starts work that was explicitly left in the backlog.
@@ -12436,26 +12463,21 @@ class Org:
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
                      working_on_next=[str(x) for x in (it.get("working_on_next") or [])]))
 
-    def _work_name_reviewer(self, actor: str, it: WorkItem,
-                            reviewer: str | None, status: str | None,
-                            prev_status: str, pre_manage: bool,
-                            owner_after: str) -> str | None:
-        """Name (or re-name) the item's REVIEWER as part of an update, and tell
-        them. Returns the node mailed, or None.
+    def _work_reviewer_check(self, actor: str, it: WorkItem,
+                             reviewer: str | None, status: str | None,
+                             prev_status: str, pre_manage: bool,
+                             owner_after: str) -> str:
+        """EVERY refusal `_work_name_reviewer` owes, and no writes. Returns the
+        validated reviewer name, or "" when this update names none.
 
-        TWO RULES DECIDE WHETHER A NAME IS NEEDED AT ALL:
-        · entering `review` REQUIRES one (user ruling 2026-09-05: a review
-          request names the responsible reviewing agent). An item already at
-          review keeps the reviewer it has;
-        · nothing else may name one — a reviewer on work that is not under
-          review is a name with no meaning attached.
-
-        ⚠ EXISTING `review` RECORDS ARE NOT BACK-FILLED. An item that was
-        already at review when this shipped keeps `reviewer: null` and stays
-        legal; the root assigns those explicitly. Inventing a reviewer for them
-        — the last accepter, the owner's superior — would put a name nobody
-        chose in the one slot whose whole job is saying who chose to be
-        answerable for the check."""
+        ⚠ CALLED TWICE ON PURPOSE — once by `work_update` BEFORE its first
+        mutation, and again by `_work_name_reviewer` at the moment it writes.
+        The second call cannot raise, exactly as the second `_bounded` on the
+        title cannot. It is one function rather than a hoisted copy so the two
+        can never drift into disagreeing about who may be named: a copy would
+        be a second rulebook, and the one that lost would still be enforced
+        somewhere.
+        """
         want = str(reviewer or "").strip()
         entering = (status == "review" and prev_status != "review")
         if not want:
@@ -12465,7 +12487,7 @@ class Org:
                     "the agent that will check this work. It is not ownership "
                     "— the reviewer gets read, evidence and the review "
                     "decision, and you keep the item")
-            return None
+            return ""
         if not entering and prev_status != "review":
             raise LedgerError(
                 "a reviewer is named on the update that puts the item at "
@@ -12502,6 +12524,48 @@ class Org:
             raise LedgerError(
                 f"you may ask yourself, an agent in your subtree, or your own "
                 f"superior to review this — {want!r} is none of those")
+        return want
+
+    def _work_assign_dest_check(self, actor: str, own: str) -> None:
+        """The DESTINATION half of an assignment's authority — the half
+        `_work_assign_core` enforces after it has already begun writing. Same
+        two-call arrangement, and the same reason, as `_work_reviewer_check`."""
+        self.node(own)
+        if actor not in (USER, SYSTEM) and own != actor \
+                and not self.is_ancestor(actor, own):
+            raise LedgerError(f"you may assign an item to yourself or a "
+                              f"subordinate — {own!r} is neither")
+
+    def _work_name_reviewer(self, actor: str, it: WorkItem,
+                            reviewer: str | None, status: str | None,
+                            prev_status: str, pre_manage: bool,
+                            owner_after: str) -> str | None:
+        """Name (or re-name) the item's REVIEWER as part of an update, and tell
+        them. Returns the node mailed, or None.
+
+        TWO RULES DECIDE WHETHER A NAME IS NEEDED AT ALL:
+        · entering `review` REQUIRES one (user ruling 2026-09-05: a review
+          request names the responsible reviewing agent). An item already at
+          review keeps the reviewer it has;
+        · nothing else may name one — a reviewer on work that is not under
+          review is a name with no meaning attached.
+
+        ⚠ EXISTING `review` RECORDS ARE NOT BACK-FILLED. An item that was
+        already at review when this shipped keeps `reviewer: null` and stays
+        legal; the root assigns those explicitly. Inventing a reviewer for them
+        — the last accepter, the owner's superior — would put a name nobody
+        chose in the one slot whose whole job is saying who chose to be
+        answerable for the check.
+
+        ⚠ EVERY REFUSAL LIVES IN `_work_reviewer_check`, which `work_update`
+        has already run before its first mutation — so by the time this writes,
+        the call is known to be legal and this cannot raise. Keeping the rules
+        in the one function is what stops the pre-check and the write from
+        drifting into two different answers about who may be named."""
+        want = self._work_reviewer_check(actor, it, reviewer, status,
+                                         prev_status, pre_manage, owner_after)
+        if not want:
+            return None
         prev = self._work_actor_node(it.get("reviewer"))
         it["reviewer"] = cast(WorkActor, self._work_holder(want))
         self._work_hist(it, actor, "reviewer", {"from": prev, "to": it["reviewer"]})

@@ -949,6 +949,61 @@ class AtomicReopen(unittest.TestCase):
             upd(org, wid, status="dropped", title="would have been written")
         self.assertEqual(snapshot(item(org, wid)), before)
 
+    def test_a_refused_REVIEWER_name_leaves_the_reopen_undone(self):
+        """The reviewer is named at the very END of work_update, so naming an
+        agent that may not be named used to refuse with the reopen, the status
+        change and the history row already written."""
+        org, wid = self.closed()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError):
+            # peer-b is neither owner-a's subtree nor its superior
+            upd(org, wid, reopen=True, status="review", reviewer="peer-b")
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_a_reviewer_that_does_not_exist_is_refused_before_anything(self):
+        org, wid = self.closed()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(Exception):
+            upd(org, wid, reopen=True, status="review", reviewer="nobody-here")
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_a_refused_third_party_ASSIGNMENT_leaves_the_item_untouched(self):
+        """A participant may set state but may not hand the item to somebody
+        else. That refusal was also at the very end of the method."""
+        org, wid = fixture()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            org.work_update("peer-b", wid, ["x"], [], owner="owner-a",
+                            status="blocked", blocked_reason="would be written")
+        self.assertIn("NOTHING WAS WRITTEN", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_entering_review_with_no_reviewer_named_is_atomic(self):
+        org, wid = fixture()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            upd(org, wid, status="review", title="would have been written")
+        self.assertIn("names its reviewer", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+
+    def test_naming_a_reviewer_still_WORKS_after_the_hoist(self):
+        """The control: the pre-check must not have made the legal case
+        unreachable. owner-a's own subordinate is nameable."""
+        org, wid = fixture()
+        org.hire(USER, "owner-a", "haiku", 0, "sub-c")
+        upd(org, wid, status="review", reviewer="sub-c")
+        it = item(org, wid)
+        self.assertEqual(it["status"], "review")
+        self.assertEqual(it["reviewer"]["node"], "sub-c")
+
+    def test_self_review_is_still_prohibited(self):
+        org, wid = fixture()
+        before = snapshot(item(org, wid))
+        with self.assertRaises(LedgerError) as cm:
+            upd(org, wid, status="review", reviewer="owner-a")
+        self.assertIn("cannot review its own work", str(cm.exception))
+        self.assertEqual(snapshot(item(org, wid)), before)
+
     def test_the_legacy_waiting_conversion_still_owes_no_fresh_reason(self):
         """⚠ The preflight must not break the one write that converts a legacy
         row: a stored `waiting` READS as blocked, so naming blocked is the
@@ -1069,6 +1124,148 @@ class ExposedThroughTheTool(unittest.TestCase):
             "title", "acceptance", "attention_reason", "blocked_reason",
             "waiting_reason", "dropped_reason", "done_so_far",
             "working_on_next", "ref", "evidence_ref"})
+
+
+# ------------------------------------------------- §11 all-or-nothing, swept
+class EveryRefusalIsByteIdentical(unittest.TestCase):
+    """ONE sweep over every way `work_update` can refuse, asserting the stored
+    item is BYTE-IDENTICAL afterwards — the whole document, serialised, not a
+    chosen subset of fields.
+
+    The per-case tests above each pin one path with a readable name. This
+    exists because the defect worktree-safe found was not any single one of
+    them: it was a class of defect, a check standing downstream of the writes
+    it guards. A new argument added later with its validation in the wrong
+    place fails HERE without anyone remembering to write a test for it.
+
+    ⚠ `archived_at` is excluded, and only that. `_work_sweep()` runs at the top
+    of every docket call — reads included — and a dropped item archives at
+    once, so the sweep stamping it is the item's own clock doing its job, not
+    the refused call writing to the item. Nothing else is excused.
+    """
+
+    def frozen(self, org, wid):
+        import json
+        it = dict(item(org, wid))
+        it.pop("archived_at", None)
+        return json.dumps(it, sort_keys=True, default=str)
+
+    def cases(self):
+        """(label, kwargs) for every refusal `work_update` owes. Each runs
+        against a freshly prepared item."""
+        over_entry = "x" * (workfields.limit_of("done_so_far") + 1)
+        over_reason = "y" * (workfields.limit_of("attention_reason") + 1)
+        over_title = "t" * (workfields.limit_of("title") + 1)
+        return [
+            ("both lists empty", {"done_so_far": [], "working_on_next": []}),
+            ("list is a string", {"done_so_far": "not a list"}),
+            ("entry over its limit", {"done_so_far": [over_entry]}),
+            ("too many entries", {"done_so_far": [f"e{i}" for i in range(41)]}),
+            ("title over its limit", {"title": over_title}),
+            ("bad status", {"status": "nonsense"}),
+            ("retired waiting status", {"status": "waiting"}),
+            ("blank objective", {"objective": "   "}),
+            ("objective and append together",
+             {"objective": OBJ_2, "objective_append": ADDITION}),
+            ("blank append", {"objective_append": "  "}),
+            ("attention with no reason", {"attention": True}),
+            ("attention reason over limit",
+             {"attention": True, "attention_reason": over_reason}),
+            ("amend with no flag standing",
+             {"attention_amend": True, "attention_reason": "x"}),
+            ("amend together with a raise",
+             {"attention": True, "attention_amend": True,
+              "attention_reason": "x"}),
+            ("dropped with no reason", {"status": "dropped"}),
+            ("blocked with no reason", {"status": "blocked"}),
+            ("blank blocked reason",
+             {"status": "blocked", "blocked_reason": "  "}),
+            ("review with no reviewer", {"status": "review"}),
+            ("reviewer who may not be named",
+             {"status": "review", "reviewer": "peer-b"}),
+            ("reviewer that does not exist",
+             {"status": "review", "reviewer": "nobody-here"}),
+            ("self review", {"status": "review", "reviewer": "owner-a"}),
+            ("reviewer named outside a review request",
+             {"status": "in_progress", "reviewer": "peer-b"}),
+            ("stale expected_rev", {"expected_rev": 1}),
+            ("keep without expected_rev",
+             {"done_so_far": None, "keep_done": True}),
+            ("append without expected_rev",
+             {"done_so_far": None, "done_append": ["x"]}),
+            ("whole list and append together",
+             {"expected_rev": None, "done_so_far": ["a"], "done_append": ["b"]}),
+        ]
+
+    def test_every_refusal_leaves_the_item_byte_identical(self):
+        checked = 0
+        for label, kw in self.cases():
+            with self.subTest(refusal=label):
+                org, wid = fixture()
+                # give it some state worth destroying
+                upd(org, wid, status="in_progress",
+                    done_so_far=["one", "two"], working_on_next=["next"])
+                upd(org, wid, objective=OBJ_2)
+                org.work_decision("owner-a", wid, "a standing ruling")
+                org.work_evidence("owner-a", wid, "note", "a-ref", "a note")
+                before = self.frozen(org, wid)
+                with self.assertRaises(Exception, msg=f"{label} did not refuse"):
+                    upd(org, wid, **dict(kw))
+                self.assertEqual(self.frozen(org, wid), before,
+                                 f"a refused update ({label}) changed the item")
+                checked += 1
+        self.assertEqual(checked, len(self.cases()))
+
+    def test_the_same_sweep_against_a_CLOSED_item(self):
+        """The reopen paths need a closed item to be reachable at all, and a
+        closed item carries the acceptance record a partial write destroys."""
+        reopen_cases = [
+            ("reopen to dropped, no reason",
+             {"reopen": True, "status": "dropped"}),
+            ("reopen to blocked, no reason",
+             {"reopen": True, "status": "blocked"}),
+            ("reopen to review, no reviewer",
+             {"reopen": True, "status": "review"}),
+            ("reopen to review, unnameable reviewer",
+             {"reopen": True, "status": "review", "reviewer": "peer-b"}),
+            ("reopen to superseded", {"reopen": True, "status": "superseded"}),
+            ("reopen with an over-length entry",
+             {"reopen": True, "status": "done",
+              "done_so_far": ["z" * (workfields.limit_of("done_so_far") + 1)]}),
+        ]
+        for label, kw in reopen_cases:
+            with self.subTest(refusal=label):
+                org, wid = fixture()
+                upd(org, wid, objective=OBJ_2)
+                upd(org, wid, status="done", done_so_far=["the first round"])
+                before = self.frozen(org, wid)
+                with self.assertRaises(Exception, msg=f"{label} did not refuse"):
+                    upd(org, wid, **dict(kw))
+                self.assertEqual(self.frozen(org, wid), before,
+                                 f"a refused reopen ({label}) changed the item")
+
+    def test_an_archived_item_is_never_resurrected_by_a_refusal(self):
+        """Every reopen refusal, against a PHYSICALLY archived item: the
+        reopen lifts it out of the archive before the old checks could fire."""
+        for label, kw in (("no dropped reason",
+                           {"reopen": True, "status": "dropped"}),
+                          ("no reviewer",
+                           {"reopen": True, "status": "review"}),
+                          ("no blocked reason",
+                           {"reopen": True, "status": "blocked"})):
+            with self.subTest(refusal=label):
+                org, wid = fixture()
+                upd(org, wid, status="done", done_so_far=["done"])
+                org.work_archive_now("owner-a", wid)
+                with self.assertRaises(Exception):
+                    upd(org, wid, **dict(kw))
+                self.assertTrue(
+                    any(x["slug"] == wid
+                        for x in org.d.get("work_items_archive") or []),
+                    f"{label}: the item left the archive")
+                self.assertFalse(
+                    any(x["slug"] == wid for x in org.d.get("work_items") or []),
+                    f"{label}: a refused call put the item back on the docket")
 
 
 if __name__ == "__main__":
