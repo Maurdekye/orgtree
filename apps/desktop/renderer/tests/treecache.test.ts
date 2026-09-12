@@ -3,6 +3,8 @@
 // FLIGHT — its captured hit resolved a 304 to the pre-patch tree, and its
 // 200 re-installed a stale cache entry. getTree must fence publication
 // (return AND cache) on the invalidation stamp captured before the fetch.
+// Round 4: the fence holds on retry EXHAUSTION too — getTree resolves
+// null (refresh superseded) instead of publishing a known-stale body.
 import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -61,16 +63,30 @@ test('in-flight 200 that raced an invalidation is not re-installed as cache', as
   assert.strictEqual(await second, fresh)
 })
 
-test('a continuously raced fetch returns the last body uncached after bounded retries', async () => {
-  const p = getTree('org-c')
-  invalidateTreeCache('org-c'); respond(200, { v: 1 }, 't1'); await settle()
-  invalidateTreeCache('org-c'); respond(200, { v: 2 }, 't2'); await settle()
-  invalidateTreeCache('org-c'); respond(200, { v: 3 }, 't3')
-  assert.deepEqual(await p, { v: 3 })
+test('exhausted raced retries resolve null; the rendered tree survives', async () => {
+  // perf-review round 4: exhaustion used to return the last body uncached,
+  // and the caller setTree'd a payload KNOWN to predate the final ws patch
+  // — fetched version 2 replaced rendered version 3. Bounded retries must
+  // stay bounded, but exhaustion resolves null and the caller keeps its
+  // rendered state (both arms: raced 200 body and raced-304 captured hit).
+  let rendered: unknown = { version: 0 }
+  const request = getTree('org-c').then((t) => {
+    if (t) rendered = t                         // the caller's null guard
+    return t
+  })
+  for (let i = 1; i <= 3; i++) {
+    rendered = { version: i }                   // ws patch edits the render…
+    invalidateTreeCache('org-c')                // …and invalidates the cache
+    respond(200, { version: i - 1 }, `t${i}`)   // HTTP body predates the patch
+    await settle()
+  }
+  assert.equal(await request, null)             // superseded, never stale data
+  assert.equal(pending.length, 0)               // and bounded: no 4th attempt
+  assert.deepEqual(rendered, { version: 3 })    // the FINAL RENDERED value
   const next = getTree('org-c')                 // nothing cached → no validator
   assert.equal(pending[0]?.headers, undefined)
-  respond(200, { v: 4 }, 't4')
-  assert.deepEqual(await next, { v: 4 })
+  respond(200, { version: 4 }, 't4')
+  assert.deepEqual(await next, { version: 4 })  // next heartbeat real-fetches
 })
 
 test('the hidden tree heartbeat is paused, not slowed', () => {

@@ -636,7 +636,15 @@ export default function App() {
         // happened to settle last, so the stale one could win. Now the
         // ordering is deterministic and the stale one is simply not applied;
         // the switch has already queued its own fetch as `pending`.
-        if (wantSlug.current === want) setTree(t)
+        //
+        // ⚠ a NULL resolve is a SUPERSEDED refresh (perf-review round 4):
+        // every bounded attempt raced a ws invalidation, and those same
+        // frames already patched the rendered tree in place — any body
+        // getTree could have returned predates what is on screen. Keep
+        // the render; the entry is deleted, so the next heartbeat or
+        // `changed` frame does a real fetch. The server DID answer, so
+        // this still counts as fetchOk, not a connection error.
+        if (t && wantSlug.current === want) setTree(t)
         fetchOk()
       }).catch(fetchErr).finally(() => {
         treeBusy.current = false
