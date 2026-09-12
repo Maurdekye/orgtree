@@ -45,6 +45,8 @@ const OUT = 'data-ref-outcome'
 const MEN = 'data-ref-mention'
 /** every rendered fact about one chip, for the cheap exit (`chipSig`) */
 const SIG = 'data-ref-sig'
+/** what the LAST pass was able to look for, on the host (`mentionScan`) */
+const SCAN = 'data-ref-scan'
 
 /** the word on an unavailable chip. Kept beside the React renderer's copy in
  *  reflinks.tsx and pinned against it by a check, because two renderings of
@@ -148,6 +150,44 @@ Map<string, MentionRef> | null {
   return out.size ? out : null
 }
 
+/** WHAT THIS PASS IS ABLE TO FIND AT ALL — the other half of the cheap exit,
+ *  and the half a chip cannot supply.
+ *
+ *  ⚠ AN UNKNOWN NAME LEAVES NO CHIP BEHIND, which is why comparing chips is
+ *  not enough. A typed token always produces one whatever its outcome, so a
+ *  world that changes is always visible in something already on screen. A
+ *  bare name that is not in the index is just prose — so when the index later
+ *  GAINS that name there is nothing whose signature disagrees, every existing
+ *  chip still matches, and the pass would exit having never looked at the
+ *  word that just became a destination. (account-pro found exactly this
+ *  reviewing 704d946: two names, one in the index, and adding the second
+ *  changed nothing on screen.)
+ *
+ *  So the host also records the NAME SET the last pass scanned for. It is a
+ *  fingerprint rather than the index itself for a reason that matters as much
+ *  as the bug: the docket rebuilds its index from a re-fetched list every
+ *  poll, so a new Map with identical contents arrives every few seconds.
+ *  Comparing by reference would rebuild every chip on every poll and drop the
+ *  reader's text selection each time — trading a missed link for a worse
+ *  fault. Contents decide; order does not, because insertion order follows
+ *  the fetch. */
+function mentionScan(items: Map<string, MentionRef> | null, live: boolean): string {
+  if (!items) return ''
+  // two order-independent accumulators: a sum alone collides on a swapped
+  // pair of names, and a missed rebuild is precisely the bug being fixed
+  let sum = 0
+  let mix = 0
+  for (const name of items.keys()) {
+    let h = 0
+    for (let i = 0; i < name.length; i += 1) {
+      h = (Math.imul(h, 31) + name.charCodeAt(i)) | 0
+    }
+    sum = (sum + h) | 0
+    mix ^= Math.imul(h, 0x9e3779b1)
+  }
+  return `${items.size}.${sum >>> 0}.${mix >>> 0}.${live ? '1' : '0'}`
+}
+
 /** everything one mention chip renders, for the cheap exit — the mirror of
  *  `chipSig`. The title rides along because it is on the element as copy text
  *  (`data-copy-ticket-title`), so a renamed item must rebuild. */
@@ -193,6 +233,8 @@ export function unlinkifyRefs(host: HTMLElement): number {
       el.getAttribute(TOK) ?? el.getAttribute(MEN) ?? el.textContent ?? ''))
   }
   if (chips.length) host.normalize()
+  // the host no longer claims to have scanned for anything
+  host.removeAttribute(SCAN)
   return chips.length
 }
 
@@ -209,12 +251,16 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   clickable = true, mentions?: MentionWorld | null): number {
   const doc = host.ownerDocument
   const items = itemsOf(mentions)
+  const scan = mentionScan(items, !!mentions?.onPick)
   const existing = injected(host)
   if (existing.length) {
     // ⚠ THE CHEAP EXIT, AND THE ONLY ONE. Every chip still says what it would
-    // say if rebuilt → touch nothing. A pass that rebuilt regardless would
-    // drop the reader's selection on every poll that changed nothing.
-    const same = existing.every((el) => {
+    // say if rebuilt, AND nothing new could be found in the prose between
+    // them → touch nothing. A pass that rebuilt regardless would drop the
+    // reader's selection on every poll that changed nothing; a pass that
+    // trusted the chips alone would never notice a name entering the index
+    // (see `mentionScan`).
+    const same = host.getAttribute(SCAN) === scan && existing.every((el) => {
       const name = el.getAttribute(MEN)
       if (name !== null) {
         // a bare name is judged against the index the caller holds NOW: an
@@ -281,6 +327,11 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     t.replaceWith(frag)
     count += made
   }
+  // ⚠ RECORDED EVEN WHEN NOTHING WAS DECORATED. "I looked for these names and
+  // found none" is the fact the next pass needs; without it a host with no
+  // chips would be indistinguishable from one never scanned, and the exit
+  // above would have nothing to compare when chips do appear.
+  host.setAttribute(SCAN, scan)
   return count
 }
 

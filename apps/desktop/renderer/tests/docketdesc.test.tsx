@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DocketDescription, DESC_FOLD_LINES } from '../src/canvas/docketdesc'
 import { foldAt, mergeRows } from '../src/canvas/foldlines'
+import { linkifyRefs } from '../src/canvas/refmd'
 import { buildMentionIndex } from '../src/canvas/workrefs'
 import type { WorkItem } from '../src/types'
 import type { RefWorld } from '../src/canvas/reflinks'
@@ -366,4 +367,91 @@ test('§6 the shared measurement answers per caller — mail still folds at five
     assert.equal(foldAt(body(v.el), DESC_FOLD_LINES).limit, null)
     await v.unmount()
   } finally { restore() }
+})
+
+// ─────────────────────── §7 the index changes under a description on screen
+
+test('§7 a name that ENTERS the index becomes a control without a reload', async () => {
+  // ⚠ THE REGRESSION account-pro FOUND REVIEWING 704d946. An unknown bare
+  // name leaves no chip, so the cheap exit had nothing that disagreed when
+  // the index later learned the name: every chip still matched and the pass
+  // returned without ever looking at the word beside them.
+  const restore = layout()
+  try {
+    const text = 'Follow alpha-ticket and beta-ticket.'
+    const one = buildMentionIndex([{ slug: 'alpha-ticket', title: 'A' } as WorkItem])
+    const two = buildMentionIndex([
+      { slug: 'alpha-ticket', title: 'A' } as WorkItem,
+      { slug: 'beta-ticket', title: 'B' } as WorkItem,
+    ])
+    const went: string[] = []
+    const v = await mount(
+      <DocketDescription text={text} world={WORLD} slug="this-ticket"
+        index={one} onPick={(s) => went.push(s)} />)
+    await flush()
+    assert.equal(v.el.querySelectorAll('.docket-ref').length, 1)
+
+    await v.render(
+      <DocketDescription text={text} world={WORLD} slug="this-ticket"
+        index={two} onPick={(s) => went.push(s)} />)
+    await flush()
+    assert.equal(v.el.querySelectorAll('.docket-ref').length, 2,
+      'a name that entered the index stayed prose')
+    const names = [...v.el.querySelectorAll('.docket-ref')].map(e => e.textContent)
+    assert.deepEqual(names, ['alpha-ticket', 'beta-ticket'])
+    // and the new one really works, rather than merely looking like a control
+    await inAct(() => (v.el.querySelectorAll('.docket-ref')[1] as HTMLElement).click())
+    assert.deepEqual(went, ['beta-ticket'])
+
+    // …and a name LEAVING the index gives the word back
+    await v.render(
+      <DocketDescription text={text} world={WORLD} slug="this-ticket"
+        index={one} onPick={(s) => went.push(s)} />)
+    await flush()
+    assert.equal(v.el.querySelectorAll('.docket-ref').length, 1)
+    assert.match(body(v.el).textContent ?? '', /Follow alpha-ticket and beta-ticket\./)
+    await v.unmount()
+  } finally { restore() }
+})
+
+test('§7b the same names arriving in a fresh index rebuild nothing', async () => {
+  // the other half of §7, and the reason the check is a fingerprint of the
+  // NAMES rather than the index object: the docket rebuilds its index from a
+  // re-fetched list every poll, so an identical-but-new Map arrives every few
+  // seconds. Rebuilding on those would drop the reader's text selection
+  // repeatedly — a worse fault than the one §7 fixes.
+  const host = document.createElement('div')
+  host.innerHTML = '<p>Follow alpha-ticket and beta-ticket.</p>'
+  const mk = () => buildMentionIndex([
+    { slug: 'alpha-ticket', title: 'A' } as WorkItem,
+    { slug: 'beta-ticket', title: 'B' } as WorkItem,
+  ])
+  const onPick = () => {}
+  assert.equal(linkifyRefs(host, WORLD, true, { index: mk(), onPick }), 2)
+  const before = [...host.querySelectorAll('.docket-ref')]
+  // a DIFFERENT Map with the same contents — "nothing needed doing" is -1,
+  // and the very same elements are still on screen
+  assert.equal(linkifyRefs(host, WORLD, true, { index: mk(), onPick }), -1)
+  assert.deepEqual([...host.querySelectorAll('.docket-ref')], before)
+  // insertion order is the fetch's, not a fact about the index
+  const reversed = buildMentionIndex([
+    { slug: 'beta-ticket', title: 'B' } as WorkItem,
+    { slug: 'alpha-ticket', title: 'A' } as WorkItem,
+  ])
+  assert.equal(linkifyRefs(host, WORLD, true, { index: reversed, onPick }), -1)
+})
+
+test('§7c a bare host with no index scans, records, and then notices one arriving', () => {
+  // the direct-call shape of §7, without React in the way
+  const host = document.createElement('div')
+  host.innerHTML = '<p>Follow alpha-ticket and beta-ticket.</p>'
+  const onPick = () => {}
+  assert.equal(linkifyRefs(host, WORLD, true), 0)
+  assert.equal(host.querySelectorAll('.docket-ref').length, 0)
+  const two = buildMentionIndex([
+    { slug: 'alpha-ticket', title: 'A' } as WorkItem,
+    { slug: 'beta-ticket', title: 'B' } as WorkItem,
+  ])
+  assert.equal(linkifyRefs(host, WORLD, true, { index: two, onPick }), 2)
+  assert.equal(host.querySelectorAll('.docket-ref').length, 2)
 })
