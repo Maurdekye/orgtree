@@ -2165,7 +2165,7 @@ button.cc-name:hover {
 .ask-bell .eye-count, .doc-bell .eye-count, .docket-bell .eye-count {
   position: absolute; top: -4px; right: -6px;
 }
-.ask-bell.glow {
+.ask-bell.glow, .docket-bell.glow {
   color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
   animation: askbell 2s ease-in-out infinite;

@@ -339,17 +339,18 @@ export function DocketToolbarButton({ summary, onClick }: {
   onClick?: () => void
 }) {
   const { attention, active } = summary ?? { attention: 0, active: 0 }
+  const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
-  const count = attention > 0 ? attention : active
+  const count = hasAttn ? attention : active
   return (
-    <button className="iconbtn docket-bell"
-      title={attention > 0
+    <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}
+      title={hasAttn
         ? `work docket — ${attention} item(s) need attention`
         : 'work docket'}
       onClick={onClick}>
       <DocketIcon fontSize="inherit" />
       {count > 0 && (
-        <b className={'eye-count' + (attention > 0 ? ' docket-attn' : '')}>
+        <b className={'eye-count' + (hasAttn ? ' docket-attn asks' : '')}>
           {count}</b>
       )}
     </button>
