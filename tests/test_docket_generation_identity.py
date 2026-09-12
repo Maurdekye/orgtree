@@ -468,6 +468,47 @@ class PreservedStaleAndAssignmentBehaviourTests(unittest.TestCase):
         self.assertEqual(it["rev"], rev)
         self.assertTrue(it["owner"]["deleted"])
 
+    def test_the_archive_mark_survives_a_save_and_reload(self):
+        """`work_items_archive` moved onto the lazy, append-mostly document
+        section (main 3b32564, "Take the closed docket ... off the eager
+        document"). This sweep is one of the few writers that MUTATES a row
+        already in the archive rather than appending one, so the round trip is
+        worth pinning: a later perf change that made materialized archive rows
+        read-only would otherwise lose the invalidation silently, and a
+        reopened item would come back owned by a namesake."""
+        from orgtree import store                              # noqa: PLC0415
+        global _n
+        _n += 1
+        name = f"gen-persist-{_n}"
+        org = ledger.Org.create(name)
+        org.hire(USER, None, "haiku", 3, "coordinator")
+        org.hire(USER, "coordinator", "haiku", 0, "holder")
+        org.work_create("holder", "Archived, then its owner is deleted",
+                        objective="Problem: the row outlives its owner. "
+                                  "Solution: invalidate the reference.",
+                        owner="holder")
+        slug = org.d["work_items"][-1]["slug"]
+        org.work_update("holder", slug, ["done"], [], status="done")
+        age_out(org)
+        org._work_sweep(now_ts=FAR_FUTURE)
+        self.assertTrue(any(i["slug"] == slug for i in org._work_archive()))
+
+        org.delete(USER, "holder")
+        self.assertTrue(org._work_archive()[0]["owner"]["deleted"])
+
+        store.save_org(org)
+        try:
+            back = store.load_org(name)
+            row = next(i for i in back._work_archive() if i["slug"] == slug)
+            self.assertTrue(row["owner"]["deleted"], "mark lost on the round trip")
+            self.assertFalse(back._work_identity_state(row["owner"])[0])
+        finally:
+            # this is the only test here that touches the store, and a pooled
+            # sqlite handle left open outlives the module's TemporaryDirectory
+            # and makes its cleanup raise on Windows — noise that reads as a
+            # test failure in a per-module runner
+            store._POOL.close_all(name)
+
     def test_an_unrelated_owner_is_untouched_by_someone_elses_deletion(self):
         org = fixture()
         mine = make_item(org, "perf-pass", "Kept by an agent that stays")
