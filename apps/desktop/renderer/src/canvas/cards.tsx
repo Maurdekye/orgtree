@@ -36,6 +36,8 @@ import {
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
+import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
+import type { RetireKind } from './agentmenu'
 import { isMobile } from '../mobile'
 import { AgentName } from './identity'
 import { PinnedPlaceholder } from './pins'
@@ -1256,6 +1258,14 @@ interface NodeSquareProps {
   onPin?: () => void
   /** FR-3: the placeholder's click — raise, un-strand and flash the window */
   onShowPin?: () => void
+  /** "Hire a subordinate…" picked from the AGENTS LIST rather than from this
+   *  card (user request 2026-09-12): the chips live here, so the row glides to
+   *  the agent and asks its card to open them. A COUNTER, not a flag — picking
+   *  the entry twice for the same agent must reveal twice — and the card
+   *  reports back through `onHireRevealed` so a card that is scrolled out of
+   *  the viewport and back does not silently reveal them again. */
+  revealHire?: number
+  onHireRevealed?: () => void
 }
 
 /**
@@ -1316,7 +1326,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
-  mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin }: NodeSquareProps) {
+  mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
+  revealHire, onHireRevealed }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
@@ -1328,7 +1339,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // retire from the CARD (user request 2026-08-17): the seat-freeing action
   // no longer requires zooming to the desk — same confirm + undo-toast flow,
   // same retire/dissolve split as the desk's cc-actions
-  const [asking, setAsking] = useState<'dissolve' | 'retire' | null>(null)
+  const [asking, setAsking] = useState<RetireKind | null>(null)
   const liveKids = node.children.some((c) => c.state === 'live')
   // NEAREST-EDGE chip gating (user ruling 2026-08-04): only the set at the
   // edge the cursor is closest to shows — bottom hires a report, left/right
@@ -1343,41 +1354,45 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   useEffect(() => { setExpandedHireEdge(null) }, [zoom])
   // THE CARD'S CONTEXT MENU (contextmenu.tsx). Every entry is one of the
   // card's own controls — the same callbacks, the same eligibility tests, the
-  // same ConfirmModal for retire/dissolve. "Hire a subordinate…" has no single
-  // handler (the tier choice and its provider gating live in SpawnChips), so
-  // it REVEALS the bottom hire chips the way a bottom-edge hover does: the
-  // `hire-reveal` class holds them open until the pointer leaves the card.
+  // same ConfirmModal for retire/dissolve. The LIST of entries is no longer
+  // written here: it lives in canvas/agentmenu.tsx, because the Agents List
+  // row offers the very same menu (user request 2026-09-12) and a second
+  // hand-written copy is exactly the drift that ticket was about. This side
+  // passes the card's own handlers and the two facts the builder cannot see.
   const menu = useContextMenu()
   const [hireReveal, setHireReveal] = useState(false)
-  const menuEntries = (): MenuEntry[] => {
-    const canRetire = live && !node.isBearerOf && !node.bearer_state
-    const canHire = canRetire && !pile
-    const entries: MenuEntry[] = [
-      { label: 'Open desk', onSelect: () => onRecenter?.(), disabled: !onRecenter },
-      { label: 'Open inbox', onSelect: () => onInbox() },
-    ]
-    if (onDocket) entries.push({ label: 'Open docket', onSelect: () => onDocket() })
-    if (onOpenAgentGallery && (node.documents?.length ?? 0) > 0) {
-      entries.push({ label: 'Open presentations', onSelect: () => onOpenAgentGallery(node.id) })
-    }
-    if (lineageCount(node) > 0) entries.push({ label: 'Show lineage', onSelect: () => onLineage() })
-    entries.push({ label: 'Settings', onSelect: () => onConfig() })
-    if (onPin && !pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => onPin() })
-    if (pinned && onShowPin) entries.push({ label: 'Show pinned window', onSelect: () => onShowPin() })
-    if (canHire) {
-      entries.push({
-        label: 'Hire a subordinate…',
-        title: 'shows the hire chips under the card — pick a model there',
-        onSelect: () => { setEdge('b'); setHireReveal(true); setExpandedHireEdge('b') },
-      })
-    }
-    if (canRetire) {
-      entries.push('sep', liveKids
-        ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => setAsking('dissolve') }
-        : { label: 'Retire…', danger: true, onSelect: () => setAsking('retire') })
-    }
-    return entries
-  }
+  // "Hire a subordinate…" has no single handler (the tier choice and its
+  // provider gating live in SpawnChips), so it REVEALS the bottom hire chips
+  // the way a bottom-edge hover does: the `hire-reveal` class holds them open
+  // until the pointer leaves the card. An Agents List row picks the same entry
+  // from off-card, which is what `revealHire` below arrives as.
+  const revealHireChips = () => { setEdge('b'); setHireReveal(true); setExpandedHireEdge('b') }
+  // The signal runs the SAME reveal the card's own menu entry runs — it is the
+  // same action asked for from another surface, not a second one. Read through
+  // a ref so the effect stays keyed on the counter alone: `onHireRevealed` is
+  // a fresh closure on every parent render, and depending on it would re-run
+  // this on renders that changed nothing.
+  const revealedCb = useRef(onHireRevealed)
+  revealedCb.current = onHireRevealed
+  useEffect(() => {
+    if (revealHire == null) return
+    revealHireChips()
+    revealedCb.current?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealHire])
+  const menuEntries = (): MenuEntry[] => agentMenuEntries(node, {
+    onOpenDesk: onRecenter,
+    onInbox,
+    onDocket,
+    onPresentations: onOpenAgentGallery
+      ? () => onOpenAgentGallery(node.id) : undefined,
+    onLineage,
+    onSettings: onConfig,
+    onPin,
+    onShowPin,
+    onHire: revealHireChips,
+    onRetireAsk: setAsking,
+  }, { pinned, piled: !!pile })
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
     if (!r.width || !r.height) return
@@ -1799,24 +1814,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       )}
       {/* portal to <body>: the card lives inside the world transform, where
           position:fixed would resolve against the scaled ancestor (same
-          reason DraftScopeModal portals). Bodies + undo toast mirror the
-          desk's confirms verbatim. */}
+          reason DraftScopeModal portals). The dialog itself — wording, op and
+          undo toast, mirroring the desk's confirms verbatim — is
+          AgentRetireConfirm, shared with the Agents List row's menu; only
+          WHERE it is portaled is this card's own business. */}
       {menu.node}
-      {asking === 'dissolve' && createPortal(
-        <ConfirmModal title={`dissolve ${node.id}?`}
-          body="Its entire suborganization is retired with it. Context is kept; rehire brings nodes back."
-          confirmLabel="dissolve"
-          onConfirm={() => op({ op: 'dissolve', node: node.id })}
-          close={() => setAsking(null)} />, document.body)}
-      {asking === 'retire' && createPortal(
-        <ConfirmModal title={`retire ${node.id}?`}
-          body={`It stops working and frees ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))} credit(s) back to its superior. Its context is KEPT — rehire brings it back exactly as it was.`
-            + (node.busy ? ' ⚠ It is mid-turn right now; that turn is cut off.' : '')}
-          confirmLabel="retire"
-          onConfirm={() => op({ op: 'retire', node: node.id }).then(() =>
-            toast([`${node.id} retired`],
-              () => op({ op: 'rehire', node: node.id }).catch(() => {})))
-            .catch(() => {})}
+      {asking && createPortal(
+        <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
     </div>
   )

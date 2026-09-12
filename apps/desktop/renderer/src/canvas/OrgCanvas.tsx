@@ -10,6 +10,7 @@ import { DeskHosts, DeskListControls } from './deskhosts'
 // Canvas.tsx in the phase-3 split.
 
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AudienceGrant, NodeStatus, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
@@ -44,6 +45,11 @@ import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
+import { useContextMenu } from './contextmenu'
+import type { ContextMenuHandle, MenuEntry } from './contextmenu'
+import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
+import type { RetireKind } from './agentmenu'
+import { useSurfaceDocument } from '../popout'
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -205,6 +211,53 @@ export function pruneRetiredView(root: CanvasNode, hideRetired: boolean,
   return { root: walk(root), retiredByParent, prunedIds }
 }
 
+/**
+ * The Agents List's context-menu host (user request 2026-09-12).
+ *
+ * ⚠ IT IS A COMPONENT, AND IT IS MOUNTED INSIDE THE LIST'S FRAME, for two
+ * reasons that are the same reason: `useContextMenu` and `ConfirmModal` both
+ * resolve the document they render into from the SURFACE they are called in
+ * (popout.tsx), and the Agents List pops out into a window of its own. Called
+ * from OrgCanvas's body they would resolve to the main window and put the menu
+ * — and the retire dialog behind it — in the wrong one.
+ *
+ * The rows stay where they are, rendered by the canvas, because they are built
+ * from the canvas's own handlers; this only lends them the menu handle and the
+ * confirm. `onMenuOpen` reports the menu's state to the list's click-away rule
+ * (see `listMenuOpen`): the menu lives in the document body, so without it the
+ * press that chooses an entry dismisses the list out from under itself.
+ */
+function AgentListMenuHost({ render, map, op, toast, onMenuOpen }: {
+  render: (menu: ContextMenuHandle,
+    ask: (a: { id: string; kind: RetireKind }) => void) => ReactNode
+  map: Map<string, CanvasNode>
+  op: OpFn
+  toast: ToastFn
+  onMenuOpen: (open: boolean) => void
+}) {
+  const menu = useContextMenu()
+  const [asking, setAsking] = useState<{ id: string; kind: RetireKind } | null>(null)
+  const body = useSurfaceDocument().body
+  // through a ref so the report is keyed on the menu's state alone — the
+  // callback is a fresh closure on every canvas render
+  const report = useRef(onMenuOpen); report.current = onMenuOpen
+  useEffect(() => {
+    report.current(menu.isOpen)
+    return () => report.current(false)
+  }, [menu.isOpen])
+  const node = asking ? map.get(asking.id) : null
+  return <>
+    {render(menu, setAsking)}
+    {menu.node}
+    {/* the confirm is the CARD's confirm — same wording, same op, same undo
+        toast (canvas/agentmenu.tsx). It is portaled out of the list's own
+        scroller, which clips, into whichever document this list is in. */}
+    {node && asking && createPortal(
+      <AgentRetireConfirm kind={asking.kind} node={node} op={op} toast={toast}
+        close={() => setAsking(null)} />, body)}
+  </>
+}
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery }: OrgCanvasProps) {
@@ -246,6 +299,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
+  // "Hire a subordinate…" picked from an AGENTS LIST row: the hire chips are
+  // the card's, so the row walks the camera there and hands the card this
+  // signal. A counter rather than a flag — picking it twice for the same agent
+  // must open the chips twice — cleared by the card once it has acted on it.
+  const [hireReveal, setHireReveal] =
+    useState<{ id: string; seq: number } | null>(null)
   const [inboxId, setInboxId] = useState<string | null>(null)
   const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
   const [oiOpen, setOiOpen] = useState(false)       // the ORG-inbox viewer
@@ -271,9 +330,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const [hireOpen, setHireOpen] = useState(false)     // compact hire form
   const [, setVpTick] = useState(0)                   // re-render on resize
 
+  // ⚠ THE LIST'S OWN CONTEXT MENU IS NOT "OUTSIDE" IT (user request
+  // 2026-09-12, the Agents List row menu). Every menu portals into the
+  // document BODY — that is how a menu raised inside a transformed or clipped
+  // panel escapes it (contextmenu.tsx) — so the press that CHOOSES an entry
+  // lands outside `.tray-wrap`. Dismissing the list there would unmount the
+  // menu mid-press and the entry's own click would never arrive: the action
+  // would silently do nothing. The flag is set by the list's menu host, so
+  // another surface's menu still dismisses the list as before.
+  const listMenuOpen = useRef(false)
   useEffect(() => {
     if (!trayOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
+      const pressed = event.target as Element | null
+      if (listMenuOpen.current && pressed && typeof pressed.closest === 'function'
+        && pressed.closest('.ctxmenu')) return
       // A pinned or detached PinFrame is a window, not a centred modal. Its
       // panel may be portalled away from trayWrapRef, so the ordinary tray
       // containment check must not dismiss it from a main-window gesture.
@@ -291,7 +362,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       setTrayOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      // `defaultPrevented` is the Escape STACK's answer (shared.ts useEsc): the
+      // top surface — a row's open context menu — has already taken this key
+      // and closed itself. One Escape closes one thing.
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         if (isModalPinned('agent-list', slug) || restoredWindows(slug).some(r => r.kind === 'agent-list')) return
         setTrayOpen(false)
       }
@@ -2279,6 +2353,42 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (!r.ok) toast([r.reason])
   }
 
+  // THE AGENTS LIST ROW'S CONTEXT MENU (user request 2026-09-12: a row must
+  // offer exactly what the agent's own card offers, "with the same ordering,
+  // labels, availability, authority checks and behavior"). The entry LIST is
+  // not written here — canvas/agentmenu.tsx holds the one copy the card uses
+  // too, so the two cannot drift. What is written here is the row's own
+  // handlers, which are the canvas's existing ones: the very calls the card
+  // is given a few hundred lines below.
+  //
+  // `go` is the row's navigation (it brings a piled-away agent to the front of
+  // its pile first, and at compact it opens the sheet) — the row's answer to
+  // the card's "re-centre on me".
+  const trayRowMenu = (n: CanvasNode, go: () => void,
+    ask: (a: { id: string; kind: RetireKind }) => void): MenuEntry[] =>
+    agentMenuEntries(n, {
+      onOpenDesk: go,
+      onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
+      onDocket: () => toggleNodeSurface('agent-docket', n.id, setAgentDocketId),
+      onPresentations: onOpenAgentGallery
+        ? () => onOpenAgentGallery(n.id) : undefined,
+      onLineage: () => toggleNodeSurface('lineage', n.id, setLineageId),
+      onSettings: () => toggleConfig(n.id),
+      // the same gate the card gets: there is no pinning on mobile
+      onPin: !isMobile ? () => pinDesk(n.id) : undefined,
+      onShowPin: () => showPin(slug, n.id, vpSizeNow()),
+      // the hire chips live ON THE CARD, so this walks to the agent and asks
+      // its card to open them — the same reveal the card's own entry runs
+      onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
+      onRetireAsk: (kind) => ask({ id: n.id, kind }),
+    }, {
+      pinned: pinnedIds.has(n.id),
+      // a piled agent's card is (or becomes, once the row brings it to the
+      // front) a pile front, and a pile front hires nowhere: its edges are the
+      // stack. Same answer the card gives, decided before the walk.
+      piled: pileByFront.has(n.id) || hidden.has(n.id),
+    })
+
   // edge JUMP CARDS (user spec 2026-08-17): at desk zoom the focused agent's
   // coworkers (live siblings) are usually off-screen — one small card per
   // side hugs the FREE REGION's edge at the neighbor's own screen elevation
@@ -2810,7 +2920,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag}
               mapMode={compact} dogs={dogsByOwner[n.id]?.total ?? 0}
-              oneShotDogs={dogsByOwner[n.id]?.oneShot ?? 0} />
+              oneShotDogs={dogsByOwner[n.id]?.oneShot ?? 0}
+              /* the Agents List row's "Hire a subordinate…" — the chips are
+                 here, so the row asks this card to open them */
+              revealHire={hireReveal?.id === n.id ? hireReveal.seq : undefined}
+              onHireRevealed={() => setHireReveal(null)} />
           )
           if (!pileHere) return square
           // the pile's stack layers render BEHIND the front card as real
@@ -3032,7 +3146,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 </button>
               )
             })()}
-            {(() => {
+            <AgentListMenuHost map={map} op={op} toast={toast}
+              onMenuOpen={(open) => { listMenuOpen.current = open }}
+              render={(menu, ask) => {
               // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
               // every direct report immediately after its superior, indented a
               // step — replacing the old canvas-position sort, which put a
@@ -3113,7 +3229,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                     ? 'shown for context — this row does not match the '
                       + 'current filter, but a report under it does'
                     : undefined}
-                  onClick={go}>
+                  onClick={go}
+                  /* the row's menu is the agent's own (canvas/agentmenu.tsx),
+                     opened from the ROW — not from the main-line button —
+                     because the summary line and the pin/popout controls are
+                     part of the same object. NOT at compact, exactly where the
+                     card itself has no menu either: there the card is a map
+                     marker with no desk, no chips and no handlers (mapMode in
+                     cards.tsx), so there would be nothing to be at parity
+                     with. A right-click never navigates: `contextmenu` is not
+                     `click`, and `go` is on the click. */
+                  onContextMenu={(e) => {
+                    if (!compact) menu.open(e, () => trayRowMenu(n, go, ask))
+                  }}>
                   <div className="tray-primary">
                     <button type="button" className="tray-main"
                     title={`go to ${n.id}`}>
@@ -3151,7 +3279,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 </div>
                 )
               })
-            })()}
+            }} />
           </div>
           </PinFrame>
         )}
