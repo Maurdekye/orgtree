@@ -71,6 +71,13 @@ def _safe_node(org: Org, nid: str) -> dict[str, Any]:
         "free": org.free(nid) if n.get("state") == "live" else None,
         "archived_at": n.get("archived_at"),
         "bearer_state": n.get("bearer_state"),
+        # Account identity is operational state, but the registry id can be a
+        # credential-bearing handle. Expose only the non-secret binding facts.
+        "account_binding": {
+            "present": bool(n.get("account")),
+            "missing": str(n.get("account") or "").startswith("missing:"),
+            "provider": providers.provider_of(str(n.get("model") or "")),
+        },
         "scope": {
             "org_visibility": scope.get("org_visibility"),
             "permission_mode": scope.get("permission_mode"),
