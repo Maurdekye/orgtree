@@ -43,11 +43,9 @@ def tearDownModule():
 
 
 class ProfileTimingSinkEnabledTests(unittest.TestCase):
-    """`_PROFILE_TIMING` is bound at api.py IMPORT time (module load), same as
-    `_PROFILE_RECORDS`'s presence — this process therefore only ever proves
-    the ENABLED shape; the disabled default is a separate fresh interpreter
-    below, exactly because a module-level constant cannot be re-toggled
-    inside one already-imported process."""
+    """This process starts with profiling enabled from its fixture environment.
+    The live toggle is covered by ``test_scoped_diagnostics``; the disabled
+    default is a separate fresh interpreter below."""
 
     HEADERS = {'X-Orgtree-Desktop-Token': 'operator'}
 
@@ -162,29 +160,38 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
             api._PROFILE_RECORDS.extend(saved)
             api._PROFILE_SEQ = saved_seq
 
-    def test_a_non_numeric_or_nonfinite_profile_value_never_reaches_the_sink(self):
+    def test_unknown_or_nonfinite_profile_value_never_reaches_sink_or_log(self):
         # redteam-opus's finding #3, extended per coordinator's "finite"
         # wording: `**profile` merges whatever a handler's dict holds.
-        # Nothing upstream enforces numeric-and-finite structurally without
+        # Nothing upstream enforces the safe timing-field allowlist structurally
         # this filter — exercise `_access_emit` directly with values no real
-        # handler sends today (a string, a bool, and each of the three ways a
-        # float can be non-finite) to prove the filter holds.
+        # handler sends today (including numeric token/mail fields, a string, a
+        # bool, and each way a float can be non-finite) to prove the filter holds.
         from orgtree import api
         import math
+        from unittest.mock import patch
 
         class FakeRoute:
             path = '/api/fake/{id}'
 
         scope = {'route': FakeRoute(), 'method': 'GET', 'type': 'http'}
         before = len(api._PROFILE_RECORDS)
-        api._access_emit(scope, 200, 1.0, 1.0, 0, 1,
-                         profile={'good_ms': 4.5, 'bad_field': 'not-a-number', 'sneaky_bool': True,
-                                  'nan_ms': math.nan, 'inf_ms': math.inf, 'neg_inf_ms': -math.inf})
+        with patch('builtins.print') as print_mock:
+            api._access_emit(scope, 200, 1.0, 1.0, 0, 1,
+                             profile={'load_snapshot_ms': 4.5, 'token': 123456,
+                                      'mail_id': 789, 'prompt': 456,
+                                      'credential': 321, 'bad_field': 'not-a-number',
+                                      'sneaky_bool': True, 'nan_ms': math.nan,
+                                      'inf_ms': math.inf, 'neg_inf_ms': -math.inf})
         self.assertEqual(len(api._PROFILE_RECORDS), before + 1)
         row = api._PROFILE_RECORDS[-1]
-        self.assertEqual(row.get('good_ms'), 4.5)
-        for rejected in ('bad_field', 'sneaky_bool', 'nan_ms', 'inf_ms', 'neg_inf_ms'):
+        self.assertEqual(row.get('load_snapshot_ms'), 4.5)
+        for rejected in ('token', 'mail_id', 'prompt', 'credential', 'bad_field',
+                         'sneaky_bool', 'nan_ms', 'inf_ms', 'neg_inf_ms'):
             self.assertNotIn(rejected, row, f'{rejected!r} must never reach the sink: {row}')
+        printed = '\n'.join(str(call.args[0]) for call in print_mock.call_args_list)
+        for secret in ('123456', '789', '456', '321', 'token', 'mail_id', 'prompt', 'credential'):
+            self.assertNotIn(secret, printed, f'{secret!r} must never reach the profile log: {printed}')
 
     def test_a_handler_cannot_overwrite_reserved_fields_via_its_profile_dict(self):
         # root's finding: `**numeric_profile` was merged LAST, so a handler
@@ -201,12 +208,12 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
         before_seq = api._PROFILE_SEQ
         api._access_emit(scope, 200, 1.0, 1.0, 0, 1,
                          profile={'seq': 999999, 'route': 'spoofed', 'bytes': -1,
-                                  'handler_ms': -1, 'total_ms': -1, 'good_ms': 2.5})
+                                   'handler_ms': -1, 'total_ms': -1, 'load_snapshot_ms': 2.5})
         row = api._PROFILE_RECORDS[-1]
         self.assertEqual(row['seq'], before_seq + 1, f'a handler must never be able to set its own seq: {row}')
         self.assertEqual(row['route'], '/api/fake/{id}', f'a handler must never overwrite the real route: {row}')
         self.assertGreaterEqual(row['bytes'], 0, f'a handler must never overwrite bytes: {row}')
-        self.assertEqual(row.get('good_ms'), 2.5, 'a non-reserved numeric field must still pass through')
+        self.assertEqual(row.get('load_snapshot_ms'), 2.5, 'an allowlisted timing field must still pass through')
 
     def test_the_snapshot_exposes_a_process_capture_identity(self):
         # root's finding: 'seq never resets' is a PER-PROCESS promise only —

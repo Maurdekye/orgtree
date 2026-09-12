@@ -73,7 +73,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]  # TextIO stub lacks reconfigure; runtime TextIOWrapper has it (hasattr-guarded)
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -109,15 +109,16 @@ app.add_middleware(startup.RecoveryBarrier)
 
 from .history import router as history_router
 app.include_router(history_router)
+from .diagnostics import router as diagnostics_router
+app.include_router(diagnostics_router)
 
 # Optional diagnostics only: emits route-template timings, never content or credentials.
 # The normal path stays byte-for-byte silent beyond existing access logging.
 #
-# `_PROFILE_TIMING` (and everything below it — `_PROFILE_RECORDS`,
-# `_PROFILE_SEQ`) is bound ONCE, at module import — i.e. at process start.
-# There is no live toggle: an already-running process keeps whatever this
-# environment variable said when it started, and flipping it in the
-# environment only takes effect on the NEXT process that imports this module.
+# `_PROFILE_TIMING` starts from the environment for compatibility, then is
+# controlled live by the operator-only diagnostics timing endpoint below.
+# `_PROFILE_RECORDS` and `_PROFILE_SEQ` remain process-local and in memory;
+# enabling or disabling capture never writes settings or requires a restart.
 _PROFILE_TIMING = os.environ.get("ORGTREE_PROFILE_TIMING") == "1"
 
 #: Bounded in-process sink for the same records `_access_emit` prints.
@@ -154,6 +155,13 @@ _PROFILE_TIMING_ROUTE = "/api/desktop/profile-timing"
 #: (rather than relying on merge order) means a handler cannot clobber `seq`
 #: or any other reserved field no matter what it stashes under that name.
 _PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", "bytes"})
+# Only known stage measurements may leave a handler profile dictionary. A
+# closed allowlist prevents future callers from exposing numeric prompt, mail,
+# credential, or token values by choosing an arbitrary field name.
+_PROFILE_ALLOWED_FIELDS = frozenset({
+    "load_snapshot_ms", "tree_ms", "annotate_ms",
+    "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
+})
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -385,9 +393,18 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
     print(f"[orgtree.access] {stamp} {method} {route} {status} "
           f"handler={handler_ms:.0f}ms total={total_ms:.0f}ms "
           f"bytes={nbytes} inflight={depth}", flush=True)
-    if profile is not None:
+    if profile is not None and _PROFILE_TIMING:
+        # Build the printed projection from the same allowlisted values as the
+        # retrievable sink.  A future handler must not be able to smuggle a
+        # prompt, mail body, credential, token, or non-finite value into the
+        # log merely by adding a field to its timing dict.
+        numeric_profile = {k: v for k, v in profile.items()
+                           if isinstance(v, (int, float)) and not isinstance(v, bool)
+                           and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
+                           and k not in _PROFILE_RESERVED_FIELDS}
         record = {"route": route, "handler_ms": round(handler_ms, 3),
-                  "total_ms": round(total_ms, 3), "bytes": nbytes, **profile}
+                  "total_ms": round(total_ms, 3), "bytes": nbytes,
+                  **numeric_profile}
         print("[orgtree.profile] " + route + " " +
               json.dumps(record, sort_keys=True), flush=True)
         # Same call already sits behind the caller's `except Exception: pass`
@@ -401,16 +418,16 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         # this route itself — a caller polling `/api/desktop/profile-timing`
         # would otherwise evict what it came to read with its own reads; (3)
         # only numeric values leave the handler's dict — `**profile` merges
-        # whatever a handler stashed there, and today that's always numbers,
-        # but nothing upstream enforces it structurally without this line.
+        # only known timing fields leave the handler's dict. Numeric type alone
+        # is not enough: a handler must not expose arbitrary content such as a
+        # token or mail identifier by choosing a field name.
         if profile and route != _PROFILE_TIMING_ROUTE:
             global _PROFILE_SEQ
             _PROFILE_SEQ += 1
             # Built fresh from known-safe fields, NOT from `record` above —
-            # `record` already carries `**profile` unfiltered (that's what
-            # printed), so reusing it here would still smuggle through
-            # whatever non-numeric/non-finite value point (3) exists to keep
-            # out. `math.isfinite` also rejects NaN/Infinity/-Infinity: both
+            # `record` carries the filtered projection above; rebuilding it
+            # here keeps the sink's privacy boundary explicit. `math.isfinite`
+            # also rejects NaN/Infinity/-Infinity: both
             # are valid Python floats (and `json.dumps` would happily emit
             # the non-standard literals `NaN`/`Infinity`), so "numeric" alone
             # is not the same promise as "a real number a reader can chart".
@@ -421,9 +438,6 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
             # silently win the merge below and corrupt the sink's own
             # bookkeeping — the monotonic `seq` guarantee in particular must
             # never be something a handler's dict can overwrite.
-            numeric_profile = {k: v for k, v in profile.items()
-                               if isinstance(v, (int, float)) and not isinstance(v, bool)
-                               and math.isfinite(v) and k not in _PROFILE_RESERVED_FIELDS}
             _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
@@ -460,7 +474,18 @@ app.add_middleware(FrozenAdminBoundary)
 app.add_middleware(AccessRecord)
 
 
-@app.get("/api/desktop/profile-timing")
+class ProfileTimingControl(BaseModel):
+    enabled: bool
+
+
+def _profile_operator_only(request: Request) -> None:
+    state = request.scope.get("state") or {}
+    if state.get("public_slug") or state.get("bridge_slug"):
+        raise HTTPException(403, "profiling is available only to the host operator")
+
+
+@app.get("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
+@app.get("/api/diagnostics/timing", dependencies=[Depends(_profile_operator_only)])
 def profile_timing() -> dict[str, Any]:
     """Read-side of the bounded `_PROFILE_RECORDS` sink.
 
@@ -494,6 +519,20 @@ def profile_timing() -> dict[str, Any]:
             "oldest_seq": records[0]["seq"] if records else None,
             "newest_seq": records[-1]["seq"] if records else None,
             "dropped": records[0]["seq"] - 1 if records else 0}
+
+@app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
+@app.post("/api/diagnostics/timing", dependencies=[Depends(_profile_operator_only)])
+def profile_timing_control(body: ProfileTimingControl) -> dict[str, Any]:
+    """Enable or disable timing capture in this running process.
+
+    The old environment variable remains a startup default for compatibility;
+    this endpoint is the live operator control and requires no restart.  A
+    plain module boolean is intentionally the only disabled-path work in the
+    request middleware.
+    """
+    global _PROFILE_TIMING
+    _PROFILE_TIMING = body.enabled
+    return {"enabled": _PROFILE_TIMING}
 
 
 @app.exception_handler(RequestValidationError)
