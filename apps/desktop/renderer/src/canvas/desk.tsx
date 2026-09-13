@@ -23,7 +23,7 @@ import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffec
 import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
-  Denial, Readiness, ScratchPayload, TreeFrozen, TreeNode, TurnStat,
+  Denial, Readiness, ScratchPayload, ServingAccount, TreeFrozen, TreeNode, TurnStat,
   ToolChip as ToolChipData, ToastFn,
 } from '../types'
 import {
@@ -208,6 +208,83 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
         + `(${route.reason}${route.selection === 'retry' ? ', after the other pool rejected it' : ''})`
         + rerouted + reported + ' — the next turn re-resolves'}>
       {route.label}</span>
+  )
+}
+
+/** WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW (user requirement
+ *  2026-09-13) — shared by the near-zoom card's badge row and the desk
+ *  header's, exactly as `RouteBadge` above is, so the two surfaces cannot
+ *  word it differently or disagree about when it appears.
+ *
+ *  ⚠ THIS COMPONENT DECIDES NOTHING. Every gate — is inference running, is
+ *  the account authoritative, does this provider even have a second account,
+ *  is the viewer a kiosk visitor — is applied server-side, where the registry
+ *  lives (see `ServingAccount`). A null field is the backend saying "do not
+ *  show this", so the whole rule here is one guard. Re-deriving any of it
+ *  would be a second definition to drift.
+ *
+ *  ⚠ NOT RENDERED AT FAR ZOOM. Both call sites gate it; at that scale the
+ *  node is a single large state icon and nothing else, which is a separate
+ *  user rule this card must not erode. It is absent from the compact `map`
+ *  locator for the same reason.
+ *
+ *  THE VISIBLE TEXT IS THE CANONICAL ACCOUNT ID and nothing else — the card
+ *  is a glance answer to "which account is this turn on". The rest is
+ *  revealed on hover or keyboard focus.
+ *
+ *  ⚠ THAT REVEAL IS A REAL ELEMENT, NOT A `title` ATTRIBUTE, and the
+ *  difference is the requirement. A native tooltip is shown by the browser on
+ *  MOUSE HOVER ONLY — no engine renders one for a keyboard-focused element —
+ *  so `title` alone satisfies exactly half of "on hover or keyboard focus"
+ *  while looking like it satisfies both. The detail therefore lives in a
+ *  sibling `.serving-account-tip` that the stylesheet reveals on `:hover` AND
+ *  `:focus-visible`, the same construction `.cbar-tip` and the edge-jump
+ *  labels already use, and `servingaccount.test.tsx` asserts BOTH halves of
+ *  that CSS selector against the shipped stylesheet.
+ *
+ *  It is a `<button>` so keyboard focus can land on it at all — a `<span>`
+ *  takes no tab stop, so a focus-revealed tip on one would be unreachable.
+ *  `type="button"` and the stopped pointerdown keep it from submitting
+ *  anything or swallowing the press that focuses the agent — the same two
+ *  guards `ActionBadge` uses.
+ *
+ *  THE TIP IS `aria-hidden`, deliberately: its exact text is already the
+ *  button's `aria-label`, so exposing both would announce the whole detail
+ *  twice. Sighted keyboard users get the visible surface, assistive users get
+ *  the label, and neither reads a credential — every field is whitelisted
+ *  below and nothing else on the object is touched. */
+export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
+  if (!account) return null
+  // ⚠ A WHITELIST, NOT A SERIALISATION. Only these fields are ever read off
+  // the object, so a field added to the payload later — or one that should
+  // never have been there — cannot reach the DOM through this component.
+  // Each part is omitted when the row does not carry it rather than rendered
+  // as "unknown": an absent address is not an observation, and `unobserved`
+  // auth already says so in its own words.
+  const parts = [
+    `account ${account.id}`,
+    `provider ${account.provider}`,
+    account.label ? `label ${account.label}` : '',
+    account.email ? `${account.email}` : '',
+    `sign-in ${account.auth}`,
+    `standing ${account.state}`,
+  ].filter(Boolean)
+  const detail = `serving this turn — ${parts.join(' · ')}`
+  return (
+    <span className="serving-account-wrap">
+      <button type="button"
+        className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
+        data-serving-account={account.id}
+        aria-label={detail}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}>
+        {account.id}
+      </button>
+      <span className="serving-account-tip" role="presentation" aria-hidden="true">
+        <span className="sa-tip-head">serving this turn</span>
+        {parts.map((p) => <span className="sa-tip-row" key={p}>{p}</span>)}
+      </span>
+    </span>
   )
 }
 
@@ -2758,6 +2835,13 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             when it describes the previous turn rather than a live one, so
             a stale state is never worn as a current one. */}
         <RouteBadge route={node.codex_route} />
+        {/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13),
+            in the same header slot and on the same contract as the two
+            tokens above it: the backend composes it from the turn's own
+            `ran_as`, and it is absent unless the agent is running inference
+            on a provider where more than one account is signed in. The desk
+            is never far-zoom, so there is no exclusion to apply here. */}
+        <ServingAccountBadge account={node.serving_account} />
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is

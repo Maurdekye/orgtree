@@ -131,6 +131,143 @@ def canonical_name(row: dict[str, Any], primary: str,
             if ambient_covered(row, primary, ambient_paths) else str(row["id"]))
 
 
+# ------------------------------------------- which account is serving a turn
+#: `ran_as` values that name NO account row. Each is a real routing outcome —
+#: a raw ANTHROPIC_API_KEY lane, an injected token no stored row explains, the
+#: OpenRouter gateway — and none of them identifies an account we may name.
+SERVING_SENTINELS: Final = ("api-key", "key:unattributed", "openrouter")
+#: ⚠ THE ONE THAT LOOKS LIKE AN ANSWER AND IS NOT. `identity_in_env` emits
+#: `account-env-mismatch:<id>` when a spawn's account marker and its profile
+#: variable disagree — written by one injector, so a divergent pair means the
+#: env is not what the marker claims. Its own docstring is explicit that
+#: answering the marker there "would turn a mis-paired spawn into a CONFIDENT
+#: wrong attribution". It is exactly the ticket's "runtime account cannot be
+#: established authoritatively", and it must read as unknown, never as the id
+#: it happens to carry.
+MISMATCH_PREFIX: Final = "account-env-mismatch:"
+
+
+def serving_row(ran_as: Any, rows_by_id: dict[str, dict[str, Any]],
+                primary: str) -> dict[str, Any] | None:
+    """The registry row a turn's `ran_as` names, or None when that turn's
+    account is not established AUTHORITATIVELY.
+
+    `ran_as` is the only field describing what HAPPENED — captured at spawn
+    from the RESOLVED environment, never from intent — so this is the whole
+    difference between naming the account that is serving and naming the one
+    the org merely asked for. Every non-row outcome answers None rather than a
+    guess: empty (never ran in this process), a sentinel lane, or the N2
+    mismatch above.
+
+    Takes the rows ALREADY LOADED by the caller and reads no file. `annotate`
+    runs per node on a 6 s heartbeat, and a registry load in here would be the
+    per-node filesystem work D-239 forbids — the same trap `serving_label`
+    documents having fallen into once already (41 opens for a 41-node org).
+    """
+    ident = str(ran_as or "")
+    if not ident or ident in SERVING_SENTINELS or ident.startswith(MISMATCH_PREFIX):
+        return None
+    # the ambient login is a real, nameable account; it just reaches its row
+    # through the alias map the S2 migration writes rather than by its own id
+    if ident == accounts.PRIMARY:
+        ident = primary
+    return rows_by_id.get(ident)
+
+
+def available_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """provider -> how many of its accounts are AVAILABLE to serve a turn.
+
+    ⚠ EXCLUSION IS BY PROOF, NOT BY ABSENCE OF PROOF. A row counts unless the
+    registry says it cannot serve: `auth == "unauthenticated"` (observed
+    signed-out) or `is_enabled` false (a disabled apikey row, which routing
+    skips). Everything else counts.
+
+    ⚠ `unobserved` COUNTS, and getting this backwards is the whole reason this
+    docstring is long. It is the third auth state, and `standing_of` says in
+    its own words that it "gates nothing and renders as itself, never as
+    ready" — it means NOBODY HAS LOOKED, not that the account is absent. The
+    operator's own machine is the proof: `openai/primary` sits at
+    auth=unobserved, state=ready, beside a second usable Codex account, and it
+    serves turns. Requiring `authenticated` here deleted the card on exactly
+    that provider — a multi-account provider where the user expects it — so
+    uncertainty must not be read as a signed-out account.
+
+    ⚠ NOT USAGE CAPACITY EITHER. A `limited` account is still available; it is
+    out of room this window, not gone. Gating on capacity would delete the
+    card exactly when a second account has just taken over from an exhausted
+    first, which is the moment the card exists to explain. `state` travels as
+    a hover detail instead, which is what the ticket asks of it.
+    """
+    out: dict[str, int] = {}
+    for row in rows:
+        if str(row.get("auth") or "") == "unauthenticated":
+            continue
+        if not registry.is_enabled(row):
+            continue
+        provider = str(row.get("provider") or "")
+        if provider:
+            out[provider] = out.get(provider, 0) + 1
+    return out
+
+
+def serving_card(ran_as: Any, *, busy: bool, public: bool,
+                 rows_by_id: dict[str, dict[str, Any]], counts: dict[str, int],
+                 primary: str,
+                 ambient_paths: dict[str, str | None]) -> dict[str, Any] | None:
+    """The node payload's "which account is serving THIS inference" card, or
+    None when it must not be shown.
+
+    Four gates, and each one is a line of the ticket:
+      · `busy`      — only while inference is actually running. The same gate
+                      `codex_route` uses for `live`, for the same reason: a
+                      token that cannot tell a running turn from yesterday's
+                      is worse than absent. `ran_as` outlives its turn, so it
+                      can never be the liveness signal itself.
+      · authority   — `serving_row` above; no guess, ever.
+      · plurality   — more than one available signed-in account on THAT
+                      provider. With one account there is nothing to
+                      disambiguate and the card would be noise.
+      · `public`    — ⚠ A KIOSK VISITOR IS TOLD NOTHING. D-145 keeps account
+                      identity off the public side, and this payload is
+                      reachable from a kiosk while `/api/accounts` is frozen
+                      whole. `ran_as_label` drops only its uuid there because
+                      the rest of it is a positional ordinal that names
+                      nobody; this card is nothing BUT identity — an id, a
+                      label, an address — so the whole of it is withheld
+                      rather than trimmed.
+
+    NEVER A CREDENTIAL. Every field is registry metadata that already reaches
+    the accounts UI: the canonical selector, the provider, the display label,
+    the observed address, and the standing's two words. No token, no key, no
+    profile path, no auth material of any kind passes through here.
+    """
+    if public or not busy:
+        return None
+    row = serving_row(ran_as, rows_by_id, primary)
+    if row is None:
+        return None
+    provider = str(row.get("provider") or "")
+    if counts.get(provider, 0) <= 1:
+        return None
+    standing = registry.standing_of(row)
+    identity = cast("dict[str, Any]", row.get("identity") or {})
+    label = str(row.get("label") or "") or None
+    return {
+        # the canonical API selector, the same one `account_label` carries for
+        # the BOUND account — so a reader comparing the two is comparing like
+        # with like, and a divergence between them is visible rather than a
+        # difference in spelling
+        "id": canonical_name(row, primary, ambient_paths),
+        "provider": provider,
+        # display metadata, explicitly NOT identity (the registry's own rule:
+        # a mutable label never stands in for the account)
+        "label": label,
+        "email": str(identity.get("email") or "") or None,
+        "auth": standing["auth"],
+        "state": standing["state"],
+    }
+
+
 def _claude_view(row: dict[str, Any], out: dict[str, Any], *,
                  allow_fetch: bool, now: float) -> dict[str, Any]:
     """A claude PROFILE row — the ambient login, or a redirected profile."""

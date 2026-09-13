@@ -2028,6 +2028,9 @@ _ARCHIVED_RUNTIME_DEFAULTS: dict[str, Any] = {
     "queued": 0, "tasks": 0, "bg_tasks": 0, "last_error": None,
     "activity": {"phase": "thinking"},
     "ran_as": None, "ran_as_label": None,
+    # an archived seat is never busy, so a full annotation answers None here
+    # too — `test_archived_summary` is what holds these two facts together
+    "serving_account": None,
     "codex_route": None, "resumable": False, "cache_forecast": None,
     "proc_warm": False, "proc_live": False, "proc_relaunch": False,
     "proc_relaunch_reason": None, "proc_paused": False,
@@ -2279,6 +2282,16 @@ def _org_view(slug: str, request: Request,
     primary = registry.resolve_alias("primary")
     ambient_paths = observe_ambient()
     account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
+    # HOW MANY ACCOUNTS EACH PROVIDER HAS AVAILABLE, counted ONCE for the whole
+    # graph off the rows already loaded on the line above. The serving-account
+    # card is only shown where there is something to disambiguate, so every
+    # node needs this number — and counting it per node would re-read the
+    # registry per seat, which is the D-239 trap `accounts.serving_label`
+    # documents having fallen into once already.
+    available = accountusage.available_counts(list(account_rows.values()))
+    # ⚠ a KIOSK visitor is told nothing about which account serves a turn
+    # (D-145). Resolved once here, beside the other per-request facts.
+    public_view = _public_slug(request) is not None
 
     def annotate(node: dict[str, Any], *, full: bool = False) -> None:
         account_row = account_rows.get(node.get("account"))
@@ -2359,6 +2372,23 @@ def _org_view(slug: str, request: Request,
         # around D-145's bound.
         node["ran_as_label"] = accounts.serving_label(
             str(st.get("ran_as") or ""), with_uuid=_public_slug(request) is None)
+        # ⚠ WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — the
+        # same `ran_as` fact above, resolved to the account it names and shown
+        # only where a reader could not otherwise tell. Composed HERE, beside
+        # `ran_as_label`, for that field's own reason: the backend owns the
+        # registry, and a renderer that counted accounts itself would be a
+        # second definition of "available" to disagree with this one.
+        #
+        # `busy` is what makes it a statement about the CURRENT turn. `ran_as`
+        # outlives the turn that set it (it is "the turn in flight or the most
+        # recent one this process ran"), so without this gate an idle agent
+        # would keep wearing the account that served it an hour ago — the
+        # stale-state failure `codex_route.live` exists to prevent, which is
+        # why this uses the very same `st["busy"]` that gate does.
+        node["serving_account"] = accountusage.serving_card(
+            st.get("ran_as"), busy=bool(st.get("busy")), public=public_view,
+            rows_by_id=account_rows, counts=available,
+            primary=primary, ambient_paths=ambient_paths)
         # ⚠ WHICH POOL A LUNA IS ACTUALLY ON (item 12; user spec 2026-09-04:
         # a header token when Luna RUNS ON RESERVE). The in-memory record
         # is the turn in flight or the last one this process ran; the

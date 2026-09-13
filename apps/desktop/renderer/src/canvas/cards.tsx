@@ -31,7 +31,7 @@ import type {
 } from './shared'
 import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
-  MapModeIndicator, MapTurnAge, RouteBadge,
+  MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -1760,6 +1760,19 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               on the card's second row as on the desk's — same component,
               same backend label, "last: " prefixed when it is not live */}
           <RouteBadge route={node.codex_route} />
+          {/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement
+              2026-09-13), on the card's badge row as on the desk's — same
+              component, same backend-composed field, so the two cannot
+              disagree about what it says or when it appears.
+
+              ⚠ ITS PLACE IN THIS BLOCK IS THE FAR-ZOOM EXCLUSION. The whole
+              `.sq-badges` row is already gated on `lod !== 'mini'`, so the
+              card is structurally absent at far zoom, where the node is one
+              large state icon and nothing else. It is likewise absent from
+              the `mapMode` locator, which returns long before this. Both are
+              asserted in usageaccountcard.test.tsx rather than left to the
+              gate above happening to stay where it is. */}
+          <ServingAccountBadge account={node.serving_account} />
           {/* the lineage opens from the desk's own stack badge; out here the
               count is a sign. Same reason as the freeze chip above. */}
           {stackN > 0 &&

@@ -460,6 +460,24 @@ export interface TreeNode {
    *  registry, and the uuid is omitted for kiosk visitors. User ruling
    *  2026-08-25; this is what the desk badge renders. */
   ran_as_label?: string | null
+  /** WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — `ran_as`
+   *  resolved to the account it names, and present ONLY when a reader could
+   *  not otherwise tell: the node is busy, the account is established
+   *  authoritatively, and that provider has more than one AVAILABLE account
+   *  — counted as "not explicitly unauthenticated or disabled", so an
+   *  `unobserved` account (nobody has looked) counts and a signed-out one
+   *  does not.
+   *  Null in every other case, so the renderer's whole rule is `if (!x)`.
+   *
+   *  ⚠ COMPOSED SERVER-SIDE, like `ran_as_label` and `codex_route.label`, and
+   *  for the same reason: the backend owns the registry, so a renderer that
+   *  counted available accounts itself would be a second definition of
+   *  "available" to disagree with. It is also withheld entirely from kiosk
+   *  visitors (D-145) — the renderer never has to know that.
+   *
+   *  ⚠ NEVER A CREDENTIAL. Registry metadata only; no token, key, profile
+   *  path or auth material reaches this field. */
+  serving_account?: ServingAccount | null
   /** which POOL a luna is on (item 12) — see `CodexRouteInfo`. The desk's
    *  meta row and the card's badge row render `label` beside the "ran as"
    *  badge. Null for every tier that does not route. */
@@ -1457,6 +1475,41 @@ export interface ReserveInfo {
    *  turn uses (cached evidence only) — a forecast, never a receipt */
   route: { route: 'reserve' | 'direct'; model: string; reason: string } | null
 }
+/** The account SERVING an agent's running inference (user requirement
+ *  2026-09-13). Every field is registry metadata the accounts UI already
+ *  shows; nothing here is a credential, a token or a profile path.
+ *
+ *  ⚠ THE BACKEND DECIDES WHETHER THIS EXISTS AT ALL, not the renderer. It is
+ *  non-null only while the node is busy, only when the serving account was
+ *  established authoritatively (an `account-env-mismatch` spawn reads as
+ *  unknown, never as the id it carries), and only when that provider has more
+ *  than one AVAILABLE account — because with one account there is nothing to
+ *  disambiguate. So a surface renders it or omits it; it never re-derives the
+ *  rule, and the near-zoom node and the Desk header therefore cannot disagree
+ *  about when the card appears. */
+export interface ServingAccount {
+  /** the canonical API selector — `provider/primary` for an ambient login,
+   *  the managed id otherwise. The SAME composer `account_label` uses for the
+   *  bound account, so comparing serving against bound compares like with
+   *  like rather than two spellings. */
+  id: string
+  provider: string
+  /** display metadata only, and explicitly not identity: the registry's own
+   *  rule is that a mutable label never stands in for the account. Null when
+   *  the row carries none. */
+  label?: string | null
+  /** the observed address on the row, when one has been observed. */
+  email?: string | null
+  /** `authenticated` | `unauthenticated` | `unobserved` — the third "gates
+   *  nothing and renders as itself, never as ready". */
+  auth: string
+  /** `ready` | `limited` — whether this account currently holds an active
+   *  limit mark. A hover detail, never a reason to hide the card: an account
+   *  that has just gone limited is exactly when knowing who is serving
+   *  matters most. */
+  state: string
+}
+
 /** A routed (luna) node's ACTUAL route — the turn in flight, or the last one
  *  (item 12; user spec 2026-09-04). `live` is the whole difference between
  *  "reserve" and "last: reserve": a token that cannot tell a running turn

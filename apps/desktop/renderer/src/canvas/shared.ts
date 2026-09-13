@@ -20,7 +20,7 @@ import type { DependencyList } from 'react'
 import type {
   ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
   NodeStatus, OpRequest, OpResult, PendingSwitch, ProviderInfo, ProviderTier, ReserveInfo,
-  ToolGrant, TreeNode, TreePayload,
+  ServingAccount, ToolGrant, TreeNode, TreePayload,
 } from '../types'
 
 // One display alphabet for every provider-backed tier. Keeping the Codex rows
@@ -746,6 +746,9 @@ export interface CanvasNode {
   ran_as_label?: string | null
   /** item 12: which pool a luna is actually on (live or last turn) */
   codex_route?: CodexRouteInfo | null
+  /** which account is serving the inference running RIGHT NOW — backend-
+   *  composed, and null unless it should be shown (see `ServingAccount`) */
+  serving_account?: ServingAccount | null
   queued?: number
   /** concurrently running subagents (Task/Agent calls in flight) — desk
    *  header shows it beside the working clock, only when > 0 */

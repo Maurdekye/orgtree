@@ -584,6 +584,48 @@ button.badge.queued:hover { border-color: var(--accent); }
 .badge.unstick:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 button.badge.frozen { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.frozen:hover { border-color: var(--accent); }
+/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). It is a
+   button only so that hover and keyboard focus reveal the same detail — the
+   requirement names focus, and a span with a title is reachable by mouse
+   alone — so it is styled as the SIGN it is, not as an action: no hover fill,
+   no pointer cursor, just the focus ring it needs to be reachable at all.
+   Monospace because the canonical account id is an identifier and reads as
+   one beside the account ids in the Usage modal and the accounts panel. */
+.serving-account-wrap { position: relative; display: inline-flex; }
+/* ⚠ THE DETAIL SURFACE, AND THE WHOLE REASON IT IS NOT A `title`: a native
+   tooltip is shown on MOUSE HOVER ONLY — no browser renders one for a
+   keyboard-focused element — so `title` would satisfy half of "on hover or
+   keyboard focus" while looking complete. Same construction as `.cbar-tip`
+   and the edge-jump labels, with `:focus-visible` added beside `:hover`.
+   ⚠ BOTH HALVES OF THE NEXT SELECTOR ARE ASSERTED against this file in
+   servingaccount.test.tsx — jsdom computes no hover or focus styling, so the
+   stylesheet itself is the only place that proof can live. */
+.serving-account-tip {
+  position: absolute; left: 0; bottom: calc(100% + 5px); z-index: 7;
+  display: flex; flex-direction: column;
+  white-space: nowrap; font-size: 10px; line-height: 1.5; font-family: var(--mono);
+  background: var(--tip-panel); border: 1px solid var(--line); border-radius: 4px;
+  padding: 3px 8px; color: var(--ink); opacity: 0; pointer-events: none;
+  transition: opacity .12s; box-shadow: var(--shadow);
+}
+.serving-account-wrap:hover .serving-account-tip,
+.serving-account:focus-visible ~ .serving-account-tip { opacity: 1; }
+.serving-account-tip .sa-tip-head { color: var(--dim); }
+button.badge.serving-account {
+  font: inherit; font-size: inherit; font-family: var(--mono);
+  cursor: default;
+  border-color: color-mix(in srgb, var(--provider-accent, var(--accent)) 45%, transparent);
+  color: var(--agent-accent-text, var(--accent));
+}
+button.badge.serving-account:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+/* a limited account still SERVES — it is simply out of room this window — so
+   this is a quieter note beside the id, never the red of a fault */
+button.badge.serving-account.state-limited { border-color: #46647a; color: var(--ice); }
+/* `unobserved` gates nothing and must render as itself rather than as ready */
+button.badge.serving-account.auth-unobserved,
+button.badge.serving-account.auth-unauthenticated { color: var(--dim); }
 /* the retired-audience fold chip (2026-08-17): one toggle in every
    audience chip row, same collapse as the desk footer's retired reports */
 button.badge.retired-fold { cursor: pointer; font: inherit; font-size: inherit; }
