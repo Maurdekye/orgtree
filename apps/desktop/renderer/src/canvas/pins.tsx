@@ -225,8 +225,8 @@ export const raisePin = (slug: string, id: string): void => {
 export const isPinned = (slug: string, id: string): boolean =>
   readPins(slug).some((p) => p.id === id)
 
-export const sizeFloor = (r: PinRect): PinRect =>
-  ({ ...r, w: Math.max(PIN_MIN_W, r.w), h: Math.max(PIN_MIN_H, r.h) })
+export const sizeFloor = (r: PinRect, min?: { width: number; height: number } | null): PinRect =>
+  ({ ...r, w: Math.max(min?.width ?? PIN_MIN_W, r.w), h: Math.max(min?.height ?? PIN_MIN_H, r.h) })
 
 /** Keep the whole window inside a measured viewport. This is deliberately a
  *  single geometry boundary used by initial placement, render-time recovery,
@@ -234,8 +234,8 @@ export const sizeFloor = (r: PinRect): PinRect =>
  *  narrower/shorter than the minimum desk, the desk is reduced to fit rather
  *  than allowing either edge to escape. `vp` null means layout is not known
  *  yet (jsdom or before first paint), so only the size floor is applied. */
-export const clampRect = (r: PinRect, vp: { w: number; h: number } | null): PinRect => {
-  const s = sizeFloor(r)
+export const clampRect = (r: PinRect, vp: { w: number; h: number } | null, min?: { width: number; height: number } | null): PinRect => {
+  const s = sizeFloor(r, min)
   if (!vp || vp.w <= 0 || vp.h <= 0) return s
   const w = Math.min(s.w, vp.w)
   const h = Math.min(s.h, vp.h)

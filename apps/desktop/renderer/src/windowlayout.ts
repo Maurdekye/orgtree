@@ -47,7 +47,7 @@ const valid = (v: unknown): v is SavedWindow => {
     && (r.org === null || typeof r.org === 'string') && typeof r.open === 'boolean'
     && (r.restore === undefined || validRestore(r.restore))
     && !!r.rect && [r.rect.x, r.rect.y, r.rect.width, r.rect.height].every(Number.isFinite)
-    && r.rect.width >= 200 && r.rect.height >= 150 && r.rect.width <= 20000 && r.rect.height <= 20000
+    && r.rect.width >= 50 && r.rect.height >= 50 && r.rect.width <= 20000 && r.rect.height <= 20000
 }
 export function savedWindows(): SavedWindow[] {
   try {
@@ -185,16 +185,89 @@ export function popupPlacement(
   return { left: Math.round(left), top: Math.round(top) }
 }
 
+export interface ModalDimensions { width: number; height: number }
+
+export const PINNED_MODAL_MINS: Record<string, ModalDimensions> = {
+  'agent-list': { width: 200, height: 240 },
+  'usage': { width: 320, height: 240 },
+  'inbox': { width: 320, height: 240 },
+  'node-inbox': { width: 320, height: 240 },
+  'org-inbox': { width: 320, height: 240 },
+  'docket': { width: 320, height: 240 },
+  'agent-docket': { width: 320, height: 240 },
+  'defaults': { width: 320, height: 240 },
+  'org-settings': { width: 320, height: 240 },
+  'disk': { width: 320, height: 240 },
+  'lineage': { width: 320, height: 240 },
+  'connections': { width: 320, height: 240 },
+  'gallery': { width: 320, height: 240 },
+  'compose': { width: 320, height: 240 },
+  'watchdog': { width: 320, height: 240 },
+  'node-config': { width: 320, height: 240 },
+  'app-settings': { width: 320, height: 240 },
+  'add-secondary-account': { width: 320, height: 240 },
+  'fixture': { width: 320, height: 240 },
+}
+
+export function modalMinDimensions(kind?: string | null): ModalDimensions | null {
+  if (!kind || typeof kind !== 'string') return null
+  let cleanKind = kind
+  if (cleanKind.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(cleanKind) as unknown
+      if (Array.isArray(parsed) && typeof parsed[1] === 'string') {
+        cleanKind = parsed[1]
+      }
+    } catch { /* use kind */ }
+  }
+  if (cleanKind in PINNED_MODAL_MINS) return PINNED_MODAL_MINS[cleanKind]!
+  if (['draft-scope', 'openrouter-picker', 'advanced-org'].includes(cleanKind)) return null
+  if (cleanKind.startsWith('desk:') || cleanKind.startsWith('doc:')) return null
+  if (cleanKind.includes('no-min') || cleanKind.includes('nomin') || cleanKind.startsWith('free-')) return null
+  return null
+}
+
 export function popupFeatures(key: string,
-  source?: { x: number; y: number; w: number; h: number } | null,
-  owner?: { screenX: number; screenY: number } | null) {
-  // A window that has been opened before keeps the size and place the user
-  // left it at; matching the source surface is only for the FIRST opening.
-  const rect = savedWindows().find(r => r.key === key)?.rect
-  if (rect) return `popup,left=${Math.round(rect.x)},top=${Math.round(rect.y)},width=${Math.round(rect.width)},height=${Math.round(rect.height)}`
-  const size = popupSize(source)
-  const at = popupPlacement(source, size, owner)
-  return `popup,${at ? `left=${at.left},top=${at.top},` : ''}width=${size.width},height=${size.height}`
+  source?: { x?: number; y?: number; w: number; h: number } | null,
+  owner?: { screenX: number; screenY: number } | null,
+  minDimensions?: ModalDimensions | null,
+  restoring = false) {
+  const saved = savedWindows().find(r => r.key === key)
+  // Saved standalone bounds are used ONLY when restoring an open window across lifecycle transitions,
+  // or when explicitly restoring. Closed standalone bounds (saved.open === false) are ignored.
+  if (saved?.rect && (restoring || saved.open)) {
+    let { x, y, width, height } = saved.rect
+    if (minDimensions) {
+      width = Math.max(minDimensions.width, width)
+      height = Math.max(minDimensions.height, height)
+    }
+    const minSuffix = minDimensions ? `,minWidth=${minDimensions.width},minHeight=${minDimensions.height}` : ''
+    return `popup,left=${Math.round(x)},top=${Math.round(y)},width=${Math.round(width)},height=${Math.round(height)}${minSuffix}`
+  }
+
+  // Ordinary pop-out: initialize from modal's current in-app geometry
+  let size: { width: number; height: number }
+  if (source && source.w > 0 && source.h > 0) {
+    let width = Math.round(source.w)
+    let height = Math.round(source.h)
+    if (minDimensions) {
+      width = Math.max(minDimensions.width, width)
+      height = Math.max(minDimensions.height, height)
+    }
+    width = Math.max(POPUP_MIN.width, width)
+    height = Math.max(POPUP_MIN.height, height)
+    size = { width, height }
+  } else {
+    size = popupSize(source)
+    if (minDimensions) {
+      size.width = Math.max(minDimensions.width, size.width)
+      size.height = Math.max(minDimensions.height, size.height)
+    }
+  }
+
+  const at = popupPlacement(source && typeof source.x === 'number' && typeof source.y === 'number' ? source as { x: number; y: number; w: number; h: number } : null, size, owner)
+  const minSuffix = minDimensions ? `,minWidth=${minDimensions.width},minHeight=${minDimensions.height}` : ''
+  return `popup,${at ? `left=${at.left},top=${at.top},` : ''}width=${size.width},height=${size.height}${minSuffix}`
 }
 export function savedDeskIdentities(org: string): [string, string, number][] {
   return restoredWindows(org).flatMap(r => {

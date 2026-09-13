@@ -28,7 +28,7 @@ import assert from 'node:assert/strict'
 import type { ReactNode } from 'react'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned, PinFrame } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
-import { POPUP_DEFAULT, popupFeatures, popupPlacement, popupSize, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { modalMinDimensions, PINNED_MODAL_MINS, POPUP_DEFAULT, popupFeatures, popupPlacement, popupSize, savedWindows, saveWindow, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 
 const noop = () => {}
 const AREA = POPUP_DEFAULT.width * POPUP_DEFAULT.height
@@ -103,7 +103,9 @@ test('§5 never smaller than a size that could be saved', () => {
 
 /** a real PinFrame, with the canvas boxes its pin clamp measures */
 async function mountPanel(panelBox: { w: number; h: number },
-  tail: { unmount: () => Promise<void> }[]) {
+  tail: { unmount: () => Promise<void> }[],
+  kind = 'usage',
+  panelClass = 'settings usage-modal') {
   const canvases = ['alpha'].map(o => {
     const el = document.createElement('div'); el.dataset.pinOrg = o
     el.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0,
@@ -111,18 +113,19 @@ async function mountPanel(panelBox: { w: number; h: number },
       right: window.innerWidth, bottom: window.innerHeight, toJSON() {} }) as DOMRect
     document.body.appendChild(el); return el
   })
+  const selector = '.' + panelClass.trim().split(/\s+/).pop()
   const node: ReactNode = (
     <CurrentOrg.Provider value="alpha">
-      <PinFrame kind="usage" title="usage limits" panel="settings usage-modal" close={noop}>
-        <h3>usage limits</h3>
+      <PinFrame kind={kind} title={kind} panel={panelClass} close={noop}>
+        <h3>{kind}</h3>
       </PinFrame>
     </CurrentOrg.Provider>
   )
   const v = await mountView(node, (el) => el)
   tail.push({ unmount: async () => { await v.unmount(); canvases.forEach(el => el.remove()) } })
   await flush()
-  const panel = document.querySelector('.usage-modal') as HTMLElement | null
-  assert.ok(panel, 'the panel must be on screen to be measured')
+  const panel = document.querySelector(selector) as HTMLElement | null
+  assert.ok(panel, `the panel ${selector} must be on screen to be measured`)
   // jsdom lays nothing out; this is the box under test, installed on purpose
   panel.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0,
     width: panelBox.w, height: panelBox.h, right: panelBox.w, bottom: panelBox.h,
@@ -321,4 +324,150 @@ test('§12 the real panel box reaches the opener as a PLACE, not just a shape', 
   // the panel's centre is (600, 400); the window's centre must be there too
   assert.ok(Math.abs(left + width / 2 - 600) <= 1, `window centre x ${left + width / 2} should be 600`)
   assert.ok(Math.abs(top + height / 2 - 400) <= 1, `window centre y ${top + height / 2} should be 400`)
+})
+
+test('§13 modal minimum dimensions are authoritatively defined and distinguishable', () => {
+  // Parity across modalities: The Agents list has shared 200x240 minimum.
+  assert.deepEqual(modalMinDimensions('agent-list'), { width: 200, height: 240 },
+    'Agents list must authoritatively define 200x240 minimum')
+  assert.deepEqual(modalMinDimensions(JSON.stringify(['alpha', 'agent-list'])), { width: 200, height: 240 },
+    'Agents list scoped key must unwrap to 200x240 minimum')
+
+  // Standard modals define 320x240
+  for (const modalKind of ['inbox', 'org-inbox', 'docket', 'usage', 'disk', 'lineage', 'connections', 'gallery', 'compose']) {
+    assert.deepEqual(modalMinDimensions(modalKind), { width: 320, height: 240 },
+      `${modalKind} must define 320x240 minimum`)
+  }
+
+  // Modals without pinned minimums must not receive an arbitrary minimum
+  assert.equal(modalMinDimensions('draft-scope'), null, 'draft-scope has no minimum')
+  assert.equal(modalMinDimensions('openrouter-picker'), null, 'openrouter-picker has no minimum')
+  assert.equal(modalMinDimensions('advanced-org'), null, 'advanced-org has no minimum')
+  assert.equal(modalMinDimensions('desk:["alpha","agent",1]'), null, 'desks have no modal minimum')
+  assert.equal(modalMinDimensions('doc:alpha/README.md'), null, 'doc readers have no modal minimum')
+  assert.equal(modalMinDimensions('test-nomin'), null, 'arbitrary non-min modals receive null')
+})
+
+test('§14 popupFeatures propagates minWidth and minHeight from authoritative minimums', () => {
+  const key = JSON.stringify(['alpha', 'test'])
+  // Agents list: minWidth=200,minHeight=240
+  const agentsFeatures = popupFeatures(key, { w: 400, h: 500 }, null, modalMinDimensions('agent-list'))
+  assert.match(agentsFeatures, /minWidth=200,minHeight=240/,
+    'Agents list popout must receive minWidth=200,minHeight=240')
+
+  // Standard modal: minWidth=320,minHeight=240
+  const docketFeatures = popupFeatures(key, { w: 500, h: 500 }, null, modalMinDimensions('docket'))
+  assert.match(docketFeatures, /minWidth=320,minHeight=240/,
+    'Docket popout must receive minWidth=320,minHeight=240')
+
+  // No-minimum modal: no minWidth or minHeight suffix
+  const noMinFeatures = popupFeatures(key, { w: 500, h: 500 }, null, modalMinDimensions('draft-scope'))
+  assert.doesNotMatch(noMinFeatures, /minWidth/, 'Modals without minimum must not emit minWidth')
+  assert.doesNotMatch(noMinFeatures, /minHeight/, 'Modals without minimum must not emit minHeight')
+})
+
+test('§15 initial in-app dimensions below minimum are clamped while larger dimensions are preserved', () => {
+  const key = JSON.stringify(['alpha', 'test'])
+  // Below both minimums (e.g. 120x150 for Agents list): clamped to 200x240
+  const clampedBoth = popupFeatures(key, { w: 120, h: 150 }, null, modalMinDimensions('agent-list'))
+  assert.match(clampedBoth, /width=200,height=240,minWidth=200,minHeight=240/)
+
+  // Below width minimum but larger height (e.g. 150x600 for inbox min 320x240)
+  const clampedWidth = popupFeatures(key, { w: 150, h: 600 }, null, modalMinDimensions('inbox'))
+  assert.match(clampedWidth, /width=320,height=600,minWidth=320,minHeight=240/,
+    'width must be clamped to 320 while height 600 is preserved')
+
+  // Below height minimum but larger width (e.g. 700x100 for docket min 320x240)
+  const clampedHeight = popupFeatures(key, { w: 700, h: 100 }, null, modalMinDimensions('docket'))
+  assert.match(clampedHeight, /width=700,height=240,minWidth=320,minHeight=240/,
+    'height must be clamped to 240 while width 700 is preserved')
+})
+
+test('§16 lifecycle-restored dimensions below minimum are clamped while valid position is preserved', () => {
+  const key = JSON.stringify(['alpha', 'agent-list'])
+  // Saved standalone window with position (75, 85) but dimensions below minimum (140x160)
+  localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+    key, kind: 'agent-list', org: 'alpha', open: true,
+    rect: { x: 75, y: 85, width: 140, height: 160 }
+  }]))
+  try {
+    const restoredFeatures = popupFeatures(key, null, null, modalMinDimensions('agent-list'), true)
+    assert.match(restoredFeatures, /left=75,top=85,width=200,height=240,minWidth=200,minHeight=240/,
+      'saved position (75, 85) must be preserved while dimensions are clamped to minimums')
+
+    // Saved standalone window with larger dimensions (600x700)
+    localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+      key, kind: 'agent-list', org: 'alpha', open: true,
+      rect: { x: 75, y: 85, width: 600, height: 700 }
+    }]))
+    const largerFeatures = popupFeatures(key, null, null, modalMinDimensions('agent-list'), true)
+    assert.match(largerFeatures, /left=75,top=85,width=600,height=700,minWidth=200,minHeight=240/,
+      'larger restored dimensions must be preserved without distortion')
+  } finally {
+    localStorage.clear()
+  }
+})
+
+test('§17 manual close/dock discards standalone bounds; subsequent re-pop uses then-current in-app bounds', async (t) => {
+  const tail: { unmount: () => Promise<void> }[] = []
+  const realOpen = window.open
+  const asked: string[] = []
+  window.open = ((_url?: unknown, _name?: unknown, features?: unknown) => {
+    asked.push(String(features ?? '')); return null
+  }) as typeof window.open
+  t.after(async () => {
+    window.open = realOpen
+    for (const x of tail.reverse()) await x.unmount()
+    localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  })
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+
+  const { panel } = await mountPanel({ w: 500, h: 400 }, tail, 'docket', 'settings docket-modal')
+  asked.length = 0
+
+  // 1. Initial pop-out from 500x400
+  const popout = document.querySelector('[aria-label="Open in new window"]') as HTMLElement | null
+  assert.ok(popout, 'popout button must be present')
+  await inAct(() => { popout.click() })
+  await flush()
+  assert.equal(asked.length, 1)
+  assert.match(asked[0]!, /minWidth=320,minHeight=240/, 'first popout carries docket minimums')
+
+  // Simulate window open and saveWindow with standalone bounds (e.g. user moved/resized standalone window to 950x850)
+  const key = JSON.stringify(['alpha', 'docket'])
+  // Now simulate closing/redocking the standalone window (open: false)
+  saveWindow({ key, kind: 'docket', org: 'alpha', open: false, rect: { x: 200, y: 200, width: 950, height: 850 } })
+
+  // 2. Change the modal's in-app geometry to 650x550
+  panel.getBoundingClientRect = () => ({ x: 50, y: 50, left: 50, top: 50,
+    width: 650, height: 550, right: 700, bottom: 600, toJSON() {} }) as DOMRect
+
+  // 3. Popping out again during the same canvas session must ignore the 950x850 standalone bounds
+  asked.length = 0
+  await inAct(() => { popout.click() })
+  await flush()
+  assert.equal(asked.length, 1)
+  const secondWidth = Number(/width=(\d+)/.exec(asked[0]!)?.[1])
+  const secondHeight = Number(/height=(\d+)/.exec(asked[0]!)?.[1])
+  assert.notEqual(secondWidth, 950, 're-pop must not use previous closed standalone width')
+  assert.notEqual(secondHeight, 850, 're-pop must not use previous closed standalone height')
+  assert.ok(Math.abs(secondWidth / secondHeight - 650 / 550) < 0.05,
+    `re-pop must use then-current in-app bounds (650x550), got ${secondWidth}x${secondHeight}`)
+})
+
+test('§18 Agents list compact unpinned width matches shared minimum and avoids width jump', () => {
+  // Shared minimum for agent-list is 200x240
+  const min = modalMinDimensions('agent-list')
+  assert.ok(min && min.width === 200 && min.height === 240,
+    'agent-list shared minimum must be exactly 200x240')
+
+  // Unpinned agents tray default width (typically 200px..280px) is within valid minimum
+  const defaultUnpinnedWidth = 240
+  assert.ok(defaultUnpinnedWidth >= min.width,
+    'unpinned agents default width must be at or above shared minimum width (200px)')
+
+  // Pinned clamping at default unpinned width (240px) must not force jump to 320px
+  const features = popupFeatures(JSON.stringify(['alpha', 'agent-list']), { w: 240, h: 300 }, null, min)
+  const width = Number(/width=(\d+)/.exec(features)?.[1])
+  assert.equal(width, 240, 'Agents list popout at 240px must not jump to 320px')
 })

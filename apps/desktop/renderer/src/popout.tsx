@@ -1,4 +1,4 @@
-import type { WindowRestore } from './windowlayout'
+import type { ModalDimensions, WindowRestore } from './windowlayout'
 import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
@@ -216,10 +216,11 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, flush, restore, sourceBox }: {
+  anchor, onDetached, flush, restore, sourceBox, minDimensions }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean) => void; flush?: () => void
+  minDimensions?: ModalDimensions | null
   /** This surface's own box in its window, for the shape AND the place a
    *  first pop-out opens at (see `popupSize` and `popupPlacement`). A
    *  surface whose visible panel is NOT the whole of its DOM has to say so:
@@ -249,8 +250,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const pendingRestore = useRef<(() => void) | null>(null)
   const cleanups = useRef<(() => void)[]>([])
   const epoch = useRef(0)
-  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox })
-  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox }
+  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions })
+  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
   const popoutName = useRef('')
@@ -290,7 +291,6 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     pendingRestore.current = null
     epoch.current++
     const w = child.current; child.current = null
-    if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
     closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
     place(claimDestination())
@@ -329,7 +329,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     return declared && declared.w > 0 && declared.h > 0 ? declared : null
   }
 
-  const open = () => {
+  const open = (restoring = false) => {
     if (child.current && !child.current.closed) { reveal(); return }
     const transaction = ++epoch.current
     const restore = preservePosition(parts.container)
@@ -346,7 +346,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // The owner's own screen origin is what turns the surface's box, which
       // is in THIS window's client coordinates, into a place on the screen.
       w = owner.defaultView!.open('', popoutName.current,
-        popupFeatures(layoutKey, surfaceShape(), owner.defaultView))
+        popupFeatures(layoutKey, surfaceShape(), owner.defaultView, latest.current.minDimensions, restoring))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
@@ -466,7 +466,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   useEffect(() => {
     if (!ready || !restoreAllowed || restored.current) return
     restored.current = true
-    if (restoredWindows(org).some(r => r.key === layoutKey)) open()
+    if (restoredWindows(org).some(r => r.key === layoutKey)) open(true)
   }, [ready, restoreAllowed, layoutKey, org])
   useEffect(() => () => {
     if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current, true, latest.current.restore)

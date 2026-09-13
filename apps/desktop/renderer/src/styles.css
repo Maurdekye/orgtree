@@ -4686,7 +4686,7 @@ svg.MuiSvgIcon-root {
   flex: 1; min-width: 0; min-height: 0; max-width: none; max-height: none;
   padding: 0; border: 0; box-shadow: none;
 }
-.tray-panel.modalpin-win { max-width: none; }
+.tray-panel.modalpin-win, .tray-panel.modalpin-detached { max-width: none; min-width: 200px; }
 /* ⚠ A DESCENDANT, NOT A CHILD, AND THE DIFFERENCE IS THE WHOLE BUG (user
    report 2026-09-12: with many agents the Agents window grew off the TOP of
    the canvas and took its pin/pop-out/close bar and its filter box with it).

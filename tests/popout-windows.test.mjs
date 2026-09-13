@@ -24,7 +24,7 @@ const stubElectron = {
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron] })
-const { popoutRegistry } = createRequire(import.meta.url)(out)
+const { popoutRegistry, parsePopoutFeatures } = createRequire(import.meta.url)(out)
 
 /** A native window reduced to what the registry reads, plus the levers a test
  *  needs: it can be maximized, it can be destroyed, and it can fire its own
@@ -129,4 +129,19 @@ test('closing forgets the window - but only if it is still the one holding the n
   reopened.fire('closed')
   assert.equal(registry.window('orgtree-popout-2'), replaced,
     'the earlier window closing must not disable the controls of the one that took its name')
+})
+
+test('parsePopoutFeatures extracts minWidth and minHeight from popout features string', () => {
+  assert.deepEqual(parsePopoutFeatures('popup,left=100,top=100,width=600,height=500,minWidth=320,minHeight=240'), {
+    minWidth: 320, minHeight: 240,
+  })
+  assert.deepEqual(parsePopoutFeatures('popup,width=280,height=400,minWidth=200,minHeight=240'), {
+    minWidth: 200, minHeight: 240,
+  })
+})
+
+test('parsePopoutFeatures returns empty object when min dimensions are not declared', () => {
+  assert.deepEqual(parsePopoutFeatures('popup,left=100,top=100,width=800,height=600'), {})
+  assert.deepEqual(parsePopoutFeatures(''), {})
+  assert.deepEqual(parsePopoutFeatures(undefined), {})
 })

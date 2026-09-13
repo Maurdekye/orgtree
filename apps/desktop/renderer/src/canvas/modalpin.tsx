@@ -33,6 +33,7 @@ import { CloseIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
+import { modalMinDimensions } from '../windowlayout'
 import type { WindowRestore } from '../windowlayout'
 import { useEsc } from './shared'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
@@ -305,10 +306,11 @@ export const closeIfCentred = (kind: string, close: () => void, org: string | nu
 }
 
 export const pinModal = (kind: string, rect: PinRect, org: string | null = null): void => {
+  const min = modalMinDimensions(kind)
   kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (pins[kind]) return
-  write(renorm({ ...pins, [kind]: { rect: clampRect(rect, winSize()), z: Object.keys(pins).length } }, kind))
+  write(renorm({ ...pins, [kind]: { rect: clampRect(rect, winSize(), min), z: Object.keys(pins).length } }, kind))
 }
 export const unpinModal = (kind: string, org: string | null = null): void => {
   kind = modalPinKey(kind, org)
@@ -369,10 +371,11 @@ export const toggleOrRaiseModal = (kind: string, open: boolean,
 }
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
 export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {
+  const min = modalMinDimensions(kind)
   kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (!pins[kind]) return
-  write({ ...pins, [kind]: { ...pins[kind]!, rect: clampRect(rect, winSize()) } })
+  write({ ...pins, [kind]: { ...pins[kind]!, rect: clampRect(rect, winSize(), min) } })
 }
 
 /** the window box a pinned modal is clamped to. `.overlay` is `fixed; inset:0`,
@@ -493,8 +496,9 @@ export function PinFrame(props: PinFrameProps) {
   // dragged it to. The ref is owned HERE so the same measurement can be
   // handed to the window opener, which sits above the panel in the tree.
   const panelRef = useRef<HTMLDivElement>(null)
+  const modalMin = modalMinDimensions(props.kind)
   if (!scope || props.pinnable === false) return <PinFrameInner {...props} pinnable={false} orgScope={null} panelRef={panelRef} />
-  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore}
+  return <MovableSurface key={scope} anchor={pin ? pinLayerFor(scope) : undefined} org={scope} kind={props.kind} title={props.title} restore={props.restore} minDimensions={modalMin}
     sourceBox={() => { const r = panelRef.current?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null }}>
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
@@ -505,6 +509,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
   const ownerWindow = ownerDocument.defaultView ?? window
+  const modalMin = modalMinDimensions(kind)
   const detached = !!surface?.detached
   /** Is this surface the one the window BELONGS to?
    *
@@ -562,13 +567,13 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     return () => { ownerWindow.removeEventListener('keydown', onKey, true); ownerWindow.removeEventListener('keyup', onKey, true) }
   }, [ownerWindow])
 
-  const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds) : null
+  const rect = pinned && pin ? clampRect(live ?? pin.rect, bounds, modalMin) : null
   const layout = usePinSurface(orgScope, kind, rect, true)
   useEffect(() => {
     if (pinned) raisePinnedModal(kind, orgScope)
   }, [pinned, kind, orgScope])
 
-  const candidate = (r: PinRect, disabled: boolean) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds),
+  const candidate = (r: PinRect, disabled: boolean) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
     readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds)
 
   const begin = (e: ReactPointerEvent<HTMLElement>, g: GestureShape) => {
@@ -601,8 +606,10 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     if (g.edge.includes('n')) { h = g.o.h - dy; y = g.o.y + dy }
     // the floor pins the OPPOSITE edge: shrinking past the minimum from the
     // west/north must not walk the window across the screen
-    if (w < PIN_MIN_W) { if (g.edge.includes('w')) x = g.o.x + g.o.w - PIN_MIN_W; w = PIN_MIN_W }
-    if (h < PIN_MIN_H) { if (g.edge.includes('n')) y = g.o.y + g.o.h - PIN_MIN_H; h = PIN_MIN_H }
+    const minW = modalMin?.width ?? PIN_MIN_W
+    const minH = modalMin?.height ?? PIN_MIN_H
+    if (w < minW) { if (g.edge.includes('w')) x = g.o.x + g.o.w - minW; w = minW }
+    if (h < minH) { if (g.edge.includes('n')) y = g.o.y + g.o.h - minH; h = minH }
     return { x, y, w, h }
   }
   const move = (e: ReactPointerEvent<HTMLElement>) => {
@@ -623,7 +630,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     // a title-bar click that did not move raises and nothing else — it never
     // repositions and never dismisses
     if (moved) {
-      const final = clampRect(gestureRect(g, e), bounds)
+      const final = clampRect(gestureRect(g, e), bounds, modalMin)
       const snap = g.kind === 'move' ? candidate(final, e.shiftKey) : null
       commitModalRect(kind, snap?.rect ?? final, orgScope)
     }
@@ -635,7 +642,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
       forgetModalOpen(kind, orgScope)
     } else {
       const measured = measureRect(panelRef.current)
-      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds), orgScope)
+      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds, modalMin), orgScope)
       rememberModalOpen(kind, orgScope, restore)
     }
   }

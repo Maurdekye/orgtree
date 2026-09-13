@@ -109,6 +109,18 @@ export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { na
   }
 }
 
+export function parsePopoutFeatures(features?: string): { minWidth?: number; minHeight?: number } {
+  if (!features || typeof features !== 'string') return {}
+  const minWidth = /(?:^|,)\s*minWidth=(\d+)/i.exec(features)?.[1]
+  const minHeight = /(?:^|,)\s*minHeight=(\d+)/i.exec(features)?.[1]
+  const w = minWidth ? Number(minWidth) : undefined
+  const h = minHeight ? Number(minHeight) : undefined
+  return {
+    ...(w && Number.isFinite(w) && w > 0 ? { minWidth: w } : {}),
+    ...(h && Number.isFinite(h) && h > 0 ? { minHeight: h } : {}),
+  }
+}
+
 export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
   register?.(window, !isMain)
   if (!isMain) {
@@ -137,7 +149,8 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     if (routeExternal(url)) { event.preventDefault(); return }
     if (!isMain || !trustedUiUrl(url, live(liveOrigin))) event.preventDefault()
   })
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler((details) => {
+    const { url } = details
     const origin = live(liveOrigin)
     if (artifactUrl(url, origin) && (isMain ? trustedUiUrl(window.webContents.getURL(), origin) : window.webContents.getURL() === 'about:blank')) {
       openArtifact?.(url)
@@ -153,10 +166,18 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     // Frameless like the main window: the surface's own header is the title
     // bar. That header must therefore carry the drag region — see .popout-mount
     // in styles.css, without which the window cannot be moved at all.
+    const minDims = parsePopoutFeatures(details.features)
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, frame: false,
-      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false } } }
+      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false },
+      ...minDims } }
   })
   window.webContents.on('did-create-window', (child, details) => {
+    const opts = (details as { options?: { minWidth?: number; minHeight?: number } })?.options
+    const minW = opts?.minWidth
+    const minH = opts?.minHeight
+    if (minW && minH && typeof (child as unknown as { setMinimumSize?: (w: number, h: number) => void }).setMinimumSize === 'function') {
+      try { (child as unknown as { setMinimumSize: (w: number, h: number) => void }).setMinimumSize(minW, minH) } catch { /* best effort */ }
+    }
     trackPopout?.(details.frameName, child)
     configureWindow(child, liveOrigin, false, register, openArtifact, openExternal, trackPopout)
   })
