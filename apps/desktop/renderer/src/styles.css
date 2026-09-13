@@ -3285,20 +3285,55 @@ main.solo { width: 100%; }
    ordinary/archived entries; orange selection for attention"). */
 .docket-modal .gallery-head { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; }
 .docket-modal .gallery-head h3 { margin: 0; }
-/* two columns since the local × went (user 2026-09-11) — the title and
-   everything that follows it. */
-.docket-modal .docket-head { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+/* three columns since search arrived — the title, the query box, and the two
+   filters at the right end (two of them until 2026-09-11, when the local ×
+   went). */
+.docket-modal .docket-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 12px; }
 .docket-head > h3 { grid-column: 1; grid-row: 1; }
 .docket-options-toggle { display: none; }
 .docket-options { display: contents; }
-.docket-filterbar { grid-column: 2; grid-row: 1; display: flex; justify-content: flex-end; gap: 12px; }
+.docket-filterbar { grid-column: 3; grid-row: 1; display: flex; justify-content: flex-end; gap: 12px; }
 .docket-options > .docket-sortbar { grid-column: 1 / -1; grid-row: 2; }
+/* SEARCH. The box lives in the header strip ITSELF, not inside the sliders
+   disclosure: the arrangement and the sort are a posture set once, whereas a
+   query is typed now and is the reason a long docket is hard to read at all. */
+.docket-search {
+  grid-column: 2; grid-row: 1;
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.docket-search-input {
+  flex: 0 1 260px; min-width: 0;
+  font-size: 12.5px; font-family: var(--sans); padding: 3px 8px;
+  background: var(--input); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px;
+}
+/* the engine's OWN in-field ✕ is not in the tab order, carries no accessible
+   name, and does not exist outside WebKit-derived engines. `.docket-search-
+   clear` is the one clear action this control has, so this must not double it
+   with a second, worse one. */
+.docket-search-input::-webkit-search-cancel-button,
+.docket-search-input::-webkit-search-decoration {
+  -webkit-appearance: none; appearance: none;
+}
+.docket-search-clear {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px; font-size: 14px; line-height: 1; cursor: pointer;
+  background: none; color: var(--dim);
+  border: 1px solid transparent; border-radius: 4px;
+}
+.docket-search-clear:hover { color: var(--ink); border-color: var(--line); }
+.docket-search-count { font-size: 11.5px; white-space: nowrap; }
 @container docket (max-width: 760px) {
-  .docket-modal .docket-head { gap: 6px; }
+  .docket-modal .docket-head { gap: 6px; grid-template-columns: auto minmax(0, 1fr); }
   .docket-head > h3 { min-width: 0; font-size: 16px; }
   .docket-modal .docket-options-toggle { display: inline-flex; align-items: center; gap: 4px;
     grid-column: 2; grid-row: 1; justify-self: end; padding: 3px 6px; font-size: 12px; white-space: nowrap; }
-  .docket-options { display: none; grid-column: 1 / -1; grid-row: 2; min-width: 0;
+  /* narrow: the query gets the whole width on its own row, and the disclosure
+     drops below it — search stays visible at every width because hiding it is
+     what made the panel hard to read in the first place */
+  .docket-search { grid-column: 1 / -1; grid-row: 2; }
+  .docket-search-input { flex: 1 1 auto; }
+  .docket-options { display: none; grid-column: 1 / -1; grid-row: 3; min-width: 0;
     padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
     max-height: 180px; overflow: auto; }
   .docket-options[data-open="true"] { display: flex; flex-direction: column; gap: 10px; }

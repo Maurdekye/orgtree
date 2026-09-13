@@ -483,6 +483,109 @@ export function ancestorsOf(items: WorkItem[], slug: string): string[] {
   return out
 }
 
+// ---- SEARCH (add-search-to-the-work-docket)
+//
+// LOCAL, NOT A BACKEND ROUTE, and that is a decision taken against the real
+// data contract rather than a shortcut. `getWorkItems(slug, true, true)`
+// already asks for all three groups on every five-second poll, and
+// `ledger.work_list` answers with the FULL `_work_view` per item (it only
+// trims for `compact`, which this renderer never requests). So the four
+// searched fields are ALREADY resident for every row of every group before a
+// key is pressed: searching them costs no request, and the ticket's "do not
+// fetch full ticket histories on every keystroke" is satisfied by
+// construction rather than by a cache somebody has to keep correct.
+//
+// ⚠ AND THE VISIBILITY RULE COMES FOR FREE. `work_list` has already applied
+// `_work_can_read` for this viewer, so a local filter cannot surface an item
+// the reader may not see. A server-side `?q=` would have had to re-derive that
+// rule in a second place, which is exactly how two copies of a permission
+// check drift apart.
+
+/** The text one item is searched by — and deliberately nothing else.
+ *
+ *  The four field groups the ticket names: the title, the readable slug, the
+ *  CURRENT description, and the LATEST progress summaries (both lists, because
+ *  "what I did" and "what I am about to do" are equally what a reader
+ *  remembers). History, evidence, acceptance and the scope record are NOT
+ *  searched even though the payload carries some of them: a hit on text the
+ *  row does not show reads as a false positive, because the reader cannot see
+ *  why the row matched.
+ *
+ *  ⚠ LOWERCASED ONCE, HERE. Every caller compares against an already-lowercase
+ *  query, so no keystroke ever re-normalises a description. */
+export function searchText(it: WorkItem): string {
+  return [
+    it.title ?? '', it.slug ?? '', it.objective ?? '',
+    ...(it.done_so_far ?? []), ...(it.working_on_next ?? []),
+  ].join('\n').toLowerCase()
+}
+
+/** The query as terms. Whitespace-separated, lowercased, empties dropped.
+ *
+ *  ⚠ SEVERAL WORDS MEAN "ALL OF THESE", NOT "THIS EXACT PHRASE". A reader
+ *  types what they remember, not what was written: `search docket` has to find
+ *  "Add search to the Work Docket", and as one literal substring it would not.
+ *  A single word is still a plain substring test, so this can only ever match
+ *  MORE than a phrase search would, never less. */
+export function queryTerms(q: string): string[] {
+  return q.toLowerCase().split(/\s+/).filter(Boolean)
+}
+
+/** Every term present somewhere in the haystack, in any order, across any of
+ *  the searched fields. An empty term list matches everything — "no query" is
+ *  not "no results". */
+export function matchesTerms(hay: string, terms: readonly string[]): boolean {
+  for (const t of terms) if (!hay.includes(t)) return false
+  return true
+}
+
+/** One group, narrowed.
+ *
+ *  ⚠ AN EMPTY QUERY RETURNS THE INPUT ARRAY ITSELF — not a copy, not a
+ *  re-filter. `sortItems` keeps the same contract for the same reason: the
+ *  unsearched docket must be the exact array the rest of this panel was
+ *  already deriving from, so turning search off cannot change identity,
+ *  order, or a single downstream memo. */
+export function filterItems(items: WorkItem[], terms: readonly string[],
+                            hay: (it: WorkItem) => string): WorkItem[] {
+  if (!terms.length) return items
+  return items.filter((it) => matchesTerms(hay(it), terms))
+}
+
+/** A `searchText` that remembers, keyed on the ITEM OBJECT itself.
+ *
+ *  ⚠ THIS IS THE WHOLE PERFORMANCE STORY, so it is worth saying why it is a
+ *  WeakMap and not a `useMemo`. The poll hands the panel brand-new arrays
+ *  every five seconds, and each filtered group is a fresh `[]` for as long as
+ *  its checkbox is unticked — so a memo keyed on the arrays would miss on
+ *  virtually every render and put description normalisation back on the
+ *  keystroke path, which is the one thing the ticket rules out. Keyed on the
+ *  item, each ticket's text is built ONCE for as long as that object lives:
+ *  every keystroke between two polls is pure `includes()` over strings that
+ *  already exist.
+ *
+ *  ⚠ AND IT NEEDS NO EVICTION. The entry dies with the object the next poll
+ *  replaced, so a docket left open for a day cannot accumulate a cache. The
+ *  flip side — the reason this is only ever used on polled data — is that a
+ *  MUTATED item would keep its old text; every item here is replaced whole by
+ *  the next response, never edited in place. */
+export function makeHaystack(): (it: WorkItem) => string {
+  const cache = new WeakMap<WorkItem, string>()
+  return (it: WorkItem) => {
+    const hit = cache.get(it)
+    if (hit !== undefined) return hit
+    const text = searchText(it)
+    cache.set(it, text)
+    return text
+  }
+}
+
+/** The fold a SEARCH renders through: none of it.
+ *
+ *  Module-level so its identity is stable — handed to `nestRows` on every
+ *  searching render, it must not look like a new set each time. */
+const NO_FOLD: ReadonlySet<string> = new Set<string>()
+
 /** The whole list, in order. The contract this function exists to keep: the
  *  backlog and the archive are ALWAYS the last two sections, in that order, in
  *  every grouping mode — so ticking a box can only ever add something to the
@@ -577,18 +680,48 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // judgement this panel cannot make (it holds no document list).
   const [docView, setDocView] = useState<string | null>(null)
   const categoryId = useId()
+  const searchId = useId()
   const [optionsOpen, setOptionsOpen] = useState(false)
   const optionsToggle = useRef<HTMLButtonElement>(null)
+  // ⚠ SEARCH IS THE ONLY VIEW STATE THAT NARROWS, AND IT OWNS NOTHING ELSE.
+  // It is a query string and nothing more: the selection, both folds, the
+  // arrangement, the sort and the two category toggles are never written by
+  // it. That is WHY "clearing the search restores the prior view" holds — not
+  // because anything is saved and put back, but because nothing was ever
+  // disturbed to begin with. Anything that starts mutating those from here
+  // breaks the guarantee silently.
+  //
+  // ⚠ AND IT IS DECLARED HERE, ABOVE `escClose`, ON PURPOSE. Escape has to be
+  // able to see the query — see the search arm below.
+  const [query, setQuery] = useState('')
+  const searchBox = useRef<HTMLInputElement>(null)
+  const clearSearch = useCallback(() => {
+    setQuery('')
+    // the ✕ is a control the keyboard can reach, so it must not strand focus
+    // on a button that has just removed its own reason to exist
+    searchBox.current?.focus()
+  }, [])
   // ⚠ ESCAPE BELONGS TO THE TOP-MOST THING ON SCREEN. Both listeners sit on
   // `window`, so an unguarded Escape with the reader open closes the reader
   // AND the docket underneath it — the user asked to back out of a document
   // and lost the panel they were reading from.
+  //
+  // ⚠ THE SEARCH ARM IS HERE AND NOT ON THE INPUT, because `useEsc` listens on
+  // `window` in the CAPTURE phase: by the time the input's own keydown ran,
+  // the panel would already have closed underneath the reader who only meant
+  // to clear their query. It is scoped to FOCUS, not merely to "a query
+  // exists" — Escape with the cursor elsewhere still closes the docket, which
+  // is what every other panel does and what the reader expects.
   const escClose = useCallback(() => {
     if (docView) return
+    const box = searchBox.current
+    if (box && box.value && box.ownerDocument.activeElement === box) {
+      clearSearch(); return
+    }
     if (optionsOpen && optionsToggle.current?.getClientRects().length) {
       setOptionsOpen(false); optionsToggle.current.focus()
     } else close()
-  }, [docView, close, optionsOpen])
+  }, [docView, close, optionsOpen, clearSearch])
   // ⚠ AND A PINNED DOCKET DOES NOT CLOSE ITSELF TO GET OUT OF THE WAY. Every
   // jump below hands `navClose` down instead of `close`: centred, the panel
   // covers what it just opened and must go; pinned, it is a window the user
@@ -653,19 +786,47 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const backlogCount = data?.counts?.backlogged ?? backlogCache.length
 
   const ownerName = useCallback((it: WorkItem) => it.owner?.node ?? UNASSIGNED, [])
+
+  // ---- THE SEARCH, APPLIED TO EXACTLY THE THREE ARRAYS ABOVE
+  //
+  // ⚠ IT NARROWS WHAT IS ALREADY SHOWN — it never reaches past a toggle. The
+  // two filtered groups are `[]` here whenever their checkbox is off, so a
+  // query physically cannot find a backlogged or archived ticket the reader
+  // has not asked to see. That is the ticket's "respects the current view"
+  // requirement met by construction, not by a second rule that could disagree
+  // with the checkboxes later.
+  //
+  // ⚠ AND THE HAYSTACK IS CACHED ON THE ITEM OBJECT, NOT ON THE ARRAY — see
+  // `makeHaystack` for why that distinction is the whole performance story.
+  // One cache for the life of the panel; its entries turn over with the poll.
+  const hay = useMemo(makeHaystack, [])
+  const terms = useMemo(() => queryTerms(query), [query])
+  const searching = terms.length > 0
+  const shownActive = useMemo(
+    () => filterItems(active, terms, hay), [active, terms, hay])
+  const shownBacklog = useMemo(
+    () => filterItems(backlog, terms, hay), [backlog, terms, hay])
+  const shownArchived = useMemo(
+    () => filterItems(archived, terms, hay), [archived, terms, hay])
+
   // ⚠ SORTED BEFORE GROUPING, and that ordering is load-bearing. Both
   // `buildSections` and `nestRows` PRESERVE the order they are handed —
   // filtering, first-appearance bucketing and re-parenting all do — so sorting
   // the flat lists here puts siblings in the chosen order inside their parent
   // and inside their group, without either of those two ever growing a
-  // comparator of its own.
+  // comparator of its own. The search narrows BEFORE this for the same reason:
+  // it is one more order-preserving filter, so it cannot re-order anything.
   const sections = useMemo(
     () => buildSections(groupMode,
-                        sortItems(active, sortMode),
-                        sortItems(backlog, sortMode),
-                        sortItems(archived, sortMode), ownerName),
-    [groupMode, sortMode, active, backlog, archived, ownerName])
+                        sortItems(shownActive, sortMode),
+                        sortItems(shownBacklog, sortMode),
+                        sortItems(shownArchived, sortMode), ownerName),
+    [groupMode, sortMode, shownActive, shownBacklog, shownArchived, ownerName])
   const rowCount = sections.reduce((n, s) => n + s.items.length, 0)
+  /** how many rows the ENABLED views hold before the query — the denominator
+   *  the match readout is honest about, so "3 of 40" never counts a group the
+   *  reader has switched off */
+  const searchableCount = active.length + backlog.length + archived.length
 
   // selection BY ID, not index — the list repolls under the user (G5)
   const selId = sel?.slug === slug ? sel.id : null
@@ -892,6 +1053,38 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const pickGroup = (m: DocketGroupMode) => { setGroupMode(m); writeGroupMode(m) }
   const pickSort = (m: DocketSortMode) => { setSortMode(m); writeSortMode(m) }
 
+  /** The FIRST ROW ACTUALLY ON SCREEN — what Enter in the search box opens.
+   *
+   *  ⚠ IT IS NOT `sections[0].items[0]`. Nesting can promote a parent above a
+   *  child that sorted ahead of it, so the first row of the list and the first
+   *  item of the array are not always the same ticket, and Enter has to open
+   *  the one the reader is looking at. Re-running `nestRows` on the FIRST
+   *  section only mirrors the render exactly for the price of one section. */
+  const firstRow = useMemo(() => {
+    const first = sections[0]
+    if (!first) return null
+    return nestRows(first.items, searching ? NO_FOLD : collapsed)[0]?.item.slug
+      ?? null
+  }, [sections, searching, collapsed])
+
+  const onSearchKey = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
+    // ⚠ ESCAPE IS HANDLED TWICE, AND BOTH ARE NEEDED. `escClose` catches it for
+    // a CENTRED docket, where `useEsc` wins the event on window before React
+    // sees it; this arm catches it for a PINNED or DETACHED one, which
+    // deliberately registers no modal Escape at all. Whichever fires first
+    // clears the query, and the other then finds an empty box and stands down.
+    if (e.key === 'Escape') {
+      if (!query) return                 // nothing to clear — let the panel act
+      e.preventDefault(); e.stopPropagation()
+      clearSearch()
+    } else if (e.key === 'Enter') {
+      // Enter opens the top result without making the reader leave the box, so
+      // refining the query and reading the hit are the same gesture.
+      e.preventDefault()
+      if (firstRow) setSelId(firstRow)
+    }
+  }, [query, clearSearch, firstRow, setSelId])
+
   return (
     <>
     <PinFrame kind="docket" title="Work docket" panel="settings wide docket-modal"
@@ -905,6 +1098,48 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           }
         }}>
           <h3><DocketIcon fontSize="inherit" /> Work docket</h3>
+          {/* THE SEARCH, and it sits OUTSIDE `.docket-options` deliberately.
+              Narrowing a long list is the reason this panel is hard to read in
+              the first place, so it must not be one more thing behind the
+              sliders disclosure — the arrangement and sort controls are a
+              posture you set once, a query is something you type now.
+              ⚠ `role="search"` NAMES THE LANDMARK and the input carries its own
+              `aria-label`, because the box has no visible <label>: without one
+              it announces as an unlabelled text field, and the placeholder is
+              not a label (it disappears the moment anything is typed). */}
+          <div className="docket-search" role="search">
+            <input ref={searchBox} type="search" className="docket-search-input"
+              id={`${searchId}-q`}
+              placeholder="Search tickets…"
+              aria-label="Search work items by title, name, description or latest progress"
+              aria-describedby={`${searchId}-n`}
+              autoComplete="off" spellCheck={false}
+              value={query} onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKey} />
+            {/* the CLEAR ACTION. A real button rather than the native ✕ the
+                browser puts inside `type=search`: that one is not in the tab
+                order, carries no accessible name, and is absent outside
+                WebKit-derived engines — so the stylesheet hides it and this
+                takes its place. Rendered only when there is something to
+                clear, so it is never a live-looking control that does
+                nothing. */}
+            {query !== '' && (
+              <button type="button" className="docket-search-clear"
+                aria-label="Clear search" title="Clear search (Esc)"
+                onClick={clearSearch}>
+                <CloseIcon fontSize="inherit" />
+              </button>
+            )}
+            {/* ⚠ THE LIVE REGION IS ALWAYS MOUNTED, and only its TEXT comes and
+                goes. A region created at the same moment its content appears is
+                not reliably announced — the assistive tech has to be watching
+                it already. Empty when idle, so it says nothing until there is a
+                result to say. */}
+            <span id={`${searchId}-n`} className="dim docket-search-count"
+              role="status" aria-live="polite">
+              {searching ? `${rowCount} of ${searchableCount} match` : ''}
+            </span>
+          </div>
           {/* user 2026-09-11: the words became the sliders glyph, and the ×
               that sat beside them is gone. That × was this modal's alone — no
               other centred surface here carries one — and it duplicated what
@@ -968,12 +1203,35 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           {!data
             ? <div className="dim pad">loading…</div>
             : rowCount === 0
-              ? <div className="dim pad">no work items yet</div>
+              // ⚠ "NOTHING MATCHED" IS NOT "NOTHING EXISTS". Left as the one
+              // message, a query that found nothing would claim the org has no
+              // work at all — and the reader would have no way to tell that
+              // their own three characters were the cause.
+              ? searching
+                ? <div className="dim pad docket-nomatch">
+                    no items match “{query}”
+                    {(!showBacklog || !showArchived) && (
+                      <> — backlogged and archived work is searched only when
+                        its box is ticked</>
+                    )}
+                  </div>
+                : <div className="dim pad">no work items yet</div>
               : (
                 <div className="mailer">
                   <div className="mailer-list">
                     {sections.map((s) => {
-                      const categoryFolded = Boolean(s.heading && collapsedCategories.has(s.key))
+                      // ⚠ A SEARCH RENDERS THROUGH BOTH FOLDS, WITHOUT CLEARING
+                      // EITHER. A query that finds a row and then refuses to
+                      // show it because a heading or an ancestor happens to be
+                      // collapsed is simply broken — and `goToItem` already
+                      // takes the same view, clearing every category fold to
+                      // reveal a jump target. The difference is that this only
+                      // BYPASSES them for the duration of the query: neither
+                      // `collapsed` nor `collapsedCategories` is written, so
+                      // clearing the box puts every fold back exactly as the
+                      // reader left it.
+                      const categoryFolded = Boolean(
+                        s.heading && !searching && collapsedCategories.has(s.key))
                       const rowsId = `${categoryId}-${s.key}-rows`
                       const categoryName = s.agent ? `${s.agent} category` : `${s.heading}`
                       return (
@@ -1001,12 +1259,19 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                           )}
                           <div id={s.heading ? rowsId : undefined}
                             className="docket-category-rows" hidden={categoryFolded}>
-                            {nestRows(s.items, collapsed).map((row) => (
+                            {nestRows(s.items, searching ? NO_FOLD : collapsed).map((row) => (
                               <DocketRow key={row.item.slug} item={row.item}
                                 ageMode={sortMode} org={slug} toast={toast}
                                 selected={row.item.slug === selId}
                                 depth={row.depth} kids={row.kids}
-                                folded={collapsed.has(row.item.slug)}
+                                // ⚠ THE ARROW DESCRIBES WHAT IS ON SCREEN, not
+                                // what the fold set holds. While a query is
+                                // active every subtree is drawn regardless, so
+                                // a caret still claiming `aria-expanded=false`
+                                // would be telling a screen reader the exact
+                                // opposite of what is rendered.
+                                folded={!searching && collapsed.has(row.item.slug)}
+                                foldLocked={searching}
                                 onFold={() => toggleFold(row.item.slug)}
                                 onClick={() => setSelId(
                                   row.item.slug === selId ? null : row.item.slug)}
@@ -1313,7 +1578,7 @@ let copyTicket = 0
 
 function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   close, flash, rowRef, depth = 0, kids = 0, folded = false, onFold,
-  ageMode = 'updated', org, toast }: {
+  foldLocked = false, ageMode = 'updated', org, toast }: {
   item: WorkItem
   selected: boolean
   /** the org slug, for the context menu's "Copy reference" (`@item:org/slug`);
@@ -1332,6 +1597,11 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   kids?: number
   folded?: boolean
   onFold?: () => void
+  /** the subtree fold cannot change anything right now, because a SEARCH is
+   *  showing every match regardless of the fold. The arrow is disabled and
+   *  says why rather than staying clickable and doing nothing — this file's
+   *  standing objection to a live-looking control that is actually inert. */
+  foldLocked?: boolean
   onClick: () => void
   onDismiss: (item: WorkItem) => void
   facts: Map<string, NodeFacts>
@@ -1494,8 +1764,12 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
             click on a parent can do. */}
         {kids > 0 && (
           <button className={'docket-fold' + (folded ? ' folded' : '')}
-            title={folded ? `show ${kids} sub-item${kids === 1 ? '' : 's'}`
-              : `hide ${kids} sub-item${kids === 1 ? '' : 's'}`}
+            disabled={foldLocked}
+            title={foldLocked
+              ? `showing all ${kids} sub-item${kids === 1 ? '' : 's'} while a `
+                + 'search is active — clear the search to fold again'
+              : folded ? `show ${kids} sub-item${kids === 1 ? '' : 's'}`
+                : `hide ${kids} sub-item${kids === 1 ? '' : 's'}`}
             aria-expanded={!folded}
             onClick={(e) => { e.stopPropagation(); onFold?.() }}>▾</button>
         )}
