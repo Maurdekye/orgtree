@@ -84,6 +84,7 @@ test('--plan and execution resolve the same Git-aware profile', () => {
     'head:package-lock.json': { version: '2.1.4', packages: { '': { version: '2.1.4' } } },
   }
   const git = (_command, args) => {
+    if (args[0] === 'rev-parse') return 'base\n'
     if (args[0] === 'diff') return 'package.json\npackage-lock.json\ndocs/release-notes-2.1.4-RC1.md\n'
     return JSON.stringify(values[`${args[1].startsWith('base') ? 'base' : 'head'}:${args[1].split(':').at(-1)}`])
   }
@@ -109,9 +110,51 @@ test('receipt reuse requires the exact candidate, commands, source bytes, and in
     assert.equal(reusableReceipt(receipt, expected), true)
     assert.equal(reusableReceipt({ ...receipt, candidate: 'def456' }, expected), false)
     assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456' }), false)
-    assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456', allowCandidateChange: true }), true, 'source evidence can cross a version-only commit')
+    assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456', allowCandidateChange: true, baseCandidate: 'abc123' }), true, 'source evidence can cross its version-only child commit')
+    assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456', allowCandidateChange: true, baseCandidate: 'older' }), false, 'an unrelated older receipt cannot be reused')
     assert.equal(reusableReceipt({ ...receipt, sourceFingerprint: 'sha256:wrong' }, expected), false)
     assert.equal(reusableReceipt({ ...receipt, fingerprint: 'sha256:wrong' }, expected), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('verification runner reuses only the receipt from the exact version parent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-parent-'))
+  try {
+    const sourcePath = path.join(root, 'tools/release-windows.mjs')
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true })
+    fs.writeFileSync(sourcePath, 'release source')
+    const files = ['package.json', 'package-lock.json', 'docs/release-notes-2.1.4-RC1.md']
+    const values = {
+      'base:package.json': { version: '2.1.3', name: 'orgtree' },
+      'head:package.json': { version: '2.1.4', name: 'orgtree' },
+      'base:package-lock.json': { version: '2.1.3', packages: { '': { version: '2.1.3' } } },
+      'head:package-lock.json': { version: '2.1.4', packages: { '': { version: '2.1.4' } } },
+    }
+    const git = (_command, args) => {
+      if (args[0] === 'rev-parse') return 'base\n'
+      if (args[0] === 'diff') return `${files.join('\n')}\n`
+      if (args[0] === 'ls-files') return 'tools/release-windows.mjs\n'
+      return JSON.stringify(values[`${args[1].startsWith('base') ? 'base' : 'head'}:${args[1].split(':').at(-1)}`])
+    }
+    const plan = selectReleaseVerification(files, { root, base: 'base', candidate: 'head', git })
+    const source = sourceFingerprint(['tools/release-windows.mjs'], { root })
+    const makeReceipt = candidate => createVerificationReceipt({
+      plan, candidate, source, sourceFiles: ['tools/release-windows.mjs'],
+      results: plan.checks.map(check => ({ gate: check.gate, status: 0 })),
+      startedAt: '2026-09-13T00:00:00.000Z', finishedAt: '2026-09-13T00:00:01.000Z',
+    })
+    const exactPath = path.join(root, 'exact.json')
+    fs.writeFileSync(exactPath, JSON.stringify(makeReceipt('base')))
+    const reused = runVerification({ root, candidate: 'head', receiptPath: exactPath, git, runner: () => { throw new Error('exact parent should reuse') } })
+    assert.equal(reused.reused, true)
+    const oldPath = path.join(root, 'old.json')
+    fs.writeFileSync(oldPath, JSON.stringify(makeReceipt('older')))
+    let ran = 0
+    const rerun = runVerification({ root, candidate: 'head', receiptPath: oldPath, git, runner: () => { ran++; return { status: 0 } } })
+    assert.equal(rerun.reused, undefined)
+    assert.equal(ran, 2)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -121,6 +164,7 @@ test('explicit changed paths cannot omit a Git-detected affected file', () => {
   assert.throws(() => runVerification({
     root: process.cwd(), candidate: 'abc123', files: ['tools/release-windows.mjs'],
     git: (_command, args) => {
+      if (args[0] === 'rev-parse') return 'base123\n'
       if (args[0] === 'diff') return 'apps/desktop/main.ts\ntools/release-windows.mjs\n'
       throw new Error(`unexpected git call: ${args.join(' ')}`)
     }, runner: () => ({ status: 0 }),
@@ -156,6 +200,10 @@ test('verification runner captures hidden child options, commands, and measured 
   const receipt = runVerification({
     root: process.cwd(), files: ['tools/release-windows.mjs'], candidate: 'abc123',
     git: (_command, args) => {
+      if (args[0] === 'rev-parse') {
+        assert.equal(args[1], 'abc123^{commit}')
+        return 'base123\n'
+      }
       if (args[0] === 'diff') return 'tools/release-windows.mjs\n'
       if (args[0] === 'ls-files') return 'tools/release-windows.mjs\n'
       throw new Error(`unexpected git call: ${args.join(' ')}`)

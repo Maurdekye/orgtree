@@ -176,9 +176,9 @@ export function createVerificationReceipt({ plan, candidate, base = null, source
   return receipt
 }
 
-export function reusableReceipt(receipt, { candidate, source, sourceFiles, profile = RELEASE_VERIFICATION_PROFILE, commands, allowCandidateChange = false } = {}) {
+export function reusableReceipt(receipt, { candidate, source, sourceFiles, profile = RELEASE_VERIFICATION_PROFILE, commands, allowCandidateChange = false, baseCandidate } = {}) {
   if (!receipt || receipt.schema !== RELEASE_VERIFICATION_SCHEMA || receipt.profile !== profile) return false
-  if (candidate && receipt.candidate !== candidate && !allowCandidateChange) return false
+  if (candidate && receipt.candidate !== candidate && (!allowCandidateChange || receipt.candidate !== baseCandidate)) return false
   if (receipt.sourceFingerprint !== source || receipt.green !== true) return false
   if (sourceFiles && JSON.stringify(receipt.sourceFiles) !== JSON.stringify(sourceFiles)) return false
   if (commands && JSON.stringify(receipt.commands) !== JSON.stringify(commands)) return false
@@ -194,21 +194,27 @@ function gitCandidate(root, candidate, git = execFileSync) {
   return git('git', ['rev-parse', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
 }
 
+function gitCommit(root, ref, git = execFileSync) {
+  const revision = ref.endsWith('^') ? `${ref}{commit}` : `${ref}^{commit}`
+  return git('git', ['rev-parse', revision], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
+}
+
 export function resolveVerificationPlan({ root = process.cwd(), files, base, candidate = 'HEAD', git = execFileSync } = {}) {
   const resolvedCandidate = gitCandidate(root, candidate, git)
-  const derivedFiles = gitChangedFiles({ root, base, candidate: resolvedCandidate, git })
+  const resolvedBase = gitCommit(root, base || `${resolvedCandidate}^`, git)
+  const derivedFiles = gitChangedFiles({ root, base: resolvedBase, candidate: resolvedCandidate, git })
   const selectedFiles = files?.length ? normalizeFiles(files) : derivedFiles
   if (JSON.stringify(selectedFiles) !== JSON.stringify(derivedFiles)) throw new Error('explicit changed paths must exactly match the Git diff; omit the list to derive it safely')
   return {
-    candidate: resolvedCandidate,
+    candidate: resolvedCandidate, base: resolvedBase,
     plan: selectReleaseVerification(selectedFiles, {
-      root, base: base || `${resolvedCandidate}^`, candidate: resolvedCandidate, git,
+      root, base: resolvedBase, candidate: resolvedCandidate, git,
     }),
   }
 }
 
 export function runVerification({ root = process.cwd(), files, base, candidate = 'HEAD', receiptPath, jsonOutput, runner = spawnSync, git = execFileSync, now = () => new Date().toISOString() } = {}) {
-  const { candidate: resolvedCandidate, plan } = resolveVerificationPlan({ root, files, base, candidate, git })
+  const { candidate: resolvedCandidate, base: resolvedBase, plan } = resolveVerificationPlan({ root, files, base, candidate, git })
   const trackedFiles = git('git', ['ls-files'], { cwd: root, encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean)
   const sourceScope = testedSourceFingerprint(plan, { root, trackedFiles })
   const source = sourceScope.fingerprint
@@ -217,8 +223,9 @@ export function runVerification({ root = process.cwd(), files, base, candidate =
     try {
       const previous = JSON.parse(fs.readFileSync(receiptPath, 'utf8'))
       if (reusableReceipt(previous, { candidate: resolvedCandidate, source, sourceFiles: scopeFiles,
-        allowCandidateChange: plan.versionOnly, commands: plan.checks.map(check => ({ gate: check.gate, command: check.command })) })) {
-        const reused = { ...previous, candidate: resolvedCandidate, base: base || null,
+        allowCandidateChange: plan.versionOnly, baseCandidate: resolvedBase,
+        commands: plan.checks.map(check => ({ gate: check.gate, command: check.command })) })) {
+        const reused = { ...previous, candidate: resolvedCandidate, base: resolvedBase,
           changedFiles: plan.changedFiles, reused: true, reusedFrom: previous.candidate, reusedAt: now() }
         delete reused.fingerprint
         reused.fingerprint = digest(reused)
@@ -244,7 +251,7 @@ export function runVerification({ root = process.cwd(), files, base, candidate =
       stdout: String(result.stdout || '').slice(-65536), stderr: String(result.stderr || '').slice(-65536) })
     if ((result.status ?? 1) !== 0) break
   }
-  const receipt = createVerificationReceipt({ plan, candidate: resolvedCandidate, base, source, sourceFiles: scopeFiles, results, startedAt, finishedAt: now() })
+  const receipt = createVerificationReceipt({ plan, candidate: resolvedCandidate, base: resolvedBase, source, sourceFiles: scopeFiles, results, startedAt, finishedAt: now() })
   if (receiptPath) fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n')
   if (jsonOutput) fs.writeFileSync(jsonOutput, JSON.stringify(receipt, null, 2) + '\n')
   return receipt
@@ -274,7 +281,7 @@ export function main(argv = process.argv.slice(2)) {
     return 0
   }
   console.log(`Selected ${plan.profile} (${plan.area}); ${plan.reason}`)
-  const receipt = runVerification({ root, files: plan.changedFiles, base, candidate: selected.candidate, receiptPath, jsonOutput })
+  const receipt = runVerification({ root, files: plan.changedFiles, base: selected.base, candidate: selected.candidate, receiptPath, jsonOutput })
   console.log(JSON.stringify(receipt, null, 2))
   return receipt.green ? 0 : 1
 }
