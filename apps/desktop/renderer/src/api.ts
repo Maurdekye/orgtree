@@ -768,6 +768,7 @@ export const fileUrl = (slug: string, nid: string, path: string): string =>
 export const sendMessage = (
   slug: string, nid: string, text: string, attachments?: string[],
   replyTo?: { id?: string; from: string; at?: string; gist: string } | EventReplyWire,
+  clientOp?: string,
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',
@@ -775,15 +776,20 @@ export const sendMessage = (
     body: JSON.stringify({ text,
       ...(attachments?.length ? { attachments } : {}),
       // FR-05: an inline mailbox reply carries a snapshot of what it answers
-      ...(replyTo ? { reply_to: replyTo } : {}) }),
+      ...(replyTo ? { reply_to: replyTo } : {}),
+      // the composer's pre-send name for this submission — the ghost carries
+      // the same value, so the durable copy is recognizable by identity in
+      // the first payload that shows it (see PendingMail.client_op)
+      ...(clientOp ? { client_op: clientOp } : {}) }),
   })
 /** Object identity only; the server resolves authoritative reply context. */
 export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget,
-  attachments?: string[]): Promise<SendMessageResult> =>
+  attachments?: string[], clientOp?: string): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, target,
-      ...(attachments?.length ? { attachments } : {}) }),
+      ...(attachments?.length ? { attachments } : {}),
+      ...(clientOp ? { client_op: clientOp } : {}) }),
   })
 export const saveSettings = (slug: string, opts: SettingsRequest = {}): Promise<SettingsResult> =>
   req(`/api/orgs/${slug}/settings`, {

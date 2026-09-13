@@ -51,3 +51,20 @@ export function segmentMailIds(value: unknown, profile: EventProfile): Set<strin
   }
   return ids
 }
+
+/** The composer-minted submission names carried by mail segment rows
+ *  (PendingMail.client_op — the server stores the value post_mail was given
+ *  and journal copies carry it into every projection). Unlike a mail id this
+ *  is OUR OWN minted string: recognizing it needs no event decode — presence
+ *  on a validated segment row is the evidence, and a legacy row simply never
+ *  carries one. */
+export function segmentClientOps(value: unknown, profile: EventProfile): Set<string> {
+  const ops = new Set<string>()
+  if (isSegments(value, profile)) for (const segment of value) {
+    if (segment.kind === 'mail') for (const row of segment.rows) {
+      const op = (row as { client_op?: unknown }).client_op
+      if (typeof op === 'string' && op) ops.add(op)
+    }
+  }
+  return ops
+}

@@ -48,7 +48,7 @@ import type { ProviderPresence } from './shared'
 import {
   addPending, bindPendingMail, failPending, CHAT_WINDOW, collapseWindow,
   dismissPending, dropPending,
-  loadOlder as storeLoadOlder, markBusy, markGhostCommand,
+  loadOlder as storeLoadOlder, markBusy, markGhostCommand, mintClientOp,
   MAX_WINDOW, refreshConvo, useConvo,
 } from '../convo'
 import type { PendingGhost } from '../convo'
@@ -2111,12 +2111,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     setAttached([])
     // optimistic ghost only until the server confirms — the durable copy
     // then renders from chat.pending_mail (№11); a failed send clears the
-    // ghost instead of leaving a dimmed bubble forever
-    const ghostId = addPending(slug, node.id, t, sentReply, attached)
+    // ghost instead of leaving a dimmed bubble forever.
+    // `op` is the submission's own name, on the ghost AND the POST: the first
+    // payload showing the durable copy retires the ghost by identity, even
+    // while this request is still in flight (see PendingGhost.op).
+    const op = mintClientOp()
+    const ghostId = addPending(slug, node.id, t, sentReply, attached, op)
     if (live && !node.halt) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined)
+    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
         // review C3: name every real outcome — "delivering" as the fallback

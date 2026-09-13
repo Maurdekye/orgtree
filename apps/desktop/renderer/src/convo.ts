@@ -22,7 +22,7 @@ import type { DraftAttachment } from './draftstore'
 
 import { BASE, getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
-import { segmentMailIds } from './events/wire'
+import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
 import { assistantIds, isAssistantSnapshot, mergeAssistantRows } from './assistantMessages'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
@@ -68,6 +68,25 @@ export interface PendingGhost {
   id: number
   /** Returned by the server for a typed send; never inferred from its body. */
   mailId?: string
+  /** THE SUBMISSION'S OWN NAME, minted by the composer BEFORE the POST left
+   *  (sent as `client_op`; the server stores it on the mail entry and every
+   *  projection carries it — PendingMail.client_op, mail segment rows).
+   *
+   *  This is what closes the window `mailId` cannot: the mail id only exists
+   *  once the response returns, and until then the durable copy — announced
+   *  by a payload the busy-node event stream refetched mid-flight — was
+   *  UNRECOGNIZABLE to this ghost, so the message rendered twice (ghost +
+   *  typed pending bubble) for the whole round trip, on every send to a busy
+   *  agent. With `op` the very first payload showing any representation of
+   *  this submission retires the ghost by identity — never by body, so two
+   *  identical texts from two submissions stay two messages.
+   *
+   *  It also outranks `failed`: a POST whose connection died after the server
+   *  stored the mail (a backend restart mid-send) used to leave a permanent
+   *  "failed" ghost beside the delivered message; op-evidence in a later
+   *  payload proves the send DID land, and the honest correction is to
+   *  retire the false failure. */
+  op?: string
   text: string
   seen: number
   /** Same-text sends already queued when this send was made. */
@@ -117,6 +136,17 @@ const UNKNOWN_SEQ = Number.MAX_SAFE_INTEGER
 
 /** ghost identity mint — see PendingGhost.id */
 let GHOST_ID = 0
+
+/** a fresh submission name (PendingGhost.op / the POST's `client_op`) —
+ *  minted BEFORE the send leaves, which is the whole point: it is the one
+ *  identity both the ghost and the server's durable copy can carry without
+ *  waiting for the response. Crypto-strong where available; the fallback
+ *  only needs to be unique within one tab's sends. */
+export function mintClientOp(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+  return c?.randomUUID?.()
+    ?? `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 /** Legacy responses lack a stable mail id. Require an actual replacement
  *  after this send's baseline, including a complete pending queue. */
@@ -506,6 +536,27 @@ function serverMailIds(c: ChatPayload | null): Set<string> {
   return ids
 }
 
+/** Every composer-minted submission name this payload shows a durable copy
+ *  of — the same three carriers serverMailIds reads (queue, transcript,
+ *  live log), keyed by `client_op` instead of the server's mail id. A ghost
+ *  carrying one of these has been superseded by the copy the server is
+ *  already showing, whether or not its own POST has answered yet. No decode
+ *  gate on the pending rows: the op is this client's own minted string, and
+ *  its presence on a server row IS the recognition (a mail id, by contrast,
+ *  is only trustworthy on a row whose event validates). */
+function serverOpIds(c: ChatPayload | null): Set<string> {
+  const ops = new Set<string>()
+  if (!c) return ops
+  const profile = BASE ? 'public' : 'operator'
+  for (const row of [...c.messages, ...(c.live ?? [])]) {
+    for (const op of segmentClientOps(row.segments, profile)) ops.add(op)
+  }
+  for (const row of c.pending_mail ?? []) {
+    if (typeof row.client_op === 'string' && row.client_op) ops.add(row.client_op)
+  }
+  return ops
+}
+
 /** A steer frame can carry the complete, already-saved transcript row.
  * Install it through the same message list as polling, then retain it across
  * stale fetches until the fetched range contains its durable identity. */
@@ -599,8 +650,10 @@ export function refreshConvo(slug: string, nid: string,
     let proofCursor = c.before
     const needsProof = () => {
       const ids = serverMailIds(c)
+      const ops = serverOpIds(c)
       const oldest = c.messages[0]?.seq
       return e.s.pending.some(g => !g.failed && !g.cmd
+        && !(g.op && ops.has(g.op))
         && (g.mailId ? !ids.has(g.mailId) : !legacyGhostVisible(c, g))
         && typeof oldest === 'number' && g.seq0 !== UNKNOWN_SEQ && oldest > g.seq0)
     }
@@ -672,13 +725,23 @@ export function refreshConvo(slug: string, nid: string,
     const cmdDead = (g: PendingGhost): boolean =>
       !!g.cmd && !g.failed && idleNow && Date.now() - g.at >= CMD_GRACE
     const mailIds = serverMailIds(c)
+    const opIds = serverOpIds(c)
     const pending = e.s.pending
       .map((g) => (cmdDead(g) ? { ...g, failed: true } : g))
-      // a FAILED ghost is no longer waiting for evidence — it survives every
-      // filter below and leaves only when the user dismisses it
-      .filter((g) => g.failed
-        || (g.mailId ? !mailIds.has(g.mailId)
-          : !legacyGhostVisible(c, g)))
+      // THE SUBMISSION'S OWN NAME DECIDES FIRST (see PendingGhost.op): a
+      // payload showing this ghost's op is showing the durable copy of this
+      // very send, so the ghost retires — before the POST has answered, and
+      // even off a `failed` mark, which op-evidence proves false (the POST's
+      // transport died AFTER the server stored the mail; keeping a "failed"
+      // bubble beside the delivered message is the duplicate, wearing a
+      // warning).
+      .filter((g) => !(g.op && opIds.has(g.op))
+        // a FAILED ghost is otherwise no longer waiting for evidence — it
+        // survives every filter below and leaves only when the user
+        // dismisses it
+        && (g.failed
+          || (g.mailId ? !mailIds.has(g.mailId)
+            : !legacyGhostVisible(c, g))))
       // a ghost made before the first payload has no seq baseline (see
       // addPending). This survivor's message is NOT in this payload — its
       // eventual row must come after everything the payload shows — so the
@@ -926,7 +989,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   return true
 }
 
-export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[]): number {
+export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string): number {
   const k = key(slug, nid)
   const e = entry(k)
   // Baseline: everything already ACCOUNTED FOR is not this send. That is the
@@ -941,6 +1004,9 @@ export function addPending(slug: string, nid: string, text: string, reply?: Repl
     pending: [...e.s.pending, {
       id: ghostId,
       text, reply, attachments,
+      // the submission's own pre-send name — see PendingGhost.op. Optional so
+      // legacy callers (and their tests) keep the counting rules unchanged.
+      ...(op ? { op } : {}),
       queuedSeen: serverCopies(e.s.chat ? { ...e.s.chat, messages: [] } : null, text)
         + e.s.pending.filter(g => g.text === text).length,
       seen: serverCopies(e.s.chat, text)
@@ -962,8 +1028,10 @@ export function bindPendingMail(slug: string, nid: string, ghostId: number, resp
       || decodeEventRow(response, BASE ? 'public' : 'operator').kind !== 'known') return
   const k = key(slug, nid), e = entry(k), mailId = response.id
   const visible = serverMailIds(e.s.chat).has(mailId)
+  // the op path may already have retired the ghost off a payload that raced
+  // this response — flatMap over a missing id simply binds nothing
   patch(k, { pending: e.s.pending.flatMap(g => g.id !== ghostId ? [g]
-    : visible ? [] : [{ ...g, mailId }]) })
+    : visible || (g.op && serverOpIds(e.s.chat).has(g.op)) ? [] : [{ ...g, mailId }]) })
 }
 
 /** Mark the ghost for THIS send as a command (desk.tsx, on the response).
@@ -1074,8 +1142,12 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     }
     const chat = mergeCommitted(e, current)
     const mailIds = serverMailIds(chat)
-    const pending = e.s.pending.filter(g => g.mailId ? !mailIds.has(g.mailId)
-      : serverCopies(chat, g.text) <= g.seen)
+    const opIds = serverOpIds(chat)
+    // same order as the fetch path: the submission's own name decides first,
+    // and clears a false `failed` too (see PendingGhost.op)
+    const pending = e.s.pending.filter(g => !(g.op && opIds.has(g.op))
+      && (g.failed || (g.mailId ? !mailIds.has(g.mailId)
+        : serverCopies(chat, g.text) <= g.seen)))
     patch(k, { chat, pending })
     nudge(slug, ev.node)
     return

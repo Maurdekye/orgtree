@@ -4558,6 +4558,13 @@ class Message(Body):
     # the server fetches the object and mints reply.mail / reply.document /
     # reply.docket. Exactly one of `target` / `reply_to`.
     target: dict[str, Any] | None = None
+    # The composer's own pre-send name for this submission (an opaque id it
+    # minted BEFORE posting). Stored on the mail entry (schema.MailEntry
+    # client_op) so the sender's optimistic bubble can recognize the durable
+    # copy in the very first payload that shows it — without waiting for this
+    # request's response, and without matching text. Optional: absent means
+    # the legacy graduation rules alone apply.
+    client_op: str = ""
 
 
 def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
@@ -4596,6 +4603,14 @@ def node_message(slug: str, nid: str, body: Message,
         raise HTTPException(422, "empty message")
     if body.target is not None and body.reply_to is not None:
         raise HTTPException(422, "send one of target, reply_to")
+    # the composer's pre-send name for this submission — opaque and bounded.
+    # Refused rather than truncated: a silently cut id would never match the
+    # bubble that carries the full one, which is the exact class of quiet
+    # mismatch this field exists to end.
+    client_op = _no_nul(body.client_op or "").strip()
+    if len(client_op) > 128:
+        raise HTTPException(422, f"client_op is {len(client_op)} characters "
+                                 f"and the limit is 128")
     target: dict[str, str] | None = None
     if body.target is not None:
         try:
@@ -4775,11 +4790,12 @@ def node_message(slug: str, nid: str, body: Message,
                               "gist": extra["quote"]["gist"]}
                              if target["kind"] == "mail" else None)
                 r = org.post_mail(USER, nid, "", attachments=metas or None,
-                                  reply_to=legacy_rt, missing=missing or None, ev=rev)
+                                  reply_to=legacy_rt, missing=missing or None, ev=rev,
+                                  client_op=client_op or None)
             else:
                 r = org.post_mail(USER, nid, body.text, attachments=metas or None,
                                   reply_to=reply_meta, missing=missing or None,
-                                  typed=True)
+                                  typed=True, client_op=client_op or None)
             receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
             # 80 chars truncated most instructions mid-clause; the notice is a
             # gist, but it has to survive being read on its own
@@ -11418,6 +11434,12 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
                             **({"reply_to": m["reply_to"]} if m.get("reply_to") else {}),
                             **({"relationship": m["relationship"]}
                                if m.get("relationship") else {}),
+                            # the sender's own pre-send name for this
+                            # submission (schema.MailEntry client_op): the
+                            # composer's optimistic bubble recognizes its
+                            # durable copy by it, before the send's response
+                            **({"client_op": m["client_op"]}
+                               if m.get("client_op") else {}),
                             "body": m["body"][:body_cap], "at": m["at"],
                             **{k: v for k, v in _row_out(m, public=_pub).items()
                                if k in ("ev", "ev_public", "ev_raw", "ev_error")},

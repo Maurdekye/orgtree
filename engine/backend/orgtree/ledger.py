@@ -2053,7 +2053,8 @@ class Org:
                   missing: list[str] | None = None,
                   grant_reply_audience: bool = True,
                   typed: bool = False,
-                  ev: Mapping[str, Any] | None = None) -> dict[str, Any]:
+                  ev: Mapping[str, Any] | None = None,
+                  client_op: str | None = None) -> dict[str, Any]:
         """Agent-to-agent (or agent-to-user) mail under the §7.2 addressing rules:
 
         TYPED MESSAGES (design typed-message-architecture-backend.md v5):
@@ -2373,6 +2374,12 @@ class Org:
         }
         entry["message_id"] = entry["id"]
         entry["operation_id"] = lifecycle.identity("mail", entry["id"])
+        if client_op:
+            # the sender's pre-send name for this submission (schema.MailEntry):
+            # stored verbatim so the sender can recognize the durable copy in
+            # any projection without waiting for this call's response. It is
+            # identity for the SENDER only — nothing here reads it back.
+            entry["client_op"] = str(client_op)
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
         keep, lost = _attachments_and_losses(attachments, missing)

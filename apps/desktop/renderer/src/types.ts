@@ -1037,6 +1037,13 @@ export interface PendingMail {
   from: string
   kind?: string
   relationship?: string | null
+  /** THIS composer's own pre-send name for the submission that created the
+   *  row (schema.MailEntry client_op, echoed by node_chat and by mail
+   *  segment rows). The optimistic ghost carries the same value from before
+   *  the POST left, so the first payload showing this row retires that ghost
+   *  by identity — no response round-trip, no text matching. Absent on rows
+   *  from other senders, other tabs, and older servers. */
+  client_op?: string
   body: string
   at: string
   delivering?: boolean

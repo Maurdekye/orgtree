@@ -599,6 +599,13 @@ MailEntry = TypedDict("MailEntry", {
     # claim that the recipient has read it.
     "message_id": NotRequired[str],
     "operation_id": NotRequired[str],
+    # The SENDER'S OWN name for the submission that created this entry —
+    # minted client-side BEFORE the send, opaque here. It exists so the
+    # sender can recognize the durable copy of its message in any later
+    # projection (pending row, mail segment) WITHOUT waiting for the send's
+    # response and WITHOUT matching text: two identical bodies from two
+    # submissions carry two different values. Absent on every other producer.
+    "client_op": NotRequired[str],
     "from": str,
     # message|question|request|decision|status — or "notice"
     # (orgtree_send_notice): minted ONLY by that tool, the single marker the
