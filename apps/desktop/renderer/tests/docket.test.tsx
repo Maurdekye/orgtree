@@ -1499,6 +1499,42 @@ uiTest('§30 a long agent name truncates instead of running under the Dismiss bu
   assert.ok(r.querySelector('.docket-dismiss'), 'and the Dismiss button is still rendered')
 })
 
+uiTest('the compact owner keeps its identity but is not a navigation control', async (mount) => {
+  const tree = mkTree({
+    roots: [{ id: 'owner-agent', title: 'owner-agent', tier: 'opus', model_id: 'opus',
+      state: 'live', generation: 1, children: [] }] as unknown as TreeNode[],
+  })
+  mockWorkItems([mkItem({ slug: 'owner-label', title: 'Owner label',
+    owner: { node: 'owner-agent', generation: 1 } })])
+  const went: string[] = []
+  const { el } = await mount(docketModal({ tree, onFocusAgent: (id) => went.push(id) }))
+  await flush()
+  const row = rows(el)[0]!
+  const owner = row.querySelector('.docket-updater .docket-actor') as HTMLElement
+  assert.ok(owner, 'the compact row lost its owner identity wrapper')
+  assert.equal(owner.querySelector('.tier')?.textContent?.trim(), 'O',
+    'the compact row lost the owner model badge')
+  assert.equal(owner.querySelector('.docket-actor-name')?.textContent, 'owner-agent',
+    'the compact row lost the owner name')
+  assert.equal(owner.querySelector('.docket-actor-name')?.classList.contains('cc-name'), true,
+    'the compact owner no longer uses the established identity presentation class')
+  assert.equal(owner.querySelector('.docket-actor-name')?.classList.contains('docket-actor-name'), true,
+    'the compact owner lost its established truncation class')
+  assert.equal(owner.querySelector('button.cc-name-jump'), null,
+    'the compact owner identity is still a navigation button')
+  assert.equal(owner.querySelector('.docket-actor-name')?.tagName, 'SPAN',
+    'the compact owner identity is not plain text')
+
+  await inAct(() => row.click())
+  await flush()
+  const detailOwner = el.querySelector('.docket-pane-sub .docket-actor') as HTMLElement
+  assert.ok(detailOwner?.querySelector('button.cc-name-jump'),
+    'the selected detail owner lost its navigation link')
+  await inAct(() => (detailOwner.querySelector('button.cc-name-jump') as HTMLElement).click())
+  await flush()
+  assert.deepEqual(went, ['owner-agent'], 'detail owner navigation did not reach the agent')
+})
+
 uiTest('§31 a row that leaves the archive shows its CURRENT status, not the copy we cached',
   async (mount) => {
     // ⚠ THE FIXTURE MUST HAND OVER A DIFFERENT ARRAY, not mutate the one it

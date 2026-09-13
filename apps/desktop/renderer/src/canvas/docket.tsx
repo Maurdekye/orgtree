@@ -1815,9 +1815,11 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
             names). An unowned item says so in words rather than leaving the
             slot blank, because an empty slot reads as "loading". */}
         <span className="docket-updater">
+          {/* The compact list keeps the full owner identity, but the identity
+              is a label rather than a navigation control. The selected detail
+              pane remains the deliberate destination and passes onFocusAgent. */}
           {item.owner
-            ? <ActorName actor={item.owner} facts={facts}
-                onFocusAgent={onFocusAgent} close={close} />
+            ? <ActorName actor={item.owner} facts={facts} />
             : <span className="dim">{UNASSIGNED}</span>}
         </span>
         {item.status === 'review' && item.reviewer?.node && (
