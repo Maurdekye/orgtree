@@ -23,8 +23,7 @@ per account, machine-global, every provider together:
                     credential is {kind: apikey, token_ref} into the machine
                     token store; an openai one is an ordinary managed
                     CODEX_HOME whose auth.json is codex's own key-auth form.
-                    Google is refused — no API-key login exists (measured
-                    1.1.24).
+                    Google keys use GEMINI_API_KEY with a settings-only home.
   · enabled       — apikey rows only, default true: a disabled key account is
                     skipped by fallback routing and by the fallback toggle's
                     visibility rule; explicit operator binding is not gated
@@ -196,7 +195,7 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
     if mode == "apikey":
         # The decided provider/kind matrix (user 2026-09-12): a claude key is
         # injected from the token store; an openai key is a codex-native
-        # managed home; google has no API-key login at all (measured 1.1.24).
+        # settings-only homes isolate Codex and Antigravity API-key settings.
         if provider in APIKEY_VAR:
             # ⚠ ONE RULE FOR BOTH PROVIDERS (docket: key material lives in
             # the machine token store and the row carries only a token_ref).
@@ -506,7 +505,8 @@ PROFILE_VAR = {"claude": "CLAUDE_CONFIG_DIR", "openai": "CODEX_HOME"}
 #: the METERED lane's variable per provider — the API-key twin of
 #: PROFILE_VAR, read by the injector and the identity cross-check alike so
 #: the two cannot disagree about which variable carries a pasted key.
-APIKEY_VAR = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+APIKEY_VAR = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY",
+              "google": "GEMINI_API_KEY"}
 
 #: the marker every bound spawn carries. Stripped by clean_env and re-injected
 #: here only — an inherited value can never survive into a spawn.

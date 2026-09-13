@@ -1,10 +1,8 @@
 # pyright: strict
-"""The antigravity turn runner: one `agy` print-mode process per turn.
+"""Antigravity stream-json driver, reusable across result boundaries.
 
-The shape deliberately mirrors codexrun.py: ONE PROCESS PER TURN, resumed by
-a durable id — here the CLI's `conversation_id`, harvested from the `init`
-event and handed back through `--conversation <id>` on the next turn (both
-measured cross-process, probe logs 2026-09-02, Antigravity CLI 1.1.24).
+Keeping stdin open permits multiple prompts in one process. Closing it
+retains the one-shot mode. Native conversation ids support cold resumes.
 
 The wire is print mode's `--output-format stream-json` — NDJSON on stdout:
 
@@ -28,14 +26,10 @@ prose intact (measured). ⚠ A single 40,000-character TOKEN (no whitespace)
 made the CLI return an empty SUCCESS with zero usage — real text does not do
 that, and nothing orgtree sends is a 40K-character word.
 
-There is NO mid-turn steer verb on this wire — `steer()` always refuses, and
-the supervisor's queue fallback (the same one the codex turn-over guard
-falls to) delivers the mail at the next turn boundary instead. Interrupting
-is a KILL of the process tree: the conversation store is written as the
-turn runs, so the next `--conversation` resume finds everything up to the
-kill and the model knows where it stopped (measured: "the last number I
-wrote was 10"). An interrupted turn is a COMPLETED turn, booked from the
-per-request usage the steps had reported before the kill.
+Steering uses invocation hooks: a private handoff file injects a user step,
+and PostInvocation can force continuation. Delivery is committed only after
+the hook emitted it and the CLI echoed a new user-input step. Late mail stays
+queued. Interrupt still kills the entire process tree.
 
 Org powers attach as a WORKSPACE PLUGIN the CLI discovers walking up from
 the cwd: `<cwd>/.agents/plugins/orgtree/mcp_config.json` (measured) carries
@@ -90,6 +84,8 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
+import uuid
 from collections.abc import Callable
 from typing import Any, Final, NoReturn, cast
 
@@ -210,7 +206,8 @@ def mcp_config(servers: dict[str, Any]) -> dict[str, Any]:
             out[name] = {
                 "command": str(srv["command"]),
                 "args": [str(a) for a in args],
-                "env": {str(k): str(v) for k, v in sorted(env_map.items())},
+                "env": {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": "",
+                        **{str(k): str(v) for k, v in sorted(env_map.items())}},
             }
         elif srv.get("url"):
             entry: dict[str, Any] = {"serverUrl": str(srv["url"])}
@@ -539,6 +536,34 @@ def write_workspace(cwd: str, *, identity: str, mcp_servers: dict[str, Any],
 
 # ── process control ──────────────────────────────────────────────────────
 
+def install_steering(cwd: str) -> None:
+    """Preserve scope hooks and add the documented invocation hooks."""
+    target = os.path.join(cwd, ".agents", "orgtree-steer.py")
+    shutil.copyfile(os.path.join(os.path.dirname(__file__), "antigravity_hook.py"), target)
+    hooks_path = os.path.join(cwd, _HOOKS_FILE)
+    try:
+        with open(hooks_path, encoding="utf-8") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = {}
+    events = {}
+    for stage, event in (("pre", "PreInvocation"), ("post", "PostInvocation")):
+        wrapper = os.path.join(cwd, ".agents", "orgtree-steer-" + stage +
+                               (".cmd" if os.name == "nt" else ".sh"))
+        if os.name == "nt":
+            body = '@echo off\n"' + sys.executable + '" "%~dp0orgtree-steer.py" ' + stage + '\n'
+        else:
+            body = '#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' ' + shlex.quote(target) + ' ' + stage + '\n'
+        with open(wrapper, "w", encoding="utf-8") as f:
+            f.write(body)
+        if os.name != "nt":
+            os.chmod(wrapper, 0o755)
+        events[event] = [{"type": "command", "command": _hook_command(wrapper), "timeout": 20}]
+    config["orgtree-steering"] = events
+    with open(hooks_path, "w", encoding="utf-8") as f:
+        json.dump(config, f)
+
+
 def kill_tree(proc: subprocess.Popen[bytes] | None) -> None:
     """Kill the CLI AND its children by pid through the OS (the CLI forks a
     language-server child; a bare `kill()` of the parent would orphan it),
@@ -573,7 +598,8 @@ class AntigravityTurn:
                  on_event: Callable[[dict[str, Any]], None] | None = None,
                  env_extra: dict[str, str] | None = None,
                  log_file: str | None = None,
-                 turn_timeout: float | None = None) -> None:
+                 turn_timeout: float | None = None,
+                 persistent: bool = False) -> None:
         argv = list(argv_head) + [
             "-p=", "--input-format", "stream-json",
             "--output-format", "stream-json",
@@ -590,6 +616,17 @@ class AntigravityTurn:
             # the CLI's own ceiling defaults to 5 minutes, far under an
             # agent turn; orgtree's TURN_TIMEOUT is the one that counts
             argv += ["--print-timeout", f"{int(turn_timeout)}s"]
+        self.persistent = persistent
+        self.on_exit: Callable[[], None] | None = None
+        self._result_ready = threading.Event()
+        self._steer_lock = threading.Lock()
+        self._pending_steer: tuple[str, int, Callable[[], None] | None] | None = None
+        self._steer_accepted = threading.Event()
+        self._user_steps = 0
+        self._turn_user_steps = 0
+        self._seen_user_steps: set[int] = set()
+        self._ever_started = False
+        self._steer_dir: str | None = None
         self.argv = argv
         self.cwd = cwd
         self.model = model
@@ -613,6 +650,8 @@ class AntigravityTurn:
         self._interrupted = False
         self._lock = threading.Lock()
         self._reader: threading.Thread | None = None
+        self._err_reader: threading.Thread | None = None
+        self._usage_baseline: dict[str, Any] = {}
         # per-request usage fold (the interrupted-turn bill, and occupancy)
         self._u_in = 0
         self._u_cached = 0
@@ -620,6 +659,7 @@ class AntigravityTurn:
         self._u_think = 0
         self._requests = 0
         self._last_prompt = 0
+        self._priced_cost = 0.0
 
     # ── wire plumbing ────────────────────────────────────────────────────
 
@@ -643,11 +683,16 @@ class AntigravityTurn:
             with self._lock:
                 self.events.append(msg)
                 self._fold(msg)
+            self._confirm_steer()
             if self._caller_on_event:
                 try:
                     self._caller_on_event(msg)
                 except Exception:      # noqa: BLE001
                     pass   # an observer must never kill the wire reader
+            if msg.get("event") == "result":
+                self._result_ready.set()
+        if self.on_exit is not None:
+            self.on_exit()
 
     def _fold(self, msg: dict[str, Any]) -> None:
         ev = str(msg.get("event") or "")
@@ -662,6 +707,12 @@ class AntigravityTurn:
         step = _dict(msg.get("step_update"))
         kind = str(step.get("step_type") or "")
         state = str(step.get("state") or "")
+        index = step.get("step_index")
+        if (kind == "user_input" and state == "DONE" and isinstance(index, int)
+                and index not in self._seen_user_steps):
+            self._seen_user_steps.add(index)
+            self._user_steps += 1
+            self._turn_user_steps += 1
         if kind == "agent_response":
             delta = step.get("text_delta")
             if isinstance(delta, str) and delta:
@@ -676,6 +727,10 @@ class AntigravityTurn:
                 self._u_think += int(usage.get("thinking_tokens") or 0)
                 self._requests += 1
                 self._last_prompt = inp + cached
+                self._priced_cost += providers.antigravity_cost({
+                    "model": self.model, "input": inp, "cached": cached,
+                    "output": int(usage.get("output_tokens") or 0),
+                    "last_prompt": inp + cached})
         elif kind == "tool" and state == "ERROR":
             info = _dict(step.get("tool_info"))
             err = _dict(info.get("error"))
@@ -687,27 +742,50 @@ class AntigravityTurn:
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
-    def start(self, input_text: str) -> str:
-        """Spawn, put the prompt on stdin, wait for `init`. Returns the
-        durable conversation id (the provider's own — the one the node
-        records and the next turn resumes)."""
+    def launch(self) -> None:
+        """Start the process without submitting a prompt or spending tokens."""
+        if self.proc is not None:
+            return
         env = dict(os.environ)
         env.update(self._env_extra)
         from . import devguard
-        env = devguard.child_env(env)
-        # Normalize last: caller extras may add org identity, but may not
-        # re-enable agy's updater or reintroduce another provider's secret.
-        env = providers.antigravity_env(env)
-        self._input_text = input_text
-        self._provenance_boundary = antigravity_provenance.capture(self.conversation_id, env)
+        env = providers.antigravity_env(devguard.child_env(env),
+                                        allow_gemini_key=bool(self._env_extra.get("GEMINI_API_KEY")))
+        self._steer_dir = tempfile.mkdtemp(prefix="agy-steer-")
+        env["ORGTREE_AGY_STEER_DIR"] = self._steer_dir
         self.proc = subprocess.Popen(
             self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=env, cwd=self.cwd,
-            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                           if os.name == "nt" else 0))
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
         self._reader = threading.Thread(target=self._pump, daemon=True)
         self._reader.start()
-        threading.Thread(target=self._pump_err, daemon=True).start()
+        self._err_reader = threading.Thread(target=self._pump_err, daemon=True)
+        self._err_reader.start()
+
+    def start(self, input_text: str) -> str:
+        self.launch()
+        assert self.proc is not None
+        with self._lock:
+            if self._ever_started and self._result is None:
+                raise AntigravityError("a turn is already active")
+            self._ever_started = True
+            self._turn_user_steps = 0
+            self._seen_user_steps.clear()
+            self.events = []
+            self.agent_text = []
+            self.denials = []
+            self.stderr_tail = []
+            if self._result is not None:
+                self._usage_baseline = _dict(self._result.get("usage"))
+            self._result = None
+            self.status = self.stop_reason = None
+            self._result_ready.clear()
+            self._interrupted = False
+            self._u_in = self._u_cached = self._u_out = self._u_think = 0
+            self._requests = self._last_prompt = 0
+            self._priced_cost = 0.0
+        self._input_text = input_text
+        self._provenance_boundary = antigravity_provenance.capture(self.conversation_id, self._env_extra)
         line = json.dumps({"event": "user", "message": {
             "role": "user", "content": input_text}}) + "\n"
         stdin = self.proc.stdin
@@ -715,7 +793,8 @@ class AntigravityTurn:
         try:
             stdin.write(line.encode("utf-8"))
             stdin.flush()
-            stdin.close()
+            if not self.persistent:
+                stdin.close()
         except OSError as e:
             self._fail_early(f"could not hand the prompt to the CLI: {e}")
         deadline = time.time() + INIT_TIMEOUT
@@ -763,10 +842,52 @@ class AntigravityTurn:
         kill_tree(self.proc)
         raise AntigravityError(why)
 
-    def steer(self, text: str) -> bool:
-        """No mid-turn input verb exists on this wire — always False, and
-        the caller's queue fallback delivers at the next turn boundary."""
-        return False
+    def _confirm_steer(self) -> None:
+        # Called on the wire-reader thread before releasing subsequent model
+        # output: the durable mail row must precede the response to that mail.
+        with self._lock:
+            pending = self._pending_steer
+            if pending is None or self._user_steps <= pending[1]:
+                return
+        try:
+            with open(os.path.join(self._steer_dir or "", "emitted.json"), encoding="utf-8") as f:
+                if json.load(f).get("id") != pending[0]:
+                    return
+            if pending[2] is not None:
+                pending[2]()
+        except Exception:  # receipt failure must not kill the wire reader
+            return
+        with self._lock:
+            self._pending_steer = None
+        self._steer_accepted.set()
+
+    def steer(self, text: str, on_accepted: Callable[[], None] | None = None) -> bool:
+        """Require hook emission and a subsequent CLI user-input step."""
+        with self._steer_lock:
+            if not self._steer_dir or self.proc is None or self.proc.poll() is not None or self._result_ready.is_set() or not self._turn_user_steps:
+                return False
+            did = uuid.uuid4().hex
+            self._steer_accepted.clear()
+            with self._lock:
+                self._pending_steer = (did, self._user_steps, on_accepted)
+            pending = os.path.join(self._steer_dir, "pending.json")
+            with open(pending + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"id": did, "text": text}, f)
+            os.replace(pending + ".tmp", pending)
+            try:
+                while self.proc.poll() is None and not self._interrupted:
+                    if self._steer_accepted.wait(.02):
+                        return True
+                    if self._result_ready.is_set():
+                        return self._steer_accepted.is_set()
+                return self._steer_accepted.is_set()
+            finally:
+                with self._lock:
+                    self._pending_steer = None
+                try:
+                    os.remove(pending)
+                except OSError:
+                    pass
 
     def interrupt(self) -> bool:
         """Kill the tree. The conversation store already holds everything
@@ -780,20 +901,20 @@ class AntigravityTurn:
         return True
 
     def wait(self, timeout: float | None = None) -> dict[str, Any]:
-        """Block until the run resolves (result event AND process exit);
+        """Block until the result boundary, or process exit in one-shot mode;
         return the normalized result the policy layer consumes."""
         assert self.proc is not None
         deadline = time.time() + timeout if timeout else None
         timed_out = False
         while True:
-            if self.proc.poll() is not None:
+            if self.proc.poll() is not None or (self.persistent and self._result_ready.is_set()):
                 break
             if deadline and time.time() >= deadline:
                 timed_out = True
                 kill_tree(self.proc)
                 break
             time.sleep(0.05)
-        if self._reader is not None:
+        if self._reader is not None and self.proc.poll() is not None:
             self._reader.join(timeout=5)
         with self._lock:
             result = self._result
@@ -809,23 +930,20 @@ class AntigravityTurn:
                 ru = _dict(result.get("usage")) if result else {}
                 if (not usage_seen and ru
                         and int(ru.get("total_tokens") or 0)):
-                    # A resumed conversation's result.usage is cumulative over
-                    # the WHOLE SESSION (measured live: turn 2's result was
-                    # exactly turn 1 + turn 2), so it must never overwrite the
-                    # per-request fold above or every earlier turn is billed
-                    # again.  It remains the fallback when this CLI generation
-                    # emits no priced step at all: unknown/overstated is safer
-                    # there than silently booking zero work.  last_prompt stays
-                    # 0 because a session total cannot answer how large the
-                    # final request was.
-                    tu["input"] = int(ru.get("input_tokens") or 0)
-                    tu["cached"] = int(ru.get("cache_read_tokens") or 0)
-                    tu["output"] = int(ru.get("output_tokens") or 0)
-                    tu["thinking"] = int(ru.get("thinking_tokens") or 0)
+                    # Result counters span the conversation. For subsequent
+                    # turns on this process, subtract the prior terminal total.
+                    # Per-step usage above remains authoritative when present.
+                    for field, wire in (("input", "input_tokens"),
+                                        ("cached", "cache_read_tokens"),
+                                        ("output", "output_tokens"),
+                                        ("thinking", "thinking_tokens")):
+                        tu[field] = max(0, int(ru.get(wire) or 0)
+                                        - int(self._usage_baseline.get(wire) or 0))
             text = "".join(self.agent_text)
         provenance = None
         if (not self._interrupted and not timed_out and result is not None
-                and self._reader is not None and not self._reader.is_alive()):
+                and (self._result_ready.is_set() or
+                     (self._reader is not None and not self._reader.is_alive()))):
             provenance = antigravity_provenance.reconcile(
                 self._provenance_boundary, self._input_text,
                 self.conversation_id, result, events)
@@ -900,6 +1018,8 @@ class AntigravityTurn:
             "agent_text": text,
             "token_usage": tu,
             "denials": list(self.denials),
+            "estimated_cost_usd": (round(self._priced_cost, 6) if usage_seen
+                                   else providers.antigravity_cost(tu)),
             # parity with the codex result shape; the CLI's subscription
             # lane exposes no window telemetry in print mode
             "rate_limits": None,
@@ -922,6 +1042,16 @@ class AntigravityTurn:
 
     def close(self) -> None:
         kill_tree(self.proc)
+        for reader in (self._reader, self._err_reader):
+            if reader is not None and reader is not threading.current_thread():
+                reader.join(timeout=5)
+        if self.proc is not None and self.proc.poll() is not None:
+            for pipe in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+                if pipe is not None:
+                    pipe.close()
+        if self._steer_dir and (self.proc is None or self.proc.poll() is not None):
+            shutil.rmtree(self._steer_dir, ignore_errors=True)
+            self._steer_dir = None
 
 
 def which_python() -> str:

@@ -72,11 +72,10 @@ class RowShapeTests(unittest.TestCase):
             self.assertNotIn(FAKE_KEY, f.read())
 
     def test_provider_kind_matrix(self):
-        # google has no key lane at all
-        with self.assertRaises(ValueError):
-            registry.create_account(
-                "google", "nope", {"kind": "apikey", "token_ref": "akX"},
-                mode="apikey")
+        google = registry.create_account(
+            "google", "Gemini key", {"kind": "apikey", "token_ref": "akGOOGLE"},
+            mode="apikey")
+        self.assertEqual(google["mode"], "apikey")
         # an openai key account keeps its key in the token store, exactly as
         # claude does — a managed home would be a second durable secret home
         with self.assertRaises(ValueError):

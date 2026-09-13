@@ -488,7 +488,15 @@ class CodexWarmProc:
         return self.proc.poll() is None
 
 
-WarmProcess = WarmProc | CodexWarmProc
+class AntigravityWarmProc(CodexWarmProc):
+    """Same pool ownership surface, with an Antigravity stream driver."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.warm_state = "ready"
+
+
+WarmProcess = WarmProc | CodexWarmProc | AntigravityWarmProc
 
 
 _pool: dict[tuple[str, str], WarmProcess] = {}
@@ -1044,6 +1052,10 @@ def identity_snapshot(org: Any, nid: str, *,
     from . import supervisor as sup                 # noqa: PLC0415
     prompt = sup.identity_prompt(org, nid)
     model = str(org.node(nid).get("model") or "")
+    if model in providers.ANTIGRAVITY_TIERS:
+        from . import antigravity_session
+        spec = provider_spec or antigravity_session.specification(org, nid)
+        return antigravity_session.process_identity(spec)
     if model in providers.CODEX_TIERS:
         # Codex's process-scoped identity is not Claude's `_build_cmd`.
         # External MCP servers are app-server argv and the managed identity is
@@ -1155,10 +1167,8 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     """May this node hold a warm process at all? Everything outside this set
     keeps today's spawn-per-turn behaviour, which is also the universal
     fallback. The sandbox remains excluded (its spawn is a docker exec whose
-    parking is untested), as do Antigravity (its print-mode process is one
-    turn long by construction) and preserving oracles (each consult is a
-    --fork-session).
-    Codex app-server persistence is measured and shares this keeper."""
+    parking is untested), as do preserving oracles (each consult forks).
+    Codex and Antigravity persistence share this keeper."""
     from . import supervisor as sup                 # noqa: PLC0415
     from . import providers                         # noqa: PLC0415
     n = org.nodes.get(nid)
@@ -1186,8 +1196,6 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     if sup.sbx.is_sandboxed(org):
         return False, "sandboxed"
     model = str(n.get("model") or "")
-    if model in providers.ANTIGRAVITY_TIERS:
-        return False, "provider-lane"
     if n.get("bearer_state") == "preserving":
         return False, "preserving-oracle"
     return True, ""
@@ -1830,7 +1838,10 @@ def _kill_proc(wp: WarmProcess) -> None:
     (see _wd_kill_tree's note) — the CLI's children must die with it."""
     try:
         from . import supervisor as sup             # noqa: PLC0415
-        sup._wd_kill_tree(wp.proc)
+        if isinstance(wp, AntigravityWarmProc):
+            wp.client.close()
+        else:
+            sup._wd_kill_tree(wp.proc)
     except Exception:                               # noqa: BLE001
         try:
             wp.proc.kill()
@@ -1903,7 +1914,8 @@ def _on_proc_channel_eof(wp: WarmProcess) -> bool:
     try:
         from . import supervisor as sup                 # noqa: PLC0415
         if sup._mcp_owner_ended(wp.proc) is not True:
-            sup._mcp_tool_count_end(wp.slug, wp.nid, wp.proc)
+            sup._mcp_tool_count_end(wp.slug, wp.nid,
+                                wp.client if isinstance(wp, AntigravityWarmProc) else wp.proc)
     except Exception:                                   # noqa: BLE001
         pass
     return was_tracked or wp.claimed
@@ -1934,7 +1946,8 @@ def _finalize_proc_exit(wp: WarmProcess, tracked: bool) -> None:
     _set_proc_lifecycle(wp.slug, wp.nid, live=False, owner=wp)
     try:
         from . import supervisor as sup                 # noqa: PLC0415
-        sup._mcp_tool_count_end(wp.slug, wp.nid, wp.proc)
+        sup._mcp_tool_count_end(wp.slug, wp.nid,
+                                wp.client if isinstance(wp, AntigravityWarmProc) else wp.proc)
     except Exception:                                   # noqa: BLE001
         pass
 
@@ -1986,6 +1999,26 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
     ih = ""
     try:
         model = str(org.node(nid).get("model") or "")
+        if model in providers.ANTIGRAVITY_TIERS:
+            from . import antigravityrun, antigravity_session
+            spec = antigravity_session.specification(org, nid, write=True)
+            ih, components = identity_snapshot(org, nid, provider_spec=spec)
+            client = antigravityrun.AntigravityTurn(
+                spec["argv_head"], persistent=True, **antigravity_session.client_args(spec))
+            client.launch()
+            try:
+                sup._leash(client.proc)
+                wp = AntigravityWarmProc(slug, nid, client, org.node(nid)["session_id"], ih, components)
+                client.on_exit = lambda: _on_proc_exit(wp)
+                sup._mcp_tool_count_begin(slug, nid, client, "antigravity", "print",
+                    "Runtime MCP inventory is unavailable", org.node(nid).get("last_turn_mcp_tool_count"))
+                if not wp.alive():
+                    raise RuntimeError("Antigravity exited during prewarm")
+                return wp
+            except Exception:
+                client.close()
+                raise
+
         if model in providers.CODEX_TIERS:
             from . import codexrun                  # noqa: PLC0415
 
@@ -2463,6 +2496,10 @@ def _mcp_reclaim_from_loser(winner: WarmProcess, loser: WarmProcess) -> None:
             if ent.get("mcp_tool_owner") is winner.proc:
                 return                          # already the seat's surface
             last = ent.get("last_turn_mcp_tool_count")
+        if isinstance(winner, AntigravityWarmProc):
+            sup._mcp_tool_count_begin(winner.slug, winner.nid, winner.client,
+                "antigravity", "print", "Runtime MCP inventory is unavailable", last)
+            return
         codex = getattr(winner, "client", None) is not None
         sup._mcp_tool_count_begin(
             winner.slug, winner.nid, winner.proc,
@@ -2717,7 +2754,7 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
                             parked = True
                     if parked:
                         _set_proc_lifecycle(slug, nid, live=True, owner=nwp, adopt=True)
-                        if isinstance(nwp, CodexWarmProc):
+                        if isinstance(nwp, CodexWarmProc) and not isinstance(nwp, AntigravityWarmProc):
                             threading.Thread(
                                 target=_codex_prewarm_finish, args=(fresh, nid, nwp),
                                 daemon=True, name=f"codexwarm-{slug}-{nid}").start()

@@ -356,11 +356,11 @@ class ProviderScopeTests(unittest.TestCase):
         self.assertIsNotNone(got)
         self.assertEqual(got['id'], key['id'])
 
-    def test_google_has_no_key_route_at_all(self):
+    def test_google_without_keys_has_no_paid_route(self):
         appsettings.set_subscription_inference_enabled('google', False)
         self.assertIsNone(supervisor.apikey_route_for('flash', NOW))
-        with self.assertRaises(ValueError):
-            appsettings.set_apikey_fallback_enabled('google', True)
+        appsettings.set_apikey_fallback_enabled('google', True)
+        self.assertIsNone(supervisor.apikey_route_for('flash', NOW))
 
     def test_claude_env_never_receives_an_openai_key_row(self):
         # spawn_env builds an ANTHROPIC process: asking the shared router
@@ -454,12 +454,7 @@ class CodexSpawnGateTests(unittest.TestCase):
 
 
 class GoogleInferenceGateTests(unittest.TestCase):
-    """Antigravity has no API-key lane (no such login exists, measured
-    1.1.24), so for Google the subscription switch is absolute: turning it
-    off must stop the provider rather than quietly keep using the very
-    login it was turned off for. The guard sits at the antigravity leg,
-    which is that provider's only spawn seam.
-    """
+    """Disabling subscriptions cannot silently spend an ambient login."""
 
     def setUp(self):
         _fresh()
@@ -484,9 +479,7 @@ class GoogleInferenceGateTests(unittest.TestCase):
                 self._run(org)
         self.assertIn('subscription inference is disabled',
                       str(cm.exception))
-        # and it says WHY there is no fallback, so the reader is not left
-        # hunting for an API-key option that does not exist
-        self.assertIn('no API-key account lane', str(cm.exception))
+        self.assertIn('no API-key account is available', str(cm.exception))
 
     def test_enabled_google_inference_passes_this_gate(self):
         installed = {'installed': True, 'path': 'agy', 'connected': True}

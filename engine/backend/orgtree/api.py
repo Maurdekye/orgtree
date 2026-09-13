@@ -11920,7 +11920,7 @@ def provider_hire_gate(
                 f"tier '{tier}' is an Antigravity tier and the Antigravity "
                 f"CLI is not installed on this machine — "
                 f"{providers.install_hint('google')}")
-        if not ast.get("connected"):
+        if not ast.get("connected") and not providers.antigravity_key_available():
             raise LedgerError(
                 f"tier '{tier}' is an Antigravity tier and Antigravity is "
                 f"not signed in — run `agy` once on this machine and sign in "

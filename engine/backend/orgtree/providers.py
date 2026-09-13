@@ -901,7 +901,16 @@ def antigravity_argv(exe: str) -> list[str]:
     return [exe]
 
 
-def antigravity_env(base: dict[str, str] | None = None) -> dict[str, str]:
+def antigravity_key_available() -> bool:
+    from . import registry, tokens
+    return any(row.get("provider") == "google" and registry.account_mode(row) == "apikey"
+               and row.get("auth") != "unauthenticated"
+               and tokens.get(str(row.get("credential", {}).get("token_ref") or ""))
+               for row in registry.list_accounts())
+
+
+def antigravity_env(base: dict[str, str] | None = None, *,
+                    allow_gemini_key: bool = False) -> dict[str, str]:
     """The environment an antigravity child (turn or probe) is spawned with:
     ONE CREDENTIAL PER SPAWN. The CLI self-authenticates from the OS keyring,
     and its MCP children INHERIT every variable their spec does not name
@@ -921,6 +930,9 @@ def antigravity_env(base: dict[str, str] | None = None) -> dict[str, str]:
     # len(value) == 4 && memcmp(value, "true", 4).  "1", "true ", "True",
     # and every other spelling silently disable nothing.  This exact bug
     # previously shipped here as "1", leaving the updater popup alive.
+    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH"):
+        if key != "GEMINI_API_KEY" or not allow_gemini_key:
+            env.pop(key, None)
     env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
     return env
 
@@ -1379,11 +1391,12 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
             "tiers": antigravity_tiers(),
             "status": antigravity,
             "hire_enabled": bool(antigravity_on
-                                 and antigravity.get("connected")),
+                                 and antigravity.get("installed")
+                                 and (antigravity.get("connected") or antigravity_key_available())),
             "user_enabled": antigravity_on,
             "reason": (
                 off_reason if not antigravity_on
-                else None if antigravity.get("connected")
+                else None if antigravity.get("connected") or antigravity_key_available()
                 else "not signed in — run `agy` once on this machine and "
                      "sign in with your Google account"
                 if antigravity.get("installed")
@@ -1476,7 +1489,7 @@ def tier_availability(tier: str) -> tuple[bool, str | None]:
         ast = antigravity_status()
         if not ast.get("installed"):
             return False, f"Antigravity CLI is not installed — {install_hint('google')}"
-        if not ast.get("connected"):
+        if not ast.get("connected") and not antigravity_key_available():
             return False, "Antigravity CLI is not signed in — run `agy` and sign in"
         return True, None
 

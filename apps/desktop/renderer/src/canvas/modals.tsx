@@ -1140,10 +1140,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     ? antigravityProvider?.reason ?? 'provider state unavailable'
     : tree.kiosk
       ? 'unavailable in kiosk orgs'
-      : tree.headless
-        // the CLI's only login is a Google account — no keyed lane exists
-        ? 'headless orgs cannot hire Antigravity (Google-account login only, no API key)'
-        : null
+      : null
   // the OpenRouter lane: a key IS a keyed login, so headless never refuses
   // it; kiosks hold it out like the other non-Claude lanes
   const openrouterUnavailable = !openrouterProvider?.hire_enabled

@@ -4778,6 +4778,11 @@ def _subscription_exhausted(provider: str, tier: str,
     asking the CLI here would mean remote IO on a spawn path.
     """
     now = time.time() if now is None else now
+    if provider == "google":
+        observed = antigravity_limits.snapshot(now)
+        return bool(observed.get("available") and not observed.get("stale") and any(
+            "gemini" in str(w.get("model") or "").lower() and w.get("is_active")
+            for w in observed.get("limits", [])))
     primary = None
     if provider == "claude":
         if accounts.resolve(tier, now).get("available"):
@@ -4812,7 +4817,7 @@ def _claude_subscription_exhausted(tier: str,
 
 def apikey_route_for(tier: str,
                      now: float | None = None) -> dict[str, Any] | None:
-    """THE metered routing decision at the spawn seam, for EITHER provider
+    """THE metered routing decision at the spawn seam, for each provider
     that has an API-key lane: the key account this UNBOUND turn should bill,
     or None for the subscription lanes.
 
@@ -4826,9 +4831,8 @@ def apikey_route_for(tier: str,
     hard-coded lane. This routed claude only at first while the UI already
     offered Codex the same toggle, so the Codex switch read as a setting
     that did nothing — worse than an absent control, because the machine
-    appeared to have consented to something it never acted on. Google has no
-    API-key login (measured 1.1.24) and so has no route here at all; its
-    subscription switch is enforced at its own spawn seam."""
+    appeared to have consented to something it never acted on. Google uses
+    the direct Gemini API-key lane as well."""
     provider = providers.provider_of(tier)
     if provider not in appsettings.APIKEY_PROVIDERS:
         return None
@@ -10567,7 +10571,9 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
     else:
         # `google` — Antigravity, the only remaining answer `provider_of`
         # gives. It publishes no cache statistic (SUPPORTED_LANES).
-        account = account or _cache_antigravity_account_namespace()
+        from . import antigravity_session
+        agy_row = antigravity_session.selected_account(org, nid)
+        account = account or (str(agy_row["id"]) if agy_row else _cache_antigravity_account_namespace())
         lane = lane or "provider_unsupported"
     claude_harness = provider in _NATIVE_CLAUDEMD_PROVIDERS
     if provider == "openai":
@@ -13090,8 +13096,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             prev_hash, prev_comp = "", None
         pred_id = None
         if changed and (
-                row["provider"] == "openai"
-                or providers.provider_of(tier) == "openai"
+                row["provider"] in ("openai", "google")
+                or providers.provider_of(tier) in ("openai", "google")
                 or bool(node.get("codex_thread"))):
             if bool(node.get("codex_thread")) or not node.get("session_unrun"):
                 pred_id, old_sid = org._archive_session_in_place(nid)
@@ -13104,6 +13110,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             else:
                 node["session_id"] = str(uuid.uuid4())
                 node["session_unrun"] = True
+            node.pop("antigravity_conversation", None)
+            node.pop("antigravity_account", None)
             node.pop("codex_thread", None)
             node.pop("codex_account", None)
             node.pop("codex_usage_total", None)
@@ -13148,7 +13156,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             "previous_account": previous or None,
             "continuity": continuity,
             "cache_namespace_changed": changed,
-            "session_boundary": changed and row["provider"] == "openai",
+            "session_boundary": changed and row["provider"] in ("openai", "google"),
             **({"note": "Uses the ambient sign-in and existing org/machine "
                          "authentication and fallback rules; auth and billing "
                          "are observed when the next turn starts."}
@@ -15786,101 +15794,39 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     per-agent identity is the env the spec names. Identity rides AGENTS.md
     in the scratch cwd (a directory rule the CLI injects verbatim —
     measured), regenerated per spawn like the other lanes' doors, and a
-    narrowed ⚙ scope rides a PreToolUse hook beside it. There is NO steer
-    verb on this wire: the pump wraps mid-turn mail in the standard
-    envelope, the turn refuses, and the texts fall back to the queue — the
-    boundary-delivery semantics mail already has.
+    narrowed scope rides a PreToolUse hook beside it. Invocation hooks inject
+    mid-turn mail, and the reader commits delivery before corrected output.
+    Undelivered mail remains queued for the next turn.
     """
     from . import antigravityrun        # noqa: PLC0415 — antigravity lane only
     from . import antigravity_limits    # noqa: PLC0415 — antigravity lane only
 
+    from . import antigravity_session
     n = org.node(nid)
     tier = str(n.get("model") or "")
-    astat = providers.antigravity_status()
-    exe = str(astat.get("path") or "")
-    if not (astat.get("installed") and exe):
-        raise RuntimeError(
-            "turn failed: the Antigravity CLI is not installed — "
-            f"{providers.install_hint('google')}")
-    if not astat.get("connected"):
-        raise RuntimeError(
-            "turn failed: Antigravity is not signed in on this machine — run "
-            "`agy` once and sign in with your Google account (accounts "
-            "panel → Antigravity)")
-    if not appsettings.subscription_inference_enabled("google"):
-        # ⚠ GOOGLE HAS NO KEY LANE TO FALL BACK TO (no API-key login exists
-        # for it, measured 1.1.24), so for this provider the switch is
-        # absolute: disabling its subscription inference disables the
-        # provider. Said plainly here rather than letting the turn run on
-        # the very login the operator switched off — the ticket gives
-        # Antigravity the disable precisely so it can be silenced.
-        raise RuntimeError(
-            "turn failed: Antigravity subscription inference is disabled on "
-            "this machine (App settings → Providers). Antigravity has no "
-            "API-key account lane, so re-enable it to run antigravity "
-            "tiers, or move this agent to another provider")
     if sbx.is_sandboxed(org):
-        # same holdout as codex (user ruling 2026-08-28 pattern): kiosks
-        # wait until the provider's sandbox story is settled; the hire guard
-        # enforces this upstream, so this is a belt for a hand-edited doc
-        raise RuntimeError("turn failed: antigravity agents cannot run in a "
-                           "sandboxed kiosk org yet")
-    sc = cast("Mapping[str, Any]", n["scope"])
-    tools_sc = sc.get("tools", {})
-    cwd = scratch_dir(slug, nid)
-    ident = identity_prompt(org, nid)
-    # resume ONLY a conversation id this leg itself harvested
-    # (`antigravity_conversation` equals it exactly then) — a fresh hire's
-    # minted uuid resumes nothing, and a rehire/compact re-mint breaks the
-    # equality, so the conversation starts fresh instead of asking the CLI
-    # for an id it never issued
-    resume_cid = (str(n.get("session_id") or "") or None
-                  if not n.get("session_unrun")
-                  and str(n.get("session_id") or "")
-                  == str(n.get("antigravity_conversation") or "") else None)
-    # D-182: the grant comes from the ONE implementation; this lane only
-    # narrows it (expressibility), and the orgtree server rides beside the
-    # grant exactly as the claude lane's --mcp-config composes it
-    mcp_chosen, _ = antigravity_mcp_grant(org, nid)
-    port = os.environ.get("ORGTREE_PORT", "7360")
-    servers = dict(mcp_chosen)
-    servers["orgtree"] = {
-        "command": sys.executable,
-        "args": ["-m", "orgtree.mcptool"],
-        # ⚠ the FULL set, always: an env var the spec does not name is
-        # INHERITED from the CLI process (measured — the parent's
-        # ORGTREE_NODE reached the server), so partial specs would
-        # identity-confuse mcptool
-        "env": {**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
-                "ORGTREE_PORT": port, "PYTHONPATH": BACKEND_DIR,
-                deployment.PROFILE_ENV: deployment.current_policy().name},
-    }
-    # the ⚙-rights seam: every turn runs with the CLI's own prompts
-    # switched off (headless print mode cannot answer them — it auto-denies
-    # every command, write AND org-power call, measured), and a narrowed
-    # node is held to its scope by the PreToolUse hook the workspace writer
-    # installs, keyed on the SAME capability switches the claude lane
-    # enforces with --disallowed-tools
-    # — all FOUR switches, not two. `web` and `subagents` reached this lane
-    #   as nothing at all until 2026-09-05, while the identity prompt (which
-    #   is lane-independent) told those nodes the capability was disabled:
-    #   a wall in the prose and none on the wire.
-    # — `edit` also carries the plan-mode seat. `_codex_may_write` is the one
-    #   predicate for "may this node change files": the edit switch off, or
-    #   `permission_mode == "plan"`, closes the door. Deriving from it rather
-    #   than re-deciding here is what keeps the three lanes from disagreeing
-    #   about the most restrictive mode orgtree offers.
-    rights = {"bash": bool(tools_sc.get("bash", True)),
-              "edit": _codex_may_write(sc),
-              "web": bool(tools_sc.get("web", True)),
-              "subagents": bool(tools_sc.get("subagents", True))}
-    # identity through the CLI's door: AGENTS.md in the scratch cwd is a
-    # directory rule injected on every turn, resumed or not (measured), so
-    # rewriting it pre-spawn is the same regenerate-per-turn self-healing
-    # as .orgtree-identity.md and the codex AGENTS.md — and the plugin +
-    # hook files beside it are regenerated for the same reason
-    antigravityrun.write_workspace(cwd, identity=ident, mcp_servers=servers,
-                                   rights=rights)
+        raise RuntimeError("Antigravity sandboxed kiosk execution is not supported")
+    spec = antigravity_session.specification(org, nid, write=True)
+    lineage_changed = antigravity_session.prepare_lineage(org, nid, spec)
+    if lineage_changed:
+        n = org.node(nid)
+        spec = antigravity_session.specification(org, nid, write=True)
+    cwd = spec["cwd"]
+    resume_cid = spec["conversation_id"]
+    metered = bool(spec["env_extra"].get("GEMINI_API_KEY"))
+    st["ran_as"] = spec["env_extra"].get(registry.MARKER, accounts.PRIMARY)
+    ih, components = warmpool.identity_snapshot(org, nid, provider_spec=spec)
+    warm_on, _ = warmpool.warm_decision()
+    wp = None
+    if warm_on and warmpool.eligible(org, nid)[0]:
+        wp, _ = warmpool.claim_snapshot(slug, nid, ih, components)
+    if wp is not None and (not isinstance(wp, warmpool.AntigravityWarmProc)
+                           or (wp.client._ever_started and
+                               wp.client.conversation_id != spec["conversation_id"])):
+        warmpool.discard(wp, "provider-lane")
+        wp = None
+    parked = False
+    turn_finished = False
 
     # ── THE ORDERING BARRIER, this lane's shape (D4, 2026-09-05) ───────────
     # INVARIANT (the codex leg's, transposed): no assistant output for a turn
@@ -15924,10 +15870,9 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     turn_token = f"{time.time_ns():x}-{_secrets.token_hex(2)}"
     jlock = threading.Lock()
     jstate: dict[str, Any] = {
-        # `sid` empty = the journal is not open: durable records queue in
-        # `pending`, visible emissions in `held`. No separate barrier flag on
-        # this lane — nothing re-arms it mid-turn (no steer verb), so a flag
-        # beside `sid` would be state that can never disagree with it
+        # Initial delivery is journaled before held model output is released.
+        # Steering receipts are committed directly by the reader before it
+        # exposes the subsequent model response.
         "sid": "", "pending": [], "held": [],
         # per-step text accumulation: step_index → [deltas…]; a step is
         # committed when its DONE arrives and never again (`item_ids`)
@@ -16336,17 +16281,14 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
             _journal_records([_unavailable_result(iid)])
             _visible_stream({"kind": "journal", "text": ""})
 
-    log_dir = os.path.join(providers.antigravity_probe_dir(), "logs", slug)
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"{nid}.log")
-    turn = antigravityrun.AntigravityTurn(
-        providers.antigravity_argv(exe), cwd=cwd,
-        model=model_id, effort=effort,
-        conversation_id=resume_cid, yolo=True,
-        on_event=_on_event,
-        env_extra={**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
-                   "ORGTREE_PORT": port},
-        log_file=log_file, turn_timeout=TURN_TIMEOUT)
+    if wp is not None:
+        turn = wp.client
+        turn._caller_on_event = _on_event
+    else:
+        turn = antigravityrun.AntigravityTurn(
+            spec["argv_head"], on_event=_on_event,
+            persistent=bool(warm_on and warmpool.eligible(org, nid)[0]),
+            **antigravity_session.client_args(spec))
     # the turn object is the process generation's owner token here: the
     # process itself does not exist until `start()`, and the accounting
     # only ever compares owners by identity and polls them
@@ -16369,6 +16311,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         with _state_lock:
             st["antigravity_turn"] = turn
         try:
+            turn.launch()
+            _leash(turn.proc)
             cid = turn.start(text + _antigravity_image_note(images or []))
         finally:
             # the same rule as the codex leg, on this lane's own evidence: the
@@ -16399,7 +16343,14 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     cast("dict[str, Any]", o2.node(nid))[
                         "antigravity_conversation"] = cid
                     o2.node(nid).pop("session_unrun", None)
+                    o2.node(nid)["antigravity_account"] = spec["account"]
                     store.save_org(o2)
+        if turn.persistent and wp is None:
+            wp = warmpool.AntigravityWarmProc(slug, nid, turn, cid, ih, components)
+            wp.claimed = True
+            turn.on_exit = lambda: warmpool._on_proc_exit(wp)
+        if wp is not None:
+            wp.sid = cid
         # the id is validated and adopted: the user row goes on disk NOW and
         # everything the wire already delivered is released behind it, in
         # order (THE ORDERING BARRIER, above)
@@ -16418,12 +16369,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         @halt.callback(slug, nid)
         def _steer_pump() -> None:
             while not stop.wait(CODEX_STEER_POLL):
-                # ⚠ DEFERRED — and on THIS lane it is not an edge case. The
-                # antigravity wire has no steer verb, so the refusal below is
-                # the normal path: committing on the fetch wrote a durable
-                # "the agent was told this" row and confirmed the batch away
-                # for EVERY mid-turn message, and the next turn then delivered
-                # the same words again. One message, two bubbles, every time.
+                # Keep the carrier durable until hook and wire acknowledge it.
                 carriers = pop_steer(slug, nid, defer_commit=True)
                 if not carriers:
                     continue
@@ -16437,12 +16383,10 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     "sender; handle it before continuing your current work]")
                 if halt.blocked(slug, nid):
                     break  # pop_steer retained the carrier for halt/latch
-                if turn.steer(wrapped):
-                    commit_steer(slug, nid, carriers)
+                if turn.steer(wrapped, on_accepted=lambda: commit_steer(slug, nid, carriers)):
+                    pass  # reader committed before releasing the corrected output
                 else:
-                    # this wire HAS no steer verb — the refusal is the
-                    # normal path, and the texts fall back to the queue for
-                    # boundary delivery (mail's chosen semantics)
+                    # The run ended before a usable invocation boundary.
                     with _state_lock:
                         st["queue"].extend(carriers)
                     _steer_fold_log(slug, nid, len(carriers), "steer refused")
@@ -16451,6 +16395,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                                         name=f"agysteer-{slug}-{nid}")
         steer_thread.start()
         res_raw = turn.wait(timeout=TURN_TIMEOUT)
+        turn_finished = True
     finally:
         # NESTED, and the sweep is the inner `finally`: every statement below
         # can raise (`turn.close()` is named in the D-229 note as one that
@@ -16469,6 +16414,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         # transcript at all, which is this leg's stated no-transcript path.
         try:
             stop.set()
+            if not turn_finished:
+                turn.close()
             # before the process is closed and before the turn machinery folds
             # undelivered batches back — see the codex leg's note. This lane's
             # `steer` returns False synchronously, so this is normally
@@ -16489,13 +16436,22 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                 _steer_fold_log(slug, nid, len(leftover), "turn exit",
                                 why="the turn ended before the steer pump's "
                                     "next poll")
-            turn.close()
+            if turn_finished and wp is not None and turn.status == antigravityrun.STATUS_COMPLETED:
+                may_park, _, _ = warmpool.boundary_check(slug, nid, ih, wp)
+                if may_park:
+                    turn._caller_on_event = None
+                    parked = warmpool.park_back(wp, 0.0)
+            if not parked:
+                if wp is not None:
+                    warmpool.discard(wp, "turn-end")
+                else:
+                    turn.close()
         finally:
             # Retry teardown if the process is still alive; clear liveness
             # only after observed exit. Always commit unfinished tools,
             # including when teardown/accounting raises.
             try:
-                if turn.pid is not None and turn.poll() is None:
+                if not parked and turn.pid is not None and turn.poll() is None:
                     try:
                         turn.close()
                     except Exception:                        # noqa: BLE001
@@ -16506,7 +16462,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     exited=turn.pid is None or turn.poll() is not None)
                 # self-guarding: retires a generation only on an observed exit
                 _mcp_tool_count_end(slug, nid, turn)
-                turnlog.emit(trec, "teardown", parked=False,
+                turnlog.emit(trec, "teardown", parked=parked,
                              exited=turn.pid is None or turn.poll() is not None)
             finally:
                 _commit_unfinished_tools()
@@ -16519,6 +16475,9 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     status = str(res_raw.get("status") or antigravityrun.STATUS_FAILED)
     turnlog.emit(trec, "agy_status", status=res_raw.get("status"))
     if status == antigravityrun.STATUS_FAILED:
+        if metered:
+            _charge_reported_spend(slug, nid,
+                float(res_raw.get("estimated_cost_usd") or 0), on_key=True)
         tail = " | ".join(turn.stderr_tail[-3:])[:300]
         reason = str(res_raw.get("stop_reason") or "")
         detail = reason[:200]
@@ -16543,7 +16502,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         blob = detail or tail
         walled = _looks_like_usage_limit(blob)
         reset_ts: float | None = None
-        if walled:
+        if walled and not metered:
             reset_ts = antigravity_limits.observe_wall(
                 reason or tail, tier=tier, now=time.time())
         # A recognized usage wall retains its freeze treatment whether or not
@@ -16603,7 +16562,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
             + (f" — {tail}" if tail else ""),
             blob=blob, reset_ts=reset_ts,
             schedule_kind=("observed-deadline" if reset_ts else "probe"),
-            provider="google", account=antigravity_limits.ACCOUNT,
+            provider="google", account=(str(st["ran_as"]) if metered else antigravity_limits.ACCOUNT),
             resource_pool=tier)
     tu = res_raw.get("token_usage")
     # The step lifecycle already journaled the conversation in real time,
@@ -16653,7 +16612,9 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
-        "total_cost_usd": providers.antigravity_cost(tu),
+        "_antigravity_metered": metered,
+        "_antigravity_lineage_changed": lineage_changed,
+        "total_cost_usd": res_raw.get("estimated_cost_usd", providers.antigravity_cost(tu)),
         "usage": {"output_tokens": tu_out},
         "duration_ms": int((time.time() - t0) * 1000),
         "permission_denials": list(res_raw.get("denials") or []),
@@ -17397,6 +17358,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 res, agy_occ = _antigravity_leg(
                     slug, nid, org, st, text, toks, turn_images, turn_view,
                     view_spans=view_spans, view_segments=view_segments, trec=_trec)
+                if res.get("_antigravity_lineage_changed"):
+                    cache_attempt = None
                 _spend_pass_now()           # same rule as the codex leg above
                 if _trec is not None:
                     _trec.dispose("interrupted" if str(res.get("status") or "")
@@ -17406,7 +17369,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 st["account_switches"] = 0
                 paid_booked = True     # _after_turn books `res`'s cost itself
                 probe_success = _turn_observed_success(res, st)
-                _after_turn(slug, nid, org, res, st, agy_occ, on_key=False,
+                _after_turn(slug, nid, org, res, st, agy_occ,
+                            on_key=bool(res.get("_antigravity_metered")),
                             cache_attempt=cache_attempt)
                 if probe_success and probe_token:
                     if _release_limit_probe(slug, nid, success=True,
@@ -24117,6 +24081,8 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
                     o2.node(nid), account, resource_pool, ts,
                     effective_kind == "observed-deadline",
                     served=_served_for_banking(slug, nid))
+            elif fz["provider"] == "google" and served_metered_row(account) is not None:
+                _record_account_reset(account, tier, blob, ts, src, True)
             fz["error"] = blob[:300]
             if replay:
                 # replay only what the provider actually CONSUMED. Both legs

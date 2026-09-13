@@ -145,20 +145,20 @@ export function AddAccountDialog({ provider, onAdded, close }: {
     {/* ⚠ OFFERED WHETHER OR NOT THE PROVIDER'S SUBSCRIPTION IS SIGNED IN
         (ticket requirement): an API-key account is an ordinary account, not a
         spare bolted onto a subscription, and Orgtree can run on keys alone.
-        Google is excluded because it has no API-key login at all (measured
-        1.1.24) — the note below already says so. */}
-    {provider !== 'google' && <section className="account-add-option">
+ */}
+    <section className="account-add-option">
       <h4>Use an API key</h4>
-      <p className="dim">Bill this account directly to {LABELS[provider]} API
+      <p className="dim">Bill this account directly to {provider === 'google' ? 'Gemini' : LABELS[provider]} API
         credit. It shows total spend instead of subscription limits, and is
         never used for fallback unless you turn that on.</p>
       <label>API key<input aria-label="API key" type="password" value={key}
-        disabled={busy} placeholder={provider === 'claude' ? 'sk-ant-…' : 'sk-…'}
+        disabled={busy} placeholder={provider === 'google' ? 'Gemini API key' : 'API key'}
         onChange={e => setKey(e.target.value)} /></label>
       <p className="dim">Stored on this machine and never shown again.</p>
+      {provider === 'google' && <p className="dim">Uses Gemini API billing and Gemini models.</p>}
       <button disabled={busy || !key.trim()}
         onClick={() => { void create('apikey') }}>Add API-key account</button>
-    </section>}
+    </section>
     {provider === 'google' && <p className="dim">Secondary Antigravity sign-in is not supported yet. Importing a folder does not verify its sign-in.</p>}
     {error && <p className="ask-warn" role="alert">{error}</p>}
     <button disabled={busy} onClick={dismiss}>Cancel</button>

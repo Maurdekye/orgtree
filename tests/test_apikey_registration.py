@@ -4,7 +4,7 @@
 Covers:
   · apikey_accounts.register — claude store-first + value-idempotence;
     openai key-home synthesis (codex-native auth.json) + value-idempotence;
-    google and empty keys refused; wrapped-paste normalization
+    google keys supported; empty keys refused; wrapped-paste normalization
   · forget_credentials — claude token disposal, openai key-home deletion
     bounded to the engine's own profiles base, subscription rows untouched
   · appsettings — apikey_fallback default OFF / explicit-true-only;
@@ -97,7 +97,7 @@ class RegisterTests(unittest.TestCase):
 
     def test_refusals_and_normalization(self):
         with self.assertRaises(ValueError):
-            apikey_accounts.register("google", FAKE_CLAUDE)
+            apikey_accounts.register("unknown", FAKE_CLAUDE)
         with self.assertRaises(ValueError):
             apikey_accounts.register("claude", "   ")
         # a wrapped-terminal paste: CR/LF inside the sk- family is removed
@@ -141,9 +141,9 @@ class AppSettingsTests(unittest.TestCase):
         self.assertTrue(appsettings.apikey_fallback_enabled("claude"))
         self.assertFalse(appsettings.apikey_fallback_enabled("openai"))
         self.assertEqual(appsettings.apikey_fallback_choices(),
-                         {"claude": True, "openai": False})
-        with self.assertRaises(ValueError):
-            appsettings.set_apikey_fallback_enabled("google", True)
+                         {"claude": True, "google": False, "openai": False})
+        appsettings.set_apikey_fallback_enabled("google", True)
+        self.assertTrue(appsettings.apikey_fallback_enabled("google"))
 
     def test_subscription_inference_defaults_on_and_flips(self):
         for p in ("claude", "openai", "google"):
@@ -193,10 +193,10 @@ class EndpointTests(unittest.TestCase):
 
     def test_accounts_create_apikey_refusals(self):
         from fastapi import HTTPException
-        with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(self.api.accounts_create(self.api.AccountCreate(
-                provider="google", kind="apikey", key="sk-x")))
-        self.assertEqual(ctx.exception.status_code, 422)
+        result = asyncio.run(self.api.accounts_create(self.api.AccountCreate(
+            provider="google", kind="apikey", key="test-google-key")))
+        self.assertEqual(result["provider"], "google")
+        self.assertEqual(result["mode"], "apikey")
         with self.assertRaises(HTTPException):
             asyncio.run(self.api.accounts_create(self.api.AccountCreate(
                 provider="claude", kind="apikey", key=" ")))

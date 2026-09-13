@@ -19,7 +19,7 @@ live in registry.py, and nothing here relaxes the secrets discipline:
     process still needs a CODEX_HOME, so one is DERIVED per row at spawn
     (`codex_key_home`) — it isolates the spawn from the ambient login and
     holds no credential of any kind.
-  · google — refused; no API-key login exists (measured 1.1.24).
+  * google: direct Gemini API, token-store key and settings-only home.
 
 Registration performs no provider-side validation beyond non-emptiness: the
 ticket left provider validation unspecified, a wrong key fails loudly at its
@@ -38,7 +38,7 @@ from typing import Any
 
 from . import managed_profiles, registry, store, tokens
 
-PROVIDERS = ("claude", "openai")
+PROVIDERS = ("claude", "openai", "google")
 AUTH_FILE = "auth.json"
 
 
@@ -90,8 +90,7 @@ def register(provider: str, key: str, *,
     if provider not in PROVIDERS:
         raise ValueError(
             f"{provider or 'that provider'} has no API-key account form — "
-            f"API-key accounts exist for claude and openai (google offers "
-            f"no API-key login)")
+            f"API-key accounts exist for claude, openai and google")
     key = normalize_key(key)
     if not key:
         raise ValueError("refusing to register an empty API key")
@@ -127,9 +126,9 @@ def forget_credentials(row: dict[str, Any]) -> None:
     cred = row.get("credential") or {}
     if cred.get("kind") == "apikey":
         tokens.forget(str(cred.get("token_ref") or ""))
-        if row.get("provider") == "openai":
+        if row.get("provider") in ("openai", "google"):
             derived = os.path.join(_profiles_base(),
-                                   f"openai-key-{row.get('id')}")
+                                   f"{row['provider']}-key-{row.get('id')}")
             if os.path.isdir(derived):
                 shutil.rmtree(derived, ignore_errors=True)
         return

@@ -33,9 +33,8 @@ FILE_NAME: Final = "app-settings.json"
 #: file, never here
 PROVIDERS: Final = frozenset({"claude", "openai", "google", "openrouter"})
 #: the metered API-key lanes (user redesign 2026-09-12): the providers whose
-#: accounts can be pasted API keys. Google is absent on purpose — no API-key
-#: login exists for it (measured 1.1.24).
-APIKEY_PROVIDERS: Final = frozenset({"claude", "openai"})
+#: accounts can be pasted API keys, including the direct Gemini lane.
+APIKEY_PROVIDERS: Final = frozenset({"claude", "openai", "google"})
 #: the subscription-inference switch covers every CLI provider with a
 #: subscription login to disable; openrouter is a bearer-key lane and has
 #: no subscription half.

@@ -58,7 +58,7 @@ const toggle = (provider: string, label: RegExp) =>
   [...lane(provider).querySelectorAll('input[type=checkbox]')]
     .find(i => label.test(i.getAttribute('aria-label') || '')) as HTMLInputElement | undefined
 
-test('the API-key option is offered even when that provider is signed out, and never for Antigravity', async t => {
+test('the API-key option is offered even when that provider is signed out, including Antigravity', async t => {
   // Codex is the signed-OUT provider in this fixture (connected: false).
   // That is the point: a key account must not require a subscription first.
   const { calls } = await setup(t, [account('existing')])
@@ -75,8 +75,8 @@ test('the API-key option is offered even when that provider is signed out, and n
     { provider: 'openai', kind: 'apikey', key: 'sk-test-key' })
 
   await inAct(async () => { button(lane('google'), 'Add secondary account')!.click(); await flush() })
-  assert.equal(button(dialog(), 'Add API-key account'), undefined,
-    'Antigravity has no API-key login to offer')
+  assert.ok(button(dialog(), 'Add API-key account'),
+    'Antigravity supports Gemini API-key accounts')
 })
 
 test('a key account answers Usage with its spend, never a limit bar', async t => {
