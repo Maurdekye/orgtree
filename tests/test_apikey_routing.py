@@ -414,7 +414,7 @@ class CodexSpawnGateTests(unittest.TestCase):
         org = self._codex_org('cx-keyonly')
         home, acct = supervisor.codex_bound_home(org, 'root')
         self.assertEqual(acct, key['id'])
-        self.assertEqual(home, key['credential']['path'])
+        self.assertEqual(home, apikey_accounts.codex_key_home(key))
 
     def test_inference_off_with_no_usable_key_refuses_instead_of_spending(self):
         key = self._key()
@@ -440,7 +440,7 @@ class CodexSpawnGateTests(unittest.TestCase):
         org = self._codex_org('cx-boundkey', account=key['id'])
         home, acct = supervisor.codex_bound_home(org, 'root')
         self.assertEqual(acct, key['id'])
-        self.assertEqual(home, key['credential']['path'])
+        self.assertEqual(home, apikey_accounts.codex_key_home(key))
 
     def test_fallback_consent_routes_an_unbound_node_once_exhausted(self):
         key = self._key()
@@ -502,3 +502,89 @@ class GoogleInferenceGateTests(unittest.TestCase):
                                  str(e))
             except Exception:                                # noqa: BLE001
                 pass
+
+
+class CodexLaunchWithoutAmbientLoginTests(unittest.TestCase):
+    """API-key-only OpenAI must be able to START.
+
+    `_codex_process_spec` gated on providers.codex_status()['connected'] —
+    the AMBIENT ~/.codex login — before it resolved which account the turn
+    would bill. So a node about to spend a key account, needing no
+    subscription at all, was refused for the absence of one, and the
+    ticket's API-key-only operation was unreachable on this provider.
+    The CLI installed/executable checks are NOT lane-dependent and stay.
+    """
+
+    def setUp(self):
+        _fresh()
+
+    def _org(self, slug, account=None):
+        org = ledger.Org.create(slug)
+        org.nodes['root'] = {'state': 'live', 'parent': None,
+                            'generation': 1, 'model': 'terra',
+                            'grant': 0, 'seat': 2, 'title': 'root',
+                            'scope': {'add_dirs': [], 'tools': {},
+                                      'org_visibility': 'self',
+                                      'permission_mode': 'acceptEdits'}}
+        if account:
+            org.nodes['root']['account'] = account
+        return org
+
+    def _key(self):
+        row, _ = apikey_accounts.register(
+            'openai', 'sk-proj-' + 'L' * 44)
+        return registry.get_account(row['id'])
+
+    #: installed and executable, but NOBODY is signed in
+    SIGNED_OUT = {'installed': True, 'path': 'codex.exe',
+                  'connected': False, 'kind': ''}
+
+    def test_signed_out_still_refuses_when_no_key_can_serve(self):
+        org = self._org('cx-nokey')
+        with patch.object(providers, 'codex_status',
+                          return_value=self.SIGNED_OUT):
+            with self.assertRaises(RuntimeError) as cm:
+                supervisor._codex_process_spec(org, 'root',
+                                               write_ident=False)
+        self.assertIn('not signed in', str(cm.exception))
+
+    def test_signed_out_launches_on_a_bound_key_account(self):
+        key = self._key()
+        org = self._org('cx-boundkey-spec', account=key['id'])
+        with patch.object(providers, 'codex_status',
+                          return_value=self.SIGNED_OUT):
+            spec = supervisor._codex_process_spec(org, 'root',
+                                                  write_ident=False)
+        env = spec['env_extra']
+        self.assertEqual(env[registry.MARKER], key['id'])
+        # the secret comes out of the token store at spawn, never off disk
+        self.assertEqual(env['OPENAI_API_KEY'],
+                         tokens.get(key['credential']['token_ref']))
+        # and the home it runs in is the derived, credential-free one —
+        # never the ambient login whose auth.json would re-bill the
+        # subscription
+        self.assertEqual(spec['codex_home'],
+                         apikey_accounts.codex_key_home(key))
+        self.assertEqual(os.listdir(spec['codex_home']), [])
+
+    def test_signed_out_launches_on_the_routed_key_when_inference_is_off(self):
+        key = self._key()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = self._org('cx-routed-spec')          # UNBOUND
+        with patch.object(providers, 'codex_status',
+                          return_value=self.SIGNED_OUT):
+            spec = supervisor._codex_process_spec(org, 'root',
+                                                  write_ident=False)
+        self.assertEqual(spec['env_extra'][registry.MARKER], key['id'])
+        self.assertIn('OPENAI_API_KEY', spec['env_extra'])
+
+    def test_a_missing_cli_is_still_refused_whatever_the_lane(self):
+        key = self._key()
+        org = self._org('cx-nocli', account=key['id'])
+        with patch.object(providers, 'codex_status',
+                          return_value={'installed': False, 'path': '',
+                                        'connected': False}):
+            with self.assertRaises(RuntimeError) as cm:
+                supervisor._codex_process_spec(org, 'root',
+                                               write_ident=False)
+        self.assertIn('not installed', str(cm.exception))

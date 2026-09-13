@@ -13222,6 +13222,24 @@ def announce_missing_rebind_candidates(provider: str,
     return total
 
 
+def _codex_home_for(row: dict[str, Any]) -> str:
+    """The CODEX_HOME a resolved account runs in.
+
+    A subscription profile row IS its home. A metered key row has none —
+    its secret lives in the machine token store and rides the environment
+    (docket rule: no key material outside that store) — so a derived,
+    credential-free directory stands in, keeping the spawn off the ambient
+    ~/.codex whose auth.json would silently return the turn to the
+    subscription login."""
+    cred = row["credential"]
+    if cred["kind"] in ("imported", "managed"):
+        return str(cred["path"])
+    if registry.account_mode(row) == "apikey":
+        from . import apikey_accounts      # noqa: PLC0415 — key lane only
+        return apikey_accounts.codex_key_home(row)
+    return ""
+
+
 def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
     """(home, account_id) for a codex spawn, resolved from the NODE'S BOUND
     ACCOUNT — never from os.environ (Opus S3 finding: the strip in
@@ -13248,9 +13266,7 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
         tier = str((org.node(nid) or {}).get("model") or "")
         routed = apikey_route_for(tier) if tier else None
         if routed is not None:
-            rcred = routed["credential"]
-            return (rcred["path"] if rcred["kind"] in ("imported", "managed")
-                    else ""), str(routed["id"])
+            return _codex_home_for(routed), str(routed["id"])
         if tier and not appsettings.subscription_inference_enabled("openai"):
             # The switch says NEVER, and no enabled key account could serve
             # this turn. Falling through would spend the very subscription
@@ -13283,9 +13299,7 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
             f"account {bound} but openai subscription inference is disabled "
             f"on this machine — rebind it to an API-key account or "
             f"re-enable subscription inference")
-    cred = row["credential"]
-    home = cred["path"] if cred["kind"] in ("imported", "managed") else ""
-    return home, bound
+    return _codex_home_for(row), bound
 
 
 def _codex_process_spec(org: Org, nid: str, *,
@@ -13306,7 +13320,23 @@ def _codex_process_spec(org: Org, nid: str, *,
         raise RuntimeError(
             "turn failed: the Codex CLI is not installed — the accounts "
             "panel's Codex section shows the install command")
-    if not cstat.get("connected"):
+    # ⚠ RESOLVE THE ACCOUNT BEFORE ASKING WHETHER THE MACHINE IS SIGNED IN.
+    # `codex_status()["connected"]` reports the AMBIENT ~/.codex login, and
+    # gating on it first made API-key-only operation impossible for this
+    # provider: a node that was going to bill a key account — needing no
+    # subscription at all — was refused for the absence of one. The CLI
+    # installed/executable checks above stay unconditional; only the
+    # signed-in question is lane-dependent, because only it is about a
+    # credential this turn may not use.
+    _bound_home, _bound_id = codex_bound_home(org, nid)
+    _metered = False
+    if _bound_id:
+        try:
+            _metered = registry.account_mode(
+                registry.get_account(_bound_id)) == "apikey"
+        except registry.UnknownAccount:
+            _metered = False
+    if not _metered and not cstat.get("connected"):
         raise RuntimeError(
             "turn failed: codex is not signed in on this machine — run "
             "`codex login` (accounts panel → Codex)")
@@ -13322,7 +13352,14 @@ def _codex_process_spec(org: Org, nid: str, *,
             f.write(ident)
     mcp_chosen, _ = codex_mcp_grant(org, nid)
     port = os.environ.get("ORGTREE_PORT", "7360")
-    _bound_home, _bound_id = codex_bound_home(org, nid)
+    # the metered lane's secret is resolved out of the token store HERE and
+    # travels with the marker in one dict — the codex lane's single
+    # injector, mirroring registry.inject_binding on the claude side.
+    _key_env: dict[str, str] = {}
+    if _metered and _bound_id:
+        _key_env = registry.inject_binding(
+            {}, registry.get_account(_bound_id), secret_resolver=tokens.get)
+        _key_env.pop(registry.MARKER, None)
     return {
         "argv_head": providers.codex_argv(exe),
         "cwd": cwd,
@@ -13335,6 +13372,7 @@ def _codex_process_spec(org: Org, nid: str, *,
                       # marker + home originate in the SAME spec (the codex
                       # lane's single-injector: child_env strips inherited
                       # copies, this dict re-injects the bound pair together)
+                      **_key_env,
                       **({registry.MARKER: _bound_id} if _bound_id else {})},
         "port": port,
         "exe": exe,

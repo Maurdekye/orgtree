@@ -64,13 +64,33 @@ class RegisterTests(unittest.TestCase):
         self.assertFalse(created2)
         self.assertEqual(again["id"], row["id"])         # same value, same row
 
-    def test_openai_mints_a_codex_native_key_home(self):
+    def test_openai_key_lives_only_in_the_token_store(self):
+        """THE DOCKET RULE, for openai too: key material lives in the machine
+        token store and the row carries only a token_ref.
+
+        The first cut wrote codex’s native auth.json holding the raw key.
+        That is the provider’s own form, but it is a SECOND durable home
+        for a secret, which is exactly what the rule forbids — and it put
+        openai on a different discipline from claude for no reason the
+        docket gives.
+        """
         row, created = apikey_accounts.register("openai", FAKE_OPENAI)
         self.assertTrue(created)
-        self.assertEqual(row["credential"]["kind"], "managed")
-        home = row["credential"]["path"]
-        with open(os.path.join(home, "auth.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["OPENAI_API_KEY"], FAKE_OPENAI)
+        self.assertEqual(row["credential"]["kind"], "apikey")
+        self.assertNotIn("path", row["credential"])
+        self.assertEqual(tokens.get(row["credential"]["token_ref"]),
+                         FAKE_OPENAI)
+        # the derived spawn home exists for isolation and holds NOTHING
+        home = apikey_accounts.codex_key_home(row)
+        self.assertTrue(os.path.isdir(home))
+        self.assertEqual(os.listdir(home), [])
+        self.assertFalse(os.path.exists(os.path.join(home, "auth.json")))
+        # and the key is nowhere on disk under the profiles base
+        for base, _dirs, files in os.walk(os.path.dirname(home)):
+            for name in files:
+                with open(os.path.join(base, name), "rb") as f:
+                    self.assertNotIn(FAKE_OPENAI.encode(), f.read(),
+                                     f"raw key found in {name}")
         again, created2 = apikey_accounts.register("openai", FAKE_OPENAI)
         self.assertFalse(created2)
         self.assertEqual(again["id"], row["id"])
@@ -91,9 +111,10 @@ class RegisterTests(unittest.TestCase):
         apikey_accounts.forget_credentials(row)
         self.assertFalse(tokens.get(row["credential"]["token_ref"]))
         orow, _ = apikey_accounts.register("openai", FAKE_OPENAI)
-        home = orow["credential"]["path"]
+        home = apikey_accounts.codex_key_home(orow)
         apikey_accounts.forget_credentials(orow)
-        self.assertFalse(os.path.isdir(home))            # minted home removed
+        self.assertFalse(tokens.get(orow["credential"]["token_ref"]))
+        self.assertFalse(os.path.isdir(home))       # derived home removed too
         # a subscription managed row is never touched, even via this door
         sub = registry.create_account(
             "openai", "login", {"kind": "managed",

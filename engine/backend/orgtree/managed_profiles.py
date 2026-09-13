@@ -30,6 +30,51 @@ def create_profile(base: str, provider: str) -> str:
     return path
 
 
+def create_profile_at(path: str) -> str:
+    """Create ONE private directory at an EXACT path, same ACL as
+    `create_profile`, and return it.
+
+    `create_profile` mints a random name, which is right for a login home
+    nothing else must guess. A DERIVED home — one whose name is a function
+    of the row it belongs to — needs the path to be stable instead, so the
+    same row lands in the same directory on every spawn without the path
+    being stored anywhere. Existing directories are left as they are.
+    """
+    if os.path.isdir(path):
+        return path
+    parent = os.path.dirname(os.path.abspath(path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if os.name != "nt":
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        return path
+    # ⚠ THE PRIVATE ACL IS BEST-EFFORT HERE, AND ONLY HERE. `create_profile`
+    # mints LOGIN homes, where the ACL is the whole point and failing loudly
+    # is right. A derived home holds no credential — the key it belongs to
+    # lives in the machine token store — so refusing to create it would turn
+    # a cosmetic hardening failure into "this account cannot run a turn".
+    # Identifying the token user shells out to `whoami`, which is not always
+    # the Windows one on a PATH a developer shell has rearranged.
+    try:
+        _create_windows_directory(path, _token_user_sid())
+    except (OSError, subprocess.SubprocessError):
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _token_user_sid() -> str:
+    """The SID of the Windows identity this process runs as — named
+    explicitly rather than defaulted, for the reason create_profile gives."""
+    result = subprocess.run(
+        ["whoami", "/user", "/fo", "csv", "/nh"], check=True,
+        capture_output=True, text=True, timeout=10,
+        creationflags=subprocess.CREATE_NO_WINDOW)
+    match = re.search(r"S-1-(?:\d+-)+\d+", result.stdout)
+    if not match:
+        raise OSError("Cannot identify the Windows user for the managed profile")
+    return match.group()
+
+
 def _create_windows_directory(path: str, sid: str) -> None:
     """Attach the private ACL at creation, without an inherited-access gap."""
     import ctypes

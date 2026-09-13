@@ -10,11 +10,15 @@ live in registry.py, and nothing here relaxes the secrets discipline:
     file, store-first, never serialized back out) and the row references it
     as {kind: "apikey", token_ref}. Spawns inject ANTHROPIC_API_KEY through
     registry.inject_binding, the one injector.
-  · openai — codex's own key-auth form is an auth.json inside a home
-    directory, so the row is a MANAGED home minted here (private ACL via
-    managed_profiles) holding exactly {"OPENAI_API_KEY": <key>}; spawns set
-    CODEX_HOME as for any managed row. The secret's disk form is the
-    provider CLI's own, in a directory only this Windows user can read.
+  · openai — the SAME rule, deliberately. Codex's native key-auth form is
+    an auth.json holding the raw key, and the first cut of this module wrote
+    one: a second durable home for a secret, which the docket's
+    token-store-only rule forbids outright. The key now goes to the token
+    store exactly as claude's does and the row carries only a token_ref;
+    spawns inject OPENAI_API_KEY through registry.inject_binding. The codex
+    process still needs a CODEX_HOME, so one is DERIVED per row at spawn
+    (`codex_key_home`) — it isolates the spawn from the ambient login and
+    holds no credential of any kind.
   · google — refused; no API-key login exists (measured 1.1.24).
 
 Registration performs no provider-side validation beyond non-emptiness: the
@@ -60,17 +64,19 @@ def _profiles_base() -> str:
     return base
 
 
-def _openai_home_key(path: str) -> str:
-    """The key an openai key-home holds, or "" — a read for the idempotence
-    scan and the removal guard only; the value never leaves this module."""
-    if not path:
-        return ""
-    try:
-        with open(os.path.join(path, AUTH_FILE), encoding="utf-8") as f:
-            doc = json.load(f)
-    except (OSError, json.JSONDecodeError, ValueError):
-        return ""
-    return str(doc.get("OPENAI_API_KEY") or "") if isinstance(doc, dict) else ""
+def codex_key_home(row: dict[str, Any]) -> str:
+    """The CODEX_HOME a metered openai spawn runs in — derived, never stored.
+
+    ⚠ IT HOLDS NO SECRET. The key rides the environment from the token store
+    (registry.inject_binding); this directory exists so the spawn does not
+    inherit the ambient ~/.codex, whose auth.json would put the turn back on
+    the subscription login the operator was trying not to use. Created on
+    demand with the same private ACL as any managed profile, and removed
+    with the row."""
+    base = os.path.join(_profiles_base(), f"openai-key-{row['id']}")
+    if not os.path.isdir(base):
+        managed_profiles.create_profile_at(base)
+    return base
 
 
 def register(provider: str, key: str, *,
@@ -89,45 +95,43 @@ def register(provider: str, key: str, *,
     key = normalize_key(key)
     if not key:
         raise ValueError("refusing to register an empty API key")
-    if provider == "claude":
-        kid = _key_row_id(key)
-        tokens.put(kid, key)          # ← durable before anything can object
-        for row in registry.list_accounts():
-            cred = row.get("credential") or {}
-            if cred.get("kind") == "apikey" and cred.get("token_ref") == kid:
-                return row, False
-        row = registry.create_account(
-            provider, label or "API key",
-            {"kind": "apikey", "token_ref": kid}, mode="apikey")
-        return row, True
+    # ONE PATH FOR BOTH PROVIDERS. The row is a token_ref and nothing else;
+    # idempotence is on the ref, which is a hash of the value, so re-pasting
+    # a stored key lands on its existing row for either provider.
+    kid = _key_row_id(key)
+    tokens.put(kid, key)              # ← durable before anything can object
     for row in registry.list_accounts():
-        if (row.get("provider") == "openai"
-                and registry.account_mode(row) == "apikey"
-                and _openai_home_key(str((row.get("credential") or {})
-                                         .get("path") or "")) == key):
+        cred = row.get("credential") or {}
+        if (row.get("provider") == provider
+                and cred.get("kind") == "apikey"
+                and cred.get("token_ref") == kid):
             return row, False
-    home = managed_profiles.create_profile(_profiles_base(), "openai")
-    with open(os.path.join(home, AUTH_FILE), "w", encoding="utf-8") as f:
-        json.dump({"OPENAI_API_KEY": key}, f)
     row = registry.create_account(
-        provider, label or "API key", {"kind": "managed", "path": home},
-        mode="apikey")
+        provider, label or "API key",
+        {"kind": "apikey", "token_ref": kid}, mode="apikey")
     return row, True
 
 
 def forget_credentials(row: dict[str, Any]) -> None:
     """Dispose of a REMOVED apikey row's secret material, best-effort.
 
-    Claude rows forget their token-store entry. Openai rows delete the key
-    home — but ONLY a directory inside the engine's own profiles base, so a
-    mislabelled row can never take out a login directory the user imported.
-    Subscription rows are untouched entirely: their directories are logins,
-    not material this module minted."""
+    Both providers forget their token-store entry — that is where the key
+    lives. An openai row may also leave behind the DERIVED codex home, which
+    holds no credential but should not outlive its row; it is removed only
+    when it sits inside the engine's own profiles base, so a mislabelled row
+    can never take out a login directory the user imported. Subscription
+    rows are untouched entirely: their directories are logins, not material
+    this module minted."""
     if registry.account_mode(row) != "apikey":
         return
     cred = row.get("credential") or {}
     if cred.get("kind") == "apikey":
         tokens.forget(str(cred.get("token_ref") or ""))
+        if row.get("provider") == "openai":
+            derived = os.path.join(_profiles_base(),
+                                   f"openai-key-{row.get('id')}")
+            if os.path.isdir(derived):
+                shutil.rmtree(derived, ignore_errors=True)
         return
     if cred.get("kind") != "managed":
         return

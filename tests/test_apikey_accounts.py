@@ -77,10 +77,11 @@ class RowShapeTests(unittest.TestCase):
             registry.create_account(
                 "google", "nope", {"kind": "apikey", "token_ref": "akX"},
                 mode="apikey")
-        # an openai key account is a managed codex home, never a token ref
+        # an openai key account keeps its key in the token store, exactly as
+        # claude does — a managed home would be a second durable secret home
         with self.assertRaises(ValueError):
             registry.create_account(
-                "openai", "nope", {"kind": "apikey", "token_ref": "akX"},
+                "openai", "nope", {"kind": "managed", "path": "/x"},
                 mode="apikey")
         # a claude key account lives in the token store, never a profile dir
         with self.assertRaises(ValueError):
@@ -91,10 +92,10 @@ class RowShapeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             registry.create_account(
                 "claude", "nope", {"kind": "apikey", "token_ref": "akX"})
-        # the valid openai form: managed home + apikey mode
+        # the valid form is now the SAME for both key providers: a token_ref
         row = registry.create_account(
-            "openai", "metered codex", {"kind": "managed", "path": "/tmp/ch"},
-            mode="apikey")
+            "openai", "metered codex",
+            {"kind": "apikey", "token_ref": "akOPENAIOK01"}, mode="apikey")
         self.assertEqual(row["mode"], "apikey")
         self.assertTrue(row["enabled"])
 
@@ -144,15 +145,22 @@ class InjectionTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             registry.inject_binding({}, row)            # no resolver at all
 
-    def test_openai_apikey_rides_the_managed_home_lane(self):
+    def test_openai_apikey_injects_the_key_from_the_token_store(self):
         row = registry.create_account(
-            "openai", "metered codex", {"kind": "managed", "path": "/tmp/ch"},
-            mode="apikey")
+            "openai", "metered codex",
+            {"kind": "apikey", "token_ref": "akOPENAI0001"}, mode="apikey")
         env: dict[str, str] = {}
-        registry.inject_binding(env, row)
-        self.assertEqual(env["CODEX_HOME"], "/tmp/ch")
+        registry.inject_binding(env, row,
+                                secret_resolver=lambda ref: "sk-proj-live")
+        self.assertEqual(env["OPENAI_API_KEY"], "sk-proj-live")
         self.assertEqual(env[registry.MARKER], row["id"])
-        self.assertNotIn("OPENAI_API_KEY", env)         # auth.json, never env
+        # the anthropic lane is never touched by an openai row
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+        # and the cross-check reads THIS provider’s lane, not claude’s
+        self.assertIsNone(registry.identity_mismatch(env))
+        self.assertEqual(
+            registry.identity_mismatch({registry.MARKER: row["id"]}),
+            f"account-env-mismatch:{row['id']}")
 
     def test_identity_mismatch_needs_the_metered_lane(self):
         row = _claude_row("akMISMATCH0001")
@@ -210,8 +218,8 @@ class UsageViewTests(unittest.TestCase):
 
     def test_openai_apikey_row_answers_the_same_shape(self):
         row = registry.create_account(
-            "openai", "metered codex", {"kind": "managed", "path": "/tmp/ch"},
-            mode="apikey")
+            "openai", "metered codex",
+            {"kind": "apikey", "token_ref": "akOPENAI0002"}, mode="apikey")
         view = accountusage.view(row, allow_fetch=False, now=2000.0)
         self.assertTrue(view["available"])
         self.assertEqual(view["mode"], "apikey")

@@ -42,7 +42,21 @@ def record_limit(node: dict[str, Any], account: str, pool: str,
         row = registry.get_account(bound)
         if row["provider"] != "openai":
             return
-        digest, lane = codex_limits._account_namespace(row["credential"]["path"])
+        # ⚠ KNOWN GAP, MADE EXPLICIT (2026-09-12 redesign). A metered key row
+        # has no login home to name a digest, and this check wants the error
+        # to name THIS subscription login — so a 429 against an OpenAI
+        # API-key account records no capacity mark, and the multi-key
+        # rotation rule ("first enabled row without an active mark") cannot
+        # rotate away from it. That was already true before the row shape
+        # changed (a key home answered lane "api-key" and was rejected one
+        # line below); it now returns HERE rather than through a KeyError
+        # the blanket except was swallowing. Fixing it means deciding how a
+        # codex rate-limit error is attributed to a keyed row, which is its
+        # own change with its own review.
+        cred = row["credential"]
+        if cred["kind"] not in ("imported", "managed"):
+            return
+        digest, lane = codex_limits._account_namespace(cred["path"])
         if lane != "subscription" or digest != account:
             return
         for key in pools("openai", str(node.get("model") or ""), pool):

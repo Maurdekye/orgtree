@@ -197,17 +197,18 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
         # The decided provider/kind matrix (user 2026-09-12): a claude key is
         # injected from the token store; an openai key is a codex-native
         # managed home; google has no API-key login at all (measured 1.1.24).
-        if provider == "claude":
+        if provider in APIKEY_VAR:
+            # ⚠ ONE RULE FOR BOTH PROVIDERS (docket: key material lives in
+            # the machine token store and the row carries only a token_ref).
+            # The openai row used to be a managed CODEX_HOME whose auth.json
+            # held the raw key — codex's own key-auth form, but a second
+            # durable home for a secret, which is exactly what that rule
+            # forbids. The home is now derived at spawn and holds nothing.
             if credential["kind"] != "apikey":
                 raise ValueError(
-                    "a claude API-key account keeps its key in the machine "
-                    "token store — credential kind must be 'apikey'")
-        elif provider == "openai":
-            if credential["kind"] != "managed":
-                raise ValueError(
-                    "an openai API-key account is a managed CODEX_HOME whose "
-                    "auth.json holds the key (codex's own key-auth form) — "
-                    "credential kind must be 'managed'")
+                    f"a {provider} API-key account keeps its key in the "
+                    f"machine token store — credential kind must be "
+                    f"'apikey'")
         else:
             raise ValueError(f"{provider} has no API-key login")
     elif credential["kind"] == "apikey":
@@ -502,6 +503,11 @@ def validate_binding(org_slug: str, tier: str,
 #: and the identity cross-check both read, so they cannot disagree.
 PROFILE_VAR = {"claude": "CLAUDE_CONFIG_DIR", "openai": "CODEX_HOME"}
 
+#: the METERED lane's variable per provider — the API-key twin of
+#: PROFILE_VAR, read by the injector and the identity cross-check alike so
+#: the two cannot disagree about which variable carries a pasted key.
+APIKEY_VAR = {"claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+
 #: the marker every bound spawn carries. Stripped by clean_env and re-injected
 #: here only — an inherited value can never survive into a spawn.
 MARKER = "ORGTREE_ACCOUNT_ID"
@@ -540,13 +546,13 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
     elif kind == "apikey":
         # The metered key lane (user redesign 2026-09-12): the same variable
         # the V1 org key billed, now attributed to a real row via the marker.
-        # Openai apikey rows are managed homes and take the branch above;
-        # reaching here on any non-claude provider means a row this injector
-        # has no lane for, and it fails loudly rather than half-binding.
+        # BOTH key providers arrive here — the secret is resolved out of the
+        # machine token store at spawn and never read back off disk.
         if secret_resolver is None:
             raise RuntimeError(
                 f"API-key account {row['id']} needs a secret resolver")
-        if row["provider"] != "claude":
+        var = APIKEY_VAR.get(row["provider"])
+        if not var:
             raise RuntimeError(
                 f"no spawn key lane exists for provider {row['provider']!r} "
                 f"(account {row['id']})")
@@ -556,7 +562,7 @@ def inject_binding(env: dict[str, str], row: dict[str, Any], *,
                 f"API-key account {row['id']}: credential "
                 f"{cred['token_ref']!r} did not resolve — refusing a "
                 f"half-bound spawn")
-        env["ANTHROPIC_API_KEY"] = secret
+        env[var] = secret
     else:
         if secret_resolver is None:
             raise RuntimeError(
@@ -599,7 +605,7 @@ def identity_mismatch(env: dict[str, str]) -> str | None:
         # Verified by LANE PRESENCE: value verification would mean comparing
         # secrets the registry never holds, so the pair check is that the
         # metered lane is populated at all.
-        if not env.get("ANTHROPIC_API_KEY"):
+        if not env.get(APIKEY_VAR.get(row["provider"], "")):
             return f"account-env-mismatch:{marker}"
         return None
     # TOKEN rows carry the same hazard (Opus S3 finding: an exempted kind
