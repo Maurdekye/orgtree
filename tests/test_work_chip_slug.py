@@ -103,9 +103,15 @@ class WorkChipSlugTests(unittest.TestCase):
             # the unprefixed name is how the codex and antigravity lanes
             # journal the same call — one parser serves every provider
             ('orgtree_work', read, False),
+            ('mcp__orgtree__orgtree_staff',
+             json.dumps({'item': 'staff-created-authoritative'}), False),
+            ('orgtree_staff',
+             json.dumps({'item': 'staff-updated-authoritative'}), False),
         ])
         self.assertEqual([t.get('work') for t in got],
-                         [{'slug': self.slug}, {'slug': self.slug}])
+                         [{'slug': self.slug}, {'slug': self.slug},
+                          {'slug': 'staff-created-authoritative'},
+                          {'slug': 'staff-updated-authoritative'}])
         for t in got:
             self.assertNotIn('{', t['work']['slug'],
                              'a record was stringified into the name again')
@@ -124,15 +130,19 @@ class WorkChipSlugTests(unittest.TestCase):
             json.dumps({'items': [{'slug': 'a-listing'}]}),
             'not json at all',
         ]
-        got = chips(self.org, self.nid,
-                    [('orgtree_work', b, False) for b in bodies])
-        self.assertEqual(len(got), len(bodies), 'the chips themselves must survive')
-        self.assertEqual([t for t in got if 'work' in t], [])
+        for tool in ('orgtree_work', 'orgtree_staff'):
+            with self.subTest(tool=tool):
+                got = chips(self.org, self.nid,
+                            [(tool, b, False) for b in bodies])
+                self.assertEqual(len(got), len(bodies),
+                                 'the chips themselves must survive')
+                self.assertEqual([t for t in got if 'work' in t], [])
 
     def test_a_failed_call_still_offers_nothing_to_open(self):
         body = json.dumps({'item': self.slug})
         got = chips(self.org, self.nid, [
             ('orgtree_work', body, True),
+            ('orgtree_staff', body, True),
             ('some_other_tool', body, False),
         ])
         self.assertEqual([t for t in got if 'work' in t], [])
@@ -141,6 +151,10 @@ class WorkChipSlugTests(unittest.TestCase):
         # error and the tool name rather than about an unreadable body
         ok = chips(self.org, self.nid, [('orgtree_work', body, False)])
         self.assertEqual([t.get('work') for t in ok], [{'slug': self.slug}])
+        staff_ok = chips(self.org, self.nid,
+                         [('orgtree_staff', body, False)])
+        self.assertEqual([t.get('work') for t in staff_ok],
+                         [{'slug': self.slug}])
 
 
 if __name__ == '__main__':

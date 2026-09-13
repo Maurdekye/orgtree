@@ -31452,7 +31452,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                         # opens nothing is what put a record on the reader's
                         # screen.
                         if (entry.get("name", "").removeprefix("mcp__orgtree__")
-                                == "orgtree_work"
+                                in ("orgtree_work", "orgtree_staff")
                                 and not block.get("is_error")):
                             try:
                                 r = json.loads(body)

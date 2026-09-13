@@ -23,14 +23,15 @@ import type { ChatMessage, TreePayload, WorkItem } from '../src/types'
 
 // ------------------------------------------------------------- the chip
 
-const msg = (tool: Record<string, unknown>): ChatMessage => ({
+const msg = (tool: Record<string, unknown>, name = 'mcp__orgtree__orgtree_work'): ChatMessage => ({
   role: 'assistant', text: '', at: '2026-09-05T10:00:00.000Z',
-  tools: [{ name: 'mcp__orgtree__orgtree_work', id: 't1', ...tool }],
+  tools: [{ name, id: 't1', ...tool }],
 } as unknown as ChatMessage)
 
-async function chip(tool: Record<string, unknown>, onWorkLink?: (w: unknown) => void) {
+async function chip(tool: Record<string, unknown>, onWorkLink?: (w: unknown) => void,
+  name?: string) {
   const view = await mountView(
-    <Msg m={msg(tool)} slug="org" nid="worker"
+    <Msg m={msg(tool, name)} slug="org" nid="worker"
       onWorkLink={onWorkLink as never} />,
     (el) => el)
   return view.el
@@ -49,6 +50,18 @@ test('§1 a docket write offers to open the item it wrote', async () => {
   await inAct(() => btns[0]!.click())
   assert.deepEqual(clicked, [{ slug: 'git-review-workspace' }])
 })
+
+test('§1b orgtree_staff has the same docket link affordance as orgtree_work',
+  async () => {
+    const clicked: unknown[] = []
+    const el = await chip({ arg: 'create', work: { slug: 'staffed-item' } },
+      (w) => clicked.push(w), 'orgtree_staff')
+    const btns = openButtons(el)
+    assert.equal(btns.length, 1, 'staff result has no open-in-docket button')
+    assert.match(btns[0]!.getAttribute('title') ?? '', /staffed-item/)
+    await inAct(() => btns[0]!.click())
+    assert.deepEqual(clicked, [{ slug: 'staffed-item' }])
+  })
 
 test('§2 a chip with no item to open has no button', async () => {
   // THE CONTROL. Without it, a button rendered unconditionally passes §1 and
