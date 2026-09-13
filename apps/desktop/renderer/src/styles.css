@@ -3275,6 +3275,28 @@ main.solo { width: 100%; }
   display: flex; align-items: center; gap: 6px; font-family: var(--mono);
 }
 .badge.evicted { color: var(--dim); }
+/* THE END OF A CONTINUOUS LIST (canvas/gallery.tsx): the "Newer"/"Older"
+   buttons are gone and the list loads as it is scrolled, so the only thing
+   left at the bottom is a quiet status line — a page on its way, a failed one
+   to ask for again, or the end of the history. It must NOT read as a row:
+   no hover, no pointer, no row border to be mistaken for a card. */
+.doc-list-end {
+  padding: 8px 10px; font-size: 11.5px; line-height: 1.5;
+  font-family: var(--mono); text-align: center;
+}
+.doc-list-end.ask-warn { text-align: left; }
+.doc-list-retry {
+  font-size: 11.5px; padding: 1px 8px; margin-left: 2px; cursor: pointer;
+}
+/* …and the scroller itself is a TAB STOP, because scrolling is now the only
+   way to reach older documents and the buttons that used to be reachable are
+   gone. Keyboard focus therefore has to be SEEN — :focus-visible only, so a
+   click on a row does not draw a ring nobody asked for. Inset, because the
+   list sits flush against the reading pane's divider. */
+.gallery-modal .mailer-list:focus { outline: none; }
+.gallery-modal .mailer-list:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
 /* the work docket (docket-final-spec.md) — SHAPED ON THE GALLERY the same
    way the gallery was shaped on mail: wears .mailer/.mailer-list/.mailrow/
    .mailer-read as-is, styles its own rows via .docket-modal the way

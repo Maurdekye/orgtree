@@ -148,12 +148,29 @@ test('category switches, visible questions, new documents and stale clicks share
 
 test('Presentations notification selects an exact retired document on an older page and can select it again', async () => {
   const oldFetch = globalThis.fetch, calls: string[] = []
-  const row = { id: 'old-document', node: 'retired', title: 'Exact plan', at: '2026-09-01', node_state: 'archived', evicted: false }
+  // ⚠ THE GALLERY NO LONGER PAGES, IT WINDOWS (canvas/gallery.tsx): it reads
+  // from offset 0 and widens `limit` until the list reaches what it is after,
+  // so the fake has to do the endpoint's own arithmetic — `documents_list`
+  // snaps a `locate` to `index // limit * limit` — instead of answering with
+  // one fixed page. A fake that ignored `limit` would keep reporting the row's
+  // old hundred-row page however wide the window grew, which no real server
+  // does and which is the shape of an endless correction loop.
+  const all = Array.from({ length: 105 }, (_, i) => ({
+    id: i === 100 ? 'old-document' : `other-${i}`, node: 'retired',
+    title: i === 100 ? 'Exact plan' : `Plan ${i}`, at: '2026-09-01',
+    node_state: 'archived', evicted: false }))
+  const row = all[100]!
+  const query = (path: string) => new URL(path, 'http://host').searchParams
   globalThis.fetch = async url => {
     const path = String(url); calls.push(path)
     if (path.endsWith('/documents/old-document')) return response({ ...row, body: 'The exact plan body' })
-    const locate = path.includes('locate=old-document')
-    return response({ documents: [row], total: 105, offset: 100, located: locate ? row.id : '', next_offset: null })
+    const q = query(path)
+    const limit = Math.max(1, Math.min(Number(q.get('limit') || 100), 5000))
+    const locate = q.get('locate') ?? ''
+    let offset = Math.max(0, Number(q.get('offset') || 0))
+    if (locate) offset = Math.floor(all.findIndex(r => r.id === locate) / limit) * limit
+    return response({ documents: all.slice(offset, offset + limit), total: all.length,
+      offset, located: locate, next_offset: offset + limit < all.length ? offset + limit : null })
   }
   let jump!: () => void
   function View() {
@@ -166,7 +183,11 @@ test('Presentations notification selects an exact retired document on an older p
     await settle()
     assert.match(v.el.querySelector('.mailer-read')?.textContent ?? '', /The exact plan body/)
     assert.equal(v.el.querySelector<HTMLInputElement>('.gallery-showretired input')!.checked, true)
-    assert.ok(calls.some(p => p.includes('offset=100')), 'older page remains selected after the jump is consumed')
+    const lists = calls.filter(p => /\/documents\?/.test(p))
+    assert.ok(lists.length > 1 && lists.every(p => query(p).get('offset') === '0'),
+      'the window is always read from the newest end, never moved to the row\'s own page')
+    assert.ok(lists.some(p => Number(query(p).get('limit')) > 100),
+      'and it widened until it reached a row that used to sit on the second page')
     await inAct(async () => { jump(); await flush(30) })
     assert.equal(v.el.querySelectorAll('.doc-gallery-row.on').length, 1)
   } finally { await v.unmount(); globalThis.fetch = oldFetch }

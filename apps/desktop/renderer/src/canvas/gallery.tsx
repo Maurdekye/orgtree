@@ -21,10 +21,11 @@ import { DocumentDownload } from './download'
 // The BODY half is shared for real: `useDoc` + `dismissDoc` from docs.tsx
 // are the same fetch and the same dismiss the overlay reader uses.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
 import { BASE, fileBase, getDocuments, mockupUrl } from '../api'
+import { onLiveBump } from '../livebus'
 import { sendLinkedReply } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { ToastFn, TreeNode } from '../types'
@@ -39,7 +40,7 @@ import { resolveRef } from './reflinks'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
-import { ago, md, TIER_LETTER, tierLabel, usePolled } from './shared'
+import { ago, md, TIER_LETTER, tierLabel } from './shared'
 
 /** the presenting agent's model card. MOVED to canvas/identity.tsx, which is
  *  now the one place an agent's chip-and-name is drawn; re-exported here so
@@ -74,6 +75,252 @@ const PANE_STATE_WHY: Record<DocRow['node_state'], string | null> =
 
 const isHired = (r: DocRow) => r.node_state === 'live'
 
+// ── CONTINUOUS LOADING ───────────────────────────────────────────────────
+//
+// This panel used to carry "Newer" and "Older" buttons over a fixed page.
+// Every comparable list in the app loads as you scroll instead — the mail
+// list grows its window from `onScroll` (canvas/mail.tsx), the desk transcript
+// pages history in at the boundary (convo.ts) — and the user asked for the
+// same here.
+//
+// ⚠ THE WINDOW IS READ FROM ZERO, NOT ACCUMULATED PAGE BY PAGE. `documents` is
+// newest-first and moves underneath a reader: a card is presented, another is
+// dismissed, and an offset that addressed row 100 one poll ago addresses a
+// different row the next. Asking for rows [0, win) makes every response a
+// complete PREFIX of the list, so duplicates and gaps are not handled, they
+// are impossible — and the rows already on screen come back identical, which
+// is what keeps a growth from moving the reader. It is the transcript's own
+// rule (its poll carries the whole loaded window in `last`), not a new one.
+
+/** the first window, and what each growth adds. Bounded so opening the panel
+ *  is one small request however long the history is. */
+export const DOC_PAGE = 40
+/** mirrors DOCUMENTS_MAX_WINDOW in engine/backend/orgtree/api.py — the server
+ *  will not serve a larger single window, so growth stops here rather than
+ *  asking for one it cannot have. Reached only after scrolling past 5000 rows. */
+const DOC_MAX_WINDOW = 5000
+/** the mail list's own threshold, for the same gesture */
+const DOC_EDGE = 240
+
+export interface DocWindow {
+  /** null until the first response lands. "nothing yet" is not "nothing". */
+  rows: DocRow[] | null
+  total: number
+  /** the server holds older rows past the loaded window */
+  more: boolean
+  /** the first window, or a growth, is in flight */
+  busy: boolean
+  /** the last request failed — `rows` is whatever survived it */
+  error: string
+  /** the `locate` the last completed response answered… */
+  located: string
+  /** …and the request identity it belonged to, for the jump latch */
+  seq: unknown
+  /** ask for the next older page. A no-op while busy, exhausted or failed, so
+   *  it is safe to call from a scroll handler and from a render effect. */
+  grow: () => void
+  /** ask again after a failure */
+  retry: () => void
+}
+
+interface DocWindowState {
+  rows: DocRow[] | null
+  total: number
+  more: boolean
+  /** the window size THESE rows were read with, which is how an outstanding
+   *  growth is told from a settled one */
+  win: number
+  located: string
+  seq: unknown
+  error: string
+}
+
+const EMPTY_WINDOW: DocWindowState = {
+  rows: null, total: 0, more: false, win: 0, located: '', seq: undefined, error: '',
+}
+
+/** The gallery's list half: a growing newest-first window over `documents`,
+ *  kept live by the same heartbeat every other panel uses (usePolled's
+ *  interval plus the livebus bump, canvas/shared.ts).
+ *
+ *  ⚠ A GROWTH MUST NOT BLANK THE LIST. `usePolled` resets to null whenever its
+ *  deps change, which is right for an identity change and wrong for "same list,
+ *  one page more" — it would unmount every row and drop the reader back to the
+ *  top. So this hook keeps its own state and resets only on `slug`/`node`. */
+function useDocWindow(slug: string, node: string, locate = '',
+  seq: unknown = 0): DocWindow {
+  const ident = `${slug}/${node}`
+  const [want, setWant] = useState(DOC_PAGE)
+  const [attempt, setAttempt] = useState(0)
+  const [last, setLast] = useState<DocWindowState>(EMPTY_WINDOW)
+  /** ⚠ ONE RE-AIM PER JUMP, AND NO MORE. See the `locate` branch below. */
+  const aimed = useRef('')
+  // a different org or agent is a different list, not a refresh of this one:
+  // its rows must not stay on screen under the new identity, and its window
+  // size must not carry over either
+  useEffect(() => {
+    setWant(DOC_PAGE); setAttempt(0); setLast(EMPTY_WINDOW); aimed.current = ''
+  }, [ident])
+  useEffect(() => {
+    let dead = false
+    const tick = () => {
+      getDocuments(slug, 0, node, locate, want).then((d) => {
+        if (dead) return
+        // A `locate` for a row BELOW the window answers with that row's own
+        // page rather than a prefix from zero (api.py snaps the offset to
+        // `index // limit * limit`). Adopt a window that reaches it and ask
+        // again — rendering a slice that starts in the middle is exactly the
+        // gap this design excludes.
+        //
+        // ⚠ ONLY FOR A `locate`, AND ONLY ONCE. Without a locate the server
+        // echoes the offset it was sent, which is always zero here, so
+        // correcting on it would be reacting to our own request. And one
+        // correction is all a healthy answer can need: a window wide enough to
+        // reach the row snaps to zero by that same arithmetic. A SECOND
+        // non-zero offset means no width will ever reach it — the row sits
+        // past the widest window this server will serve — and re-aiming again
+        // is an unbounded request loop rather than a slow success. Say so
+        // instead; the jump is then answered (and cleared) by the panel above,
+        // and the plain window read that follows still lists.
+        const at = locate ? d.offset ?? 0 : 0
+        if (at > 0) {
+          const aim = `${ident}|${locate}|${String(seq)}`
+          if (aimed.current !== aim) {
+            aimed.current = aim
+            setWant((w) => Math.min(DOC_MAX_WINDOW, Math.max(w, at + w)))
+            return
+          }
+          setLast((p) => ({ ...p, seq,
+            error: 'that document is too far down the list to open from here' }))
+          return
+        }
+        const rows = d.documents ?? []
+        setLast({
+          rows, total: d.total ?? rows.length, win: want,
+          // a short answer means the server gave everything it was willing to
+          // in one window, so asking for a wider one would only repeat it
+          more: d.next_offset != null && rows.length >= want && want < DOC_MAX_WINDOW,
+          located: d.located ?? '', seq, error: '',
+        })
+      }, (e: Error) => {
+        // the rows already read stay on screen — a dropped poll is not a
+        // reason to empty a list the reader is using
+        if (!dead) setLast((p) => ({ ...p, seq, error: String(e?.message ?? e) }))
+      })
+    }
+    tick()
+    const t = setInterval(tick, 5000)
+    const off = onLiveBump(tick)
+    return () => { dead = true; clearInterval(t); off() }
+  }, [ident, slug, node, locate, seq, want, attempt])
+  const settled = last.win >= want
+  const grow = useCallback(() => {
+    setWant((w) => (last.rows != null && last.win >= w && last.more && !last.error)
+      ? w + DOC_PAGE : w)
+  }, [last])
+  const retry = useCallback(() => {
+    setLast((p) => ({ ...p, error: '' }))
+    setAttempt((a) => a + 1)
+  }, [])
+  return {
+    rows: last.rows, total: last.total, more: last.more, error: last.error,
+    busy: !last.error && (last.rows == null || !settled),
+    located: last.located, seq: last.seq, grow, retry,
+  }
+}
+
+/** The list column both galleries render: the scroller that asks for the next
+ *  older page as the reader nears the bottom, and the end marker that says
+ *  what the list is doing. Rows are the caller's — the two galleries filter
+ *  and decorate their own. */
+function LazyDocList({ w, label, children }: {
+  w: DocWindow
+  /** what this scroller IS, announced when it takes focus. It is a tab stop
+   *  (see below) and a tab stop with nothing to say is a dead end for anyone
+   *  not looking at the screen. */
+  label: string
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  /** ⚠ AN UNMEASURED SCROLLER REPORTS THREE ZEROES, which subtract to "at the
+   *  bottom" — and would page the entire history in without a gesture, in
+   *  jsdom and in any panel rendered before layout. No measurable box, no
+   *  demand. */
+  const nearEnd = () => {
+    const el = ref.current
+    return !!el && el.clientHeight > 0
+      && el.scrollHeight - el.scrollTop - el.clientHeight < DOC_EDGE
+  }
+  // THE LIST CAN BE SHORTER THAN ITS SCROLLER and still have history behind it
+  // — "show retired agents" unticked over a window whose hired cards are two,
+  // say. No overflow means no scroll event means nothing would ever ask for
+  // the next page, so the boundary is re-checked after every commit as well.
+  // `grow` is a no-op while a page is in flight, exhausted or failed, so this
+  // settles instead of looping.
+  useEffect(() => { if (nearEnd()) w.grow() })
+  return (
+    // ⚠ A TAB STOP, DELIBERATELY. Scrolling is now the ONLY way to reach older
+    // documents — the "Newer"/"Older" buttons this replaced were the two
+    // controls a keyboard could reach, and deleting them without putting the
+    // scroller in the tab order would take the older half of the history away
+    // from anyone not using a pointer. Chromium 127+ makes a scroll container
+    // with no focusable children focusable by itself, which would cover the
+    // packaged app today — but that is a platform default, not this list's
+    // contract, and it evaporates the moment a row gains a focusable child.
+    // Stating it here is what makes the keyboard path OURS to keep.
+    <div className="mailer-list" ref={ref} tabIndex={0} aria-label={label}
+      onScroll={() => { if (nearEnd()) w.grow() }}>
+      {children}
+      <DocListEnd w={w} />
+    </div>
+  )
+}
+
+/** What the bottom of the list says, and nothing more than it has to: a page
+ *  is on its way, the last one failed and can be asked for again, or that was
+ *  the whole history. Silent while there is nothing to report. */
+function DocListEnd({ w }: { w: DocWindow }) {
+  if (w.error) {
+    return (
+      <div className="doc-list-end ask-warn" role="alert">
+        could not load more documents: {w.error}{' '}
+        <button className="doc-list-retry" onClick={w.retry}>Retry</button>
+      </div>
+    )
+  }
+  if (w.busy) {
+    return <div className="doc-list-end dim" role="status" aria-live="polite">
+      loading more documents…</div>
+  }
+  // the end marker is worth drawing only once there is a list to be at the end
+  // of: an empty gallery already says so in the pane beside it
+  if (!w.more && (w.rows?.length ?? 0) > 0) {
+    return <div className="doc-list-end dim">
+      end of the list · {w.total} document{w.total === 1 ? '' : 's'}</div>
+  }
+  return null
+}
+
+/** ⚠ THE FAILURE THAT HAS NO LIST TO SIT UNDER. `DocListEnd` lives inside the
+ *  scroller, so it can only speak once there are rows — and the request most
+ *  worth reporting is the FIRST one, which leaves none. Both surfaces render
+ *  their empty state through here so a panel that could not read the gallery
+ *  at all says so, and offers the same way back, instead of sitting on
+ *  "loading…" for as long as it is left open. */
+function DocListEmpty({ w, className, children }: {
+  w: DocWindow; className: string; children: ReactNode
+}) {
+  if (w.error) {
+    return (
+      <div className={'ask-warn pad ' + className} role="alert">
+        could not load the presented documents: {w.error}{' '}
+        <button className="doc-list-retry" onClick={w.retry}>Retry</button>
+      </div>
+    )
+  }
+  return <div className={'dim pad ' + className}>{children}</div>
+}
+
 export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   refs, onOpenDocument, jumpTo, onJumpHandled }: {
   slug: string
@@ -90,14 +337,8 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
    *  what it does not supply reads as "not opened from here". */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
-  const [pageOffset, setPageOffset] = useState(0)
-  useEffect(() => setPageOffset(0), [slug])
-  const listing = usePolled(() => getDocuments(slug, pageOffset, '', jumpTo?.id).then(
-    data => ({ data, error: '', org: slug, seq: jumpTo?.seq }),
-    error => ({ data: null, error: String(error.message), org: slug, seq: jumpTo?.seq }),
-  ), [slug, pageOffset, jumpTo?.id, jumpTo?.seq])
-  const data = listing?.org === slug ? listing.data : null
-  const all = useMemo(() => data?.documents?.filter(r => !r.evicted), [data])
+  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0)
+  const all = useMemo(() => w.rows?.filter(r => !r.evicted), [w.rows])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
   // checkbox to show retired agents, which appear in the same list, sorted
@@ -107,26 +348,40 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // sort would have to re-establish the recency order the server just set.
   //
   // Dismissed cards never arrive here at all — the server drops them from
-  // `documents`, and the DELETE bumps the livebus so `usePolled` above
-  // refetches without this panel wiring a refresh of its own.
+  // `documents`, and the DELETE bumps the livebus so the window above refetches
+  // without this panel wiring a refresh of its own.
   const hired = (all ?? []).filter(isHired)
   const retired = (all ?? []).filter((r) => !isHired(r))
   const rows = all && (showRetired ? [...hired, ...retired] : hired)
   const retiredCt = retired.length
+  // ⚠ A FILTER CAN EMPTY THE WINDOW WITHOUT EMPTYING THE HISTORY. The default
+  // list is currently-hired agents only, and the newest page can be entirely
+  // retired ones — with nothing rendered there is no scroller to reach the
+  // bottom of, so LazyDocList's own boundary check never runs and the demand
+  // has to come from here. Without it the panel would settle on "no cards have
+  // been presented yet" over a gallery that has plenty, which is the exact
+  // state the checkbox exists to rescue. `grow` is a no-op while a page is in
+  // flight, exhausted or failed, so this walks the history once and stops.
+  useEffect(() => { if (rows && rows.length === 0 && w.more) w.grow() })
   // selection is BY ID, not index — the list repolls, and the filter above
   // narrows it, so an index would silently address a different document
   const [selId, setSelId] = useState<string | null>(null)
+  // A JUMP IS ANSWERED BY THE RESPONSE THAT CARRIED IT, which is why the latch
+  // compares the request's own `seq` (shared.ts JumpReq) and not the id: a
+  // repeat click on the same reference is a new request, an unrelated poll is
+  // not. The window has already grown far enough to hold the located row — it
+  // reads from zero, so "found" and "in the list" are the same thing now,
+  // where the paged list had to move its offset to the row's page first.
   useEffect(() => {
-    if (!jumpTo || listing?.org !== slug || listing.seq !== jumpTo.seq) return
-    if (listing.error) { toast([listing.error]); onJumpHandled?.(); return }
-    if (!jumpTo || data?.located !== jumpTo.id) return
-    const row = data.documents.find(r => r.id === jumpTo.id && !r.evicted)
+    if (!jumpTo || w.seq !== jumpTo.seq) return
+    if (w.error) { toast([w.error]); onJumpHandled?.(); return }
+    if (w.located !== jumpTo.id) return
+    const row = w.rows?.find(r => r.id === jumpTo.id && !r.evicted)
     if (!row) return
-    setPageOffset(data.offset ?? 0)
     setShowRetired(on => on || !isHired(row))
     setSelId(row.id)
     onJumpHandled?.()
-  }, [data, listing, slug, jumpTo, onJumpHandled, toast])
+  }, [w.rows, w.seq, w.error, w.located, jumpTo, onJumpHandled, toast])
   // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): open/close is the
   // row's own select; dismiss is the pane's dismiss (same `dismissDoc`, same
   // toast, same deselect); copy/download come from the shared builder
@@ -195,24 +450,24 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
             {retiredCt > 0 && <span className="dim"> · {retiredCt}</span>}
           </label>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <button disabled={pageOffset === 0} onClick={() => setPageOffset(v => Math.max(0, v - 100))}>Newer</button>
-          <span>{data?.total ?? 0} documents</span>
-          <button disabled={data?.next_offset == null} onClick={() => setPageOffset(data!.next_offset!)}>Older</button>
-        </div>
         <div className="mailpane">
-          {all == null
-            ? <div className="dim pad">loading…</div>
-            : rows!.length === 0
-              ? <div className="dim pad">
-                  {!showRetired && retiredCt > 0
+          {all == null || rows!.length === 0
+            ? <DocListEmpty w={w} className="">
+                {/* ⚠ "EMPTY WINDOW" IS NOT "EMPTY HISTORY" while more is still
+                    coming — saying "no cards have been presented yet" over a
+                    history the effect above is still walking would be a plain
+                    untruth. Once it is exhausted, the count below is the WHOLE
+                    gallery's rather than one page's. */}
+                {all == null || w.busy || w.more
+                  ? 'loading…'
+                  : !showRetired && retiredCt > 0
                     ? `no cards from currently-hired agents — ${retiredCt} from `
                       + 'retired ones, behind the checkbox above'
                     : 'no cards have been presented yet'}
-                </div>
-              : (
+              </DocListEmpty>
+            : (
                 <div className="mailer">
-                  <div className="mailer-list">
+                  <LazyDocList w={w} label="Presented documents">
                     {menu.node}
                     {rows!.map((r) => (
                       <GalleryEntry key={r.id} slug={slug} row={r}
@@ -247,7 +502,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                         </div>
                       </GalleryEntry>
                     ))}
-                  </div>
+                  </LazyDocList>
                   <div className="mailer-read">
                     {cur
                       ? <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
@@ -407,9 +662,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
   refs, onChanged, initialDocument, initialLoaded, selectedRow }: AgentGalleryViewProps) {
-  const [pageOffset, setPageOffset] = useState(0)
-  useEffect(() => setPageOffset(0), [slug, nid])
-  const data = usePolled(() => getDocuments(slug, pageOffset, nid), [slug, pageOffset, nid])
+  const w = useDocWindow(slug, nid)
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
@@ -426,15 +679,15 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   }, [node, nid])
 
   const rows = useMemo(() => {
-    const polled = data?.documents?.filter((r) => r.node === nid && !r.evicted)
+    const polled = w.rows?.filter((r) => r.node === nid && !r.evicted)
     // A response is authoritative even when its filtered result is empty:
     // falling back then resurrects dismissed, evicted, or stale node rows.
     // Node payloads are only a bootstrap fallback while the list is absent.
-    const source = data ? (polled ?? []) : fallbackRows
+    const source = w.rows ? (polled ?? []) : fallbackRows
     const includeSelected = selectedRow?.node === nid && !source.some(r => r.id === selectedRow.id)
       ? [selectedRow, ...source] : source
     return includeSelected.filter((r) => !dismissed.includes(r.id))
-  }, [data, nid, fallbackRows, dismissed, selectedRow])
+  }, [w.rows, nid, fallbackRows, dismissed, selectedRow])
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
@@ -473,16 +726,12 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
         <b>Presented</b>
         <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}</span>
       </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <button disabled={pageOffset === 0} onClick={() => setPageOffset(v => Math.max(0, v - 100))}>Newer</button>
-        <span>{data?.total ?? 0} documents</span>
-        <button disabled={data?.next_offset == null} onClick={() => setPageOffset(data!.next_offset!)}>Older</button>
-      </div>
       {rows.length === 0 ? (
-        <div className="dim pad desk-presented-empty">No presented documents.</div>
+        <DocListEmpty w={w} className="desk-presented-empty">
+          {w.busy ? 'Loading…' : 'No presented documents.'}</DocListEmpty>
       ) : (
         <div className="mailer">
-          <div className="mailer-list">
+          <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}
             {rows.map((r) => (
               <GalleryEntry key={r.id} slug={slug} row={r}
@@ -511,7 +760,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                 </div>
               </GalleryEntry>
             ))}
-          </div>
+          </LazyDocList>
           <div className="mailer-read">
             {cur ? (
               <DocPane key={cur.id} slug={slug} row={cur} toast={toast}

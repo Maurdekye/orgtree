@@ -5204,6 +5204,16 @@ def remote_control(slug: str, nid: str, body: RemoteControl,
     return r
 
 
+# The largest single window `documents_list` will serve. The gallery is a
+# CONTINUOUS list (canvas/gallery.tsx): it reads from offset 0 and grows the
+# window as the reader scrolls, so `limit` is the size of the window a reader
+# has already scrolled through, not a page size. The old ceiling of 100 was a
+# page-size cap and would have frozen that window after one page. This one is a
+# backstop against an absurd request, not a browsing limit — a window only
+# reaches it after a reader has scrolled past five thousand rows.
+DOCUMENTS_MAX_WINDOW = 5000
+
+
 @app.get("/api/orgs/{slug}/documents")
 def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "", locate: str = "") -> dict[str, Any]:
     """FR-03 gallery: every presented document in the org, newest first.
@@ -5222,7 +5232,7 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "",
         if isinstance(d, dict) and d.get("id"):
             d["ref"] = refs.doc(slug, str(d["id"]))
     offset = max(0, offset)
-    limit = max(1, min(limit, 100))
+    limit = max(1, min(limit, DOCUMENTS_MAX_WINDOW))
     if locate:
         index = next((i for i, row in enumerate(gallery) if row.get('id') == locate and not row.get('evicted')), None)
         if index is None:

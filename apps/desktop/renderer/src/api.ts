@@ -404,8 +404,14 @@ export interface DocRow {
    *  agents the tree walk does not carry. Null once the node is gone. */
   tier?: string | null
 }
-export const getDocuments = (slug: string, offset = 0, node = '', locate = ''): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string }> =>
-  req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}` + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
+/** `limit` is the size of the WINDOW the caller is holding, not a page size:
+ *  the gallery reads from offset 0 and grows the window as the reader scrolls,
+ *  so every response is a complete newest-first prefix (canvas/gallery.tsx).
+ *  Omitted, the server's own default applies. */
+export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string }> =>
+  req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}`
+    + (limit > 0 ? `&limit=${limit}` : '')
+    + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
 export const dismissDocument = (slug: string, did: string):
   Promise<{ ok: boolean; node: string }> =>
   req(`/api/orgs/${slug}/documents/${did}`, { method: 'DELETE' })
