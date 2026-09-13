@@ -26,6 +26,7 @@ const INSTALLER = [
   ['release', ['node', '--test', 'tests/release-windows.test.mjs']],
 ]
 
+const VERSION_PATHS = new Set(['package.json', 'package-lock.json'])
 const RELEASE_PATHS = [
   /^tools\/release-windows\.mjs$/,
   /^tools\/release-verification\.mjs$/,
@@ -54,9 +55,41 @@ function normalizeFiles(files) {
   return [...new Set((files || []).map(String).map(file => file.replaceAll('\\', '/').replace(/^\.\//, '')))].sort()
 }
 
-export function classifyReleaseChanges(files) {
+export function gitChangedFiles({ root = process.cwd(), base, candidate = 'HEAD', git = execFileSync } = {}) {
+  const left = base || `${candidate}^`
+  return git('git', ['diff', '--name-only', `${left}...${candidate}`], {
+    cwd: root, encoding: 'utf8', windowsHide: true,
+  }).split(/\r?\n/).filter(Boolean).map(file => file.replaceAll('\\', '/')).sort()
+}
+
+function gitJson(root, ref, file, git = execFileSync) {
+  return JSON.parse(git('git', ['show', `${ref}:${file}`], { cwd: root, encoding: 'utf8', windowsHide: true }))
+}
+
+function withoutVersion(pathname, value) {
+  const copy = JSON.parse(JSON.stringify(value))
+  if (pathname === 'package.json') delete copy.version
+  if (pathname === 'package-lock.json') {
+    delete copy.version
+    if (copy.packages?.['']) delete copy.packages[''].version
+  }
+  return copy
+}
+
+export function isVersionOnlyChange(files, { root, base, candidate = 'HEAD', git = execFileSync } = {}) {
+  const changedFiles = normalizeFiles(files)
+  if (!root || !base || !changedFiles.length || changedFiles.some(file => !VERSION_PATHS.has(file))) return false
+  try {
+    return changedFiles.every(file => JSON.stringify(withoutVersion(file, gitJson(root, base, file, git))) === JSON.stringify(withoutVersion(file, gitJson(root, candidate, file, git))))
+  } catch { return false }
+}
+
+export function classifyReleaseChanges(files, options = {}) {
   const changedFiles = normalizeFiles(files)
   if (!changedFiles.length) return { area: 'release', changedFiles, reason: 'no source changes were supplied; run the release safety profile' }
+  if (isVersionOnlyChange(changedFiles, options)) {
+    return { area: 'release', changedFiles, versionOnly: true, reason: 'package version surfaces changed only in their authoritative version fields' }
+  }
   if (changedFiles.some(file => BROAD_PATHS.some(pattern => pattern.test(file)))) {
     return { area: 'full', changedFiles, reason: 'application, engine, package, or build inputs changed; broad behavior may be affected' }
   }
@@ -69,8 +102,8 @@ export function classifyReleaseChanges(files) {
   return { area: 'full', changedFiles, reason: 'a changed path has no authoritative focused profile; escalate to the full suite' }
 }
 
-export function selectReleaseVerification(files) {
-  const classification = classifyReleaseChanges(files)
+export function selectReleaseVerification(files, options = {}) {
+  const classification = classifyReleaseChanges(files, options)
   const checks = classification.area === 'full' ? FULL.map(([gate, command]) => ({ gate, command }))
     : (classification.area === 'installer' ? INSTALLER : RELEASE).map(([gate, command]) => ({ gate, command }))
   return {
@@ -80,6 +113,7 @@ export function selectReleaseVerification(files) {
     changedFiles: classification.changedFiles,
     reason: classification.reason,
     escalation: classification.area === 'full',
+    versionOnly: classification.versionOnly === true,
     checks,
     gates: ['source', 'version', 'build', 'artifact', 'publication'].map(gate => ({
       gate,
@@ -105,7 +139,18 @@ export function sourceFingerprint(files, { root = process.cwd(), fileHash = file
   }))
 }
 
-export function createVerificationReceipt({ plan, candidate, base = null, source, results, startedAt, finishedAt = new Date().toISOString() }) {
+export function testedSourceFiles(plan, { trackedFiles = [] } = {}) {
+  if (!plan || plan.area === 'full') return []
+  const patterns = plan.area === 'installer' ? [...RELEASE_PATHS, ...INSTALLER_PATHS] : RELEASE_PATHS
+  return normalizeFiles(trackedFiles).filter(file => patterns.some(pattern => pattern.test(file)) && !VERSION_PATHS.has(file))
+}
+
+export function testedSourceFingerprint(plan, options = {}) {
+  const files = testedSourceFiles(plan, options)
+  return { files, fingerprint: sourceFingerprint(files, options) }
+}
+
+export function createVerificationReceipt({ plan, candidate, base = null, source, sourceFiles = [], results, startedAt, finishedAt = new Date().toISOString() }) {
   if (!plan || plan.schema !== RELEASE_VERIFICATION_SCHEMA) throw new Error('receipt requires a release verification plan')
   const receipt = {
     schema: RELEASE_VERIFICATION_SCHEMA,
@@ -115,6 +160,7 @@ export function createVerificationReceipt({ plan, candidate, base = null, source
     area: plan.area,
     changedFiles: plan.changedFiles,
     sourceFingerprint: source,
+    sourceFiles: [...sourceFiles],
     commands: plan.checks.map(check => ({ gate: check.gate, command: [...check.command] })),
     results: (results || []).map(result => ({ ...result })),
     startedAt,
@@ -126,9 +172,11 @@ export function createVerificationReceipt({ plan, candidate, base = null, source
   return receipt
 }
 
-export function reusableReceipt(receipt, { candidate, source, profile = RELEASE_VERIFICATION_PROFILE, commands } = {}) {
+export function reusableReceipt(receipt, { candidate, source, sourceFiles, profile = RELEASE_VERIFICATION_PROFILE, commands, allowCandidateChange = false } = {}) {
   if (!receipt || receipt.schema !== RELEASE_VERIFICATION_SCHEMA || receipt.profile !== profile) return false
-  if (receipt.candidate !== candidate || receipt.sourceFingerprint !== source || receipt.green !== true) return false
+  if (candidate && receipt.candidate !== candidate && !allowCandidateChange) return false
+  if (receipt.sourceFingerprint !== source || receipt.green !== true) return false
+  if (sourceFiles && JSON.stringify(receipt.sourceFiles) !== JSON.stringify(sourceFiles)) return false
   if (commands && JSON.stringify(receipt.commands) !== JSON.stringify(commands)) return false
   const fingerprint = receipt.fingerprint
   if (!fingerprint) return false
@@ -137,26 +185,30 @@ export function reusableReceipt(receipt, { candidate, source, profile = RELEASE_
   return fingerprint === digest(copy)
 }
 
-function gitFiles(root, base) {
-  const args = base ? ['diff', '--name-only', `${base}...HEAD`] : ['diff', '--name-only', 'HEAD^', 'HEAD']
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean)
-}
-
-function gitCandidate(root, candidate) {
+function gitCandidate(root, candidate, git = execFileSync) {
   if (candidate !== 'HEAD') return candidate
-  return execFileSync('git', ['rev-parse', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
+  return git('git', ['rev-parse', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
 }
 
-export function runVerification({ root = process.cwd(), files, base, candidate = 'HEAD', receiptPath, jsonOutput, runner = spawnSync, now = () => new Date().toISOString() } = {}) {
-  const changedFiles = files || gitFiles(root, base)
-  const plan = selectReleaseVerification(changedFiles)
-  const source = sourceFingerprint(plan.changedFiles, { root })
-  candidate = gitCandidate(root, candidate)
+export function runVerification({ root = process.cwd(), files, base, candidate = 'HEAD', receiptPath, jsonOutput, runner = spawnSync, git = execFileSync, now = () => new Date().toISOString() } = {}) {
+  const resolvedCandidate = gitCandidate(root, candidate, git)
+  const derivedFiles = gitChangedFiles({ root, base, candidate: resolvedCandidate, git })
+  const changedFiles = files ? normalizeFiles(files) : derivedFiles
+  if (JSON.stringify(changedFiles) !== JSON.stringify(derivedFiles)) throw new Error('explicit changed paths must exactly match the Git diff; omit the list to derive it safely')
+  const plan = selectReleaseVerification(changedFiles, { root, base: base || `${resolvedCandidate}^`, candidate: resolvedCandidate, git })
+  const trackedFiles = git('git', ['ls-files'], { cwd: root, encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean)
+  const sourceScope = testedSourceFingerprint(plan, { root, trackedFiles })
+  const source = sourceScope.fingerprint
+  const scopeFiles = sourceScope.files
   if (receiptPath && fs.existsSync(receiptPath)) {
     try {
       const previous = JSON.parse(fs.readFileSync(receiptPath, 'utf8'))
-      if (reusableReceipt(previous, { candidate, source, commands: plan.checks.map(check => ({ gate: check.gate, command: check.command })) })) {
-        const reused = { ...previous, reused: true, reusedAt: now() }
+      if (reusableReceipt(previous, { candidate: resolvedCandidate, source, sourceFiles: scopeFiles,
+        allowCandidateChange: plan.versionOnly, commands: plan.checks.map(check => ({ gate: check.gate, command: check.command })) })) {
+        const reused = { ...previous, candidate: resolvedCandidate, base: base || null,
+          changedFiles: plan.changedFiles, reused: true, reusedFrom: previous.candidate, reusedAt: now() }
+        delete reused.fingerprint
+        reused.fingerprint = digest(reused)
         if (jsonOutput) fs.writeFileSync(jsonOutput, JSON.stringify(reused, null, 2) + '\n')
         return reused
       }
@@ -179,7 +231,7 @@ export function runVerification({ root = process.cwd(), files, base, candidate =
       stdout: String(result.stdout || '').slice(-65536), stderr: String(result.stderr || '').slice(-65536) })
     if ((result.status ?? 1) !== 0) break
   }
-  const receipt = createVerificationReceipt({ plan, candidate, base, source, results, startedAt, finishedAt: now() })
+  const receipt = createVerificationReceipt({ plan, candidate: resolvedCandidate, base, source, sourceFiles: scopeFiles, results, startedAt, finishedAt: now() })
   if (receiptPath) fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n')
   if (jsonOutput) fs.writeFileSync(jsonOutput, JSON.stringify(receipt, null, 2) + '\n')
   return receipt
@@ -202,7 +254,7 @@ export function main(argv = process.argv.slice(2)) {
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`)
     else files.push(arg)
   }
-  const plan = selectReleaseVerification(files.length ? files : gitFiles(root, base))
+  const plan = selectReleaseVerification(files.length ? files : gitChangedFiles({ root, base }))
   if (argv.includes('--plan')) {
     console.log(JSON.stringify(plan, null, 2))
     return 0

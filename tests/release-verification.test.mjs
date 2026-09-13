@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   classifyReleaseChanges,
   createVerificationReceipt,
+  isVersionOnlyChange,
   reusableReceipt,
   runVerification,
   selectReleaseVerification,
@@ -36,6 +37,23 @@ test('unknown and application changes escalate to both full suites', () => {
   }
 })
 
+test('version-only classification compares Git content and stays focused', () => {
+  const values = {
+    'base:package.json': { version: '2.1.3', name: 'orgtree', scripts: { test: 'node --test' } },
+    'head:package.json': { version: '2.1.4', name: 'orgtree', scripts: { test: 'node --test' } },
+    'base:package-lock.json': { version: '2.1.3', packages: { '': { version: '2.1.3' }, dep: { version: '1' } } },
+    'head:package-lock.json': { version: '2.1.4', packages: { '': { version: '2.1.4' }, dep: { version: '1' } } },
+  }
+  const git = (_command, args) => JSON.stringify(values[`${args[1].startsWith('base') ? 'base' : 'head'}:${args[1].split(':').at(-1)}`])
+  assert.equal(isVersionOnlyChange(['package.json', 'package-lock.json'], { root: '.', base: 'base', candidate: 'head', git }), true)
+  const changed = classifyReleaseChanges(['package.json', 'package-lock.json'], { root: '.', base: 'base', candidate: 'head', git })
+  assert.equal(changed.area, 'release')
+  assert.equal(changed.versionOnly, true)
+  assert.equal(isVersionOnlyChange(['package.json'], { root: '.', base: 'base', candidate: 'head', git }), true)
+  values['head:package.json'].scripts.test = 'node --test --experimental-test-coverage'
+  assert.equal(isVersionOnlyChange(['package.json'], { root: '.', base: 'base', candidate: 'head', git }), false)
+})
+
 test('receipt reuse requires the exact candidate, commands, source bytes, and intact fingerprint', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-verification-'))
   try {
@@ -50,6 +68,8 @@ test('receipt reuse requires the exact candidate, commands, source bytes, and in
     const expected = { candidate: 'abc123', source, commands: receipt.commands }
     assert.equal(reusableReceipt(receipt, expected), true)
     assert.equal(reusableReceipt({ ...receipt, candidate: 'def456' }, expected), false)
+    assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456' }), false)
+    assert.equal(reusableReceipt(receipt, { ...expected, candidate: 'def456', allowCandidateChange: true }), true, 'source evidence can cross a version-only commit')
     assert.equal(reusableReceipt({ ...receipt, sourceFingerprint: 'sha256:wrong' }, expected), false)
     assert.equal(reusableReceipt({ ...receipt, fingerprint: 'sha256:wrong' }, expected), false)
   } finally {
@@ -57,10 +77,49 @@ test('receipt reuse requires the exact candidate, commands, source bytes, and in
   }
 })
 
+test('explicit changed paths cannot omit a Git-detected affected file', () => {
+  assert.throws(() => runVerification({
+    root: process.cwd(), candidate: 'abc123', files: ['tools/release-windows.mjs'],
+    git: (_command, args) => {
+      if (args[0] === 'diff') return 'apps/desktop/main.ts\ntools/release-windows.mjs\n'
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    }, runner: () => ({ status: 0 }),
+  }), /must exactly match the Git diff/)
+})
+
+test('fixture spawn audit keeps release Windows helpers hidden and diagnostics captured', () => {
+  const files = [
+    'apps/desktop/renderer/tests/run.mjs', 'tests/attach.test.mjs',
+    'tests/installer-elevation.test.mjs', 'tests/quit-stop.test.mjs',
+    'tests/quit_engine_probe.mjs', 'tools/test-upgrade-close-boundary.mjs',
+  ]
+  for (const relative of files) {
+    const source = fs.readFileSync(path.resolve(relative), 'utf8')
+    assert.match(source, /windowsHide\s*:\s*true/, `${relative} has no hidden child-process option`)
+  }
+})
+
+test('release fixture audit requires cleanup structure for normal and failed runs', () => {
+  const files = [
+    'apps/desktop/renderer/tests/run.mjs', 'tests/installer-elevation.test.mjs',
+    'tools/test-upgrade-close-boundary.mjs',
+  ]
+  for (const relative of files) {
+    const source = fs.readFileSync(path.resolve(relative), 'utf8')
+    assert.match(source, /finally|process\.once\(['"]exit['"]/, `${relative} has no failure/exit cleanup boundary`)
+    assert.match(source, /rmSync|Remove-Item|cleanup/, `${relative} has no temporary cleanup operation`)
+  }
+})
+
 test('verification runner captures hidden child options, commands, and measured durations', () => {
   const calls = []
   const receipt = runVerification({
     root: process.cwd(), files: ['tools/release-windows.mjs'], candidate: 'abc123',
+    git: (_command, args) => {
+      if (args[0] === 'diff') return 'tools/release-windows.mjs\n'
+      if (args[0] === 'ls-files') return 'tools/release-windows.mjs\n'
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    },
     runner: (command, args, options) => {
       calls.push({ command, args, options })
       return { status: 0, stdout: 'PASS', stderr: '' }

@@ -38,7 +38,7 @@ introduced by this workflow.
 Routine release checks use the bounded selector below:
 
 ```powershell
-npm run verify:release -- <changed-path> ...
+npm run verify:release
 ```
 
 Release tooling, receipt, and release-fixture changes select the focused release
@@ -48,9 +48,14 @@ escalate to the full Node and renderer suites. The selector prints its profile,
 changed paths, reason, safety escalation, and gate actions before any check runs.
 
 Source, version, build, artifact, and publication are separate gates. A passing
-source receipt may be reused only when its candidate, profile, exact commands,
-and byte-level source fingerprint all match; version metadata, packaging, and
-publication advancement do not by themselves rerun unchanged source checks.
+source receipt may be reused only when its profile, exact commands, tested source
+scope, and byte-level source fingerprint all match. The candidate must match too,
+unless Git proves the new candidate is a version-only commit. A version-only
+commit is identified by comparing the Git contents of each changed package
+version surface; editing any other package content escalates. Explicit
+changed-path lists must exactly equal the Git diff, so omitting an affected file
+cannot under-select tests. Version metadata, packaging, and publication
+advancement do not by themselves rerun unchanged source checks.
 Receipts include each command, captured output, per-check duration, total
 duration, and the immutable receipt fingerprint. A changed or malformed receipt
 is ignored and the relevant check runs again.
@@ -64,6 +69,13 @@ threshold for that measurement; a profile regression is visible in the receipt.
 ```powershell
 npm run release:windows -- <version>
 ```
+
+The command derives its changed-file set from Git and runs the selected source
+profile before building. A prior receipt may be supplied with
+`--verification-receipt <path>`; it is reused only when the Git diff, tested
+source scope and bytes, exact commands, and receipt fingerprint agree. The
+canonical manifest records the receipt, so an unrelated standalone green run
+cannot satisfy the release gate.
 
 The version is required and must be a final `x.y.z` semantic version or an
 `x.y.z-RCn` release candidate. Before building, the command refuses a dirty

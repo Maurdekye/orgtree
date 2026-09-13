@@ -13,6 +13,7 @@ import crypto from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
+import { runVerification } from './release-verification.mjs'
 
 export const RELEASE_MANIFEST_SCHEMA = 'orgtree.windows-release/v1'
 export const HANDOFF_SCHEMA = 'orgtree.windows-installation-handoff/v1'
@@ -49,6 +50,7 @@ export const PACKAGED_HASH_FILES = [
 export const RELEASE_USAGE = `Usage:
   npm run release:windows -- <version>
   npm run release:windows -- <version> --publish
+  npm run release:windows -- <version> --verification-receipt <path>
 
 The default builds and verifies a local candidate only. --publish is the
 explicit publication phase; it creates the tag/release and verifies every
@@ -199,6 +201,14 @@ export function parseReleaseArgs(argv) {
     } else if (argument === '--publish') {
       if (parsed.publish) fail('The --publish flag was supplied more than once')
       parsed.publish = true
+    } else if (argument === '--verification-receipt') {
+      const receipt = argv[++index]
+      if (!receipt) fail('The --verification-receipt flag needs a file path')
+      parsed.verificationReceipt = receipt
+    } else if (argument === '--base') {
+      const base = argv[++index]
+      if (!base) fail('The --base flag needs a commit')
+      parsed.base = base
     } else if (argument.startsWith('-')) {
       fail(`Unknown release option: ${argument}\n\n${RELEASE_USAGE}`)
     } else if (parsed.version !== null) {
@@ -584,6 +594,19 @@ function githubHeaders(accept) {
   return headers
 }
 
+export function assertReleaseVerification(receipt, { commit }) {
+  if (!receipt || receipt.schema !== 'orgtree.windows-release-verification/v1' || receipt.green !== true) {
+    fail('Release requires a green canonical release-verification receipt')
+  }
+  if (receipt.candidate !== commit) {
+    fail(`Release verification receipt targets ${receipt.candidate || 'unknown'}, not candidate ${commit}`)
+  }
+  if (!receipt.fingerprint || !receipt.sourceFingerprint || !Array.isArray(receipt.commands) || !receipt.commands.length) {
+    fail('Release verification receipt is incomplete or cannot be tied to its tested source scope')
+  }
+  return receipt
+}
+
 function retryableStatus(status) {
   return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500
 }
@@ -726,7 +749,7 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
   }
 }
 
-function makeManifest({ root, releaseDir, uploadDir, version, commit, notes, engineHashes, packagedHashes, staged, publish, repository }) {
+function makeManifest({ root, releaseDir, uploadDir, version, commit, notes, engineHashes, packagedHashes, staged, publish, repository, verification, verificationPath }) {
   const sourceMap = staged.sourceMap
   const artifacts = CANONICAL_ASSET_NAMES(version).map(name => artifactRecord(root, name, path.join(uploadDir, name), sourceMap.get(name)))
   return {
@@ -753,6 +776,19 @@ function makeManifest({ root, releaseDir, uploadDir, version, commit, notes, eng
       packagedCommit: packagedHashes.commit,
     },
     repository,
+    verification: {
+      schema: verification.schema,
+      profile: verification.profile,
+      candidate: verification.candidate,
+      sourceFingerprint: verification.sourceFingerprint,
+      sourceFiles: verification.sourceFiles,
+      commands: verification.commands,
+      results: verification.results,
+      durationMs: verification.durationMs,
+      reused: verification.reused === true,
+      fingerprint: verification.fingerprint,
+      receiptPath: slash(path.relative(root, verificationPath)),
+    },
     publication: { requested: publish, state: publish ? 'pending' : 'candidate-only' },
     handoff: { path: slash(path.relative(root, path.join(releaseDir, 'installation-handoff.json'))) },
   }
@@ -851,14 +887,26 @@ export async function produceWindowsRelease(options, dependencies = {}) {
   await assertNoPublicRelease({ ...repository, tag, fetchImpl })
   assertPackagePrerequisites(root)
 
+  const releaseRelative = packageJson.build?.directories?.output
+  if (typeof releaseRelative !== 'string' || !releaseRelative) fail('package.json build.directories.output is missing')
+  const releaseDir = resolveInside(root, releaseRelative, 'release output')
+  const defaultVerificationReceipt = path.join(releaseDir, 'release-verification.json')
+  if (fs.existsSync(releaseDir)) requireRealDirectory(releaseDir, 'release output')
+  fs.mkdirSync(path.dirname(defaultVerificationReceipt), { recursive: true })
+
+  // The canonical flow owns the source receipt. A standalone receipt can be
+  // supplied only through the injected runner used by tests; production always
+  // derives the Git diff and runs/reuses the exact selected profile here.
+  const verify = dependencies.runVerification || runVerification
+  const verificationPath = options.verificationReceipt || defaultVerificationReceipt
+  const verification = await verify({ root, base: options.base, candidate: head, receiptPath: verificationPath })
+  assertReleaseVerification(verification, { commit: head })
+
   const npm = resolveNpmInvocation()
   // --publish never is intentional and remains in the command even when a
   // GH_TOKEN or an authenticated gh CLI happens to be present.
   runExternal(npm.command, [...npm.args, 'run', 'package:win', '--', '--publish', 'never'])
   assertAllPackageInputs(root)
-  const releaseRelative = packageJson.build?.directories?.output
-  if (typeof releaseRelative !== 'string' || !releaseRelative) fail('package.json build.directories.output is missing')
-  const releaseDir = resolveInside(root, releaseRelative, 'release output')
   requireRealDirectory(releaseDir, 'release output')
   requireRealDirectory(path.join(releaseDir, 'win-unpacked'), 'unpacked release output')
   const resources = path.join(releaseDir, 'win-unpacked', 'resources')
@@ -883,8 +931,11 @@ export async function produceWindowsRelease(options, dependencies = {}) {
     staged,
     publish: options.publish,
     repository,
+    verification,
+    verificationPath,
   })
   verifyLocalCandidate({ root, manifest, uploadDir: staged.uploadDir, resources, engineHashes })
+  writeJson(verificationPath, verification, false)
   const manifestPath = path.join(releaseDir, 'release-manifest.json')
   const handoffPath = path.join(releaseDir, 'installation-handoff.json')
   writeJson(manifestPath, manifest, false)

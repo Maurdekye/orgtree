@@ -13,6 +13,7 @@ import {
   assertNotesFile,
   assertNoPublicRelease,
   assertNoTagCollision,
+  assertReleaseVerification,
   assertVersionMatchesPackage,
   deriveEngineHashes,
   derivePackagedHashes,
@@ -281,6 +282,13 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
       spawnSync: gitProbe,
       runExternal,
       fetch: async () => responseJson({}, 404),
+      runVerification: async () => ({
+        schema: 'orgtree.windows-release-verification/v1', profile: 'focused-release-v1',
+        candidate: commit, sourceFingerprint: 'sha256:fixture', sourceFiles: ['tools/release-windows.mjs'],
+        commands: [{ gate: 'source', command: ['node', '--test', 'tests/release-windows.test.mjs'] }],
+        results: [{ gate: 'source', status: 0, durationMs: 1 }], durationMs: 1, green: true,
+        fingerprint: 'sha256:fixture-receipt',
+      }),
     })
     const manifest = JSON.parse(fs.readFileSync(result.manifestPath, 'utf8'))
     const handoff = JSON.parse(fs.readFileSync(result.handoffPath, 'utf8'))
@@ -288,6 +296,8 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
     assert.equal(manifest.publication.state, 'candidate-only')
     assert.equal(handoff.commit, commit)
     assert.equal(handoff.runtimeVerification.readOnly, true)
+    assert.equal(manifest.verification.candidate, commit)
+    assert.equal(manifest.verification.profile, 'focused-release-v1')
     assert.equal(externalCalls.length, 1)
     const npm = resolveNpmInvocation()
     assert.deepEqual(externalCalls[0][1], [...npm.args, 'run', 'package:win', '--', '--publish', 'never'])
@@ -442,6 +452,16 @@ test('public release verification downloads every canonical asset and checks tag
   assert.deepEqual(Object.keys(result.assets).sort(), CANONICAL_ASSET_NAMES(version).sort())
   assert.equal(calls.filter(url => url.startsWith(prefix)).length, 6, 'each public asset is downloaded exactly once')
   assert.equal(releaseLookups, 2, 'post-publication verification retries a transient propagation 404')
+})
+
+test('canonical release verification refuses a receipt for another candidate', () => {
+  const receipt = {
+    schema: 'orgtree.windows-release-verification/v1', green: true,
+    candidate: 'a'.repeat(40), profile: 'focused-release-v1', fingerprint: 'sha256:x',
+    sourceFingerprint: 'sha256:y', commands: [['node', '--test']],
+  }
+  assert.doesNotThrow(() => assertReleaseVerification(receipt, { commit: 'a'.repeat(40) }))
+  assert.throws(() => assertReleaseVerification(receipt, { commit: 'b'.repeat(40) }), /not candidate/)
 })
 
 test('public collision checks distinguish an absent release from an existing one', async () => {

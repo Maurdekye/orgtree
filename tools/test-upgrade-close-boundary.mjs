@@ -134,7 +134,9 @@ foreach ($window in $windows) {
   }
 }
 `
-  const done = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', windowsHide: true })
+  const done = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    encoding: 'utf8', windowsHide: true, timeout: 15000,
+  })
   return { status: done.status, stdout: (done.stdout || '').trim(), stderr: (done.stderr || '').trim() }
 }
 
@@ -176,7 +178,10 @@ function runHelper (directory, launcher, timeoutSeconds, options = {}) {
       '-InstallDir', installDir, '-ExecutablePath', launcher, '-TimeoutSeconds', String(timeoutSeconds)]
     if (logPath) args.push('-LogPath', logPath)
   }
-  const done = spawnSync(host, args, { encoding: 'utf8', windowsHide: true })
+  const done = spawnSync(host, args, {
+    encoding: 'utf8', windowsHide: true,
+    timeout: Math.max(60000, (Number(timeoutSeconds) + 15) * 1000),
+  })
   const log = logPath && fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : ''
   return { status: done.status, stdout: (done.stdout || '').trim(), stderr: (done.stderr || '').trim(), log, logPath }
 }
@@ -187,6 +192,16 @@ function runHelper (directory, launcher, timeoutSeconds, options = {}) {
 const workspace = fs.realpathSync.native(fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'orgtree-upgrade-boundary-')))
 const started = []
 const cases = []
+const keepWorkspace = Boolean(process.env.ORGTREE_KEEP_WORKSPACE)
+
+function cleanupWorkspace () {
+  for (const child of started) {
+    if (!alive(child.pid)) continue
+    try { child.kill('SIGKILL') } catch { /* already gone */ }
+  }
+  if (!keepWorkspace) fs.rmSync(workspace, { recursive: true, force: true })
+}
+process.once('exit', cleanupWorkspace)
 
 function report (name, run) { cases.push({ name, run }) }
 
@@ -374,8 +389,8 @@ for (const item of cases) {
   try { await item.run(); results.push({ name: item.name, ok: true }) } catch (error) { results.push({ name: item.name, ok: false, error }) }
 }
 
-if (process.env.ORGTREE_KEEP_WORKSPACE) console.log(`workspace kept at ${workspace}`)
-else fs.rmSync(workspace, { recursive: true, force: true })
+if (keepWorkspace) console.log(`workspace kept at ${workspace}`)
+else cleanupWorkspace()
 
 let failures = 0
 for (const result of results) {
