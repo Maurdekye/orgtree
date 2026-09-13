@@ -158,7 +158,7 @@ const rowFor = (el: HTMLElement, id: string) =>
     r.querySelector('.tray-name')?.textContent === id) as HTMLElement | undefined
 const cardFor = (el: HTMLElement, id: string) =>
   [...el.querySelectorAll('.sq')].find((c) =>
-    c.querySelector('.sq-title .name')?.textContent === id) as HTMLElement | undefined
+    c.getAttribute('data-copy-agent-name') === id || c.querySelector('.sq-title .name')?.textContent === id) as HTMLElement | undefined
 /** the menu an object offers, read and then dismissed */
 async function menuOf(target: Element, what: string): Promise<string[]> {
   assert.equal(await rightClick(target), true, `${what}: the right-click was taken`)

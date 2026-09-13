@@ -102,6 +102,10 @@ const cam = (el: HTMLElement): Cam => {
  *  which is what `posFocused` is for. */
 function posByName(el: HTMLElement, id: string): Pos {
   for (const sq of [...el.querySelectorAll('.sq')] as HTMLElement[]) {
+    if (sq.classList.contains('desk')) continue
+    if (sq.getAttribute('data-copy-agent-name') === id) {
+      return parseXf(sq.style.transform, `the "${id}" card position`)
+    }
     const hook = sq.querySelector('.sq-head span.name, .mini-name')
     if (hook && (hook.textContent ?? '').trim() === id) {
       return parseXf(sq.style.transform, `the "${id}" card position`)

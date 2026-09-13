@@ -398,13 +398,15 @@ uiTest('§B1b agent card: a card with live reports offers Dissolve; a retired ca
     mkNode('boss', { children: [mkNode('kid', { parent: 'boss' })] }),
     mkNode('gone', { state: 'archived' }),
   ])
-  const boss = [...v.el.querySelectorAll('.sq')].find((c) => c.textContent?.includes('boss')) as HTMLElement
+  const boss = [...v.el.querySelectorAll('.sq')].find((c) =>
+    c.getAttribute('data-copy-agent-name') === 'boss' || c.textContent?.includes('boss')) as HTMLElement
   assert.ok(boss)
   await rightClick(boss)
   assert.ok(labels().includes('Dissolve suborganization…'), JSON.stringify(labels()))
   assert.ok(!labels().includes('Retire…'))
   await key(document.body, 'Escape')
-  const gone = [...v.el.querySelectorAll('.sq')].find((c) => c.textContent?.includes('gone')) as HTMLElement
+  const gone = [...v.el.querySelectorAll('.sq')].find((c) =>
+    c.getAttribute('data-copy-agent-name') === 'gone' || c.textContent?.includes('gone')) as HTMLElement
   assert.ok(gone, 'positive control: the archived card rendered')
   await rightClick(gone)
   const have = labels()

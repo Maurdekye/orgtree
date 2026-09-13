@@ -202,7 +202,8 @@ async function mountCanvas(t: TestContext, roots: unknown[]) {
 
 const cardFor = (v: { el: HTMLElement }, id: string) =>
   [...v.el.querySelectorAll('.sq')]
-    .find((c) => c.querySelector('.name')?.textContent === id
+    .find((c) => c.getAttribute('data-copy-agent-name') === id
+      || c.querySelector('.name')?.textContent === id
       || c.textContent?.includes(id)) as HTMLElement | undefined
 
 function uiTest(name: string, body: (t: TestContext) => Promise<void>) {

@@ -132,7 +132,7 @@ const eyeCard = (host: HTMLElement) => {
 }
 const agentCard = (host: HTMLElement, id: string) => {
   const el = [...host.querySelectorAll('.sq')].find((c) =>
-    c.querySelector('.name')?.textContent === id)
+    c.getAttribute('data-copy-agent-name') === id || c.querySelector('.name')?.textContent === id)
   assert.ok(el, `no card for ${id}`)
   return el
 }

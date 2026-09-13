@@ -156,7 +156,7 @@ function measure(el: HTMLElement, w = VP_W, h = VP_H): void {
 
 const agentCard = (host: HTMLElement, name: string): Element => {
   const el = [...host.querySelectorAll('.sq')].find((c) =>
-    c.querySelector('.name')?.textContent === name)
+    c.getAttribute('data-copy-agent-name') === name || c.querySelector('.name')?.textContent === name)
   assert.ok(el, `no card for ${name}`)
   return el
 }
