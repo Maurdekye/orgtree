@@ -2027,7 +2027,7 @@ _ARCHIVED_RUNTIME_DEFAULTS: dict[str, Any] = {
     "busy": False, "waiting": False, "responding": False, "phase": None,
     "queued": 0, "tasks": 0, "bg_tasks": 0, "last_error": None,
     "activity": {"phase": "thinking"},
-    "on_fallback": False, "ran_as": None, "ran_as_label": None,
+    "ran_as": None, "ran_as_label": None,
     "codex_route": None, "resumable": False, "cache_forecast": None,
     "proc_warm": False, "proc_live": False, "proc_relaunch": False,
     "proc_relaunch_reason": None, "proc_paused": False,

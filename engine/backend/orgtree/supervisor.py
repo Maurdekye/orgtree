@@ -3279,7 +3279,7 @@ def _limit_cache_claude_state(st: dict[str, Any], tier: str) -> bool:
 #: a spare rebuild. Kept beside `working_count` so the next person changing
 #: annotate's state reads has this list in view.
 _TREE_STATE_KEYS = (
-    "busy", "waiting", "responding", "phase", "on_fallback", "ran_as",
+    "busy", "waiting", "responding", "phase", "ran_as",
     "proc_warm", "proc_live", "proc_relaunch", "proc_relaunch_reason",
     "mcp_tool_count", "mcp_tool_provider", "mcp_tool_source",
     "mcp_tool_reason", "mcp_readiness_waiting", "mcp_readiness_state",
@@ -4714,10 +4714,21 @@ def api_fallback_tier(tier: str) -> bool:
 # to open, re-price or expire.
 
 def apikey_lane_rows(provider: str) -> list[dict[str, Any]]:
-    """This provider's ENABLED API-key account rows, in registry list order —
-    the candidates fallback routing may spend. Disabled rows are invisible
-    here by design: that is the enable switch's entire meaning (explicit
-    operator BINDING is not gated on it — validate_binding's business)."""
+    """This provider's ENABLED, credentialled API-key account rows, in
+    registry list order — the candidates fallback routing may spend. Disabled
+    rows are invisible here by design: that is the enable switch's entire
+    meaning (explicit operator BINDING is not gated on it —
+    validate_binding's business).
+
+    ⚠ AN `unauthenticated` ROW IS SKIPPED, and the asymmetry with
+    `_claude_subscription_exhausted` is deliberate. There, absence of
+    evidence reads as CAPACITY so fallback fires late; here, an explicit
+    unauthenticated VERDICT is evidence the credential is dead — a revoked or
+    mistyped key, or a cutover row whose secret no longer exists. Keeping it
+    in list order would park every metered turn on the one account that
+    cannot serve them while a healthy key sits behind it. `unobserved` is NOT
+    a verdict and stays eligible: a freshly pasted key has never been
+    observed, and refusing it would make registration useless."""
     try:
         rows = registry.list_accounts()
     except Exception:                                        # noqa: BLE001
@@ -4725,7 +4736,8 @@ def apikey_lane_rows(provider: str) -> list[dict[str, Any]]:
     return [r for r in rows
             if r.get("provider") == provider
             and registry.account_mode(r) == "apikey"
-            and registry.is_enabled(r)]
+            and registry.is_enabled(r)
+            and r.get("auth") != "unauthenticated"]
 
 
 def apikey_lane_row(provider: str, tier: str,

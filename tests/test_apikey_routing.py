@@ -93,6 +93,30 @@ class LaneRowTests(unittest.TestCase):
         self.assertIsNone(supervisor.apikey_lane_row("claude", "opus", NOW))
         self.assertIsNone(supervisor.apikey_lane_row("openai", "opus", NOW))
 
+    def test_dead_credential_is_skipped_but_unobserved_still_serves(self):
+        """(h) failure catalogue: an OBSERVED-dead key never holds the lane.
+
+        A revoked or mistyped key — and a cutover row whose secret no longer
+        exists — carries `auth == "unauthenticated"`. Left in list order it
+        would take every metered turn and fail each one while a healthy key
+        waited behind it. `unobserved` is the state a freshly pasted key is
+        in and must keep serving, so the two are pinned together here: the
+        skip is of a VERDICT, not of missing evidence.
+        """
+        r1, r2 = _key_row(1), _key_row(2)
+        self.assertEqual(registry.get_account(r1["id"])["auth"], "unobserved")
+        self.assertEqual(supervisor.apikey_lane_row("claude", "opus", NOW)["id"],
+                         r1["id"])            # unobserved is eligible
+        registry.set_auth(r1["id"], "unauthenticated")
+        self.assertEqual(supervisor.apikey_lane_row("claude", "opus", NOW)["id"],
+                         r2["id"])            # dead key → the next one
+        registry.set_auth(r2["id"], "unauthenticated")
+        # every key dead is a SHUT lane, not a silent retry on a dead row
+        self.assertIsNone(supervisor.apikey_lane_row("claude", "opus", NOW))
+        registry.set_auth(r2["id"], "authenticated")
+        self.assertEqual(supervisor.apikey_lane_row("claude", "opus", NOW)["id"],
+                         r2["id"])            # and it comes back when it heals
+
 
 class ExhaustionTests(unittest.TestCase):
     def setUp(self):

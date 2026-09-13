@@ -97,6 +97,7 @@ Explicitly superseded from it by later entries: "no repository, implementation o
 - 2026-09-09, symmetric multi-account phase AUTHORIZED (recorded by feature-fable per coordinator direction; times UTC): at 14:13:20 the user explicitly authorized multi-account design NOW and at 14:14:02 assigned design AND implementation to feature-fable â€” the 21:18 phase gate's Git prerequisite is lifted for ACCOUNTS ONLY; every retained 21:06â€“21:09 rule stands. Subsequent rulings during design review, newest wins: 15:39:49 Antigravity sign-in is the usage-panel "Open Antigravity terminal" opening the installed CLI's own interactive entry plus a manual Refresh â€” an approved explicit departure from the Claude/Codex scriptable flow; AG is in scope. 17:58 (coordinator, from retained requirements): existing key/token credentials remain supported as distinct credential kinds, compatibility only â€” new setup offers only imported and Orgtree-managed profile directories, no silent migration or conversion. 18:11 (coordinator, from the retained no-rollover requirement): no automatic rollover for ANY agent; api_fallback leaves placement entirely; the org API key is represented as an account with affected nodes explicitly migrated on concrete durable evidence (unconditional key use binds; conditional/ambiguous is documented and held), binding thereafter wins uniformly. 18:18 (coordinator): D-152's fable ride-along mark is KEPT â€” same account only, one-directional, absent-only, source horizon, with inferred provenance stored and displayed separately from measured evidence and durable expiry across restarts; no probing turns, no automatic movement. ANSWERED BY THE USER at 18:38:22 (relayed 18:39/18:40): legacy org-specific API keys KEEP their existing org restriction â€” origin-organization scoping for migrated org-key accounts is the explicit declared exception to the all-accounts-all-organizations rule; an authorized supervisor may reassign a descendant to ANY registered account available to that organization (no already-in-use introduction gate), with node-authority and account-availability checks both enforced; the proposed "try anyway" early release for inferred marks is NOT approved and is left out â€” inferred marks keep explicit provenance, their source horizons and existing expiry/resume behavior. Root approved proceeding with the cleared design and private implementation at 18:40; the account-authority delta goes back to redteam-opus for a bounded check; stage-2 implementation review and coordinator personal approval remain required; no live migration or restart.
 
 - 2026-09-09 20:27:31 UTC: agents lists keep their original ordinary opening, navigation and dismissal behavior; add pin/popout controls without turning the ordinary list into a modal.
+- 2026-09-12: API-key accounts replace the V1 per-org key path outright (no coexistence). Keys are accounts, shown in Usage with total spend instead of limit bars; API-key fallback and subscription inference are machine-wide per-provider controls; headless no longer requires a key. See the entry at the end of this file.
 - 2026-09-09 20:38:17 and 20:41:21 UTC: coordinator-astra and feature-fable implement the remaining authorized work themselves, run development checks and merge directly. No separate agent review process or intermediate clearance gates. The user will review the combined result after everything is merged. This supersedes the stage-2/Opus/coordinator-approval requirements above for this corrective wave; deferred automated-import work remains deferred.
 
 ## How to use this file
@@ -276,3 +277,62 @@ unrecoverable marking, a provider-leg death — now always notifies its parent
 (or the user at the top). Stranding a node's rehireable capacity notifies the
 affected node. F5 (load-hook fable-lock release on an unsaved read) and the
 SH-5 operator topology doors are deliberately left unchanged.
+
+
+## 2026-09-12 — API-key accounts replace the V1 per-org key
+
+**The decision.** Orgtree's legacy API-key path — a key stored on the ORG
+document, a fallback WINDOW that opened and shut, and a headless mode that
+could not run without one — is removed outright and replaced by API-key
+ACCOUNTS living in the same account system as subscriptions. There is no
+period where both systems exist: the V1 fields, endpoints, spawn branch,
+board lane and settings rows are gone, and every stored org key was migrated
+into the account registry at startup.
+
+**What an API-key account is.** An ordinary account whose billing nature is a
+stored field (`mode: "apikey"`). It is offered in the add-secondary-account
+list for Claude and Codex whether or not that provider's subscription is
+signed in — which is what makes running Orgtree on keys alone reachable.
+Google/Antigravity is excluded because it has no API-key login at all
+(measured 1.1.24), though it still gets the subscription-inference control
+below. Keys live in the machine token store and are referenced by a
+`token_ref`; a secret never enters the registry or an org document.
+
+**Usage, not Usage Limits.** The surface is renamed, and an API-key account is
+shown beside subscriptions with its AUTHORITATIVE TOTAL SPEND in USD instead
+of limit bars. That total is local metering — the harness's per-turn reported
+cost, accumulated per account, machine-wide across orgs. No provider billing
+API is called and no extra admin credential is asked for, because an
+inference key cannot read a billing endpoint (D-147). A key row shows what it
+cost and how many turns it served; it never shows a percentage.
+
+**Two machine-wide, per-provider controls**, which orgs inherit. *API-key
+fallback* defaults OFF and may route a turn to an enabled API-key account only
+after every applicable subscription limit for that provider is exhausted;
+subscription-account alternatives are tried first. It is hidden entirely
+unless that provider has an enabled API-key account, because a switch that can
+only ever do nothing misrepresents what the machine can do. *Subscription
+inference* is a separate per-provider control: when disabled, that provider's
+signed-in subscription accounts never serve a turn, while its API-key accounts
+remain usable.
+
+**This amends the 2026-09-11 entry above**, which recorded that "API-key
+accounts are not fallback destinations." They now are — but only as an
+explicit, off-by-default, last-resort lane, never automatically.
+
+**The red is gone.** A turn billing an API key no longer paints the agent card
+or the office border in the error colour. API-key billing is an ordinary
+account mode, not an alarm. The cost chip keeps its subscription-vs-key split,
+now attributed per turn from the serving account's mode rather than from
+whether a window happened to be open.
+
+**Headless is decoupled entirely.** The behavioural mode — questions and
+credit requests auto-deny, mail is stored with a no-reply note, the overseer
+renders grey, kiosks are excluded — SURVIVES with no billing precondition of
+any kind. The V1 API-key requirement, the clear-refusal coupling and the
+"keyed providers only" hire gate are removed with the rest of V1. A headless
+org may run on subscription logins at the user's own expiry risk.
+
+**The Autonomy tab stays.** Its V1 API-key rows left with the path, but the
+usage-limit-freezes group (account-fallback default, auto-resume, bulk resume)
+is independent and current, so the tab was kept rather than removed.
