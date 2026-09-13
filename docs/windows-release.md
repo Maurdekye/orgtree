@@ -192,6 +192,31 @@ setup and running-app behavior. Finish-page launch behavior is unchanged: when
 the user leaves the launch option selected, the upgraded installation starts
 once with the normal update handoff.
 
+### Where an upgrade shutdown is recorded
+
+An installer-requested shutdown is written down on both sides. 2.1.3-RC1 failed
+with three anonymous words — `Argument types do not match` — and neither side
+had recorded anything that said which step produced them, so reading that dialog
+correctly took two release candidates. The cause is fixed; this is so the next
+unexpected failure costs one screenshot instead.
+
+- **The installer's side** is `%TEMP%\orgtree-installer-upgrade.log`, passed to
+  the helper as `-LogPath`. It lives outside `$PLUGINSDIR`, which the installer
+  deletes on exit, so it survives the run. It records the arguments it was
+  given, every step it entered, how many matching processes it found, the
+  control process it started, and the outcome. When the helper fails, the
+  message the user sees is prefixed with the step — `[detect-running-processes]`
+  and so on — and names this file.
+- **The application's side** is the existing `update-log.json` beside the other
+  desktop state, using the `installer-upgrade-*` stages: the request arriving,
+  being deferred until the engine is ready, the shutdown beginning, the engine
+  stopping, completion, and refusal. A `startup` entry records how each run
+  began — directly, by startup registration, or relaunched by the updater — so
+  an upgrade that closed the application can be matched to whatever started it
+  again. Only the instance holding the single-instance lock writes this file; a
+  control invocation that finds a running application stays silent, because both
+  processes rewriting it at once would lose entries.
+
 ### Verifying the close against a real running application
 
 `tools/test-upgrade-close-boundary.mjs` is the only test that exercises the

@@ -34,6 +34,23 @@ export type UpdateStage =
    *  before the relaunch that leads to the very boot meant to be held. Reusing
    *  that one as the guard let a failure hold nothing and retry immediately. */
   | 'hold-consumed'
+  /** The installer-requested shutdown, recorded from the application's side.
+   *  The installer keeps its own log, but only the app can say whether it
+   *  accepted the request, got as far as stopping its engine, or refused.
+   *  When the installer's graceful close last failed, the application side had
+   *  recorded none of that, so there was nothing to read but the installer's
+   *  own message. */
+  | 'installer-upgrade-requested'  /* the running app received the request */
+  | 'installer-upgrade-deferred'   /* accepted, but held until the engine is ready */
+  | 'installer-upgrade-began'      /* shutdown started: layout saved, engine stopping */
+  | 'installer-upgrade-engine-stopped'
+  | 'installer-upgrade-complete'   /* the app is quitting; the installer may proceed */
+  | 'installer-upgrade-refused'    /* the engine would not stop; the app stays usable */
+  | 'installer-upgrade-control'    /* a control invocation found no running app */
+  /** How this run was started, when that is knowable from the command line.
+   *  It is what connects an upgrade that closed the app to whatever started it
+   *  again, which no log recorded before. */
+  | 'startup'
 
 export interface UpdateLogEntry { at: string; stage: UpdateStage; detail?: string; from?: string; to?: string }
 

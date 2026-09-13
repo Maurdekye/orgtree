@@ -223,7 +223,12 @@ FunctionEnd
 Function orgtreeCloseForUpgrade
 orgtreeUpgradeShutdownAttempt:
   DetailPrint "Requesting a graceful Orgtree shutdown..."
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-upgrade.ps1" -InstallDir "$OrgUpgradeInstallDir" -ExecutablePath "$OrgUpgradeExe" -TimeoutSeconds 45'
+  # $PLUGINSDIR is deleted when the installer exits, so the lifecycle record is
+  # written outside it. RC1 failed here with three anonymous words and no way to
+  # tell which step produced them, which took two release candidates to read
+  # correctly; this file is what makes the next failure answerable without
+  # asking the operator to reproduce it.
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-upgrade.ps1" -InstallDir "$OrgUpgradeInstallDir" -ExecutablePath "$OrgUpgradeExe" -TimeoutSeconds 45 -LogPath "$TEMP\orgtree-installer-upgrade.log"'
   Pop $0
   Pop $1
   ${if} $0 == 0

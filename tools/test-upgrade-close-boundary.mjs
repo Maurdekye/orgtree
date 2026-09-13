@@ -138,10 +138,47 @@ foreach ($window in $windows) {
   return { status: done.status, stdout: (done.stdout || '').trim(), stderr: (done.stderr || '').trim() }
 }
 
-function runHelper (directory, launcher, timeoutSeconds) {
-  const done = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper,
-    '-InstallDir', directory, '-ExecutablePath', launcher, '-TimeoutSeconds', String(timeoutSeconds)], { encoding: 'utf8', windowsHide: true })
-  return { status: done.status, stdout: (done.stdout || '').trim(), stderr: (done.stderr || '').trim() }
+// NSIS is a 32-bit process, so its `$SYSDIR` is redirected by WOW64 and the
+// helper actually runs under SysWOW64's PowerShell, never the 64-bit one every
+// earlier test used. The host is selectable here so that difference is measured
+// rather than assumed.
+const powershell32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe')
+
+const psLiteral = value => `'${String(value).replace(/'/g, "''")}'`
+
+function runHelper (directory, launcher, timeoutSeconds, options = {}) {
+  const host = options.host ?? powershell
+  const logPath = options.logPath ?? path.join(directory, 'installer-upgrade.log')
+  const installDir = options.installDir ?? directory
+  const common = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass']
+  let args
+  if (options.breakCommands?.length) {
+    // Shadow a cmdlet the helper depends on, in the session that invokes it, to
+    // make a real read failure happen at a point no fixture can otherwise
+    // reach. A function defined here is inherited by the invoked script.
+    // Two ways to break a cmdlet, and the difference is the whole point of the
+    // fail-closed case. `throw` is terminating and no -ErrorAction can swallow
+    // it. A NON-TERMINATING error is the dangerous one: it is exactly what a
+    // caller written with `-ErrorAction SilentlyContinue` discards, turning a
+    // failed read into an empty result. These shadows declare [CmdletBinding()]
+    // so they honour the caller's -ErrorAction the way a real cmdlet does.
+    const shadows = options.breakCommands.map(name => options.breakMode === 'non-terminating'
+      ? `function ${name} { [CmdletBinding()] param([Parameter(ValueFromRemainingArguments=$true)] $Rest) Write-Error 'forced ${name} failure' }`
+      : `function ${name} { throw 'forced ${name} failure' }`).join('\n')
+    args = [...common, '-Command', [
+      shadows,
+      `& ${psLiteral(helper)} -InstallDir ${psLiteral(installDir)} -ExecutablePath ${psLiteral(launcher)}` +
+        ` -TimeoutSeconds ${Number(timeoutSeconds)} -LogPath ${psLiteral(logPath)}`,
+      'exit $LASTEXITCODE',
+    ].join('\n')]
+  } else {
+    args = [...common, '-File', helper,
+      '-InstallDir', installDir, '-ExecutablePath', launcher, '-TimeoutSeconds', String(timeoutSeconds)]
+    if (logPath) args.push('-LogPath', logPath)
+  }
+  const done = spawnSync(host, args, { encoding: 'utf8', windowsHide: true })
+  const log = logPath && fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : ''
+  return { status: done.status, stdout: (done.stdout || '').trim(), stderr: (done.stderr || '').trim(), log, logPath }
 }
 
 // Resolved to its real long form: os.tmpdir() can report an 8.3 short path, and
@@ -191,6 +228,119 @@ report('an installed app WITH the control argument closes gracefully and release
   assert.ok(seen.some(entry => entry.event === 'installer-upgrade-shutdown-start'), 'the dedicated shutdown path never ran')
   assert.ok(seen.some(entry => entry.event === 'engine-exit'), 'the managed engine was never released')
   assert.ok(!fs.existsSync(lock), 'the engine kept its handle on the install directory')
+}))
+
+// 2.1.3-RC1 failed in the real installer with the bare words "Argument types do
+// not match" and nothing else: no step, no log, and no line of its own output.
+// The cause is fixed and pinned by a regression in tests/installer-upgrade.test.mjs;
+// these cases are about the other half — that reading that dialog took two
+// release candidates because the helper said nothing about where it was.
+report('the helper runs under the 32-bit PowerShell the installer actually launches', () => scenario('modern', async ({ directory, launcher, child }) => {
+  if (!fs.existsSync(powershell32)) { console.log('    (no SysWOW64 PowerShell on this machine)'); return }
+  const result = runHelper(directory, launcher, 30, { host: powershell32 })
+  assert.equal(result.status, 0, `graceful close failed under the 32-bit host: ${result.stderr}`)
+  assert.ok(await waitForExit(child.pid, 5000), 'the app survived a successful close under the 32-bit host')
+}))
+
+report('a lifecycle record is written for a successful close', () => scenario('modern', async ({ directory, launcher }) => {
+  const result = runHelper(directory, launcher, 30)
+  assert.equal(result.status, 0, `graceful close failed: ${result.stderr}`)
+  for (const expected of ['step canonicalize-paths', 'step detect-running-processes', 'step request-graceful-shutdown', 'step await-exit', 'result: closed gracefully']) {
+    assert.ok(result.log.includes(expected), `the lifecycle log never recorded "${expected}":\n${result.log}`)
+  }
+}))
+
+report('a failure names the step it happened in, on screen and in the log', () => scenario('modern', async ({ directory, launcher }) => {
+  // An executable outside the recorded directory is the cheapest way to make a
+  // real failure happen before the app is ever asked to close.
+  const elsewhere = path.join(workspace, 'elsewhere')
+  fs.mkdirSync(elsewhere, { recursive: true })
+  const result = runHelper(directory, launcher, 8, { installDir: elsewhere })
+  assert.notEqual(result.status, 0, 'a mismatched executable location must not report success')
+  assert.match(result.stderr, /^\[[a-z-]+\]/m, `the failure reached the user with no step tag: ${result.stderr}`)
+  assert.match(result.stderr, /\[verify-executable-location\]/, `wrong step reported: ${result.stderr}`)
+  assert.match(result.stderr, /installer-upgrade\.log/, 'the failure never told the user where the log is')
+  assert.ok(result.log.includes('failure: [verify-executable-location]'), `the log did not record the failing step:\n${result.log}`)
+  assert.ok(!result.stdout.includes('Requesting a graceful'), 'nothing may be requested when the location check fails')
+}))
+
+// The helper replaced the overloaded .NET statics it could, but two
+// single-overload ones remain because nothing else normalizes a path the same
+// way, and they sit in the same region RC1 died in. Leaving them there on the
+// argument that they "cannot" be ambiguous is exactly the reasoning that cleared
+// `New-Object` on its constructor alone while the full sequence was broken, so
+// they are measured instead — in both hosts, across the path shapes the
+// installer actually hands the helper.
+report('path canonicalization is measured in both PowerShell hosts, not assumed', () => {
+  const shapes = [
+    ['C:\\Program Files\\Orgtree', 'C:\\Program Files\\Orgtree'],
+    ['C:\\Program Files\\Orgtree\\Orgtree.exe', 'C:\\Program Files\\Orgtree\\Orgtree.exe'],
+    ['C:\\Program Files\\Orgtree\\.\\..\\Orgtree\\Orgtree.exe', 'C:\\Program Files\\Orgtree\\Orgtree.exe'],
+    ['C:\\Program Files\\Org tree\\Orgtree.exe', 'C:\\Program Files\\Org tree\\Orgtree.exe'],
+    ['\\\\server\\share\\Orgtree\\Orgtree.exe', '\\\\server\\share\\Orgtree\\Orgtree.exe'],
+  ]
+  const script = shapes.map(([input]) =>
+    `try { [Console]::Out.WriteLine([IO.Path]::GetFullPath(${psLiteral(input)})) }` +
+    ` catch { [Console]::Out.WriteLine('THREW ' + $_.Exception.GetType().Name + ': ' + $_.Exception.Message) }`).join('\n') +
+    `\n[Console]::Out.WriteLine([IO.Path]::GetFileNameWithoutExtension('Orgtree.exe'))`
+  for (const host of [powershell, powershell32]) {
+    if (!fs.existsSync(host)) continue
+    const done = spawnSync(host, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', windowsHide: true })
+    assert.equal(done.status, 0, `${host} could not run the canonicalization probe: ${done.stderr}`)
+    const lines = (done.stdout || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+    shapes.forEach(([input, expected], index) => {
+      assert.equal(lines[index], expected, `${path.basename(path.dirname(path.dirname(host)))} normalized ${input} to ${lines[index]}`)
+    })
+    assert.equal(lines[shapes.length], 'Orgtree', 'the executable base name did not resolve')
+  }
+})
+
+// The fail-safe direction, which is the one an installer cannot get wrong: it
+// is about to replace the files the application is running from. Deciding
+// success by scanning for processes that still match the executable path reads
+// IDENTICALLY whether everything has closed or nothing could be read — and the
+// environment this helper fails in is exactly one where reading fails. So
+// success has to be positive proof that the processes identified BEFORE the
+// request have gone, by id, and anything unverifiable has to count as alive.
+report('a post-request read failure can never be reported as a successful close', () => scenario('legacy', async ({ directory, launcher, child }) => {
+  // The legacy fixture never closes, so the application is demonstrably still
+  // running while the helper is unable to verify anything about it.
+  const result = runHelper(directory, launcher, 8, { breakCommands: ['Get-Process'] })
+  assert.equal(result.status, 2, `an unverifiable close was reported as success: status=${result.status} ${result.stdout}`)
+  assert.ok(alive(child.pid), 'the application must be left running')
+  assert.ok(result.log.includes('step request-graceful-shutdown'), `the request never went out, so this proves nothing about the post-request path:\n${result.log}`)
+  assert.doesNotMatch(result.stdout, /closed gracefully/i)
+}))
+
+// The same inversion by a different door. If BOTH readings of the process table
+// fail, the helper must say so. An empty result can only ever mean "nothing
+// matched", never "nothing could be read" — because empty means "already
+// closed", and "already closed" means an installer that proceeds to replace the
+// files of an application that is, in this scenario, demonstrably still running.
+report('a total detection failure is reported, never read as already closed', () => scenario('legacy', async ({ directory, launcher, child }) => {
+  // NON-TERMINATING errors specifically. A previous version of the fallback read
+  // the table with `Get-Process -Name X -ErrorAction SilentlyContinue`, which
+  // discards exactly this kind of failure and hands back an empty collection —
+  // indistinguishable from "nothing is running", and therefore reported as
+  // "already closed". A terminating `throw` would not have caught that, because
+  // no -ErrorAction can swallow one; this is the shape that does.
+  for (const breakMode of ['non-terminating', 'throw']) {
+    const result = runHelper(directory, launcher, 8, { breakCommands: ['Get-CimInstance', 'Get-Process'], breakMode })
+    assert.equal(result.status, 2, `${breakMode}: detection failure did not report failure: status=${result.status} ${result.stdout}`)
+    assert.doesNotMatch(result.stdout, /already closed/i, `${breakMode}: an unreadable process table was reported as a closed application`)
+    assert.doesNotMatch(result.stdout, /Requesting a graceful/i, `${breakMode}: nothing may be requested when detection failed`)
+    assert.match(result.stderr, /\[detect-running-processes\]/, `${breakMode}: the failure did not name the detection step: ${result.stderr}`)
+    assert.ok(alive(child.pid), `${breakMode}: the application must be left running`)
+  }
+}))
+
+report('an application that did close is still not reported closed without proof', () => scenario('modern', async ({ directory, launcher }) => {
+  // Same fixture that closes cleanly and exits 0 in the case above. With the
+  // exit unverifiable, the answer must degrade to failure — Retry and Cancel
+  // both leave the installation intact, and a wrong success does not.
+  const result = runHelper(directory, launcher, 8, { breakCommands: ['Get-Process'] })
+  assert.equal(result.status, 2, `success was claimed without verifying a single exit: status=${result.status}`)
+  assert.doesNotMatch(result.stdout, /closed gracefully/i)
 }))
 
 // Why the installer sends a control request instead of a window message. Both

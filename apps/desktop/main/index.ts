@@ -50,7 +50,19 @@ else if (installerUpgradeRequested) {
   // The upgrade helper only launches this command after it has path-verified
   // an already-running installed process. A standalone control invocation
   // must still exit without creating a window or starting an engine.
-  void app.whenReady().then(() => app.quit())
+  //
+  // Reaching here means this process HELD the single-instance lock, so no
+  // application was running to receive the request and nothing else is writing
+  // the log. The messenger case — where a primary does exist — is deliberately
+  // silent here and recorded by that primary instead: both processes rewriting
+  // this file at once would lose entries from whichever wrote first.
+  void app.whenReady().then(() => {
+    try {
+      new UpdateLog(path.join(app.getPath('userData'), 'update-log.json'))
+        .record('installer-upgrade-control', 'no running application received the request')
+    } catch { /* the record is diagnostic; it must never hold up the exit */ }
+    app.quit()
+  })
 }
 else {
   let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
@@ -69,6 +81,13 @@ else {
   // by default, which a packaged Windows GUI process discards. Stages and
   // errors are written here instead, sanitized, beside the other desktop state.
   const updateLog = new UpdateLog(path.join(app.getPath('userData'), 'update-log.json'))
+  // An installer-requested shutdown and whatever started the application again
+  // are two halves of one event, and the log recorded neither. This is the
+  // second half: the entry that says how this run began, written next to the
+  // entry that says why the last one ended.
+  updateLog.record('startup', process.argv.includes('--updated') ? 'relaunched by the updater'
+    : process.argv.includes('--background') ? 'started in the background by startup registration'
+    : 'started directly')
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
@@ -274,24 +293,36 @@ else {
    * stuck engine, while an upgrade must return failure and leave everything
    * running for Retry or Cancel. */
   const requestInstallerUpgradeShutdown = async () => {
+    updateLog.record('installer-upgrade-requested')
     if (installerUpgradeShutdown || quitComplete || quitting) return
-    if (!engineReady) { installerUpgradePending = true; return }
+    if (!engineReady) {
+      installerUpgradePending = true
+      updateLog.record('installer-upgrade-deferred', 'the engine is not ready yet')
+      return
+    }
     installerUpgradePending = false
     installerUpgradeShutdown = true
+    updateLog.record('installer-upgrade-began')
     try {
       await bounded(saveWindowLayout(), UPDATE_DEADLINES.layoutMs)
-      if (!await engine.stopGracefullyForInstaller(INSTALLER_UPGRADE_STOP_BUDGET_MS)) return
+      if (!await engine.stopGracefullyForInstaller(INSTALLER_UPGRADE_STOP_BUDGET_MS)) {
+        updateLog.record('installer-upgrade-refused', 'the engine did not stop within its budget')
+        return
+      }
+      updateLog.record('installer-upgrade-engine-stopped')
       quitting = true
       if (poll) clearInterval(poll)
       trayPopupSeq++; closeTrayPopup()
       cancelProviderLogin('claude', true)
       cancelProviderLogin('codex', true)
       quitComplete = true
+      updateLog.record('installer-upgrade-complete')
       tray?.destroy()
       app.quit()
-    } catch {
+    } catch (error) {
       // A graceful control failure is intentionally non-destructive. The
       // helper reports it and offers Retry/Cancel; the app remains usable.
+      updateLog.record('installer-upgrade-refused', error)
     } finally {
       if (!quitComplete) installerUpgradeShutdown = false
     }
