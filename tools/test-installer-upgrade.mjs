@@ -50,6 +50,17 @@ SilentInstall silent
 !define isUpdated \`"" _isUpdated ""\`
 !define orgtreeOriginalIsUpdated \`\${isUpdated}\`
 ${vars}
+# electron-builder supplies UAC.nsh; the fixture supplies the same surface so
+# the mode macro compiles in isolation. customInstallMode elevates for an
+# all-users upgrade, which is where electron-builder elevates too.
+!macro _UAC_IsAdmin _a _b _t _f
+  StrCmp "1" "1" \`\${_t}\` \`\${_f}\`
+!macroend
+!define UAC_IsAdmin \`"" UAC_IsAdmin ""\`
+!macro UAC_RunElevated
+  StrCpy $0 "0"
+  StrCpy $1 "2"
+!macroend
 ${functions}
 ${welcome}
 ${installMode}

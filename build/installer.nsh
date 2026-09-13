@@ -52,6 +52,26 @@ Var pid
     # only to NSIS's private temporary plugin directory.
     InitPluginsDir
     File /oname=$PLUGINSDIR\installer-upgrade.ps1 "${PROJECT_DIR}\tools\installer-upgrade.ps1"
+
+    # An elevated inner instance is a BRAND NEW installer process. It re-runs
+    # onInit and every page from the beginning and knows nothing about the
+    # choice the user already made in the outer one, so without this it would
+    # present the whole wizard a second time and ask again for a decision that
+    # has already been taken. Carrying the selection across is what makes an
+    # elevated upgrade look like one continuous installer: the user picks
+    # Upgrade, approves the prompt, and the next thing they see is Installing.
+    #
+    # UAC_AsUser_GetGlobalVar reads the OUTER instance's live value, and the
+    # outer instance is blocked inside UAC::_ for as long as we run, so these
+    # values cannot change underneath us while they are being read.
+    ${if} ${UAC_IsInnerInstance}
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeSelected
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeChoice
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeAvailable
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallMode
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallDir
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeExe
+    ${endif}
   !ifndef ORGTREE_DEV_CHANNEL
     ${if} ${UAC_IsInnerInstance}
       !insertmacro UAC_AsUser_GetGlobalVar $BootOperatorSid
@@ -264,11 +284,19 @@ FunctionEnd
     PageExEnd
 
     Function orgtreeUpgradePageShow
-      Call orgtreeDetectUpgradeInstall
-      ${if} $OrgUpgradeAvailable != "1"
+      # The choice is already made — by the --updated entry point, or by the
+      # outer instance whose selection an elevated inner instance inherits in
+      # preInit. Skip the page WITHOUT re-detecting: detection rewrites
+      # $OrgUpgradeInstallDir and the other recorded values from whatever this
+      # process can read, and an elevated instance does not see the same
+      # per-user registry as the one that made the choice. Re-deriving them
+      # here could point the install at a different directory than the one the
+      # user was shown and agreed to.
+      ${if} $OrgUpgradeSelected == "1"
         Abort
       ${endif}
-      ${if} $OrgUpgradeSelected == "1"
+      Call orgtreeDetectUpgradeInstall
+      ${if} $OrgUpgradeAvailable != "1"
         Abort
       ${endif}
       StrCpy $OrgUpgradeChoice ""
@@ -344,6 +372,53 @@ FunctionEnd
   !ifndef BUILD_UNINSTALLER
     ${if} $OrgUpgradeSelected == "1"
       ${if} $OrgUpgradeInstallMode == "all"
+        # ELEVATE HERE, AT INSTALL-MODE SELECTION.
+        #
+        # This is where electron-builder elevates for every other all-users
+        # install (templates/nsis/multiUserUi.nsh, both the page PRE and the
+        # page LEAVE), and its own comment in installer.nsi says so: "For a
+        # non-silent install, the elevation will be triggered when the install
+        # mode is selected in the UI". The Upgrade choice reaches this macro
+        # and then Aborts the mode page, so before this fix it skipped the one
+        # place the installer ever elevated, and the first thing to notice was
+        # the boot preflight section — half way through "Installing".
+        #
+        # Elevating from a section is what produced the 2.1.3-RC4 field
+        # failure: UAC_RunElevated starts a SECOND complete wizard, and the
+        # first one sits blocked waiting for it. Because that call did not
+        # hide its own window first, the user was left looking at an
+        # "Installing" page frozen at 3% with a second Setup window behind it,
+        # and nothing ever moved again.
+        #
+        # ShowWindow ... SW_HIDE is therefore not cosmetic. Every elevation
+        # site in electron-builder does it, and it is what makes the outer
+        # instance disappear instead of impersonating a hung installer.
+        ${ifNot} ${UAC_IsAdmin}
+          ShowWindow $HWNDPARENT ${SW_HIDE}
+          !insertmacro UAC_RunElevated
+          ${if} $0 == 0
+          ${andif} $1 == 1
+            # The elevated instance ran the entire upgrade. This process is
+            # only the wrapper around it and has nothing left to do.
+            Quit
+          ${endif}
+
+          # Anything else means no elevated instance did the work. Show this
+          # window again and say what happened, rather than vanishing or —
+          # far worse — carrying on without the rights needed to replace
+          # files in a per-machine installation.
+          ShowWindow $HWNDPARENT ${SW_SHOW}
+          BringToFront
+          ${if} $0 == 1223
+            MessageBox MB_OK|MB_ICONINFORMATION "Administrator approval is required to upgrade the installation in $OrgUpgradeInstallDir.$\r$\nNothing has been changed." /SD IDOK
+          ${elseif} $0 == 0
+            MessageBox MB_OK|MB_ICONSTOP "Upgrading the installation in $OrgUpgradeInstallDir requires an administrator account.$\r$\nNothing has been changed." /SD IDOK
+          ${else}
+            MessageBox MB_OK|MB_ICONSTOP "Setup could not request administrator approval (error $0).$\r$\nNothing has been changed." /SD IDOK
+          ${endif}
+          SetErrorLevel 2
+          Quit
+        ${endif}
         !insertmacro setInstallModePerAllUsers
       ${else}
         !insertmacro setInstallModePerUser
@@ -420,12 +495,26 @@ FunctionEnd
             Quit
           ${endif}
         ${endif}
+        # NO ELEVATION HERE — this is the 2.1.3-RC4 field failure.
+        #
+        # This section used to call UAC_RunElevated at exactly this point.
+        # That starts a second complete installer wizard and blocks this one
+        # until it finishes, and because this window was never hidden the user
+        # was left staring at an "Installing" page stopped at 3% with the text
+        # "Orgtree is closed; continuing the upgrade." and a second Setup
+        # window behind it. Nothing was ever written, and it never recovered.
+        # The user confirmed the second window; the boot task being left
+        # enabled confirms this section never got past this line.
+        #
+        # Elevation belongs at install-mode selection, where electron-builder
+        # puts it and where customInstallMode now performs it. Arriving here
+        # without administrator rights is therefore a defect in that ordering,
+        # not a situation a user can be in — so it is named and stops, rather
+        # than silently opening another installer.
         ${ifNot} ${UAC_IsAdmin}
-          !insertmacro UAC_RunElevated
-          ${if} $0 != 0
-            MessageBox MB_OK|MB_ICONSTOP "Administrator approval is required for boot startup." /SD IDOK
-            SetErrorLevel 2
-          ${endif}
+          DetailPrint "Boot preflight reached without administrator rights."
+          MessageBox MB_OK|MB_ICONSTOP "Setup does not have the administrator rights it needs to update the Orgtree boot startup entry.$\r$\nThe existing installation has not been changed." /SD IDOK
+          SetErrorLevel 2
           Quit
         ${endif}
         !insertmacro BootHelpers

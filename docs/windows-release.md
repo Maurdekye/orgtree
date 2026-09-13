@@ -183,9 +183,46 @@ close by starting the installed executable with the private
 `--installer-upgrade` control argument. The running app handles that argument by
 quitting through a dedicated bounded graceful-only engine shutdown path; the
 helper waits for the exact recorded executable to exit before file replacement.
-The installer
-does not force-kill a process. A timeout or path-verification failure leaves the
-installation untouched and offers `Retry` or `Cancel`.
+
+Waiting for `Orgtree.exe` is not on its own enough, and 2.1.3-RC4 is why. The
+engine runs from `<InstallDir>\resources\engine\runtime\python.exe` and starts
+its own agent and MCP subprocesses, none of which is named `Orgtree.exe`, so
+none of them was detected, asked to close, or verified as gone — while a
+running image is exactly what Windows will not let the installer replace. The
+helper therefore also waits for the whole installation tree: every process
+whose image lives under the install directory, and every descendant of one. It
+reports which processes are holding the upgrade rather than naming them
+generically.
+
+Two things make that a real check rather than a hopeful one. First, the tree is
+read by an enumeration that reports parentage — CIM, falling back to WMI — and
+if neither can answer, the helper says so and refuses instead of reporting a
+quiet tree it could not actually see. A reading that cannot see descendants can
+never establish that there are none. Second, the tree is recorded once before
+the application is asked to close, and that recording does two jobs afterwards.
+Every process it named must be observed to exit, and every id it named also
+stays an ancestry seed for each later scan, whether or not that process still
+exists. An engine process that starts a helper whose own image lives elsewhere —
+an agent CLI, `node`, `uv` — and then exits leaves a child that no later scan can
+otherwise connect to the installation, because its parent id points at a process
+that is gone. That holds whether the child was started before the recording or
+after it. A seed is only a seed: it is never itself reported as holding the
+installation unless a scan actually observed it.
+
+The installer still does not force-kill a process. A timeout, a
+path-verification failure, a tree that cannot be enumerated, or a tree that does
+not go quiet leaves the installation untouched and offers `Retry` or `Cancel`.
+
+Elevation for an all-users upgrade happens when the install mode is selected,
+which is where electron-builder elevates for every other all-users install, and
+the window is hidden first. 2.1.3-RC4 instead called `UAC_RunElevated` from
+inside an install section: that starts a second complete wizard and blocks the
+first one waiting for it, and because the first window was still visible the
+upgrade appeared to freeze on `Installing` at 3% with a second `Orgtree Setup`
+window behind it. The elevated instance inherits the Upgrade selection from the
+outer one, so the user is not asked the same questions twice. If elevation is
+declined or fails, Setup stops and says so; it never continues without the
+rights it needs to replace files.
 
 The ordinary advanced and fresh-install paths retain electron-builder's normal
 setup and running-app behavior. Finish-page launch behavior is unchanged: when
