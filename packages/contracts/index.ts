@@ -112,6 +112,11 @@ export interface DesktopBridge {
   setPendingAttention?(ids: string[]): Promise<void>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
+  /** Reveal an absolute local file in the OS file manager — Explorer opens
+   *  with the file SELECTED and nothing is launched. Deliberately not an
+   *  "open" (user ruling, 2026-09-13): links come from agent-written markdown,
+   *  so an open would be a one-click way to run a program. */
+  revealFile?(path: string): Promise<{ ok: boolean; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   /** Window commands for ONE popped-out desk or modal, named by the frame name

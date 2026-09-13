@@ -12,6 +12,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 // listener — loaded here because every .md surface renders through this module
 import './lightbox'
 import { renderHtmlResponses } from './htmlresponse'
+// the native bridge, for revealing a local file link in the OS file manager
+import { desktop } from '../desktop'
 import { onLiveBump } from '../livebus'
 import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
@@ -1792,8 +1794,62 @@ const _mdCache = new Map<string, { __html: string }>()
  *  the behaviour that already shipped, never a weaker one. */
 const LINK_DEST =
   /(\]\(<[^<>\n]*>(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*\))/
-const escapeProse = (s: string) => s.split(LINK_DEST)
-  .map((seg, k) => (k % 2 ? seg : seg.replace(/</g, '&lt;')))
+
+/** An absolute Windows target as a destination the REST OF THE PIPELINE can
+ *  already carry: `C:\dir\f.exe`, `C:/dir/f.exe` and `/C:/dir/f.exe` all
+ *  become `/C:/dir/f.exe`. `null` for anything that is not one.
+ *
+ *  ⚠ WHY THE LEADING SLASH IS THE WHOLE TRICK, and why there is no DOMPurify
+ *  configuration anywhere in this change. `href="C:\…"` is destroyed by the
+ *  sanitizer: `C:` reads as an unknown URI SCHEME, so the anchor survives and
+ *  its href does not. A leading `/` makes the same target an ordinary
+ *  path-absolute URL, which the default rules already accept — so the exact
+ *  path reaches the far side WITHOUT the sanitizer being loosened by one
+ *  character. That is how acceptance condition 3 is met: nothing is permitted
+ *  that was not permitted before, and no new scheme can enter here.
+ *
+ *  ⚠ THE DRIVE LETTER'S CASE IS PRESERVED, not upper-cased. Windows does not
+ *  care, but the user's own text is not ours to rewrite, and `data-local-path`
+ *  is supposed to be what they wrote.
+ *
+ *  ⚠ NOT A CONTAINMENT CHECK, and deliberately so (user ruling, 2026-09-13):
+ *  ANY absolute path may become a link. That is safe only because a click
+ *  REVEALS the file in Explorer and can never launch it — the two halves are
+ *  one decision. Widening the click must revisit this. */
+export function winFileHref(dest: string): string | null {
+  const m = /^\/?([A-Za-z]):[\\/](.*)$/.exec(dest)
+  return m ? `/${m[1]!}:/${m[2]!.replace(/\\/g, '/')}` : null
+}
+
+/** The inverse, for the rendered anchor: `/C:/dir/f.exe` → `C:\dir\f.exe`,
+ *  the native path `shell.showItemInFolder` is given. */
+export function winFilePath(href: string): string | null {
+  const m = /^\/([A-Za-z]):\/(.*)$/.exec(href)
+  return m ? `${m[1]!}:\\${m[2]!.replace(/\//g, '\\')}` : null
+}
+
+/** `](<C:\a b\c.exe>)` → `](</C:/a b/c.exe>)`, leaving a non-Windows
+ *  destination (a URL, a POSIX path, a relative file) exactly as written. */
+const normalizeAngleDest = (seg: string) =>
+  seg.replace(/^\]\(<([^<>\n]*)>/, (all, dest: string) => {
+    const href = winFileHref(dest)
+    return href === null ? all : `](<${href}>`
+  })
+
+/** The same for a BARE destination, `](C:\dir\f.exe)`. CommonMark forbids
+ *  spaces there, so this form only ever reaches paths that have none — which
+ *  is exactly why the angle form above cannot be dropped. Matching is narrow
+ *  on purpose: a drive letter, a separator, then no whitespace, parens or
+ *  angle brackets until the close. */
+const BARE_WIN_DEST = /\]\(([A-Za-z]:[\\/][^()<>\s]*)\)/g
+
+const escapeProse = (s: string) => s
+  .replace(BARE_WIN_DEST, (all, dest: string) => {
+    const href = winFileHref(dest)
+    return href === null ? all : `](${href})`
+  })
+  .split(LINK_DEST)
+  .map((seg, k) => (k % 2 ? normalizeAngleDest(seg) : seg.replace(/</g, '&lt;')))
   .join('')
 const escapeAngles = (src: string) => {
   const lines = src.split('\n')
@@ -1845,7 +1901,12 @@ const CheckIcon =
   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
   + '<path d="M3 8.5l3.5 3.5L13 4.5"/></svg>'
 const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: boolean) => {
-  if (!html.includes('<pre') && !html.includes('<img')) return html
+  // ⚠ `<a` BELONGS IN THIS GUARD. Without it the local-file pass below is
+  // simply never reached for the ordinary case — one link in a line of prose,
+  // no code block and no image — and the feature silently does nothing on
+  // exactly the message the user reported.
+  if (!html.includes('<pre') && !html.includes('<img')
+    && !html.includes('<a')) return html
   const tpl = document.createElement('template')
   tpl.innerHTML = html
   // render-inline-html-custom-responses: an explicit ```orgtree-html-response
@@ -1891,6 +1952,33 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     }
     img.setAttribute('loading', 'lazy')
   })
+  // local file links (user ruling 2026-09-13): a destination normalized to
+  // `/C:/…` by `winFileHref` is an absolute WINDOWS FILE, not a route on this
+  // app. Carry the native path on the element and make the anchor itself
+  // inert; `revealFileFromEvent` does the rest on click.
+  //
+  // ⚠ THE href IS REPLACED, NOT KEPT, and that is a correctness fix rather
+  // than tidiness. `/C:/…` is a path-absolute URL, so leaving it would make a
+  // click navigate the SPA to `<origin>/C:/…` — the app would either 404 or
+  // walk off its own route, which is a worse outcome than the literal text
+  // this feature set out to fix.
+  //
+  // Runs on SANITIZED html and writes through setAttribute, so the path is
+  // never re-parsed as markup — the same rule the image pass above follows.
+  tpl.content.querySelectorAll('a[href]').forEach(a => {
+    const raw = a.getAttribute('href') ?? ''
+    let href = raw
+    // marked percent-encodes the spaces these paths are full of; exactly one
+    // layer comes back off, and a malformed % keeps the raw text rather than
+    // throwing the whole render away.
+    try { href = decodeURIComponent(raw) } catch { /* malformed % — keep raw */ }
+    const native = winFilePath(href)
+    if (native === null) return
+    a.setAttribute('data-local-path', native)
+    a.setAttribute('class', `${a.getAttribute('class') ?? ''} local-file`.trim())
+    a.setAttribute('title', `Show in folder — ${native}`)
+    a.setAttribute('href', '#')
+  })
   return tpl.innerHTML
 }
 // one delegated listener for every panel (content is innerHTML, so per-element
@@ -1915,7 +2003,41 @@ export function copyCodeFromEvent(e: { target: EventTarget | null }) {
     }, 1200)
   }).catch(() => {})
 }
-if (typeof document !== 'undefined') document.addEventListener('click', copyCodeFromEvent)
+/** Clicking a local file link REVEALS it in the OS file manager — Explorer
+ *  opens with the file selected and nothing is ever launched.
+ *
+ *  ⚠ REVEAL, NEVER OPEN, AND THAT IS THE POINT (user ruling, 2026-09-13). The
+ *  reported target was an installer. Opening a file the way a double-click
+ *  does would turn every link an agent writes into chat into a one-click way
+ *  to RUN a program — including text an agent merely copied from a web page.
+ *  Revealing cannot: the user sees the file in its folder and decides. Any
+ *  later change here that reaches for a launcher instead of a reveal is
+ *  reversing a decision the user made on the safety argument, not refactoring.
+ *
+ *  Returns whether it handled the event, so callers can tell.
+ *
+ *  ⚠ IT CANCELS THE NAVIGATION BEFORE ASKING ANYTHING ELSE. The anchor is
+ *  left as `href="#"` by the render pass, and letting that through would push
+ *  a history entry and strand the reader at the top of the panel. */
+export function revealFileFromEvent(e: {
+  target: EventTarget | null
+  preventDefault?: () => void
+}): boolean {
+  // no `instanceof HTMLAnchorElement` — that global is absent in the
+  // node+jsdom test scope, the same reason copyCodeFromEvent avoids it
+  const a = (e.target as Element | null)?.closest?.('a[data-local-path]')
+  if (!a) return false
+  e.preventDefault?.()
+  const path = a.getAttribute('data-local-path')
+  // no bridge (browser/kiosk, or a portal that never received one) → nothing
+  // happens, rather than a thrown error taking the click handler down
+  if (path) void desktop()?.revealFile?.(path)?.catch?.(() => {})
+  return true
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', copyCodeFromEvent)
+  document.addEventListener('click', revealFileFromEvent)
+}
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
  *  files are known; the cache keys on it (NUL joins the fields — it never

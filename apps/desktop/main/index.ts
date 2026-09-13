@@ -684,6 +684,27 @@ else {
         return { ok: false, error: `Could not open charter directory: ${message}` }
       }
     })
+    // ⚠ REVEAL, NEVER OPEN, AND NEVER `shell.openPath` HERE (user ruling,
+    // 2026-09-13). These paths arrive from markdown an AGENT wrote, so opening
+    // one the way a double-click does would make any link in chat a one-click
+    // way to RUN a program — the reported example was an installer.
+    // `showItemInFolder` selects the file in the OS file manager and can
+    // launch nothing. Swapping it for a launcher reverses a decision the user
+    // made on that argument; it is not an implementation detail.
+    handle('desktop:reveal-file', value => {
+      if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
+      const target = path.normalize(value)
+      // absolute only: a relative path here has no meaningful base, and
+      // resolving it against this process's cwd would reveal something the
+      // author never named
+      if (!path.isAbsolute(target)) return { ok: false, error: `Not an absolute path: ${value}` }
+      // report a missing file rather than silently doing nothing — on Windows
+      // showItemInFolder is a no-op for a path that is not there, which reads
+      // to the user as a dead link
+      if (!fs.existsSync(target)) return { ok: false, error: `No such file: ${target}` }
+      shell.showItemInFolder(target)
+      return { ok: true }
+    })
     handle('desktop:update-status', () => updater.current())
     handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
     handle('desktop:check-for-updates', () => checkForUpdates())
