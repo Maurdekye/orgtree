@@ -12,7 +12,7 @@ import { CurrentOrg, RestartNotice, WindowMirrors, useOrgTransition } from './po
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import {
   audienceAction, BASE, clearInbox, createOrg, deleteOrg,
   fileBase, fileUrl, getAudiences, getDefaults, getEvents, getHost, getInbox,
@@ -30,6 +30,7 @@ import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
 import type { HostIdentity } from './accountidentity'
+import { groupByProvider } from './usagegroups'
 import { bumpLive } from './livebus'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -1767,6 +1768,85 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   const hostEmail = (provider: string, value: AccountUsage | null) =>
     value?.email || (value?.label?.includes('@') ? value.label : undefined)
       || primaryEmail(registry ?? [], provider, hostIdentity)
+  /** EVERY card this modal will draw, built in the order it always built them
+   *  — the four host lanes, then the registry's own row order — and then
+   *  grouped so one provider's accounts sit together (see usagegroups.ts).
+   *
+   *  ⚠ EACH CARD CARRIES ITS OWN `key` AND EVERY ONE IS NAMESPACED. These
+   *  used to be four sibling slots plus one list, where a duplicate key was
+   *  impossible; in ONE array it is not. Codex and Antigravity both report the
+   *  ambient login as `account: "default"`, so keying a lane on that value
+   *  alone puts the same key on two siblings — which React calls unsupported
+   *  to its face ("may cause children to be duplicated and/or omitted"). It
+   *  happens to render both today; the `host:<id>:` prefixes mean we are not
+   *  relying on that, while keeping the remount-on-account-change the three
+   *  keyed lanes already had. A registry id cannot collide with them.
+   *
+   *  ⚠ REORDERING IS SAFE PRECISELY BECAUSE OF THOSE KEYS. React reconciles a
+   *  keyed child by key, not by position, so a card that moves down the list
+   *  keeps its component identity — and with it the polled readout, the
+   *  in-flight latch and the age ticker inside it. Grouping must not cost a
+   *  refetch. */
+  const cards: { provider: string; node: ReactElement }[] = []
+  if (shown.claude && (claude.value || claude.failure || claude.pending)) {
+    cards.push({ provider: 'claude', node: <div className="usage-acct" key="host:claude">
+      <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
+        claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
+        multipleAccounts('claude'))]}
+        provider="Claude" state={claude} />
+      {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
+          only in App settings — shown exactly when the usage fetch
+          came back a real, structured credential rejection (never
+          string-matched from `error`). */}
+      {claude.value?.reauth_required && <ProviderSignIn provider="claude"
+        connected toast={toast} onRefresh={() => { void claude.refresh(true) }} />}
+      {claude.value
+        ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
+        : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  if (shown.openai && (codex.value || codex.failure || codex.pending)) {
+    cards.push({ provider: 'openai', node: <div className="usage-acct" key={'host:openai:' + (codex.value?.account ?? 'codex')}>
+      <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
+        parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
+        provider="Codex" state={codex} />
+      {codex.value?.reauth_required && <ProviderSignIn provider="codex"
+        connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
+      {codex.value
+        ? <UsageBars u={codex.value} />
+        : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  if (shown.google && (agy.value || agy.failure || agy.pending)) {
+    cards.push({ provider: 'google', node: <div className="usage-acct" key={'host:google:' + (agy.value?.account ?? 'antigravity')}>
+      <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
+        parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
+        provider="Antigravity" state={agy} />
+      {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
+          visible terminal running the CLI's own interactive entry
+          point rather than the browser/in-app-code flow Claude and
+          Codex use above — see providerlogin.ts's
+          launchAntigravityTerminal docstring. */}
+      {agy.value?.reauth_required && <ProviderSignIn provider="antigravity"
+        connected toast={toast} onRefresh={() => { void agy.refresh(true) }} />}
+      {agy.value
+        ? <UsageBars u={agy.value} />
+        : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  if (shown.openrouter && (orr.value || orr.failure || orr.pending)) {
+    cards.push({ provider: 'openrouter', node: <div className="usage-acct" key={'host:openrouter:' + (orr.value?.account ?? 'openrouter')}>
+      <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
+        parts={[orr.value?.label]} provider="OpenRouter" state={orr} />
+      {orr.value
+        ? <UsageBars u={orr.value} />
+        : <div className="dim">usage unavailable until refresh succeeds</div>}
+    </div> })
+  }
+  for (const r of registered) {
+    cards.push({ provider: r.provider, node: <RegisteredAccountSection key={r.id}
+      row={r} multiple={multipleAccounts(r.provider)} /> })
+  }
   return (
     <PinFrame kind="usage" title="Usage" panel="settings usage-modal"
       close={close}>
@@ -1780,54 +1860,7 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
           && !(shown.openrouter && (orr.value || orr.failure || orr.pending))
           ? <div className="dim">loading…</div>
           : <div className="usage-cards">
-          {shown.claude && (claude.value || claude.failure || claude.pending) && <div className="usage-acct">
-            <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
-              claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
-              multipleAccounts('claude'))]}
-              provider="Claude" state={claude} />
-            {/* D-231 expansion: the PRIMARY sign-in entry point is here, not
-                only in App settings — shown exactly when the usage fetch
-                came back a real, structured credential rejection (never
-                string-matched from `error`). */}
-            {claude.value?.reauth_required && <ProviderSignIn provider="claude"
-              connected toast={toast} onRefresh={() => { void claude.refresh(true) }} />}
-            {claude.value
-              ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
-              : <div className="dim">usage unavailable until refresh succeeds</div>}
-          </div>}
-          {shown.openai && (codex.value || codex.failure || codex.pending) && <div className="usage-acct" key={codex.value?.account ?? 'codex'}>
-            <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
-              parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
-              provider="Codex" state={codex} />
-            {codex.value?.reauth_required && <ProviderSignIn provider="codex"
-              connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
-            {codex.value
-              ? <UsageBars u={codex.value} />
-              : <div className="dim">usage unavailable until refresh succeeds</div>}
-          </div>}
-          {shown.google && (agy.value || agy.failure || agy.pending) && <div className="usage-acct" key={agy.value?.account ?? 'antigravity'}>
-            <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
-              parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
-              provider="Antigravity" state={agy} />
-            {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
-                visible terminal running the CLI's own interactive entry
-                point rather than the browser/in-app-code flow Claude and
-                Codex use above — see providerlogin.ts's
-                launchAntigravityTerminal docstring. */}
-            {agy.value?.reauth_required && <ProviderSignIn provider="antigravity"
-              connected toast={toast} onRefresh={() => { void agy.refresh(true) }} />}
-            {agy.value
-              ? <UsageBars u={agy.value} />
-              : <div className="dim">usage unavailable until refresh succeeds</div>}
-          </div>}
-          {shown.openrouter && (orr.value || orr.failure || orr.pending) && <div className="usage-acct" key={orr.value?.account ?? 'openrouter'}>
-            <UsageAcctHead label={orr.value?.provider ?? 'OpenRouter'}
-              parts={[orr.value?.label]} provider="OpenRouter" state={orr} />
-            {orr.value
-              ? <UsageBars u={orr.value} />
-              : <div className="dim">usage unavailable until refresh succeeds</div>}
-          </div>}
-          {registered.map((r) => <RegisteredAccountSection key={r.id} row={r} multiple={multipleAccounts(r.provider)} />)}
+          {groupByProvider(cards).map((c) => c.node)}
           {registryError && !registry && <div className="dim">
             registered accounts unavailable: {registryError}</div>}
           </div>}
