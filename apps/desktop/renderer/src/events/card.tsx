@@ -8,6 +8,8 @@ import { projectEvent } from './project'
 import type { EventField, KnownEvent } from './project'
 import { RefMdBody } from '../canvas/refmd'
 import { ReceivedMailBody } from '../canvas/mailpreview'
+import { mailFoldKeys } from '../canvas/foldstate'
+import type { MailFoldable } from '../canvas/foldstate'
 import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
@@ -85,6 +87,7 @@ export interface EventCardProps extends ContentProps {
   part?: "header" | "body"
   headerMeta?: ReactNode
   embedded?: boolean
+  foldKey?: string | readonly string[]
 }
 /** The owning message wrapper receives the family treatment; content never adds a panel. */
 export function eventSurface(row: unknown, profile: EventProfile) {
@@ -96,7 +99,8 @@ export function eventSurface(row: unknown, profile: EventProfile) {
 }
 /** A single presentation path for mailbox, pending/live and settled transcript rows.
  *  Envelope time, delivery badges, attachments and existing actions stay with callers. */
-export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, embedded = false, ...content }: EventCardProps) {
+export function EventCard({ row, profile, org, preview = false, actor, part, headerMeta, embedded = false, foldKey, ...content }: EventCardProps) {
+  const keys = foldKey ?? (row && typeof row === 'object' ? mailFoldKeys(row as MailFoldable) : undefined)
   const decoded = decodeEventRow(row, profile)
   if (decoded.kind !== 'known') {
     if (part === 'header') return null
@@ -104,7 +108,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     return <div className="event-fallback">
       {headerMeta && <header className="event-head">{headerMeta}</header>}
       {decoded.kind === 'unsupported' && <span className="event-unsupported">Unsupported message format</span>}
-      {preview ? <ReceivedMailBody>{text}</ReceivedMailBody> : text}
+      {preview ? <ReceivedMailBody foldKey={keys}>{text}</ReceivedMailBody> : text}
     </div>
   }
   const view = projectEvent(decoded.event)
@@ -137,7 +141,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   if (part === 'header') return heading
   const contents = <>
     {body.length > 0 && (preview
-      ? <ReceivedMailBody>{bodyContent}</ReceivedMailBody> : bodyContent)}
+      ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>
       {objectDetails && <div className="event-object-details"><Value value={objectDetails} {...content} profile={profile} org={org} actor={actor} /></div>}

@@ -6,6 +6,7 @@ import type { EventProfile } from './decode'
 import { EventCard, eventSurface } from './card'
 import { eventSummary } from './project'
 import { ReceivedMailBody } from '../canvas/mailpreview'
+import { mailFoldKeys } from '../canvas/foldstate'
 import { RefMdBody } from '../canvas/refmd'
 import { ReplyPreview } from '../canvas/replypreview'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
@@ -109,10 +110,11 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
  *  adds joins the strip where metadata already lives instead of reserving a
  *  side column that made every pending card narrower than its settled twin. */
 export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, meta, annotation }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; row: {
+  replyAvailable, onLocateReply, meta, annotation, foldKey }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; foldKey?: string | readonly string[]; row: {
     id?: string | null; from: string; kind?: string; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
+    client_op?: string | null; ghost_id?: number | string | null; message_id?: string | null;
   } }) {
   // Unenveloped mail shares the visual card without inventing a typed event
   // or an actor kind. Sender names remain the recorded envelope metadata.
@@ -123,6 +125,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     ? { className: 'event-surface event-card event-ordinary', 'data-event-variant': undefined }
     : eventSurface(row, profile)
   const base = fileBase(slug, nid)
+  const keys = foldKey ?? mailFoldKeys(row)
   const card = (value: unknown, preview: boolean, part?: "header" | "body") =>
     ordinaryLegacy ? (part === 'header' ? <>
       <span className="event-family" aria-label="Message" title="Message">{'·'}</span>
@@ -130,11 +133,11 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
       <span className="event-actor">{row.from === '@user' || row.from === 'user' ? 'User'
         : row.from === '@system' || row.from === 'system' ? 'System'
           : actor ? actor(row.from) : row.from}</span>
-    </> : <ReceivedMailBody><div className="event-body"><div className="event-field" data-event-field="body">
+    </> : <ReceivedMailBody foldKey={keys}><div className="event-body"><div className="event-field" data-event-field="body">
       <RefMdBody className="event-prose md" html={md(row.body, base)} world={world} onOpen={onOpen} />
     </div></div></ReceivedMailBody>)
     : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
-      world={world} onOpen={onOpen} actor={actor} imgBase={base} />
+      world={world} onOpen={onOpen} actor={actor} imgBase={base} foldKey={keys} />
   return <section
         {...surface} className={'turn-mail ' + surface.className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>

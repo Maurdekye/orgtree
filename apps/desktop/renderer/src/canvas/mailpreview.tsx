@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { RefMdBody } from './refmd'
 import { foldAt, NO_FOLD, sameFold } from './foldlines'
+import { useFold } from './foldstate'
 
 /** Received mail folds at five rendered lines. The measurement itself is
  * shared with the docket description's ten-line fold (`foldlines.ts`) — one
@@ -12,15 +13,16 @@ const MAIL_FOLD_LINES = 5
 
 /** Only received-mail transcript bodies use this preview. Headers and
  * attachments stay outside it; the existing markdown/link DOM stays mounted. */
-export function ReceivedMailBody({ html, world, onOpen, children }: {
+export function ReceivedMailBody({ html, world, onOpen, foldKey, children }: {
   html?: { __html: string }; children?: ReactNode; world?: RefWorld | null
   onOpen?: (r: ResolvedRef) => void
+  foldKey?: string | readonly string[]
 }) {
   const ownerDocument = useSurfaceDocument()
   const content = useRef<HTMLDivElement>(null)
   const id = useId()
   const [{ limit, lines }, setMeasure] = useState(NO_FOLD)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, toggleExpanded] = useFold(foldKey)
   // ⚠ THE MEASUREMENT IS DRIVEN BY CHANGES TO THE BODY, NEVER BY RE-RENDERS.
   //
   // USER BUG 2026-09-12 ("typed text appears several seconds late; the Desk
@@ -69,7 +71,7 @@ export function ReceivedMailBody({ html, world, onOpen, children }: {
   }, [html?.__html, ownerDocument])
   const long = limit !== null
   const folded = long && !expanded
-  const toggle = () => setExpanded(value => !value)
+  const toggle = toggleExpanded
   return <div className={'turn-mail-preview' + (long ? ' expandable' : '') + (folded ? ' folded' : '')}
     onClick={e => {
       if (!long || e.defaultPrevented || !ownerDocument.defaultView?.getSelection()?.isCollapsed) return
@@ -82,7 +84,9 @@ export function ReceivedMailBody({ html, world, onOpen, children }: {
         // Keyboard focus may reach a link below the clipped preview. Reveal
         // that link, while clicks/focus on already-visible links do not fold.
         if (folded && (e.currentTarget.scrollTop > 0
-          || e.target.getBoundingClientRect().bottom > e.currentTarget.getBoundingClientRect().bottom + 1)) setExpanded(true)
+          || e.target.getBoundingClientRect().bottom > e.currentTarget.getBoundingClientRect().bottom + 1)) {
+          if (!expanded) toggle()
+        }
       }}>
       {children ?? (html && <RefMdBody className="turn-mail-body md" html={html} world={world} onOpen={onOpen} />)}
     </div>

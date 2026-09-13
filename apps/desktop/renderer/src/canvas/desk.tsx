@@ -2353,10 +2353,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // during render so the layout effect, which runs after it, reads THIS
   // render's oldest row while the anchor still holds the one it was taken at.
   oldestKeyRef.current = oldestRowKey(viewMessages)
-  const liveFoldKeys = foldKeysOf(viewMessages, viewLive)
+  const liveFoldKeys = foldKeysOf(viewMessages, viewLive, pendMail, pending)
   const pruneFolds = folds.prune
   useEffect(() => {
-    if (viewMessages.length || viewLive.length) pruneFolds(liveFoldKeys)
+    if (viewMessages.length || viewLive.length || pendMail.length || pending.length) pruneFolds(liveFoldKeys)
   })
   // ── THE RIGHT-CLICKED EVENT STAYS LIT ──────────────────────────────────
   // No dependency list on purpose: this runs after EVERY render, because a
@@ -3867,8 +3867,17 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
       className={'pending pendghost' + (p.failed
         ? ' failed event-surface event-runtime_recovery' : '')}>
       <MailMessage
-        row={{from: USER, kind: 'message', body: p.text, at: new Date(p.at).toISOString(),
-          attachments: p.attachments, ...(p.reply ? { reply_to: replyWire(p.reply) } : {})}}
+        row={{
+          id: p.mailId ?? null,
+          client_op: p.op,
+          ghost_id: p.id,
+          from: USER,
+          kind: 'message',
+          body: p.text,
+          at: new Date(p.at).toISOString(),
+          attachments: p.attachments,
+          ...(p.reply ? { reply_to: replyWire(p.reply) } : {}),
+        }}
         profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
