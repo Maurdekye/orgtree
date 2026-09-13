@@ -1768,6 +1768,33 @@ const _mdCache = new Map<string, { __html: string }>()
 // indented blocks all rendered a literal "&lt;". Line-walk instead: one
 // inCode flag, an unterminated opener stays open to EOF, and only prose
 // lines are escaped (inline `spans` protected within them).
+/** ⚠ THE ONE `<` THAT IS NOT PROSE: the one that OPENS a CommonMark
+ *  angle-bracket link destination, `](<…>)`. №16's escaping does not know the
+ *  difference, and that is the whole of the Windows-file-link bug — a target
+ *  like `](<C:\Users\…\Orgtree Setup 2.1.2-3.exe>)` had its `<` turned into
+ *  `&lt;`, the destination stopped being a destination, and the reader was
+ *  shown the raw markdown instead of a link.
+ *
+ *  ⚠ THE ANGLE FORM IS NOT OPTIONAL FOR THESE PATHS, which is why this cannot
+ *  be answered by telling agents to write them differently. An UNBRACKETED
+ *  destination may not contain spaces, and real Windows paths do — "Orgtree
+ *  v2", "Orgtree Setup 2.1.2-3.exe". Both reproduced forms are spaced, so
+ *  without the brackets there is no syntax that parses at all.
+ *
+ *  ⚠ WHAT MAY FOLLOW THE `>` IS SPELLED OUT, AND THAT IS THE SAFETY PROPERTY.
+ *  Only what CommonMark actually allows there — optional spaces, an optional
+ *  quoted or parenthesised title, then `)`. The loose version of this rule is
+ *  a live hole, and it is not hypothetical: the first draft matched
+ *  `>` `[^)\n]*` `)`, which happily swallowed `](<script>alert(1)` out of
+ *  ordinary prose, spared that `<`, and let the sanitizer delete the tag and
+ *  the text with it. §6 of `windowslinks.test.ts` caught it. Anything that is
+ *  not a genuine destination keeps the old escaping, so the worst case here is
+ *  the behaviour that already shipped, never a weaker one. */
+const LINK_DEST =
+  /(\]\(<[^<>\n]*>(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*\))/
+const escapeProse = (s: string) => s.split(LINK_DEST)
+  .map((seg, k) => (k % 2 ? seg : seg.replace(/</g, '&lt;')))
+  .join('')
 const escapeAngles = (src: string) => {
   const lines = src.split('\n')
   let fence: { ch: string; len: number } | null = null   // {ch, len} of the open fence
@@ -1800,7 +1827,7 @@ const escapeAngles = (src: string) => {
     // prose line: escape < outside inline `spans`
     const parts = l.split(/(`[^`\n]*`)/)
     for (let j = 0; j < parts.length; j += 2) {
-      parts[j] = parts[j]!.replace(/</g, '&lt;')
+      parts[j] = escapeProse(parts[j]!)
     }
     lines[i] = parts.join('')
   }
