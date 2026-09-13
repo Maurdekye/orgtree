@@ -588,3 +588,94 @@ class CodexLaunchWithoutAmbientLoginTests(unittest.TestCase):
                 supervisor._codex_process_spec(org, 'root',
                                                write_ident=False)
         self.assertIn('not installed', str(cm.exception))
+
+
+class KeyRateLimitRotationTests(unittest.TestCase):
+    """A 429 against an API-key account must land ON that account.
+
+    The docket routes multiple keys as ~Qfirst enabled account without an
+    active capacity mark~Q. That rule is inert unless a wall actually marks
+    the key that hit it, and the codex limit path could not: it matched the
+    error~Qs login digest against a subscription home, which a key row does
+    not have, and an unbound node routed to a key carries no binding to
+    look up either. The turn froze and then came straight back to the same
+    exhausted key.
+
+    Driven through the REAL seam — supervisor.freeze_provider_limit, which
+    is what the codex leg calls — not through record_limit directly.
+    """
+
+    def setUp(self):
+        _fresh()
+        from engine.backend.orgtree import account_fallback, store
+        self.store = store
+        account_fallback._scanned.clear()
+
+    def _keys(self):
+        a, _ = apikey_accounts.register('openai', 'sk-proj-' + 'a' * 44)
+        b, _ = apikey_accounts.register('openai', 'sk-proj-' + 'b' * 44)
+        return (registry.get_account(a['id']),
+                registry.get_account(b['id']))
+
+    def _org(self, slug, account=None):
+        org = ledger.Org.create(slug)
+        org.nodes['worker'] = {'state': 'live', 'parent': None,
+                              'generation': 1, 'model': 'terra',
+                              'grant': 0, 'seat': 2, 'title': 'worker',
+                              'scope': {'add_dirs': [], 'tools': {},
+                                        'org_visibility': 'self',
+                                        'permission_mode': 'acceptEdits'}}
+        if account:
+            org.nodes['worker']['account'] = account
+        self.store.save_org(org)
+        return org
+
+    def _freeze(self, slug, served):
+        st = supervisor.state(slug, 'worker')
+        st.update(busy=False, responding=False, queue=[], ran_as=served)
+        with patch.object(supervisor, '_limit_announce'):
+            return supervisor.freeze_provider_limit(
+                slug, 'worker', 'You have hit your usage limit',
+                reset_ts=time.time() + 3600, provider='openai',
+                account='some-login-digest', resource_pool='plan')
+
+    def test_a_routed_key_is_marked_and_the_next_key_takes_over(self):
+        first, second = self._keys()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        self._org('cx-429-routed')                 # UNBOUND: no binding to read
+        self.assertEqual(
+            supervisor.apikey_lane_row('openai', 'terra')['id'], first['id'])
+        self.assertTrue(self._freeze('cx-429-routed', first['id']))
+        # the wall landed on the key that hit it ...
+        self.assertIsNotNone(registry.active_mark(first['id'], 'terra'))
+        # ... and the lane rotates to the next enabled key
+        self.assertEqual(
+            supervisor.apikey_lane_row('openai', 'terra')['id'], second['id'])
+        self.assertIsNone(registry.active_mark(second['id'], 'terra'))
+
+    def test_a_bound_key_is_marked_too(self):
+        first, second = self._keys()
+        self._org('cx-429-bound', account=first['id'])
+        self.assertTrue(self._freeze('cx-429-bound', first['id']))
+        self.assertIsNotNone(registry.active_mark(first['id'], 'terra'))
+
+    def test_every_key_walled_closes_the_lane_rather_than_retrying_one(self):
+        first, second = self._keys()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        self._org('cx-429-allout')
+        self.assertTrue(self._freeze('cx-429-allout', first['id']))
+        self.assertTrue(self._freeze('cx-429-allout', second['id']))
+        self.assertIsNone(supervisor.apikey_lane_row('openai', 'terra'))
+
+    def test_a_subscription_wall_still_marks_by_pool_not_by_tier(self):
+        # the metered branch must not change subscription semantics
+        sub = registry.create_account(
+            'openai', 'codex profile',
+            {'kind': 'managed', 'path': os.path.join(_root, 'sub429')})
+        self._org('cx-429-sub', account=sub['id'])
+        from engine.backend.orgtree import account_fallback, codex_limits
+        with patch.object(codex_limits, '_account_namespace',
+                          return_value=('some-login-digest', 'subscription')):
+            self.assertTrue(self._freeze('cx-429-sub', sub['id']))
+        self.assertIsNotNone(registry.active_mark(sub['id'], 'openai:plan'))
+        self.assertIsNone(registry.active_mark(sub['id'], 'terra'))

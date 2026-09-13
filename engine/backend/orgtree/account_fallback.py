@@ -33,33 +33,49 @@ def marked(row: dict[str, Any], tier: str, pool: str) -> bool:
 
 
 def record_limit(node: dict[str, Any], account: str, pool: str,
-                 until: float, observed: bool) -> None:
-    """Codex errors name a login digest; marks name its registered profile."""
+                 until: float, observed: bool, served: str = "") -> None:
+    """Codex errors name a login digest; marks name its registered profile.
+
+    `served` is the account the turn ACTUALLY ran as, captured from the
+    resolved spawn env. It matters for the metered lane, where the node may
+    carry no binding at all: an unbound codex node routed to an API-key
+    account is bound to nothing, so the old `node["account"]` read returned
+    immediately and the wall went unrecorded.
+    """
     bound = str(node.get("account") or "")
+    tier = str(node.get("model") or "")
+    # ── THE METERED KEY LANE FIRST. A key account has no login digest to
+    # match and no plan/reserve pools to name — those are subscription
+    # concepts. What it has is a rate limit, and the docket's multi-key rule
+    # ("first enabled account without an active capacity mark") only works if
+    # the wall lands ON the row that hit it. The mark is keyed by TIER, which
+    # is exactly what `apikey_lane_row` consults when it picks the next key.
+    keyed = str(served or bound)
+    if keyed:
+        try:
+            krow = registry.get_account(keyed)
+        except (registry.UnknownAccount, KeyError, ValueError):
+            krow = None
+        if (krow is not None and krow.get("provider") == "openai"
+                and registry.account_mode(krow) == "apikey"):
+            if tier:
+                registry.record_mark(
+                    keyed, tier, until,
+                    provenance="observed" if observed else "inferred")
+            return
     if not bound:
         return
     try:
         row = registry.get_account(bound)
         if row["provider"] != "openai":
             return
-        # ⚠ KNOWN GAP, MADE EXPLICIT (2026-09-12 redesign). A metered key row
-        # has no login home to name a digest, and this check wants the error
-        # to name THIS subscription login — so a 429 against an OpenAI
-        # API-key account records no capacity mark, and the multi-key
-        # rotation rule ("first enabled row without an active mark") cannot
-        # rotate away from it. That was already true before the row shape
-        # changed (a key home answered lane "api-key" and was rejected one
-        # line below); it now returns HERE rather than through a KeyError
-        # the blanket except was swallowing. Fixing it means deciding how a
-        # codex rate-limit error is attributed to a keyed row, which is its
-        # own change with its own review.
         cred = row["credential"]
         if cred["kind"] not in ("imported", "managed"):
             return
         digest, lane = codex_limits._account_namespace(cred["path"])
         if lane != "subscription" or digest != account:
             return
-        for key in pools("openai", str(node.get("model") or ""), pool):
+        for key in pools("openai", tier, pool):
             registry.record_mark(bound, key, until,
                                  provenance="observed" if observed else "inferred")
     except (KeyError, OSError, ValueError):

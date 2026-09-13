@@ -24021,9 +24021,11 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
       · the legacy token-roster failover re-drive. Registered Codex profiles
         now get pool-specific marks for opt-in account fallback; the common
         background scheduler owns the reassignment and frozen-turn replay.
-      · the metered API-key account route (`apikey_route_for`). Those rows
-        buy ANTHROPIC inference; they cannot serve a codex turn, so a codex
-        wall neither routes onto them nor marks them.
+      · the claude-lane specifics of the metered route. An OpenAI API-key
+        account DOES serve codex turns now (2026-09-12 redesign), and a wall
+        it hits marks that row by tier so the next enabled key is chosen —
+        see `account_fallback.record_limit`. What stays claude-only is the
+        Anthropic side of `apikey_route_for`, which no codex wall touches.
       · the org-wide fable escalation — there is no fable tier on these lanes.
       · `_spawn_reset_refresh`, which re-asks the claude host's usage readout.
         It describes a different account's quota entirely.
@@ -24077,8 +24079,13 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
             # bounce this agent straight back onto the failed account.
             if fz["provider"] == "openai":
                 from . import account_fallback
-                account_fallback.record_limit(o2.node(nid), account, resource_pool,
-                                             ts, effective_kind == "observed-deadline")
+                # `served` is what the spawn actually authenticated as: an
+                # unbound node routed to a key account carries no binding,
+                # so without it the metered wall would go unrecorded.
+                account_fallback.record_limit(
+                    o2.node(nid), account, resource_pool, ts,
+                    effective_kind == "observed-deadline",
+                    served=_served_for_banking(slug, nid))
             fz["error"] = blob[:300]
             if replay:
                 # replay only what the provider actually CONSUMED. Both legs
