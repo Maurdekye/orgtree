@@ -327,16 +327,21 @@ test('§12 the real panel box reaches the opener as a PLACE, not just a shape', 
 })
 
 test('§13 modal minimum dimensions are authoritatively defined and distinguishable', () => {
-  // Parity across modalities: The Agents list has shared 200x240 minimum.
+  // Parity across modalities: The Agents list has explicit override of 200x240 minimum.
   assert.deepEqual(modalMinDimensions('agent-list'), { width: 200, height: 240 },
     'Agents list must authoritatively define 200x240 minimum')
   assert.deepEqual(modalMinDimensions(JSON.stringify(['alpha', 'agent-list'])), { width: 200, height: 240 },
     'Agents list scoped key must unwrap to 200x240 minimum')
 
-  // Standard modals define 320x240
-  for (const modalKind of ['inbox', 'org-inbox', 'docket', 'usage', 'disk', 'lineage', 'connections', 'gallery', 'compose']) {
+  // Generic pinned default (320x240) applies across all standard and dynamic pinnable surfaces
+  for (const modalKind of [
+    'inbox', 'org-inbox', 'node-inbox', 'docket', 'agent-docket', 'usage',
+    'disk', 'lineage', 'connections', 'gallery', 'agent-gallery', 'doc',
+    'doc-docket', 'doc:report-preview-123', 'compose', 'watchdog', 'node-config',
+    'app-settings', 'defaults', 'org-settings', 'add-secondary-account'
+  ]) {
     assert.deepEqual(modalMinDimensions(modalKind), { width: 320, height: 240 },
-      `${modalKind} must define 320x240 minimum`)
+      `${modalKind} must receive generic pinned default 320x240 minimum`)
   }
 
   // Modals without pinned minimums must not receive an arbitrary minimum
@@ -344,7 +349,6 @@ test('§13 modal minimum dimensions are authoritatively defined and distinguisha
   assert.equal(modalMinDimensions('openrouter-picker'), null, 'openrouter-picker has no minimum')
   assert.equal(modalMinDimensions('advanced-org'), null, 'advanced-org has no minimum')
   assert.equal(modalMinDimensions('desk:["alpha","agent",1]'), null, 'desks have no modal minimum')
-  assert.equal(modalMinDimensions('doc:alpha/README.md'), null, 'doc readers have no modal minimum')
   assert.equal(modalMinDimensions('test-nomin'), null, 'arbitrary non-min modals receive null')
 })
 
@@ -359,6 +363,13 @@ test('§14 popupFeatures propagates minWidth and minHeight from authoritative mi
   const docketFeatures = popupFeatures(key, { w: 500, h: 500 }, null, modalMinDimensions('docket'))
   assert.match(docketFeatures, /minWidth=320,minHeight=240/,
     'Docket popout must receive minWidth=320,minHeight=240')
+
+  // Dynamic pinnable surfaces: agent-gallery, doc, doc-docket, doc:<id>
+  for (const dynamicKind of ['agent-gallery', 'doc', 'doc-docket', 'doc:overview']) {
+    const dynamicFeatures = popupFeatures(key, { w: 500, h: 500 }, null, modalMinDimensions(dynamicKind))
+    assert.match(dynamicFeatures, /minWidth=320,minHeight=240/,
+      `${dynamicKind} popout must receive minWidth=320,minHeight=240`)
+  }
 
   // No-minimum modal: no minWidth or minHeight suffix
   const noMinFeatures = popupFeatures(key, { w: 500, h: 500 }, null, modalMinDimensions('draft-scope'))
@@ -384,24 +395,35 @@ test('§15 initial in-app dimensions below minimum are clamped while larger dime
 })
 
 test('§16 lifecycle-restored dimensions below minimum are clamped while valid position is preserved', () => {
-  const key = JSON.stringify(['alpha', 'agent-list'])
-  // Saved standalone window with position (75, 85) but dimensions below minimum (140x160)
+  const usageKey = JSON.stringify(['alpha', 'usage'])
+  // Saved standalone window with position (75, 85) and dimensions (250x200) that satisfy
+  // the global persistence floor (>=200x150) but are below usage's modal minimum (320x240)
   localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
-    key, kind: 'agent-list', org: 'alpha', open: true,
-    rect: { x: 75, y: 85, width: 140, height: 160 }
+    key: usageKey, kind: 'usage', org: 'alpha', open: true,
+    rect: { x: 75, y: 85, width: 250, height: 200 }
   }]))
   try {
-    const restoredFeatures = popupFeatures(key, null, null, modalMinDimensions('agent-list'), true)
-    assert.match(restoredFeatures, /left=75,top=85,width=200,height=240,minWidth=200,minHeight=240/,
-      'saved position (75, 85) must be preserved while dimensions are clamped to minimums')
+    const restoredFeatures = popupFeatures(usageKey, null, null, modalMinDimensions('usage'), true)
+    assert.match(restoredFeatures, /left=75,top=85,width=320,height=240,minWidth=320,minHeight=240/,
+      'saved position (75, 85) must be preserved while dimensions are clamped to modal minimums (320x240)')
+
+    // For agent-list, a saved height below minimum (220x180 with min 200x240) clamps height to 240
+    const agentKey = JSON.stringify(['alpha', 'agent-list'])
+    localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+      key: agentKey, kind: 'agent-list', org: 'alpha', open: true,
+      rect: { x: 60, y: 70, width: 220, height: 180 }
+    }]))
+    const agentFeatures = popupFeatures(agentKey, null, null, modalMinDimensions('agent-list'), true)
+    assert.match(agentFeatures, /left=60,top=70,width=220,height=240,minWidth=200,minHeight=240/,
+      'saved width (220) is preserved while height is clamped to 240')
 
     // Saved standalone window with larger dimensions (600x700)
     localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
-      key, kind: 'agent-list', org: 'alpha', open: true,
+      key: usageKey, kind: 'usage', org: 'alpha', open: true,
       rect: { x: 75, y: 85, width: 600, height: 700 }
     }]))
-    const largerFeatures = popupFeatures(key, null, null, modalMinDimensions('agent-list'), true)
-    assert.match(largerFeatures, /left=75,top=85,width=600,height=700,minWidth=200,minHeight=240/,
+    const largerFeatures = popupFeatures(usageKey, null, null, modalMinDimensions('usage'), true)
+    assert.match(largerFeatures, /left=75,top=85,width=600,height=700,minWidth=320,minHeight=240/,
       'larger restored dimensions must be preserved without distortion')
   } finally {
     localStorage.clear()

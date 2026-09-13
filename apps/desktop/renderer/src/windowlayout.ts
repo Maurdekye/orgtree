@@ -47,7 +47,7 @@ const valid = (v: unknown): v is SavedWindow => {
     && (r.org === null || typeof r.org === 'string') && typeof r.open === 'boolean'
     && (r.restore === undefined || validRestore(r.restore))
     && !!r.rect && [r.rect.x, r.rect.y, r.rect.width, r.rect.height].every(Number.isFinite)
-    && r.rect.width >= 50 && r.rect.height >= 50 && r.rect.width <= 20000 && r.rect.height <= 20000
+    && r.rect.width >= 200 && r.rect.height >= 150 && r.rect.width <= 20000 && r.rect.height <= 20000
 }
 export function savedWindows(): SavedWindow[] {
   try {
@@ -187,26 +187,33 @@ export function popupPlacement(
 
 export interface ModalDimensions { width: number; height: number }
 
-export const PINNED_MODAL_MINS: Record<string, ModalDimensions> = {
+/** Authoritative default minimum dimensions for pinned and popped-out modal windows.
+ * Matches .modalpin-win CSS (min-width: 320px; min-height: 240px) and PIN_MIN_W / PIN_MIN_H. */
+export const DEFAULT_MODAL_MIN: ModalDimensions = { width: 320, height: 240 }
+
+/** Explicit overrides for modal surfaces with specialized minimums.
+ * Specifically, the Agents list (.tray-panel) has a reconciled 200x240 minimum. */
+export const MODAL_MIN_OVERRIDES: Record<string, ModalDimensions> = {
   'agent-list': { width: 200, height: 240 },
-  'usage': { width: 320, height: 240 },
-  'inbox': { width: 320, height: 240 },
-  'node-inbox': { width: 320, height: 240 },
-  'org-inbox': { width: 320, height: 240 },
-  'docket': { width: 320, height: 240 },
-  'agent-docket': { width: 320, height: 240 },
-  'defaults': { width: 320, height: 240 },
-  'org-settings': { width: 320, height: 240 },
-  'disk': { width: 320, height: 240 },
-  'lineage': { width: 320, height: 240 },
-  'connections': { width: 320, height: 240 },
-  'gallery': { width: 320, height: 240 },
-  'compose': { width: 320, height: 240 },
-  'watchdog': { width: 320, height: 240 },
-  'node-config': { width: 320, height: 240 },
-  'app-settings': { width: 320, height: 240 },
-  'add-secondary-account': { width: 320, height: 240 },
-  'fixture': { width: 320, height: 240 },
+}
+
+/** Backwards-compatibility alias for overrides map */
+export const PINNED_MODAL_MINS = MODAL_MIN_OVERRIDES
+
+/** Non-pinnable overlays and special surfaces that intentionally have no pinned/pop-out minimum dimensions. */
+const EXCLUDED_MODAL_KINDS = new Set([
+  'draft-scope',
+  'openrouter-picker',
+  'advanced-org',
+])
+
+export function isModalKindExcluded(cleanKind: string): boolean {
+  if (EXCLUDED_MODAL_KINDS.has(cleanKind)) return true
+  // Desks on canvas have their own desk layout and sizing rules, not modal minimums
+  if (cleanKind.startsWith('desk:')) return true
+  // Explicitly unconstrained test/custom fixtures
+  if (cleanKind.includes('no-min') || cleanKind.includes('nomin') || cleanKind.startsWith('free-')) return true
+  return false
 }
 
 export function modalMinDimensions(kind?: string | null): ModalDimensions | null {
@@ -220,11 +227,9 @@ export function modalMinDimensions(kind?: string | null): ModalDimensions | null
       }
     } catch { /* use kind */ }
   }
-  if (cleanKind in PINNED_MODAL_MINS) return PINNED_MODAL_MINS[cleanKind]!
-  if (['draft-scope', 'openrouter-picker', 'advanced-org'].includes(cleanKind)) return null
-  if (cleanKind.startsWith('desk:') || cleanKind.startsWith('doc:')) return null
-  if (cleanKind.includes('no-min') || cleanKind.includes('nomin') || cleanKind.startsWith('free-')) return null
-  return null
+  if (!cleanKind || isModalKindExcluded(cleanKind)) return null
+  if (cleanKind in MODAL_MIN_OVERRIDES) return MODAL_MIN_OVERRIDES[cleanKind]!
+  return DEFAULT_MODAL_MIN
 }
 
 export function popupFeatures(key: string,
