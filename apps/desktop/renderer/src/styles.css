@@ -6406,6 +6406,7 @@ label.set-row { cursor: pointer; }
   padding: var(--panel-pad-y) var(--panel-pad-x); gap: 10px; border-radius: 6px;
   box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
     0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  cursor: default;
 }
 /* a fixed 55vh reading pane inside a 400px-tall window is unusable — the same
    correction the mobile sheet already makes for the same reason */

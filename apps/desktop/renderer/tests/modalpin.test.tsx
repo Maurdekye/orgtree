@@ -41,6 +41,10 @@ import { flush, inAct, mountView as rawMountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
+declare const __SRC_DIR__: string
 import {
   closeIfCentred as rawCloseIfCentred, forgetModalPins, isModalPinned as rawIsModalPinned, MODAL_FALLBACK_RECT,
   MODAL_PINS_KEY, MODAL_Z_BASE, MODAL_Z_TOP, modalZIndex, PinFrame, pinModal as rawPinModal,
@@ -692,6 +696,103 @@ test('§8 a panel\'s live state is not inside the heading that hides when pinned
     assert.equal((h3!.textContent ?? '').includes(s), false,
       `${s} is NOT inside the heading that hides when pinned`)
   }
+  await v.unmount()
+  reset()
+})
+
+// ================= §9 cursor styling distinguishes pinned modal, canvas, and desk behavior
+// User defect: pinned modals inherited the canvas grab-hand cursor when hovered,
+// falsely suggesting the underlying canvas can be dragged through the modal.
+// The fix declares `cursor: default` on `.modalpin-win`, keeping modal surfaces
+// on standard default cursor and interactive controls on pointer/text, while
+// preserving the intentional drag handle on `.modalpin-bar.on` (`cursor: grab`),
+// preserving canvas pan/drag outside the modal (`.viewport` grab), and leaving
+// agent desks (`.pinwin` and `.sq.desk`) unchanged.
+test('§9 cursor styling distinguishes pinned modal, canvas, and desk behavior', async () => {
+  reset()
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+
+  // Helper to extract a CSS rule body (matching exact selector at line start)
+  const rule = (sel: string) => {
+    const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([\\s\\S]*?)\\}`, 'm')
+    const match = css.match(regex)
+    assert.ok(match, `CSS rule "${sel}" not found in styles.css`)
+    return match[1]
+  }
+
+  // 1. Pinned modal surface has cursor: default
+  const modalWin = rule('.modalpin-win')
+  assert.ok(modalWin.includes('cursor: default;'),
+    'modalpin-win must set cursor: default to stop canvas grab cursor leak')
+
+  // 2. Intentional modal drag handle keeps cursor: grab and active grabbing
+  const modalBarOn = rule('.modalpin-bar.on')
+  assert.ok(modalBarOn.includes('cursor: grab;'),
+    'modalpin-bar.on must retain cursor: grab for intentional dragging')
+  const modalBarActive = rule('.modalpin-bar.on:active')
+  assert.ok(modalBarActive.includes('cursor: grabbing;'),
+    'modalpin-bar.on:active must show cursor: grabbing')
+
+  // 3. Pinned overlay click-through & pointer events
+  const overlayPinned = rule('.overlay.overlay-pinned')
+  assert.ok(overlayPinned.includes('pointer-events: none;'),
+    'overlay-pinned must be pointer-events: none so canvas outside modal can be dragged')
+  const overlayPinnedKids = rule('.overlay.overlay-pinned > *')
+  assert.ok(overlayPinnedKids.includes('pointer-events: auto;'),
+    'overlay-pinned children must restore pointer-events: auto')
+
+  // 4. Canvas viewport retains cursor: grab and active grabbing
+  const viewport = rule('.viewport')
+  assert.ok(viewport.includes('cursor: grab;'),
+    'viewport must have cursor: grab for canvas pan')
+  const viewportActive = rule('.viewport:active')
+  assert.ok(viewportActive.includes('cursor: grabbing;'),
+    'viewport:active must show cursor: grabbing')
+
+  // 5. Agent desks remain unchanged: .pinwin and .sq.desk have cursor: default
+  const pinwin = rule('.pinwin')
+  assert.ok(pinwin.includes('cursor: default;'),
+    'pinned desk .pinwin must set cursor: default')
+  const pinwinTitle = rule('.pinwin-title')
+  assert.ok(pinwinTitle.includes('cursor: grab;'),
+    'pinned desk title must retain cursor: grab')
+  const sqDesk = rule('.sq.desk')
+  assert.ok(sqDesk.includes('cursor: default;'),
+    'canvas desk .sq.desk must set cursor: default')
+
+  // 6. Component DOM verification: PinFrame renders .modalpin-win when pinned,
+  // ordinary .settings when unpinned, and contains proper drag handles and buttons
+  const v = await mount('org-inbox')
+  await flush()
+
+  // Unpinned (centred modal)
+  const initial = v.last()
+  assert.equal(initial.pinned, false, 'initially unpinned')
+  assert.ok(initial.panel, 'panel mounted')
+  assert.equal(initial.panel!.classList.contains('modalpin-win'), false,
+    'unpinned modal does not have modalpin-win class')
+  assert.equal(initial.bar!.classList.contains('on'), false,
+    'unpinned bar does not have .on drag class')
+
+  // Pin the modal
+  await toggle(v.el)
+  await flush()
+
+  const pinnedShot = v.last()
+  assert.equal(pinnedShot.pinned, true, 'now pinned')
+  assert.ok(pinnedShot.panel!.classList.contains('modalpin-win'),
+    'pinned modal receives modalpin-win class (which sets cursor: default)')
+  assert.ok(pinnedShot.bar!.classList.contains('on'),
+    'pinned modal receives modalpin-bar.on class (which sets cursor: grab)')
+
+  // Interactive controls within the pinned modal have interactive classes
+  const pinBtn = pinnedShot.bar!.querySelector('.modalpin-btn')
+  assert.ok(pinBtn, 'modalpin-btn exists')
+  const closeBtn = pinnedShot.bar!.querySelector('.modalpin-x')
+  assert.ok(closeBtn, 'modalpin-x close button exists')
+  assert.ok(pinnedShot.handles > 0, 'resize handles exist')
+
   await v.unmount()
   reset()
 })
