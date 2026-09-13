@@ -130,15 +130,27 @@ Var pid
     !insertmacro _CHECK_APP_RUNNING
   ${endif}
 !macroend
+!macro orgtreeRemoveLegacyShortcuts
+  # `$SMPROGRAMS` follows the active shell context.  Select each context
+  # explicitly so an all-users upgrade also cleans the installing user's old
+  # link, then restore the context used by the install section.
+  ${if} $installMode == "all"
+    SetShellVarContext all
+    Delete "$SMPROGRAMS\Orgtree v2.lnk"
+    Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
+    SetShellVarContext current
+    Delete "$SMPROGRAMS\Orgtree v2.lnk"
+    Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
+    SetShellVarContext all
+  ${else}
+    SetShellVarContext current
+    Delete "$SMPROGRAMS\Orgtree v2.lnk"
+    Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
+  ${endif}
+!macroend
 !macro customInstall
   !ifndef ORGTREE_DEV_CHANNEL
-  # Releases used to create an `Orgtree v2.lnk` start-menu entry before the
-  # explicit `shortcutName` was introduced.  Leave no legacy shell entry for
-  # Explorer to resolve when it groups the running release taskbar window.
-  # Keep this exact and per-user: do not remove arbitrary user shortcuts or
-  # disturb the side-by-side development channel.
-  Delete "$SMPROGRAMS\Orgtree v2.lnk"
-  Delete "$SMPROGRAMS\Orgtree\Orgtree v2.lnk"
+  !insertmacro orgtreeRemoveLegacyShortcuts
   !endif
   !ifndef ORGTREE_DEV_CHANNEL
   ${if} $installMode == "all"
