@@ -27,7 +27,7 @@ async function load(name) {
   await build({ entryPoints: [`apps/desktop/main/${name}.ts`], outfile: out, bundle: true, platform: 'node', format: 'cjs' })
   return req(out)
 }
-const { Engine, QUIT_DEADLINES, QUIT_STOP_BUDGET_MS } = await load('engine')
+const { Engine, QUIT_DEADLINES, QUIT_STOP_BUDGET_MS, INSTALLER_UPGRADE_STOP_BUDGET_MS } = await load('engine')
 
 const forbidden = path.join(temp, 'v1'); fs.mkdirSync(forbidden)
 const dataRoot = path.join(temp, 'v2'); fs.mkdirSync(dataRoot)
@@ -229,6 +229,37 @@ test('a quit ends the managed child it spawned, and confirms the exit', async ()
   assert.equal(await goneWithin(pid, 5000), true, 'the managed engine process must be gone')
 })
 
+test('installer upgrade never force-kills a managed child after graceful timeout', async () => {
+  const engine = await startManaged()
+  const pid = engine.child.pid
+  assert.equal(running(pid), true, 'positive control: the child really is running')
+  assert.equal(await engine.stopGracefullyForInstaller(250), false)
+  assert.equal(running(pid), true, 'a failed installer grace period must leave the engine running')
+  assert.equal(INSTALLER_UPGRADE_STOP_BUDGET_MS, 45000)
+})
+
+test('installer upgrade proves an attached engine release without the forced quit path', async () => {
+  const lock = await holdRootLock()
+  let rig
+  rig = await standInEngine(() => { dropDescriptor(); rig.kill(); void lock.release() })
+  const engine = await attached(rig.port)
+  assert.equal(await engine.stopGracefullyForInstaller(5000), true)
+  assert.equal(engine.status.state, 'stopped')
+})
+
+test('installer upgrade reports an attached timeout and preserves its identity', async () => {
+  const lock = await holdRootLock()
+  const rig = await standInEngine()
+  const engine = await attached(rig.port)
+  try {
+    assert.equal(await engine.stopGracefullyForInstaller(250), false)
+    const alive = await fetch(`http://127.0.0.1:${rig.port}/api/desktop/identity`, { headers: { 'x-orgtree-desktop-token': token } })
+    assert.equal(alive.status, 200)
+    assert.equal(fs.existsSync(descriptorPath), true)
+    assert.equal(engine.status.state, 'ready')
+  } finally { rig.kill(); dropDescriptor(); await lock.release() }
+})
+
 test('a managed child the graceful stop leaves alive is terminated for real', async () => {
   const engine = await startManaged()
   const pid = engine.child.pid
@@ -288,6 +319,10 @@ test('a quit is wired to stopForQuit, and the update path keeps its own stop', (
   // cannot. That stop is not the quit's and must not become it.
   assert.match(main, /if \(!engine\.managed\) \{ await engine\.stopAttachedForUpdate\(\)/)
   assert.match(main, /stopEngine: \(\) => engine\.stop\(\)/)
+  assert.match(main, /hasInstallerUpgradeRequest\(commandLine\)[\s\S]{0,200}requestInstallerUpgradeShutdown/)
+  assert.match(main, /engine\.stopGracefullyForInstaller\(INSTALLER_UPGRADE_STOP_BUDGET_MS\)/)
+  assert.match(main, /if \(installerUpgradeShutdown\) \{ event\.preventDefault\(\); return \}/)
+  assert.doesNotMatch(main, /if \(hasInstallerUpgradeRequest\(commandLine\)\) \{ app\.quit\(\); return \}/)
 })
 
 test.after(() => {

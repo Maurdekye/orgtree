@@ -24,7 +24,12 @@ SilentInstall normal
 Var installMode
 Var perMachineInstallationFolder
 Var perUserInstallationFolder
+Var OrgUpgradeChoice
+Var OrgUpgradeInstallMode
+Var OrgUpgradeInstallDir
+Var OrgUpgradeSelected
 !define isUpdated '${t.updated} == 1'
+!define orgtreeOriginalIsUpdated '${t.updated} == 1'
 !macro GetDParameter out
  StrCpy \${out} "${t.target}"
 !macroend

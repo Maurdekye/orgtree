@@ -165,6 +165,33 @@ remote tag and any draft before retrying. If public verification fails after
 promotion, treat the release as unverified and do not claim that installation
 is safe until the coordinator resolves the reported mismatch.
 
+## Upgrade an existing desktop installation
+
+The assisted Windows installer recognizes an existing Orgtree V2 installation
+only when the application registry record, the matching uninstall record, and
+the recorded executable and uninstaller files agree. New installs write the
+`OrgtreeUpgradeMetadata=1` marker in both registry records. An older V2 install
+without that marker is not guessed or modified; the installer presents the
+ordinary full setup flow instead. If both per-user and all-users records are
+valid, the installer also avoids guessing and uses the full setup flow.
+
+For one-click upgrades, the wizard shows `Upgrade` as the primary action and
+`Advanced setup` as the opt-out. `Upgrade` restores the recorded install scope
+and directory, skips the mode and directory choices, and keeps existing
+shortcuts, boot registration, and user-data locations. It requests a graceful
+close by starting the installed executable with the private
+`--installer-upgrade` control argument. The running app handles that argument by
+quitting through a dedicated bounded graceful-only engine shutdown path; the
+helper waits for the exact recorded executable to exit before file replacement.
+The installer
+does not force-kill a process. A timeout or path-verification failure leaves the
+installation untouched and offers `Retry` or `Cancel`.
+
+The ordinary advanced and fresh-install paths retain electron-builder's normal
+setup and running-app behavior. Finish-page launch behavior is unchanged: when
+the user leaves the launch option selected, the upgraded installation starts
+once with the normal update handoff.
+
 ## Installation and live verification boundary
 
 The command stops after candidate production or public verification. It does

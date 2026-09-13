@@ -43,6 +43,11 @@ export const QUIT_DEADLINES = {
  *  larger first phase plus the three they share. */
 export const QUIT_STOP_BUDGET_MS = Math.max(QUIT_DEADLINES.managedStopMs, QUIT_DEADLINES.requestMs)
   + QUIT_DEADLINES.releaseMs + QUIT_DEADLINES.killMs + QUIT_DEADLINES.provenMs
+
+/** The installer gives a graceful upgrade request a longer, refusal-safe
+ * window than the ordinary Quit path. A timeout leaves the app and engine
+ * untouched so the installer can offer Retry or Cancel. */
+export const INSTALLER_UPGRADE_STOP_BUDGET_MS = 45000
 import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
@@ -309,6 +314,17 @@ export class Engine extends EventEmitter {
 
   private attachedFile(name: string): string { return this.attachedRoot ? path.join(this.attachedRoot, name) : '' }
 
+  /** Ask a managed child to stop through its authenticated desktop route.
+   * This is deliberately separate from `stop()`: the ordinary Quit path is
+   * allowed to force termination after its proof budget, while an installer
+   * upgrade must never kill a desktop or engine process. */
+  private async requestManagedShutdown(endpoint: string, timeoutMs = 3000): Promise<void> {
+    if (timeoutMs <= 0) return
+    try {
+      await fetch(endpoint + '/api/desktop/shutdown', { method: 'POST', headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' })
+    } catch { /* liveness decides below */ }
+  }
+
   /** Ask the attached engine to shut itself down, over its authenticated
    *  route. Nothing is concluded from the answer: a refusal and a timeout are
    *  equally uninformative about whether the process is going away, and
@@ -374,6 +390,44 @@ export class Engine extends EventEmitter {
     if (!outcome.endpointDead) throw new Error('Background engine did not stop for the update')
     if (descriptorFile && fs.existsSync(descriptorFile)) throw new Error('Background engine port closed but its host has not confirmed process exit; refusing the update')
     throw new Error('Background engine tree release could not be established (guardian lock still held or unverifiable); refusing the update')
+  }
+
+  /** Gracefully stop this desktop's engine for an installer Upgrade request.
+   * This path is intentionally refusal-safe: it requests shutdown, waits for
+   * the same positive exit/release proof used by update handoff, and returns
+   * false on timeout. It never calls `stop()`, `child.kill`, or the forced
+   * quit path, so Retry can make another request and Cancel leaves the running
+   * installation intact. */
+  async stopGracefullyForInstaller(deadlineMs = INSTALLER_UPGRADE_STOP_BUDGET_MS): Promise<boolean> {
+    if (deadlineMs <= 0) return false
+    const until = Date.now() + deadlineMs
+    const left = (): number => Math.max(0, until - Date.now())
+
+    if (this.managed) {
+      const child = this.child
+      if (!child || child.exitCode !== null || child.signalCode !== null) return true
+      this.stopping = true
+      const endpoint = this.endpoint
+      if (endpoint) await this.requestManagedShutdown(endpoint, Math.min(3000, left()))
+      const stopped = await this.stoppedConfirmed(left())
+      if (!stopped) this.stopping = false
+      return stopped
+    }
+
+    if (!this.endpoint) return true
+    const endpoint = this.endpoint
+    const descriptorFile = this.attachedFile('engine-attach.json')
+    const lockFile = this.attachedFile('.desktop-engine.lock')
+    this.stopping = true
+    await this.requestAttachedShutdown(endpoint, Math.min(5000, left()))
+    const outcome = await this.awaitAttachedRelease(endpoint, descriptorFile, lockFile, left())
+    if (!outcome.released) {
+      this.stopping = false
+      return false
+    }
+    this.endpoint = ''
+    this.state({ state: 'stopped', message: 'Engine stopped' })
+    return true
   }
 
   /** Terminate `pid` and every descendant, and wait for the request to be

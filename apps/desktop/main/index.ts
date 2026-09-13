@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
@@ -24,6 +24,7 @@ import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
+import { hasInstallerUpgradeRequest } from './installer-upgrade'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -42,13 +43,21 @@ app.setAppUserModelId(identity.appUserModelId)
 const updatesSupported = identity.updatesSupported
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
+const installerUpgradeRequested = hasInstallerUpgradeRequest(process.argv)
 const single = app.requestSingleInstanceLock()
 if (!single) app.quit()
+else if (installerUpgradeRequested) {
+  // The upgrade helper only launches this command after it has path-verified
+  // an already-running installed process. A standalone control invocation
+  // must still exit without creating a window or starting an engine.
+  void app.whenReady().then(() => app.quit())
+}
 else {
   let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
   let trayMenu: Menu | undefined
   let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
+  let installerUpgradeShutdown = false, installerUpgradePending = false, engineReady = false
   // Set once an automatic attempt is refused before anything is disturbed, so
   // the 5s poll neither retries it forever nor re-probes the filesystem.
   let updateHold: string | undefined, updateHoldAnnounced = false
@@ -258,6 +267,33 @@ else {
     savePlacement()
     if (main && !main.isDestroyed()) {
       try { await main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') } catch { /* Crashed renderer cannot save layout. */ }
+    }
+  }
+  /** The installer sends a second-instance control request. Keep this path
+   * separate from the ordinary Quit handler: that handler may force-kill a
+   * stuck engine, while an upgrade must return failure and leave everything
+   * running for Retry or Cancel. */
+  const requestInstallerUpgradeShutdown = async () => {
+    if (installerUpgradeShutdown || quitComplete || quitting) return
+    if (!engineReady) { installerUpgradePending = true; return }
+    installerUpgradePending = false
+    installerUpgradeShutdown = true
+    try {
+      await bounded(saveWindowLayout(), UPDATE_DEADLINES.layoutMs)
+      if (!await engine.stopGracefullyForInstaller(INSTALLER_UPGRADE_STOP_BUDGET_MS)) return
+      quitting = true
+      if (poll) clearInterval(poll)
+      trayPopupSeq++; closeTrayPopup()
+      cancelProviderLogin('claude', true)
+      cancelProviderLogin('codex', true)
+      quitComplete = true
+      tray?.destroy()
+      app.quit()
+    } catch {
+      // A graceful control failure is intentionally non-destructive. The
+      // helper reports it and offers Retry/Cancel; the app remains usable.
+    } finally {
+      if (!quitComplete) installerUpgradeShutdown = false
     }
   }
   const quitAfterLastView = () => {
@@ -566,11 +602,18 @@ else {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-prevent-unload', event => { if (quitting) event.preventDefault() })
   })
-  app.on('second-instance', show)
+  app.on('second-instance', (_event, commandLine) => {
+    // A second installed process is the upgrade helper's graceful control
+    // request. It reaches the primary instance, whose dedicated refusal-safe
+    // lifecycle stops the engine and persists layout before exit.
+    if (hasInstallerUpgradeRequest(commandLine)) { void requestInstallerUpgradeShutdown(); return }
+    show()
+  })
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
   app.on('before-quit', event => {
     if (quitComplete) return
+    if (installerUpgradeShutdown) { event.preventDefault(); return }
     event.preventDefault()
     if (quitting) return
     quitting = true
@@ -807,10 +850,12 @@ else {
       })
       main.webContents.on('render-process-gone', () => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.', detail: 'The engine is still running. Restart Orgtree to restore the interface.' }) })
       await main.loadURL(engine.origin + '/')
+      engineReady = true
+      if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) show()
       if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       const refresh = async () => {
-        if (quitting) return
+        if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.
         // Wake only the attention read; leave ordinary UI polling unchanged.
         broadcast({ type: 'notification-poll', data: null })
