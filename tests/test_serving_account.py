@@ -137,6 +137,25 @@ class ServingAccountTests(unittest.TestCase):
         self.assertEqual(host_card["auth"], "unobserved")
         self.assertEqual(host_card["state"], "ready")
 
+    def test_codex_primary_serving_row_uses_the_codex_ambient_identity(self):
+        # `ran_as == "primary"` is provider-relative.  The registry alias
+        # named `primary` is Claude-only, so resolving it without the node's
+        # provider made a live Codex primary turn look up a Claude row and
+        # disappear behind the plurality gate.
+        host = self._row("openai", "host", auth="unobserved")
+        self._row("openai", "secondary", auth="authenticated")
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        rows, by_id = self._rows()
+        card = self.au.serving_card(
+            "primary", busy=True, public=False, rows_by_id=by_id,
+            counts=self.au.available_counts(rows), primary="not-the-host",
+            ambient_paths=ambient, provider="openai")
+        self.assertIsNotNone(card, "Codex primary turn lost its serving card")
+        assert card is not None
+        self.assertEqual(card["id"], "openai/primary")
+        self.assertEqual(card["provider"], "openai")
+
     def test_a_disabled_key_row_is_not_available(self):
         # a disabled apikey row is skipped by routing, so it cannot serve and
         # must not be counted as a second account

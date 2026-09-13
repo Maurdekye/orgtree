@@ -148,7 +148,8 @@ MISMATCH_PREFIX: Final = "account-env-mismatch:"
 
 
 def serving_row(ran_as: Any, rows_by_id: dict[str, dict[str, Any]],
-                primary: str) -> dict[str, Any] | None:
+                primary: str, ambient_paths: dict[str, str | None],
+                provider: str | None = None) -> dict[str, Any] | None:
     """The registry row a turn's `ran_as` names, or None when that turn's
     account is not established AUTHORITATIVELY.
 
@@ -170,7 +171,21 @@ def serving_row(ran_as: Any, rows_by_id: dict[str, dict[str, Any]],
     # the ambient login is a real, nameable account; it just reaches its row
     # through the alias map the S2 migration writes rather than by its own id
     if ident == accounts.PRIMARY:
-        ident = primary
+        # `primary` is a provider-relative runtime sentinel, not the Claude
+        # registry alias.  The alias map predates multi-provider accounts and
+        # intentionally only names Claude's ambient row.  Resolve the
+        # sentinel from the provider that launched this node and the same
+        # ambient-path evidence used by `canonical_name`, so an OpenAI
+        # primary turn cannot be mistaken for a Claude row (or disappear when
+        # the Claude row is the only alias target).
+        candidates = [
+            row for row in rows_by_id.values()
+            if (provider is None or row.get("provider") == provider)
+            and ambient_covered(row, primary, ambient_paths)
+        ]
+        if len(candidates) != 1:
+            return None
+        return candidates[0]
     return rows_by_id.get(ident)
 
 
@@ -213,7 +228,8 @@ def available_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
 def serving_card(ran_as: Any, *, busy: bool, public: bool,
                  rows_by_id: dict[str, dict[str, Any]], counts: dict[str, int],
                  primary: str,
-                 ambient_paths: dict[str, str | None]) -> dict[str, Any] | None:
+                 ambient_paths: dict[str, str | None],
+                 provider: str | None = None) -> dict[str, Any] | None:
     """The node payload's "which account is serving THIS inference" card, or
     None when it must not be shown.
 
@@ -243,7 +259,7 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
     """
     if public or not busy:
         return None
-    row = serving_row(ran_as, rows_by_id, primary)
+    row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
     if row is None:
         return None
     provider = str(row.get("provider") or "")

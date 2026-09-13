@@ -2389,7 +2389,8 @@ def _org_view(slug: str, request: Request,
         node["serving_account"] = accountusage.serving_card(
             st.get("ran_as"), busy=bool(st.get("busy")), public=public_view,
             rows_by_id=account_rows, counts=available,
-            primary=primary, ambient_paths=ambient_paths)
+            primary=primary, ambient_paths=ambient_paths,
+            provider=providers.provider_of(str(node.get("tier") or "")))
         # ⚠ WHICH POOL A LUNA IS ACTUALLY ON (item 12; user spec 2026-09-04:
         # a header token when Luna RUNS ON RESERVE). The in-memory record
         # is the turn in flight or the last one this process ran; the
