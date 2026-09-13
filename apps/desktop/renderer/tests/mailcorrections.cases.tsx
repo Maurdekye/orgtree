@@ -59,7 +59,14 @@ export function mailCorrections(profile:'operator'|'public') {
     assert.ok(release,'actual send request held pending')
     assert.deepEqual(reads,[], 'no read request before send acceptance')
     assert.equal(view.el.querySelectorAll('.mailrow.unread').length,2)
-    assert.deepEqual(sends,[{text:'Reply contents',target:{kind:'mail',org:'mine',box:'user',id:'original'}}])
+    // the send carries the submission's own pre-send name (client_op — see
+    // PendingGhost.op): opaque and fresh per send, so its VALUE is asserted
+    // by shape while everything else stays exact
+    assert.equal(sends.length,1)
+    const {client_op,...sent}=sends[0] as {client_op?:unknown;text:string;target:unknown}
+    assert.deepEqual(sent,{text:'Reply contents',target:{kind:'mail',org:'mine',box:'user',id:'original'}})
+    assert.ok(typeof client_op==='string'&&client_op.length>0&&client_op.length<=128,
+      'a reply send must name its submission')
     await inAct(()=>release!(outcome==='refused'?response({detail:'recipient refused'},422)
       : response(outcome==='command'?{accepted:true,command:true}:{id:'new-reply-id',accepted:true,deferred:true})))
     await flush()

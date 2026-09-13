@@ -53,7 +53,12 @@ export function replyCases(profile:'operator'|'public') {
     });await flush()
     const send=view.el.querySelector('.mail-reply-send') as HTMLButtonElement
     await inAct(()=>send.click());await flush()
-    assert.deepEqual(requests[0].body,{text:'Same draft',target},'no client title/sender/gist/at or legacy reply_to')
+    // the send names its submission (client_op, opaque and fresh per send —
+    // see PendingGhost.op); everything else stays exactly this and no more
+    const {client_op,...sent}=requests[0].body as {client_op?:unknown;text:string;target:unknown}
+    assert.deepEqual(sent,{text:'Same draft',target},'no client title/sender/gist/at or legacy reply_to')
+    assert.ok(typeof client_op==='string'&&client_op.length>0&&client_op.length<=128,
+      'a reply send must name its submission')
     assert.equal(textarea.value,'Same draft','refusal preserves the draft')
     assert.deepEqual(snapshot!.pending.map(g=>g.id),[earlier],'refusal removed only its own identical-text ghost')
     assert.match(notices.flat().join(' '),/target no longer exists/)
