@@ -1,6 +1,6 @@
 # Orgtree 2.1.0
 
-Changes since 2.0.9. These notes describe the release candidate; publication is pending.
+Changes since 2.0.9. This release is published on GitHub; the line that once said publication was pending was left behind after it shipped.
 
 ## Accounts and provider usage
 
