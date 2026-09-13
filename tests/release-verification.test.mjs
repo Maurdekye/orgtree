@@ -9,8 +9,10 @@ import {
   isVersionOnlyChange,
   reusableReceipt,
   runVerification,
+  resolveVerificationPlan,
   selectReleaseVerification,
   sourceFingerprint,
+  testedSourceFiles,
 } from '../tools/release-verification.mjs'
 
 test('release selector keeps release-only changes focused', () => {
@@ -52,6 +54,44 @@ test('version-only classification compares Git content and stays focused', () =>
   assert.equal(isVersionOnlyChange(['package.json'], { root: '.', base: 'base', candidate: 'head', git }), true)
   values['head:package.json'].scripts.test = 'node --test --experimental-test-coverage'
   assert.equal(isVersionOnlyChange(['package.json'], { root: '.', base: 'base', candidate: 'head', git }), false)
+})
+
+test('version plus matching release notes stays focused, but mixed edits escalate', () => {
+  const values = {
+    'base:package.json': { version: '2.1.3', name: 'orgtree', scripts: { test: 'node --test' } },
+    'head:package.json': { version: '2.1.4', name: 'orgtree', scripts: { test: 'node --test' } },
+    'base:package-lock.json': { version: '2.1.3', packages: { '': { version: '2.1.3' }, dep: { version: '1' } } },
+    'head:package-lock.json': { version: '2.1.4', packages: { '': { version: '2.1.4' }, dep: { version: '1' } } },
+  }
+  const git = (_command, args) => JSON.stringify(values[`${args[1].startsWith('base') ? 'base' : 'head'}:${args[1].split(':').at(-1)}`])
+  const files = ['package.json', 'package-lock.json', 'docs/release-notes-2.1.4-RC1.md']
+  const focused = classifyReleaseChanges(files, { root: '.', base: 'base', candidate: 'head', git })
+  assert.equal(focused.area, 'release')
+  assert.equal(focused.versionOnly, true)
+  assert.deepEqual(testedSourceFiles(selectReleaseVerification(files, { root: '.', base: 'base', candidate: 'head', git }), {
+    trackedFiles: [...files, 'tools/release-windows.mjs'],
+  }), ['tools/release-windows.mjs'])
+  assert.equal(classifyReleaseChanges([...files, 'README.md'], { root: '.', base: 'base', candidate: 'head', git }).area, 'full')
+  values['head:package.json'].scripts.test = 'node --test --changed'
+  assert.equal(classifyReleaseChanges(files, { root: '.', base: 'base', candidate: 'head', git }).area, 'full')
+})
+
+test('--plan and execution resolve the same Git-aware profile', () => {
+  const values = {
+    'base:package.json': { version: '2.1.3', name: 'orgtree' },
+    'head:package.json': { version: '2.1.4', name: 'orgtree' },
+    'base:package-lock.json': { version: '2.1.3', packages: { '': { version: '2.1.3' } } },
+    'head:package-lock.json': { version: '2.1.4', packages: { '': { version: '2.1.4' } } },
+  }
+  const git = (_command, args) => {
+    if (args[0] === 'diff') return 'package.json\npackage-lock.json\ndocs/release-notes-2.1.4-RC1.md\n'
+    return JSON.stringify(values[`${args[1].startsWith('base') ? 'base' : 'head'}:${args[1].split(':').at(-1)}`])
+  }
+  const resolved = resolveVerificationPlan({ root: '.', base: 'base', candidate: 'head', git })
+  assert.equal(resolved.candidate, 'head')
+  assert.equal(resolved.plan.area, 'release')
+  assert.equal(resolved.plan.versionOnly, true)
+  assert.deepEqual(resolved.plan.changedFiles, ['docs/release-notes-2.1.4-RC1.md', 'package-lock.json', 'package.json'])
 })
 
 test('receipt reuse requires the exact candidate, commands, source bytes, and intact fingerprint', () => {

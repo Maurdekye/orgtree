@@ -27,6 +27,7 @@ const INSTALLER = [
 ]
 
 const VERSION_PATHS = new Set(['package.json', 'package-lock.json'])
+const RELEASE_NOTES_PATH = /^docs\/release-notes-[^/]+\.md$/
 const RELEASE_PATHS = [
   /^tools\/release-windows\.mjs$/,
   /^tools\/release-verification\.mjs$/,
@@ -35,6 +36,7 @@ const RELEASE_PATHS = [
   /^tests\/release-windows\.test\.mjs$/,
   /^tests\/test_work_evidence_receipts\.py$/,
   /^docs\/windows-release\.md$/,
+  RELEASE_NOTES_PATH,
 ]
 const INSTALLER_PATHS = [
   /^tools\/installer-/,
@@ -78,9 +80,11 @@ function withoutVersion(pathname, value) {
 
 export function isVersionOnlyChange(files, { root, base, candidate = 'HEAD', git = execFileSync } = {}) {
   const changedFiles = normalizeFiles(files)
-  if (!root || !base || !changedFiles.length || changedFiles.some(file => !VERSION_PATHS.has(file))) return false
+  const packageFiles = changedFiles.filter(file => VERSION_PATHS.has(file))
+  const metadataFiles = changedFiles.filter(file => !VERSION_PATHS.has(file))
+  if (!root || !base || !packageFiles.length || metadataFiles.some(file => !RELEASE_NOTES_PATH.test(file))) return false
   try {
-    return changedFiles.every(file => JSON.stringify(withoutVersion(file, gitJson(root, base, file, git))) === JSON.stringify(withoutVersion(file, gitJson(root, candidate, file, git))))
+    return packageFiles.every(file => JSON.stringify(withoutVersion(file, gitJson(root, base, file, git))) === JSON.stringify(withoutVersion(file, gitJson(root, candidate, file, git))))
   } catch { return false }
 }
 
@@ -142,7 +146,7 @@ export function sourceFingerprint(files, { root = process.cwd(), fileHash = file
 export function testedSourceFiles(plan, { trackedFiles = [] } = {}) {
   if (!plan || plan.area === 'full') return []
   const patterns = plan.area === 'installer' ? [...RELEASE_PATHS, ...INSTALLER_PATHS] : RELEASE_PATHS
-  return normalizeFiles(trackedFiles).filter(file => patterns.some(pattern => pattern.test(file)) && !VERSION_PATHS.has(file))
+  return normalizeFiles(trackedFiles).filter(file => patterns.some(pattern => pattern.test(file)) && !VERSION_PATHS.has(file) && !RELEASE_NOTES_PATH.test(file))
 }
 
 export function testedSourceFingerprint(plan, options = {}) {
@@ -190,12 +194,21 @@ function gitCandidate(root, candidate, git = execFileSync) {
   return git('git', ['rev-parse', 'HEAD^{commit}'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
 }
 
-export function runVerification({ root = process.cwd(), files, base, candidate = 'HEAD', receiptPath, jsonOutput, runner = spawnSync, git = execFileSync, now = () => new Date().toISOString() } = {}) {
+export function resolveVerificationPlan({ root = process.cwd(), files, base, candidate = 'HEAD', git = execFileSync } = {}) {
   const resolvedCandidate = gitCandidate(root, candidate, git)
   const derivedFiles = gitChangedFiles({ root, base, candidate: resolvedCandidate, git })
-  const changedFiles = files ? normalizeFiles(files) : derivedFiles
-  if (JSON.stringify(changedFiles) !== JSON.stringify(derivedFiles)) throw new Error('explicit changed paths must exactly match the Git diff; omit the list to derive it safely')
-  const plan = selectReleaseVerification(changedFiles, { root, base: base || `${resolvedCandidate}^`, candidate: resolvedCandidate, git })
+  const selectedFiles = files?.length ? normalizeFiles(files) : derivedFiles
+  if (JSON.stringify(selectedFiles) !== JSON.stringify(derivedFiles)) throw new Error('explicit changed paths must exactly match the Git diff; omit the list to derive it safely')
+  return {
+    candidate: resolvedCandidate,
+    plan: selectReleaseVerification(selectedFiles, {
+      root, base: base || `${resolvedCandidate}^`, candidate: resolvedCandidate, git,
+    }),
+  }
+}
+
+export function runVerification({ root = process.cwd(), files, base, candidate = 'HEAD', receiptPath, jsonOutput, runner = spawnSync, git = execFileSync, now = () => new Date().toISOString() } = {}) {
+  const { candidate: resolvedCandidate, plan } = resolveVerificationPlan({ root, files, base, candidate, git })
   const trackedFiles = git('git', ['ls-files'], { cwd: root, encoding: 'utf8', windowsHide: true }).split(/\r?\n/).filter(Boolean)
   const sourceScope = testedSourceFingerprint(plan, { root, trackedFiles })
   const source = sourceScope.fingerprint
@@ -254,13 +267,14 @@ export function main(argv = process.argv.slice(2)) {
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`)
     else files.push(arg)
   }
-  const plan = selectReleaseVerification(files.length ? files : gitChangedFiles({ root, base }))
+  const selected = resolveVerificationPlan({ root, files, base, candidate })
+  const plan = selected.plan
   if (argv.includes('--plan')) {
     console.log(JSON.stringify(plan, null, 2))
     return 0
   }
   console.log(`Selected ${plan.profile} (${plan.area}); ${plan.reason}`)
-  const receipt = runVerification({ root, files: plan.changedFiles, base, candidate, receiptPath, jsonOutput })
+  const receipt = runVerification({ root, files: plan.changedFiles, base, candidate: selected.candidate, receiptPath, jsonOutput })
   console.log(JSON.stringify(receipt, null, 2))
   return receipt.green ? 0 : 1
 }

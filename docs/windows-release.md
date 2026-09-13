@@ -52,10 +52,12 @@ source receipt may be reused only when its profile, exact commands, tested sourc
 scope, and byte-level source fingerprint all match. The candidate must match too,
 unless Git proves the new candidate is a version-only commit. A version-only
 commit is identified by comparing the Git contents of each changed package
-version surface; editing any other package content escalates. Explicit
-changed-path lists must exactly equal the Git diff, so omitting an affected file
-cannot under-select tests. Version metadata, packaging, and publication
-advancement do not by themselves rerun unchanged source checks.
+version surface, with the matching `docs/release-notes-<version>.md` file
+permitted as release metadata; editing any other package content or mixing in
+another path escalates. Explicit changed-path lists must exactly equal the Git
+diff, so omitting an affected file cannot under-select tests. Version metadata,
+packaging, and publication advancement do not by themselves rerun unchanged
+source checks.
 Receipts include each command, captured output, per-check duration, total
 duration, and the immutable receipt fingerprint. A changed or malformed receipt
 is ignored and the relevant check runs again.
