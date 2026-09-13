@@ -1146,6 +1146,7 @@ def _recover_startup() -> None:
     supervisor.start_watchdog_engine()
     supervisor.start_extern_sweeper()
     supervisor.start_steer_late_watchdog()
+    supervisor.maildrain.start()
     supervisor.start_prime_restart_engine()
     supervisor.start_working_cache_keeper()
     restart_wake.on_backend_startup()

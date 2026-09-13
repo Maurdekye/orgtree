@@ -3748,6 +3748,7 @@ class Org:
                                 "subagents": False, "mcp": []}},
         })
         pred.pop("halt_queue", None)  # pending work belongs to the successor
+        pred.pop("mail_drain", None)
         pred.pop("cost_usd_unknown", None)
         if model is not None:
             # the bearer is recorded on the tier whose provider owns
@@ -9241,6 +9242,7 @@ class Org:
                                 "subagents": False, "mcp": []}},
         })
         pred.pop("halt_queue", None)  # pending work belongs to the successor
+        pred.pop("mail_drain", None)
         pred.pop("cost_usd_unknown", None)
         pred.pop("cheap_compacted", None)   # the bearer is the OLD session
         # a session that just compacted has demonstrably RUN, so neither half
@@ -9338,6 +9340,7 @@ class Org:
                                 "subagents": False, "mcp": []}},
         })
         pred.pop("halt_queue", None)  # pending work belongs to the successor
+        pred.pop("mail_drain", None)
         pred.pop("cost_usd_unknown", None)
         # same invariant reseed holds: a LOST record must not also carry
         # the never-run pardon — one row cannot assert both "this session
@@ -9596,6 +9599,7 @@ class Org:
                                 "subagents": False, "mcp": []}},
         })
         pred.pop("halt_queue", None)  # pending work belongs to the successor
+        pred.pop("mail_drain", None)
         pred.pop("cost_usd_unknown", None)
         pred.pop("cheap_compacted", None)   # the bearer is the OLD session
         # …and this bearer is stamped LOST — "its transcript is gone".

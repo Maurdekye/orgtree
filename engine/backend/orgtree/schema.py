@@ -435,6 +435,7 @@ class NodeDoc(TypedDict):
     last_turn_mcp_tools: NotRequired[list[str]]
     last_turn_mcp_fingerprint: NotRequired[str]
     inflight: NotRequired[InflightInfo | None]
+    mail_drain: NotRequired[dict[str, Any]]  # waking mail ids awaiting delivery
     pending_switch: NotRequired[dict[str, Any] | None]   # D-234 {tier, from, by, at, crossing}
     last_denials: NotRequired[list[Denial]]
     #: codex lane (2026-09-05): the escalations `_approve` APPROVED on the
@@ -903,6 +904,7 @@ class OrgDoc(TypedDict):
     max_depth: NotRequired[int]             # №34 runaway insurance (read w/ defaults)
     max_children: NotRequired[int]
     mail: NotRequired[dict[str, list[MailEntry]]]
+    mail_drain_version: NotRequired[int]  # queued-mail upgrade completed
     mail_log: NotRequired[dict[str, list[MailEntry]]]   # full-body archive, cap 100/node
     # Bounded identity/state transitions for mail, child tasks, watchdogs and
     # delivery warnings. Bodies remain in their owning records.

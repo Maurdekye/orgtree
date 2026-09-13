@@ -474,6 +474,7 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
         if not n.get("halt"):
             n["halt"] = {"phase": "halting", "requested_at": now(), "by": actor}
             org._log("halt", actor, {"node": nid, "phase": "halting"}, [])
+        sup.maildrain.suspend(org, nid)
         owners = _states(slug, nid, st)
         _halt_states[(slug, nid)] = owners
         with sup._state_lock:
@@ -669,6 +670,8 @@ def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
             org.d["killswitch"] = {"at": now(), "by": actor}
             org._log("killswitch", actor, {"latched": True}, [])
         paused = org.watchdogs_pause_all(org.WATCHDOG_KILLSWITCH_PAUSE)
+        for nid in org.nodes:
+            sup.maildrain.suspend(org, nid)
         store.save_org(org)
     sweep = sup.interrupt_all(slug)
     return {"latched": True, "already_latched": already,

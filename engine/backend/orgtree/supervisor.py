@@ -42,7 +42,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from . import halt
+from . import halt, maildrain
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, events, codex_route,
                deployment, envelope, failfix, handoff, imgblock, lifecycle, limits,
@@ -9021,15 +9021,21 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
     if not toks:
         return
     drop = set(toks)
+    st = state(slug, nid)
+    with _state_lock:
+        st.setdefault('mail_confirmed', set()).update(drop)
+    saved = False
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
             dlmap = org.d.get("delivering") or {}
             dl = dlmap.get(nid)
             if not dl:
+                saved = True
                 return
             keep = [b for b in dl if b.get("tok") not in drop]
             if len(keep) == len(dl):
+                saved = True
                 return
             # F-06 READ receipts: this is the moment a turn PROVABLY consumed
             # the batch — collect hub message ids from the confirmed mail and
@@ -9038,16 +9044,23 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
             net_ids = [str(m["net_id"]) for b in dl
                        if b.get("tok") in drop
                        for m in (b.get("mail") or []) if m.get("net_id")]
+            maildrain.discard(org, nid, [str(m.get('id')) for b in dl
+                if b.get('tok') in drop for m in b.get('mail') or []])
             if keep:
                 dlmap[nid] = keep
             else:
                 dlmap.pop(nid, None)
             halt.confirmed(org, nid, drop)
             store.save_org(org)
+            saved = True
         if net_ids:
             net.note_read(slug, net_ids)
     except Exception:                                        # noqa: BLE001
-        pass      # worst case the batch folds back later — duplicate, not loss
+        pass      # retry the receipt before any fold-back on this process
+    finally:
+        if saved:
+            with _state_lock:
+                st.get('mail_confirmed', set()).difference_update(drop)
 
 
 def _fold_back_undelivered(slug: str, nid: str,
@@ -9062,6 +9075,9 @@ def _fold_back_undelivered(slug: str, nid: str,
     its own drain (send_message's no-wake steer race) without disturbing
     batches other carriers still hold."""
     keep = set(keep_toks)
+    st = state(slug, nid)
+    with _state_lock:
+        keep.update(st.get('mail_confirmed') or [])
     only = set(only_toks) if only_toks is not None else None
     try:
         with store.DOC_LOCK:
@@ -9125,7 +9141,8 @@ def _fold_back_undelivered(slug: str, nid: str,
 # queue, and that suite exists to prove the iterative drain does not wedge on
 # one. A fix that quietly removes another suite's ability to reach the state it
 # guards is worse than the duplication it saves.
-def _mark_ping(carrier: str | dict[str, Any], reason: str | None = None
+def _mark_ping(carrier: str | dict[str, Any], reason: str | None = None, *,
+               mail_ids: list[str] | None = None
                ) -> dict[str, Any]:
     """Tag a queue carrier as a mail pointer, preserving any journal tokens.
 
@@ -9134,6 +9151,8 @@ def _mark_ping(carrier: str | dict[str, Any], reason: str | None = None
     so composition can put it on the typed drive segment. A site that states
     none leaves the field absent, and the segment carries reason=null."""
     tag: dict[str, Any] = {"ping": True}
+    if mail_ids is not None:
+        tag['mail_ids'] = mail_ids
     if reason:
         tag["ping_reason"] = reason
     if isinstance(carrier, dict):
@@ -9225,7 +9244,7 @@ def _drop_ping(slug: str, nid: str) -> str | dict[str, Any] | None:
         return None
 
 
-def _has_deliverable(slug: str, nid: str) -> bool:
+def _has_deliverable(slug: str, nid: str, mail_ids=None) -> bool:
     """Is there anything a pointer could actually point AT — mail or notices?
 
     Deliberately NOT `waking_mail`: that predicate answers "does this box
@@ -9239,6 +9258,9 @@ def _has_deliverable(slug: str, nid: str) -> bool:
         return True     # can't tell — deliver rather than silently swallow
     if nid not in org.nodes:
         return True
+    if mail_ids is not None:
+        return any(str(m.get('id')) in mail_ids
+                   for m in (org.d.get('mail') or {}).get(nid, []))
     return bool((org.d.get("mail") or {}).get(nid)
                 or (org.d.get("notices") or {}).get(nid))
 
@@ -9300,13 +9322,30 @@ def _human_view_spans(human_mail: list[MailEntry], base_view: str,
     return "\n\n".join(bits), spans
 
 
+def _take_delivery_mail(org: Org, nid: str, mail_ids=None):
+    """A pointer can consume only the messages it was posted for.
+
+    Otherwise an obsolete pointer ahead of an older journaled carrier can
+    drain a newer mailbox entry and deliver it out of order.
+    """
+    mail = org.take_mail(nid)
+    if mail_ids is None:
+        return mail
+    wanted = set(mail_ids)
+    selected = [m for m in mail if str(m.get('id')) in wanted]
+    remainder = [m for m in mail if str(m.get('id')) not in wanted]
+    if remainder:
+        org.d.setdefault('mail', {})[nid] = remainder
+    return selected
+
+
 def _envelope(slug: str, nid: str, text: str,
               via: str = "steer", *, base_view: str | None = None,
               view_out: list[str] | None = None,
               spans_out: list[list[dict[str, Any]]] | None = None,
               segments_out: list[list[dict[str, Any]]] | None = None,
               ping: bool = False, ping_reason: str | None = None,
-              owned_toks: Iterable[str] | None = None
+              owned_toks: Iterable[str] | None = None, mail_ids=None
               ) -> tuple[str, str | None, list[dict[str, Any]]]:
     """Drain notices + mail atomically and prepend them (№27 envelope, §7.4).
 
@@ -9347,9 +9386,12 @@ def _envelope(slug: str, nid: str, text: str,
                 view_out.append(base_view)
             return text, None, []
         halt.check(slug, nid)
-        pending = (org.d.get("notices") or {}).pop(nid, None)
-        mail = org.take_mail(nid)
         held = list(owned_toks or [])         # materialised ONCE (a generator would be spent)
+        # An older batch already riding this carrier must reach the agent
+        # before newly boxed mail. The durable drain admits that mail next.
+        mail = [] if held else _take_delivery_mail(org, nid, mail_ids)
+        pending = (None if held or (mail_ids is not None and not mail)
+                   else (org.d.get("notices") or {}).pop(nid, None))
         owned = _owned_segments(org, nid, held)
         # ⚠ the mint guard keys on the PRESENCE of tokens, never on whether they
         # resolved (Opus F1): a carrier holding tokens has an ENVELOPE as its
@@ -12557,10 +12599,31 @@ def _limit_probe_worker(
     return worker
 
 
+def _start_turn_worker(slug: str, nid: str, carrier) -> None:
+    """Reserve the next owner before starting it; unwind failed admission."""
+    st = state(slug, nid)
+    thread = None
+    try:
+        thread = threading.Thread(target=_run_turn, args=(slug, nid, carrier),
+                                  daemon=True)
+        with _state_lock:
+            st['mail_drain_owner'] = thread
+        thread.start()
+    except Exception:
+        with _state_lock:
+            if thread is None or st.get('mail_drain_owner') is thread:
+                st.pop('mail_drain_owner', None)
+                st['busy'] = False
+                st['queue'].insert(0, carrier)
+        maildrain.wake()
+        raise
+
+
+@maildrain.worker
 @halt.worker
 @_limit_probe_worker
 def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
-    """Run a turn, then keep running whatever the queue has, until it is empty.
+    """Drain a finite batch, then hand remaining work to a fresh admission.
 
     ⚠ The follow-on used to be a TAIL CALL from `_run_one_turn`'s own
     `finally`, which meant one never-unwinding stack frame per turn for as
@@ -12608,7 +12671,14 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
         notify(slug, nid, "turn_done")
         return
     nxt: str | dict[str, Any] | None = text
+    drained = 0
     while nxt is not None:
+        if drained >= maildrain.MAX_BATCH:
+            # Release this worker after a finite batch, including phantom
+            # pointers. The successor re-enters ordinary slot admission.
+            _start_turn_worker(slug, nid, nxt)
+            return
+        drained += 1
         with store.DOC_LOCK:
             current_org = store.load_org(slug)
             if current_org.node(nid).get("halt"):
@@ -12616,6 +12686,12 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
                 store.save_org(current_org)
                 return
             halt.restore_carriers(current_org, nid, nxt)
+            owned = set(nxt.get('toks') or []) if isinstance(nxt, dict) else set()
+            st['mail_attempt_ids'] = [str(m.get('id')) for m in
+                (current_org.d.get('mail') or {}).get(nid, [])]
+            st['mail_attempt_ids'].extend(str(m.get('id'))
+                for b in (current_org.d.get('delivering') or {}).get(nid, [])
+                if b.get('tok') in owned for m in b.get('mail') or [])
             native_reason = _native_context_hold(current_org,nid)
             if native_reason:
                 carrier = nxt if isinstance(nxt,dict) else {'text':nxt}
@@ -12663,7 +12739,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
         # while that finally had already popped the next carrier, stranding it.
         try:
             if _carrier_is_ping(nxt) and not _carrier_owes_mail(nxt) \
-                    and not _has_deliverable(slug, nid):
+                    and not _has_deliverable(slug, nid, nxt.get('mail_ids')):
                 halt.consumed(slug, nid)
                 _phantom_log(slug, nid, "turn start")
                 nxt = _drop_ping(slug, nid)
@@ -16726,6 +16802,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
     # a dict carrier is an already-enveloped text still owing its delivery
     # journal a confirmation (a steer/boundary leftover re-queued for a turn)
     toks: list[str] = []
+    boundary_drained = 0
     is_cmd = False
     turn_view = ""
     # the generated spans of `turn_view`, recorded at composition (D-229+).
@@ -16786,11 +16863,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
     # the composer needs "brought none" apart from "brought an empty one";
     # `turn_view` flattens both to "" (invariant: `_segments_for`)
     carrier_view: str | None = _carrier_projection(text)
+    carrier_mail_ids = text.get('mail_ids') if isinstance(text, dict) else None
     if isinstance(text, dict):
         is_cmd = bool(text.get("cmd"))
         turn_view = carrier_view or ""
         retry_payload = str(text.get("retry_payload") or "")
         toks, text = list(text.get("toks") or []), text["text"]
+    st['mail_attempt_tokens'] = toks
     text = cast(str, text)    # unwrapped above — plain str from here on
     if _trec is not None:
         # the attempt's inputs, as counts (turnlog header)
@@ -17114,13 +17193,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # Persist the generation-owned decision before drain;
                         # a backend restart cannot resurrect stale evidence.
                         store.save_org(org)
-                pending = None if is_cmd \
-                    else (org.d.get("notices") or {}).pop(nid, None)
-                mail = [] if is_cmd else org.take_mail(nid)
+                mail = ([] if is_cmd or toks else
+                        _take_delivery_mail(org, nid, carrier_mail_ids))
+                pending = (None if is_cmd or toks
+                           or (carrier_mail_ids is not None and not mail)
+                           else (org.d.get("notices") or {}).pop(nid, None))
                 # a carrier that already OWNS batches (`toks`: a steer carrier
                 # folded into the queue at turn exit) has the full envelope as
                 # its text; its composition is re-read from those journal rows
-                # (`_owned_segments`) and follows anything drained here.
+                # (`_owned_segments`). Newer boxed mail waits behind it.
                 # Otherwise a ping carrier composes its nudge as a typed
                 # `drive` segment (`_ping_drive`) — never when it owns a batch,
                 # which would wrap the whole [MAIL] block into a hidden segment
@@ -18635,10 +18716,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         while True:
                             with _state_lock:
                                 if not (st["queue"] and not limited
-                                        and may_feed and not st.get("halt_requested")):
+                                        and may_feed and not st.get("halt_requested")
+                                        and boundary_drained < maildrain.MAX_BATCH):
                                     nxt = None
                                     break
                                 nxt = st["queue"].pop(0)
+                                boundary_drained += 1
                                 st["halt_pending_carrier"] = (nxt if isinstance(nxt, dict)
                                                                else {"text": nxt})
                                 st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
@@ -18649,6 +18732,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             if nprobe_token:
                                 probe_token = nprobe_token
                             nping = _carrier_is_ping(nxt)
+                            nmail_ids = nxt.get('mail_ids') if isinstance(nxt, dict) else None
                             nping_reason = _carrier_ping_reason(nxt)
                             ntoks, nimgs, ncmd, nusage_org = [], [], False, None
                             nview = ""
@@ -18680,7 +18764,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     spans_out=nspans_out, segments_out=nseg_out,
                                     ping=nping and not ntoks,
                                     ping_reason=nping_reason,
-                                    owned_toks=ntoks)
+                                    owned_toks=ntoks, mail_ids=nmail_ids)
                                 nview = nviews[0] if nviews else nview
                                 nspans = nspans_out[0] if nspans_out else []
                                 nsegs = nseg_out[0] if nseg_out else None
@@ -20669,6 +20753,12 @@ def _bump_hard_fail(slug: str, nid: str) -> int:
             n = o2.node(nid)
             run = int(n.get("hard_fail_run") or 0) + 1
             n["hard_fail_run"] = run
+            attempted = state(slug, nid).get('mail_attempt_tokens') or []
+            ids = list(state(slug, nid).get('mail_attempt_ids') or [])
+            ids.extend(str(m.get('id'))
+                   for b in (o2.d.get('delivering') or {}).get(nid, [])
+                   if b.get('tok') in attempted for m in b.get('mail') or [])
+            maildrain.discard(o2, nid, ids)
             store.save_org(o2)
             return run
     except Exception:                                            # noqa: BLE001
@@ -23264,6 +23354,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
     notify(slug, pred, "created")
 
 
+@maildrain.worker
 @halt.worker
 def manual_compact(slug: str, nid: str) -> None:
     """The desk's compact button (№27): latch busy for the whole fork, so mail
@@ -23591,6 +23682,15 @@ def send_message(slug: str, nid: str, text: str,
     # kind: it is accepted, queued: 0, and nothing starts.
     with store.DOC_LOCK:
         _o = store.load_org(slug)
+        send_mail_ids = ([str(m['id']) for m in
+                         (_o.d.get('mail') or {}).get(nid, []) if m.get('id')]
+                         if mail_ping else None)
+        # Notice-only pointers still use their existing notice envelope.
+        if not send_mail_ids:
+            send_mail_ids = None
+        if (wake and not command and not idle_only and nid in _o.nodes
+                and maildrain.request(_o, nid)):
+            store.save_org(_o)
         if nid in _o.nodes and (native_reason := _native_context_hold(_o, nid, inventory=_inventory)):
             return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
         if nid in _o.nodes and _o.node(nid).get("frozen"):
@@ -23638,8 +23738,7 @@ def send_message(slug: str, nid: str, text: str,
                 return {"accepted": True, "queued": len(st["queue"]),
                         "command": True}
             st["busy"] = True
-        threading.Thread(target=_run_turn, args=(slug, nid, carrier),
-                         daemon=True).start()
+        _start_turn_worker(slug, nid, carrier)
         return {"accepted": True, "queued": 0, "command": True}
     if idle_only:
         if not wake:
@@ -23651,13 +23750,16 @@ def send_message(slug: str, nid: str, text: str,
                     or st.get("steer") or st.get("cache_keepalive")
                     or st.get("proc_control")):
                 return {"accepted": False, "queued": 0, "not_idle": True}
-            st["busy"] = True
-        threading.Thread(
-            target=_run_turn, daemon=True,
-            args=(slug, nid, _mark_ping({"text": text, "view": view or ""},
-                                        ping_reason)
-                  if mail_ping else {"text": text, "view": view or ""}),
-        ).start()
+        with store.DOC_LOCK:
+            pending_org = store.load_org(slug)
+            if maildrain.request(pending_org, nid):
+                store.save_org(pending_org)
+        with _state_lock:
+            st['busy'] = True
+        _start_turn_worker(slug, nid,
+            _mark_ping({"text": text, "view": view or ""}, ping_reason,
+                       mail_ids=send_mail_ids)
+            if mail_ping else {"text": text, "view": view or ""})
         return {"accepted": True, "queued": 0, "idle_only": True}
     with _state_lock:
         maybe_steer = st["busy"] and st.get("responding")
@@ -23665,7 +23767,8 @@ def send_message(slug: str, nid: str, text: str,
         eviews: list[str] = []
         etext, tok, _ = _envelope(
             slug, nid, text, base_view=view or "", view_out=eviews,
-            ping=mail_ping, ping_reason=ping_reason)  # ⚠ outside _state_lock (DOC_LOCK order)
+            ping=mail_ping, ping_reason=ping_reason,
+            mail_ids=send_mail_ids)  # ⚠ outside _state_lock (DOC_LOCK order)
         if mail_ping and tok is None:
             # the box was already empty — this pointer has nothing to point at,
             # and injecting it would put a bare banner into a working agent's
@@ -23677,7 +23780,7 @@ def send_message(slug: str, nid: str, text: str,
         carrier = ({"toks": [tok], "text": etext, "view": eview}
                    if tok or eview else etext)
         if mail_ping:
-            carrier = _mark_ping(carrier, ping_reason)
+            carrier = _mark_ping(carrier, ping_reason, mail_ids=send_mail_ids)
         if sender and isinstance(carrier, dict):
             # D-236 provenance. Only a DICT carrier is stamped: the bare-string
             # shape (empty mailbox, no view) reaches the queue fold as authored
@@ -23712,7 +23815,8 @@ def send_message(slug: str, nid: str, text: str,
             queued: str | dict[str, Any] = (
                 {"text": text, "view": view or ""}
                 if view is not None and isinstance(text, str) else text)
-            st["queue"].append(_mark_ping(queued, ping_reason) if mail_ping else queued)
+            st["queue"].append(_mark_ping(queued, ping_reason, mail_ids=send_mail_ids)
+                               if mail_ping else queued)
             return {"accepted": True, "queued": len(st["queue"]),
                     "process_control": True}
         if st["busy"]:
@@ -23727,7 +23831,8 @@ def send_message(slug: str, nid: str, text: str,
             queued: str | dict[str, Any] = (
                 {"text": text, "view": view or ""}
                 if view is not None and isinstance(text, str) else text)
-            st["queue"].append(_mark_ping(queued, ping_reason) if mail_ping else queued)
+            st["queue"].append(_mark_ping(queued, ping_reason, mail_ids=send_mail_ids)
+                               if mail_ping else queued)
             return {"accepted": True, "queued": len(st["queue"])}
         if wake:
             st["busy"] = True
@@ -23747,9 +23852,9 @@ def send_message(slug: str, nid: str, text: str,
     start_carrier: str | dict[str, Any] = (
         {"text": text, "view": view or ""}
         if view is not None and isinstance(text, str) else text)
-    threading.Thread(target=_run_turn, daemon=True,
-                     args=(slug, nid, _mark_ping(start_carrier, ping_reason)
-                           if mail_ping else start_carrier)).start()
+    _start_turn_worker(slug, nid, _mark_ping(start_carrier, ping_reason,
+                                          mail_ids=send_mail_ids)
+                       if mail_ping else start_carrier)
     return {"accepted": True, "queued": 0}
 
 
@@ -27644,6 +27749,7 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
                     **({"truncated": True} if len(s) > 100000 else {})})
 
     att["recorded_at"] = stamp
+    maildrain.discard(org, nid, ids)
     # the views above were just spent into their steered_log rows — nothing
     # reads them off a recorded attempt again (scan skips recorded attempts)
     att.pop("views", None)
@@ -30312,12 +30418,13 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         except Exception:                                    # noqa: BLE001
             print(f"[orgtree] {slug}/{_usup}: unrecoverable-report drive "
                   f"failed — the durable mail still waits in its box")
-    for nid in ([] if active_only else [r for r in revive if r not in _sw]):
+    for nid in [r for r in revive if r not in _sw
+                and (not active_only or maildrain.pending(org, r))]:
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,
                      "(orgtree) You have mail above — some of it waited across "
                      "an orgtree restart. Handle it as appropriate.",
-                     _inventory=inventory)
+                     _inventory=inventory, mail_ping=True)
     # An explicit unhalt may have committed just before shutdown. Those
     # retained commands/carriers have durable intent even without waking mail.
     with store.DOC_LOCK:
