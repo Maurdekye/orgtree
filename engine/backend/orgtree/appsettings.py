@@ -192,6 +192,29 @@ def idle_docket_reminders_enabled() -> bool:
     return runtime.get("idle_docket_reminders") is not False
 
 
+def blocked_docket_reminders_enabled() -> bool:
+    """Whether an agent may also be reminded about its BLOCKED docket items,
+    in the one case where the whole organization is blocked.
+
+    DEFAULT OFF, and only an explicit true enables it (user 2026-09-13, who
+    asked for the rule behind a toggle because its long-term implications are
+    not yet known). Missing therefore remains OFF, which is also the
+    compatible reading for every install that predates the preference.
+
+    The option is PURELY ADDITIVE. Off, the reminder behaves exactly as it
+    always has: an idle agent is nudged about its actionable owned items and
+    blocked ones are excluded per item. On, that is unchanged — actionable
+    work is still reminded about exactly as before — and the single addition
+    is that when the organization's entire remaining nonterminal set is
+    blocked, each agent is reminded of its own blocked items instead of
+    hearing nothing. It never withholds a reminder that would otherwise be
+    sent.
+    """
+    raw = load().get("runtime")
+    runtime = raw if isinstance(raw, dict) else {}
+    return runtime.get("blocked_docket_reminders_enabled") is True
+
+
 def wait_for_mcp_tools_enabled() -> bool:
     """Whether turns wait for the last authoritative MCP tool surface.
 
@@ -277,6 +300,18 @@ def set_idle_docket_reminders_enabled(enabled: bool) -> None:
         raw = doc.get("runtime")
         runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
         runtime["idle_docket_reminders"] = bool(enabled)
+        doc["runtime"] = runtime
+        doc["version"] = VERSION
+        _save(doc)
+
+
+def set_blocked_docket_reminders_enabled(enabled: bool) -> None:
+    """Persist the machine-wide all-blocked docket reminder gate choice."""
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("runtime")
+        runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        runtime["blocked_docket_reminders_enabled"] = bool(enabled)
         doc["runtime"] = runtime
         doc["version"] = VERSION
         _save(doc)

@@ -12,7 +12,8 @@ import type {
 } from '../types'
 import {
   getProviders, peekProviders, getRuntimeSettings,
-  setIdleDocketRemindersEnabled, setProviderEnabled,
+  setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
+  setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
@@ -609,6 +610,8 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
           disabled={!runtime || busy} onChange={v => changeRuntime(setWaitForMcpToolsEnabled, v)} />
         <SetToggle label="remind idle agents about unfinished docket items" checked={runtime?.idle_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setIdleDocketRemindersEnabled, v)} />
+        <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
       </SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>

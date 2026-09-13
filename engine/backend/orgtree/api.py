@@ -4142,6 +4142,7 @@ class RuntimePreference(Body):
     working_checkups_enabled: bool | None = None
     wait_for_mcp_tools_enabled: bool | None = None
     idle_docket_reminders_enabled: bool | None = None
+    blocked_docket_reminders_enabled: bool | None = None
     git_periodic_fetch_enabled: bool | None = None
 
 
@@ -4154,6 +4155,8 @@ def _runtime_preferences() -> dict[str, bool]:
             appsettings.wait_for_mcp_tools_enabled()),
         "idle_docket_reminders_enabled": (
             appsettings.idle_docket_reminders_enabled()),
+        "blocked_docket_reminders_enabled": (
+            appsettings.blocked_docket_reminders_enabled()),
     }
 
 
@@ -4178,6 +4181,7 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, bool]:
     if (body.enabled is None and body.working_checkups_enabled is None
             and body.wait_for_mcp_tools_enabled is None
             and body.idle_docket_reminders_enabled is None
+            and body.blocked_docket_reminders_enabled is None
             and body.git_periodic_fetch_enabled is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
@@ -4195,6 +4199,10 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, bool]:
             await run_in_threadpool(
                 appsettings.set_idle_docket_reminders_enabled,
                 body.idle_docket_reminders_enabled)
+        if body.blocked_docket_reminders_enabled is not None:
+            await run_in_threadpool(
+                appsettings.set_blocked_docket_reminders_enabled,
+                body.blocked_docket_reminders_enabled)
         if body.git_periodic_fetch_enabled is not None:
             await run_in_threadpool(appsettings.set_git_periodic_fetch_enabled, body.git_periodic_fetch_enabled)
         result = await run_in_threadpool(_runtime_preferences)

@@ -1525,6 +1525,9 @@ export interface RuntimeSettingsPayload {
   wait_for_mcp_tools_enabled: boolean
   /** Default off: nudge an idle agent about the unfinished items it owns. */
   idle_docket_reminders_enabled: boolean
+  /** Default off: additionally remind agents about their own BLOCKED items,
+   *  but only while every remaining ticket in the organization is blocked. */
+  blocked_docket_reminders_enabled: boolean
 }
 
 /** one bar of the host subscription's rate-limit standing (GET /api/usage —

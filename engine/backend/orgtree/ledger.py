@@ -11394,16 +11394,28 @@ class Org:
                 return release, "deployer"
         return owner, "owner"
 
+    def _work_owed_active(self, nid: str) -> list[WorkItem]:
+        """THE NONTERMINAL SET FOR ONE AGENT: the items this agent owes the
+        next action on (`_work_next_recipient`) that count as active
+        (`_work_counts_active`, i.e. status not in `WORK_UNCOUNTED` — so
+        closed and backlogged rows are out).
+
+        ONE definition, because `work_blocked_only` and
+        `work_docket_reminder_items` are two halves of the same user rule and
+        two copies of this comprehension would be two chances to disagree
+        about which items the rule is even quantified over."""
+        return [it for it in self._work_active()
+                if it.get("slug") and self._work_counts_active(it)
+                and self._work_next_recipient(it)[0] == nid]
+
     def work_blocked_only(self, nid: str) -> bool:
         """Does this agent's docket consist ONLY of blocked work — nothing it
-        could act on right now? THE PREDICATE THE WORKING-STATUS CHECKUP
-        CONSULTS (user 2026-09-07: blocked tasks must not generate periodic
-        status nudges; coordinator 2026-09-07: the idle-docket exclusion alone
-        did not prove that, because an agent whose last report was `working`
-        was still woken by the independent checkup).
+        could act on right now? (user 2026-09-07: blocked tasks must not
+        generate periodic status nudges; coordinator 2026-09-07: the
+        idle-docket exclusion alone did not prove that, because an agent whose
+        last report was `working` was still woken by the independent checkup).
 
-        The items considered are the ones this agent OWES the next action on
-        (`_work_next_recipient`) and that count as active — the same set the
+        The items considered are `_work_owed_active` — the same set the
         idle reminder draws from before its own exclusions. Three answers:
           · no such items at all → False: an agent working with no docket
             keeps its checkup (the docket is not the only work there is);
@@ -11414,9 +11426,7 @@ class Org:
         Attention-holding rows are not special-cased: a blocked row waiting
         on the user is still blocked, and an in_progress row holding a flag is
         still the agent's actionable work for this question."""
-        owed = [it for it in self._work_active()
-                if it.get("slug") and self._work_counts_active(it)
-                and self._work_next_recipient(it)[0] == nid]
+        owed = self._work_owed_active(nid)
         if not owed:
             return False
         return all(self._work_status(it) == "blocked" for it in owed)
@@ -11458,6 +11468,84 @@ class Org:
                         "status": self._work_status(it),
                         "role": role})
         return sorted(out, key=lambda r: r["slug"])
+
+    def _work_nonterminal_org(self) -> list[WorkItem]:
+        """EVERY nonterminal item in the ORGANIZATION, whoever owes it.
+
+        The org-wide counterpart of `_work_owed_active`. Same membership rule
+        (`_work_counts_active`: not closed, not backlogged), no recipient
+        filter — this is the pool the reminder gate is quantified over."""
+        return [it for it in self._work_active()
+                if it.get("slug") and self._work_counts_active(it)]
+
+    def work_org_all_blocked(self) -> bool:
+        """Is the ORGANIZATION's whole remaining nonterminal set blocked?
+
+        The admission condition for blocked-ticket reminders (user
+        2026-09-13). It is ORG-WIDE: the user was asked directly and answered
+        on their own worked example — another agent holds an actionable
+        ticket, I hold two blocked ones, do I get the reminder — "Org-wide (I
+        don't)". So no agent hears about its blocked work while anything
+        anywhere is still actionable.
+
+        An empty pool answers False: an organization with no work at all is
+        not "all blocked", so a quiet docket never reminds anyone into
+        existence.
+
+        Only status `blocked` counts (user, same ruling: a ticket held by an
+        open question or attention flag is ACTIONABLE). `_work_status` is
+        used, so a legacy `waiting` row reads as blocked.
+
+        ⚠ THIS IS NOT A SUPPRESSION GATE. It never withholds the ordinary
+        actionable-ticket reminder — see `work_docket_reminder_items`."""
+        pool = self._work_nonterminal_org()
+        if not pool:
+            return False
+        return all(self._work_status(it) == "blocked" for it in pool)
+
+    def work_docket_reminder_items(self, nid: str) -> list[dict[str, str]]:
+        """WHAT THE PERIODIC DOCKET REMINDER LISTS for this agent when the
+        blocked-ticket option is ON. Empty means no reminder is sent to it.
+
+        The option is PURELY ADDITIVE (user 2026-09-13, superseding an earlier
+        reading of the same sentence as a global gate):
+
+          · ACTIONABLE WORK IS REMINDED ABOUT EXACTLY AS IT ALWAYS WAS. This
+            function never withholds it. A mixed organization behaves like
+            today in every respect, and blocked rows simply stay excluded.
+          · ONLY when the organization's entire nonterminal set is blocked
+            (`work_org_all_blocked`) is anything NEW admitted, and then what
+            this agent hears is still its own: the blocked rows whose next
+            action belongs to it. An agent owing none gets nothing, even then.
+
+        Because the two branches are the same question asked in order, the
+        actionable check comes first and short-circuits: if this agent has
+        actionable work, the organization is not all-blocked anyway.
+
+        ⚠ A SEPARATE ENTRY POINT ON PURPOSE, not a change to
+        `work_idle_reminder_items`. That function is also what
+        `supervisor._working_checkup_eligible` asks, and changing it in place
+        would move the reported-working CHECKUP too — which this rule does not
+        govern. The reminder and the checkup ask different questions.
+
+        Terminal and backlogged rows reach neither branch: both sets are built
+        on `_work_counts_active`."""
+        actionable = self.work_idle_reminder_items(nid)
+        if actionable:
+            return actionable
+        if not self.work_org_all_blocked():
+            return []
+        # The condition already proves every nonterminal item is blocked; the
+        # status filter restates it so this can never list non-blocked work in
+        # a blocked-ticket reminder if that predicate is later widened.
+        return sorted(
+            [{"slug": str(it.get("slug") or ""),
+              "title": str(it.get("title") or ""),
+              "status": self._work_status(it),
+              "role": self._work_next_recipient(it)[1]}
+             for it in self._work_owed_active(nid)
+             if self._work_status(it) == "blocked"],
+            key=lambda r: r["slug"])
 
     def work_list(self, viewer: str, include_archived: bool = False,
                   now_ts: float | None = None,

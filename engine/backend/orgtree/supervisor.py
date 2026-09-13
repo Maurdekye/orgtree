@@ -11448,7 +11448,17 @@ def _idle_docket_reminder_reserve(
         org = store.load_org(slug)
         if not _auto_wake_gates_clear(org, nid):
             return None
-        items = org.work_idle_reminder_items(nid)
+        # THE REMINDER's set, never the checkup's. Which question is asked is
+        # the user's machine-wide choice and it DEFAULTS OFF: off is the
+        # long-standing behaviour (nudge the actionable owned items, exclude
+        # blocked ones per item). On is PURELY ADDITIVE — the same actionable
+        # reminder, plus this agent's own blocked rows in the one case where
+        # the whole organization is blocked. Neither branch ever withholds an
+        # actionable reminder. Read here rather than in the ledger so the
+        # selection rules stay pure and the toggle has exactly one site.
+        items = (org.work_docket_reminder_items(nid)
+                 if appsettings.blocked_docket_reminders_enabled()
+                 else org.work_idle_reminder_items(nid))
         if not items:
             return None                 # no wake AND no stamp
         n = org.node(nid)

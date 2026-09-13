@@ -58,6 +58,9 @@ function stubFetch(seen: Seen[], initial = ON): void {
   let warmingEnabled = true
   let workingCheckupsEnabled = true
   let waitForMcpToolsEnabled = false
+  // default OFF, exactly as the backend reports a record that has never been
+  // written — the option only exists on an explicit true
+  let blockedDocketRemindersEnabled = false
   g.fetch = (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const method = init?.method ?? 'GET'
@@ -66,13 +69,16 @@ function stubFetch(seen: Seen[], initial = ON): void {
     if (path === '/api/app-settings/runtime' && method === 'PUT') {
       const runtime = body as {
         enabled?: boolean, working_checkups_enabled?: boolean,
-        wait_for_mcp_tools_enabled?: boolean
+        wait_for_mcp_tools_enabled?: boolean,
+        blocked_docket_reminders_enabled?: boolean
       }
       if (runtime.enabled !== undefined) warmingEnabled = runtime.enabled
       if (runtime.working_checkups_enabled !== undefined)
         workingCheckupsEnabled = runtime.working_checkups_enabled
       if (runtime.wait_for_mcp_tools_enabled !== undefined)
         waitForMcpToolsEnabled = runtime.wait_for_mcp_tools_enabled
+      if (runtime.blocked_docket_reminders_enabled !== undefined)
+        blockedDocketRemindersEnabled = runtime.blocked_docket_reminders_enabled
     }
     const payload = path === '/api/accounts' ? ACCOUNTS
       // The Import tab mounts ImportSettings, which polls for a running
@@ -84,11 +90,13 @@ function stubFetch(seen: Seen[], initial = ON): void {
         : path === '/api/app-settings/runtime' && method === 'GET'
           ? { warming_enabled: warmingEnabled,
               working_checkups_enabled: workingCheckupsEnabled,
-              wait_for_mcp_tools_enabled: waitForMcpToolsEnabled }
+              wait_for_mcp_tools_enabled: waitForMcpToolsEnabled,
+              blocked_docket_reminders_enabled: blockedDocketRemindersEnabled }
           : path === '/api/app-settings/runtime' && method === 'PUT'
             ? { warming_enabled: warmingEnabled,
                 working_checkups_enabled: workingCheckupsEnabled,
-                wait_for_mcp_tools_enabled: waitForMcpToolsEnabled }
+                wait_for_mcp_tools_enabled: waitForMcpToolsEnabled,
+                blocked_docket_reminders_enabled: blockedDocketRemindersEnabled }
         : path === '/api/providers/claude/enabled' && method === 'PUT'
           ? CLAUDE_OFF : null
     if (!payload) return Promise.reject(new Error(`unexpected ${method} ${path}`))
@@ -290,6 +298,42 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       method: 'PUT', path: '/api/app-settings/runtime',
       body: { wait_for_mcp_tools_enabled: true },
     })
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('§4b the blocked-docket-reminder option is present, defaults off, and '
+  + 'writes only its own key', async () => {
+  const seen: Seen[] = []
+  stubFetch(seen)
+  const view = await mountSettings()
+  try {
+    const runtime = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((b) => b.textContent?.includes('Runtime'))!
+    await inAct(async () => { runtime.click() })
+    const blocked = view.el.querySelector<HTMLInputElement>(
+      'input[aria-label="also remind about blocked items when every ticket is blocked"]')
+    assert.ok(blocked, 'the option has no control the user can reach')
+    // DEFAULT OFF is the whole point of shipping it behind a toggle: the user
+    // asked for it off until its long-term implications are known.
+    assert.equal(blocked.checked, false, 'the option defaults off')
+    await inAct(async () => { blocked.click(); await flush(10) })
+    assert.equal(blocked.checked, true, 'the choice is reflected back')
+    // ⚠ the PUT carries THIS KEY ALONE. The runtime endpoint updates one
+    // choice without disturbing the others, so a body that also carried a
+    // neighbouring switch would silently rewrite a durable value the user
+    // never touched.
+    assert.deepEqual(seen.find((r) =>
+      (r.body as { blocked_docket_reminders_enabled?: boolean } | null)
+        ?.blocked_docket_reminders_enabled !== undefined), {
+      method: 'PUT', path: '/api/app-settings/runtime',
+      body: { blocked_docket_reminders_enabled: true },
+    })
+    // and turning it back off round-trips rather than sticking on
+    await inAct(async () => { blocked.click(); await flush(10) })
+    assert.equal(blocked.checked, false)
+    assert.deepEqual(seen.filter((r) =>
+      (r.body as { blocked_docket_reminders_enabled?: boolean } | null)
+        ?.blocked_docket_reminders_enabled === false).length, 1)
   } finally { await view.unmount(); delete g.fetch }
 })
 

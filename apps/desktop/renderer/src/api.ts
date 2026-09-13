@@ -631,6 +631,14 @@ export const setIdleDocketRemindersEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idle_docket_reminders_enabled: enabled }),
   })
+export const setBlockedDocketRemindersEnabled = (
+  enabled: boolean,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ blocked_docket_reminders_enabled: enabled }),
+  })
 export const getUsage = (force = false): Promise<UsagePayload> =>
   req(`/api/usage${force ? '?force=true' : ''}`)
 // cache-only — the glow polls this; only the modal above may cost a fetch
