@@ -192,6 +192,36 @@ setup and running-app behavior. Finish-page launch behavior is unchanged: when
 the user leaves the launch option selected, the upgraded installation starts
 once with the normal update handoff.
 
+### Verifying the close against a real running application
+
+`tools/test-upgrade-close-boundary.mjs` is the only test that exercises the
+place where a new installer meets an already-running installed application.
+Every other upgrade test reads source text or re-implements the detection rules,
+and none of them can see a helper that fails at run time. This one materialises
+a disposable packaged copy of `tests/fixtures/legacy-desktop` — a process double
+with its own application name, userData path and single-instance identity, so it
+can never join or disturb an installed Orgtree — starts it, and runs the real
+`tools/installer-upgrade.ps1` against it.
+
+It needs an Electron runtime. It resolves one from the `electron` dependency, or
+from `ORGTREE_ELECTRON_EXE` when that dependency has no downloaded binary, and
+prints `SKIP` when neither is available. Two facts it pins down, both measured
+rather than assumed:
+
+- Two mechanisms an installer might reach for are not graceful closes for an
+  application that does not understand the control argument. `WM_CLOSE`, which
+  is what `taskkill` without `/F` sends, only hides the window to the tray and
+  leaves the application and its engine running. An end-session message does end
+  the process, but runs none of its shutdown handlers, so window layout is not
+  persisted and the managed engine is stranded holding installed files.
+- The helper runs under Windows PowerShell 5.1, which the installer invokes
+  directly. `New-Object` on a quoted generic type name throws there, and the
+  test's positive case fails the moment that construct returns.
+
+Run it from a path without 8.3 short components: an Electron application started
+from a short path does not receive second-instance notifications from a copy
+started through the long path.
+
 ## Installation and live verification boundary
 
 The command stops after candidate production or public verification. It does

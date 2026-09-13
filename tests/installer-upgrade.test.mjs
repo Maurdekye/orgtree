@@ -111,6 +111,23 @@ test('graceful shutdown is path-bound, retryable, and never force-kills', () => 
   assert.match(installer, /!ifndef BUILD_UNINSTALLER[\s\S]*?Call orgtreeCloseForUpgrade[\s\S]*?!else[\s\S]*?!insertmacro _CHECK_APP_RUNNING[\s\S]*?!endif/)
 })
 
+test('the shutdown helper stays runnable under the PowerShell the installer uses', () => {
+  // NSIS runs this helper with $SYSDIR\WindowsPowerShell\v1.0\powershell.exe —
+  // Windows PowerShell 5.1 — where `New-Object` on a quoted generic type name
+  // throws "Argument types do not match" before it inspects a single process.
+  // That made every graceful close fail on every version, which is how a
+  // release shipped that never closed anything. `$matches` is also an automatic
+  // variable, so it is not used as a name either.
+  // tools/test-upgrade-close-boundary.mjs proves the behaviour end to end
+  // against a real running app; this keeps the hazard out of the file at all.
+  // The comment above the fix names both hazards, so only executable lines are
+  // examined; a test that its own explanation can fail proves nothing.
+  const code = helper.split('\n').filter(line => !/^\s*#/.test(line)).join('\n')
+  assert.doesNotMatch(code, /New-Object\s+(['"])?System\.Collections\.Generic\./i)
+  assert.doesNotMatch(code, /\$matches\b/)
+  assert.match(code, /\[System\.Collections\.Generic\.List\[object\]\]::new\(\)/)
+})
+
 test('installer control invocation quits the app without starting a desktop', () => {
   assert.match(app, /hasInstallerUpgradeRequest\(process\.argv\)/)
   assert.match(app, /else if \(installerUpgradeRequested\)/)

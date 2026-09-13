@@ -38,7 +38,14 @@ try {
 
   function Get-InstalledProcesses {
     $records = @(Get-CimInstance -ClassName Win32_Process)
-    $matches = New-Object 'System.Collections.Generic.List[object]'
+    # ⚠ The installer runs this under Windows PowerShell 5.1
+    # ($SYSDIR\WindowsPowerShell\v1.0\powershell.exe), where
+    # `New-Object 'System.Collections.Generic.List[object]'` throws "Argument
+    # types do not match" before it can inspect anything. That made every
+    # invocation of this helper fail, so no installed Orgtree was ever asked to
+    # close. Construct through the type itself, which 5.1 accepts.
+    # `$matches` is an automatic variable and is deliberately not used as a name.
+    $found = [System.Collections.Generic.List[object]]::new()
     foreach ($record in $records) {
       if ([string]::IsNullOrWhiteSpace([string]$record.Name)) { continue }
       if (-not [string]::Equals([string]$record.Name, $leaf, [StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -47,10 +54,10 @@ try {
       }
       $processPath = Get-CanonicalPath ([string]$record.ExecutablePath)
       if ([string]::Equals($processPath, $executable, [StringComparison]::OrdinalIgnoreCase)) {
-        $matches.Add($record)
+        $found.Add($record)
       }
     }
-    return @($matches)
+    return @($found)
   }
 
   $running = @(Get-InstalledProcesses)
