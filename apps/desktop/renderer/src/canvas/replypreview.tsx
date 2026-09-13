@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
 import type { ReplyContext } from '../eventReply'
 import { ObjectMenuBoundary } from './contextmenu'
+import { ReplyIcon } from '../icons'
 
 /** The loaded conversation resolves exact reply snapshots, never text or a
  * newer revision of the same assistant message. Other surfaces keep quotes. */
@@ -19,9 +20,11 @@ export function ReplyPreview({ reply, available, onLocate, onRemove }: {
   return <aside className={'reply-preview' + (composing ? ' reply-preview-composing' : '')}
     aria-label="Replying to chat event">
     <div className="reply-preview-head">
-      <button type="button" onClick={onLocate} disabled={!available}
+      <button className="reply-preview-jump" type="button" onClick={onLocate} disabled={!available}
+        aria-label="jump to message"
         title={available ? 'Show the original event' : 'Original event is not in this loaded conversation'}>
-        Reply to {reply.agent} · generation {reply.generation}
+        <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
+        <span>jump to message</span>
       </button>
       {onRemove && <button type="button" aria-label="Remove reply" onClick={onRemove}>×</button>}
     </div>

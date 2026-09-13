@@ -198,6 +198,14 @@ test('rich previews are bounded in both directions with images and long code kep
   assert.match(css, /\.reply-preview-content img\s*\{[^}]*max-width:\s*100%;[^}]*max-height:\s*7rem;/)
 })
 
+test('reply navigation is a compact unbordered link with visible focus and state feedback', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.reply-preview-jump\s*\{[^}]*min-height:\s*0;[^}]*padding:\s*2px 4px;[^}]*border:\s*0;[^}]*background:\s*transparent;/s)
+  assert.match(css, /\.reply-preview-jump:hover:not\(:disabled\)\s*\{[^}]*color:[^}]*background:/s)
+  assert.match(css, /\.reply-preview-jump:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s)
+  assert.match(css, /\.reply-preview-jump:disabled\s*\{[^}]*cursor:\s*default;/s)
+})
+
 test('nested preview names and titles keep copy menus while text selection and links keep native menus', async () => {
   const savedClip = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   const writes: string[] = [], feedback: string[][] = []

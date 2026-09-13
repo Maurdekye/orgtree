@@ -355,8 +355,8 @@ test('a settled user message carries its own reply reference and excerpt, '
     assert.equal(previews[0]!.classList.contains('reply-preview-composing'), false,
       'the settled annotation must NOT wear the composer class — the user '
       + 'clarification on the sibling docket item is explicit that these are distinct')
-    assert.match(previews[0]!.textContent!, /Reply to writer/,
-      `the reference names who is being replied to: ${previews[0]!.textContent}`)
+    assert.equal(previews[0]!.querySelector<HTMLButtonElement>('.reply-preview-jump')?.textContent?.trim(),
+      'jump to message', 'the compact control uses the exact requested visible label')
     assert.match(previews[0]!.textContent!, /Original answer/,
       `the excerpt is the quoted original text: ${previews[0]!.textContent}`)
   } finally { await view.unmount(); resetConvos() }
@@ -370,7 +370,13 @@ test('…and when the original is still in this loaded conversation, the '
   const view = await mountView(desk(), el => el)
   try {
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
-    const button = view.el.querySelector<HTMLButtonElement>('.reply-preview .reply-preview-head button')!
+    const button = view.el.querySelector<HTMLButtonElement>('.reply-preview-jump')!
+    assert.equal(button.textContent?.trim(), 'jump to message')
+    assert.equal(button.getAttribute('aria-label'), 'jump to message')
+    assert.equal(button.querySelector('svg')?.getAttribute('aria-hidden'), 'true',
+      'the curved arrow is decorative because the link text names the action')
+    button.focus()
+    assert.equal(document.activeElement, button, 'the jump link remains keyboard focusable')
     assert.equal(button.disabled, false,
       'the original event IS in this conversation (assistant-1), so the '
       + `locate route must be live, not the "unavailable" fallback: ${button.title}`)
@@ -396,7 +402,7 @@ test('…and CONTROL: when the original is NOT in this conversation, the '
     const preview = view.el.querySelector<HTMLElement>('.reply-preview')!
     assert.ok(preview, 'the reference/excerpt still render — this is not the same '
       + 'thing as availability')
-    const button = preview.querySelector<HTMLButtonElement>('.reply-preview-head button')!
+    const button = preview.querySelector<HTMLButtonElement>('.reply-preview-jump')!
     assert.equal(button.disabled, true, 'but the route is honestly disabled')
     assert.match(preview.textContent!, /Original answer/,
       'and the quoted excerpt is still readable even though the source is gone')
