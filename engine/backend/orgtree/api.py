@@ -7935,6 +7935,32 @@ def _arg_flag(a: dict[str, Any], key: str) -> bool:
     return bool(v)
 
 
+_DESKTOP_RELAUNCH_TOOLS = frozenset({
+    "orgtree_self_relaunch", "orgtree_prime_relaunch",
+})
+_DESKTOP_LEGACY_RESTART_TOOLS = frozenset({
+    "orgtree_self_restart", "orgtree_prime_restart",
+})
+
+
+def _desktop_relaunch_args(tool: str, a: dict[str, Any]) -> None:
+    """Reject deployment-shaped or otherwise unknown V2 relaunch options.
+
+    The desktop maintenance record still has a target and action internally,
+    because older records must survive a V2 upgrade.  Those fields are not
+    controls on the renamed MCP surface: accepting them here would make a
+    relaunch look like the old machine-wide deployment operation again.
+    """
+    allowed = {"reason"} if tool == "orgtree_self_relaunch" \
+        else {"action", "reason"}
+    extra = sorted(str(key) for key in a if str(key) not in allowed)
+    if extra:
+        raise HTTPException(
+            422,
+            f"{tool} accepts only {', '.join(sorted(allowed))}; "
+            f"unsupported option(s): {', '.join(extra)}")
+
+
 _AGENT_PREVIEW_OPS = frozenset({
     "reallocate", "move", "swap", "swap_seats",
     "self_subjugate", "subjugate", "retool", "set_scope", "retire",
@@ -9087,16 +9113,32 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # It runs before the gates below because a lookup performs none of
         # those operations.
         return _op_lookup_call(body, a)
+    _desktop_managed = os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1'
     if body.tool in ("orgtree_self_restart", "orgtree_self_update",
-                     "orgtree_prime_restart") \
+                     "orgtree_prime_restart", *_DESKTOP_RELAUNCH_TOOLS) \
             and not deployment.current_policy().allow_agent_restart:
         raise HTTPException(
             403, "the frozen deployment profile disables agent-triggered "
                  "self-update, self-restart, and primed restart; deploy this "
                  "installation through an operator-controlled path")
+    if body.tool in _DESKTOP_RELAUNCH_TOOLS:
+        if not _desktop_managed:
+            raise HTTPException(
+                422,
+                f"{body.tool} is available only to the desktop-managed V2 "
+                "profile")
+        _desktop_relaunch_args(body.tool, a)
+    elif _desktop_managed and body.tool in _DESKTOP_LEGACY_RESTART_TOOLS:
+        replacement = ("orgtree_self_relaunch"
+                       if body.tool == "orgtree_self_restart"
+                       else "orgtree_prime_relaunch")
+        raise HTTPException(
+            422,
+            f"desktop-managed V2 renamed {body.tool} to {replacement}; "
+            f"use {replacement} for an installed-app relaunch")
     if body.tool in ("orgtree_self_restart", "orgtree_self_update") \
             and _arg_flag(a, "force"):
-        if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1':
+        if _desktop_managed:
             raise HTTPException(422, 'Desktop maintenance waits for idle; force is unavailable')
         return _forced_self_restart(body, a)
     if body.tool in ("orgtree_state_inspect", "orgtree_capabilities",
@@ -9791,6 +9833,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         drive.append(_succ)
             elif body.tool == "orgtree_withdraw_ask":
                 result = org.withdraw_ask(body.node)
+            elif body.tool == "orgtree_self_relaunch":
+                # Desktop V2 exposes a relaunch-only verb.  The desktop
+                # maintenance adapter keeps the request durable and the
+                # native shell performs the actual idle-gated relaunch.
+                org.self_restart_gate(body.node)
+                result = supervisor.launch_self_restart(
+                    body.org, body.node, "org")
             elif body.tool in ("orgtree_self_restart", "orgtree_self_update"):
                 # gate + org-log first (raises on refusal, and the log rides
                 # this request's save); the launch itself is detached.
@@ -9811,6 +9860,40 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     body.org, body.node, str(a.get("target") or "org"),
                     **({'action':'update'} if body.tool == 'orgtree_self_update'
                        and os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1' else {}))
+            elif body.tool == "orgtree_prime_relaunch":
+                # The V2 prime deliberately has no deployment target or
+                # deadline.  Its native consumer waits for both an idle engine
+                # and 60 seconds of OS idle time before relaunching.
+                act = str(a.get("action") or "arm")
+                if act not in ("arm", "cancel", "status"):
+                    raise HTTPException(
+                        422, "action must be arm|cancel|status")
+                if act == "status":
+                    org._require_live(body.node)
+                    pr = supervisor.primed_restart()
+                    result = {
+                        "primed": pr,
+                        "status": (
+                            "relaunch in progress..."
+                            if pr and pr.get("state") == "executing" else
+                            f"a relaunch is primed by {pr.get('by_org')}/"
+                            f"{pr.get('by_node')} (armed {pr.get('at')}) — "
+                            "it fires after the engine is idle and the "
+                            "operating system has been idle for at least 60 "
+                            "seconds"
+                            if pr else
+                            "no relaunch is primed on this machine")}
+                elif act == "cancel":
+                    org.prime_restart_gate(body.node, "cancel")
+                    result = supervisor.cancel_prime_restart(
+                        body.org, body.node)
+                else:
+                    org.prime_restart_gate(
+                        body.node, "arm", target="org",
+                        reason=a.get("reason"), deadline_minutes=None)
+                    result = supervisor.arm_prime_restart(
+                        body.org, body.node, "org", a.get("reason"),
+                        deadline_minutes=None)
             elif body.tool == "orgtree_prime_restart":
                 # FR-27: arm a restart that fires by itself once the machine
                 # is quiet. The gate + org-log ride this request's save, the

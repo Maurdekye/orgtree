@@ -43,10 +43,10 @@ app.on('browser-window-created',(_event,main)=>main.webContents.once('did-finish
     const token=fs.readFileSync(path.join(root,'private-agent-token'),'utf8')
     const call=async(tool,args={})=>{const r=await fetch(origin+'/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Orgtree-Agent-Token':token},body:JSON.stringify({org:'acceptance-runtime',node:'planner',tool,args})});assert.equal(r.status,200);return r.json()}
     await call('orgtree_chart')
-    const request=await call('orgtree_self_restart',{target:'org'})
+    const request=await call('orgtree_self_relaunch')
     assert.equal(request.armed,true);assert.ok(!request.already_armed)
     record({kind:'fresh-request',id:request.maintenance.id})
-    if(boot===3){assert.equal((await call('orgtree_prime_restart',{action:'cancel'})).cancelled,true);finish()}
+    if(boot===3){assert.equal((await call('orgtree_prime_relaunch',{action:'cancel'})).cancelled,true);finish()}
     // Boots one and two use unmodified app.relaunch + quit in production main.
   }catch(error){finish(error)}
 }))

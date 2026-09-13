@@ -50,8 +50,8 @@ app.on('browser-window-created',(_event,main)=>main.webContents.once('did-finish
     assert.equal(fs.realpathSync.native(ready.dataRootId),fs.realpathSync.native(path.join(root,'data')))
     const origin=new URL(main.webContents.getURL()).origin
     const token=fs.readFileSync(path.join(root,'private-agent-token'),'utf8')
-    const call=async(tool,node='planner')=>{
-      const response=await fetch(origin+'/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Orgtree-Agent-Token':token},body:JSON.stringify({org:'acceptance-runtime',node,tool,args:{target:'org'}})})
+    const call=async(tool,node='planner',args={})=>{
+      const response=await fetch(origin+'/api/agent',{method:'POST',headers:{'Content-Type':'application/json','X-Orgtree-Agent-Token':token},body:JSON.stringify({org:'acceptance-runtime',node,tool,args})})
       return {status:response.status,body:await response.json()}
     }
     const operator=await fetch(origin+'/api/desktop/status',{headers:{'X-Orgtree-Agent-Token':token}})
@@ -59,7 +59,7 @@ app.on('browser-window-created',(_event,main)=>main.webContents.once('did-finish
     assert.ok([401,403].includes((await call('orgtree_chart','builder')).status))
     assert.equal((await call('orgtree_chart')).status,200)
     checks.push({name:'scoped-actor-positive-and-forgery-controls',status:'PASS',port:ready.port})
-    const update=await call('orgtree_self_update')
+    const update=await call('orgtree_self_update','planner',{target:'org'})
     assert.equal(update.status,200);assert.equal(update.body.armed,true)
     await pause(5500)
     assert.equal(acks().filter(a=>a.accepted).length,0)
@@ -73,7 +73,7 @@ app.on('browser-window-created',(_event,main)=>main.webContents.once('did-finish
     assert.equal((await call('orgtree_chart')).status,200)
     checks.push({name:'up-to-date-keeps-engine-and-admission-open',status:'PASS'})
     idle=0
-    const restart=await call('orgtree_self_restart')
+    const restart=await call('orgtree_self_relaunch')
     assert.equal(restart.status,200);assert.equal(restart.body.armed,true)
     const wrong=await main.webContents.executeJavaScript(`fetch('/api/desktop/maintenance/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'wrong-id',outcome:'execute'})}).then(r=>r.json())`)
     assert.equal(wrong.accepted,false)

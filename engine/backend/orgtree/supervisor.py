@@ -7342,10 +7342,18 @@ def _org_state_parts(org: Org, nid: str,
         # dynamically, so state that trigger here without putting the live
         # audience bit back into the provider-process identity.
         live_guidance += (
-            " You currently have authority to use orgtree_self_restart for a "
-            "committed fix or a confirmed newer version. If the machine is "
-            "busy, use orgtree_prime_restart so the deploy fires when it is "
-            "quiet; never restart speculatively.")
+            " You currently have authority to use "
+            + ("orgtree_self_relaunch for an installed desktop relaunch. It "
+               "waits for the engine and operating system to be idle. If the "
+               "engine is busy, use orgtree_prime_relaunch; it fires after "
+               "the engine and operating system have been idle for at least "
+               "60 seconds. Use the tray's Update now action or the Windows "
+               "installer to update installed files."
+               if os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1' else
+               "orgtree_self_restart for a committed fix or a confirmed "
+               "newer version. If the machine is busy, use "
+               "orgtree_prime_restart so the deploy fires when it is quiet; "
+               "never restart speculatively."))
     guidance_line = f"\n{live_guidance}" if live_guidance else ""
     tail = (f"Credits: seat {org.seat_cost(nid):g}, grant {n['grant']:g}, "
             f"free {org.free(nid):g} — credits bound concurrent agent "
@@ -8463,6 +8471,20 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
            "hunch, or to 'make sure': there is no free restart. "
            if deployment.current_policy().allow_agent_restart
            and n["parent"] is None
+           and os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1'
+           else "")
+        + ("KEEPING THIS DESKTOP SESSION RUNNING: "
+           "orgtree_self_relaunch and orgtree_prime_relaunch only queue a "
+           "native idle relaunch of the installed Orgtree desktop and its "
+           "managed engine. They do not rebuild the repository, run update "
+           "scripts, replace installed Electron files, invoke an installer, "
+           "publish a release, or rebuild the mail hub. Use the tray's Update "
+           "now action or the Windows installer for installed-file updates. "
+           "The prime waits for the engine and at least 60 seconds of OS idle "
+           "before relaunching; do not use these tools for deployment. "
+           if deployment.current_policy().allow_agent_restart
+           and n["parent"] is None
+           and os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1'
            else "")
         + f"AUTHENTIC-CHANNEL NOTE: "
         f"the orgtree harness may deliver real mail mid-task — from the user or "

@@ -756,7 +756,11 @@ TOOLS: list[dict[str, Any]] = [
             "REASON — code committed that needs to be running, or a backend "
             "that must be bounced. Not speculatively, not on a hunch, not "
             "'to make sure': there is no such thing as a free restart, and "
-            "one with nothing to deploy is pure disruption."),
+            "one with nothing to deploy is pure disruption. This is a "
+            "backend deployment operation; it does not update any installed "
+            "Electron desktop application. Desktop users must use the tray's "
+            "Update now action or the Windows installer for installed "
+            "application files."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -836,7 +840,11 @@ TOOLS: list[dict[str, Any]] = [
             "Top-level agents and user-audience holders only; kiosks sealed. "
             "⚠ Still a real restart — have a REASON (code committed that "
             "needs to be running, a backend that must be bounced). 'Primed' "
-            "does not make it free; it makes it PATIENT."),
+            "does not make it free; it makes it PATIENT. This is a backend "
+            "deployment operation; it does not update any installed Electron "
+            "desktop application. Desktop users must use the tray's Update "
+            "now action or the Windows installer for installed application "
+            "files."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2214,9 +2222,86 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+# These cards intentionally live outside TOOLS.  TOOLS is the standard
+# backend catalogue; desktop-managed V2 replaces the two deployment cards at
+# the profile boundary below.  Keeping the replacement here makes the two
+# surfaces impossible to accidentally merge while still sharing all other
+# tools and their schemas.
+_DESKTOP_RELAUNCH_CARDS: tuple[dict[str, Any], dict[str, Any]] = (
+    {
+        "name": "orgtree_self_relaunch",
+        "description": (
+            "Request an idle relaunch of the installed Orgtree desktop and "
+            "its managed engine. This is a relaunch only: it does not rebuild "
+            "the repository, run update.ps1 or update.sh, replace installed "
+            "Electron files, invoke an installer, publish a release, or "
+            "rebuild the mail hub. The native desktop waits for the engine "
+            "and operating system to be idle, then relaunches Orgtree. To "
+            "update installed files, use the tray's Update now action or the "
+            "Windows installer. The request is durable and idempotent; an "
+            "optional reason is recorded."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "why the desktop relaunch is needed; "
+                                   "recorded with the durable request",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "orgtree_prime_relaunch",
+        "description": (
+            "Arm a durable idle relaunch of the installed Orgtree desktop "
+            "and its managed engine. It fires only after the engine is idle "
+            "and the operating system has been idle for at least 60 seconds. "
+            "It never rebuilds the repository, runs update.ps1 or update.sh, "
+            "replaces installed Electron files, invokes an installer, "
+            "publishes a release, or rebuilds the mail hub. Use action='status' "
+            "to inspect or action='cancel' to disarm; arming is idempotent. "
+            "To update installed files, use the tray's Update now action or "
+            "the Windows installer."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["arm", "cancel", "status"],
+                    "description": "arm (default), cancel, or status",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "why the desktop relaunch is needed; "
+                                   "shown with the durable request",
+                },
+            },
+            "required": [],
+        },
+    },
+)
+
 _AGENT_RESTART_TOOLS = frozenset({
     "orgtree_self_restart", "orgtree_prime_restart",
 })
+
+
+def _desktop_relaunch_catalogue(
+        tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace standard deployment cards with the V2 relaunch surface."""
+    replacements = {card["name"]: card for card in _DESKTOP_RELAUNCH_CARDS}
+    out: list[dict[str, Any]] = []
+    for tool in tools:
+        name = str(tool.get("name") or "")
+        if name == "orgtree_self_restart":
+            out.append(replacements["orgtree_self_relaunch"])
+        elif name == "orgtree_prime_restart":
+            out.append(replacements["orgtree_prime_relaunch"])
+        else:
+            out.append(tool)
+    return out
 
 
 def available_tools() -> list[dict[str, Any]]:
@@ -2227,7 +2312,7 @@ def available_tools() -> list[dict[str, Any]]:
         if str(tool.get("name") or "") not in _AGENT_RESTART_TOOLS]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
         return tools
-    tools = json.loads(json.dumps(tools))
+    tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))
     for tool in tools:
         if tool['name'] == 'orgtree_work':
             actions = tool['inputSchema']['properties']['action']['enum']

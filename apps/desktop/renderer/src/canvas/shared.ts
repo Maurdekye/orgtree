@@ -1418,14 +1418,13 @@ export function freezeKind(
 // failure being fixed, and it is invisible unless something compares the
 // labels to each other. `freezelabel.test.ts` asserts both maps are TOTAL over
 // FreezeKind and that no two kinds share a label.
-// FR-27 · the primed-restart chip's WORDS.
+// FR-27 · the primed-restart/relaunch chip's WORDS.
 //
 // Here rather than inline in App.tsx's header, for the reason the two freeze
 // registers below are here: as a JSX ternary the one property that matters
-// could not be tested. That property is NOT "the chip renders" — it is that a
-// prime which will restart the orgs reading this says so, and a prime which
-// will NOT (target 'mailhub' rebuilds a container and touches no agent) does
-// not get to wear the same words.
+// could not be tested. Standard callers need a prime which will restart the
+// orgs reading this to say so, while the desktop-managed V2 caller needs to
+// describe its installed-app relaunch without promising deployment.
 //
 // ⚠ The record is MACHINE-WIDE: api.py injects the same value into every org's
 // tree, so most of this chip's audience did not arm it and is only finding out
@@ -1433,22 +1432,34 @@ export function freezeKind(
 // org gets cut, and how to stop it.
 export interface PrimedChip { label: string; title: string; cutsUs: boolean }
 
+/**
+ * Build the prime status chip. `desktopManaged` selects the V2 relaunch words;
+ * the default preserves the standard backend deployment wording.
+ */
 export function primedRestartChip(
   pr: { target?: string | null; by_org?: string | null
         by_node?: string | null; at?: string | null
         reason?: string | null; state?: string | null
         triggered_at?: string | null } | null | undefined,
+  desktopManaged = false,
 ): PrimedChip | null {
   if (!pr) return null
-  const cutsUs = pr.target !== 'mailhub'
+  // The desktop V2 adapter keeps old target fields for persisted-record
+  // compatibility, but every such record is consumed as an installed-app
+  // relaunch. Standard callers retain the target-aware deployment wording.
+  const cutsUs = desktopManaged || pr.target !== 'mailhub'
   if (pr.state === 'executing') {
     return {
-      label: 'restart in progress...',
+      label: desktopManaged ? 'relaunch in progress...' : 'restart in progress...',
       title: [
-        `triggered at ${fmtFull(pr.triggered_at) || '?'}; deploy has started`,
-        cutsUs
-          ? 'this backend is shutting down; every org on this machine will restart'
-          : 'the mail hub container is rebuilding; agents here are NOT restarted',
+        desktopManaged
+          ? `triggered at ${fmtFull(pr.triggered_at) || '?'}; desktop relaunch has started`
+          : `triggered at ${fmtFull(pr.triggered_at) || '?'}; deploy has started`,
+        desktopManaged
+          ? 'the installed Orgtree desktop and managed engine are relaunching'
+          : cutsUs
+            ? 'this backend is shutting down; every org on this machine will restart'
+            : 'the mail hub container is rebuilding; agents here are NOT restarted',
         `originally armed by ${pr.by_org ?? '?'}/${pr.by_node ?? '?'}`
           + (pr.reason ? ` — ${pr.reason}` : ''),
       ].join('\n'),
@@ -1456,17 +1467,25 @@ export function primedRestartChip(
     }
   }
   return {
-    label: cutsUs
-      ? (pr.target === 'both' ? 'restart primed (+ mail hub)' : 'restart primed')
-      : 'mail hub restart primed',
+    label: desktopManaged
+      ? 'relaunch primed'
+      : cutsUs
+        ? (pr.target === 'both' ? 'restart primed (+ mail hub)' : 'restart primed')
+        : 'mail hub restart primed',
     title: [
       `armed by ${pr.by_org ?? '?'}/${pr.by_node ?? '?'} at ${fmtFull(pr.at) || '?'}`
         + (pr.reason ? ` — ${pr.reason}` : ''),
-      cutsUs
-        ? 'every org on this machine restarts, including this one'
-        : 'rebuilds the mail hub container only — agents here are NOT restarted',
-      'nothing happens while anyone is mid-turn; it fires by itself once the machine is quiet',
-      'disarm with orgtree_prime_restart action=cancel',
+      desktopManaged
+        ? 'the installed Orgtree desktop and managed engine relaunch after the engine is idle and the operating system has been idle for at least 60 seconds'
+        : cutsUs
+          ? 'every org on this machine restarts, including this one'
+          : 'rebuilds the mail hub container only — agents here are NOT restarted',
+      desktopManaged
+        ? 'nothing happens while the engine is busy; it fires by itself after the OS is idle'
+        : 'nothing happens while anyone is mid-turn; it fires by itself once the machine is quiet',
+      desktopManaged
+        ? 'disarm with orgtree_prime_relaunch action=cancel'
+        : 'disarm with orgtree_prime_restart action=cancel',
     ].join('\n'),
     cutsUs,
   }

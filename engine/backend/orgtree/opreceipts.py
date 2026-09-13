@@ -158,6 +158,8 @@ _COVERAGE_STATIC: dict[str, str] = {
     "orgtree_self_restart": UNROLLED,
     "orgtree_self_update": UNROLLED,  # the deprecated alias, same branch
     "orgtree_prime_restart": UNROLLED,
+    "orgtree_self_relaunch": UNROLLED,
+    "orgtree_prime_relaunch": UNROLLED,
     # `restart_wake` persists to its OWN sidecar file (restart_wake._wakes_write),
     # not to the org document — so the doc transaction cannot cover it.
     "orgtree_restart_wake": UNROLLED,
@@ -312,6 +314,8 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_self_restart": ("target",),
     "orgtree_self_update": ("target",),
     "orgtree_prime_restart": ("state", "armed"),
+    "orgtree_self_relaunch": ("armed",),
+    "orgtree_prime_relaunch": ("state", "armed"),
     "orgtree_restart_wake": ("armed", "cancelled", "state"),
 }
 # identity-shaped arguments worth keeping on the row: node ids, docket item

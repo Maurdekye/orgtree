@@ -1094,17 +1094,12 @@ export default function App() {
                     <EyeIcon fontSize="inherit" /> headless
                   </span>
                 )}
-                {/* FR-27 (user spec 2026-08-27): "some visual indication
-                    somewhere that a prime is active and will trigger the next
-                    moment the system quiesces".
-                    ⚠ IT SHOWS IN EVERY ORG, and that is the point rather than
-                    a side effect: the record is machine-wide because the
-                    restart is machine-wide, so the org that gets cut without
-                    having armed anything is exactly the one that most needs
-                    the warning. The words live in `primedRestartChip` —
-                    see the note there for why they are not inline. */}
+                {/* V2 maintenance records are machine-local and the native
+                    consumer performs an installed-app relaunch after idle.
+                    The words live in `primedRestartChip` so the desktop and
+                    standard renderer contracts can be tested separately. */}
                 {(() => {
-                  const pc = primedRestartChip(tree.primed_restart)
+                  const pc = primedRestartChip(tree.primed_restart, true)
                   if (!pc) return null
                   return (
                     <span className="chip primed" title={pc.title}>

@@ -857,10 +857,10 @@ export interface TreePayload {
   public?: boolean             // only through the public gateway
   net?: NetBlock | null        // F-06 (null for kiosks; absent for visitors)
   headless?: boolean           // §9.6
-  /** FR-27 (2026-08-27): a restart armed with orgtree_prime_restart, waiting
-   *  for the machine to go quiet. ⚠ MACHINE-WIDE, not org-scoped: api.py
-   *  injects the same record into EVERY org's tree, because the restart it is
-   *  waiting to fire cuts every org on the box. null = nothing primed. */
+  /** A persisted restart/relaunch record projected by the backend. Standard
+   *  profiles use it for machine-wide deployment; desktop-managed V2 uses the
+   *  same shape for an installed-app relaunch and keeps legacy target fields
+   *  only for persistence compatibility. null = nothing primed. */
   primed_restart?: PrimedRestart | null
 }
 

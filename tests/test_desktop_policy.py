@@ -19,6 +19,62 @@ def tearDownModule():
     _root.cleanup()
 
 class DesktopPolicyTests(unittest.TestCase):
+    def test_restart_catalogue_is_profile_specific_and_explicit(self):
+        with patch.dict(os.environ, {'ORGTREE_DESKTOP_MANAGED': '1'}):
+            managed = mcptool.available_tools()
+        managed_by_name = {tool['name']: tool for tool in managed}
+        self.assertIn('orgtree_self_relaunch', managed_by_name)
+        self.assertIn('orgtree_prime_relaunch', managed_by_name)
+        self.assertNotIn('orgtree_self_restart', managed_by_name)
+        self.assertNotIn('orgtree_prime_restart', managed_by_name)
+
+        self_card = managed_by_name['orgtree_self_relaunch']
+        prime_card = managed_by_name['orgtree_prime_relaunch']
+        self.assertEqual(set(self_card['inputSchema']['properties']), {'reason'})
+        self.assertEqual(set(prime_card['inputSchema']['properties']),
+                         {'action', 'reason'})
+        for card in (self_card, prime_card):
+            description = card['description']
+            self.assertRegex(description, r'(?:does not|never) rebuilds? the repository')
+            self.assertRegex(description, r'replace(?:s)? installed Electron files')
+            self.assertIn('Update now', description)
+            self.assertIn('Windows installer', description)
+            self.assertNotIn('deadline_minutes', description)
+            self.assertNotIn("target", card['inputSchema']['properties'])
+            self.assertNotIn("force", card['inputSchema']['properties'])
+        self.assertIn('at least 60 seconds', prime_card['description'])
+        self.assertIn("action='status'", prime_card['description'])
+        self.assertIn("action='cancel'", prime_card['description'])
+
+        with patch.dict(os.environ, {'ORGTREE_DESKTOP_MANAGED': '0'}):
+            standard = mcptool.available_tools()
+        standard_by_name = {tool['name']: tool for tool in standard}
+        self.assertIn('orgtree_self_restart', standard_by_name)
+        self.assertIn('orgtree_prime_restart', standard_by_name)
+        self.assertNotIn('orgtree_self_relaunch', standard_by_name)
+        self.assertNotIn('orgtree_prime_relaunch', standard_by_name)
+        self.assertIn('target', standard_by_name['orgtree_self_restart']
+                      ['inputSchema']['properties'])
+        self.assertIn('force', standard_by_name['orgtree_self_restart']
+                      ['inputSchema']['properties'])
+        self.assertIn('deadline_minutes', standard_by_name['orgtree_prime_restart']
+                      ['inputSchema']['properties'])
+        for name in ('orgtree_self_restart', 'orgtree_prime_restart'):
+            description = standard_by_name[name]['description']
+            self.assertIn('backend deployment operation', description)
+            self.assertIn('does not update any installed Electron desktop application',
+                          description)
+            self.assertIn('Update now', description)
+            self.assertIn('Windows installer', description)
+
+        with patch.dict(os.environ, {
+            'ORGTREE_DESKTOP_MANAGED': '1',
+            'ORGTREE_DEPLOYMENT_PROFILE': 'frozen',
+        }):
+            frozen_names = {tool['name'] for tool in mcptool.available_tools()}
+        self.assertNotIn('orgtree_self_relaunch', frozen_names)
+        self.assertNotIn('orgtree_prime_relaunch', frozen_names)
+
     def test_git_verify_refused_but_docket_list_available(self):
         org = store.create_org('docket-policy')
         org.hire(ledger.USER,None,'haiku',0,'worker')

@@ -85,12 +85,24 @@ assert m.status()['state']=='acknowledged'
         client = TestClient(app)
         headers = {'X-Orgtree-Agent-Token':agentauth.child_env('maintenance','boss')['ORGTREE_AGENT_TOKEN']}
         operator = {'X-Orgtree-Desktop-Token':'operator-test'}
-        payload = {'org':'maintenance','node':'boss','tool':'orgtree_self_restart','args':{}}
+        payload = {'org':'maintenance','node':'boss','tool':'orgtree_self_relaunch','args':{}}
         with patch.object(supervisor, '_detached_spawn', side_effect=AssertionError('V1 updater forbidden')):
             response = client.post('/api/agent', json=payload, headers=headers)
         self.assertEqual(response.status_code,200,response.text)
         pending = client.get('/api/desktop/status',headers=operator).json()['maintenance']
         self.assertEqual(pending['action'],'restart')
+        unsupported = client.post(
+            '/api/agent',
+            json={**payload, 'args': {'target': 'org'}},
+            headers=headers)
+        self.assertEqual(unsupported.status_code,422,unsupported.text)
+        self.assertIn('unsupported option', unsupported.text)
+        legacy = client.post(
+            '/api/agent',
+            json={**payload, 'tool': 'orgtree_self_restart'},
+            headers=headers)
+        self.assertEqual(legacy.status_code,422,legacy.text)
+        self.assertIn('orgtree_self_relaunch', legacy.text)
         self.assertEqual(client.post('/api/desktop/maintenance/ack',json={'id':pending['id']},headers=headers).status_code,401)
         self.assertFalse(client.post('/api/desktop/maintenance/ack',json={'id':'stale'},headers=operator).json()['accepted'])
         st = supervisor.state('maintenance','boss')
@@ -111,6 +123,36 @@ assert m.status()['state']=='acknowledged'
         self.assertEqual(maintenance.status()['state'],'failed')
         self.assertIsNone(maintenance.pending())
         self.assertTrue(client.post('/api/desktop/maintenance/failure',json={'id':pending['id']},headers=operator).json()['released'])
+        prime_payload = {
+            'org': 'maintenance', 'node': 'boss',
+            'tool': 'orgtree_prime_relaunch',
+            'args': {'reason': 'test idle relaunch'},
+        }
+        prime = client.post('/api/agent', json=prime_payload, headers=headers)
+        self.assertEqual(prime.status_code, 200, prime.text)
+        self.assertTrue(prime.json()['armed'])
+        self.assertEqual(prime.json()['maintenance']['target'], 'org')
+        for option in ({'target': 'org'}, {'force': True}, {'deadline_minutes': 5}):
+            unsupported_prime = client.post('/api/agent', json={
+                **prime_payload, 'args': option
+            }, headers=headers)
+            self.assertEqual(unsupported_prime.status_code, 422,
+                             unsupported_prime.text)
+            self.assertIn('unsupported option', unsupported_prime.text)
+        invalid_action = client.post('/api/agent', json={
+            **prime_payload, 'args': {'action': 'deploy'}
+        }, headers=headers)
+        self.assertEqual(invalid_action.status_code, 422, invalid_action.text)
+        status = client.post('/api/agent', json={
+            **prime_payload, 'args': {'action': 'status'}
+        }, headers=headers)
+        self.assertEqual(status.status_code, 200, status.text)
+        self.assertIn('at least 60 seconds', status.json()['status'])
+        cancelled = client.post('/api/agent', json={
+            **prime_payload, 'args': {'action': 'cancel'}
+        }, headers=headers)
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertTrue(cancelled.json()['cancelled'])
         maintenance.cancel('maintenance','boss')
         kid = {'X-Orgtree-Agent-Token':agentauth.child_env('maintenance','kid')['ORGTREE_AGENT_TOKEN']}
         denied = client.post('/api/agent',json={**payload,'node':'kid'},headers=kid)

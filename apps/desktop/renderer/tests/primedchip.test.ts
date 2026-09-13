@@ -96,3 +96,19 @@ test('an unknown target is treated as cutting us (fail LOUD, not silent)', () =>
   assert.equal(c.cutsUs, true)
   assert.match(c.label, /restart primed/)
 })
+
+test('desktop-managed V2 describes an installed-app relaunch, not deployment', () => {
+  const armed = primedRestartChip(REC, true)!
+  const executing = primedRestartChip({ ...REC, state: 'executing',
+    triggered_at: '2026-08-27T01:01:00.000Z' }, true)!
+
+  assert.equal(armed.label, 'relaunch primed')
+  assert.equal(armed.cutsUs, true)
+  assert.match(armed.title, /installed Orgtree desktop and managed engine relaunch/)
+  assert.match(armed.title, /at least 60 seconds/)
+  assert.match(armed.title, /orgtree_prime_relaunch action=cancel/)
+  assert.doesNotMatch(armed.title, /mail hub container|every org on this machine restarts/)
+  assert.equal(executing.label, 'relaunch in progress...')
+  assert.match(executing.title, /desktop relaunch has started/)
+  assert.match(executing.title, /managed engine are relaunching/)
+})
