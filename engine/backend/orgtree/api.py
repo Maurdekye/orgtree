@@ -2782,6 +2782,7 @@ class Settings(Body):
                                             # redesign 2026-09-12: fully
                                             # decoupled from API keys — keys
                                             # are machine-level ACCOUNTS now)
+    org_inbox_multi_holder: bool | None = None
     # Cache-protective cheap compaction — {enabled, occ (0..1 fraction of the
     # context window)}. Expiry is derived from same-lane positive receipts
     # (60m subscription, 5m API key), never an editable idle timeout.
@@ -2798,6 +2799,8 @@ _DEFAULTS_BASE = {
     "prefer_reserve": True,
     "cascade_hire": True, "cascade_alloc": True, "auto_resume": False,
     "auto_resume_compact": False, "account_fallback_default": False,
+    "org_inbox_multi_holder": False,
+    "external_inbox_multi_holder": False,
     # F-06: NOT an org-doc key — popped + translated into the "local" hub
     # entry at creation (orgs_create), shown on the root defaults page
     "net_hub_address": net.DEFAULT_HUB_ADDRESS,
@@ -2865,6 +2868,9 @@ def defaults_set(body: Settings) -> dict[str, Any]:
         d["prefer_reserve"] = bool(body.prefer_reserve)
     if body.account_fallback_default is not None:
         d["account_fallback_default"] = bool(body.account_fallback_default)
+    if body.org_inbox_multi_holder is not None:
+        d["org_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
+        d["external_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
     if body.auto_resume is not None:
         d["auto_resume"] = bool(body.auto_resume)
     if body.auto_resume_compact is not None:
@@ -3008,6 +3014,13 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
         org.d["auto_resume"] = bool(body.auto_resume)
     if body.auto_resume_compact is not None:
         org.d["auto_resume_compact"] = bool(body.auto_resume_compact)
+    if body.org_inbox_multi_holder is not None:
+        if not body.org_inbox_multi_holder and org.multi_holder_enabled:
+            extern_holders = org.extern_holders()
+            if len(extern_holders) > 1:
+                raise HTTPException(422, "Cannot disable multi-holder org-inbox mode because there are multiple existing holders: " + ", ".join(extern_holders) + ". Revoke all but one holder before disabling.")
+        org.d["org_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
+        org.d["external_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
     if body.cascade_hire is not None:
         org.d["cascade_hire"] = bool(body.cascade_hire)
     if body.cascade_alloc is not None:

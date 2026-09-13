@@ -757,6 +757,7 @@ class Org:
                         "id", uuid.uuid4().hex[:12])
         self._backfill_mail_log_ids()
         self._strip_settled_steer_views()
+        self._migrate_extern_multi_holder()
 
         # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
         # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
@@ -1093,6 +1094,8 @@ class Org:
             "fable_filter_policy": "halt",        # halt | opus | auto-autopsy — filter flags (user spec)
             "fable_filter_model": "opus",         # model tier when policy == auto-autopsy
             "nodes": {},
+            "external_inbox_multi_holder": False,
+            "org_inbox_multi_holder": False,
             "audiences": [],          # §7.3 — [{grantee, grantor, granted_at, reason}]
             # (a "chain_notices" key was seeded here and READ BY NOTHING. §7.4
             #  chain notices are ledger.user_deep_reach() writing into the
@@ -1928,6 +1931,44 @@ class Org:
         migs[self.STEER_VIEW_STRIP_MIGRATION] = {"at": now(),
                                                  "stripped": stripped}
 
+    EXTERN_MULTI_HOLDER_MIGRATION = "extern_multi_holder_v1"
+
+    def _migrate_extern_multi_holder(self) -> None:
+        """Inspect each existing organization's current external-inbox audience grants.
+        If an existing organization has two or more holders, automatically enable the
+        multi-holder setting for that organization. This grandfathers its current behavior
+        and preserves every existing grant.
+        Existing organizations with zero or one holder receive the new default with
+        multi-holder mode off.
+        Migration is idempotent and does not change holder membership itself."""
+        migs = self.d.setdefault("_migrations", {})
+        if self.EXTERN_MULTI_HOLDER_MIGRATION in migs:
+            return
+        if "external_inbox_multi_holder" in self.d or "org_inbox_multi_holder" in self.d:
+            val = bool(self.d.get("external_inbox_multi_holder", self.d.get("org_inbox_multi_holder", False)))
+            self.d["external_inbox_multi_holder"] = val
+            self.d["org_inbox_multi_holder"] = val
+            migs[self.EXTERN_MULTI_HOLDER_MIGRATION] = {
+                "at": now(),
+                "mode": "already_set",
+                "multi_holder": val,
+            }
+            return
+
+        grantees = {
+            a["grantee"]
+            for a in self.d.get("audiences", [])
+            if a.get("grantor") == EXTERN
+        }
+        multi = len(grantees) >= 2
+        self.d["external_inbox_multi_holder"] = multi
+        self.d["org_inbox_multi_holder"] = multi
+        migs[self.EXTERN_MULTI_HOLDER_MIGRATION] = {
+            "at": now(),
+            "holders": sorted(grantees),
+            "multi_holder": multi,
+        }
+
     def _backfill_mail_log_ids(self) -> None:
         """Give pre-id `mail_log` entries an id, ONCE per document.
 
@@ -2177,6 +2218,12 @@ class Org:
             held_handle = to in (self.node(sender).get("external_handles") or [])
             if not held_handle and not self._has_audience(sender, EXTERN):
                 if self.node(sender)["parent"] is None:
+                    if not self.multi_holder_enabled:
+                        for h in [a for a in self.d["audiences"] if a["grantor"] == EXTERN]:
+                            old_grantee = h["grantee"]
+                            self._notify_ev([old_grantee], self._aud_changed(sender, old_grantee, "rescinded", target=EXTERN))
+                            self._log("audience_revoke", sender, {"grantee": old_grantee, "grantor": EXTERN}, [])
+                        self.d["audiences"] = [a for a in self.d["audiences"] if a["grantor"] != EXTERN]
                     self.d["audiences"].append({
                         "grantee": sender, "grantor": EXTERN,
                         "granted_at": now(),
@@ -2662,10 +2709,17 @@ class Org:
     def is_kiosk(self) -> bool:
         return self.d.get("kiosk") is not None
 
+    @property
+    def multi_holder_enabled(self) -> bool:
+        return bool(self.d.get("external_inbox_multi_holder", self.d.get("org_inbox_multi_holder", False)))
+
     def extern_holders(self) -> list[str]:
-        return [a["grantee"] for a in self.d["audiences"]
-                if a["grantor"] == EXTERN and a["grantee"] in self.nodes
-                and self.nodes[a["grantee"]]["state"] == "live"]
+        holders = [a["grantee"] for a in self.d["audiences"]
+                   if a["grantor"] == EXTERN and a["grantee"] in self.nodes
+                   and self.nodes[a["grantee"]]["state"] == "live"]
+        if not self.multi_holder_enabled and len(holders) > 1:
+            return [holders[-1]]
+        return holders
 
     def extern_recipients(self) -> list[str]:
         # C0 (user ruling 2026-08-05): inbound extern mail wakes ORG-INBOX
@@ -2907,25 +2961,41 @@ class Org:
                 raise LedgerError("org-inbox audience grants cover your "
                                   "purview only — the grantee must be "
                                   "yourself or in your subtree")
-        if not self._has_audience(frm, EXTERN):
-            entry: AudienceGrant = {
-                     "grantee": frm, "grantor": EXTERN, "granted_at": now(),
-                     "reason": ("granted by the user" if actor == USER
-                                else f"delegated by {actor}")}
-            if actor != USER:
-                entry["delegated_by"] = actor
-            self.d["audiences"].append(entry)
+        warnings: list[str] = []
+        moved_from: list[str] = []
+        if not self.multi_holder_enabled:
+            old_grants = [a for a in self.d.get("audiences", []) if a.get("grantor") == EXTERN and a.get("grantee") != frm]
+            if old_grants:
+                self.d["audiences"] = [a for a in self.d.get("audiences", []) if not (a.get("grantor") == EXTERN and a.get("grantee") != frm)]
+                for og in old_grants:
+                    old_grantee = og["grantee"]
+                    moved_from.append(old_grantee)
+                    if actor == old_grantee:
+                        self._notify_ev([old_grantee], self._aud_changed(actor, old_grantee, "org_inbox_released", target=EXTERN))
+                    else:
+                        self._notify_ev([old_grantee], self._aud_changed(actor, old_grantee, "rescinded", target=EXTERN))
+                    self._log("audience_revoke", actor, {"grantee": old_grantee, "grantor": EXTERN}, [])
+
+        entry: AudienceGrant = {
+                    "grantee": frm, "grantor": EXTERN, "granted_at": now(),
+                    "reason": ("granted by the user" if actor == USER
+                            else f"delegated by {actor}")}
+        if actor != USER:
+            entry["delegated_by"] = actor
+        self.d["audiences"].append(entry)
         self._notify_ev([frm], self._aud_changed(actor, frm, "org_inbox", target=EXTERN))
-        self._log("audience_grant", actor, {"grantee": frm, "grantor": EXTERN}, [])
-        # user ruling 2026-08-05: the grant alone wakes nobody. A new holder
-        # receives only FUTURE inbound mail (delivery happens at arrival,
-        # never retroactively), so with an empty box the driven turn would
-        # exist only to read the notice above — drive only when mail is
-        # already waiting for the grantee; otherwise the notice rides their
-        # next natural turn. (The bootstrap path is untouched: there the
-        # arriving mail itself drives.)
+        log_meta: dict[str, Any] = {"grantee": frm, "grantor": EXTERN}
+        if moved_from:
+            log_meta["moved_from"] = moved_from
+        self._log("audience_grant", actor, log_meta, [])
+
+        self.d["audience_requests"] = [
+            r for r in self.d.get("audience_requests", [])
+            if not (r.get("from") == frm and r.get("target") in (EXTERN, "extern", "inbox"))
+        ]
+
         pending = bool((self.d.get("mail") or {}).get(frm))
-        return {"drive": [frm] if pending else [], "warnings": []}
+        return {"drive": [frm] if pending else [], "warnings": warnings}
 
     def audience_deny(self, actor: str, frm: str, target: str) -> dict[str, Any]:
         req = self._find_request(frm, target)
