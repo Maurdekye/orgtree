@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import threading
 import unittest
 from typing import cast
 import sys
@@ -28,19 +29,19 @@ class InboxHoldersTests(unittest.TestCase):
 
     def test_default_single_holder_enforcement(self):
         org = self.ledger.Org.create("single-holder")
-        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus", "created": 0}
         org.nodes["bob"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
-        
+
         # Grant to alice
         org.audience_grant(USER, "alice", EXTERN)
         holders = [a["grantee"] for a in org.d["audiences"] if a["grantor"] == EXTERN]
         self.assertEqual(holders, ["alice"])
-        
+
         # Grant to bob (this should move the grant from alice to bob)
         org.audience_grant(USER, "bob", EXTERN)
         holders = [a["grantee"] for a in org.d["audiences"] if a["grantor"] == EXTERN]
         self.assertEqual(holders, ["bob"])
-        
+
         # Alice should have lost the audience (rescinded)
         events = org.d.get("events", [])
         rescinded = [e for e in events if e.get("op") == "audience_revoke" and e.get("detail", {}).get("grantee") == "alice"]
@@ -52,12 +53,12 @@ class InboxHoldersTests(unittest.TestCase):
         org.d["org_inbox_multi_holder"] = True
         org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
         org.nodes["bob"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
-        
+
         # Grant to alice
         org.audience_grant(USER, "alice", EXTERN)
         # Grant to bob
         org.audience_grant(USER, "bob", EXTERN)
-        
+
         holders = [a["grantee"] for a in org.d["audiences"] if a["grantor"] == EXTERN]
         self.assertIn("alice", holders)
         self.assertIn("bob", holders)
@@ -95,7 +96,7 @@ class InboxHoldersTests(unittest.TestCase):
         org.d.pop("external_inbox_multi_holder", None)
         org.d.get("_migrations", {}).pop(self.ledger.Org.EXTERN_MULTI_HOLDER_MIGRATION, None)
         self.store.save_org(org)
-        
+
         # Re-load org to trigger __init__ migrations
         org = self.store.load_org("migrating")
         self.assertTrue(org.d.get("org_inbox_multi_holder"))
@@ -122,6 +123,29 @@ class InboxHoldersTests(unittest.TestCase):
         self.assertTrue(org.multi_holder_enabled)
         self.assertEqual(org.extern_holders(), ["alice", "bob"])
 
+    def test_migration_preserves_more_than_two_live_holders(self):
+        org = self.ledger.Org.create("migrating-many")
+        for holder in ("alice", "bob", "carol"):
+            org.nodes[holder] = {"state": "live", "parent": None,
+                                 "generation": 1, "model": "opus"}
+            org.d["audiences"].append({"grantee": holder,
+                                       "grantor": EXTERN,
+                                       "granted_at": 0, "reason": ""})
+        org.d.pop("org_inbox_multi_holder", None)
+        org.d.pop("external_inbox_multi_holder", None)
+        org.d.get("_migrations", {}).pop(self.ledger.Org.EXTERN_MULTI_HOLDER_MIGRATION, None)
+        self.store.save_org(org)
+
+        migrated = self.store.load_org("migrating-many")
+        self.assertTrue(migrated.multi_holder_enabled)
+        self.assertEqual(migrated.extern_holders(), ["alice", "bob", "carol"])
+        self.assertEqual(
+            [a["grantee"] for a in migrated.d["audiences"]
+             if a["grantor"] == EXTERN], ["alice", "bob", "carol"])
+        self.store.save_org(migrated)
+        reloaded = self.store.load_org("migrating-many")
+        self.assertEqual(reloaded.extern_holders(), ["alice", "bob", "carol"])
+
     def test_migration_zero_or_one_holder(self):
         org = self.ledger.Org.create("migrating-one")
         org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
@@ -130,10 +154,10 @@ class InboxHoldersTests(unittest.TestCase):
         org.d.pop("external_inbox_multi_holder", None)
         org.d.get("_migrations", {}).pop(self.ledger.Org.EXTERN_MULTI_HOLDER_MIGRATION, None)
         self.store.save_org(org)
-        
+
         org = self.store.load_org("migrating-one")
         self.assertFalse(org.d.get("org_inbox_multi_holder"))
-        
+
         org2 = self.ledger.Org.create("migrating-zero")
         org2.d.pop("org_inbox_multi_holder", None)
         org2.d.pop("external_inbox_multi_holder", None)
@@ -151,7 +175,7 @@ class InboxHoldersTests(unittest.TestCase):
         org.d["audiences"].append({"grantee": "alice", "grantor": EXTERN, "granted_at": 0, "reason": ""})
         org.d["audiences"].append({"grantee": "bob", "grantor": EXTERN, "granted_at": 0, "reason": ""})
         self.store.save_org(org)
-        
+
         body = self.api.Settings(org_inbox_multi_holder=False)
         from fastapi import HTTPException
         with self.assertRaises(HTTPException):
@@ -161,9 +185,22 @@ class InboxHoldersTests(unittest.TestCase):
         org.audience_revoke(USER, "bob", EXTERN)
         self.store.save_org(org)
         self.api._org_settings_locked("settings-change", body)
-        
+
         org = self.store.load_org("settings-change")
         self.assertFalse(org.d["org_inbox_multi_holder"])
+
+    def test_rejected_replacement_keeps_existing_holder(self):
+        org = self.ledger.Org.create("rejected-replacement")
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.nodes["charlie"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.audience_grant(USER, "alice", EXTERN)
+        with self.assertRaises(self.ledger.LedgerError):
+            # Alice is a top-level holder, but Charlie is outside her purview.
+            org.audience_grant("alice", "charlie", EXTERN)
+        self.assertEqual(org.extern_holders(), ["alice"])
+        self.assertEqual(
+            [a["grantee"] for a in org.d["audiences"]
+             if a["grantor"] == EXTERN], ["alice"])
 
     def test_legacy_global_holder_setting_is_not_reused(self):
         with open(os.path.join(self.store.DATA_ROOT, "defaults.json"), "w",
@@ -173,6 +210,62 @@ class InboxHoldersTests(unittest.TestCase):
         defaults = self.api.load_org_defaults()
         self.assertNotIn("org_inbox_multi_holder", defaults)
         self.assertNotIn("external_inbox_multi_holder", defaults)
+
+    def test_revoke_leaves_no_holder_and_tree_exposes_policy(self):
+        org = self.ledger.Org.create("revoke-holder")
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus", "created": 0}
+        org.audience_grant(USER, "alice", EXTERN)
+        org.audience_revoke(USER, "alice", EXTERN)
+        self.assertEqual(org.extern_holders(), [])
+        tree_org = self.ledger.Org.create("tree-policy")
+        self.assertFalse(tree_org.tree()["org_inbox"]["multi_holder_enabled"])
+
+    def test_permission_and_kiosk_boundaries_remain_enforced(self):
+        org = self.ledger.Org.create("permission-holder")
+        org.nodes["top"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.nodes["child"] = {"state": "live", "parent": "top", "generation": 1, "model": "opus"}
+        org.nodes["other"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        with self.assertRaises(self.ledger.LedgerError):
+            org.audience_grant("child", "other", EXTERN)
+        org.audience_grant(USER, "top", EXTERN)
+        org.audience_grant("top", "child", EXTERN)
+        self.assertEqual(org.extern_holders(), ["child"])
+
+        kiosk = self.ledger.Org.create("kiosk-holder")
+        kiosk.d["kiosk"] = {"enabled": True}
+        kiosk.nodes["top"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        with self.assertRaises(self.ledger.LedgerError):
+            kiosk.audience_grant(USER, "top", EXTERN)
+
+    def test_competing_grants_are_serialized_to_one_persisted_holder(self):
+        org = self.ledger.Org.create("concurrent-holder")
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.nodes["bob"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        self.store.save_org(org)
+        start = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def grant(holder: str) -> None:
+            try:
+                start.wait(timeout=5)
+                with self.store.DOC_LOCK:
+                    current = self.store.load_org("concurrent-holder")
+                    current.audience_grant(USER, holder, EXTERN)
+                    self.store.save_org(current)
+            except BaseException as exc:  # report both worker failures
+                errors.append(exc)
+
+        workers = [threading.Thread(target=grant, args=(holder,))
+                   for holder in ("alice", "bob")]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=10)
+        self.assertEqual(errors, [])
+        current = self.store.load_org("concurrent-holder")
+        self.assertEqual(len(current.extern_holders()), 1)
+        self.assertEqual(len([a for a in current.d["audiences"]
+                              if a["grantor"] == EXTERN]), 1)
 
 if __name__ == '__main__':
     unittest.main()
