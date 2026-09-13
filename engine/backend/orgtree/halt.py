@@ -8,6 +8,16 @@ register before releasing it and unregister after all turn cleanup. A halt
 first closes admission as `halting`, kills provider processes, then publishes
 `halted` only when those workers and their processes have settled. Never wait
 for a worker while holding DOC_LOCK: its finally block needs the same lock.
+
+The ORG KILLSWITCH (user redesign 2026-09-13) is the second durable halt
+state: one persistent org-level latch, `org.d["killswitch"]`, that makes
+EVERY agent in the org non-runnable without touching any per-agent `halt`
+record. Every gate below asks `blocked()` — the unified non-runnable
+predicate — instead of the per-agent flag alone, which is what lets the
+latch inherit all of halt's admission coverage (send door, workers,
+deliveries, spawn slots) without a second gate system. Clearing either
+state only restores eligibility: nothing is restarted, resumed or requeued
+until a separate event legitimately starts work (docket rev 4).
 """
 from __future__ import annotations
 
@@ -50,6 +60,34 @@ def requested(slug: str, nid: str) -> bool:
         return bool(n and n.get("halt"))
 
 
+def org_killswitch(slug: str) -> dict[str, Any] | None:
+    """The org-level emergency latch record ({at, by}), or None."""
+    with store.DOC_LOCK:
+        try:
+            return store.load_org(slug).d.get("killswitch") or None
+        except LedgerError:
+            return None
+
+
+def blocked(slug: str, nid: str) -> str | None:
+    """The unified non-runnable cause: 'halt' when the agent itself carries
+    the durable halt, 'killswitch' when its org's latch holds. One predicate,
+    asked by every gate in this module, so the org latch covers exactly the
+    wake/admission surface the per-agent halt already covers — a gate that
+    consulted `requested` alone would be a path the latch does not close."""
+    with store.DOC_LOCK:
+        try:
+            org = store.load_org(slug)
+        except LedgerError:
+            return None
+        n = org.nodes.get(nid)
+        if n is not None and n.get("halt"):
+            return "halt"
+        if org.d.get("killswitch"):
+            return "killswitch"
+        return None
+
+
 def _states(slug: str, nid: str, st) -> list[dict]:
     """Under DOC_LOCK: account/model resets may have replaced runtime state."""
     from . import supervisor as sup
@@ -61,8 +99,12 @@ def _states(slug: str, nid: str, st) -> list[dict]:
 
 
 def check(slug: str, nid: str) -> None:
-    if requested(slug, nid):
+    cause = blocked(slug, nid)
+    if cause == "halt":
         raise Cancelled("agent is halted — explicit unhalt is required")
+    if cause == "killswitch":
+        raise Cancelled("the org killswitch is latched — explicit release "
+                        "is required")
 
 
 @contextmanager
@@ -164,7 +206,7 @@ def delivery(empty):
         @wraps(fn)
         def guarded(slug, nid, *args, **kwargs):
             with store.DOC_LOCK:
-                if requested(slug, nid):
+                if blocked(slug, nid):
                     return empty()
                 return fn(slug, nid, *args, **kwargs)
         return guarded
@@ -180,7 +222,8 @@ def admission(fn):
         options.update(kwargs)
         with store.DOC_LOCK:
             n = _node(slug, nid)
-            if n and n.get("halt"):
+            cause = blocked(slug, nid) if n else None
+            if n and cause:
                 # Commands have no mailbox. Retain them verbatim, as well as
                 # raw restart/replay nudges; passive notices never create work.
                 if options.get("wake", True) and not options.get("idle_only"):
@@ -194,11 +237,17 @@ def admission(fn):
                     retain(org, nid, [c])
                     store.save_org(org)
                     n = org.node(nid)
+                halt_rec = n.get("halt")
                 return {"accepted": not options.get("idle_only", False),
                         "queued": len(n.get("halt_queue") or []),
-                        "halted": n["halt"]["phase"] == "halted",
-                        "halting": n["halt"]["phase"] == "halting",
-                        "deferred": "halted"}
+                        # a bare org latch has no per-node phases to settle:
+                        # the agent is effectively halted the moment the
+                        # latch commits, so the flags say so plainly
+                        "halted": (halt_rec["phase"] == "halted"
+                                   if halt_rec else True),
+                        "halting": (halt_rec["phase"] == "halting"
+                                    if halt_rec else False),
+                        "deferred": "halted" if halt_rec else "killswitch"}
             return fn(slug, nid, text, *args, **kwargs)
     return guarded
 
@@ -212,7 +261,7 @@ def worker(fn):
         st = sup.state(slug, nid)
         with store.DOC_LOCK:
             n = _node(slug, nid)
-            if n and n.get("halt"):
+            if n and blocked(slug, nid):
                 org = store.load_org(slug)
                 kept = (retain(org, nid, [args[0]])
                         if args and fn.__name__ in ("_run_turn", "_run_one_turn") else False)
@@ -236,10 +285,11 @@ def worker(fn):
             return fn(slug, nid, *args, **kwargs)
         finally:
             with store.DOC_LOCK:
-                n = None
+                gated = False
                 try:
                     n = _node(slug, nid)
-                    if n and n.get("halt"):
+                    gated = bool(n and blocked(slug, nid))
+                    if gated:
                         _capture(store.load_org(slug), nid, st)
                 finally:
                     owners = _worker_states.get(key, [])
@@ -255,7 +305,7 @@ def worker(fn):
                     else:
                         _workers.pop(key, None)
                         st.pop("halt_pending_carrier", None)
-                        if n and n.get("halt"):
+                        if gated:
                             runtimes = _states(slug, nid, st)
                             with sup._state_lock:
                                 for runtime in runtimes:
@@ -509,19 +559,56 @@ def unhalt(slug: str, nid: str, actor: str = USER) -> dict[str, Any]:
         org._log("unhalt", actor, {"node": nid}, [])
         store.save_org(org)
         sup.scan_steer_records(slug, nid)
-        result = resume_pending(slug, nid)
+        # Docket rev 4 (user rule 2026-09-13): clearing a halt only restores
+        # eligibility — it must not start, resume or requeue a turn. Retained
+        # carriers are MERGED back into the runtime queue so the next
+        # legitimately started turn delivers them; mail waits in the mailbox
+        # it never left. `resume_pending` (which starts turns) remains for
+        # startup recovery of NORMAL agents only.
+        result = merge_pending(slug, nid)
     sup.notify(slug, nid, "unhalted")
     warmpool.poke()
     return {"node": nid, "unhalted": True, "delivery": result}
 
 
-def resume_pending(slug: str, nid: str) -> dict[str, Any]:
-    """Restore durable carriers after unhalt/restart without a second owner."""
+def merge_pending(slug: str, nid: str) -> dict[str, Any]:
+    """Merge durable halt_queue carriers into the runtime queue and START
+    NOTHING (docket rev 4: clearing halt or the org killswitch restores
+    eligibility only). The durable copies stay until a provider receipt
+    spends them (`confirmed`), so a restart before the next legitimate turn
+    loses nothing. Mail needs no merge — it waits in the mailbox and the
+    next turn's envelope drains it; this preserves retained COMMANDS and
+    raw nudges, which have no mailbox."""
     from . import supervisor as sup
     with store.DOC_LOCK:
         org = store.load_org(slug)
         n = org.node(nid)
-        if n.get("halt") or n.get("state") != "live" or n.get("frozen") or n.get("limit_locked"):
+        if n.get("halt") or org.d.get("killswitch") or n.get("state") != "live" \
+                or n.get("frozen") or n.get("limit_locked"):
+            return {"deferred": True, "merged": 0}
+        st = sup.state(slug, nid)
+        with sup._state_lock:
+            queued = {c.get("_halt_id") for c in st.get("queue") or []
+                      if isinstance(c, dict)}
+            fresh = [copy.deepcopy(c) for c in n.get("halt_queue") or []
+                     if c.get("_halt_id") not in queued]
+            st["queue"].extend(fresh)
+    return {"merged": len(fresh), "started": False}
+
+
+def resume_pending(slug: str, nid: str) -> dict[str, Any]:
+    """Restore durable carriers after a restart without a second owner.
+
+    ⚠ This one STARTS a turn when there is work, so it belongs to startup
+    recovery of NORMAL agents only — unhalt and killswitch release call
+    `merge_pending` instead (docket rev 4: clearing never starts work), and
+    the latch guard here keeps restart recovery from driving a latched org."""
+    from . import supervisor as sup
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        n = org.node(nid)
+        if n.get("halt") or org.d.get("killswitch") or n.get("state") != "live" \
+                or n.get("frozen") or n.get("limit_locked"):
             return {"deferred": True}
         st = sup.state(slug, nid)
         first = None
@@ -555,3 +642,55 @@ def restore_carriers(org, nid: str, current) -> None:
         st["halt_pending_carrier"] = (current if isinstance(current, dict)
                                       else {"text": current})
         st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
+
+
+def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
+    """⏹ latch the persistent org-level killswitch state, then stop every
+    current turn (user redesign 2026-09-13 — the button used to be
+    `interrupt_all`, a turn boundary agents sailed straight back over).
+
+    ORDER IS LOAD-BEARING, same rule as `interrupt_all`'s watchdog pause:
+    the latch and the dog pause commit in ONE save BEFORE any agent is
+    interrupted. Once that save lands, every gate in this module answers
+    'killswitch', so no queue pump, retry or fresh mail can start a turn
+    between the per-agent interrupts that follow — the org transition and
+    the sweep read as one coordinated operation.
+
+    Watchdogs: still paused, and release does NOT resume them — the
+    2026-09-04 ruling ("nothing un-pauses them") predates the latch and
+    stays; the latch closes admission, but a firing dog would still pile
+    mail into boxes while the org stands still."""
+    from . import supervisor as sup
+    sup._wd_bump_stop_epoch(slug)
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        already = bool(org.d.get("killswitch"))
+        if not already:
+            org.d["killswitch"] = {"at": now(), "by": actor}
+            org._log("killswitch", actor, {"latched": True}, [])
+        paused = org.watchdogs_pause_all(org.WATCHDOG_KILLSWITCH_PAUSE)
+        store.save_org(org)
+    sweep = sup.interrupt_all(slug)
+    return {"latched": True, "already_latched": already,
+            "interrupted": sweep["interrupted"], "watchdogs_paused": paused}
+
+
+def killswitch_release(slug: str, actor: str = USER) -> dict[str, Any]:
+    """Clear ONLY the org-level latch. Individual halts were never touched
+    and so survive exactly as they stand; nothing is restarted, resumed or
+    requeued — retained carriers are merged for the next legitimate turn
+    and watchdogs stay paused (per-dog manual resume is the only exit)."""
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        rec = org.d.get("killswitch")
+        if not rec:
+            return {"released": False, "status": "the killswitch is not latched"}
+        org.d.pop("killswitch")
+        org._log("killswitch_release", actor,
+                 {"latched_at": rec.get("at"), "latched_by": rec.get("by")}, [])
+        store.save_org(org)
+        merged = [nid for nid, n in org.nodes.items()
+                  if n["state"] == "live" and not n.get("halt")
+                  and n.get("halt_queue")
+                  and merge_pending(slug, nid).get("merged")]
+    return {"released": True, "merged": merged}

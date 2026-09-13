@@ -2328,7 +2328,11 @@ def _org_view(slug: str, request: Request,
         # other kind flag, so on a payload node a SPEND freeze would read as
         # resumable — the exact class of silent wrong answer the `tier`/`model`
         # warning above was written about.
-        node["resumable"] = supervisor.resumable(org.node(node["id"]))
+        # ANDed with the org killswitch latch: while latched, ▶ refuses the
+        # whole org (409 + resume_frozen's own guard), so a node counted
+        # "resumable" would inflate a banner for a button that will not act
+        node["resumable"] = (supervisor.resumable(org.node(node["id"]))
+                             and not org.d.get("killswitch"))
         st = supervisor.state(slug, node["id"])
         node["busy"] = st["busy"]
         # №12: three states wore one pulse — split them: waiting on a turn
@@ -4647,9 +4651,13 @@ def node_message(slug: str, nid: str, body: Message,
                          f"nothing there and is not mail (nothing would "
                          f"survive to deliver at rehire); rehire first, or "
                          f"send it as a plain message")
-            if n.get("halt"):
+            if n.get("halt") or org.d.get("killswitch"):
                 if stripped.split()[0] == "/compact":
-                    raise HTTPException(409, "agent is halted — unhalt it before compacting")
+                    raise HTTPException(
+                        409, "agent is halted — unhalt it before compacting"
+                             if n.get("halt") else
+                             "the org killswitch is latched — release it "
+                             "before compacting")
                 org.user_deep_reach(nid, stripped[:160], kind="command")
                 store.save_org(org)
                 return supervisor.send_message(slug, nid, stripped, command=True)
@@ -5022,6 +5030,9 @@ def node_compact(slug: str, nid: str) -> dict[str, Any]:
         raise HTTPException(409, "frozen by a usage limit — resume it first")
     if n.get("halt"):
         raise HTTPException(409, "agent is halted — unhalt it before compacting")
+    if supervisor.halt.org_killswitch(slug):
+        raise HTTPException(409, "the org killswitch is latched — release it "
+                                 "before compacting")
     if supervisor.state(slug, nid)["busy"]:
         raise HTTPException(409, "busy — wait for the current turn to finish")
 
@@ -5105,19 +5116,36 @@ async def org_dissolve_all(slug: str) -> dict[str, Any]:
 
 @app.post("/api/orgs/{slug}/killswitch")
 async def org_killswitch(slug: str) -> dict[str, Any]:
-    """⏹ STOP ALL: interrupt every active agent, clear pending queues, and
-    PAUSE EVERY WATCHDOG so nothing wakes an agent back up.
+    """⏹ STOP ALL (user redesign 2026-09-13): latch the persistent org-level
+    killswitch state, stop every current turn, and PAUSE EVERY WATCHDOG.
+    The latch commits BEFORE the sweep, so nothing re-admits between the
+    per-agent interrupts, and it holds across restarts until the explicit
+    release below. Interrupting alone was only a turn boundary — agents
+    sailed straight back over it on the next queued mail or checkup.
 
-    ⚠ `pause_watchdogs=True` belongs HERE and only here. `interrupt_all`'s
-    other caller is the kiosk spend-limit freeze, which recovers by itself;
-    this route is the emergency stop the user asked to be blunt. Nothing
-    un-pauses the dogs automatically — resume is per-watchdog and manual,
-    either the operator visiting one or an agent resuming its own."""
+    ⚠ the kiosk spend-limit freeze still calls plain `interrupt_all` and
+    recovers by itself; only THIS route latches. Nothing un-pauses the dogs
+    automatically — resume is per-watchdog and manual."""
     try:
         store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    result = supervisor.interrupt_all(slug, pause_watchdogs=True)
+    result = supervisor.halt.killswitch_latch(slug)
+    await hub.changed(slug)
+    return result
+
+
+@app.post("/api/orgs/{slug}/killswitch/release")
+async def org_killswitch_release(slug: str) -> dict[str, Any]:
+    """Release the org-level killswitch latch — and ONLY that. Individually
+    halted agents stay halted (their state was never touched), no turn is
+    started, resumed or requeued, and watchdogs stay paused; agents merely
+    become eligible again for whatever legitimately drives them next."""
+    try:
+        store.load_org(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    result = supervisor.halt.killswitch_release(slug)
     await hub.changed(slug)
     return result
 
@@ -5129,6 +5157,11 @@ async def org_resume(slug: str) -> dict[str, Any]:
         store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    if supervisor.halt.org_killswitch(slug):
+        # ▶ exists to START turns; answering "resumed N" while the latch
+        # refuses every one of them would be affirmatively false
+        raise HTTPException(409, "the org killswitch is latched — release "
+                                 "it before resuming")
     try:
         resumed = supervisor.resume_frozen(slug)
     except RuntimeError as e:
@@ -9009,8 +9042,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # this request was always making: after it, `body.tool` is the real verb
     # and every authority, capability and policy check below sees THAT.
     body = _op_unwrap(body)
-    if supervisor.halt.requested(body.org, body.node):
+    _blocked = supervisor.halt.blocked(body.org, body.node)
+    if _blocked == "halt":
         raise HTTPException(409, "agent is halted — tools cannot execute until unhalt")
+    if _blocked == "killswitch":
+        raise HTTPException(409, "the org killswitch is latched — tools cannot "
+                                 "execute until the user releases it")
     try:
         a = _norm_args(body.args)
     except LedgerError as e:
@@ -9354,6 +9391,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             org.node(body.node)
             if org.node(body.node).get("halt"):
                 raise LedgerError("agent is halted — tools cannot execute until unhalt")
+            if org.d.get("killswitch"):
+                raise LedgerError("the org killswitch is latched — tools "
+                                  "cannot execute until the user releases it")
             # ADMISSION (w71d69aac). Inside this lock acquisition on purpose:
             # the same one that mutates the document and saves it. A check
             # before the lock would be a time-of-check/time-of-use hole, and

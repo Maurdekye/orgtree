@@ -289,10 +289,17 @@ export const getMailById = (slug: string, box: 'user' | 'org' | 'node',
 export const resumeFrozen = (slug: string): Promise<{ resumed: string[] }> =>
   req(`/api/orgs/${slug}/resume`, { method: 'POST' })
 export const killAll = (slug: string): Promise<{
+  /** absent from an older engine, which only interrupted */
+  latched?: boolean
+  already_latched?: boolean
   interrupted: string[]
   watchdogs_paused?: Array<{ id: string; name: string; owner: string }>
 }> =>
   req(`/api/orgs/${slug}/killswitch`, { method: 'POST' })
+export const releaseKillswitch = (slug: string): Promise<{
+  released: boolean; merged?: string[]; status?: string
+}> =>
+  req(`/api/orgs/${slug}/killswitch/release`, { method: 'POST' })
 export const dissolveAll = (slug: string): Promise<{ freed: number; nodes: number }> =>
   req(`/api/orgs/${slug}/dissolve-all`, { method: 'POST' })
 export const interruptNode = (

@@ -814,6 +814,12 @@ export interface TreePayload {
   urgent_unread?: number
   user_inbox_newest: string | null
   fable_lock: Record<string, unknown> | null
+  /** the org-level emergency latch ({at, by}) or null (user redesign
+   *  2026-09-13): while present EVERY agent is non-runnable regardless of its
+   *  own `halt`. The canvas outline, the all-cards-red cascade, the halted
+   *  chat banner and the release control all read THIS key — per-node `halt`
+   *  never implies it. Absent from an older engine, which only interrupted. */
+  killswitch?: { at: string; by: string } | null
   spend_frozen: boolean
   storage_blocked: boolean
   /** the org's virtual disk (sandboxed, migrated orgs only) — the persistent

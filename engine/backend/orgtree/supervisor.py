@@ -16413,8 +16413,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     "\n[END ORGTREE MAIL — authentic per your system "
                     "prompt; each message has the authority of its stated "
                     "sender; handle it before continuing your current work]")
-                if halt.requested(slug, nid):
-                    break  # pop_steer retained the carrier for halt/unhalt
+                if halt.blocked(slug, nid):
+                    break  # pop_steer retained the carrier for halt/latch
                 if turn.steer(wrapped):
                     commit_steer(slug, nid, carriers)
                 else:
@@ -20227,7 +20227,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
     except _AntigravityTurnDone:
         pass    # the antigravity leg booked its turn; only the shared finally runs
     except Exception as e:                                  # noqa: BLE001
-        if halt.requested(slug, nid):
+        if halt.blocked(slug, nid):
             if not paid_booked:
                 _charge_reported_spend(slug, nid, turn_paid, billed_on_key,
                                        native=turn_native, usage=last_cache_usage,
@@ -23343,8 +23343,14 @@ def _remote_unpark(slug: str, nid: str) -> None:
 
 def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
     try:
-        return _remote_control_start_owned(slug, nid) or {
-            "error": "agent is halted; unhalt it before starting remote control"}
+        result = _remote_control_start_owned(slug, nid)
+        if result is not None:
+            return result
+        # the worker gate refused without saying which durable state did
+        if halt.blocked(slug, nid) == "killswitch":
+            return {"error": "the org killswitch is latched; release it "
+                             "before starting remote control"}
+        return {"error": "agent is halted; unhalt it before starting remote control"}
     except halt.Cancelled:
         _remote_unpark(slug, nid)
         return {"error": "remote control canceled by halt"}
@@ -23367,6 +23373,9 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
         n = org.node(nid)
         if n.get("halt"):
             return {"error": "agent is halted; unhalt it before starting remote control"}
+        if org.d.get("killswitch"):
+            return {"error": "the org killswitch is latched; release it "
+                             "before starting remote control"}
         if n["state"] != "live":
             return {"error": f"{nid} is {n['state']} — only a live agent "
                              f"can be remote-controlled"}
@@ -24758,6 +24767,13 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
     with store.DOC_LOCK:
         org = store.load_org(slug)
         inventory = NativeInventory()
+        if org.d.get("killswitch"):
+            # ▶ and the auto-resume timer both come through here. While the
+            # org killswitch is latched neither may start anything OR consume
+            # a freeze's replay record — the record stays intact for a press
+            # AFTER release (the /resume route already answers 409; this
+            # covers the timer, which must stay quiet rather than error).
+            return []
         if org.d.get("spend_frozen"):
             raise RuntimeError("the kiosk spend limit was reached — raise the "
                                "limit from the admin dashboard to resume")
@@ -27864,6 +27880,9 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     if r.get("deferred") == "halted":
         return (f"NOT delivered: {nid} is halted; mail is preserved unread "
                 "until explicit orgtree_unhalt.")
+    if r.get("deferred") == "killswitch":
+        return (f"NOT delivered: {nid}'s org is halted by the killswitch; "
+                "mail is preserved unread until the user releases it.")
     if r.get("frozen"):
         return (f"NOT delivered: {nid} is frozen (usage limit or connection "
                 f"backoff). The mail is safe in its mailbox and is read when "
@@ -30176,10 +30195,17 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # live node with a waiting mailbox simply gets driven again. The
         # doc + the delivery journal are the durable carriers; RAM is not.
         resumed = {k for k, _ in inflight}
+        # An org whose KILLSWITCH is latched gets NO restart drives of any
+        # kind (user redesign 2026-09-13). The admission gate would refuse
+        # each send anyway — but every refused inflight replay would SPEND
+        # its turn marker into a retained carrier, and every refused revive
+        # nudge would litter halt_queue. Skipping keeps markers, mailboxes
+        # and queues exactly as the latch found them, for after the release.
+        latched = bool(org.d.get("killswitch"))
         # waking_mail, not mere non-emptiness: a mailbox holding only
         # kind="notice" entries (orgtree_send_notice) is exactly the state
         # "parked until the next turn", and a restart is not a turn
-        revive = [nid for nid, n in org.nodes.items()
+        revive = [] if latched else [nid for nid, n in org.nodes.items()
                   if n["state"] == "live" and nid not in marked
                   and nid not in resumed and not n.get("frozen") and not n.get("halt")
                   and not (recovery_observer is None
@@ -30187,7 +30213,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                   and org.waking_mail(nid)]
     dispatched = 0
     try:
-        for nid, inf in inflight:
+        for nid, inf in ([] if latched else inflight):
             print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
             observer = recovery_observer if nid in recovery_seats else None
             if observer:
@@ -30248,7 +30274,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     # the generic mail revive below). `resumed` nodes cannot overlap (their
     # inflight collection required not-frozen, and these were frozen then);
     # the revive loop below skips this set so nobody is driven twice.
-    _sw = [t for t in dict.fromkeys(switch_wake) if t not in resumed]
+    _sw = [] if latched else [t for t in dict.fromkeys(switch_wake)
+                              if t not in resumed]
     if _sw:
         print(f"[orgtree] {slug}: waking {_sw} — a queued provider switch "
               f"cleared their stale freeze at startup")
@@ -30256,7 +30283,9 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     # state-audit SH-4: the condemned nodes' superiors get their DRIVE now,
     # off the lock — one wake per superior however many of its reports were
     # condemned (the durable mail above already carries the per-node detail).
-    for _usup, _uns in _unrec_by_sup.items():
+    # (Latched org: the durable mail is already written and waits; the drive
+    # itself is skipped with every other restart drive.)
+    for _usup, _uns in ({} if latched else _unrec_by_sup).items():
         try:
             mail_spark(slug, "@system", _usup)
             send_message(

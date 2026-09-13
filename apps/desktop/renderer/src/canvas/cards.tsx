@@ -1434,6 +1434,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (node.bearer_state) cls.push('bearer')
   if (node.limit_locked) cls.push('locked')
   if (node.frozen) cls.push('frozen')
+  // the durable halt paints the card red (user spec 2026-09-13); the org
+  // killswitch paints EVERY card via `.viewport.killswitched .sq` instead,
+  // so no per-node class is needed for that scope
+  if (live && node.halt) cls.push('halted')
   if (readOnlyAgent(node)) cls.push('ro-agent')
   // aura semantics reworked (user ruling 2026-08-04): the bright terracotta
   // glow now means ONE thing — this agent needs the user's attention (an open

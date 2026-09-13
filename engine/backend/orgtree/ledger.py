@@ -9951,6 +9951,10 @@ class Org:
                                  if m.get("urgent")),
             "user_inbox_newest": (self.d.get("user_inbox") or [{}])[-1].get("at"),
             "fable_lock": self.d.get("fable_lock"),
+            # the org-level emergency latch ({at, by} or null): the canvas
+            # outline, the all-cards-red cascade and the release control all
+            # read THIS key — per-node `halt` above never says it
+            "killswitch": self.d.get("killswitch") or None,
             "spend_frozen": bool(self.d.get("spend_frozen")),
             "storage_blocked": bool(self.d.get("storage_blocked")),
             "account_fallback_default": bool(self.d.get("account_fallback_default", False)),

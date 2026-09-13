@@ -27,7 +27,7 @@ import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
-import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, TrayStatus } from './desk'
+import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
 import { DocReader } from './docs'
 import { mailRefTarget, useRefRoutes, Written } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -2666,9 +2666,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return { circ, seats: circ - free, free }
   }, [tree])
 
+  // the office border wears the safety red whenever ANY live agent is halted
+  // — individually or effectively via the org killswitch (docket rev 4);
+  // `killswitched` additionally paints every card via the CSS cascade
+  const redAlert = useMemo(() => !!tree.killswitch
+    || [...map.values()].some((n) => n.state === 'live' && n.halt),
+  [tree.killswitch, map])
+
   return (
+    <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
-      + (tree.headless ? ' headless' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
+      + (tree.headless ? ' headless' : '')
+      + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
@@ -3522,6 +3531,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </div>
       })}
     </div></DeskHosts>
+    </OrgKillswitchContext.Provider>
   )
 }
 

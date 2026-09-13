@@ -19,7 +19,7 @@ import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } fr
 // ContextWheel/Activity indicators shared with the cards. Extracted verbatim
 // from Canvas.tsx in the phase-3 split.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
@@ -1109,6 +1109,44 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
   </div>
 }
 
+/** The org-level killswitch latch, provided by OrgCanvas around the whole
+ * desk tree (context, not a prop: DeskChat mounts from five call sites and
+ * pops out into native windows — portals keep context, and a context change
+ * penetrates OwnedDeskChat's memo where a threaded prop would need every
+ * comparator taught about it). */
+export const OrgKillswitchContext = createContext(false)
+
+/** The halted banner (user spec 2026-09-13, docket rev 5): a LIVE desk whose
+ * agent cannot run says so directly above the message box — the same compact
+ * shape as the cache warning, in the safety red — and names WHICH durable
+ * state holds it: its own halt, the org killswitch, or both. The composer is
+ * deliberately NOT disabled and no new queueing policy exists here: the
+ * engine's admission gate is what holds submitted mail, and this line is why
+ * nothing appears to happen. Retired desks keep their archived presentation
+ * and never wear it; it disappears with the state that raised it. */
+export function HaltedBanner({ halt, killswitched, live }: {
+  halt?: TreeNode['halt'] | null
+  killswitched: boolean
+  live: boolean
+}) {
+  if (!live || (!halt && !killswitched)) return null
+  const both = !!halt && killswitched
+  return <div className="halted-send-warning" role="status">
+    <WarnIcon fontSize="inherit" />
+    <span>{both
+      ? 'Halted — this agent is individually halted AND the org killswitch is '
+        + 'latched. Mail is stored unread; no turn can run until both are cleared.'
+      : halt
+        ? (halt.phase === 'halting'
+          ? 'Halting — admission is closed while the active turn settles. Mail '
+            + 'is stored unread until explicit unhalt.'
+          : 'Halted — no turn can run and mail is stored unread until this '
+            + 'agent is explicitly unhalted.')
+        : 'Org killswitch latched — every agent here is halted. Mail is stored '
+          + 'unread until the killswitch is released.'}</span>
+  </div>
+}
+
 /* click-to-copy for the React-rendered pres (filepre/respre/diffpre) — same
    .codewrap/.code-copy contract as the md() pipeline, so the one delegated
    click listener in shared.ts serves both. The listener swaps the button's
@@ -1355,6 +1393,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
   staleIdentity = false }: DeskChatProps) {
+  // org killswitch latch — read here (context survives popout portals and
+  // OwnedDeskChat's memo) for the halted banner above the composer
+  const orgKillswitched = useContext(OrgKillswitchContext)
   // THE CONVERSATION IS NOT THIS COMPONENT'S. It lives in one per-node store
   // (convo.ts) that every view of this node subscribes to, because a node can
   // be on screen twice — its card and its switchboard panel — and two private
@@ -3080,6 +3121,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       )}
       {text.trimStart().startsWith('/') && canMail && (
         <SlashHints text={text} setText={setText} />)}
+      <HaltedBanner halt={node.halt} killswitched={orgKillswitched}
+        live={node.state === 'live'} />
       {/* `processActive`, not `turnActive`: the mid-turn banner is about a
           STEER WINDOW, which only exists while a turn is genuinely running.
           A queued or compacting agent has no window to miss. */}

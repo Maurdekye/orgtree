@@ -258,6 +258,76 @@ test('§6 Mobile onKilled callback is fired', async () => {
   }
 })
 
+test('§8 while the org is latched the control is a single explicit release', async () => {
+  useFakeClock()
+  try {
+    const toasts: string[][] = []
+    let released = false
+    let refreshed = false
+    const view = await mountView(
+      <KillSwitch
+        slug="test-org"
+        toast={(t) => { if (t) toasts.push(t) }}
+        refreshTree={async () => { refreshed = true }}
+        latched
+        killFn={async () => { throw new Error('kill must be unreachable while latched') }}
+        releaseFn={async () => { released = true; return { released: true } }}
+      />,
+      (el) => el,
+    )
+    assert.equal(view.el.querySelector('.kill-btn'), null,
+      'no STOP ALL while the org is already halted')
+    assert.equal(view.el.querySelector('.kill-latch'), null,
+      'no arming latch while the org is already halted')
+    const release = view.el.querySelector<HTMLButtonElement>('.kill-release')!
+    assert.ok(release, 'the release control rendered')
+    assert.match(release.textContent!, /HALTED — RELEASE/)
+    assert.match(release.title, /eligibility only/,
+      'the title says release starts nothing')
+
+    await inAct(() => { release.click() })
+    await flush()
+    assert.equal(released, true, 'releaseFn was executed')
+    assert.equal(refreshed, true, 'tree was refreshed')
+    assert.deepEqual(toasts, [[
+      'killswitch released — agents are eligible again; nothing was restarted']])
+
+    await view.unmount()
+  } finally {
+    realClock()
+  }
+})
+
+test('§9 a latched kill response wears the org-halt toast wording', async () => {
+  useFakeClock()
+  try {
+    const toasts: string[][] = []
+    const view = await mountView(
+      <KillSwitch
+        slug="test-org"
+        toast={(t) => { if (t) toasts.push(t) }}
+        killFn={async () => ({
+          latched: true,
+          interrupted: ['agent-1', 'agent-2'],
+          watchdogs_paused: [{ id: 'w1', name: 'dog0', owner: 'boss' }],
+        })}
+      />,
+      (el) => el,
+    )
+    const btn = view.el.querySelector<HTMLButtonElement>('.kill-btn')!
+    const latch = view.el.querySelector<HTMLButtonElement>('.kill-latch')!
+    await inAct(() => { latch.click() })
+    await advance(500)
+    await inAct(() => { btn.click() })
+    await flush()
+    assert.deepEqual(toasts, [[
+      'org halted — killswitch latched; 2 turn(s) stopped · paused 1 watchdog']])
+    await view.unmount()
+  } finally {
+    realClock()
+  }
+})
+
 test('§7 watchdogs_paused is formatted in toast when present', async () => {
   useFakeClock()
   try {

@@ -166,31 +166,28 @@ class AgentHaltTests(unittest.TestCase):
         with self.assertRaises(halt.Cancelled):
             sup._envelope(self.slug, self.nid, "rogue drain")
 
-    def test_unhalt_restores_one_owner_and_retains_commands(self):
+    def test_unhalt_merges_retained_commands_without_starting_a_turn(self):
+        # Docket rev 4 (user rule 2026-09-13): clearing a halt only restores
+        # ELIGIBILITY. The retained command is merged into the runtime queue
+        # for whatever legitimately drives the agent next — unhalt itself
+        # starts, resumes and requeues nothing.
         self.st["queue"] = [{"cmd": True, "text": "/context", "view": "/context"}]
         self.stop()
-        seen = []
-        entered = threading.Event()
-        release = threading.Event()
-
-        @halt.worker
-        def run(slug, nid, carrier):
-            self.assertFalse(self.org().node(nid).get("halt"))
-            seen.append(carrier)
-            entered.set()
-            release.wait(2)
-            self.st["busy"] = False
-        with patch.object(sup, "_run_turn", run):
-            self.assertTrue(halt.unhalt(self.slug, self.nid)["unhalted"])
-            self.assertTrue(entered.wait(1))
-            self.assertFalse(halt.unhalt(self.slug, self.nid)["unhalted"])
-            self.assertEqual(len(seen), 1)
-            self.assertTrue(seen[0]["cmd"])
-            self.assertEqual(seen[0]["text"], "/context")
-            release.set()
-        deadline = time.monotonic() + 1
-        while halt._workers.get((self.slug, self.nid)) and time.monotonic() < deadline:
-            time.sleep(.005)
+        with patch.object(sup, "_run_turn") as run, \
+             patch.object(sup, "send_message") as send:
+            r = halt.unhalt(self.slug, self.nid)
+            run.assert_not_called()
+            send.assert_not_called()
+        self.assertTrue(r["unhalted"])
+        self.assertEqual(r["delivery"]["merged"], 1)
+        self.assertFalse(r["delivery"].get("started"))
+        self.assertEqual([c["text"] for c in self.st["queue"]], ["/context"])
+        self.assertFalse(self.st["busy"])
+        self.assertFalse(halt._workers.get((self.slug, self.nid)))
+        self.assertFalse(halt.unhalt(self.slug, self.nid)["unhalted"])
+        # the durable copy stays until a provider receipt spends it, so a
+        # restart before the next legitimate turn loses nothing
+        self.assertEqual(len(self.org().node(self.nid)["halt_queue"]), 1)
 
     def test_restart_preserves_halt_and_mail_without_replay(self):
         self.st["queue"] = [{"text": "retained intent"}]
@@ -367,7 +364,8 @@ class AgentHaltTests(unittest.TestCase):
         self.stop()
         self.mail("FYI", "notice")
         with patch.object(sup, "send_message") as send:
-            self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"], {"idle": True})
+            self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"],
+                             {"merged": 0, "started": False})
             send.assert_not_called()
         self.stop()
         with store.DOC_LOCK:
@@ -375,7 +373,8 @@ class AgentHaltTests(unittest.TestCase):
             org.node(self.nid)["frozen"] = {"limit": True, "resume_texts": ["old"]}
             halt.retain(org, self.nid, [{"cmd": True, "text": "/context"}])
             store.save_org(org)
-        self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"], {"deferred": True})
+        self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"],
+                         {"deferred": True, "merged": 0})
         self.assertTrue(self.org().node(self.nid)["frozen"])
         self.assertEqual(len(self.org().node(self.nid)["halt_queue"]), 1)
         with store.DOC_LOCK:
@@ -691,7 +690,8 @@ class AgentHaltTests(unittest.TestCase):
             halt.link_freeze_replay(self.slug, self.nid, frozen)
             store.save_org(org)
         self.stop()
-        self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"], {"deferred": True})
+        self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"],
+                         {"deferred": True, "merged": 0})
         seen, complete = [], threading.Event()
 
         def acknowledge(slug, nid, carrier, **kwargs):
@@ -785,6 +785,9 @@ class AgentHaltTests(unittest.TestCase):
     def test_confirmed_released_command_cannot_replay_on_restart(self):
         self.st["queue"] = [{"cmd": True, "text": "/context", "view": "/context"}]
         self.stop()
+        # rev-4 unhalt merges the retained command and starts nothing; the
+        # NEXT legitimate turn is what delivers it — simulated directly here
+        self.assertEqual(halt.unhalt(self.slug, self.nid)["delivery"]["merged"], 1)
         consumed = threading.Event()
 
         def acknowledge(slug, nid, carrier, **kwargs):
@@ -794,7 +797,7 @@ class AgentHaltTests(unittest.TestCase):
 
         with patch.object(sup, "_run_one_turn", side_effect=acknowledge), \
              patch.object(sup, "_native_context_hold", return_value=None):
-            halt.unhalt(self.slug, self.nid)
+            sup._run_turn(self.slug, self.nid, self.st["queue"].pop(0))
             self.assertTrue(consumed.wait(2))
             deadline = time.monotonic() + 1
             while halt._workers.get((self.slug, self.nid)) and time.monotonic() < deadline:

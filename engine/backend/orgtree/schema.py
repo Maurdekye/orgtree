@@ -979,6 +979,11 @@ class OrgDoc(TypedDict):
                                             # system-volume image seed (bytes);
                                             # storage accounting charges growth only
     fable_lock: NotRequired[dict[str, Any] | None]
+    killswitch: NotRequired[dict[str, Any] | None]  # org-level emergency latch
+                                        # {at, by}: while present EVERY agent
+                                        # is non-runnable regardless of its own
+                                        # `halt`; cleared only by explicit
+                                        # release (halt.killswitch_release)
     spend_frozen: NotRequired[bool]
     storage_frozen: NotRequired[bool]   # HISTORICAL (pre-disk legacy breach) —
                                         # never set since D-063; cleared at

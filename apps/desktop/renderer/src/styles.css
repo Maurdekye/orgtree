@@ -652,6 +652,21 @@ button.badge.audience-fold.alert {
   cursor: pointer;
 }
 .kill-btn.expanded:not(:disabled):hover { background: #ff5f5f; }
+/* while the org is killswitch-halted the whole latch pair is replaced by
+   this one control (user redesign 2026-09-13): solid safety red, always
+   visible, no arming dance — release only restores ELIGIBILITY, nothing
+   starts by itself, so a stray click cannot set agents to work. */
+.kill-release {
+  font-weight: 800; letter-spacing: .06em; font-size: 12px;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  background: var(--bad); border: 1px solid var(--bad); color: #fff;
+  border-radius: 5px; padding: 3px 12px;
+  box-shadow: 0 0 10px rgba(241, 76, 76, .5);
+  cursor: pointer;
+}
+.kill-release:hover { background: #ff5f5f; }
+.kill-release:disabled { opacity: .65; cursor: wait; }
 /* the active-agent summary chip: total · working · per-model counts */
 .chip.agents { display: inline-flex; gap: 7px; align-items: baseline; }
 .chip.agents:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
@@ -1428,6 +1443,19 @@ button.cc-name:hover {
   border-color: color-mix(in srgb, var(--warn, #e5c07b) 68%, var(--line));
   background: color-mix(in srgb, var(--warn, #e5c07b) 10%, transparent);
 }
+/* the halted banner (user spec 2026-09-13, docket rev 5): same compact shape
+   as the cache warning, in the safety red — a LIVE desk whose agent cannot
+   run says so right above the message box, naming the durable state that
+   holds it. Both theme --bad values clear readability on their own theme's
+   input background; the banner disappears with the state that raised it. */
+.halted-send-warning {
+  display: flex; align-items: flex-start; gap: 6px; flex: none;
+  width: 100%; min-width: 0; padding: 5px 8px; border: 1px solid;
+  border-radius: 6px; font-size: 11px; line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: var(--bad); border-color: color-mix(in srgb, var(--bad) 68%, var(--line));
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
 .cc-composer {
   display: flex; align-items: flex-end; gap: 8px; flex: none;
   border: 1px solid var(--line); border-radius: 8px; background: var(--input);
@@ -1899,6 +1927,31 @@ button.cc-name:hover {
    the error colour told the user something was wrong when nothing was. What
    an account costs is answered in App settings › Providers, where the row
    shows its spend total. */
+
+/* halted / org-killswitch red (user feature 2026-09-13): RED means "this
+   agent cannot run until an explicit clear" — the alarm colour returns for a
+   state that IS an alarm, wearing the same border+glow shape the V1
+   fallback treatment used. Two scopes, one colour: `.sq.halted` is the
+   agent's own durable halt (cards.tsx sets it on live nodes only);
+   `.viewport.killswitched .sq.live` is the org latch painting EVERY live
+   card — retired cards keep their archived presentation (docket rev 4).
+   Placed after .busy, .aud, .asking and the .tier-* top-colour block: all
+   set border-color or box-shadow at their own specificity, and the safety
+   fact outranks every one of them (the latch cascade also outguns them at
+   three classes). The desk card is excluded from the glow because its own
+   drop shadow is doing structural work; the border alone reads fine there. */
+.sq.halted, .viewport.killswitched .sq.live {
+  border-color: var(--bad); border-top-color: var(--bad);
+  animation: none;                 /* the ask pulse yields to the alarm */
+}
+.sq.halted:not(.desk), .viewport.killswitched .sq.live:not(.desk) {
+  box-shadow: 0 0 12px rgba(241, 76, 76, .38);
+}
+.sq.mini.halted, .viewport.killswitched .sq.live.mini { --mini-tier: var(--bad); }
+/* the office border: red while ANY live agent is halted, individually or
+   effectively via the latch (docket rev 4 — a killswitch latch therefore
+   always outlines the org). */
+.viewport.redalert { border-color: var(--bad); }
 
 /* status chips */
 .statuschip { font-size: 9px; padding: 0 6px; border-radius: 8px; font-family: var(--mono); }

@@ -1144,13 +1144,17 @@ export default function App() {
                     onClick={() => { setBarMore(false); toggleSurface('org-settings', showSettings, setShowSettings) }}>
                     <SettingsIcon fontSize="inherit" /> settings</button>}
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
+                  latched={!!tree.killswitch}
                   onKilled={() => setBarMore(false)} className="mob-only" />
                 </div>
                 <span style={{ flex: 1 }} />
                 {/* the killswitch: unlatch (expands STOP ALL to the left),
-                    then press after 500ms safety window — interrupts EVERY
-                    active agent and clears their queues */}
-                <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree} />
+                    then press after 500ms safety window — latches the
+                    persistent org-level halt (user redesign 2026-09-13):
+                    every agent stops and STAYS stopped until the explicit
+                    release this same control offers while latched */}
+                <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
+                  latched={!!tree.killswitch} />
                 {/* the SECOND inbox icon (user ruling 2026-08-04): it glows
                     iff an un-nulled ask (question or credit request) is
                     waiting on the user. It was the only glowing control in

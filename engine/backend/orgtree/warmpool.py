@@ -1166,6 +1166,9 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
         return False, "not-live"
     if n.get("halt"):
         return False, "halted"
+    if org.d.get("killswitch"):
+        # an emergency-stopped org holds NO processes, warm ones included
+        return False, "killswitch"
     # A terminally failed process with NO transcript is evidence that this
     # exact launch shape died before delivery.  Do not eagerly reproduce it in
     # the background: the parked copy would be claimed by the next real
@@ -1297,6 +1300,7 @@ def _control_busy_reason(runtime: dict[str, Any]) -> str | None:
 def _control_eligibility_text(reason: str) -> str:
     return {
         "halted": "the agent is halted — unhalt it first",
+        "killswitch": "the org killswitch is latched — release it first",
         "frozen": "the agent is frozen",
         "limit-locked": "the agent is limit-locked",
         "remote-controlled": "the agent is under remote control",
@@ -1637,6 +1641,7 @@ _RELAUNCH_LABELS = {
     "sandboxed": "the agent changed to sandboxed execution",
     "preserving-oracle": "the agent changed to a preserving oracle",
     "halted": "the agent is halted — unhalt it first",
+    "killswitch": "the org killswitch is latched — release it first",
     "frozen": "the agent is frozen",
     "limit-locked": "the agent is limit-locked",
     "remote-controlled": "the agent is under remote control",
@@ -2726,7 +2731,7 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
                 _kill_proc(nwp)
                 _reap(nwp.proc)
                 _end_teardown(slug, nid, nwp.proc)
-                _journal_exit_once(nwp, "halted" if halt.requested(slug, nid) else "superseded")
+                _journal_exit_once(nwp, "halted" if halt.blocked(slug, nid) else "superseded")
 
     try:
         run()
