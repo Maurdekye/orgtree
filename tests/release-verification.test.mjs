@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import {
   classifyReleaseChanges,
   createVerificationReceipt,
@@ -93,6 +94,42 @@ test('--plan and execution resolve the same Git-aware profile', () => {
   assert.equal(resolved.plan.area, 'release')
   assert.equal(resolved.plan.versionOnly, true)
   assert.deepEqual(resolved.plan.changedFiles, ['docs/release-notes-2.1.4-RC1.md', 'package-lock.json', 'package.json'])
+})
+
+test('real Git graph resolves the immediate parent and preserves the three-file version diff', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-git-'))
+  const gitRun = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
+  try {
+    gitRun(['init', '-q'])
+    gitRun(['config', 'user.email', 'release-verification@example.invalid'])
+    gitRun(['config', 'user.name', 'Release Verification'])
+    fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'orgtree', version: '2.1.3' }) + '\n')
+    fs.writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '2.1.3', packages: { '': { version: '2.1.3' } } }) + '\n')
+    gitRun(['add', '.'])
+    gitRun(['commit', '-qm', 'base'])
+    const base = gitRun(['rev-parse', 'HEAD'])
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'orgtree', version: '2.1.4' }) + '\n')
+    fs.writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify({ version: '2.1.4', packages: { '': { version: '2.1.4' } } }) + '\n')
+    fs.writeFileSync(path.join(root, 'docs/release-notes-2.1.4-RC1.md'), '# Orgtree 2.1.4-RC1\n')
+    gitRun(['add', '.'])
+    gitRun(['commit', '-qm', 'version'])
+    const candidate = gitRun(['rev-parse', 'HEAD'])
+    const git = (_command, args, options) => execFileSync('git', args, { ...options, encoding: 'utf8', windowsHide: true }).toString()
+
+    // Negative control: the unfixed expression dereferences the candidate and
+    // therefore sees no diff at all.
+    assert.equal(gitRun(['rev-parse', `${candidate}^{commit}`]), candidate)
+    assert.equal(gitRun(['diff', '--name-only', `${candidate}^{commit}...${candidate}`]), '')
+
+    const resolved = resolveVerificationPlan({ root, candidate, git })
+    assert.equal(resolved.base, base)
+    assert.notEqual(resolved.base, resolved.candidate)
+    assert.deepEqual(resolved.plan.changedFiles, ['docs/release-notes-2.1.4-RC1.md', 'package-lock.json', 'package.json'])
+    assert.equal(resolved.plan.versionOnly, true)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('receipt reuse requires the exact candidate, commands, source bytes, and intact fingerprint', () => {
@@ -201,7 +238,7 @@ test('verification runner captures hidden child options, commands, and measured 
     root: process.cwd(), files: ['tools/release-windows.mjs'], candidate: 'abc123',
     git: (_command, args) => {
       if (args[0] === 'rev-parse') {
-        assert.equal(args[1], 'abc123^{commit}')
+        assert.equal(args[1], 'abc123^')
         return 'base123\n'
       }
       if (args[0] === 'diff') return 'tools/release-windows.mjs\n'

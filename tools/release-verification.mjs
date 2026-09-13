@@ -195,7 +195,7 @@ function gitCandidate(root, candidate, git = execFileSync) {
 }
 
 function gitCommit(root, ref, git = execFileSync) {
-  const revision = ref.endsWith('^') ? `${ref}{commit}` : `${ref}^{commit}`
+  const revision = ref.endsWith('^') ? ref : `${ref}^{commit}`
   return git('git', ['rev-parse', revision], { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
 }
 
