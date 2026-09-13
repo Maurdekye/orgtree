@@ -24506,7 +24506,11 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
         # reconciliation must never sweep it on a refresh or turn end.
         # `_command_output_row` marks this NOT agent prose — see its
         # docstring.
-        if not halt.requested(slug, nid):
+        # ⚠ blocked(), not requested(): a killswitch latched while the fork
+        # was in flight must not have a stopped org publish fresh output
+        # (review finding 2026-09-13). The carrier stays retained — the
+        # worker exit capture writes it durably — and replays after release.
+        if not halt.blocked(slug, nid):
             live_row(slug, nid,
                      _command_output_row(out_text, cap=20000, sticky=True))
             halt.complete_auxiliary(slug, nid, carrier)

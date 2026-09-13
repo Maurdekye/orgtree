@@ -205,6 +205,79 @@ class OrgKillswitchTests(unittest.TestCase):
                          "release must not resume any dog — per-dog manual "
                          "resume stays the only exit (2026-09-04 ruling)")
 
+    def test_latch_racing_immediate_command_suppresses_output_and_retains_carrier(self):
+        # Review finding 2026-09-13: immediate_command's ENTRY is
+        # delivery-gated, but its async completion used to test only the
+        # per-agent flag — a killswitch latched mid-fork let a stopped org
+        # publish a fresh sticky output row. The completion now asks the
+        # unified predicate: no post-latch output, carrier retained durably.
+        def fork_proc(events):
+            started, closed = events
+
+            class Proc:
+                def poll(self):
+                    return 0 if closed.is_set() else None
+
+                def communicate(self, **kwargs):
+                    started.set()
+                    closed.wait(2)
+                    return "", ""
+
+                def kill(self):
+                    closed.set()
+            return Proc()
+
+        def patches(proc, live):
+            stack = ExitStack()
+            for target, value in (("transcript_path", "fixture"),
+                                  ("_transcript_root", "fixture"),
+                                  ("claude_model_for", "fixture")):
+                stack.enter_context(patch.object(sup, target, return_value=value))
+            stack.enter_context(patch.object(sup, "_claude_fork_context",
+                                             return_value=("fixture", {})))
+            stack.enter_context(patch.object(sup, "_claude_argv",
+                                             return_value=["fixture"]))
+            stack.enter_context(patch.object(sup.subprocess, "Popen",
+                                             return_value=proc))
+            stack.enter_context(patch.object(sup, "_leash"))
+            stack.enter_context(patch.object(sup, "_wd_kill_tree",
+                                             side_effect=lambda p: None))
+            stack.enter_context(patch.object(sup, "live_row", live))
+            return stack
+
+        def settle():
+            deadline = time.monotonic() + 2
+            while halt._workers.get((self.slug, self.nid)) \
+                    and time.monotonic() < deadline:
+                time.sleep(.005)
+
+        from unittest.mock import MagicMock
+        started, closed = threading.Event(), threading.Event()
+        live = MagicMock()
+        with patches(fork_proc((started, closed)), live):
+            self.assertTrue(sup.immediate_command(self.slug, self.nid, "/context"))
+            self.assertTrue(started.wait(1))
+            self.latch()          # races the in-flight fork
+            closed.set()          # the fork finishes AFTER the latch
+            settle()
+            live.assert_not_called()
+        self.assertEqual([c["text"] for c in self.org().node(self.nid)["halt_queue"]],
+                         ["/context"],
+                         "the command's carrier survives for after the release")
+        # CONTROL: after release the same command publishes normally — the
+        # gate is the latch, not a new hold on immediate commands (and the
+        # kiosk hard-freeze path, which never latches, keeps this behavior).
+        halt.killswitch_release(self.slug)
+        started2, closed2 = threading.Event(), threading.Event()
+        live2 = MagicMock()
+        with patches(fork_proc((started2, closed2)), live2):
+            self.assertTrue(sup.immediate_command(self.slug, self.nid, "/context"))
+            self.assertTrue(started2.wait(1))
+            closed2.set()
+            settle()
+            self.assertEqual(live2.call_count, 1,
+                             "an un-latched org publishes the output row")
+
     def test_agent_tools_are_refused_while_latched(self):
         from orgtree import api
         from fastapi import HTTPException
