@@ -111,8 +111,11 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.equal(pkg.build.nsis.shortcutName, 'Orgtree')
   assert.equal(pkg.build.nsis.menuCategory, 'Orgtree')
   const installer = read('build/installer.nsh')
-  const customInstallStart = installer.indexOf('!macro customInstall')
-  const customInstall = installer.slice(customInstallStart, installer.indexOf('!macroend', customInstallStart))
+  // Anchor on the whole macro name. A bare indexOf('!macro customInstall')
+  // matches `!macro customInstallMode`, which is declared earlier in the file,
+  // and then reads the elevation macro instead of the install macro.
+  const customInstall = installer.match(/^!macro customInstall[ \t]*\r?$[\s\S]*?^!macroend[ \t]*\r?$/m)?.[0]
+  assert.ok(customInstall, 'the customInstall macro must exist')
   assert.match(customInstall, /!ifndef ORGTREE_DEV_CHANNEL[\s\S]*!insertmacro orgtreeRemoveLegacyShortcuts[\s\S]*!endif/,
     'release installs invoke legacy shortcut cleanup without changing dev installs')
   assert.doesNotMatch(installer, /Quick Launch\\User Pinned|IconCache|ie4uinit|taskkill/i,

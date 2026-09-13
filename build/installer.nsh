@@ -64,6 +64,11 @@ Var pid
     # UAC_AsUser_GetGlobalVar reads the OUTER instance's live value, and the
     # outer instance is blocked inside UAC::_ for as long as we run, so these
     # values cannot change underneath us while they are being read.
+    #
+    # This is also why customInit gates silence on ${orgtreeOriginalIsUpdated}
+    # and not on the redefined ${isUpdated}: after this inheritance the inner
+    # instance satisfies the redefined predicate, and keying `SetSilent silent`
+    # off it left the elevated child with no window at all. See customInit.
     ${if} ${UAC_IsInnerInstance}
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeSelected
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeChoice
@@ -117,14 +122,17 @@ Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
 !endif
 
-!ifndef BUILD_UNINSTALLER
 # Snapshot the generated update predicate before the assisted installer
 # redefines `isUpdated` for the manual Upgrade choice below. The snapshot is
 # only expanded inside customInit, after electron-builder has added its NSIS
 # plugin directory; expanding `_isUpdated` while this custom include is parsed
 # would run before StdUtils.dll is available.
+#
+# Defined for the uninstaller build too. `isUpdated` is generated for both
+# builds (electron-builder's own uninstaller.nsh tests it), only the
+# redefinition below is installer-only, and customInit now needs the snapshot
+# on every path rather than only where the redefinition exists.
 !define orgtreeOriginalIsUpdated `${isUpdated}`
-!endif
 
 !macro orgtreeUpgradeFunctions
 Function orgtreeProbeUpgradeInstall
@@ -432,19 +440,43 @@ FunctionEnd
 !macro customInit
   # Existing clients already pass --updated, even when they omit /S.
   # Make the update entry point silent so upgrading FROM those clients also
-  # skips the wizard. Ordinary manual installs retain their setup pages.
+  # skips the wizard. Every manually launched Setup keeps its pages — including
+  # the elevated child of a manual Upgrade, which is a manual run too.
   !ifndef BUILD_UNINSTALLER
-    # The snapshot expands here, after electron-builder's StdUtils plugin
-    # directory is registered. This preserves the established --updated
-    # compatibility without invoking the plugin while this include is parsed.
+    # An --updated run is an Upgrade by definition, so record the selection the
+    # page would otherwise have made. Every skip hook downstream reads it.
     ${if} ${orgtreeOriginalIsUpdated}
       StrCpy $OrgUpgradeSelected "1"
     ${endif}
   !endif
-  ${if} ${isUpdated}
+  # GATE ON THE REAL --updated ENTRY POINT, NOT ON THE REDEFINED ${isUpdated}.
+  #
+  # This whole block belongs to the auto-updater's entry point: electron-updater
+  # runs Setup with --updated (and --force-run), and that run is meant to be
+  # silent and to relaunch the app by itself. The redefinition of `isUpdated`
+  # further down exists for one narrow purpose — making electron-builder's page
+  # skip hooks respond to a manual Upgrade choice — and it must not drag the
+  # silent update entry point along with it.
+  #
+  # This line used to read `${if} ${isUpdated}`, which was safe only while the
+  # comment below was true: a manual Upgrade selection happened on a page, long
+  # after customInit. Carrying $OrgUpgradeSelected into the elevated inner
+  # instance made it false. The inner instance now arrives at customInit with
+  # the selection already set, matched the redefined predicate, and silenced
+  # ITSELF. That was the 2.1.3-RC5 field failure: the outer instance hides
+  # before elevating, the inner instance then had no window at all, so after
+  # approving the prompt the user saw nothing — no Installing page, and no
+  # finish page, which is the only place an assisted installer offers to run
+  # the app. The install completed and the desktop was never relaunched.
+  #
+  # The snapshot expands here, after electron-builder's StdUtils plugin
+  # directory is registered. Expanding `_isUpdated` while this include is
+  # parsed would run before StdUtils.dll is available.
+  ${if} ${orgtreeOriginalIsUpdated}
     SetSilent silent
-    # Preserve the old one-click/update entry point. A manual Upgrade selection
-    # occurs after customInit, so it only affects page skip hooks from then on.
+    # Preserve the old one-click/update entry point. Only --updated reaches
+    # here, so these never overwrite the values an elevated inner instance
+    # inherited in preInit from the outer instance's recorded selection.
     !ifndef BUILD_UNINSTALLER
       StrCpy $OrgUpgradeChoice "upgrade"
       StrCpy $OrgUpgradeInstallMode $installMode
