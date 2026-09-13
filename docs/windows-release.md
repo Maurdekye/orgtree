@@ -23,7 +23,9 @@ available before the command starts:
 - A package version and both `package-lock.json` version surfaces that already
   equal the explicit target version. This command does not edit `package.json`
   or `package-lock.json`; make and commit the version/release-notes change
-  separately first.
+  separately first. The target may be a final `MAJOR.MINOR.PATCH` version or a
+  release candidate in the exact `MAJOR.MINOR.PATCH-RCn` form, with `n` a
+  positive integer without leading zeroes.
 - A reachable `origin` remote and public GitHub API access. The command checks
   remote tag and release collisions and fails closed when it cannot establish
   that the target is unused.
@@ -37,10 +39,17 @@ introduced by this workflow.
 npm run release:windows -- <version>
 ```
 
-The version is required and must be a plain `x.y.z` semantic version. Before
-building, the command refuses a dirty tree, version drift, missing release
-notes, a local or remote tag collision, a public release collision, and missing
-runtime or packaging prerequisites.
+The version is required and must be a final `x.y.z` semantic version or an
+`x.y.z-RCn` release candidate. Before building, the command refuses a dirty
+tree, version drift, missing release notes, a local or remote tag collision, a
+public release collision, and missing runtime or packaging prerequisites.
+
+Release candidates use `MAJOR.MINOR.PATCH-RCn` exactly, for example
+`2.1.3-RC1`; successive candidates increment `n`. Final releases remove the
+suffix and use `MAJOR.MINOR.PATCH`. The version is carried unchanged through
+the application/build metadata, installer source name, hyphenated updater
+asset name, manifests, and installation handoff. Do not use an ad-hoc filename
+counter such as `-2` or `-3` as a candidate identity.
 
 The build uses the existing `npm run package:win` path and always forwards
 `--publish never` to electron-builder. Credentials in `GH_TOKEN`, a logged-in

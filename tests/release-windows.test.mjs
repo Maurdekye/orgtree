@@ -29,6 +29,7 @@ import {
   sha256Bytes,
   sha512Bytes,
   stageCanonicalAssets,
+  validReleaseVersion,
   validateLatestYml,
   verifyPublicRelease,
 } from '../tools/release-windows.mjs'
@@ -303,6 +304,21 @@ test('safe candidate plan never includes tag, push, or GitHub publication', () =
   const publishPlan = releasePlan('2.1.2', { publish: true })
   assert.equal(publishPlan.mode, 'publish')
   assert.deepEqual(publishPlan.publication.tag, ['git', 'tag', 'v2.1.2'])
+})
+
+test('release candidates use the exact RCn convention in arguments and asset names', () => {
+  const version = '2.1.3-RC1'
+  assert.equal(validReleaseVersion(version), true)
+  assert.equal(validReleaseVersion('2.1.3-RC2'), true)
+  assert.equal(validReleaseVersion('2.1.3'), true)
+  assert.equal(validReleaseVersion('2.1.3-RC0'), false)
+  assert.equal(validReleaseVersion('2.1.3-RC01'), false)
+  assert.equal(validReleaseVersion('2.1.3-rc1'), false)
+  assert.deepEqual(parseReleaseArgs([version]), { version, publish: false, help: false })
+  assert.throws(() => parseReleaseArgs(['2.1.3-rc1']), /release candidate/)
+  assert.equal(installerSourceName(version), 'Orgtree Setup 2.1.3-RC1.exe')
+  assert.equal(installerAssetName(version), 'Orgtree-Setup-2.1.3-RC1.exe')
+  assert.deepEqual(releasePlan(version, { publish: true }).publication.tag, ['git', 'tag', 'v2.1.3-RC1'])
 })
 
 test('the release build invokes npm through a Windows-safe Node CLI boundary', () => {

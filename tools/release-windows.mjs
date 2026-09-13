@@ -53,7 +53,10 @@ export const RELEASE_USAGE = `Usage:
 The default builds and verifies a local candidate only. --publish is the
 explicit publication phase; it creates the tag/release and verifies every
 public asset after downloading it back. Installation and restart are never
-performed by this command.`
+performed by this command.
+
+<version> must be a final MAJOR.MINOR.PATCH version or a release candidate
+with the exact MAJOR.MINOR.PATCH-RCn form, such as 2.1.3-RC1.`
 
 export function resolveNpmInvocation() {
   if (process.platform !== 'win32') return { command: 'npm', args: [] }
@@ -184,7 +187,7 @@ export function hashFile(file, algorithm = 'sha256') {
 }
 
 export function validReleaseVersion(version) {
-  return typeof version === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)
+  return typeof version === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-RC([1-9]\d*))?$/.test(version)
 }
 
 export function parseReleaseArgs(argv) {
@@ -206,7 +209,7 @@ export function parseReleaseArgs(argv) {
   }
   if (!parsed.help && parsed.version === null) fail(`An explicit target version is required.\n\n${RELEASE_USAGE}`)
   if (!parsed.help && !validReleaseVersion(parsed.version)) {
-    fail(`Target version must be a plain semantic version such as 2.1.2: ${parsed.version}`)
+    fail(`Target version must be a final semantic version such as 2.1.3 or a release candidate such as 2.1.3-RC1: ${parsed.version}`)
   }
   return parsed
 }
@@ -215,7 +218,7 @@ export function parseReleaseArgs(argv) {
  * useful to callers and fixture tests that need to prove the ordinary command
  * has no tag, push, or GitHub publication operation in its plan. */
 export function releasePlan(version, { publish = false } = {}) {
-  if (!validReleaseVersion(version)) fail(`Target version must be a plain semantic version such as 2.1.2: ${version}`)
+  if (!validReleaseVersion(version)) fail(`Target version must be a final semantic version such as 2.1.3 or a release candidate such as 2.1.3-RC1: ${version}`)
   const tag = `v${version}`
   return {
     mode: publish ? 'publish' : 'candidate',
