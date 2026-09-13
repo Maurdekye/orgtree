@@ -58,7 +58,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
-import { AgentDocketView, agentItems } from './docket'
+import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
@@ -1640,8 +1640,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                          [slug], 15000, `${workBump}`)
   const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
     [work, node.id, showArchivedDocket])
-  const docketCount = useMemo(() => agentItems(work, node.id, true)?.filter(item =>
-    !['done', 'dropped', 'superseded'].includes(item.status) && !item.superseded_by).length ?? 0,
+  const docketCount = useMemo(() => actionableAssignedCount(work, node.id),
     [work, node.id])
   const tabCount = (tab: string) => tab === 'inbox' ? chat?.mail_pending ?? 0
     : tab === 'docket' ? docketCount

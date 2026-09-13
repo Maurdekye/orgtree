@@ -77,6 +77,7 @@ import { advance, FakeServer, flush, installFetch, mountView, realClock, useFake
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
+import { actionableAssignedCount } from '../src/canvas/docket'
 import { deriveProgress, parseTodoResult, ProgressView, WORKING_STALE_MS } from '../src/canvas/progress'
 import type { ProgressModel } from '../src/canvas/progress'
 import type { CanvasNode, LiveRow } from '../src/canvas/shared'
@@ -540,7 +541,7 @@ const workRow = (over: Record<string, unknown>) => ({
   superseded_by: null, history: [], ...over,
 })
 
-test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip counts what it lists', async (t) => {
+test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip counts actionable ownership', async (t) => {
   resetConvos()
   useFakeClock()
   const server = new FakeServer()
@@ -570,7 +571,7 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
   // the header chip: it counts the assignment, and it is a way in
   const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
   assert.ok(chip, 'docket tab with its count is present')
-  assert.equal(chip!.textContent, 'docket 2')
+  assert.equal(chip!.textContent, 'docket 1', 'blocked assigned work does not inflate the badge')
   assert.equal(view.el.querySelector('.cc-head-meta .progress-chip'), null, 'redundant header chip is absent')
   const { act } = await import('react')
   await act(async () => { chip!.click() })
@@ -579,8 +580,8 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
   const names = [...panel!.querySelectorAll('.mailrow.docket-row .l1 .mfrom')]
     .map((r) => r.textContent)
   assert.deepEqual(names, ['mine-one', 'mine-two'])
-  assert.equal(names.length, Number(chip!.textContent!.replace(/\D/g, '')),
-    'the chip and the list disagree about how much work this agent has')
+  assert.equal(names.length, 2,
+    'the panel still lists all of the agent\'s answerable work')
   // it is the DOCKET's own row, not a second rendering of one: the status
   // vocabulary and the assignment column come with it
   assert.match(panel!.querySelector('.mailrow.docket-row .l2')?.textContent ?? '',
@@ -628,7 +629,7 @@ test('§4b DeskChat: the tab is what the agent is ANSWERABLE for — reviews inc
   await flush()
   const chip = view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab=docket]')
   assert.ok(chip, 'docket tab with its count is present')
-  assert.equal(chip!.textContent, 'docket 2', 'a review it was named to is its work too')
+  assert.equal(chip!.textContent, 'docket 1', 'reviewer-only work does not inflate the ownership badge')
   const { act } = await import('react')
   await act(async () => { chip!.click() })
   const names = [...view.el.querySelectorAll('.docket-agent .mailrow.docket-row .l1 .mfrom')]
@@ -646,6 +647,53 @@ test('§4b DeskChat: the tab is what the agent is ANSWERABLE for — reviews inc
   assert.match(view.el.querySelector('.docket-agent')?.textContent ?? '',
     /no docket items are assigned to agent/)
   assert.equal(view.el.querySelector('.cc-tabs [data-tab=docket]')?.textContent, 'docket')
+})
+
+test('§4c actionable docket badge excludes the reported eight-record noise and tracks ownership state', () => {
+  const mine = (over: Record<string, unknown>) => workRow({
+    owner: { node: 'agent', generation: 1 }, ...over,
+  })
+  const data = {
+    items: [
+      mine({ slug: 'actionable', status: 'in_progress' }),
+      mine({ slug: 'blocked', status: 'blocked' }),
+      mine({ slug: 'backlogged', status: 'backlogged' }),
+      mine({ slug: 'done', status: 'done', archived: true }),
+      mine({ slug: 'dropped', status: 'dropped' }),
+      mine({ slug: 'superseded', status: 'superseded' }),
+      mine({ slug: 'stale-assignment', owner_current: false, status: 'in_progress' }),
+      mine({ slug: 'reviewer-only', owner: { node: 'other-agent', generation: 1 },
+        reviewer: { node: 'agent', generation: 1 }, status: 'review' }),
+    ],
+    archived: [],
+    backlogged: [],
+  }
+  assert.equal(actionableAssignedCount(data, 'agent'), 1,
+    'eight readable records with one current actionable assignment display one')
+  assert.equal(actionableAssignedCount(data, 'other-agent'), 1,
+    'switching the viewed desk counts that desk\'s owned work')
+
+  const reassigned = {
+    ...data,
+    items: data.items.map((item) => item.slug === 'actionable'
+      ? { ...item, owner: { node: 'other-agent', generation: 1 } }
+      : item),
+  }
+  assert.equal(actionableAssignedCount(reassigned, 'agent'), 0, 'reassignment removes the badge')
+  assert.equal(actionableAssignedCount(reassigned, 'other-agent'), 2, 'reassignment moves the badge')
+
+  const reopened = {
+    ...data,
+    items: data.items.map((item) => item.slug === 'done'
+      ? { ...item, status: 'open', archived: false } : item),
+  }
+  assert.equal(actionableAssignedCount(reopened, 'agent'), 2, 'reopening makes the owned item actionable')
+  const completed = {
+    ...reopened,
+    items: reopened.items.map((item) => item.slug === 'actionable'
+      ? { ...item, status: 'done', archived: true } : item),
+  }
+  assert.equal(actionableAssignedCount(completed, 'agent'), 1, 'completion removes the owned item')
 })
 
 // ------------------------------------------------ §5 references in the card

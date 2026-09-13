@@ -1369,6 +1369,26 @@ export function agentItems(data: {
     .filter((it) => it.owner?.node === nid || it.reviewer?.node === nid)
 }
 
+const NON_ACTIONABLE_BADGE_STATUSES = new Set([
+  'done', 'archived', 'dropped', 'superseded', 'backlogged', 'blocked',
+])
+
+/** The desk header's badge is narrower than the desk tab's contents. The tab
+ * remains answerable work (including reviewer-only and blocked rows), while
+ * the badge is the number of actionable tickets currently OWNED by this desk.
+ * `owner_current` is backend-authoritative: matching a node name alone is not
+ * enough when a row records a stale historical assignment to that same name.
+ * Keep this pure so the badge contract can be tested without mounting the
+ * whole desk. */
+export function actionableAssignedCount(data: {
+  items?: WorkItem[]; archived?: WorkItem[]; backlogged?: WorkItem[]
+} | null | undefined, nid: string): number {
+  return agentItems(data, nid, true)?.filter((item) =>
+    item.owner?.node === nid && item.owner_current === true && !item.archived
+      && !NON_ACTIONABLE_BADGE_STATUSES.has(item.status)
+      && !item.superseded_by).length ?? 0
+}
+
 /** THE AGENT'S OWN DOCKET — the desk tab (user ruling 2026-09-05 21:07: the
  *  Progress tab's contents are replaced entirely by the items assigned to this
  *  agent).
