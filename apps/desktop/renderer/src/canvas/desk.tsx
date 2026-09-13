@@ -293,6 +293,175 @@ export function UsageFreezeStatus({ frozen, variant = 'card' }: {
   </span>
 }
 
+export type AgentVisualStateKind =
+  | 'halted'
+  | 'frozen'
+  | 'active'
+  | 'queued'
+  | 'compacting'
+  | 'archived'
+  | 'working'
+  | 'blocked'
+  | 'done'
+  | 'errored'
+  | 'idle'
+
+export interface AgentVisualState {
+  /** Normalized visual state kind for far-zoom presentation */
+  farKind: AgentVisualStateKind
+  /** Canonical presentation kind */
+  kind: AgentVisualStateKind
+  /** Exact CSS class for normal-card sq-idle presentation */
+  normalClass: string
+  /** Exact text label for normal-card sq-idle presentation */
+  normalLabel: string
+  /** Label for accessibility or title */
+  label: string
+  turnState: AgentTurnState
+}
+
+/**
+ * Authoritative presentation state derivation for agent nodes across zoom levels.
+ *
+ * Enforces presentation precedence:
+ *   1. halt (durable halt)
+ *   2. frozen (usage/capacity freeze - limit-only via isUsageFrozen)
+ *   3. active (mid-turn working)
+ *   4. queued (turn slot wait)
+ *   5. compacting (compaction in flight)
+ *   6. lifecycle (non-live agent state / archived)
+ *   7. reported (last reported status: working, blocked, done, queued, compacting, error)
+ *   8. error fallback (last_error without reported status)
+ *   9. idle fallback
+ */
+export function deriveAgentVisualState(node: {
+  halt?: TreeNode['halt']
+  frozen?: TreeFrozen | null
+  limit_locked?: boolean
+  state?: string
+  busy?: boolean
+  waiting?: boolean
+  phase?: string | null
+  last_status?: { status?: string; summary?: string } | null
+  last_error?: string | null
+}): AgentVisualState {
+  // 1. Halt
+  if (node.halt) {
+    return {
+      kind: 'halted',
+      farKind: 'halted',
+      normalClass: 'halted',
+      normalLabel: stateLabel('halted'),
+      label: 'Halted',
+      turnState: 'idle',
+    }
+  }
+
+  // 2. Frozen (strict limit-only predicate: isUsageFrozen)
+  if (isUsageFrozen(node)) {
+    return {
+      kind: 'frozen',
+      farKind: 'frozen',
+      normalClass: 'frozen',
+      normalLabel: stateLabel('frozen'),
+      label: 'Frozen',
+      turnState: 'idle',
+    }
+  }
+
+  // Turn states
+  const turnState = deriveTurnState(node)
+  if (turnState === 'working') {
+    return {
+      kind: 'active',
+      farKind: 'active',
+      normalClass: 'working active',
+      normalLabel: stateLabel('active'),
+      label: stateLabel('active'),
+      turnState,
+    }
+  }
+  if (turnState === 'queued') {
+    return {
+      kind: 'queued',
+      farKind: 'queued',
+      normalClass: 'waiting',
+      normalLabel: stateLabel('queued'),
+      label: stateLabel('queued'),
+      turnState,
+    }
+  }
+  if (turnState === 'compacting') {
+    return {
+      kind: 'compacting',
+      farKind: 'compacting',
+      normalClass: 'compacting',
+      normalLabel: stateLabel('compacting'),
+      label: stateLabel('compacting'),
+      turnState,
+    }
+  }
+
+  // 3. Lifecycle (non-live agent state / archived)
+  if (node.state && node.state !== 'live') {
+    return {
+      kind: 'archived',
+      farKind: 'archived',
+      normalClass: node.state,
+      normalLabel: stateLabel(node.state),
+      label: stateLabel(node.state),
+      turnState,
+    }
+  }
+
+  // 4. Reported status
+  const recorded = node.last_status?.status
+  if (recorded) {
+    let farKind: AgentVisualStateKind
+    if (recorded === 'working') farKind = 'working'
+    else if (recorded === 'blocked') farKind = 'blocked'
+    else if (recorded === 'done') farKind = 'done'
+    else if (recorded === 'queued' || recorded === 'waiting') farKind = 'queued'
+    else if (recorded === 'compacting') farKind = 'compacting'
+    else if (recorded === 'errored' || recorded === 'error') farKind = 'errored'
+    else if (recorded === 'idle') farKind = 'idle'
+    else farKind = recorded as AgentVisualStateKind
+
+    return {
+      kind: farKind,
+      farKind,
+      normalClass: recorded,
+      normalLabel: stateLabel(recorded),
+      label: stateLabel(recorded),
+      turnState,
+    }
+  }
+
+  // 5. Error fallback (last_error without reported status)
+  // On normal cards, an idle agent with last_error keeps normalClass: 'idle', normalLabel: 'Idle'
+  // and renders an errdot badge. At far zoom, farKind is 'errored' to present the singular error icon.
+  if (node.last_error) {
+    return {
+      kind: 'idle',
+      farKind: 'errored',
+      normalClass: 'idle',
+      normalLabel: stateLabel('idle'),
+      label: stateLabel('idle'),
+      turnState,
+    }
+  }
+
+  // 6. Default idle
+  return {
+    kind: 'idle',
+    farKind: 'idle',
+    normalClass: 'idle',
+    normalLabel: stateLabel('idle'),
+    label: stateLabel('idle'),
+    turnState,
+  }
+}
+
 /** Unified workstate presentation for NodeSquare. Subscribes to ageClockSecond
  * so active turn elapsed time and idle time tick every second without props/SSE updates. */
 export function AgentWorkstate({ node, turn, live = true }: {
@@ -300,16 +469,16 @@ export function AgentWorkstate({ node, turn, live = true }: {
 }) {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
-  const state = deriveTurnState(node)
-  if (node.halt) return <HaltStatus halt={node.halt} />
-  if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
-  if (state === 'working') {
+  const visual = deriveAgentVisualState(node)
+  if (visual.kind === 'halted' && node.halt) return <HaltStatus halt={node.halt} />
+  if (visual.kind === 'frozen' && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
+  if (visual.turnState === 'working') {
     return (
       <>
         <DestinationBusy tier={node.tier} />
         <span className="sq-idle working active"
           title={node.inflight_at ? `active for ${ago(node.inflight_at)}` : 'active'}>
-          {stateLabel('active')}
+          {visual.normalLabel}
         </span>
         <span className="sq-idle-time">
           {node.inflight_at ? ago(node.inflight_at) : '—'}
@@ -317,12 +486,12 @@ export function AgentWorkstate({ node, turn, live = true }: {
       </>
     )
   }
-  if (state === 'queued') {
+  if (visual.turnState === 'queued') {
     return (
       <>
         <span className="statusdot waiting" title="queued — waiting for a free turn slot" />
         <span className="sq-idle waiting" title="queued">
-          {stateLabel('queued')}
+          {visual.normalLabel}
         </span>
         <span className="sq-idle-time">
           {node.inflight_at ? ago(node.inflight_at) : '—'}
@@ -330,11 +499,11 @@ export function AgentWorkstate({ node, turn, live = true }: {
       </>
     )
   }
-  if (state === 'compacting') {
+  if (visual.turnState === 'compacting') {
     return (
       <>
         <span className="sq-idle compacting" title="compacting">
-          {stateLabel('compacting')}
+          {visual.normalLabel}
         </span>
         <span className="sq-idle-time">
           {node.inflight_at ? ago(node.inflight_at) : '—'}
@@ -342,12 +511,11 @@ export function AgentWorkstate({ node, turn, live = true }: {
       </>
     )
   }
-  const recorded = node.last_status?.status ?? (live ? 'idle' : node.state)
   return (
     <>
-      <span className={'sq-idle ' + recorded}
+      <span className={'sq-idle ' + visual.normalClass}
         title={node.last_status?.summary ?? undefined}>
-        {stateLabel(recorded)}
+        {visual.normalLabel}
       </span>
       {turn && (
         <span className="sq-idle-time"

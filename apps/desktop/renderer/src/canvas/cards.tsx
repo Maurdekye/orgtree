@@ -17,8 +17,8 @@ import { lineageCount, readOnlyAgent } from '../archived'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
-  CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
-  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, DocIcon,
+  AutorenewIcon, CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
+  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
   ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
@@ -30,7 +30,7 @@ import type {
   Pt,
 } from './shared'
 import {
-  AgentWorkstate, ContextWheel, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
+  AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge,
 } from './desk'
 import { DocChips } from './docs'
@@ -1323,6 +1323,47 @@ function ActionBadge({ deskView, className, title, onAct, children }: {
     onClick={(e) => { e.stopPropagation(); onAct() }}>{children}</button>
 }
 
+/**
+ * Far-zoom state icon for agent nodes at distant zoom (lod === 'mini').
+ *
+ * Renders exactly one centered, enlarged representation of the agent's
+ * authoritative state. All secondary interior details (names, tiers,
+ * badges, time strings, context wheels, credit bars) are omitted at this scale.
+ */
+export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
+  const visual = deriveAgentVisualState(node)
+  switch (visual.farKind) {
+    case 'halted':
+      return <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
+    case 'frozen':
+      return <FrozenIcon className="sq-far-icon frozen tray-frozen" titleAccess="Frozen" />
+    case 'active':
+      return (
+        <AutorenewIcon
+          className={`sq-far-icon active cc-spin prov-${providerOf(node.tier ?? '')}`}
+          titleAccess="Active"
+        />
+      )
+    case 'queued':
+      return <div className="sq-far-icon queued waiting" role="img" aria-label="Queued" title="Queued" />
+    case 'compacting':
+      return <div className="sq-far-icon compacting" role="img" aria-label="Compacting" title="Compacting" />
+    case 'archived':
+      return <RetireIcon className="sq-far-icon archived" titleAccess={visual.label} />
+    case 'working':
+      return <div className="sq-far-icon working" role="img" aria-label="Working" title="Working" />
+    case 'blocked':
+      return <div className="sq-far-icon blocked" role="img" aria-label="Blocked" title="Blocked" />
+    case 'done':
+      return <div className="sq-far-icon done" role="img" aria-label="Done" title="Done" />
+    case 'errored':
+      return <WarnIcon className="sq-far-icon errored" titleAccess="Error" />
+    case 'idle':
+    default:
+      return <div className="sq-far-icon idle" role="img" aria-label="Idle" title="Idle" />
+  }
+}
+
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
@@ -1531,7 +1572,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
         onRecenter?.()
       }}>
-      {live && !node.isBearerOf && (
+      {live && !node.isBearerOf && lod !== 'mini' && (
         <CreditBar seat={seat} grant={grant} committed={grant - free}
           segments={node.children.filter((c) => c.state !== 'archived')
             .map((c) => ({ seat: c.seat!, grant: c.grant! }))}   /* unrecoverable still holds */
@@ -1554,10 +1595,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             .catch(() => {})}
           zoom={zoom} pxc={pxc} />
       )}
+      {!focused && lod === 'mini' && (
+        <FarZoomStateIcon node={node} />
+      )}
       {/* the whole world-scaled head disappears at focus — the desk renders its
           own compact chrome inside the counter-scaled panel (a world-scaled name
           and tier chip blow up to poster size at desk zoom) */}
-      {!focused && <div className="sq-head">
+      {!focused && lod !== 'mini' && <div className="sq-head">
         {/* Zoomed-out cards have three deliberate rows: model/name, live
             state plus CLI/context status, and actions. Keeping the title and
             status groups separate prevents long names and status controls from
@@ -1577,9 +1621,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
             ) : (
               <>
-                <span className={'sq-idle ' + (node.last_status?.status ?? (live ? 'idle' : node.state))}
+                <span className={'sq-idle ' + deriveAgentVisualState(node).normalClass}
                   title={node.last_status?.summary ?? undefined}>
-                  {stateLabel(node.last_status?.status ?? (live ? 'idle' : node.state))}
+                  {deriveAgentVisualState(node).normalLabel}
                 </span>
                 <LastTurnAge turn={lastTurn} busy={node.busy} variant="inline" />
               </>

@@ -142,7 +142,7 @@ test('§4 the card\'s own press still reaches the card at maximum zoom-out',
     const sink: Sink = { spawned: [], downs: [] }
     const view = await card('mini', sink)
     t.after(() => view.unmount())
-    const body = view.el.querySelector('.sq-head') as HTMLElement
+    const body = (view.el.querySelector('.sq-head') ?? view.el.querySelector('.sq-far-icon')) as HTMLElement
     const ev = new (W().MouseEvent)('pointerdown', { bubbles: true, cancelable: true, button: 0 })
     await inAct(() => { body.dispatchEvent(ev) })
     assert.deepEqual(sink.downs, ['target'])

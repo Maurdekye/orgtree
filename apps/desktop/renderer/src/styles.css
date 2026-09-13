@@ -719,11 +719,100 @@ button.badge.audience-fold.alert {
     0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
     0 0 20px color-mix(in srgb, var(--provider-accent) 20%, transparent);
 }
-/* ---- mini LOD: the card keeps the model/name in Row 1 and the status/action
-   rows compact; long names wrap inside the fixed card footprint. */
-.sq.mini .sq-title .name {
-  font-size: 15px; line-height: 1.15; overflow-wrap: anywhere;
+/* ---- Far-zoom singular state icon (lod === 'mini') ---- */
+.sq-far-icon {
+  flex: none;
+  pointer-events: none;
+  box-sizing: border-box;
 }
+.sq-far-icon.active,
+.sq-far-icon.cc-spin {
+  width: 60px;
+  height: 60px;
+  font-size: 60px;
+}
+.sq-far-icon.working {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--work);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.sq-far-icon.idle {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: transparent;
+  border: 5px solid #8a8a8a;
+}
+.sq-far-icon.blocked {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  background: var(--bad);
+  transform: rotate(45deg);
+}
+.sq-far-icon.halted {
+  width: 60px;
+  height: 60px;
+  font-size: 60px;
+  color: var(--bad);
+}
+.sq-far-icon.frozen {
+  width: 60px;
+  height: 60px;
+  font-size: 60px;
+  color: var(--ice);
+}
+.sq-far-icon.queued,
+.sq-far-icon.waiting {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: transparent;
+  border: 5px dashed var(--work);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.sq-far-icon.compacting {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--warn, #e5c07b);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.sq-far-icon.done {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.sq-far-icon.errored {
+  width: 60px;
+  height: 60px;
+  font-size: 60px;
+  color: var(--bad);
+}
+.sq-far-icon.archived {
+  width: 60px;
+  height: 60px;
+  font-size: 60px;
+  color: var(--dim);
+  opacity: .6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sq-far-icon.active.cc-spin {
+    animation: none;
+  }
+  .sq-far-icon.working,
+  .sq-far-icon.queued,
+  .sq-far-icon.waiting,
+  .sq-far-icon.compacting {
+    animation: none;
+    opacity: .92;
+  }
+}
+
 /* Preserve a faint tier wash under the louder provider wash. The actual
    background is composed once below so neither channel erases the other. */
 .sq.mini.tier-haiku { --mini-tier: var(--tier-haiku); }
@@ -755,6 +844,10 @@ button.badge.audience-fold.alert {
    Codex. The tier wash underneath and the tier-colored top edge remain intact,
    so provider and model are readable as separate facts. */
 .sq.mini {
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  gap: 0;
   background-color: color-mix(
     in srgb, var(--provider-accent) 18%,
     color-mix(in srgb, var(--mini-tier, var(--line)) 6%, var(--panel)));

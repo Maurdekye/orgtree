@@ -87,13 +87,21 @@ for (const lod of ['norm', 'mini'] as const) {
         const meta = root.querySelector<HTMLElement>('.sq-meta')
         const actions = root.querySelector<HTMLElement>('.sq-actions')
         if (lod === 'mini') {
-          // far zoom (user 2026-09-10): the shortcut row is UNMOUNTED — a
-          // hover exposes no interactive buttons, so a click can only reach
-          // the card's own focus pipeline. Title and status rows remain.
-          assert.ok(name && meta, 'title and status rows stay mounted at mini')
+          // Far-zoom redesign (user 2026-09-13): at the most distant zoom level,
+          // secondary rows (title, meta, actions, badges) are UNMOUNTED.
+          // The node interior renders literally ONE element: the enlarged state icon.
+          assert.equal(name, null, 'agent name is omitted at mini')
+          assert.equal(meta, null, 'sq-meta is omitted at mini')
+          assert.equal(root.querySelector('.sq-title'), null, 'title row is omitted at mini')
+          assert.equal(root.querySelector('.tier'), null, 'tier token is omitted at mini')
+          assert.equal(root.querySelector('.sq-idle'), null, 'written state label is omitted at mini')
+          assert.equal(root.querySelector('.sq-idle-time'), null, 'elapsed duration is omitted at mini')
+          assert.equal(root.querySelector('.cbar-wrap'), null, 'credit bar is omitted at mini')
+          assert.equal(root.querySelector('.ctxwheel'), null, 'context wheel is omitted at mini')
           assert.equal(actions, null, 'mini cards mount no shortcut action row')
           assert.equal(root.querySelectorAll('.sq-actions button').length, 0,
             'no shortcut button hit targets at far zoom')
+          assert.ok(root.querySelector('.sq-far-icon'), 'singular enlarged state icon is rendered at mini')
           // ...but the HIRE TOKENS stay (user 2026-09-11): they are the one
           // far-zoom control that does not sit over the card it belongs to,
           // and their visibility is no longer tied to this threshold. What
