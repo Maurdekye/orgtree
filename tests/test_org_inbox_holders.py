@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from typing import cast
@@ -61,6 +62,29 @@ class InboxHoldersTests(unittest.TestCase):
         self.assertIn("alice", holders)
         self.assertIn("bob", holders)
 
+        # Repeating a grant is idempotent and inbound delivery is a set.
+        org.audience_grant(USER, "alice", EXTERN)
+        self.assertEqual(
+            len([a for a in org.d["audiences"] if a["grantor"] == EXTERN]), 2)
+        self.assertEqual(org.post_external_mail("@org:peer", "hello"),
+                         ["alice", "bob"])
+        self.assertEqual(len(org.d["mail"]["alice"]), 1)
+        self.assertEqual(len(org.d["mail"]["bob"]), 1)
+
+    def test_single_holder_duplicate_grant_cleans_duplicate_records(self):
+        org = self.ledger.Org.create("single-duplicate")
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.d["audiences"].extend([
+            {"grantee": "alice", "grantor": EXTERN, "granted_at": 0, "reason": ""},
+            {"grantee": "alice", "grantor": EXTERN, "granted_at": 1, "reason": ""},
+        ])
+        org.audience_grant(USER, "alice", EXTERN)
+        self.assertEqual(
+            [a["grantee"] for a in org.d["audiences"] if a["grantor"] == EXTERN],
+            ["alice"])
+        self.assertEqual(org.post_external_mail("@org:peer", "hello"), ["alice"])
+        self.assertEqual(len(org.d["mail"]["alice"]), 1)
+
     def test_migration_grandfathering(self):
         org = self.ledger.Org.create("migrating")
         org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
@@ -76,12 +100,27 @@ class InboxHoldersTests(unittest.TestCase):
         org = self.store.load_org("migrating")
         self.assertTrue(org.d.get("org_inbox_multi_holder"))
         self.assertTrue(org.d.get("external_inbox_multi_holder"))
-        
+
         # Idempotent re-run
         self.store.save_org(org)
         org = self.store.load_org("migrating")
         self.assertTrue(org.d.get("org_inbox_multi_holder"))
         self.assertTrue(org.d.get("external_inbox_multi_holder"))
+
+    def test_migration_grandfathers_holders_with_legacy_false_flag(self):
+        org = self.ledger.Org.create("migrating-legacy-false")
+        org.nodes["alice"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.nodes["bob"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
+        org.d["audiences"].extend([
+            {"grantee": "alice", "grantor": EXTERN, "granted_at": 0, "reason": ""},
+            {"grantee": "bob", "grantor": EXTERN, "granted_at": 0, "reason": ""},
+        ])
+        org.d["org_inbox_multi_holder"] = False
+        org.d["external_inbox_multi_holder"] = False
+        org.d.get("_migrations", {}).pop(self.ledger.Org.EXTERN_MULTI_HOLDER_MIGRATION, None)
+        org._migrate_extern_multi_holder()
+        self.assertTrue(org.multi_holder_enabled)
+        self.assertEqual(org.extern_holders(), ["alice", "bob"])
 
     def test_migration_zero_or_one_holder(self):
         org = self.ledger.Org.create("migrating-one")
@@ -125,6 +164,15 @@ class InboxHoldersTests(unittest.TestCase):
         
         org = self.store.load_org("settings-change")
         self.assertFalse(org.d["org_inbox_multi_holder"])
+
+    def test_legacy_global_holder_setting_is_not_reused(self):
+        with open(os.path.join(self.store.DATA_ROOT, "defaults.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"org_inbox_multi_holder": True,
+                       "external_inbox_multi_holder": True}, f)
+        defaults = self.api.load_org_defaults()
+        self.assertNotIn("org_inbox_multi_holder", defaults)
+        self.assertNotIn("external_inbox_multi_holder", defaults)
 
 if __name__ == '__main__':
     unittest.main()

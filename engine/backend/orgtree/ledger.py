@@ -1944,27 +1944,24 @@ class Org:
         migs = self.d.setdefault("_migrations", {})
         if self.EXTERN_MULTI_HOLDER_MIGRATION in migs:
             return
-        if "external_inbox_multi_holder" in self.d or "org_inbox_multi_holder" in self.d:
-            val = bool(self.d.get("external_inbox_multi_holder", self.d.get("org_inbox_multi_holder", False)))
-            self.d["external_inbox_multi_holder"] = val
-            self.d["org_inbox_multi_holder"] = val
-            migs[self.EXTERN_MULTI_HOLDER_MIGRATION] = {
-                "at": now(),
-                "mode": "already_set",
-                "multi_holder": val,
-            }
-            return
-
         grantees = {
             a["grantee"]
             for a in self.d.get("audiences", [])
-            if a.get("grantor") == EXTERN
+            if (a.get("grantor") == EXTERN
+                and a.get("grantee") in self.nodes
+                and self.nodes[a["grantee"]].get("state") == "live")
         }
-        multi = len(grantees) >= 2
+        # A legacy explicit opt-in remains valid, but a legacy false value
+        # cannot hide two live holders that must be grandfathered.
+        legacy_value = self.d.get("org_inbox_multi_holder")
+        if legacy_value is None:
+            legacy_value = self.d.get("external_inbox_multi_holder", False)
+        multi = bool(legacy_value) or len(grantees) >= 2
         self.d["external_inbox_multi_holder"] = multi
         self.d["org_inbox_multi_holder"] = multi
         migs[self.EXTERN_MULTI_HOLDER_MIGRATION] = {
             "at": now(),
+            "mode": "inspect",
             "holders": sorted(grantees),
             "multi_holder": multi,
         }
@@ -2579,9 +2576,9 @@ class Org:
         """Inbound from OUTSIDE the org — an external chat or another
         org (@org:<slug>). Org-inbox model (user spec): the message is addressed
         to the ORGANIZATION, not to any agent. It lands in the org-wide inbox;
-        every live top-level agent AND every org-inbox audience holder receives
-        a copy, coordinates internally on who answers, and the answer speaks
-        for the org. Returns the recipients so the supervisor can drive them.
+        every live org-inbox audience holder receives a copy, coordinates
+        internally on who answers, and the answer speaks for the org. Returns
+        the recipients so the supervisor can drive them.
         Kiosk orgs are sealed: inbound is dropped (empty recipient list)."""
         if self.is_kiosk:
             return []
@@ -2711,12 +2708,25 @@ class Org:
 
     @property
     def multi_holder_enabled(self) -> bool:
-        return bool(self.d.get("external_inbox_multi_holder", self.d.get("org_inbox_multi_holder", False)))
+        # `org_inbox_multi_holder` is the public organization setting. The
+        # external-prefixed key was briefly written by the first implementation
+        # and remains a read-compatible alias for old documents.
+        value = self.d.get("org_inbox_multi_holder")
+        if value is None:
+            value = self.d.get("external_inbox_multi_holder", False)
+        return bool(value)
 
     def extern_holders(self) -> list[str]:
-        holders = [a["grantee"] for a in self.d["audiences"]
-                   if a["grantor"] == EXTERN and a["grantee"] in self.nodes
-                   and self.nodes[a["grantee"]]["state"] == "live"]
+        # Audience records are the source of truth, but tolerate old/imported
+        # documents containing duplicate records so delivery is a holder set,
+        # never one copy per row.
+        holders: list[str] = []
+        for a in self.d["audiences"]:
+            grantee = a["grantee"]
+            if (a["grantor"] == EXTERN and grantee in self.nodes
+                    and self.nodes[grantee]["state"] == "live"
+                    and grantee not in holders):
+                holders.append(grantee)
         if not self.multi_holder_enabled and len(holders) > 1:
             return [holders[-1]]
         return holders
@@ -2963,26 +2973,66 @@ class Org:
                                   "yourself or in your subtree")
         warnings: list[str] = []
         moved_from: list[str] = []
-        if not self.multi_holder_enabled:
-            old_grants = [a for a in self.d.get("audiences", []) if a.get("grantor") == EXTERN and a.get("grantee") != frm]
-            if old_grants:
-                self.d["audiences"] = [a for a in self.d.get("audiences", []) if not (a.get("grantor") == EXTERN and a.get("grantee") != frm)]
-                for og in old_grants:
-                    old_grantee = og["grantee"]
-                    moved_from.append(old_grantee)
-                    if actor == old_grantee:
-                        self._notify_ev([old_grantee], self._aud_changed(actor, old_grantee, "org_inbox_released", target=EXTERN))
-                    else:
-                        self._notify_ev([old_grantee], self._aud_changed(actor, old_grantee, "rescinded", target=EXTERN))
-                    self._log("audience_revoke", actor, {"grantee": old_grantee, "grantor": EXTERN}, [])
+        external = [a for a in self.d.get("audiences", [])
+                     if a.get("grantor") == EXTERN]
+        existing = next((a for a in external if a.get("grantee") == frm), None)
 
-        entry: AudienceGrant = {
+        if self.multi_holder_enabled:
+            # Grants are idempotent. A repeated drag or hire/rehire request
+            # must not create duplicate delivery rows for one holder.
+            seen: set[str] = set()
+            normalized: list[AudienceGrant] = []
+            for grant in self.d.get("audiences", []):
+                if grant.get("grantor") == EXTERN:
+                    grantee = grant.get("grantee")
+                    if grantee in seen:
+                        continue
+                    seen.add(grantee)
+                normalized.append(grant)
+            self.d["audiences"] = normalized
+            external = [a for a in normalized if a.get("grantor") == EXTERN]
+            existing = next((a for a in external
+                             if a.get("grantee") == frm), None)
+            if existing is None:
+                entry: AudienceGrant = {
                     "grantee": frm, "grantor": EXTERN, "granted_at": now(),
                     "reason": ("granted by the user" if actor == USER
-                            else f"delegated by {actor}")}
-        if actor != USER:
-            entry["delegated_by"] = actor
-        self.d["audiences"].append(entry)
+                               else f"delegated by {actor}")}
+                if actor != USER:
+                    entry["delegated_by"] = actor
+                self.d["audiences"].append(entry)
+        else:
+            # A single-holder grant is a move. Retain one existing record for
+            # the requested holder, discard every other external record (and
+            # duplicate copies), then append a new record only when needed.
+            keep = existing
+            if keep is None:
+                keep = {
+                    "grantee": frm, "grantor": EXTERN, "granted_at": now(),
+                    "reason": ("granted by the user" if actor == USER
+                               else f"delegated by {actor}")}
+                if actor != USER:
+                    keep["delegated_by"] = actor
+            removed = [a for a in external if a is not keep]
+            self.d["audiences"] = [
+                a for a in self.d.get("audiences", []) if a.get("grantor") != EXTERN
+            ]
+            self.d["audiences"].append(keep)
+            notified: set[str] = set()
+            for old in removed:
+                old_grantee = old["grantee"]
+                if old_grantee == frm or old_grantee in notified:
+                    # Duplicate records for the requested holder are cleaned
+                    # without a misleading revoke notification.
+                    continue
+                notified.add(old_grantee)
+                moved_from.append(old_grantee)
+                outcome = ("org_inbox_released" if actor == old_grantee
+                           else "rescinded")
+                self._notify_ev([old_grantee], self._aud_changed(
+                    actor, old_grantee, outcome, target=EXTERN))
+                self._log("audience_revoke", actor,
+                          {"grantee": old_grantee, "grantor": EXTERN}, [])
         self._notify_ev([frm], self._aud_changed(actor, frm, "org_inbox", target=EXTERN))
         log_meta: dict[str, Any] = {"grantee": frm, "grantor": EXTERN}
         if moved_from:
@@ -10098,6 +10148,7 @@ class Org:
                 "unread": max(0, len(self.d.get("org_inbox", []))
                               - int(self.d.get("org_inbox_read", 0))),
                 "holders": self.extern_holders(),
+                "multi_holder_enabled": self.multi_holder_enabled,
                 "visible": not self.is_kiosk and bool(
                     self.d.get("org_inbox")
                     or any(a["grantor"] == EXTERN

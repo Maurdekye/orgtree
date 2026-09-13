@@ -930,7 +930,6 @@ class OrgDoc(TypedDict):
     # The only numeric operator value is minimum measured context occupancy;
     # provider/auth TTL is derived from positive inference receipts.
     auto_cheap_compact: NotRequired[dict[str, Any]]
-    org_inbox_multi_holder: NotRequired[bool]
     # FR-18: watchdogs — persistent pets {id, owner, name, kind:
     # file|command|process|stream, target, pattern?, interval_s, state:
     # armed|paused|exited, high_water?, fired, last_check?, last_fired?,
@@ -1031,7 +1030,10 @@ class OrgDoc(TypedDict):
     headless: NotRequired[bool]             # §9.6: no user present; user-bound
                                             # asks auto-deny (decoupled from
                                             # any credential, 2026-09-12)
-    external_inbox_multi_holder: NotRequired[bool]  # at most 1 org-inbox holder when False
+    # at most one org-inbox holder when False; the external-prefixed key is a
+    # read-compatible alias retained for documents written by the first
+    # implementation.
+    external_inbox_multi_holder: NotRequired[bool]
     org_inbox_multi_holder: NotRequired[bool]
     # ── V1 org-key remnants (user redesign 2026-09-12). The startup cutover
     # (registry_migration.run_apikey_cutover) pops all four from every

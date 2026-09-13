@@ -2799,8 +2799,6 @@ _DEFAULTS_BASE = {
     "prefer_reserve": True,
     "cascade_hire": True, "cascade_alloc": True, "auto_resume": False,
     "auto_resume_compact": False, "account_fallback_default": False,
-    "org_inbox_multi_holder": False,
-    "external_inbox_multi_holder": False,
     # F-06: NOT an org-doc key — popped + translated into the "local" hub
     # entry at creation (orgs_create), shown on the root defaults page
     "net_hub_address": net.DEFAULT_HUB_ADDRESS,
@@ -2809,8 +2807,9 @@ _DEFAULTS_BASE = {
 
 def load_org_defaults() -> dict[str, Any]:
     try:
-        d = json.load(open(os.path.join(store.DATA_ROOT, "defaults.json"),
-                           encoding="utf-8"))
+        with open(os.path.join(store.DATA_ROOT, "defaults.json"),
+                  encoding="utf-8") as f:
+            d = json.load(f)
         if not isinstance(d, dict):
             return {}
         acc = d.get("auto_cheap_compact")
@@ -2818,6 +2817,11 @@ def load_org_defaults() -> dict[str, Any]:
             acc = dict(acc)
             acc.pop("idle_s", None)       # legacy timeout is never a TTL
             d["auto_cheap_compact"] = acc
+        # The external-inbox policy is organization-scoped. Older builds
+        # briefly stored these names in defaults.json; ignore them so they
+        # cannot become an app-wide default when an old file is reopened.
+        d.pop("org_inbox_multi_holder", None)
+        d.pop("external_inbox_multi_holder", None)
         return cast("dict[str, Any]", d)
     except (OSError, json.JSONDecodeError):
         return {}
@@ -2868,9 +2872,6 @@ def defaults_set(body: Settings) -> dict[str, Any]:
         d["prefer_reserve"] = bool(body.prefer_reserve)
     if body.account_fallback_default is not None:
         d["account_fallback_default"] = bool(body.account_fallback_default)
-    if body.org_inbox_multi_holder is not None:
-        d["org_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
-        d["external_inbox_multi_holder"] = bool(body.org_inbox_multi_holder)
     if body.auto_resume is not None:
         d["auto_resume"] = bool(body.auto_resume)
     if body.auto_resume_compact is not None:

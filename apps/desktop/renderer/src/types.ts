@@ -869,6 +869,7 @@ export interface TreePayload {
     total?: number
     unread: number
     holders: string[]          // ledger.py extern_holders() -> list[str]
+    multi_holder_enabled: boolean
     visible: boolean
   }
   kiosk?: TreeKiosk            // only when the org is a kiosk
@@ -1988,6 +1989,8 @@ export interface SettingsRequest {
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   cascade_hire?: boolean | null
   cascade_alloc?: boolean | null
+  /** organization-level external inbox holder policy */
+  org_inbox_multi_holder?: boolean | null
   // F-06
   net_hub_address?: string | null      // global defaults only
   net_autoconnect?: boolean | null     // per-org: keep/join the local hub

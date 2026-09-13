@@ -2681,6 +2681,9 @@ export function SettingsPanel({ tree, toast, close }: {
   const setCascadeHire = set('cascadeHire', cascadeHire)
   const cascadeAlloc = val('cascadeAlloc', tree.cascade_alloc !== false)
   const setCascadeAlloc = set('cascadeAlloc', cascadeAlloc)
+  const multiHolder = val('multiHolder',
+    tree.org_inbox?.multi_holder_enabled === true)
+  const setMultiHolder = set('multiHolder', multiHolder)
   // Known-cold pre-turn cheap compaction — per-node overrides
   // live in each agent's own gear panel
   const acc = tree.auto_cheap_compact ?? null
@@ -2959,6 +2962,12 @@ export function SettingsPanel({ tree, toast, close }: {
                 checked={cascadeAlloc} onChange={setCascadeAlloc}
                 hint="off: limited to the superior's own free credits" />
             </SetGroup>
+            <SetGroup title="External org inbox">
+              <SetToggle
+                label="allow multiple org-inbox audience holders"
+                checked={multiHolder} onChange={setMultiHolder}
+                hint="off: granting a different holder moves the audience; turning this off with several holders requires revoking all but one first" />
+            </SetGroup>
           </>)}
         </SettingsTabPanel>
 
@@ -3007,6 +3016,7 @@ export function SettingsPanel({ tree, toast, close }: {
                   default_effort: defEffort,
                   cascade_hire: cascadeHire,
                   cascade_alloc: cascadeAlloc,
+                  org_inbox_multi_holder: multiHolder,
                   auto_resume_compact: arCompact,
                   auto_cheap_compact: { enabled: accOn,
                     occ: (+accOcc || 50) / 100 },
