@@ -311,7 +311,7 @@ for (let index = 0; index < batches.length; index++) {
     const result = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File', path.join(HERE, 'joblimit.ps1'), '-LimitMB', String(JOB_MB),
       '-TimeoutSec', String(timeoutSec), '-WorkDir', path.join(HERE, '..'),
-      '-Exe', process.execPath, '-ArgFile', argFile], { stdio: 'inherit', env })
+      '-Exe', process.execPath, '-ArgFile', argFile], { stdio: 'inherit', env, windowsHide: true })
     if (result.error) {
       console.error(`[run.mjs] could not start joblimit.ps1: ${result.error.message}`)
       status = 1

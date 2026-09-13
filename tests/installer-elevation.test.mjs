@@ -621,7 +621,7 @@ test(
           ':go',
           // Started only now — after the snapshot — and the parent exits the
           // moment this returns.
-          `start "" "${pingExe}" -n 120 127.0.0.1`,
+          `start "" /B "${pingExe}" -n 120 127.0.0.1`,
           '',
         ].join('\r\n'),
       )

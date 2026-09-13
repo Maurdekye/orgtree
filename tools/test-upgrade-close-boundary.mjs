@@ -191,7 +191,7 @@ const cases = []
 function report (name, run) { cases.push({ name, run }) }
 
 async function startInstalledApp (directory) {
-  const child = spawn(path.join(directory, 'Orgtree.exe'), [], { stdio: 'ignore', windowsHide: false, detached: false })
+  const child = spawn(path.join(directory, 'Orgtree.exe'), [], { stdio: 'ignore', windowsHide: true, detached: false })
   started.push(child)
   return child
 }

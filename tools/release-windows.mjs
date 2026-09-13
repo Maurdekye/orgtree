@@ -576,15 +576,38 @@ async function responseJson(response, url) {
   }
 }
 
-async function fetchJson(fetchImpl, url) {
+function githubHeaders(accept) {
+  const headers = { Accept: accept, 'User-Agent': 'orgtree-release-tool' }
+  // Public endpoints work unauthenticated, but publication verification should
+  // use the same authenticated view as the creating CLI when a token exists.
+  if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`
+  return headers
+}
+
+function retryableStatus(status) {
+  return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+async function fetchWithRetry(fetchImpl, url, { accept, retries = 4, delayMs = 250 } = {}) {
+  let lastError = null
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { headers: githubHeaders(accept) })
+      if (responseOk(response) || !retryableStatus(response?.status) || attempt === retries) return response
+      lastError = new Error(`HTTP ${response.status}`)
+    } catch (error) {
+      lastError = error
+      if (attempt === retries) throw error
+    }
+    if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)))
+  }
+  throw lastError || new Error('request failed')
+}
+
+async function fetchJson(fetchImpl, url, options = {}) {
   let response
   try {
-    response = await fetchImpl(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'orgtree-release-tool',
-      },
-    })
+    response = await fetchWithRetry(fetchImpl, url, { accept: 'application/vnd.github+json', ...options })
   } catch (error) {
     fail(`Could not reach public GitHub endpoint ${url}: ${error.message}`)
   }
@@ -596,7 +619,10 @@ export async function assertNoPublicRelease({ owner, repo, tag, fetchImpl = glob
   const url = githubApiUrl(owner, repo, `releases/tags/${encodeURIComponent(tag)}`)
   let response
   try {
-    response = await fetchImpl(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'orgtree-release-tool' } })
+    // Collision checks are intentionally immediate: a 404 is the proof of
+    // absence required before mutation. Retries belong to post-publication
+    // verification, where draft-to-public propagation can briefly return 404.
+    response = await fetchWithRetry(fetchImpl, url, { accept: 'application/vnd.github+json', retries: 0, delayMs: 0 })
   } catch (error) {
     fail(`Could not establish that public release ${tag} is absent: ${error.message}`)
   }
@@ -605,13 +631,13 @@ export async function assertNoPublicRelease({ owner, repo, tag, fetchImpl = glob
   fail(`Could not establish that public release ${tag} is absent (HTTP ${response?.status ?? 'unknown'})`)
 }
 
-async function downloadPublicAsset(fetchImpl, owner, repo, tag, asset) {
+async function downloadPublicAsset(fetchImpl, owner, repo, tag, asset, retry = {}) {
   const url = asset.browser_download_url || `${githubDownloadPrefix(owner, repo, tag)}${encodeURIComponent(asset.name)}`
   const prefix = githubDownloadPrefix(owner, repo, tag)
   if (!url.startsWith(prefix)) fail(`Release asset ${asset.name} does not use its public download endpoint`)
   let response
   try {
-    response = await fetchImpl(url, { headers: { Accept: 'application/octet-stream', 'User-Agent': 'orgtree-release-tool' } })
+    response = await fetchWithRetry(fetchImpl, url, { accept: 'application/octet-stream', ...retry })
   } catch (error) {
     fail(`Could not download public asset ${asset.name}: ${error.message}`)
   }
@@ -623,22 +649,22 @@ async function downloadPublicAsset(fetchImpl, owner, repo, tag, asset) {
   }
 }
 
-async function resolvePublicTagCommit(fetchImpl, owner, repo, tag) {
+async function resolvePublicTagCommit(fetchImpl, owner, repo, tag, retry = {}) {
   const refUrl = githubApiUrl(owner, repo, `git/ref/tags/${encodeURIComponent(tag)}`)
-  const ref = await fetchJson(fetchImpl, refUrl)
+  const ref = await fetchJson(fetchImpl, refUrl, retry)
   let object = ref.object
   if (!object?.sha) fail(`Public tag ${tag} has no Git object`)
   while (object.type === 'tag') {
-    const annotated = await fetchJson(fetchImpl, githubApiUrl(owner, repo, `git/tags/${encodeURIComponent(object.sha)}`))
+    const annotated = await fetchJson(fetchImpl, githubApiUrl(owner, repo, `git/tags/${encodeURIComponent(object.sha)}`), retry)
     object = annotated.object
     if (!object?.sha) fail(`Annotated public tag ${tag} has no commit target`)
   }
   return { sha: object.sha, type: object.type || 'commit' }
 }
 
-export async function verifyPublicRelease({ manifest, owner, repo, tag = manifest.tag, fetchImpl = globalThis.fetch }) {
+export async function verifyPublicRelease({ manifest, owner, repo, tag = manifest.tag, fetchImpl = globalThis.fetch, retry = {} }) {
   if (typeof fetchImpl !== 'function') fail('Public release verification requires fetch')
-  const release = await fetchJson(fetchImpl, githubApiUrl(owner, repo, `releases/tags/${encodeURIComponent(tag)}`))
+  const release = await fetchJson(fetchImpl, githubApiUrl(owner, repo, `releases/tags/${encodeURIComponent(tag)}`), retry)
   if (release.tag_name !== tag) fail(`Public release tag is ${release.tag_name}, expected ${tag}`)
   if (release.name !== `Orgtree ${manifest.version}`) fail(`Public release title is ${release.name}, expected Orgtree ${manifest.version}`)
   if (release.draft === true || release.prerelease === true) fail('Public release is still draft or prerelease')
@@ -657,7 +683,7 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
   for (const asset of assets) {
     const record = records.get(asset.name)
     if (asset.size !== record.size) fail(`Public asset metadata size differs for ${asset.name}`)
-    const result = await downloadPublicAsset(fetchImpl, owner, repo, tag, asset)
+    const result = await downloadPublicAsset(fetchImpl, owner, repo, tag, asset, retry)
     if (result.bytes.length !== record.size || sha256Bytes(result.bytes) !== record.sha256 || sha512Bytes(result.bytes) !== record.sha512) {
       fail(`Public asset bytes differ from the reviewed candidate: ${asset.name}`)
     }
@@ -679,11 +705,11 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
     installerBytes,
   })
 
-  const latestRelease = await fetchJson(fetchImpl, githubApiUrl(owner, repo, 'releases/latest'))
+  const latestRelease = await fetchJson(fetchImpl, githubApiUrl(owner, repo, 'releases/latest'), retry)
   if (latestRelease.tag_name !== tag || latestRelease.draft === true || latestRelease.prerelease === true) {
     fail(`Public Latest release is ${latestRelease.tag_name || 'unknown'}, not ${tag}`)
   }
-  const tagTarget = await resolvePublicTagCommit(fetchImpl, owner, repo, tag)
+  const tagTarget = await resolvePublicTagCommit(fetchImpl, owner, repo, tag, retry)
   if (tagTarget.sha !== manifest.commit) fail(`Public tag ${tag} targets ${tagTarget.sha}, expected ${manifest.commit}`)
   return {
     schema: PUBLIC_VERIFICATION_SCHEMA,

@@ -68,7 +68,7 @@ async function bootRealEngine(label) {
   const root = path.join(temp, label); fs.mkdirSync(root)
   const env = { ...process.env, ORGTREE_V2_DATA: root, ORGTREE_V2_UI_DIR: ui, PYTHONUNBUFFERED: '1' }
   for (const key of ['ORGTREE_DATA', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_TOKEN', 'ORGTREE_V2_PORT']) delete env[key]
-  const host = spawn(PYTHON, [path.join(REPO, 'engine/service_host.py')], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const host = spawn(PYTHON, [path.join(REPO, 'engine/service_host.py')], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   let log = ''
   host.stderr.on('data', chunk => { log += chunk })
   host.stdout.on('data', () => {})
@@ -155,7 +155,7 @@ try {
       "print(guardian, kid.pid, flush=True)",
       'time.sleep(600)',
     ].join('\n'))
-    const child = spawn(PYTHON, [script], { stdio: ['ignore', 'pipe', 'inherit'] })
+    const child = spawn(PYTHON, [script], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
     const line = await new Promise((resolve, reject) => {
       let buffer = ''
       child.stdout.on('data', chunk => { buffer += chunk; if (buffer.includes('\n')) resolve(buffer.split('\n')[0].trim()) })

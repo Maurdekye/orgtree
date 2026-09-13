@@ -490,7 +490,7 @@ test('the update stop also demands the guardian tree release the root lock', asy
   // Windows paths drop straight into python raw strings; no escaping games.
   const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(3);l.close();print('released',flush=True)`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('lock holder died early')))
@@ -521,7 +521,7 @@ test('a busy engine (probes fail, tree signals alive) is never declared dead', a
   // only prove ALIVE — the lock and descriptor own the death verdict).
   const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(4);l.close()`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('lock holder died early')))
@@ -576,7 +576,7 @@ test('guardianReleased: cannot-look is never released (empty, missing, unlocked,
   assert.equal(engine.guardianReleased(path.join(realRoot, '.desktop-engine.lock')), true, 'a real existing UNLOCKED file answers released')
   const holdScript = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(2);l.close()`
   const { spawn } = await import('node:child_process')
-  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const holder = spawn('python', ['-c', holdScript], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   await new Promise((resolve, reject) => {
     holder.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve() })
     holder.on('exit', () => reject(new Error('holder died early')))

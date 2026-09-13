@@ -33,6 +33,32 @@ available before the command starts:
 The normal release remains unsigned. No signing credentials or signing step are
 introduced by this workflow.
 
+## Focused verification
+
+Routine release checks use the bounded selector below:
+
+```powershell
+npm run verify:release -- <changed-path> ...
+```
+
+Release tooling, receipt, and release-fixture changes select the focused release
+and receipt checks. Installer or upgrade changes select the installer checks plus
+the release checks. Application, engine, package, build, or unknown changes
+escalate to the full Node and renderer suites. The selector prints its profile,
+changed paths, reason, safety escalation, and gate actions before any check runs.
+
+Source, version, build, artifact, and publication are separate gates. A passing
+source receipt may be reused only when its candidate, profile, exact commands,
+and byte-level source fingerprint all match; version metadata, packaging, and
+publication advancement do not by themselves rerun unchanged source checks.
+Receipts include each command, captured output, per-check duration, total
+duration, and the immutable receipt fingerprint. A changed or malformed receipt
+is ignored and the relevant check runs again.
+
+The practical unchanged-code target is the focused profile's measured duration,
+recorded in its receipt on the Windows machine. Do not substitute a guessed
+threshold for that measurement; a profile regression is visible in the receipt.
+
 ## Produce a candidate
 
 ```powershell

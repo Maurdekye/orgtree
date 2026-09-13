@@ -427,18 +427,21 @@ test('public release verification downloads every canonical asset and checks tag
   }
   const api = `https://api.github.com/repos/${owner}/${repo}`
   const calls = []
+  let releaseLookups = 0
   const fetchImpl = async url => {
     calls.push(url)
+    if (url === `${api}/releases/tags/${tag}` && releaseLookups++ === 0) return responseJson({ message: 'still propagating' }, 404)
     if (url === `${api}/releases/tags/${tag}` || url === `${api}/releases/latest`) return responseJson(release)
     if (url === `${api}/git/ref/tags/${tag}`) return responseJson({ object: { type: 'commit', sha: commit } })
     for (const [name, bytes] of contents) if (url === prefix + name) return responseBytes(bytes)
     return responseJson({ message: 'not found' }, 404)
   }
-  const result = await verifyPublicRelease({ manifest, owner, repo, fetchImpl })
+  const result = await verifyPublicRelease({ manifest, owner, repo, fetchImpl, retry: { retries: 2, delayMs: 0 } })
   assert.equal(result.tagTarget.sha, commit)
   assert.equal(result.latest.tag, tag)
   assert.deepEqual(Object.keys(result.assets).sort(), CANONICAL_ASSET_NAMES(version).sort())
   assert.equal(calls.filter(url => url.startsWith(prefix)).length, 6, 'each public asset is downloaded exactly once')
+  assert.equal(releaseLookups, 2, 'post-publication verification retries a transient propagation 404')
 })
 
 test('public collision checks distinguish an absent release from an existing one', async () => {

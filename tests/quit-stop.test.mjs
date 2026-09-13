@@ -89,7 +89,7 @@ async function attached(port) {
 const holders = []
 async function holdRootLock() {
   const script = `import sys,time;sys.path.insert(0,r'${process.cwd()}');from pathlib import Path;from engine.process_lifetime import RootLock;l=RootLock(Path(r'${realRoot}'));print('held',flush=True);time.sleep(120);l.close()`
-  const holder = spawn('python', ['-c', script], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const holder = spawn('python', ['-c', script], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
   holders.push(holder)
   holder.unref()
   await new Promise((resolve, reject) => {
