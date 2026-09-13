@@ -1833,6 +1833,13 @@ button.cc-name:hover {
 .turn-mail-toggle:focus-visible { opacity: 1; }
 .turn-mail-tail { margin-top: 1px; }
 .msg.sys { align-self: center; color: var(--dim); font-size: 10px; background: none; }
+.pending-divider {
+  align-self: stretch; display: flex; align-items: center; gap: 8px;
+  color: var(--dim); font-size: 10px; line-height: 1; white-space: nowrap;
+}
+.pending-divider::before, .pending-divider::after {
+  content: ''; flex: 1; border-top: 1px solid var(--line-soft);
+}
 /* markdown inside chat messages */
 .md { white-space: normal; }
 .md p { margin: 0 0 6px; }

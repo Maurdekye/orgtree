@@ -2273,6 +2273,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         .then(() => refresh(true))
         .catch((e: Error) => toast([`error: ${e.message}`]))} />
   )
+  // A single boundary marks the first visible queued/undelivered message in
+  // the existing transcript order. `pendNow` remains hoisted above the live
+  // answer for the turn it belongs to; the divider follows that established
+  // placement rather than changing message order. The same marker is reused
+  // for durable pending rows and optimistic ghosts, so a transition never
+  // leaves two dividers on screen.
+  const pendingDivider = <div className="pending-divider" role="separator"
+    aria-label="queued and undelivered messages">
+    <span>queued / undelivered</span>
+  </div>
   // ── THE RENDER-BOUNDARY DUPLICATE GUARD ────────────────────────────────
   // (user request 2026-09-11: "intermittent double messages persist" — a
   // FINAL guard against a second rendered event with the same id, wanted
@@ -3089,6 +3099,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               app-server's start otherwise.
               The remaining pending mail is genuinely still waiting and stays
               at the bottom, after the live tail, where it is true. */}
+          {viewPendNow.length > 0 && pendingDivider}
           {viewPendNow.map(pendBubble)}
           {/* keyed on the server's row id (`n`), never the index: rows retire
               from the MIDDLE of this list as the transcript catches up, and an
@@ -3182,6 +3193,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               ⚠ Only the ones that are still WAITING render here, at the
               bottom. The one being delivered INTO the running turn was hoisted
               above the live tail — see pendNow. */}
+          {viewPendNow.length === 0 && viewPendLater.length > 0 && pendingDivider}
           {viewPendLater.map(pendBubble)}
           {/* №17 for GHOSTS (user bug 2026-09-03: "i sent an invalid command
               and it got stuck as a permanently undelivered message that i
@@ -3195,6 +3207,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               A failed one also offers ↩ to put the text back in the composer,
               and only when the composer is empty — the user's typing is not
               ours to overwrite. */}
+          {viewPendNow.length === 0 && viewPendLater.length === 0
+            && pending.length > 0 && pendingDivider}
           {pending.map((p) => (
             <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
               world={deskRefs.world} onOpen={deskRefs.onOpen}

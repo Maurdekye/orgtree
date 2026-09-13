@@ -111,6 +111,67 @@ function rows(el: HTMLElement): { kind: string; text: string }[] {
 }
 
 const idxOf = (r: { kind: string }[], kind: string) => r.findIndex((x) => x.kind === kind)
+const dividers = (el: HTMLElement) =>
+  [...el.querySelectorAll('.pending-divider')] as HTMLElement[]
+
+domTest('§0 an empty chat has no queued-message divider', async ({ mount }) => {
+  const el = await mount()
+  await flush()
+  assert.equal(dividers(el).length, 0)
+})
+
+domTest('§0b delivered-only history has no queued-message divider',
+  async ({ s, SL, ND, mount }) => {
+    s.assistantMsg('already delivered')
+    const el = await mount()
+    await refreshConvo(SL, ND, { force: true })
+    await flush()
+    assert.equal(dividers(el).length, 0)
+  })
+
+domTest('§0c queued-only chat has one divider at the pending boundary',
+  async ({ s, SL, ND, mount }) => {
+    s.postMail('waiting to send')
+    const el = await mount()
+    await refreshConvo(SL, ND, { force: true })
+    await flush()
+    assert.equal(dividers(el).length, 1)
+    const divider = dividers(el)[0]!
+    const pending = el.querySelector('.pendrow')!
+    assert.ok(divider.compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the divider precedes the queued message')
+  })
+
+domTest('§0d mixed history and queue keeps one divider between them',
+  async ({ s, SL, ND, mount }) => {
+    s.assistantMsg('already delivered')
+    s.postMail('waiting to send')
+    const el = await mount()
+    await refreshConvo(SL, ND, { force: true })
+    await flush()
+    assert.equal(dividers(el).length, 1)
+    const history = el.querySelector('.msg.assistant')!
+    const divider = dividers(el)[0]!
+    const pending = el.querySelector('.pendrow')!
+    assert.ok(history.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'delivered history stays before the divider')
+    assert.ok(divider.compareDocumentPosition(pending) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the divider stays before the pending message')
+  })
+
+domTest('§0e delivery transition removes the divider with the pending row',
+  async ({ s, SL, ND, mount }) => {
+    s.postMail('deliver me')
+    const el = await mount()
+    await refreshConvo(SL, ND, { force: true })
+    await flush()
+    assert.equal(dividers(el).length, 1, 'queued state shows the divider')
+    s.drain()
+    s.echo()
+    await refreshConvo(SL, ND, { force: true })
+    await flush()
+    assert.equal(dividers(el).length, 0, 'delivered state removes the divider')
+  })
 
 // ── §1 the running turn's own question ──────────────────────────────────────
 domTest('§1 a message being delivered INTO the running turn renders above that '
