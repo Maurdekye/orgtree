@@ -89,7 +89,6 @@ test('pruning hides archived subtrees and groups them under their parent', () =>
   assert.deepEqual(names(v.retiredByParent.get('R')), ['solo-ret'])
   assert.deepEqual([...v.prunedIds].sort(), ['ret-one', 'ret-two', 'solo-ret'])
 })
-
 test('the setting off, a reveal, a bearer and a live descendant all defeat the prune', () => {
   const off = pruneRetiredView(ROOT, false, new Set())
   assert.equal(off.root, ROOT, 'off: the tree passes through untouched')
@@ -120,6 +119,57 @@ test('a pruned subtree is pruned WHOLE — descendants are in prunedIds for the 
   assert.deepEqual([...v.prunedIds].sort(), ['gone-kid', 'gone-mgr'])
   assert.deepEqual(names(v.retiredByParent.get('D')), ['gone-mgr'],
     'the token lists the subtree ROOT, not every descendant')
+})
+
+test('revealing and dismissing retired agents toggles layout visibility without altering tree data', () => {
+  const shown = new Set(['ret-one', 'ret-two'])
+  const vBoth = pruneRetiredView(ROOT, true, shown)
+  assert.deepEqual(kidNames(kidsOf(vBoth.root, 'boss')), ['ret-one', 'ret-two', 'worker'])
+  assert.equal(vBoth.retiredByParent.get('boss'), undefined)
+
+  // dismissing ret-one returns it to the pruned group while ret-two stays visible
+  shown.delete('ret-one')
+  const vOne = pruneRetiredView(ROOT, true, shown)
+  assert.deepEqual(kidNames(kidsOf(vOne.root, 'boss')), ['ret-two', 'worker'])
+  assert.deepEqual(names(vOne.retiredByParent.get('boss')), ['ret-one'])
+  assert.ok(vOne.prunedIds.has('ret-one'))
+  assert.ok(!vOne.prunedIds.has('ret-two'))
+
+  // dismissing ret-two returns both to the pruned group
+  shown.delete('ret-two')
+  const vNone = pruneRetiredView(ROOT, true, shown)
+  assert.deepEqual(kidNames(kidsOf(vNone.root, 'boss')), ['worker'])
+  assert.deepEqual(names(vNone.retiredByParent.get('boss')), ['ret-one', 'ret-two'])
+  assert.ok(vNone.prunedIds.has('ret-one'))
+  assert.ok(vNone.prunedIds.has('ret-two'))
+})
+
+test('agentMenuEntries offers Dismiss only for retired agents with onDismiss handler', async () => {
+  const { agentMenuEntries } = await import('../src/canvas/agentmenu')
+  const retNode = mk({ id: 'ret-one', state: 'archived' })
+  const liveNode = mk({ id: 'live-one', state: 'live' })
+
+  let dismissed = false
+  const handlersWithDismiss = { onDismiss: () => { dismissed = true } }
+  const handlersWithoutDismiss = {}
+
+  // retired node with onDismiss -> Dismiss entry present
+  const entries = agentMenuEntries(retNode, handlersWithDismiss, {})
+  const dismissItem = entries.find((e) => typeof e === 'object' && e.label === 'Dismiss') as { label: string; onSelect: () => void; title?: string } | undefined
+  assert.ok(dismissItem, 'Dismiss menu item present for retired agent with handler')
+  assert.equal(dismissItem.title, 'hide this retired agent again')
+  dismissItem.onSelect()
+  assert.equal(dismissed, true, 'onSelect invokes onDismiss')
+
+  // retired node without onDismiss (e.g. hideRetired is off) -> no Dismiss entry
+  const entriesNoDismiss = agentMenuEntries(retNode, handlersWithoutDismiss, {})
+  assert.ok(!entriesNoDismiss.some((e) => typeof e === 'object' && e.label === 'Dismiss'),
+    'Dismiss not offered when onDismiss is absent')
+
+  // live node even with onDismiss -> live branch takes precedence, no Dismiss entry
+  const entriesLive = agentMenuEntries(liveNode, handlersWithDismiss, {})
+  assert.ok(!entriesLive.some((e) => typeof e === 'object' && e.label === 'Dismiss'),
+    'Dismiss not offered for live agents')
 })
 
 test('the setting is a real control in App settings, wired to the shared store', () => {
@@ -268,4 +318,268 @@ test('zoomed desk replaces retired jumps with a picker and hides retired audienc
     await inAct(() => pick.click())
     assert.deepEqual(jumps, ['ret-one'])
   } finally { await v.unmount(); setHideRetiredOn(false); resetConvos() }
+})
+
+domTest('revealed retired agent can be dismissed via card action, restores token count, cleans up pinned window, and can be reselected', async ({ mount }) => {
+  localStorage.setItem(HIDE_RETIRED_KEY, '1')
+  localStorage.setItem('orgtree-agent-shortcuts', '1')
+  const ops: unknown[] = []
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  const { isPinned, addPin, forgetPins } = await import('../src/canvas/pins')
+  forgetPins('hr')
+  const el = await mount(
+    <OrgCanvas tree={tree(FIXTURE)} op={async (o) => { ops.push(o); return {} as never }}
+      slug="hr" toast={noop} mailEvt={null} />)
+  await flush()
+  await advance(2600)
+
+  // 1. Reveal ret-one
+  const token = [...el.querySelectorAll('.retired-token')]
+    .find((t) => t.textContent === '2 retired') as HTMLElement
+  assert.ok(token, 'boss token found')
+  await inAct(async () => { token.click(); await flush() })
+  const picker = el.ownerDocument.querySelector('.pile-picker')!
+  const row = [...picker.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
+  await inAct(async () => { row.click(); await flush() })
+  await advance(400)
+  await flush()
+
+  let shown = cardNames(el)
+  assert.ok(shown.includes('ret-one'), 'ret-one is revealed')
+
+  // Find ret-one card
+  const retCard = [...el.querySelectorAll('.sq')].find((c) =>
+    c.querySelector('.sq-title .name')?.textContent === 'ret-one') as HTMLElement
+  assert.ok(retCard, 'ret-one card found')
+
+  // Dismiss button is present on card
+  const dismissBtn = retCard.querySelector('.dismissbtn') as HTMLButtonElement
+  assert.ok(dismissBtn, 'dismiss button exists on card')
+  assert.equal(dismissBtn.getAttribute('title'), 'dismiss — hide this retired agent again')
+
+  // Live card (boss) has no dismiss button
+  const bossCard = [...el.querySelectorAll('.sq')].find((c) =>
+    c.querySelector('.sq-title .name')?.textContent === 'boss') as HTMLElement
+  assert.equal(bossCard.querySelector('.dismissbtn'), null, 'live card has no dismiss button')
+
+  // Right-click ret-one card to verify context menu also offers "Dismiss"
+  const ev = new window.MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30,
+  })
+  await inAct(async () => { retCard.dispatchEvent(ev); await flush() })
+  const ctxMenu = document.querySelector('.ctxmenu')
+  assert.ok(ctxMenu, 'context menu opened for ret-one')
+  const menuButtons = [...ctxMenu.querySelectorAll('button')]
+  const menuDismiss = menuButtons.find((b) => b.textContent?.trim() === 'Dismiss')
+  assert.ok(menuDismiss, 'Dismiss item present in context menu')
+
+  // Close context menu by pressing Escape
+  await inAct(async () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flush()
+  })
+
+  // Pin ret-one to test pin cleanup
+  await inAct(async () => {
+    addPin('hr', 'ret-one', { x: 100, y: 100, w: 400, h: 300 })
+    await flush()
+  })
+  assert.equal(isPinned('hr', 'ret-one'), true, 'ret-one is now pinned')
+
+  // Now click dismiss button on card
+  await inAct(async () => { dismissBtn.click(); await flush() })
+  await advance(2600)
+  await flush()
+
+  // ret-one leaves canvas
+  shown = cardNames(el)
+  assert.ok(!shown.includes('ret-one'), 'ret-one removed from canvas')
+  assert.ok([...el.querySelectorAll('.retired-token, .desk-retired-token')].some((t) => t.textContent === '2 retired'),
+    'token count restored to 2')
+
+  // Pin was cleaned up
+  assert.equal(isPinned('hr', 'ret-one'), false, 'pinned window was removed on dismiss')
+
+  // No op was called (purely transient view change)
+  assert.equal(ops.length, 0, 'no op dispatched to server')
+
+  // Reselection from token works
+  const tokenRestored = [...el.querySelectorAll('.retired-token, .desk-retired-token')]
+    .find((t) => t.textContent === '2 retired') as HTMLElement
+  assert.ok(tokenRestored, 'token restored')
+  await inAct(async () => { tokenRestored.click(); await flush() })
+  const pickerRestored = el.ownerDocument.querySelector('.pile-picker')!
+  const rowRestored = [...pickerRestored.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
+  assert.ok(rowRestored, 'ret-one is available in picker again')
+  await inAct(async () => { rowRestored.click(); await flush() })
+  await advance(400)
+  await flush()
+
+  shown = cardNames(el)
+  assert.ok(shown.includes('ret-one'), 'ret-one is re-revealed successfully')
+})
+
+domTest('revealed retired agent can be dismissed via context menu Dismiss entry', async ({ mount }) => {
+  localStorage.setItem(HIDE_RETIRED_KEY, '1')
+  const el = await mountCanvas(mount)
+
+  // Reveal ret-one
+  const token = [...el.querySelectorAll('.retired-token')]
+    .find((t) => t.textContent === '2 retired') as HTMLElement
+  await inAct(async () => { token.click(); await flush() })
+  const picker = el.ownerDocument.querySelector('.pile-picker')!
+  const row = [...picker.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
+  await inAct(async () => { row.click(); await flush() })
+  await advance(400)
+  await flush()
+
+  const retCard = [...el.querySelectorAll('.sq')].find((c) =>
+    c.querySelector('.sq-title .name')?.textContent === 'ret-one') as HTMLElement
+
+  const ev = new window.MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30,
+  })
+  await inAct(async () => { retCard.dispatchEvent(ev); await flush() })
+  const ctxMenu = document.querySelector('.ctxmenu')!
+  const menuDismiss = [...ctxMenu.querySelectorAll('button')]
+    .find((b) => b.textContent?.trim() === 'Dismiss') as HTMLButtonElement
+  assert.ok(menuDismiss, 'Dismiss option found in context menu')
+
+  await inAct(async () => { menuDismiss.click(); await flush() })
+  await advance(2600)
+  await flush()
+
+  const shown = cardNames(el)
+  assert.ok(!shown.includes('ret-one'), 'ret-one dismissed via context menu')
+  assert.ok([...el.querySelectorAll('.retired-token')].some((t) => t.textContent === '2 retired'))
+})
+
+domTest('dismissing an inactive revealed retiree preserves the active live target and camera', async ({ mount }) => {
+  localStorage.setItem(HIDE_RETIRED_KEY, '1')
+  const el = await mountCanvas(mount)
+
+  // Reveal two retirees, preserving both in transient view state.
+  let token = [...el.querySelectorAll('.retired-token')]
+    .find((t) => t.textContent === '2 retired') as HTMLElement
+  await inAct(async () => { token.click(); await flush() })
+  let picker = el.ownerDocument.querySelector('.pile-picker')!
+  let row = [...picker.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').includes('ret-one')) as HTMLElement
+  await inAct(async () => { row.click(); await flush() })
+  await advance(400)
+  await flush()
+
+  token = [...el.querySelectorAll('.retired-token')]
+    .find((t) => t.textContent === '1 retired') as HTMLElement
+  await inAct(async () => { token.click(); await flush() })
+  picker = el.ownerDocument.querySelector('.pile-picker')!
+  row = [...picker.querySelectorAll('button')]
+    .find((b) => (b.textContent ?? '').includes('ret-two')) as HTMLElement
+  await inAct(async () => { row.click(); await flush() })
+  await advance(400)
+  await flush()
+
+  // Select a live agent through the tray. Its camera target remains active
+  // while the unrelated revealed retiree is dismissed from the tray menu.
+  const toggle = el.querySelector('.tray-toggle') as HTMLElement
+  await inAct(async () => { toggle.click(); await flush() })
+  const worker = [...el.querySelectorAll('.tray-row')]
+    .find((r) => r.querySelector('.tray-name')?.textContent === 'worker') as HTMLElement
+  assert.ok(worker, 'live target row rendered')
+  await inAct(async () => { (worker.querySelector('.tray-main') as HTMLElement).click(); await flush() })
+  await advance(800)
+  await flush()
+  const before = (el.querySelector('.space') as HTMLElement).style.transform
+  assert.ok(el.querySelector('.sq.desk [data-copy-agent-name="worker"]'),
+    'worker owns the active desk before unrelated dismissal')
+
+  const archivedToggle = el.querySelector('.tray-arch') as HTMLElement
+  assert.ok(archivedToggle, 'archived rows can be shown')
+  await inAct(async () => { archivedToggle.click(); await flush() })
+  const retiredRow = [...el.querySelectorAll('.tray-row')]
+    .find((r) => r.querySelector('.tray-name')?.textContent === 'ret-one') as HTMLElement
+  assert.ok(retiredRow, 'revealed retired row remains addressable')
+  await inAct(async () => {
+    retiredRow.dispatchEvent(new window.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30,
+    }))
+    await flush()
+  })
+  const dismiss = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find((b) => b.textContent?.trim() === 'Dismiss')
+  assert.ok(dismiss, 'inactive revealed retiree offers Dismiss')
+  await inAct(async () => { dismiss!.click(); await flush() })
+  await advance(800)
+  await flush()
+
+  assert.equal((el.querySelector('.space') as HTMLElement).style.transform, before,
+    'dismissing an inactive retiree does not move the camera')
+  assert.ok(el.querySelector('.sq.desk [data-copy-agent-name="worker"]'),
+    'the active live target remains selected')
+
+  // The row stays in the lifecycle list, but its transient Dismiss affordance
+  // is gone: the revealed retiree returned to the hidden canvas state.
+  await inAct(async () => {
+    retiredRow.dispatchEvent(new window.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30,
+    }))
+    await flush()
+  })
+  const after = document.querySelector('.ctxmenu')
+  assert.ok(after, 'retired row remains selectable after dismissal')
+  assert.equal([...after!.querySelectorAll('button')]
+    .some((b) => b.textContent?.trim() === 'Dismiss'), false,
+    'dismissed retiree no longer has a transient Dismiss action')
+})
+
+domTest('setting OFF: retirees have no dismiss button on card, desk or context menu', async ({ mount }) => {
+  localStorage.removeItem(HIDE_RETIRED_KEY)
+  const el = await mountCanvas(mount)
+  const shown = cardNames(el)
+  assert.ok(shown.includes('solo-ret'), 'solo-ret visible with setting OFF')
+  assert.equal(el.querySelectorAll('.dismissbtn').length, 0, 'no dismiss buttons on any card')
+
+  const soloCard = [...el.querySelectorAll('.sq')].find((c) =>
+    c.querySelector('.sq-title .name')?.textContent === 'solo-ret') as HTMLElement
+  assert.ok(soloCard)
+  const ev = new window.MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30,
+  })
+  await inAct(async () => { soloCard.dispatchEvent(ev); await flush() })
+  const ctxMenu = document.querySelector('.ctxmenu')
+  if (ctxMenu) {
+    const hasDismiss = [...ctxMenu.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Dismiss')
+    assert.equal(hasDismiss, false, 'no Dismiss in context menu when setting is OFF')
+  }
+})
+
+test('zoomed desk of a revealed retired agent offers dismiss button when onDismiss is passed', async () => {
+  const { FakeServer, installFetch } = await import('./harness')
+  const { DeskChat } = await import('../src/canvas/desk')
+  const { resetConvos } = await import('../src/convo')
+  localStorage.clear(); resetConvos()
+  installFetch(new FakeServer())
+  const ret = mk({ id: 'ret-one', state: 'archived' })
+  const map = new Map([[ret.id, ret]])
+  let dismissed = false
+  const v = await mountView(
+    <DeskChat node={ret} map={map} slug="hr"
+      op={async () => ({})} toast={noop} pub={false} bare
+      onDismiss={() => { dismissed = true }} />,
+    (el) => el
+  )
+  try {
+    const dismissBtn = [...v.el.querySelectorAll<HTMLButtonElement>('.cc-actions button')]
+      .find((b) => b.textContent?.trim() === 'dismiss')
+    assert.ok(dismissBtn, 'dismiss button rendered in .cc-actions')
+    assert.equal(dismissBtn.title, 'dismiss — hide this retired agent again')
+    await inAct(() => dismissBtn.click())
+    assert.equal(dismissed, true, 'clicking dismiss button invokes onDismiss')
+  } finally {
+    await v.unmount()
+    resetConvos()
+  }
 })

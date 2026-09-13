@@ -556,14 +556,14 @@ main {
    at overview zoom. Same hover-reveal as the gear/mail pair, one slot left of
    them; the danger red only arrives on ITS OWN hover so the head row doesn't
    wear a permanent alarm. Confirm-gated in the component. */
-.retirebtn {
+.retirebtn, .dismissbtn {
   position: relative; top: auto; right: auto; z-index: 3;
   border: none; background: none; padding: 0 2px; font-size: 12px;
   color: var(--dim); opacity: 0; visibility: hidden;
   transition: opacity .15s, visibility .15s; line-height: 1;
 }
-.sq:hover .retirebtn { opacity: .8; visibility: visible; }
-.retirebtn:hover { opacity: 1 !important; color: var(--bad); background: none; }
+.sq:hover .retirebtn, .sq:hover .dismissbtn { opacity: .8; visibility: visible; }
+.retirebtn:hover, .dismissbtn:hover { opacity: 1 !important; color: var(--bad); background: none; }
 /* frozen by a usage limit — pale ICE (whiter, desaturated) so it never reads
    as the saturated credit-bar cyan sitting right beside the card */
 .sq.frozen { border-color: #6b93ab; }
@@ -5584,7 +5584,7 @@ html.mobile .chip-x { min-width: 28px; min-height: 28px; }
   /* desktop card affordances that have no meaning on the map */
   html.mobile .hsof, html.mobile .doc-chips, html.mobile .sq-actions,
   html.mobile .gearbtn,
-  html.mobile .mailbtn, html.mobile .retirebtn,
+  html.mobile .mailbtn, html.mobile .retirebtn, html.mobile .dismissbtn,
   html.mobile .eye-inbox, html.mobile .eye-gear,
   html.mobile .user-label { display: none !important; }
 

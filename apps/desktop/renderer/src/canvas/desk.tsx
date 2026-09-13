@@ -1444,7 +1444,8 @@ export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
   && p.staleIdentity === n.staleIdentity && p.pub === n.pub && p.bare === n.bare && p.compact === n.compact
-  && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc)
+  && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc
+  && p.onDismiss === n.onDismiss)
 
 export interface DeskChatProps {
   staleIdentity?: boolean
@@ -1478,6 +1479,8 @@ export interface DeskChatProps {
    *  CANVAS desk passes it; absent hides the button — a switchboard panel,
    *  the mobile sheet and a pinned window itself have no pin to offer. */
   onPin?: () => void
+  /** hide an explicitly revealed retired agent again (hide-retired setting) */
+  onDismiss?: () => void
 }
 
 /** F-01: one small clickable card pointing at a related agent — superior at
@@ -1637,7 +1640,7 @@ function ctxTargetElement(root: Element | null,
 function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  staleIdentity = false }: DeskChatProps) {
+  staleIdentity = false, onDismiss }: DeskChatProps) {
   // org killswitch latch — read here (context survives popout portals and
   // OwnedDeskChat's memo) for the halted banner above the composer
   const orgKillswitched = useContext(OrgKillswitchContext)
@@ -2723,6 +2726,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               <button className="danger" onClick={() => setAsking('dissolve')}>
                 dissolve · {fmtCredits(node.seat! + node.grant!)}</button>}
             {!live && <button onClick={() => op({ op: 'rehire', node: node.id })}>rehire</button>}
+            {!live && onDismiss && (
+              <button onClick={onDismiss} title="dismiss — hide this retired agent again">
+                dismiss
+              </button>
+            )}
           </span>
           <span className="cc-tabs">
             {(['chat', 'inbox', 'docket', 'presented', 'history', 'files'] as const).map((v) => (

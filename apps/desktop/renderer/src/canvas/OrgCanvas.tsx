@@ -36,7 +36,7 @@ import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { DraftNode, NodeSquare, UserNode } from './cards'
-import { addPin, clampRect, PinLayer, prunePins, renamePin, showPin, usePins } from './pins'
+import { addPin, clampRect, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
 import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
@@ -584,7 +584,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const out = new Map<string, Pile>()
     const walk = (n: CanvasNode) => {
       const kids = n.children ?? []
-      const arch = kids.filter((c) => c.state === 'archived')
+      // When hide-retired is active, an explicitly revealed retiree is a
+      // real card again, not a member of the retired pile. Keeping several
+      // revealed cards in the pile would silently hide all but its front and
+      // make independent reveal/dismiss impossible.
+      const arch = kids.filter((c) => c.state === 'archived'
+        && !(hideRetired && shownRetired.has(c.id)))
       if (arch.length >= 2) {
         const key = n.id + '|a'
         const want = pileFront[key]
@@ -625,7 +630,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     walk(vroot)
     return out
-  }, [vroot, pileFront, crowdPiles])
+  }, [vroot, pileFront, crowdPiles, hideRetired, shownRetired])
   const pileByFront = useMemo(() => {
     const out = new Map<string, Pile>()
     for (const p of piles.values()) out.set(p.front, p)
@@ -2387,6 +2392,49 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (!r.ok) toast([r.reason])
   }
 
+  /** hide an explicitly revealed retired agent again (hide-retired setting) */
+  const dismissRetiredAgent = useCallback((id: string) => {
+    if (!shownRetired.has(id) || mapRef.current.get(id)?.state !== 'archived') return
+    if (pinnedIdsRef.current.has(id)) {
+      removePin(slug, id)
+    }
+    setConfigId((cur) => (cur === id ? null : cur))
+    setLineageId((cur) => (cur === id ? null : cur))
+    setInboxId((cur) => (cur === id ? null : cur))
+    setAgentDocketId((cur) => (cur === id ? null : cur))
+    setSheetId((cur) => (cur === id ? null : cur))
+
+    const wasFocused = focusRef.current === id || nearestId === id
+      || (camIntent.current?.kind === 'focus' && camIntent.current.id === id)
+    const hasActiveSurface = configId === id || lineageId === id || inboxId === id
+      || agentDocketId === id || sheetId === id || pinnedIdsRef.current.has(id)
+    const parentId = mapRef.current.get(id)?.parent
+    const validParent = parentId && mapRef.current.has(parentId) && !prunedRef.current.has(parentId)
+    const fallbackId = validParent ? parentId : USER
+
+    // The projection ref is updated by an effect after React commits the
+    // state change. Mark the dismissed id immediately so a synchronous
+    // fallback focus cannot mistake it for a still-hidden target and reveal
+    // it again through centerOn.
+    const nextPruned = new Set(prunedRef.current)
+    nextPruned.add(id)
+    prunedRef.current = nextPruned
+
+    setShownRetired((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+
+    // Re-aim only when the dismissed agent owned the current focus/selection
+    // or an active dependent surface. Removing that active card can otherwise
+    // leave the camera over an empty layout, with neither the parent nor its
+    // retired-list token reachable.
+    if (wasFocused || hasActiveSurface) centerOn(fallbackId)
+  }, [slug, nearestId, shownRetired, configId, lineageId, inboxId,
+    agentDocketId, sheetId, centerOn])
+
   // THE AGENTS LIST ROW'S CONTEXT MENU (user request 2026-09-12: a row must
   // offer exactly what the agent's own card offers, "with the same ordering,
   // labels, availability, authority checks and behavior"). The entry LIST is
@@ -2427,6 +2475,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
+      onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
+        ? () => dismissRetiredAgent(n.id) : undefined,
     }, {
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,
@@ -2976,7 +3026,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               /* the Agents List row's "Hire a subordinate…" — the chips are
                  here, so the row asks this card to open them */
               revealHire={hireReveal?.id === n.id ? hireReveal.seq : undefined}
-              onHireRevealed={() => setHireReveal(null)} />
+              onHireRevealed={() => setHireReveal(null)}
+              onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
+                ? () => dismissRetiredAgent(n.id) : undefined} />
           )
           if (!pileHere) return square
           // the pile's stack layers render BEHIND the front card as real
@@ -3120,7 +3172,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
-          onShowOnCanvas={showOnCanvas} />
+          onShowOnCanvas={showOnCanvas}
+          onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
+            && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}
       {/* nav cluster (user spec): bottom-LEFT beside the agents tray, so
           every zoom target lives in one stack — ordered top to bottom:
@@ -3475,7 +3529,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                   onConfig={() => toggleConfig(sheetId)}
                   onJump={(id) => {
                     if (id !== USER && mapRef.current.has(id)) setSheetId(id)
-                  }} />
+                  }}
+                  onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(sheetId)
+                    ? () => dismissRetiredAgent(sheetId) : undefined} />
               </div>
             </div>
           </MaybePortal>

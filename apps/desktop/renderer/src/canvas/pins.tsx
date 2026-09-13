@@ -338,6 +338,8 @@ export interface PinLayerProps {
    *  missing wire has to be a compile error, because the failure it causes is
    *  a menu entry that looks right and does nothing new. */
   onShowOnCanvas: (id: string) => void
+  /** hide an explicitly revealed retired agent again (hide-retired setting) */
+  onDismiss?: (id: string) => void
 }
 
 /** The viewport's PADDING box, in px. Pinned windows are absolutely positioned
@@ -442,7 +444,7 @@ type Gesture = GestureShape & { pointerId: number; moved: boolean; capture: HTML
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
-  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef }:
+  compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef, onDismiss }:
   PinLayerProps & { pin: Pin; node: CanvasNode; vp: { w: number; h: number } | null
     onUnpin: (id: string, from: PinRect) => void }) {
   // the in-flight gesture's rect lives in component state (one render per
@@ -648,7 +650,8 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
           pub={pub} compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onLineage={() => onLineage(pin.id)} onConfig={() => onConfig(pin.id)}
-          onJump={onJump} />
+          onJump={onJump}
+          onDismiss={onDismiss ? () => onDismiss(pin.id) : undefined} />
       </div>
     </div>
     {/* ⚠ OUTSIDE `.pinwin`, so the capture handler above never sees these:

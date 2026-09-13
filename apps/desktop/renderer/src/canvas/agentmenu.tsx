@@ -71,6 +71,8 @@ export interface AgentMenuHandlers {
   onHire?: () => void
   /** open the confirm for `kind`; render `AgentRetireConfirm` from it */
   onRetireAsk?: (kind: RetireKind) => void
+  /** hide an explicitly revealed retired agent again (hide-retired setting) */
+  onDismiss?: () => void
 }
 
 export interface AgentMenuState {
@@ -142,6 +144,13 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     entries.push('sep', liveKids
       ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }
       : { label: 'Retire…', danger: true, onSelect: () => ask('retire') })
+  } else if (!live && h.onDismiss) {
+    const dismiss = h.onDismiss
+    entries.push('sep', {
+      label: 'Dismiss',
+      title: 'hide this retired agent again',
+      onSelect: () => dismiss(),
+    })
   }
   return entries
 }

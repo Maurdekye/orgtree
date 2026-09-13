@@ -1267,6 +1267,8 @@ interface NodeSquareProps {
    *  the viewport and back does not silently reveal them again. */
   revealHire?: number
   onHireRevealed?: () => void
+  /** hide an explicitly revealed retired agent again (hide-retired setting) */
+  onDismiss?: () => void
 }
 
 /**
@@ -1385,7 +1387,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
-  revealHire, onHireRevealed }: NodeSquareProps) {
+  revealHire, onHireRevealed, onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
@@ -1464,6 +1466,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onShowWindow: desk.show,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
+      onDismiss,
     }, { pinned, piled: !!pile, detached: desk.detached })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1686,6 +1689,16 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               e.stopPropagation()
               setAsking(liveKids ? 'dissolve' : 'retire')
             }}><RetireIcon fontSize="inherit" /></button>}
+        {onDismiss && (
+          <button className="dismissbtn"
+            aria-label={`Dismiss ${node.id}`}
+            title="dismiss — hide this retired agent again"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDismiss()
+            }}><CloseIcon fontSize="inherit" /></button>
+        )}
         {/* ceiling spec §2: visitors retool freely WITHIN the kiosk ceiling —
             the gear is theirs too; the ledger clamps, never a 403 */}
         <button className="gearbtn"
@@ -1803,7 +1816,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           onRecenter={onRecenter} onJump={onJump} maxTop={maxTop} pxc={pxc}
           pub={pub} onMailLink={onMailLink} onWorkLink={onWorkLink}
           onOpenDoc={onOpenDoc}
-          onPin={onPin} />
+          onPin={onPin}
+          onDismiss={onDismiss} />
       )}
       {/* FR-3: the desk is a pinned window — the desk's place holds a
           placeholder, and there is no second DeskChat anywhere in this card */}
