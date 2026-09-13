@@ -762,6 +762,13 @@ button.badge.audience-fold.alert {
     0 0 20px color-mix(in srgb, var(--provider-accent) 20%, transparent);
 }
 /* ---- Far-zoom singular state icon (lod === 'mini') ---- */
+.sq-far-tier {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  pointer-events: none;
+}
 .sq-far-icon {
   flex: none;
   pointer-events: none;

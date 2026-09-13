@@ -40,7 +40,7 @@ import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
-import { AgentName } from './identity'
+import { AgentName, TierChip } from './identity'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
 
@@ -1326,42 +1326,58 @@ function ActionBadge({ deskView, className, title, onAct, children }: {
 /**
  * Far-zoom state icon for agent nodes at distant zoom (lod === 'mini').
  *
- * Renders exactly one centered, enlarged representation of the agent's
- * authoritative state. All secondary interior details (names, tiers,
- * badges, time strings, context wheels, credit bars) are omitted at this scale.
+ * Renders the model token in a corner and one centered, enlarged
+ * representation of the agent's authoritative state. The agent name and all
+ * other secondary interior details remain omitted at this scale.
  */
 export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   const visual = deriveAgentVisualState(node)
+  let stateIcon: ReactNode
   switch (visual.farKind) {
     case 'halted':
-      return <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
+      stateIcon = <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
+      break
     case 'frozen':
-      return <FrozenIcon className="sq-far-icon frozen tray-frozen" titleAccess="Frozen" />
+      stateIcon = <FrozenIcon className="sq-far-icon frozen tray-frozen" titleAccess="Frozen" />
+      break
     case 'active':
-      return (
+      stateIcon = (
         <AutorenewIcon
           className={`sq-far-icon active cc-spin prov-${providerOf(node.tier ?? '')}`}
           titleAccess="Active"
         />
       )
+      break
     case 'queued':
-      return <div className="sq-far-icon queued waiting" role="img" aria-label="Queued" title="Queued" />
+      stateIcon = <div className="sq-far-icon queued waiting" role="img" aria-label="Queued" title="Queued" />
+      break
     case 'compacting':
-      return <div className="sq-far-icon compacting" role="img" aria-label="Compacting" title="Compacting" />
+      stateIcon = <div className="sq-far-icon compacting" role="img" aria-label="Compacting" title="Compacting" />
+      break
     case 'archived':
-      return <RetireIcon className="sq-far-icon archived" titleAccess={visual.label} />
+      stateIcon = <RetireIcon className="sq-far-icon archived" titleAccess={visual.label} />
+      break
     case 'working':
-      return <div className="sq-far-icon working" role="img" aria-label="Working" title="Working" />
+      stateIcon = <div className="sq-far-icon working" role="img" aria-label="Working" title="Working" />
+      break
     case 'blocked':
-      return <div className="sq-far-icon blocked" role="img" aria-label="Blocked" title="Blocked" />
+      stateIcon = <div className="sq-far-icon blocked" role="img" aria-label="Blocked" title="Blocked" />
+      break
     case 'done':
-      return <div className="sq-far-icon done" role="img" aria-label="Done" title="Done" />
+      stateIcon = <div className="sq-far-icon done" role="img" aria-label="Done" title="Done" />
+      break
     case 'errored':
-      return <WarnIcon className="sq-far-icon errored" titleAccess="Error" />
+      stateIcon = <WarnIcon className="sq-far-icon errored" titleAccess="Error" />
+      break
     case 'idle':
     default:
-      return <div className="sq-far-icon idle" role="img" aria-label="Idle" title="Idle" />
+      stateIcon = <div className="sq-far-icon idle" role="img" aria-label="Idle" title="Idle" />
+      break
   }
+  return <>
+    <span className="sq-far-tier"><TierChip tier={node.tier} /></span>
+    {stateIcon}
+  </>
 }
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
@@ -1767,8 +1783,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
 
               ⚠ ITS PLACE IN THIS BLOCK IS THE FAR-ZOOM EXCLUSION. The whole
               `.sq-badges` row is already gated on `lod !== 'mini'`, so the
-              card is structurally absent at far zoom, where the node is one
-              large state icon and nothing else. It is likewise absent from
+              card is structurally absent at far zoom, where the node is a
+              model token plus one large state icon and nothing else. It is likewise absent from
               the `mapMode` locator, which returns long before this. Both are
               asserted in usageaccountcard.test.tsx rather than left to the
               gate above happening to stay where it is. */}

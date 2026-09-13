@@ -1,8 +1,8 @@
 // Focused tests for far-zoom agent-node state-icon redesign (lod === 'mini').
 //
 // Verifies:
-// 1. Singular centered state icon rendered at far zoom.
-// 2. Absence of all secondary metadata (agent name, model/tier, state label,
+// 1. Model token in a top corner and singular centered state icon rendered at far zoom.
+// 2. Absence of secondary metadata (agent name, state label,
 //    timing/duration, badges, generation, limit state, credit bar, context wheel,
 //    error dot, action buttons).
 // 3. State mapping fidelity for active, working, idle, blocked, halted, frozen,
@@ -122,7 +122,7 @@ function renderCard(
   )
 }
 
-test('§1 Far-zoom node renders singular state icon and omits all secondary metadata', async () => {
+test('§1 Far-zoom node renders model token + state icon and omits secondary metadata', async () => {
   const n = makeNode('agent-worker', {
     tier: 'sonnet',
     busy: true,
@@ -140,14 +140,17 @@ test('§1 Far-zoom node renders singular state icon and omits all secondary meta
     assert.ok(card, 'agent card is rendered')
     assert.ok(card.classList.contains('mini'), 'card has .mini class at far zoom')
 
-    // 1. The singular state icon must be present
+    // 1. The model token and singular state icon must both be present
+    const modelIcon = card.querySelector('.sq-far-tier .tier')
+    assert.ok(modelIcon, 'model token is present in the far-zoom top corner')
+    assert.equal(modelIcon?.textContent, 'S', 'far-zoom model token matches the current model')
+    assert.ok(modelIcon?.getAttribute('title'), 'model token keeps its accessible model title')
     const stateIcon = card.querySelector('.sq-far-icon')
     assert.ok(stateIcon, 'singular state icon is present in the node interior')
 
     // 2. All secondary interior elements must be explicitly absent
     assert.equal(card.querySelector('.name'), null, 'agent name is absent')
     assert.equal(card.querySelector('.sq-title'), null, 'title row is absent')
-    assert.equal(card.querySelector('.tier'), null, 'model/tier badge is absent')
     assert.equal(card.querySelector('.queued-mark'), null, 'queued-switch mark is absent')
     assert.equal(card.querySelector('.sq-meta'), null, 'meta container is absent')
     assert.equal(card.querySelector('.sq-workstate'), null, 'workstate container is absent')
@@ -163,15 +166,16 @@ test('§1 Far-zoom node renders singular state icon and omits all secondary meta
     assert.equal(card.querySelector('.cbar-wrap'), null, 'credit bar is absent')
     assert.equal(card.querySelector('.cbar'), null, 'credit bar fill is absent')
 
-    // 3. Verify exactly ONE interior element exists
+    // 3. Verify only the corner model token and centered state icon are interior
     const interior = Array.from(card.children).filter(
       (el) =>
         !el.classList.contains('hsof') &&
         !el.classList.contains('hsof-bridge') &&
         !el.classList.contains('doc-chips'),
     )
-    assert.equal(interior.length, 1, 'literally ONE interior element is rendered')
-    assert.equal(interior[0], stateIcon, 'the single interior element is the state icon')
+    assert.equal(interior.length, 2, 'only the model token and state icon are interior')
+    assert.ok(interior.includes(card.querySelector('.sq-far-tier')!), 'model token occupies the corner slot')
+    assert.equal(interior.includes(stateIcon!), true, 'state icon remains an interior element')
   } finally {
     await view.unmount()
   }
@@ -277,15 +281,16 @@ test('§2 State fidelity: correct indicators rendered across all supported state
       assert.ok(icon.classList.contains(c.expectedClass), `${c.name}: has class ${c.expectedClass}`)
       assert.ok(c.check(icon), `${c.name}: specific state check passed`)
 
-      // Singular interior child check across all cases
+      // The model token and singular state icon are the only interior children.
       const interior = Array.from(view.el.querySelector('.sq')!.children).filter(
         (el) =>
           !el.classList.contains('hsof') &&
           !el.classList.contains('hsof-bridge') &&
           !el.classList.contains('doc-chips'),
       )
-      assert.equal(interior.length, 1, `${c.name}: literally one interior element`)
-      assert.equal(interior[0], icon, `${c.name}: interior element is the state icon`)
+      assert.equal(interior.length, 2, `${c.name}: exactly two interior elements`)
+      assert.ok(view.el.querySelector('.sq-far-tier .tier'), `${c.name}: model token rendered`)
+      assert.equal(interior.includes(icon), true, `${c.name}: state icon remains an interior element`)
     } finally {
       await view.unmount()
     }
@@ -796,7 +801,7 @@ test('§5 Zoom transition norm -> mini -> norm cleanly restores normal content',
     assert.ok(miniCard.querySelector('.sq-far-icon'), 'far-zoom icon present at mini')
     assert.equal(miniCard.querySelector('.sq-head'), null, 'sq-head removed at mini')
     assert.equal(miniCard.querySelector('.name'), null, 'name removed at mini')
-    assert.equal(miniCard.querySelector('.tier'), null, 'tier token removed at mini')
+    assert.ok(miniCard.querySelector('.sq-far-tier .tier'), 'far-zoom tier token is present at mini')
     assert.equal(miniCard.querySelector('.cbar'), null, 'credit bar removed at mini')
 
     // 3. Transition back to normal zoom
@@ -848,6 +853,11 @@ test('§6 Reduced motion accessibility rules present in stylesheet for far-zoom 
     css,
     /\.sq\.mini\s*\{[^}]*align-items:\s*center[^}]*justify-content:\s*center/s,
     '.sq.mini is centered in stylesheet',
+  )
+  assert.match(
+    css,
+    /\.sq-far-tier\s*\{[^}]*position:\s*absolute[^}]*top:\s*4px[^}]*right:\s*4px/s,
+    'far-zoom model token is positioned in a top corner',
   )
   assert.match(
     css,
