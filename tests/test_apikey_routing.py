@@ -40,8 +40,8 @@ Path(os.environ["ORGTREE_DATA"]).mkdir(parents=True)
 Path(os.environ["HOME"]).mkdir(parents=True)
 
 from engine.backend.orgtree import (  # noqa: E402
-    accounts, apikey_accounts, appsettings, ledger, registry, supervisor,
-    tokens)
+    accounts, apikey_accounts, appsettings, ledger, providers, registry,
+    supervisor, tokens)
 
 FAKE_KEY = "sk-ant-api03-" + "r" * 40
 NOW = time.time()
@@ -295,3 +295,210 @@ class AttributionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProviderScopeTests(unittest.TestCase):
+    """The two switches must act for the provider the TIER belongs to.
+
+    Both were Claude-only while the UI already offered Codex the same
+    controls, so an operator could turn OpenAI fallback on, or OpenAI and
+    Antigravity subscription inference off, and the engine would carry on
+    exactly as before. A switch that silently does nothing is worse than an
+    absent one, because the machine looks like it consented.
+    """
+
+    def setUp(self):
+        _fresh()
+
+    def _openai_key(self, n=1):
+        row, _ = apikey_accounts.register(
+            'openai', 'sk-proj-' + 'o' * 40 + str(n))
+        return registry.get_account(row['id'])
+
+    def _openai_sub(self):
+        row = registry.create_account(
+            'openai', 'codex profile',
+            {'kind': 'managed',
+             'path': os.path.join(_root, f'cx{time.time_ns()}')})
+        return registry.get_account(row['id'])
+
+    def test_openai_route_obeys_its_own_toggles_not_claudes(self):
+        key = self._openai_key()
+        self._openai_sub()
+        tier = 'terra'
+        self.assertEqual(providers.provider_of(tier), 'openai')
+        # defaults: fallback off, inference on -> the subscription serves
+        self.assertIsNone(supervisor.apikey_route_for(tier, NOW))
+        # flipping CLAUDE must not move the codex lane
+        appsettings.set_apikey_fallback_enabled('claude', True)
+        appsettings.set_subscription_inference_enabled('claude', False)
+        self.assertIsNone(supervisor.apikey_route_for(tier, NOW))
+        # its own fallback consent still waits for exhaustion
+        appsettings.set_apikey_fallback_enabled('openai', True)
+        self.assertIsNone(supervisor.apikey_route_for(tier, NOW))
+
+    def test_openai_fallback_routes_once_its_subscriptions_are_out(self):
+        key = self._openai_key()
+        sub = self._openai_sub()
+        tier = 'terra'
+        appsettings.set_apikey_fallback_enabled('openai', True)
+        self.assertIsNone(supervisor.apikey_route_for(tier, NOW))
+        registry.record_mark(sub['id'], tier, NOW + 3600, now=NOW)
+        got = supervisor.apikey_route_for(tier, NOW)
+        self.assertIsNotNone(got)
+        self.assertEqual(got['id'], key['id'])
+
+    def test_openai_inference_off_routes_every_codex_turn_to_the_key(self):
+        key = self._openai_key()
+        self._openai_sub()                      # healthy, and irrelevant now
+        appsettings.set_subscription_inference_enabled('openai', False)
+        got = supervisor.apikey_route_for('terra', NOW)
+        self.assertIsNotNone(got)
+        self.assertEqual(got['id'], key['id'])
+
+    def test_google_has_no_key_route_at_all(self):
+        appsettings.set_subscription_inference_enabled('google', False)
+        self.assertIsNone(supervisor.apikey_route_for('flash', NOW))
+        with self.assertRaises(ValueError):
+            appsettings.set_apikey_fallback_enabled('google', True)
+
+    def test_claude_env_never_receives_an_openai_key_row(self):
+        # spawn_env builds an ANTHROPIC process: asking the shared router
+        # without the Anthropic axis would inject the wrong provider.
+        self._openai_key()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = _org('cross-lane')
+        env = supervisor.spawn_env(org, 'terra', 'root')
+        self.assertNotIn(registry.MARKER, env)
+        self.assertNotIn('ANTHROPIC_API_KEY', env)
+
+
+class CodexSpawnGateTests(unittest.TestCase):
+    """codex_bound_home is the ONE place a codex spawn picks its home, so it
+    is where both OpenAI switches have to bite. Before this, an unbound
+    codex node fell straight through to the ambient ~/.codex login: the
+    disable did not disable, and the fallback had nothing to route to.
+    """
+
+    def setUp(self):
+        _fresh()
+
+    def _key(self):
+        row, _ = apikey_accounts.register(
+            'openai', 'sk-proj-' + 'k' * 44)
+        return registry.get_account(row['id'])
+
+    def _sub(self):
+        row = registry.create_account(
+            'openai', 'codex profile',
+            {'kind': 'managed',
+             'path': os.path.join(_root, f'cxs{time.time_ns()}')})
+        return registry.get_account(row['id'])
+
+    def _codex_org(self, slug, account=None):
+        org = ledger.Org.create(slug)
+        org.nodes['root'] = {'state': 'live', 'parent': None,
+                            'generation': 1, 'model': 'terra'}
+        if account:
+            org.nodes['root']['account'] = account
+        return org
+
+    def test_unbound_stays_ambient_by_default(self):
+        self._key()
+        org = self._codex_org('cx-default')
+        self.assertEqual(supervisor.codex_bound_home(org, 'root'), ('', ''))
+
+    def test_unbound_routes_to_the_key_home_when_inference_is_off(self):
+        key = self._key()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = self._codex_org('cx-keyonly')
+        home, acct = supervisor.codex_bound_home(org, 'root')
+        self.assertEqual(acct, key['id'])
+        self.assertEqual(home, key['credential']['path'])
+
+    def test_inference_off_with_no_usable_key_refuses_instead_of_spending(self):
+        key = self._key()
+        registry.set_enabled(key['id'], False)      # the only key, switched off
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = self._codex_org('cx-shut')
+        with self.assertRaises(RuntimeError) as cm:
+            supervisor.codex_bound_home(org, 'root')
+        self.assertIn('subscription inference is disabled', str(cm.exception))
+
+    def test_bound_subscription_is_refused_not_silently_rerouted(self):
+        self._key()
+        sub = self._sub()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = self._codex_org('cx-bound', account=sub['id'])
+        with self.assertRaises(RuntimeError) as cm:
+            supervisor.codex_bound_home(org, 'root')
+        self.assertIn('rebind', str(cm.exception))
+
+    def test_bound_key_account_still_runs_with_inference_off(self):
+        key = self._key()
+        appsettings.set_subscription_inference_enabled('openai', False)
+        org = self._codex_org('cx-boundkey', account=key['id'])
+        home, acct = supervisor.codex_bound_home(org, 'root')
+        self.assertEqual(acct, key['id'])
+        self.assertEqual(home, key['credential']['path'])
+
+    def test_fallback_consent_routes_an_unbound_node_once_exhausted(self):
+        key = self._key()
+        sub = self._sub()
+        appsettings.set_apikey_fallback_enabled('openai', True)
+        org = self._codex_org('cx-fb')
+        self.assertEqual(supervisor.codex_bound_home(org, 'root'), ('', ''))
+        registry.record_mark(sub['id'], 'terra', time.time() + 3600)
+        home, acct = supervisor.codex_bound_home(org, 'root')
+        self.assertEqual(acct, key['id'])
+
+
+class GoogleInferenceGateTests(unittest.TestCase):
+    """Antigravity has no API-key lane (no such login exists, measured
+    1.1.24), so for Google the subscription switch is absolute: turning it
+    off must stop the provider rather than quietly keep using the very
+    login it was turned off for. The guard sits at the antigravity leg,
+    which is that provider's only spawn seam.
+    """
+
+    def setUp(self):
+        _fresh()
+
+    def _agy_org(self, slug):
+        org = ledger.Org.create(slug)
+        org.nodes['root'] = {'state': 'live', 'parent': None,
+                            'generation': 1, 'model': 'flash'}
+        return org
+
+    def _run(self, org):
+        return supervisor._antigravity_leg(
+            org.d['slug'], 'root', org, {}, 'hello', [])
+
+    def test_disabled_google_inference_refuses_the_turn(self):
+        installed = {'installed': True, 'path': 'agy', 'connected': True}
+        org = self._agy_org('agy-off')
+        appsettings.set_subscription_inference_enabled('google', False)
+        with patch.object(providers, 'antigravity_status',
+                          return_value=installed):
+            with self.assertRaises(RuntimeError) as cm:
+                self._run(org)
+        self.assertIn('subscription inference is disabled',
+                      str(cm.exception))
+        # and it says WHY there is no fallback, so the reader is not left
+        # hunting for an API-key option that does not exist
+        self.assertIn('no API-key account lane', str(cm.exception))
+
+    def test_enabled_google_inference_passes_this_gate(self):
+        installed = {'installed': True, 'path': 'agy', 'connected': True}
+        org = self._agy_org('agy-on')
+        with patch.object(providers, 'antigravity_status',
+                          return_value=installed):
+            try:
+                self._run(org)
+            except RuntimeError as e:
+                # it fails later for unrelated fixture reasons; what matters
+                # is that it is NOT stopped by the inference gate
+                self.assertNotIn('subscription inference is disabled',
+                                 str(e))
+            except Exception:                                # noqa: BLE001
+                pass

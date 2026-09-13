@@ -4495,7 +4495,12 @@ def spawn_env(org: Org, tier: str | None = None,
     # binding, which wins uniformly. `tier=None` (watchdog shells, forks
     # pass bind_node instead) stays ambient, as ever.
     if tier:
-        _ak_row = apikey_route_for(tier)
+        # ⚠ ASK ONLY FOR THIS LANE. `apikey_route_for` answers for whichever
+        # provider the TIER belongs to, and this function builds a CLAUDE
+        # env — injecting an OpenAI key row here would put the wrong
+        # provider's credential into an Anthropic process. The Anthropic
+        # eligibility axis (D-194) is the same gate the raise below uses.
+        _ak_row = apikey_route_for(tier) if api_fallback_tier(tier) else None
         if _ak_row is not None:
             return registry.inject_binding(env, _ak_row,
                                            secret_resolver=tokens.get)
@@ -4754,30 +4759,43 @@ def apikey_lane_row(provider: str, tier: str,
     return None
 
 
-def _claude_subscription_exhausted(tier: str,
-                                   now: float | None = None) -> bool:
-    """Has EVERY applicable claude subscription lane run out for this tier —
-    the ticket's fallback precondition, machine-wide on purpose. The ambient
-    login and the legacy setup-token keys answer through `accounts.resolve`
-    (one rule, theirs); every OTHER claude subscription PROFILE row counts
-    as capacity unless a live mark or an explicit `unauthenticated` verdict
-    says otherwise. Absence of evidence reads as capacity, so fallback fires
-    late rather than early — the cost of being wrong is one subscription
-    spawn that re-marks itself, never a metered turn nobody consented to."""
+def _subscription_exhausted(provider: str, tier: str,
+                            now: float | None = None) -> bool:
+    """Has EVERY applicable subscription lane of this PROVIDER run out for
+    this tier — the ticket's fallback precondition, machine-wide on purpose.
+
+    A subscription PROFILE row counts as capacity unless a live mark or an
+    explicit `unauthenticated` verdict says otherwise. Absence of evidence
+    reads as capacity, so fallback fires late rather than early — the cost
+    of being wrong is one subscription spawn that re-marks itself, never a
+    metered turn nobody consented to.
+
+    The AMBIENT login is asked differently per provider, because that is
+    where the two genuinely differ. Claude's ambient login and its legacy
+    setup-token keys answer through `accounts.resolve` (one rule, theirs).
+    Codex has no such resolver: its ambient `~/.codex` login was migrated
+    into an ordinary registry row, so scanning rows already covers it, and
+    asking the CLI here would mean remote IO on a spawn path.
+    """
     now = time.time() if now is None else now
-    if accounts.resolve(tier, now).get("available"):
-        return False
+    primary = None
+    if provider == "claude":
+        if accounts.resolve(tier, now).get("available"):
+            return False
+        try:
+            primary = registry.resolve_alias("primary")
+        except Exception:                                    # noqa: BLE001
+            return True      # unreadable registry: resolve() already said no
     try:
         rows = registry.list_accounts()
-        primary = registry.resolve_alias("primary")
     except Exception:                                        # noqa: BLE001
-        return True          # unreadable registry: resolve() already said no
+        return True
     for row in rows:
         cred = row.get("credential") or {}
-        if (row.get("provider") != "claude"
+        if (row.get("provider") != provider
                 or registry.account_mode(row) == "apikey"
                 or cred.get("kind") not in ("imported", "managed")
-                or row.get("id") == primary
+                or (primary is not None and row.get("id") == primary)
                 or row.get("auth") == "unauthenticated"):
             continue
         if registry.active_mark(str(row["id"]), tier, now) is None:
@@ -4785,25 +4803,47 @@ def _claude_subscription_exhausted(tier: str,
     return True
 
 
+def _claude_subscription_exhausted(tier: str,
+                                   now: float | None = None) -> bool:
+    """The claude-lane spelling of `_subscription_exhausted`, kept because
+    the freeze and wake paths name it directly."""
+    return _subscription_exhausted("claude", tier, now)
+
+
 def apikey_route_for(tier: str,
                      now: float | None = None) -> dict[str, Any] | None:
-    """THE claude-lane metered routing decision at the spawn seam: the key
-    account this UNBOUND turn should bill, or None for the subscription
-    lanes. Exactly two doors (user decisions 2026-09-12): subscription
-    inference switched OFF for claude sends every claude turn here, and the
-    machine fallback consent (default OFF) sends turns here only once every
-    applicable subscription lane is exhausted. A BOUND node never asks —
-    its binding won upstream."""
-    if not api_fallback_tier(tier):
+    """THE metered routing decision at the spawn seam, for EITHER provider
+    that has an API-key lane: the key account this UNBOUND turn should bill,
+    or None for the subscription lanes.
+
+    Exactly two doors (user decisions 2026-09-12): subscription inference
+    switched OFF for that provider sends every one of its turns here, and
+    the machine fallback consent (default OFF) sends turns here only once
+    every applicable subscription lane of that provider is exhausted. A
+    BOUND node never asks — its binding won upstream.
+
+    ⚠ THE PROVIDER COMES FROM THE TIER, not from the caller and not from a
+    hard-coded lane. This routed claude only at first while the UI already
+    offered Codex the same toggle, so the Codex switch read as a setting
+    that did nothing — worse than an absent control, because the machine
+    appeared to have consented to something it never acted on. Google has no
+    API-key login (measured 1.1.24) and so has no route here at all; its
+    subscription switch is enforced at its own spawn seam."""
+    provider = providers.provider_of(tier)
+    if provider not in appsettings.APIKEY_PROVIDERS:
+        return None
+    # the claude lane keeps its own tier eligibility axis (D-194): an
+    # unrecognised tier must not be handed an Anthropic key.
+    if provider == "claude" and not api_fallback_tier(tier):
         return None
     now = time.time() if now is None else now
-    if not appsettings.subscription_inference_enabled("claude"):
-        return apikey_lane_row("claude", tier, now)
-    if not appsettings.apikey_fallback_enabled("claude"):
+    if not appsettings.subscription_inference_enabled(provider):
+        return apikey_lane_row(provider, tier, now)
+    if not appsettings.apikey_fallback_enabled(provider):
         return None
-    if not _claude_subscription_exhausted(tier, now):
+    if not _subscription_exhausted(provider, tier, now):
         return None
-    return apikey_lane_row("claude", tier, now)
+    return apikey_lane_row(provider, tier, now)
 
 
 def served_metered_row(ran_as: str) -> dict[str, Any] | None:
@@ -13195,6 +13235,33 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
     migrated ambient row's path, deliberately."""
     bound = str((org.node(nid) or {}).get("account") or "")
     if not bound:
+        # ── THE METERED ACCOUNT LANE, codex side (user redesign
+        # 2026-09-12). An UNBOUND codex node used to fall straight to the
+        # ambient ~/.codex login, which made both machine switches
+        # inoperative for this provider: "never use OpenAI subscription
+        # accounts" still used one, and "fall back to OpenAI API-key
+        # accounts" never reached one. An OpenAI key account IS a managed
+        # CODEX_HOME (its auth.json holds the key in codex's own native
+        # key-auth form), so routing to it is the same injection a managed
+        # subscription row already gets — the row simply comes from the
+        # route instead of from a binding.
+        tier = str((org.node(nid) or {}).get("model") or "")
+        routed = apikey_route_for(tier) if tier else None
+        if routed is not None:
+            rcred = routed["credential"]
+            return (rcred["path"] if rcred["kind"] in ("imported", "managed")
+                    else ""), str(routed["id"])
+        if tier and not appsettings.subscription_inference_enabled("openai"):
+            # The switch says NEVER, and no enabled key account could serve
+            # this turn. Falling through would spend the very subscription
+            # the operator switched off; admission holds such a node and
+            # this raise is the belt behind it.
+            raise RuntimeError(
+                f"turn failed: node {nid} is unbound, openai subscription "
+                f"inference is disabled on this machine and no enabled "
+                f"API-key account has capacity — register or enable an "
+                f"OpenAI API-key account, or re-enable subscription "
+                f"inference")
         return "", ""
     if bound.startswith("missing:"):
         raise RuntimeError(
@@ -13206,6 +13273,16 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
             f"turn failed: node {nid} runs a codex tier but is bound to "
             f"{bound} ({row['provider']}) — the binding validator should "
             f"have refused this pair")
+    if (registry.account_mode(row) != "apikey"
+            and not appsettings.subscription_inference_enabled("openai")):
+        # Same rule the claude spawn seam enforces for a bound subscription
+        # row: an explicit binding is not silently rerouted onto a key row,
+        # because that is the automatic movement the account rules forbid.
+        raise RuntimeError(
+            f"turn failed: node {nid} is bound to openai subscription "
+            f"account {bound} but openai subscription inference is disabled "
+            f"on this machine — rebind it to an API-key account or "
+            f"re-enable subscription inference")
     cred = row["credential"]
     home = cred["path"] if cred["kind"] in ("imported", "managed") else ""
     return home, bound
@@ -15670,6 +15747,18 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
             "turn failed: Antigravity is not signed in on this machine — run "
             "`agy` once and sign in with your Google account (accounts "
             "panel → Antigravity)")
+    if not appsettings.subscription_inference_enabled("google"):
+        # ⚠ GOOGLE HAS NO KEY LANE TO FALL BACK TO (no API-key login exists
+        # for it, measured 1.1.24), so for this provider the switch is
+        # absolute: disabling its subscription inference disables the
+        # provider. Said plainly here rather than letting the turn run on
+        # the very login the operator switched off — the ticket gives
+        # Antigravity the disable precisely so it can be silenced.
+        raise RuntimeError(
+            "turn failed: Antigravity subscription inference is disabled on "
+            "this machine (App settings → Providers). Antigravity has no "
+            "API-key account lane, so re-enable it to run antigravity "
+            "tiers, or move this agent to another provider")
     if sbx.is_sandboxed(org):
         # same holdout as codex (user ruling 2026-08-28 pattern): kiosks
         # wait until the provider's sandbox story is settled; the hire guard
