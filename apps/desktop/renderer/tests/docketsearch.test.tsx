@@ -536,6 +536,100 @@ rig('§17b the fold arrow never contradicts what is on screen', async (k) => {
 // KEYBOARD AND THE CLEAR ACTION
 // ===========================================================================
 
+// ---------------------------------------------------------------------------
+// NO SECOND ROUTE INTO A FOLD WHILE SEARCHING (coordinator review of 7f265fc).
+//
+// The first cut locked only the row's visible ARROW. Two other controls still
+// reached the same state: the category heading's toggle, and the row context
+// menu's Show/Hide entry. Neither could change a rendered row during a query —
+// which is exactly what made them dangerous: they appeared to do nothing while
+// rewriting the fold the reader gets back when they clear the box.
+// ---------------------------------------------------------------------------
+
+rig('§17c the CATEGORY fold cannot be mutated during a search', async (k) => {
+  mock([
+    mkItem({ slug: 'blocked-widget', title: 'Widget blocked', status: 'blocked' }),
+    mkItem({ slug: 'open-widget', title: 'Widget open', status: 'open' }),
+  ])
+  const el = await k.mount()
+  await chooseGroup(el, 'status')
+  // the reader's posture: Blocked folded away, Open left open
+  await inAct(() => foldToggle(el, 'Blocked')!.click())
+  await flush()
+  assert.equal(isFolded(el, 'blocked-widget'), true)
+  assert.equal(isFolded(el, 'open-widget'), false)
+
+  await type(el, 'widget')
+  const toggle = foldToggle(el, 'Blocked') as HTMLButtonElement
+  assert.equal(toggle.disabled, true,
+               'the control cannot change a rendered row, so it must not pretend to')
+  assert.match(toggle.getAttribute('title') ?? '', /search/i,
+               'a disabled control has to say why')
+
+  // ⚠ THE REAL ASSERTION. Drive the click anyway — a disabled button ignores a
+  // real user click, but this proves the STORED fold is untouched even if some
+  // other route reached the handler.
+  await inAct(() => toggle.click())
+  await flush()
+  assert.equal(isFolded(el, 'blocked-widget'), false,
+               'still showing every match, as the search requires')
+
+  await type(el, '')
+  assert.equal(isFolded(el, 'blocked-widget'), true,
+               'the reader gets back the EXACT fold they left — a click during '
+               + 'the search must not have rewritten it')
+  assert.equal(isFolded(el, 'open-widget'), false,
+               'and the group they did not fold is still unfolded')
+})
+
+rig('§17d the row context menu cannot mutate the subtree fold during a search',
+    async (k) => {
+  mock([
+    mkItem({ slug: 'parent-widget', title: 'Parent widget' }),
+    mkItem({ slug: 'child-widget', title: 'Child widget',
+             parent: 'parent-widget' } as Partial<WorkItem>),
+  ])
+  const el = await k.mount()
+  const parentRow = () =>
+    rows(el).find((r) => r.textContent?.includes('parent-widget')) as HTMLElement
+  const openMenu = async () => {
+    await inAct(() => parentRow().dispatchEvent(new window.MouseEvent(
+      'contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })))
+    await flush()
+    return [...document.querySelectorAll('.ctxmenu button, [role="menuitem"]')]
+      .map((b) => b.textContent ?? '')
+  }
+  const closeMenu = async () => {
+    await inAct(() => document.dispatchEvent(
+      new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    await flush()
+  }
+
+  // NOT SEARCHING: the fold entry is offered, exactly as it always was
+  const before = await openMenu()
+  assert.ok(before.some((l) => /sub-item/.test(l)),
+            'the menu still offers the fold when no query is active')
+  await closeMenu()
+
+  await type(el, 'widget')
+  const during = await openMenu()
+  assert.ok(!during.some((l) => /sub-item/.test(l)),
+            'the fold entry is withdrawn — it is a SECOND route to onFold and '
+            + 'would rewrite the fold the reader gets back on clear')
+  // the rest of the menu is untouched: this suppresses one entry, not the menu
+  assert.ok(during.some((l) => /Copy slug/i.test(l)),
+            'suppressing the fold entry must not disable the whole menu')
+  await closeMenu()
+
+  await type(el, '')
+  const after = await openMenu()
+  assert.ok(after.some((l) => /sub-item/.test(l)),
+            'and it comes straight back when the query is cleared')
+  assert.deepEqual(names(el).sort(), ['child-widget', 'parent-widget'],
+                   'with the subtree fold exactly as it was left: untouched')
+  await closeMenu()
+})
+
 rig('§18 the clear button exists only when there is something to clear, and '
     + 'returns focus to the box', async (k) => {
   mock([mkItem({ slug: 'alpha-one', title: 'Alpha one' }),

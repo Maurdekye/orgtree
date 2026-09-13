@@ -1247,8 +1247,24 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                                     facts={facts} onFocusAgent={onFocusAgent}
                                     close={navClose} />
                                 : <span>{s.heading}</span>}
+                              {/* ⚠ DISABLED WHILE A QUERY IS ACTIVE, exactly as
+                                  the row's own arrow is. `categoryFolded` is
+                                  already forced false above, so this control
+                                  could not change a single rendered row —
+                                  but left enabled it would still call
+                                  `toggleCategoryFold` and quietly rewrite the
+                                  fold the reader gets back when they clear the
+                                  box, which is the restore guarantee this
+                                  whole feature turns on (coordinator review of
+                                  7f265fc). Appearing to do nothing while
+                                  silently changing hidden state is worse than
+                                  either doing something or refusing. */}
                               <button type="button" className="docket-category-toggle"
-                                title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
+                                disabled={searching}
+                                title={searching
+                                  ? `showing every match in ${categoryName} while a `
+                                    + 'search is active — clear the search to fold again'
+                                  : `${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
                                 aria-label={`${categoryFolded ? 'Expand' : 'Collapse'} ${categoryName}`}
                                 aria-expanded={!categoryFolded} aria-controls={rowsId}
                                 onClick={() => toggleCategoryFold(s.key)}>
@@ -1718,7 +1734,14 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     const entries: MenuEntry[] = [
       { label: selected ? 'Close details' : 'Open details', onSelect: onClick },
     ]
-    if (kids > 0 && onFold) {
+    // ⚠ AND IT IS SUPPRESSED WHILE A SEARCH IS ACTIVE, for the same reason the
+    // arrow is disabled — but it has to be said TWICE, because the menu is a
+    // SECOND route to `onFold` that does not go through the arrow at all
+    // (coordinator review of 7f265fc). During a query the subtree is drawn
+    // regardless, so this entry could not change a single rendered row; what
+    // it WOULD do is quietly rewrite the fold the reader gets back when they
+    // clear the box — the exact restore guarantee this ticket turns on.
+    if (kids > 0 && onFold && !foldLocked) {
       entries.push({ label: folded ? `Show ${kids} sub-item${kids === 1 ? '' : 's'}`
         : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: onFold })
     }
