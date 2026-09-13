@@ -4,158 +4,70 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
-from starlette.requests import Request
-from fastapi import HTTPException
 
-_temp = tempfile.TemporaryDirectory(prefix='v2-hub-api-')
-os.environ['ORGTREE_DATA'] = _temp.name
-os.environ['HOME'] = _temp.name
-os.environ['USERPROFILE'] = _temp.name
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
+from starlette.requests import Request
+
+
+_temp = tempfile.TemporaryDirectory(prefix="v2-hub-api-")
+os.environ["ORGTREE_DATA"] = _temp.name
+os.environ["HOME"] = _temp.name
+os.environ["USERPROFILE"] = _temp.name
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
+
 from engine.hub_runtime import HubRuntime
-from orgtree import api, store, net
+from orgtree import api, net, store
+
 
 def tearDownModule():
-    for slug in ('host-org','client-org'):
+    for slug in ("client-org", "legacy-org"):
         store._POOL.close_all(slug)
     _temp.cleanup()
 
+
 class HubAPITests(unittest.TestCase):
-    def test_tls_runtime_owner_client_and_sanitized_config(self):
-        from datetime import datetime, timedelta
-        from cryptography import x509
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.x509.oid import NameOID
-        from engine.hub_runtime import validate_config
-        with tempfile.TemporaryDirectory(prefix='v2-tls-') as folder:
-            root = Path(folder)
-            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'advertised.example')])
-            cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
-                    .public_key(key.public_key()).serial_number(x509.random_serial_number())
-                    .not_valid_before(datetime.utcnow()-timedelta(minutes=1))
-                    .not_valid_after(datetime.utcnow()+timedelta(days=1))
-                    .sign(key, hashes.SHA256()))
-            cp, kp = root/'cert.pem', root/'key.pem'
-            cp.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-            kp.write_bytes(key.private_bytes(serialization.Encoding.PEM,
-                serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
-            with self.assertRaises(ValueError):
-                validate_config({'enabled':True,'bind_host':'0.0.0.0','advertise_host':'host.example'})
-            runtime = HubRuntime(root)
-            runtime.start()
-            try:
-                status = runtime.configure({'version':1,'enabled':True,'bind_host':'127.0.0.1',
-                    'port':0,'advertise_host':'advertised.example','tls_certfile':str(cp),
-                    'tls_keyfile':str(kp),'tls_ca_file':str(cp)})
-                self.assertTrue(status['tls_configured'])
-                self.assertNotIn(str(kp), json.dumps(status))
-                address = os.environ['ORGTREE_V2_HUB_ADDRESS']
-                self.assertTrue(address.startswith('https://127.0.0.1:'))
-                from engine.hub import HubClient
-                owner = HubClient(root, address, 'tls.fixture', 'test-secret', runtime.ready.token, ca_file=cp)
-                owner.register()
-                headers = {'X-Hub-Token':runtime.ready.token, 'X-Org-Auth':'tls.fixture:test-secret'}
-                with net._client() as client:
-                    response = client.get(address+'/api/roster', headers=headers)
-                    self.assertEqual(response.status_code, 200)
-                with patch.dict(os.environ, {'ORGTREE_V2_HUB_CA_FILE':''}):
-                    with net._client() as client, self.assertRaises(Exception):
-                        client.get(address+'/api/roster',headers=headers)
-            finally:
-                runtime.stop()
+    def setUp(self):
+        self.request = Request({"type": "http", "headers": [], "state": {}})
 
-    def test_runtime_config_and_actual_scoped_pairing(self):
+    def _create_org(self, slug):
+        org = store.create_org(slug)
+        net.mint_identity(org)
+        org.d["net_hubs"] = []
+        store.save_org(org)
+        return org
+
+    def test_connects_a_reachable_hub_by_address_only(self):
         runtime = HubRuntime(_temp.name)
         runtime.start()
-        request = Request({'type':'http', 'headers':[], 'state':{}})
         try:
-            cfg = runtime.configure({'version':1,'enabled':True,'bind_host':'127.0.0.1',
-                                     'advertise_host':'127.0.0.1','port':0})
-            self.assertTrue(cfg['status']['ready'])
-            self.assertNotIn(runtime.ready.token, json.dumps(cfg))
-            for slug in ('host-org','client-org'):
-                org = store.create_org(slug)
-                net.mint_identity(org)
-                org.d['net_hubs'] = []
-                store.save_org(org)
-            ident = store.load_org('client-org').d['net_identity']
-            invitation = api.create_net_invitation('host-org', api.NetInvitation(
-                peer_id='connection',peer_slug=ident['slug']), request)
-            self.assertNotEqual(invitation['peer_token'], runtime.ready.token)
-            paired = api.pair_net_hub('client-org', api.NetPairing(
-                address=invitation['address'],peer_id='connection',
-                peer_slug=ident['slug'],peer_token=invitation['peer_token']), request)
-            self.assertTrue(paired['paired'])
-            with patch('engine.hub.HubClient') as transport:
-                with self.assertRaises(HTTPException) as caught:
-                    api.pair_net_hub('client-org', api.NetPairing(
-                        address='http://remote.example:7370', peer_id='remote',
-                        peer_slug=ident['slug'], peer_token=invitation['peer_token']), request)
-                self.assertEqual(caught.exception.status_code, 422)
-                self.assertIn('require HTTPS', caught.exception.detail)
-                transport.assert_not_called()
-            public = api.org_net('client-org', request)
-            self.assertNotIn(invitation['peer_token'], json.dumps(public))
-            self.assertNotIn(ident['secret'], json.dumps(public))
-            with self.assertRaises(HTTPException) as caught:
-                api.pair_net_hub('client-org', api.NetPairing(address=invitation['address'],
-                    peer_id='wrong',peer_slug='forged',peer_token=invitation['peer_token']), request)
-            self.assertEqual(caught.exception.status_code, 422)
-            api.revoke_net_invitation('host-org', 'connection', request)
-            with self.assertRaises(HTTPException) as caught:
-                api.pair_net_hub('client-org', api.NetPairing(address=invitation['address'],
-                    peer_id='connection',peer_slug=ident['slug'],peer_token=invitation['peer_token']), request)
-            self.assertEqual(caught.exception.status_code, 502)
-            saved_port = runtime.ready.port
-            runtime.stop()
-            runtime = HubRuntime(_temp.name)
-            runtime.start()
-            self.assertEqual(runtime.ready.port, saved_port)
+            self._create_org("client-org")
+            address = os.environ["ORGTREE_V2_HUB_ADDRESS"]
+            connected = api.connect_net_hub(
+                "client-org", api.NetConnection(address=address), self.request
+            )
+            self.assertTrue(connected["connected"])
+            self.assertEqual(connected["address"], address)
+            public = api.org_net("client-org", self.request)
+            self.assertEqual([hub["address"] for hub in public["hubs"]], [address])
+            self.assertNotIn("token", json.dumps(public))
+            self.assertNotIn("peer", json.dumps(public))
         finally:
             runtime.stop()
 
-    def test_opening_a_different_org_changes_nothing_installation_wide(self):
-        """Hosting and grants belong to the installation, connections to the org.
+    def test_legacy_connection_fields_are_removed_when_settings_are_read(self):
+        org = self._create_org("legacy-org")
+        org.d["net_hubs"] = [{
+            "id": "legacy", "address": "https://hub.example", "enabled": True,
+            "peer_token": "old-token", "peer_slug": "old.address",
+        }]
+        store.save_org(org)
+        visible = api.org_net("legacy-org", self.request)
+        self.assertEqual(visible["hubs"], [{
+            "id": "legacy", "address": "https://hub.example", "enabled": True,
+        }])
+        saved = store.load_org("legacy-org").d["net_hubs"][0]
+        self.assertNotIn("peer_token", saved)
+        self.assertNotIn("peer_slug", saved)
 
-        This is the ownership split App Settings now renders: whichever
-        organization is open, the hub configuration and the allowed-organization
-        list are the same object, while each organization keeps only its own
-        outgoing connections.
-        """
-        runtime = HubRuntime(_temp.name)
-        runtime.start()
-        request = Request({'type':'http', 'headers':[], 'state':{}})
-        try:
-            runtime.configure({'version':1,'enabled':True,'bind_host':'127.0.0.1',
-                               'advertise_host':'127.0.0.1','port':0})
-            for slug, hub in (('switch-a','https://a.example'), ('switch-b','https://b.example')):
-                org = store.create_org(slug)
-                net.mint_identity(org)
-                org.d['net_hubs'] = [{'id':slug+'-hub','address':hub,'enabled':True}]
-                store.save_org(org)
-            granted = runtime.issue_peer('switch-grant',
-                                         store.load_org('switch-a').d['net_identity']['slug'])
 
-            # Same installation-wide answers, whichever org is "open".
-            first_status, first_peers = runtime.status(), runtime.peers()
-            a = api.org_net('switch-a', request)
-            self.assertEqual(runtime.status(), first_status)
-            self.assertEqual(runtime.peers(), first_peers)
-            b = api.org_net('switch-b', request)
-            self.assertEqual(runtime.status(), first_status)
-            self.assertEqual(runtime.peers(), first_peers)
-            self.assertEqual([p['peer_id'] for p in first_peers['peers']], ['switch-grant'])
-
-            # ...and each org sees only its own connections, with no secret.
-            self.assertEqual([h['address'] for h in a['hubs']], ['https://a.example'])
-            self.assertEqual([h['address'] for h in b['hubs']], ['https://b.example'])
-            self.assertNotIn(granted['peer_token'], json.dumps([a, b]))
-        finally:
-            runtime.stop()
-            for slug in ('switch-a','switch-b'):
-                store._POOL.close_all(slug)
-
-if __name__ == '__main__': unittest.main()
+if __name__ == "__main__":
+    unittest.main()

@@ -93,23 +93,21 @@ test('copy import requires preview, selected organizations and duplicate-work ac
   } finally { await v.unmount(); globalThis.fetch = original }
 })
 
-test('connect sends issued credential once, clears it after success and never persists it', async () => {
+test('connect sends the hub address without credential fields', async () => {
   localStorage.clear()
   const original = globalThis.fetch
   const sent: unknown[] = []
   globalThis.fetch = async (_url, init) => { sent.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }) }
   function Fixture() {
     const [address, setAddress] = useState('https://mail.example')
-    return <ConnectHub slug="org" identity="org-network" address={address} setAddress={setAddress} toast={() => {}} />
+    return <ConnectHub slug="org" address={address} setAddress={setAddress} toast={() => {}} />
   }
   const v = await mountView(<Fixture />, el => el)
   try {
     const inputs = v.el.querySelectorAll<HTMLInputElement>('form input')
-    await type(inputs[1]!, 'peer-credential')
-    await type(inputs[3]!, 'scoped-example-credential')
+    assert.equal(inputs.length, 1)
     await click(v.el, 'Connect')
-    assert.deepEqual(sent, [{ address: 'https://mail.example', peer_id: 'peer-credential', peer_slug: 'org-network', peer_token: 'scoped-example-credential' }])
-    assert.equal(inputs[3]!.value, '')
+    assert.deepEqual(sent, [{ address: 'https://mail.example' }])
     assert.equal(localStorage.length, 0)
   } finally { await v.unmount(); globalThis.fetch = original }
 })

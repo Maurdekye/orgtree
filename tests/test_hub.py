@@ -25,58 +25,37 @@ class HubIntegrationTests(unittest.TestCase):
             self.assertEqual(readiness.host, "127.0.0.1")
             self.assertGreater(readiness.port, 0)
             self.assertTrue(Path(readiness.readiness_path).is_file())
-            with urlopen(Request(f"http://{readiness.host}:{readiness.port}/healthz", headers={"X-Hub-Token": readiness.token})) as response:
+            with urlopen(Request(f"http://{readiness.host}:{readiness.port}/healthz")) as response:
                 self.assertTrue(json.loads(response.read())["ok"])
 
-            a = HubClient(root / "client-a", f"http://127.0.0.1:{readiness.port}", "org.a.aaaaaa", "secret-a", readiness.token)
-            b = HubClient(root / "client-b", f"http://127.0.0.1:{readiness.port}", "org.b.bbbbbb", "secret-b", readiness.token)
+            a = HubClient(root / "client-a", f"http://127.0.0.1:{readiness.port}", "org.a.aaaaaa")
+            b = HubClient(root / "client-b", f"http://127.0.0.1:{readiness.port}", "org.b.bbbbbb")
             a.register("A")
             b.register("B")
             unsafe_id = a.send(b.slug, "unsafe id", message_id="..")
             self.assertEqual(unsafe_id["state"], "queued")
             self.assertIn("malformed message id", unsafe_id["error"])
-            # net.py multiplexes all identities configured for one hub in a
-            # single request.  Each identity must carry its own scoped peer
-            # token; one token must not grant access to the other identity.
-            peer_a = a.create_peer("peer-a", a.slug)
-            peer_b = a.create_peer("peer-b", b.slug)
-            with self.assertRaises(Exception) as duplicate_peer:
-                a.create_peer("peer-a", a.slug)
-            self.assertEqual(getattr(duplicate_peer.exception, "status", None), 409)
+            # A shared-trust hub accepts a space-delimited set of routing
+            # addresses, not credentials, for multiplexed transport.
             multi_headers = {
                 "Content-Type": "application/json",
-                "X-Org-Auth": f"{a.auth} {b.auth}",
-                "X-Hub-Peer-Token": f"{peer_a['peer_token']} {peer_b['peer_token']}",
+                "X-Org-Address": f"{a.slug} {b.slug}",
             }
             multi_payload = json.dumps({"from": b.slug, "to": a.slug, "body": "multiplexed", "id": "multiplexed-1"}).encode()
             with urlopen(Request(f"http://127.0.0.1:{readiness.port}/api/send", data=multi_payload, headers=multi_headers, method="POST")) as response:
                 self.assertFalse(json.loads(response.read())["duplicate"])
-            forged_multi = dict(multi_headers)
-            forged_multi["X-Hub-Peer-Token"] = peer_a["peer_token"]
-            with self.assertRaises(Exception) as forged_multi_error:
-                urlopen(Request(f"http://127.0.0.1:{readiness.port}/api/send", data=multi_payload.replace(b"multiplexed-1", b"multiplexed-2"), headers=forged_multi, method="POST"))
-            self.assertEqual(getattr(forged_multi_error.exception, "code", None), 401)
             multi_poll = Request(
                 f"http://127.0.0.1:{readiness.port}/api/poll?wait=0",
                 data=b"{}",
                 headers={
                     "Content-Type": "application/json",
-                    "X-Org-Auth": f"{a.auth} {b.auth}",
-                    "X-Hub-Peer-Token": f"{peer_a['peer_token']} {peer_b['peer_token']}",
+                    "X-Org-Address": f"{a.slug} {b.slug}",
                 },
                 method="POST",
             )
             with urlopen(multi_poll) as response:
                 self.assertEqual(json.loads(response.read())["messages"][0]["id"], "multiplexed-1")
             a._request("POST", "/api/ack", {"ids": ["multiplexed-1"]})
-            pairing = a.create_peer("peer-b-again", b.slug)
-            self.assertEqual(pairing["slug"], b.slug)
-            paired = HubClient(root / "client-paired", f"http://127.0.0.1:{readiness.port}", b.slug, "secret-b", pairing["peer_token"], peer_token=True)
-            self.assertTrue(paired.roster()["roster"])
-            forged = HubClient(root / "client-forged", f"http://127.0.0.1:{readiness.port}", a.slug, "secret-a", pairing["peer_token"], peer_token=True)
-            with self.assertRaises(Exception) as forged_error:
-                forged.register()
-            self.assertEqual(forged_error.exception.status, 403)
             source = root / "note.txt"
             source.write_text("attachment bytes", encoding="utf-8")
 
@@ -111,26 +90,23 @@ class HubIntegrationTests(unittest.TestCase):
             service.start()
             a.hub_url = f"http://127.0.0.1:{service.readiness.port}"
             b.hub_url = a.hub_url
-            a.instance_token = b.instance_token = service.readiness.token
             time.sleep(2.1)  # first offline retry is deliberately backoff-delayed
             self.assertEqual(len(a.flush()), 1)
             self.assertEqual(b.poll_once()[0]["id"], "message-2")
             service.stop()
             self.assertFalse(Path(readiness.readiness_path).exists())
 
-    def test_token_required_and_attachment_failure_is_not_acked(self):
+    def test_address_only_registration_and_attachment_failure_is_not_acked(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             service = HubService(root / "v2-data")
             readiness = service.start()
-            a = HubClient(root / "client-a", f"http://127.0.0.1:{service.port}", "org.a.aaaaaa", "secret-a", readiness.token)
-            b = HubClient(root / "client-b", f"http://127.0.0.1:{service.port}", "org.b.bbbbbb", "secret-b", readiness.token)
-            bad = HubClient(root / "client-bad", f"http://127.0.0.1:{service.port}", "org.bad.dddddd", "secret-bad", "x" * 40)
+            a = HubClient(root / "client-a", f"http://127.0.0.1:{service.port}", "org.a.aaaaaa")
+            b = HubClient(root / "client-b", f"http://127.0.0.1:{service.port}", "org.b.bbbbbb")
+            bad = HubClient(root / "client-bad", f"http://127.0.0.1:{service.port}", "org.bad.dddddd")
             a.register()
             b.register()
-            with self.assertRaises(Exception) as unauthorized:
-                bad.register()
-            self.assertEqual(getattr(unauthorized.exception, "status", None), 401)
+            self.assertTrue(bad.register()["ok"])
             source = root / "lost.txt"
             source.write_text("must retry", encoding="utf-8")
             a.send(b.slug, "attachment", message_id="lost-attachment", attachments=[source])
@@ -160,8 +136,8 @@ class HubIntegrationTests(unittest.TestCase):
             root = Path(temp)
             service = HubService(root / "v2-data")
             service.start()
-            a = HubClient(root / "client-a", f"http://127.0.0.1:{service.port}", "org.a.aaaaaa", "secret-a", service.readiness.token)
-            b = HubClient(root / "client-b", f"http://127.0.0.1:{service.port}", "org.b.bbbbbb", "secret-b", service.readiness.token)
+            a = HubClient(root / "client-a", f"http://127.0.0.1:{service.port}", "org.a.aaaaaa")
+            b = HubClient(root / "client-b", f"http://127.0.0.1:{service.port}", "org.b.bbbbbb")
             a.register()
             b.register()
             with self.assertRaises(AttachmentPathError):
@@ -216,7 +192,7 @@ class HubIntegrationTests(unittest.TestCase):
             def observe_before_serving(path: Path):
                 checks.append(path)
                 try:
-                    with urlopen(Request(f"http://127.0.0.1:{service.port}/healthz", headers={"X-Hub-Token": "probe"}), timeout=0.2):
+                    with urlopen(Request(f"http://127.0.0.1:{service.port}/healthz"), timeout=0.2):
                         self.fail("hub served an HTTP response before readiness protection completed")
                 except HTTPError as exc:
                     self.fail(f"hub served HTTP {exc.code} before readiness protection completed")
@@ -268,9 +244,9 @@ class HubIntegrationTests(unittest.TestCase):
             ready = service.start()
             self.assertTrue(ready.tls)
             self.assertEqual(discover_hub(root / "v2-data").tls_ca_file, str(cert.resolve()))
-            client = HubClient(root / "client", f"https://127.0.0.1:{ready.port}", "org.tls.tttttt", "secret-tls", ready.token, ca_file=cert)
+            client = HubClient(root / "client", f"https://127.0.0.1:{ready.port}", "org.tls.tttttt", ca_file=cert)
             self.assertTrue(client.register()["ok"])
-            wrong = HubClient(root / "wrong-client", f"https://127.0.0.1:{ready.port}", "org.bad.bbbbbb", "secret-bad", ready.token, ca_file=wrong_ca)
+            wrong = HubClient(root / "wrong-client", f"https://127.0.0.1:{ready.port}", "org.bad.bbbbbb", ca_file=wrong_ca)
             with self.assertRaises(Exception):
                 wrong.register()
             service.stop()

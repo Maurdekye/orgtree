@@ -6,8 +6,8 @@ Two halves:
 - TRANSPORT (Phase C): the spool sender + multiplexed long-poll daemon.
 
 Identity model (docs/mailserver-spec.md §3, all user-ruled):
-  secret      = secrets.token_hex(16)        minted BY the org at creation
-  fingerprint = sha256(secret)               the hub stores only this
+  suffix      = generated locally for collision avoidance; the persisted
+                address is not proof of ownership at a shared-trust hub.
   slug        = f"{org}.{username}.{fingerprint[:6]}"   minted ONCE, persisted,
                 never recomputed — the address survives moves and renames.
 
@@ -22,12 +22,10 @@ DELIVERED FIRST (deliver_org_inbox = net_wake auto), recorded seen, then
 ACKED — a crash between steps duplicates, never loses. Receipts are
 best-effort and never block correspondence.
 
-⚠ Secret hygiene: the secret lives in the org doc (`net_identity`) and is
-returned by exactly one loopback-admin endpoint (`GET /api/orgs/{slug}/net`).
-It must never enter a tree payload, an agent's context, a log line, or a URL —
-on the wire it rides headers only. Kiosk orgs mint NO identity at all: they are
-sealed from the outside world, and an identity that does not exist cannot leak
-(stronger than filtering rosters).
+⚠ Routing identity hygiene: organization addresses appear only where routing
+requires them. Kiosk orgs mint NO identity at all: they are sealed from the
+outside world, and an identity that does not exist cannot leak (stronger than
+filtering rosters).
 
 ⚠ Lock discipline: DOC_LOCK is never held across an HTTP call. The daemon
 threads take it only to read/mutate docs, in the same order as everyone else.
@@ -103,7 +101,7 @@ def mint_identity(org: "Org") -> dict[str, Any] | None:
     ident = org.d.get("net_identity")
     if isinstance(ident, dict) and ident.get("secret"):
         return ident
-    secret = secrets.token_hex(16)               # the repo's credential pattern
+    secret = secrets.token_hex(16)               # local suffix entropy for a stable address
     fp = hashlib.sha256(secret.encode()).hexdigest()
     ident = {
         "secret": secret,
@@ -154,7 +152,7 @@ _status: dict[tuple[str, str], dict[str, Any]] = {}
 _status_lock = threading.Lock()
 _rosters: dict[str, list[dict[str, Any]]] = {}
 _hub_names: dict[str, str] = {}
-_hub_tokens: dict[str, dict[str, str]] = {}
+_hub_headers_by_address: dict[str, dict[str, str]] = {}
 # read receipts queued by _confirm_delivered (supervisor) until the sender
 # thread flushes them; restart loses at most a pending "read" — the far end
 # self-heals to "delivered", which is honest
@@ -356,14 +354,13 @@ def probe_peer(target: str) -> bool:
     for addr in addrs:
         try:
             with _status_lock:
-                credential = _hub_tokens.get(addr)
-            if not credential:
-                # A remote hub without a paired private token is explicitly
-                # unpaired; do not probe it with org credentials alone.
+                headers = _hub_headers_by_address.get(addr)
+            if not headers:
+                # No configured routing address is available for this hub.
                 continue
             with _client() as c:
                 r = c.get(f"{addr}/api/roster",
-                          headers=credential)
+                          headers=headers)
             if r.status_code != 200:
                 continue
             body = cast("dict[str, Any]", r.json() or {})
@@ -448,6 +445,18 @@ def _participants() -> dict[str, dict[str, Any]]:
             except Exception:                                    # noqa: BLE001
                 continue
         ident = org.d.get("net_identity") or {}
+        legacy_fields = {"peer_token", "peer_slug"}
+        if any(legacy_fields.intersection(h) for h in (org.d.get("net_hubs") or []) if isinstance(h, dict)):
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(slug)
+                    for hub in org.d.get("net_hubs") or []:
+                        if isinstance(hub, dict):
+                            for field in legacy_fields:
+                                hub.pop(field, None)
+                    store.save_org(org)
+            except Exception:                                    # noqa: BLE001
+                continue
         hubs = [dict(h) for h in (org.d.get("net_hubs") or [])
                 if h.get("enabled") and h.get("address")]
         # Existing documents may still contain the V1 default (7370). During
@@ -459,16 +468,11 @@ def _participants() -> dict[str, dict[str, Any]]:
             for h in hubs:
                 if str(h.get("id")) == LOCAL_HUB_ID:
                     h["address"] = integrated.rstrip("/")
-                    runtime_token = os.environ.get("ORGTREE_V2_HUB_TOKEN", "").strip()
-                    if runtime_token:
-                        h["token"] = runtime_token
         with _status_lock:
             for h in hubs:
-                token = str(h.get("token") or h.get("peer_token") or "")
-                if token:
-                    _hub_tokens[str(h["address"])] = _hub_headers(h, [(
-                        str(ident.get("slug") or ""), str(ident.get("secret") or ""))])
-        if not ident.get("secret"):
+                _hub_headers_by_address[str(h["address"])] = _hub_headers(h, [(
+                    str(ident.get("slug") or ""), str(ident.get("secret") or ""))])
+        if not ident.get("slug"):
             continue
         # RECONCILE per-hub state with the hub list (redteam second wave —
         # "per-hub state outlives the hub it describes"): a net_state cell
@@ -635,63 +639,22 @@ def _poll_client() -> Any:
                                               connect=5.0), mounts=_local_tls_mounts())
 
 
-def _auth_header(pairs: list[tuple[str, str]],
-                 hub_token: str = "") -> dict[str, str]:
-    headers = {"X-Org-Auth": " ".join(f"{s}:{sec}" for s, sec in pairs)}
-    if hub_token:
-        headers["X-Hub-Token"] = hub_token
-    return headers
-
-
-def _is_local_owner(hub: dict[str, Any]) -> bool:
-    from urllib.parse import urlsplit
-    address = str(hub.get("address") or "").rstrip("/")
-    runtime = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").rstrip("/")
-    parsed = urlsplit(address)
-    return (str(hub.get("id")) == LOCAL_HUB_ID and bool(runtime)
-            and address == runtime and parsed.scheme in {"http", "https"}
-            and parsed.hostname in {"127.0.0.1", "::1"}
-            and parsed.username is None and parsed.password is None)
+def _address_header(pairs: list[tuple[str, str]]) -> dict[str, str]:
+    """Name participants for routing without presenting credentials."""
+    return {"X-Org-Address": " ".join(slug for slug, _ in pairs if slug)}
 
 
 def _hub_headers(hub: dict[str, Any],
                  pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """Build private transport headers without exposing hub credentials.
-
-    The embedded local service trusts its owner token; configured peers use a
-    revocable token bound to the org slug.  Neither value belongs in a tree
-    payload or mail envelope.
-    """
-    if _is_local_owner(hub):
-        return _auth_header(pairs, str(hub.get("token") or ""))
-    token = str(hub.get("peer_token") or "")
-    headers = _auth_header(pairs)
-    if token:
-        headers["X-Hub-Peer-Token"] = token
-    return headers
+    """Build routing headers for a shared-trust hub."""
+    return _address_header(pairs)
 
 
 def _group_headers(parts: dict[str, dict[str, Any]],
                    members: dict[str, str],
                    pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """Headers for one multiplexed address, including every member token."""
-    headers = _auth_header(pairs)
-    local_tokens: list[str] = []
-    peer_tokens: list[str] = []
-    for slug, hid in members.items():
-        hub = next((h for h in parts[slug]["hubs"]
-                    if str(h.get("id")) == str(hid)), {})
-        local = _is_local_owner(hub)
-        token = str(hub.get("token" if local else "peer_token") or "")
-        if not token:
-            continue
-        (local_tokens if local
-         else peer_tokens).append(token)
-    if local_tokens:
-        headers["X-Hub-Token"] = local_tokens[0]
-    if peer_tokens:
-        headers["X-Hub-Peer-Token"] = " ".join(peer_tokens)
-    return headers
+    """Headers for one multiplexed address, including every routing address."""
+    return _address_header(pairs)
 
 
 def _record_hub_name(addr: str, name: Any, parts: dict[str, dict[str, Any]],

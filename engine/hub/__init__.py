@@ -1,7 +1,7 @@
-"""Docker-free authenticated mail hub for the v2 engine."""
+"""Docker-free shared-trust mail hub for the v2 engine."""
 
 from .service import (
-    HubLifecycle, HubReadiness, HubService, PeerIdInUse, UnknownPeer,
+    HubLifecycle, HubReadiness, HubService,
     discover_hub, start_hub,
 )
 from .client import AttachmentPathError, HubClient, HubClientError
@@ -13,8 +13,6 @@ __all__ = [
     "HubLifecycle",
     "HubReadiness",
     "HubService",
-    "PeerIdInUse",
-    "UnknownPeer",
     "discover_hub",
     "start_hub",
 ]

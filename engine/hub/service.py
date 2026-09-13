@@ -1,17 +1,15 @@
 """A small integrated v2 mail hub.
 
 The v1 hub is a separately hosted UI/API service.  v2 deliberately keeps only
-its correspondence transport semantics: authenticated registrations,
+its correspondence transport semantics: address-only registrations,
 durable at-least-once queueing, idempotent sends, custody ACKs, receipts and
 file-backed attachments. This module is an engine-owned service with a
-loopback default; an explicitly configured authenticated peer bind is also
+loopback default; an explicitly configured shared-trust network bind is also
 supported. It has no UI and is not a Docker entrypoint.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import ipaddress
 import json
 import os
@@ -52,32 +50,16 @@ CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY, owner_slug TEXT NOT NULL, name TEXT NOT NULL,
   bytes INTEGER NOT NULL, created_at TEXT NOT NULL, message_id TEXT
 );
-CREATE TABLE IF NOT EXISTS peers (
-  peer_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
-  bound_slug TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT
-);
 """
 _MAX_BODY = 20_000
 _MAX_ATTACHMENT = 25 * 1024 * 1024
 _MAX_ATTACHMENTS = 10
 
 
-class PeerIdInUse(ValueError):
-    """A grant already exists under that identifier."""
-
-
-class UnknownPeer(ValueError):
-    """No grant exists under that identifier."""
-
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
         "+00:00", "Z"
     )
-
-
-def _fingerprint(secret: str) -> str:
-    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
 def _safe_name(name: str) -> str:
@@ -157,63 +139,8 @@ class _HubServer(ThreadingHTTPServer):
             raise ValueError("invalid attachment id")
         return self.blob_root / attachment_id
 
-    # ── grant administration ────────────────────────────────────────────
-    # These are the SAME operations the owner-token HTTP routes perform, kept
-    # here so the engine that hosts this service can administer grants without
-    # a second network round trip and, more importantly, without the hub
-    # growing another authenticated endpoint. The HTTP handlers below call
-    # exactly these methods, so there is one implementation of what a grant is.
-
-    def list_peers(self) -> list[dict[str, Any]]:
-        """Every grant this hub has issued. Never returns secret material."""
-        with self.db() as con:
-            rows = con.execute(
-                "SELECT peer_id,bound_slug,created_at,revoked_at FROM peers"
-                " ORDER BY created_at, peer_id").fetchall()
-        return [{"peer_id": row["peer_id"], "slug": row["bound_slug"],
-                 "created_at": row["created_at"], "revoked_at": row["revoked_at"],
-                 "allowed": row["revoked_at"] is None} for row in rows]
-
-    def issue_peer(self, peer_id: str, bound_slug: str) -> str:
-        """Mint a scoped credential. The secret is returned here and nowhere else."""
-        token = secrets.token_urlsafe(32)
-        with self.db() as con:
-            if con.execute("SELECT 1 FROM peers WHERE peer_id=?", (peer_id,)).fetchone():
-                raise PeerIdInUse("peer id already exists; choose a new id")
-            try:
-                con.execute("INSERT INTO peers (peer_id,fingerprint,bound_slug,created_at,revoked_at) VALUES (?,?,?,?,NULL)",
-                            (peer_id, _fingerprint(token), bound_slug, _now()))
-            except sqlite3.IntegrityError as exc:  # lost a race for the same id
-                raise PeerIdInUse("peer id already exists; choose a new id") from exc
-            con.commit()
-        return token
-
-    def replace_peer(self, peer_id: str) -> tuple[str, str]:
-        """Bind a NEW secret to an existing grant, keeping its identifier and
-        the organization it is bound to. The previous secret stops verifying
-        immediately: admission matches a live fingerprint, and this replaces
-        it. Returns (bound_slug, new token)."""
-        token = secrets.token_urlsafe(32)
-        with self.db() as con:
-            row = con.execute("SELECT bound_slug FROM peers WHERE peer_id=?", (peer_id,)).fetchone()
-            if row is None:
-                raise UnknownPeer("no grant exists under that id")
-            con.execute("UPDATE peers SET fingerprint=?, created_at=?, revoked_at=NULL WHERE peer_id=?",
-                        (_fingerprint(token), _now(), peer_id))
-            con.commit()
-        return str(row["bound_slug"]), token
-
-    def revoke_peer(self, peer_id: str) -> bool:
-        with self.db() as con:
-            changed = con.execute("UPDATE peers SET revoked_at=? WHERE peer_id=? AND revoked_at IS NULL", (_now(), peer_id)).rowcount
-            con.commit()
-        return changed == 1
-
-
 class _HubHandler(BaseHTTPRequestHandler):
     server: _HubServer
-    peer_binding: str | None = None
-    peer_bindings: set[str] = set()
 
     def log_message(self, _format: str, *_args: Any) -> None:
         return
@@ -237,29 +164,9 @@ class _HubHandler(BaseHTTPRequestHandler):
         self._send(status, {"detail": detail})
 
     def _require_access(self) -> bool:
-        self.peer_binding = None
-        self.peer_bindings = set()
-        local = self.headers.get("X-Hub-Token", "")
-        if local and hmac.compare_digest(local, self.server.instance_token):
-            return True
-        supplied_values = self.headers.get_all("X-Hub-Peer-Token", [])
-        supplied_tokens = [token for value in supplied_values for token in value.split()]
-        if supplied_tokens:
-            with self.server.db() as con:
-                fingerprints = [_fingerprint(token) for token in supplied_tokens]
-                marks = ",".join("?" for _ in fingerprints)
-                rows = con.execute(
-                    f"SELECT bound_slug FROM peers WHERE fingerprint IN ({marks}) AND revoked_at IS NULL",
-                    fingerprints,
-                ).fetchall()
-            if rows:
-                self.peer_bindings = {str(row["bound_slug"]) for row in rows}
-                # Keep the singular field for the existing peer-management
-                # checks; a multiplexed request is represented by the set.
-                self.peer_binding = next(iter(self.peer_bindings)) if len(self.peer_bindings) == 1 else None
-                return True
-        self._error(401, "invalid hub access token")
-        return False
+        # Joining is address-only. Network reachability supplies the security
+        # boundary; mailhub deliberately does not add credentials or grants.
+        return True
 
     def _json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
@@ -270,17 +177,6 @@ class _HubHandler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise ValueError("body must be an object")
         return value
-
-    def _auth(self, con: sqlite3.Connection) -> list[str]:
-        result: list[str] = []
-        for pair in self.headers.get("X-Org-Auth", "").split():
-            slug, separator, secret = pair.partition(":")
-            if not separator or not slug or not secret:
-                continue
-            row = con.execute("SELECT fingerprint FROM orgs WHERE slug=?", (slug,)).fetchone()
-            if row and hmac.compare_digest(str(row["fingerprint"]), _fingerprint(secret)):
-                result.append(slug)
-        return result
 
     def _mark_seen(self, con: sqlite3.Connection, slugs: list[str]) -> None:
         now = _now()
@@ -335,8 +231,6 @@ class _HubHandler(BaseHTTPRequestHandler):
                 self._register()
             elif route == "/api/unregister":
                 self._unregister()
-            elif route == "/api/peers":
-                self._create_peer()
             elif route == "/api/send":
                 self._send_message()
             elif route == "/api/poll":
@@ -355,12 +249,7 @@ class _HubHandler(BaseHTTPRequestHandler):
             self._error(503, "hub storage unavailable")
 
     def do_DELETE(self) -> None:  # noqa: N802
-        if not self._require_access() or self.peer_bindings:
-            if self.peer_bindings:
-                self._error(403, "peer tokens cannot manage peers")
-            return
-        peer_id = urlparse(self.path).path.rsplit("/", 1)[-1]
-        self._send(200, {"revoked": self.server.revoke_peer(peer_id), "peer_id": peer_id})
+        self._error(404, "not found")
 
     def _register(self) -> None:
         body = self._json()
@@ -368,45 +257,16 @@ class _HubHandler(BaseHTTPRequestHandler):
         if not _SLUG.fullmatch(slug):
             self._error(422, "malformed slug")
             return
-        supplied = {p.partition(":")[0]: p.partition(":")[2] for p in self.headers.get("X-Org-Auth", "").split()}
-        secret = supplied.get(slug, "")
-        if not secret:
-            self._error(401, "registration requires X-Org-Auth")
-            return
-        if self.peer_bindings and slug not in self.peer_bindings:
-            self._error(403, "peer token is bound to another identity")
-            return
         now = _now()
         with self.server.db() as con:
-            row = con.execute("SELECT fingerprint FROM orgs WHERE slug=?", (slug,)).fetchone()
-            fp = _fingerprint(secret)
-            if row and not hmac.compare_digest(str(row["fingerprint"]), fp):
-                self._error(403, "slug is owned by another identity")
-                return
+            row = con.execute("SELECT 1 FROM orgs WHERE slug=?", (slug,)).fetchone()
             if row:
                 con.execute("UPDATE orgs SET org_name=?, username=?, blurb=?, last_seen=? WHERE slug=?", (str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, slug))
             else:
-                con.execute("INSERT INTO orgs VALUES (?,?,?,?,?,?,?)", (slug, fp, str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, now))
+                con.execute("INSERT INTO orgs VALUES (?,?,?,?,?,?,?)", (slug, "", str(body.get("org_name") or ""), str(body.get("username") or ""), str(body.get("blurb") or ""), now, now))
             con.commit()
             roster = self._roster(con)
         self._send(200, {"ok": True, "name": self.server.hub_name, "retention_days": self.server.retention_days, "slug": slug, "roster": roster})
-
-    def _create_peer(self) -> None:
-        if self.peer_bindings:
-            self._error(403, "peer tokens cannot create peers")
-            return
-        body = self._json()
-        peer_id = str(body.get("peer_id") or "").strip()
-        bound_slug = str(body.get("slug") or "").strip()
-        if not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", peer_id) or not _SLUG.fullmatch(bound_slug):
-            self._error(422, "malformed peer binding")
-            return
-        try:
-            token = self.server.issue_peer(peer_id, bound_slug)
-        except PeerIdInUse as exc:
-            self._error(409, str(exc))
-            return
-        self._send(200, {"peer_id": peer_id, "slug": bound_slug, "peer_token": token})
 
     def _unregister(self) -> None:
         with self.server.db() as con:
@@ -419,11 +279,10 @@ class _HubHandler(BaseHTTPRequestHandler):
         self._send(200, {"unregistered": slugs})
 
     def _authorized(self, con: sqlite3.Connection) -> list[str]:
-        slugs = self._auth(con)
-        if self.peer_bindings:
-            slugs = [slug for slug in slugs if slug in self.peer_bindings]
+        slugs = [slug for slug in self.headers.get("X-Org-Address", "").split()
+                 if _SLUG.fullmatch(slug) and con.execute("SELECT 1 FROM orgs WHERE slug=?", (slug,)).fetchone()]
         if not slugs:
-            self._error(401, "no valid org credentials")
+            self._error(422, "a registered organization address is required")
         return slugs
 
     def _send_message(self) -> None:
@@ -435,10 +294,7 @@ class _HubHandler(BaseHTTPRequestHandler):
                 return
             sender = str(body.get("from") or (slugs[0] if slugs else ""))
             if sender not in slugs:
-                self._error(401, "sender credentials required")
-                return
-            if self.peer_bindings and sender not in self.peer_bindings:
-                self._error(403, "peer token is bound to another identity")
+                self._error(422, "sender must be one of the organization addresses")
                 return
             if not con.execute("SELECT 1 FROM orgs WHERE slug=?", (to,)).fetchone():
                 self._error(422, "recipient is not registered")
@@ -559,10 +415,7 @@ class _HubHandler(BaseHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             owner = query.get("owner", [slugs[0]])[0]
             if owner not in slugs:
-                self._error(401, "attachment owner credentials required")
-                return
-            if self.peer_bindings and owner not in self.peer_bindings:
-                self._error(403, "peer token is bound to another identity")
+                self._error(422, "attachment owner must be one of the organization addresses")
                 return
             name = _safe_name(query.get("name", ["file"])[0])
             try:
@@ -663,25 +516,6 @@ class HubService:
     def readiness(self) -> HubReadiness | None:
         return self._readiness
 
-    # Grant administration for the installation that HOSTS this hub. Same
-    # operations as the owner-token HTTP routes, reached in-process.
-    def _running(self) -> _HubServer:
-        if self._server is None:
-            raise RuntimeError("hub is not running")
-        return self._server
-
-    def list_peers(self) -> list[dict[str, Any]]:
-        return self._running().list_peers()
-
-    def issue_peer(self, peer_id: str, bound_slug: str) -> str:
-        return self._running().issue_peer(peer_id, bound_slug)
-
-    def replace_peer(self, peer_id: str) -> tuple[str, str]:
-        return self._running().replace_peer(peer_id)
-
-    def revoke_peer(self, peer_id: str) -> bool:
-        return self._running().revoke_peer(peer_id)
-
     def start(self) -> HubReadiness:
         if self._server is not None:
             if self._readiness is None:
@@ -702,9 +536,8 @@ class HubService:
         serving_started = False
         try:
             temporary.touch(exist_ok=False)
-            # POSIX honors this as owner-only (0600). Windows ignores these
-            # permission bits, so callers must still treat the token as a
-            # private same-user credential.
+            # Keep readiness private to the desktop process owner. It carries
+            # runtime details, including the internal service instance token.
             os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
             if os.name == "nt":
                 self._restrict_windows_readiness_acl(temporary)

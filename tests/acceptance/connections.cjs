@@ -33,8 +33,7 @@ app.on('browser-window-created',(_e,main)=>{if(started)return;started=true;main.
     const own=(await api('/api/orgs/'+slug+'/net')).body;assert.ok(own.identity.slug);write(role+'-identity.json',{slug:own.identity.slug,enginePort:ready.port})
     const remote=await waitFile(other+'-identity.json');assert.notEqual(remote.enginePort,ready.port)
     if(role==='host'){
-      // Hosting and grants are INSTALLATION-wide: App settings -> Mail hub,
-      // not this organization's Connections tab.
+      // Hosting is installation-wide; organization connections only need its address.
       assert.equal(await evaluate(`Boolean(document.querySelector('.host-hub')||document.querySelector('.hub-peers'))`),false,'Connections must not render installation-wide hub controls')
       await click(`document.querySelector('button[title="App settings"]')`)
       await wait(`document.querySelector('#app-settings-tab-mailhub')`)
@@ -46,28 +45,18 @@ app.on('browser-window-created',(_e,main)=>{if(started)return;started=true;main.
       assert.equal(await evaluate(`document.querySelector('select[aria-label="Mail hub listen address"]').value`),'127.0.0.1')
       await click(`[...document.querySelectorAll('.host-hub button')].find(b=>b.textContent==='Save hosting settings')`)
       await wait(`document.querySelector('.host-hub').textContent.includes('Hosting settings saved.')`)
-      await input(`document.querySelector('.hub-peers input[aria-label="Credential ID"]')`,'acceptance-client')
-      await input(`document.querySelector('.hub-peers input[aria-label="Allowed organization address"]')`,remote.slug)
-      await click(`[...document.querySelectorAll('.hub-peers button')].find(b=>b.textContent==='Create credential')`)
-      await wait(`document.querySelector('textarea[aria-label="New connection credential"]')`)
-      const invitation=JSON.parse(await evaluate(`document.querySelector('textarea[aria-label="New connection credential"]').value`));assert.equal(new URL(invitation.address).hostname,'127.0.0.1')
-      write('private-invitation.json',invitation)
-      await wait(`document.querySelector('.hub-peers').textContent.includes(${JSON.stringify(remote.slug)})`)
-      await click(`[...document.querySelectorAll('.hub-peers button')].find(b=>b.textContent==='Hide credential')`)
-      await capture('host-configured');checks.push({name:'actual-host-config-and-scoped-credential-ui',status:'PASS'})
+      const hosted=(await api('/api/desktop/hub')).body;assert.ok(hosted.status.address)
+      write('hub-address.json',{address:hosted.status.address})
+      await capture('host-configured');checks.push({name:'actual-host-config-ui',status:'PASS'})
       await click(`[...document.querySelectorAll('.acct-panel button')].find(b=>b.textContent==='close')`)
       await wait(`!document.querySelector('.acct-panel')`)
     }else{
-      const invitation=await waitFile('private-invitation.json');assert.equal(new URL(invitation.address).hostname,'127.0.0.1')
-      const denied=await api('/api/orgs/'+slug+'/net/pair',{address:invitation.address,peer_id:invitation.peer_id,peer_slug:invitation.peer_slug,peer_token:'deliberately-invalid-acceptance-token'})
-      assert.equal(denied.status,502)
-      assert.ok(!(await api('/api/orgs/'+slug+'/net')).body.hubs.some(h=>h.id===invitation.peer_id),'Failed credential must not add connection')
-      checks.push({name:'forged-credential-refused-without-persisting-connection',status:'PASS'})
-      for(const [index,value] of [invitation.address,invitation.peer_id,invitation.peer_slug,invitation.peer_token].entries())await input(`document.querySelectorAll('.connect-hub form input')[${index}]`,value)
+      const hub=await waitFile('hub-address.json');assert.equal(new URL(hub.address).hostname,'127.0.0.1')
+      await input(`document.querySelector('.connect-hub form input')`,hub.address)
       await click(`document.querySelector('.connect-hub form button[type="submit"]')`)
-      await wait(`document.querySelector('.connect-hub input[type="password"]').value===''`)
-      const sanitized=(await api('/api/orgs/'+slug+'/net')).body;assert.ok(sanitized.hubs.some(h=>h.id===invitation.peer_id));assert.ok(!JSON.stringify(sanitized).includes(invitation.peer_token))
-      await capture('client-connected');checks.push({name:'actual-connect-form-and-sanitized-status',status:'PASS'})
+      await wait(`(document.querySelector('.connect-hub')?.textContent||'').includes('Connected')`)
+      const connected=(await api('/api/orgs/'+slug+'/net')).body;assert.ok(connected.hubs.some(h=>h.address===hub.address));assert.ok(!JSON.stringify(connected).includes('peer_token'))
+      await capture('client-connected');checks.push({name:'actual-address-only-connect-form',status:'PASS'})
     }
     write(role+'-paired.json',true);await waitFile(other+'-paired.json')
     const expected=other==='client'?'Synthetic client to host.':'Synthetic host to client.'

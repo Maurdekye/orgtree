@@ -56,7 +56,9 @@ def _validate_root(value: str | os.PathLike[str]) -> Path:
 
 
 class HubClient:
-    def __init__(self, data_root: str | os.PathLike[str], hub_url: str, slug: str, secret: str, instance_token: str, peer_token: bool = False, ssl_context: ssl.SSLContext | None = None, ca_file: str | os.PathLike[str] | None = None):
+    def __init__(self, data_root: str | os.PathLike[str], hub_url: str, slug: str,
+                 ssl_context: ssl.SSLContext | None = None,
+                 ca_file: str | os.PathLike[str] | None = None):
         if not re.fullmatch(r"^[a-z0-9][a-z0-9._-]{0,127}$", slug):
             raise ValueError("malformed slug")
         parsed = urllib.parse.urlparse(hub_url.rstrip("/"))
@@ -65,11 +67,6 @@ class HubClient:
         self.root = _validate_root(data_root)
         self.hub_url = hub_url.rstrip("/")
         self.slug = slug
-        self.secret = secret
-        if len(instance_token) < 32:
-            raise ValueError("instance_token is required")
-        self.instance_token = instance_token
-        self.peer_token = peer_token
         if ssl_context is not None and ca_file is not None:
             raise ValueError("ssl_context and ca_file are mutually exclusive")
         if ca_file is not None:
@@ -111,15 +108,13 @@ class HubClient:
         finally:
             con.close()
 
-    @property
-    def auth(self) -> str:
-        return f"{self.slug}:{self.secret}"
-
     def _request(self, method: str, path: str, body: Any = None, raw: bytes | None = None, query: dict[str, str] | None = None) -> Any:
         url = self.hub_url + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
-        headers = {"X-Org-Auth": self.auth, ("X-Hub-Peer-Token" if self.peer_token else "X-Hub-Token"): self.instance_token}
+        # This is a routing address, not a credential. The surrounding network
+        # is the trust boundary for a shared-trust hub.
+        headers = {"X-Org-Address": self.slug}
         data = raw
         if body is not None:
             data = json.dumps(body).encode("utf-8")
@@ -156,13 +151,6 @@ class HubClient:
 
     def unregister(self) -> dict[str, Any]:
         return self._request("POST", "/api/unregister")
-
-    def create_peer(self, peer_id: str, slug: str) -> dict[str, Any]:
-        """Mint a one-time peer token; local instance-token access only."""
-        return self._request("POST", "/api/peers", {"peer_id": peer_id, "slug": slug})
-
-    def revoke_peer(self, peer_id: str) -> dict[str, Any]:
-        return self._request("DELETE", f"/api/peers/{urllib.parse.quote(peer_id, safe='')}")
 
     def _stage_attachments(self, entry_id: str, paths: list[str | os.PathLike[str]]) -> list[dict[str, str]]:
         staged: list[dict[str, str]] = []
