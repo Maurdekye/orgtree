@@ -17,6 +17,9 @@ const trayColors = {
   antigravity: [117, 165, 255],
   openrouter: [182, 154, 250],
 }
+// Keep the loading mark grey while using the established Orgtree neutral as a
+// lighter iris, so the state remains legible against its outer grey shell.
+const loadingIris = trayColors.orgtree
 
 const eyePolygon = (() => {
   const points = []
@@ -105,4 +108,6 @@ function writeIcon(filename, color, center = color, iris = pupil) {
 // icons are monochrome variants so their state and the saved visual theme can
 // change without recoloring pixels in Electron's platform-specific bitmap.
 writeIcon('orgtree-eye.ico', orange, orange, pupil)
-for (const [name, color] of Object.entries(trayColors)) writeIcon(`orgtree-eye-tray-${name}.ico`, color, color, pupil)
+for (const [name, color] of Object.entries(trayColors)) {
+  writeIcon(`orgtree-eye-tray-${name}.ico`, color, color, name === 'grey' ? loadingIris : pupil)
+}

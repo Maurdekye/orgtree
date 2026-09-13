@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -6,8 +7,9 @@ import test from 'node:test'
 
 const root = path.resolve(import.meta.dirname, '..')
 const read = file => fs.readFileSync(path.join(root, file), 'utf8')
-function firstFramePixels(ico) {
-  const at = 6
+const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
+function frameData(ico, index = 0) {
+  const at = 6 + index * 16
   const offset = ico.readUInt32LE(at + 12), length = ico.readUInt32LE(at + 8)
   const png = ico.subarray(offset, offset + length)
   const width = png.readUInt32BE(16), height = png.readUInt32BE(20)
@@ -19,6 +21,10 @@ function firstFramePixels(ico) {
   }
   const raw = zlib.inflateSync(compressed), stride = width * 4 + 1
   const pixel = (x, y) => raw.subarray(1 + y * stride + x * 4, 1 + y * stride + x * 4 + 4)
+  return { width, height, bitDepth: png[24], colorType: png[25], pixel }
+}
+function firstFramePixels(ico) {
+  const { width, height, pixel } = frameData(ico)
   return { center: pixel(Math.floor(width / 2), Math.floor(height / 2)), iris: pixel(Math.floor(width / 2), Math.floor(height * .34)) }
 }
 
@@ -67,6 +73,33 @@ test('runtime eye variants contain the same crisp Windows frames', () => {
   for (const icon of icons) {
     const { center, iris } = firstFramePixels(icon)
     assert.notDeepEqual([...center], [...iris], 'runtime eye keeps a contrasting internal iris')
+  }
+})
+
+test('grey loading eye uses a lighter iris and preserves the loaded eye bytes', () => {
+  const grey = fs.readFileSync(path.join(root, 'apps/desktop/assets/orgtree-eye-tray-grey.ico'))
+  const { center, iris } = firstFramePixels(grey)
+  const luminance = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b
+  assert.ok(luminance(iris) > luminance(center) + 20, 'loading iris is visibly lighter than the grey shell')
+
+  const loaded = fs.readFileSync(path.join(root, 'apps/desktop/assets/orgtree-eye.ico'))
+  assert.equal(sha256(loaded), '4b91f19dac137febc757387048b6dddd6f5437e162e4053f8cdcb3cad721002a',
+    'loaded orange icon remains byte-for-byte unchanged')
+})
+
+test('grey loading eye retains every packaged size and transparent silhouette', () => {
+  const ico = fs.readFileSync(path.join(root, 'apps/desktop/assets/orgtree-eye-tray-grey.ico'))
+  const sizes = [16, 24, 32, 48, 64, 128, 256]
+  assert.equal(ico.readUInt16LE(4), sizes.length)
+  for (let i = 0; i < sizes.length; i++) {
+    const at = 6 + i * 16
+    assert.equal(ico[at] || 256, sizes[i])
+    const frame = frameData(ico, i)
+    assert.equal(frame.width, sizes[i])
+    assert.equal(frame.height, sizes[i])
+    assert.equal(frame.bitDepth, 8)
+    assert.equal(frame.colorType, 6, 'RGBA PNG frame')
+    assert.equal(frame.pixel(0, 0)[3], 0, 'outside the eye remains transparent')
   }
 })
 
