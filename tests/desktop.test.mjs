@@ -14,7 +14,7 @@ async function load(name) {
 }
 const policy = await load('policy'), { Preferences } = await load('preferences'), { detectHarnesses } = await load('harnesses'), { NotificationGate } = await load('notifications')
 
-const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
+const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyTerminalFailures: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 
 test('notification preferences migrate safely and every independent choice survives restart', () => {
   const file = path.join(temp, 'notifications.json')

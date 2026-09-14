@@ -173,7 +173,10 @@ test('the glow is the SAME treatment as the unread-ask bell, in the active '
   // reference to nothing
   assert.match(css, /@keyframes askbell\s*\{/)
   // the treatment it claims to match is still there and still uses them
-  const bell = css.match(/\.ask-bell\.glow\s*\{([^}]*)\}/)
+  // the bell rule may share its declaration with other glowing bells
+  // (.docket-bell.glow joined the selector list); the treatment, not the
+  // selector list's exact shape, is what this asserts
+  const bell = css.match(/\.ask-bell\.glow[^{]*\{([^}]*)\}/)
   assert.ok(bell, 'the ask-bell glow this is modelled on has gone')
   assert.match(bell[1], /animation:\s*askbell /)
 })

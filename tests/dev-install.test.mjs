@@ -47,7 +47,12 @@ test('dev build-info keeps provenance and switches only channel and version', ()
 })
 
 test('dev packaging config shares no identity with the release config', () => {
-  const version = devVersion(pkg.version, 'ab12cd34ef99', false)
+  // The live package version is used so the config comparison tracks the real
+  // release identity — but on a release-candidate boundary (x.y.z-RCn) the
+  // dev versioner rightly refuses a prerelease base, so the RC suffix is
+  // stripped for this identity check rather than failing the whole suite on
+  // every RC commit.
+  const version = devVersion(pkg.version.replace(/-RC\d+$/, ''), 'ab12cd34ef99', false)
   const config = devPackagingConfig(pkg.build, version)
   // Every value the installed release derives its identity from must differ.
   assert.equal(config.appId, DEV_APP_ID)
