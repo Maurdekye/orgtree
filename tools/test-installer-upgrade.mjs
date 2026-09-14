@@ -32,6 +32,7 @@ const vars = source.split(/\r?\n/).filter(line => /^Var (OrgUpgrade|OrgtreeUpgra
 const functions = macro('orgtreeUpgradeFunctions')
 const welcome = macro('customWelcomePage')
 const installMode = macro('customInstallMode')
+const finish = macro('customFinishPage')
 const nsi = `!include LogicLib.nsh
 !include "${mui}"
 Name "Orgtree upgrade fixture"
@@ -61,9 +62,15 @@ ${vars}
   StrCpy $0 "0"
   StrCpy $1 "2"
 !macroend
+!macro _StubExecShellAsUser _result _exe _verb _args
+  StrCpy \`\${_result}\` "0"
+!macroend
+!define StdUtils.ExecShellAsUser \`!insertmacro _StubExecShellAsUser\`
 ${functions}
+${finish}
 ${welcome}
 ${installMode}
+!insertmacro customFinishPage
 !macro setInstallModePerAllUsers
   StrCpy $installMode all
 !macroend
@@ -103,3 +110,102 @@ assert.match(appSource, /hasInstallerUpgradeRequest\(commandLine\)/, 'primary ap
 assert.match(appSource, /else if \(installerUpgradeRequested\)/, 'standalone control launch never starts the desktop')
 console.log('PASS metadata, action, retry/cancel, and no-force-kill contracts')
 console.log('NSIS upgrade fixture used no registry writes, elevation, process launch, installation, or live-data changes.')
+
+// Exercise the helper-preparation instruction sequence in a compiled NSIS
+// executable.  The source-only fixture above cannot observe CopyFiles,
+// $PLUGINSDIR extraction, or the Error flag that NSIS carries between
+// instructions.  Keep this fixture deliberately small: it extracts the real
+// helper, calls the real preparation function, and writes only a marker in a
+// temporary path with spaces.
+const preparationTemp = path.join(temp, 'installer helper temp path')
+fs.mkdirSync(preparationTemp)
+const preparationEnv = { ...process.env, TEMP: preparationTemp, TMP: preparationTemp }
+const preparationMarker = path.join(temp, 'helper preparation marker.txt')
+function preparationFixture(finishMacro, executable, marker) {
+  return `!include LogicLib.nsh
+!include "${mui}"
+Name "Orgtree helper preparation fixture"
+OutFile "${executable}"
+RequestExecutionLevel user
+SilentInstall silent
+!define PRODUCT_NAME "Orgtree"
+!define APP_EXECUTABLE_FILENAME "Orgtree.exe"
+!define UNINSTALL_FILENAME "Uninstall Orgtree.exe"
+!define UNINSTALL_DISPLAY_NAME "Orgtree 2.1.3-RC1"
+!define UNINSTALL_REGISTRY_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{fixture-helper}"
+!define INSTALL_REGISTRY_KEY "Software\\com.maurdekye.orgtree\\fixture-helper"
+!macro _isUpdated _a _b _t _f
+  StrCmp "0" "1" \`\${_t}\` \`\${_f}\`
+!macroend
+!define isUpdated \`"" _isUpdated ""\`
+!define orgtreeOriginalIsUpdated \`\${isUpdated}\`
+${vars}
+!macro _StubExecShellAsUser _result _exe _verb _args
+  StrCpy \`\${_result}\` "0"
+!macroend
+!define StdUtils.ExecShellAsUser \`!insertmacro _StubExecShellAsUser\`
+${finishMacro}
+${welcome}
+!insertmacro customFinishPage
+Var installMode
+Function .onInit
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\\installer-relaunch.ps1 "${path.join(root, 'tools/installer-relaunch.ps1')}"
+FunctionEnd
+Section
+  # Simulate the stale NSIS error flag left by a failed probe immediately
+  # before the page-leave preparation call. The preparation routine must
+  # clear and independently check its own filesystem operations.
+  FileOpen $R7 "$TEMP\\orgtree-helper-preparation-missing-$HWNDPARENT" r
+  Call orgtreePrepareUpgradeRelaunch
+  FileOpen $R8 "${marker}" w
+  FileWrite $R8 "$OrgUpgradeRelaunchPrepared|$OrgUpgradeRelaunchDir$\\r$\\n"
+  FileClose $R8
+SectionEnd
+`}
+const preparationNsi = preparationFixture(finish, path.join(temp, 'helper-preparation-fixture.exe'), preparationMarker)
+const preparationFile = path.join(temp, 'helper-preparation-fixture.nsi')
+fs.writeFileSync(preparationFile, preparationNsi)
+const preparationCompile = spawnSync(compilerPath, ['/V1', preparationFile], {
+  encoding: 'utf8', windowsHide: true, timeout: 15000,
+})
+assert.equal(preparationCompile.status, 0, preparationCompile.stdout + preparationCompile.stderr)
+const preparationRun = spawnSync(path.join(temp, 'helper-preparation-fixture.exe'), ['/S'], {
+  encoding: 'utf8', windowsHide: true, timeout: 15000, env: preparationEnv,
+})
+assert.equal(preparationRun.status, 0, preparationRun.stdout + preparationRun.stderr)
+assert.ok(fs.existsSync(preparationMarker), 'compiled helper fixture wrote no preparation marker')
+const [prepared, preparedDir] = fs.readFileSync(preparationMarker, 'utf8').trim().split('|')
+assert.equal(prepared, '1', `compiled helper preparation failed in packaged path: ${preparedDir}`)
+assert.ok(preparedDir.includes('OrgtreeInstallerRelaunch-'), `unexpected helper directory: ${preparedDir}`)
+assert.ok(preparedDir.startsWith(preparationTemp), `helper directory escaped the configured temp path: ${preparedDir}`)
+assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.ps1')), 'compiled fixture did not copy the helper')
+fs.rmSync(preparedDir, { recursive: true, force: true })
+console.log('PASS compiled NSIS helper extraction/preparation path')
+
+// Keep a compiled control using the pre-fix instruction sequence. A failed
+// optional FileOpen leaves NSIS's Error flag set; without the two local
+// ClearErrors calls, the old routine reports failure despite successful copy.
+const legacyFinish = finish
+  .replace(/      # Filesystem instructions[\s\S]*?      ClearErrors\r?\n(?=      CreateDirectory)/, '')
+  .replace(/      ClearErrors\r?\n(?=      CopyFiles)/, '')
+const legacyMarker = path.join(temp, 'legacy helper preparation marker.txt')
+const legacyNsi = preparationFixture(
+  legacyFinish,
+  path.join(temp, 'legacy-helper-preparation-fixture.exe'),
+  legacyMarker,
+)
+const legacyFile = path.join(temp, 'legacy-helper-preparation-fixture.nsi')
+fs.writeFileSync(legacyFile, legacyNsi)
+const legacyCompile = spawnSync(compilerPath, ['/V1', legacyFile], {
+  encoding: 'utf8', windowsHide: true, timeout: 15000,
+})
+assert.equal(legacyCompile.status, 0, legacyCompile.stdout + legacyCompile.stderr)
+const legacyRun = spawnSync(path.join(temp, 'legacy-helper-preparation-fixture.exe'), ['/S'], {
+  encoding: 'utf8', windowsHide: true, timeout: 15000, env: preparationEnv,
+})
+assert.equal(legacyRun.status, 0, legacyRun.stdout + legacyRun.stderr)
+const [legacyPrepared, legacyDir] = fs.readFileSync(legacyMarker, 'utf8').trim().split('|')
+assert.equal(legacyPrepared, '0', 'legacy helper preparation control unexpectedly ignored stale NSIS Errors')
+if (legacyDir && fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true })
+console.log('PASS compiled regression reproduces stale NSIS Errors before the fix')

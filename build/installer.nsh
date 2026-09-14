@@ -556,7 +556,17 @@ FunctionEnd
       StrCpy $OrgUpgradeRelaunchPrepared "0"
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
       StrCpy $OrgUpgradeRelaunchDir "$TEMP\OrgtreeInstallerRelaunch-$0"
+      # Filesystem instructions inherit NSIS's process-wide Error flag. The
+      # upgrade probe and page flow legitimately perform optional reads before
+      # reaching this function, so stale Errors must not turn a successful
+      # extraction into a destructive-looking preparation failure.
+      ClearErrors
       CreateDirectory $OrgUpgradeRelaunchDir
+      ${if} ${Errors}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
+        Return
+      ${endif}
+      ClearErrors
       CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.ps1" $OrgUpgradeRelaunchDir
       ${if} ${Errors}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK

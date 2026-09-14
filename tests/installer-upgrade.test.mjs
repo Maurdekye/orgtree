@@ -112,6 +112,7 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe"/)
   assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
   assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.ps1" \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?ClearErrors\r?\n\s+CopyFiles \/SILENT/)
   assert.match(installer, /-File "\$OrgUpgradeRelaunchDir\\installer-relaunch\.ps1"/)
   assert.match(relaunch, /while \(\$null -ne \(Get-Process -Id \$InstallerPid -ErrorAction SilentlyContinue\)\)/)
   const wait = relaunch.indexOf('while ($null -ne (Get-Process -Id $InstallerPid')
