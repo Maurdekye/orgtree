@@ -15,10 +15,17 @@ available before the command starts:
 
 - Node.js and npm, with the lockfile dependencies installed in that worktree.
 - A provisioned app-local Windows runtime under `engine/runtime/`. The embedded
-  runtime must include `python.exe`, `python313.zip`, `python313._pth`, and
-  `runtime-manifest.json`. Provision it with `npm run runtime:provision`, or
-  copy the already-provisioned runtime into this private worktree without
-  creating a link.
+  runtime must include `python.exe`, `python313.zip`, `python313._pth`,
+  `runtime-manifest.json`, and the complete dependency set under
+  `Lib/site-packages` (the location `python313._pth` names). Provision it with
+  `npm run runtime:provision`, or stage an already-provisioned runtime into
+  this private worktree with
+  `npm run runtime:stage -- --from <provisioned-checkout>`. Do not copy the
+  runtime by hand: the 2.1.4-RC4 installer shipped unstartable because a hand
+  copy landed `site-packages` one directory above where the interpreter looks,
+  and nothing checked. The staging command validates the source layout,
+  refuses links, and requires byte-identical tree digests; the preflight and
+  the release command refuse a runtime whose layout is wrong either way.
 - A checked-in `docs/release-notes-<version>.md` file with non-empty content.
 - A package version and both `package-lock.json` version surfaces that already
   equal the explicit target version. This command does not edit `package.json`
@@ -129,6 +136,23 @@ checks `latest.yml`'s version, updater path, installer size, and base64 SHA-512
 against the staged installer. It verifies the packaged resource hashes and the
 build identity before writing the candidate manifest.
 
+The command also verifies the packaged runtime as an installed-shaped payload
+(added after 2.1.4-RC4 shipped a broken layout):
+
+- the `release/win-unpacked/resources/engine/runtime` tree must pass the
+  complete layout check — `Lib/site-packages` present, no stray top-level
+  `site-packages`, and a `<name>-<version>.dist-info` for every dependency in
+  `runtime-manifest.json`;
+- that tree must be byte-identical (file-by-file SHA-256 digest, excluding
+  `__pycache__`) to the checkout's provisioned `engine/runtime`;
+- the payload's own `python.exe` must import the representative backend
+  dependencies (`fastapi`, `pydantic`, `uvicorn`, `starlette`, `websockets`,
+  `httpx`, `PIL`, `psutil`) with each module resolving inside the payload,
+  from a neutral working directory with `PYTHONPATH`/`PYTHONHOME` scrubbed;
+- the built installer's own payload is then extracted (with the dependency
+  tree's 7-Zip; the installer is never executed) and must carry the identical
+  runtime tree and pass the same import probe.
+
 ## Manifest rules
 
 `engine-hashes.json` is a flat object containing every tracked
@@ -151,9 +175,24 @@ fixture-tested.
     "engine/runtime/python.exe": "<sha256>",
     "engine/runtime/runtime-manifest.json": "<sha256>"
   },
+  "runtime": {
+    "sitePackages": "Lib/site-packages",
+    "files": "<count of files under engine/runtime, excluding __pycache__>",
+    "sha256": "<digest over every runtime file's path and sha256, sorted>",
+    "imports": ["fastapi", "pydantic", "uvicorn", "starlette", "websockets", "httpx", "PIL", "psutil"],
+    "python": "<interpreter version the probe reported>",
+    "payload": { "files": "<count>", "sha256": "<digest>", "imported": true }
+  },
   "installerSha256": "<sha256>"
 }
 ```
+
+The `runtime` section records the complete packaged runtime tree — count and
+digest over every file, the configured package location, and the imports the
+payload actually performed — so a manifest can no longer hash four loose files
+and vouch for a tree whose packages sit where the interpreter never looks.
+`verifyLocalCandidate` recomputes the digest from the staged
+`win-unpacked/resources` tree and refuses a mismatch.
 
 It uses two-space indentation, CRLF line endings, and a final newline. The
 resource values hash the actual files under `release/win-unpacked/resources`.

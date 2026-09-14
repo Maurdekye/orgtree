@@ -18,12 +18,12 @@ const FULL = [
   ['full-renderer', ['npm', 'run', 'test:renderer']],
 ]
 const RELEASE = [
-  ['source', ['node', '--test', 'tests/release-windows.test.mjs']],
+  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs']],
   ['receipt', ['python', '-m', 'unittest', 'tests.test_work_evidence_receipts']],
 ]
 const INSTALLER = [
   ['installer', ['node', '--test', 'tests/installer-elevation.test.mjs', 'tests/installer-upgrade.test.mjs']],
-  ['release', ['node', '--test', 'tests/release-windows.test.mjs']],
+  ['release', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs']],
 ]
 
 const VERSION_PATHS = new Set(['package.json', 'package-lock.json'])
@@ -31,9 +31,12 @@ const RELEASE_NOTES_PATH = /^docs\/release-notes-[^/]+\.md$/
 const RELEASE_PATHS = [
   /^tools\/release-windows\.mjs$/,
   /^tools\/release-verification\.mjs$/,
+  /^tools\/runtime-layout\.mjs$/,
+  /^tools\/stage-runtime\.mjs$/,
   /^tools\/verification-receipt\.py$/,
   /^engine\/backend\/orgtree\/workevidence\.py$/,
   /^tests\/release-windows\.test\.mjs$/,
+  /^tests\/runtime-layout\.test\.mjs$/,
   /^tests\/test_work_evidence_receipts\.py$/,
   /^docs\/windows-release\.md$/,
   RELEASE_NOTES_PATH,

@@ -19,7 +19,8 @@
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
-    "runtime:provision": "python tools/provision-runtime.py"
+    "runtime:provision": "python tools/provision-runtime.py",
+    "runtime:stage": "node tools/stage-runtime.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

@@ -14,6 +14,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { runVerification } from './release-verification.mjs'
+import {
+  assertRuntimeImports, assertRuntimeLayout, extractInstallerEngine,
+  REPRESENTATIVE_RUNTIME_IMPORTS, RuntimeLayoutError, runtimeTreeDigest,
+} from './runtime-layout.mjs'
 
 export const RELEASE_MANIFEST_SCHEMA = 'orgtree.windows-release/v1'
 export const HANDOFF_SCHEMA = 'orgtree.windows-installation-handoff/v1'
@@ -346,10 +350,80 @@ function assertPackagePrerequisites(root) {
     requireRegularFile(nativeRelative(root, relative), `package prerequisite ${relative}`)
   }
   requireRegularFile(nativeRelative(root, 'engine/runtime/python313._pth'), 'package prerequisite engine/runtime/python313._pth')
+  // The COMPLETE runtime package layout, not just the interpreter files: the
+  // 2.1.4-RC4 worktree carried site-packages one level up from where the
+  // ._pth looks, every prerequisite above still existed, and the broken tree
+  // went straight into the payload. Refuse before spending build time.
+  assertRuntimeLayoutOrFail(nativeRelative(root, 'engine/runtime'), 'source engine/runtime')
   const nodeModules = nativeRelative(root, 'node_modules')
   requireRealDirectory(nodeModules, 'private node_modules')
   requireRegularFile(path.join(nodeModules, 'electron', 'package.json'), 'Electron dependency')
   requireRegularFile(path.join(nodeModules, 'electron-builder', 'package.json'), 'electron-builder dependency')
+}
+
+function assertRuntimeLayoutOrFail(runtimeDir, label) {
+  try {
+    return assertRuntimeLayout(runtimeDir, { label })
+  } catch (error) {
+    if (error instanceof RuntimeLayoutError) fail(error.message)
+    throw error
+  }
+}
+
+/**
+ * Verify the PACKAGED runtime — the win-unpacked payload electron-builder
+ * compresses into the installer — as an installed-shaped tree:
+ *  - complete layout (dist-info set vs runtime-manifest, no stray
+ *    site-packages, Lib/site-packages present);
+ *  - byte-identity with the source checkout's provisioned runtime, so a
+ *    staging or packaging step that moved/dropped anything is named;
+ *  - a real import probe: the payload's own python.exe imports the
+ *    representative backend dependencies from inside the payload.
+ */
+export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSync }) {
+  const packagedRuntime = path.join(resources, 'engine', 'runtime')
+  assertRuntimeLayoutOrFail(packagedRuntime, 'packaged engine/runtime')
+  const sourceDigest = runtimeTreeDigest(nativeRelative(root, 'engine/runtime'))
+  const packagedDigest = runtimeTreeDigest(packagedRuntime)
+  if (sourceDigest.sha256 !== packagedDigest.sha256 || sourceDigest.files !== packagedDigest.files) {
+    fail(`Packaged runtime tree differs from the provisioned source runtime `
+      + `(source ${sourceDigest.files} files ${sourceDigest.sha256}, packaged ${packagedDigest.files} files ${packagedDigest.sha256}); `
+      + 'the payload would not run what was provisioned')
+  }
+  let probe
+  try {
+    probe = assertRuntimeImports(packagedRuntime, { spawnSyncImpl })
+  } catch (error) {
+    if (error instanceof RuntimeLayoutError) fail(error.message)
+    throw error
+  }
+  return { digest: packagedDigest, probe }
+}
+
+/**
+ * Verify the runtime inside the BUILT INSTALLER's own payload — the bytes a
+ * user's machine receives — without executing the installer: extract
+ * `app-64.7z` with the dependency tree's 7-Zip, require the identical tree
+ * digest, and run the import probe against the extracted interpreter.
+ */
+export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, spawnSyncImpl = spawnSync }) {
+  let extracted
+  try {
+    extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
+    assertRuntimeLayoutOrFail(extracted.runtime, 'installer payload engine/runtime')
+    const digest = runtimeTreeDigest(extracted.runtime)
+    if (expectedDigest && (digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files)) {
+      fail(`Installer payload runtime differs from the verified packaged runtime `
+        + `(payload ${digest.files} files ${digest.sha256}, expected ${expectedDigest.files} files ${expectedDigest.sha256})`)
+    }
+    const probe = assertRuntimeImports(extracted.runtime, { spawnSyncImpl })
+    return { digest, probe }
+  } catch (error) {
+    if (error instanceof RuntimeLayoutError) fail(error.message)
+    throw error
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true })
+  }
 }
 
 function assertAllPackageInputs(root) {
@@ -395,7 +469,7 @@ export function deriveEngineHashes({ root, gitFiles, hash = hashFile }) {
   return result
 }
 
-export function derivePackagedHashes({ resources, installer, commit, version, hash = hashFile }) {
+export function derivePackagedHashes({ resources, installer, commit, version, hash = hashFile, runtime = null }) {
   const files = {}
   for (const relative of PACKAGED_HASH_FILES) {
     const file = nativeRelative(resources, relative)
@@ -403,7 +477,18 @@ export function derivePackagedHashes({ resources, installer, commit, version, ha
     files[relative] = hash(file)
   }
   requireRegularFile(installer, 'Windows installer')
-  return { commit, version, files, installerSha256: hash(installer) }
+  return {
+    commit,
+    version,
+    files,
+    // The COMPLETE packaged runtime tree, not four loose files: count and
+    // digest over every file under engine/runtime plus the interpreter's
+    // configured package location and the imports the payload proved. A
+    // manifest without this section vouched for the RC4 payload whose
+    // site-packages sat where the interpreter never looks.
+    ...(runtime ? { runtime } : {}),
+    installerSha256: hash(installer),
+  }
 }
 
 function scalar(value) {
@@ -548,6 +633,18 @@ export function verifyLocalCandidate({ root, manifest, uploadDir, resources, eng
     const file = nativeRelative(resources, relative)
     requireRegularFile(file, `packaged resource ${relative}`)
     if (hashFile(file) !== expected) fail(`Packaged resource hash mismatch: ${relative}`)
+  }
+  // The runtime section must describe the packaged tree as it sits on disk
+  // right now — recomputed here, not trusted from the earlier derivation.
+  if (!packaged.runtime || packaged.runtime.sitePackages !== 'Lib/site-packages') {
+    fail('packaged-hashes.json does not record the complete runtime package layout')
+  }
+  const packagedRuntimeDigest = runtimeTreeDigest(path.join(resources, 'engine', 'runtime'))
+  if (packaged.runtime.files !== packagedRuntimeDigest.files || packaged.runtime.sha256 !== packagedRuntimeDigest.sha256) {
+    fail('packaged-hashes.json runtime digest does not match the packaged runtime tree')
+  }
+  if (JSON.stringify(packaged.runtime.imports) !== JSON.stringify(REPRESENTATIVE_RUNTIME_IMPORTS)) {
+    fail('packaged-hashes.json does not record the representative runtime import set')
   }
   const actualEngine = readJson(path.join(uploadDir, 'engine-hashes.json'), 'engine-hashes.json')
   if (JSON.stringify(actualEngine) !== JSON.stringify(engineHashes)) fail('engine-hashes.json does not match the source checkout')
@@ -917,7 +1014,30 @@ export async function produceWindowsRelease(options, dependencies = {}) {
   const afterBuildStatus = gitStatus(root, execFileSyncImpl)
   assertBuildProvenance(buildInfo, { root, head, porcelain: afterBuildStatus, version: options.version })
   const engineHashes = deriveEngineHashes({ root, gitFiles: gitText(root, ['ls-files', '--', 'engine'], execFileSyncImpl) })
-  const packagedHashes = derivePackagedHashes({ resources, installer, commit: head, version: options.version })
+  // Installed-shaped payload checks (2.1.4-RC4 regression): the win-unpacked
+  // payload's runtime must be complete, byte-identical to the provisioned
+  // source runtime, and able to import the backend's dependencies with its
+  // own interpreter — and then the BUILT INSTALLER's payload must carry that
+  // exact tree and import the same set, extracted, never executed.
+  const packagedRuntime = (dependencies.verifyPackagedRuntime || verifyPackagedRuntime)({ root, resources, spawnSyncImpl })
+  const payloadRuntime = (dependencies.verifyInstallerPayloadRuntime || verifyInstallerPayloadRuntime)({
+    root,
+    installer,
+    workDir: path.join(releaseDir, 'payload-runtime-check'),
+    expectedDigest: packagedRuntime.digest,
+    spawnSyncImpl,
+  })
+  const packagedHashes = derivePackagedHashes({
+    resources, installer, commit: head, version: options.version,
+    runtime: {
+      sitePackages: 'Lib/site-packages',
+      files: packagedRuntime.digest.files,
+      sha256: packagedRuntime.digest.sha256,
+      imports: [...REPRESENTATIVE_RUNTIME_IMPORTS],
+      python: packagedRuntime.probe.python,
+      payload: { files: payloadRuntime.digest.files, sha256: payloadRuntime.digest.sha256, imported: true },
+    },
+  })
   const staged = stageCanonicalAssets({ root, releaseDir, version: options.version, engineHashes, packagedHashes })
   const manifest = makeManifest({
     root,

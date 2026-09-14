@@ -34,6 +34,7 @@ import {
   validateLatestYml,
   verifyPublicRelease,
 } from '../tools/release-windows.mjs'
+import { REPRESENTATIVE_RUNTIME_IMPORTS, runtimeTreeDigest } from '../tools/runtime-layout.mjs'
 
 function fixtureRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-fixture-'))
@@ -112,9 +113,19 @@ test('packaged-hashes preserves the proven schema and insertion order', () => {
     const resources = path.join(root, 'resources')
     for (const relative of PACKAGED_HASH_FILES) put(resources, relative, Buffer.from(relative))
     const installer = put(root, 'Orgtree Setup 2.1.2.exe', Buffer.from('installer'))
-    const result = derivePackagedHashes({ resources, installer, commit: 'a'.repeat(40), version: '2.1.2' })
-    assert.deepEqual(Object.keys(result), ['commit', 'version', 'files', 'installerSha256'])
+    const runtime = {
+      sitePackages: 'Lib/site-packages', files: 2, sha256: 'f'.repeat(64),
+      imports: ['fastapi'], python: '3.13.15',
+      payload: { files: 2, sha256: 'f'.repeat(64), imported: true },
+    }
+    const result = derivePackagedHashes({ resources, installer, commit: 'a'.repeat(40), version: '2.1.2', runtime })
+    // The runtime section sits between the proven four-file map and the
+    // installer hash: the complete-tree record added after 2.1.4-RC4 shipped
+    // a manifest that vouched for a payload whose packages the interpreter
+    // could not see.
+    assert.deepEqual(Object.keys(result), ['commit', 'version', 'files', 'runtime', 'installerSha256'])
     assert.deepEqual(Object.keys(result.files), PACKAGED_HASH_FILES)
+    assert.deepEqual(result.runtime, runtime)
     assert.equal(result.files['app.asar'], sha256Bytes(Buffer.from('app.asar')))
     assert.equal(result.installerSha256, sha256Bytes(Buffer.from('installer')))
     const encoded = serializeJson(result)
@@ -224,12 +235,17 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
       'engine/backend/orgtree/api.py',
       'engine/runtime/python.exe',
       'engine/runtime/python313.zip',
-      'engine/runtime/python313._pth',
-      'engine/runtime/runtime-manifest.json',
       'dist/renderer/index.html',
       'node_modules/electron/package.json',
       'node_modules/electron-builder/package.json',
     ]) put(root, relative, Buffer.from(relative))
+    // The prerequisites now include the COMPLETE runtime layout, so the
+    // fixture carries a real-shaped one rather than placeholder bytes.
+    put(root, 'engine/runtime/python313._pth', Buffer.from('python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../../\r\nimport site\r\n'))
+    put(root, 'engine/runtime/runtime-manifest.json', Buffer.from(JSON.stringify({
+      python: '3.13.15', dependencies: [{ name: 'fastapi', version: '0.141.1' }],
+    })))
+    put(root, 'engine/runtime/Lib/site-packages/fastapi-0.141.1.dist-info/METADATA', Buffer.from('meta'))
 
     const gitExec = (command, args) => {
       assert.equal(command, 'git')
@@ -276,12 +292,25 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
       ].join('\r\n')))
     }
 
+    const runtimeChecks = []
     const result = await produceWindowsRelease({ version, publish: false }, {
       root,
       execFileSync: gitExec,
       spawnSync: gitProbe,
       runExternal,
       fetch: async () => responseJson({}, 404),
+      // The real packaged/payload runtime verifiers run interpreters and
+      // 7-Zip; the orchestration fixture proves they are INVOKED with the
+      // real build outputs and that their digest flows into the manifest.
+      // Their own behavior is covered by tests/runtime-layout.test.mjs.
+      verifyPackagedRuntime: ({ root: checkedRoot, resources }) => {
+        runtimeChecks.push(['packaged', checkedRoot, resources])
+        return { digest: runtimeTreeDigest(path.join(resources, 'engine', 'runtime')), probe: { python: '3.13.15' } }
+      },
+      verifyInstallerPayloadRuntime: ({ installer, expectedDigest }) => {
+        runtimeChecks.push(['payload', installer])
+        return { digest: expectedDigest, probe: { python: '3.13.15' } }
+      },
       runVerification: async () => ({
         schema: 'orgtree.windows-release-verification/v1', profile: 'focused-release-v1',
         candidate: commit, sourceFingerprint: 'sha256:fixture', sourceFiles: ['tools/release-windows.mjs'],
@@ -301,6 +330,15 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
     assert.equal(externalCalls.length, 1)
     const npm = resolveNpmInvocation()
     assert.deepEqual(externalCalls[0][1], [...npm.args, 'run', 'package:win', '--', '--publish', 'never'])
+    // Both installed-shaped payload checks ran, against the build outputs,
+    // and the complete-runtime record reached the staged manifest.
+    assert.deepEqual(runtimeChecks.map(check => check[0]), ['packaged', 'payload'])
+    assert.equal(runtimeChecks[0][2], path.join(root, 'release', 'win-unpacked', 'resources'))
+    assert.match(runtimeChecks[1][1], /Orgtree Setup 2\.1\.2\.exe$/)
+    const stagedPackaged = JSON.parse(fs.readFileSync(path.join(result.uploadDir, 'packaged-hashes.json'), 'utf8'))
+    assert.equal(stagedPackaged.runtime.sitePackages, 'Lib/site-packages')
+    assert.equal(stagedPackaged.runtime.payload.imported, true)
+    assert.deepEqual(stagedPackaged.runtime.imports, REPRESENTATIVE_RUNTIME_IMPORTS)
   } finally {
     removeFixture(root)
   }
