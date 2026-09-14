@@ -177,6 +177,22 @@ class DescriptionDoctrine(unittest.TestCase):
         self.assertEqual(sup.identity_prompt(self.org, nid),
                          sup.identity_prompt(self.org, nid))
 
+    def test_s6_ask_tool_documents_optionless_free_response(self) -> None:
+        spec = next(t for t in mcptool.TOOLS if t['name'] == 'orgtree_ask')
+        description = norm(spec['description'])
+        self.assertIn('omit `options`', description)
+        self.assertIn('dedicated free-response question', description)
+        props = spec['inputSchema']['properties']
+        self.assertIn('omit this field', norm(props['options']['description']))
+        self.assertIn('dedicated free-response tab',
+                      norm(props['questions']['items']['properties']
+                           ['options']['description']))
+
+        # The startup guidance reaches agents that do not inspect the MCP
+        # schema directly, and it carries the same product instruction.
+        self.assertIn('omit `options`', norm(self.prompt()))
+        self.assertIn('dedicated free-response', norm(self.prompt()))
+
 
 if __name__ == '__main__':
     unittest.main()

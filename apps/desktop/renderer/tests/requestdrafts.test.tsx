@@ -13,7 +13,7 @@ const base = (modern: boolean, qs: AskQuestion[] = [first, second], rev=1): AskI
   kind:modern?'batch':'question', rev, revs:{ask:rev},
   ...(modern?{tabs:qs.map(q=>({kind:'question',...q}))}:{questions:qs}) })
 const card = (a:AskInfo, slug='mine') => <StrictMode><AskCard ask={a} slug={slug} toast={()=>{}}/></StrictMode>
-const input = (el:HTMLElement) => el.querySelector('.ask-other') as HTMLInputElement | null
+const input = (el:HTMLElement) => el.querySelector('.ask-free-response-input, .ask-other') as HTMLInputElement | null
 async function click(el:HTMLElement, selector:string, label?:string) {
   const b=Array.from(el.querySelectorAll<HTMLButtonElement>(selector)).find(b=>label==null||b.textContent?.trim()===label)
   assert.ok(b,selector+' '+label)
@@ -97,6 +97,48 @@ test('mixed batch addition preserves question, credit and scope decisions by the
   await view.render(card(make(3,[second,third],{...credit,new:5})))
   await click(view.el,'.ask-tabbtn','credits');assert.deepEqual(picks(view.el),[],'changed request resets only its decision')
   await click(view.el,'.ask-tabbtn','Timing');assert.equal(input(view.el)?.value,'Question draft')
+})
+
+test('optionless questions use a labeled free-response field without an Other row', async t => {
+  const saved = globalThis.fetch
+  const sent: unknown[] = []
+  globalThis.fetch = (async (_, init) => {
+    sent.push(JSON.parse(String(init?.body)))
+    return new Response('{}', { status: 200 })
+  }) as typeof fetch
+  const view = await mountView(card(base(false, [second])), e => e)
+  t.after(async () => { await view.unmount(); globalThis.fetch = saved })
+
+  const field = input(view.el)
+  assert.ok(field)
+  assert.equal(field.className, 'ask-free-response-input')
+  const label = view.el.querySelector('label[for="ask-free-response-0"]')
+  assert.equal(label?.textContent, 'Your answer')
+  assert.equal(field.id, label?.getAttribute('for'))
+  assert.equal([...view.el.querySelectorAll('button')]
+    .some(b => b.textContent?.trim() === 'Other'), false)
+
+  await type(view.el, 'free-form answer')
+  await click(view.el, '.ask-submit')
+  await flush()
+  assert.deepEqual(sent, [{ rev: 1, text: 'free-form answer' }])
+})
+
+test('mixed batch tabs keep option controls and free-response controls independent', async t => {
+  const view = await mountView(card(base(true, [first, second])), e => e)
+  t.after(() => view.unmount())
+
+  assert.equal(view.el.querySelectorAll('.ask-free-response-input').length, 0)
+  await click(view.el, '.ask-tabbtn', 'Timing')
+  assert.equal(view.el.querySelectorAll('.ask-free-response-input').length, 1)
+  assert.equal(view.el.querySelector('.ask-other'), null)
+  assert.equal([...view.el.querySelectorAll('.ask-row')]
+    .some(b => b.textContent?.trim() === 'Other'), false)
+  await click(view.el, '.ask-tabbtn', 'Transport')
+  assert.ok(view.el.querySelector('.ask-other') === null,
+    'the option-bearing tab has not opened optional free text yet')
+  assert.ok([...view.el.querySelectorAll('.ask-row')]
+    .some(b => b.textContent?.trim() === 'Other'))
 })
 
 

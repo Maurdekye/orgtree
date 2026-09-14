@@ -23,6 +23,10 @@ import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useQuestionVisibility } from '../notification-visibility'
 
+/** Each card owns its inputs, so a deterministic id keeps the visible label
+ * associated with the active tab without depending on payload text. */
+const freeResponseId = (tab: number) => `ask-free-response-${tab}`
+
 const OTHER = '\0other'          // sentinel — no label can collide with it
 
 /** ctrl+enter (⌘+enter on mac) — submits the card the user is working in.
@@ -282,25 +286,33 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
               </span>
             </button>
           ))}
-          {/* a no-options tab has Other implicitly selected — but never while
-              SKIP holds the tab, and clicking Other must release the skip
-              (both live-caught 2026-08-12: skip + a lit Other rendered as two
-              selections, and the skip was one-way) */}
-          <button type="button" disabled={busy}
-            className={'ask-row'
-              + (otherOn || (!opts.length && !d.q.skip) ? ' on' : '')}
-            onClick={() => (opts.length ? toggle(OTHER)
-              : patch({ q: { ...d.q, skip: false } }))}>
-            <span className={'ask-dot' + (t.multi ? ' sqr' : '')
-              + (otherOn || (!opts.length && !d.q.skip) ? ' on' : '')} />
-            <span className="ask-row-body"><b>Other</b></span>
-          </button>
-          {(otherOn || !opts.length) && !d.q.skip && (
-            <input value={d.q.text} disabled={busy}
-              className="ask-other" placeholder="your answer…"
+          {opts.length ? <>
+            {/* Option-bearing questions retain the optional free-text path. */}
+            <button type="button" disabled={busy}
+              className={'ask-row' + (otherOn ? ' on' : '')}
+              onClick={() => toggle(OTHER)}>
+              <span className={'ask-dot' + (t.multi ? ' sqr' : '')
+                + (otherOn ? ' on' : '')} />
+              <span className="ask-row-body"><b>Other</b></span>
+            </button>
+            {otherOn && !d.q.skip && (
+              <input value={d.q.text} disabled={busy}
+                className="ask-other" placeholder="your answer…"
+                onChange={(e) => patch({ q: { ...d.q, skip: false,
+                  text: e.target.value } })} />
+            )}
+          </> : <div className="ask-free-response">
+            <label htmlFor={freeResponseId(cur)}>Your answer</label>
+            <input id={freeResponseId(cur)} value={d.q.text} disabled={busy}
+              className="ask-free-response-input" placeholder="Type your answer…"
+              autoFocus={!d.q.skip}
               onChange={(e) => patch({ q: { ...d.q, skip: false,
-                text: e.target.value } })} />
-          )}
+                text: e.target.value } })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && ready)
+                  submit(null)
+              }} />
+          </div>}
           {/* FR-14: skippable tabs — an explicit skip, never a hole */}
           <button type="button" disabled={busy}
             className={'ask-row skiprow' + (d.q.skip ? ' on' : '')}
@@ -529,23 +541,32 @@ function QuestionAsk({ ask, slug, toast }: {
             </span>
           </button>
         ))}
-        {/* "Other" is always available — same as the Claude Code form */}
-        <button type="button" disabled={busy}
-          className={'ask-row' + (otherOn || !opts.length ? ' on' : '')}
-          onClick={() => opts.length && toggle(OTHER)}>
-          <span className={'ask-dot' + (q.multi ? ' sqr' : '')
-            + (otherOn || !opts.length ? ' on' : '')} />
-          <span className="ask-row-body"><b>Other</b></span>
-        </button>
-        {(otherOn || !opts.length) && (
-          <input autoFocus={opts.length > 0} value={d.text} disabled={busy}
-            className="ask-other" placeholder="your answer…"
+        {opts.length ? <>
+          {/* Option-bearing questions retain the optional free-text path. */}
+          <button type="button" disabled={busy}
+            className={'ask-row' + (otherOn ? ' on' : '')}
+            onClick={() => toggle(OTHER)}>
+            <span className={'ask-dot' + (q.multi ? ' sqr' : '')
+              + (otherOn ? ' on' : '')} />
+            <span className="ask-row-body"><b>Other</b></span>
+          </button>
+          {otherOn && (
+            <input autoFocus value={d.text} disabled={busy}
+              className="ask-other" placeholder="your answer…"
+              onChange={(e) => patch({ text: e.target.value })}
+              onKeyDown={(e) => {
+                // plain enter only — ctrl+enter bubbles to the card root
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) submit() }} />
+          )}
+        </> : <div className="ask-free-response">
+          <label htmlFor={freeResponseId(tab)}>Your answer</label>
+          <input id={freeResponseId(tab)} autoFocus={!d.text} value={d.text}
+            disabled={busy} className="ask-free-response-input"
+            placeholder="Type your answer…"
             onChange={(e) => patch({ text: e.target.value })}
             onKeyDown={(e) => {
-              // plain enter only — ctrl+enter bubbles to the card root (both
-              // firing would double-send past the still-false busy closure)
               if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) submit() }} />
-        )}
+        </div>}
       </div>
       {q.multi && <div className="dim">several may apply</div>}
       <button className="ask-submit" disabled={busy || !ready}

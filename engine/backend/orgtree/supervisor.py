@@ -8373,8 +8373,10 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
            if org.d.get("headless") else "")
         + f"You run headless: interactive tools (AskUserQuestion, plan mode) do not "
         f"exist here. To ask the USER a question, use orgtree_ask — it renders a "
-        f"real question card (2-4 options with descriptions, multi-select, free "
-        f"text; several related questions batch into one card via `questions`) "
+        f"real question card (omit `options` for a dedicated free-response "
+        f"text field; otherwise use 2-4 options with descriptions and optional "
+        f"multi-select; several related questions batch into one card via "
+        f"`questions`) "
         f"on your desk and in the user's inbox; ask, then END YOUR TURN — "
         f"the answer arrives as mail. The question STAYS OPEN across turns "
         f"(other mail does not void it; one active request per agent): it ends "

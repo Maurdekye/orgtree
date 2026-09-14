@@ -315,7 +315,9 @@ TOOLS: list[dict[str, Any]] = [
             "interactive card appears on your desk and in the user's inbox, "
             "and the answer arrives later as ordinary mail — so ask, then "
             "WRAP UP AND END YOUR TURN; never wait or poll. Optionally give "
-            "2-4 options (the user can always answer free-text instead). "
+            "2-4 options when choices help; omit `options` for a dedicated "
+            "free-response question with a direct text field (the user can "
+            "always answer free-text instead of choosing an option). "
             "Several related questions go in ONE card: pass `questions` "
             "(1-4 entries, each with its own options/multi/header) and the "
             "user answers every tab before one combined answer mail arrives. "
@@ -347,8 +349,9 @@ TOOLS: list[dict[str, Any]] = [
                                           "chars), e.g. 'Approach'"},
                 "options": {
                     "type": "array", "maxItems": 4,
-                    "description": "2-4 answer options; the user can always "
-                                   "answer free-text instead",
+                    "description": "2-4 answer options; omit this field when "
+                                   "the question should be presented as a "
+                                   "dedicated free-response field",
                     "items": {"type": "object", "properties": {
                         "label": {"type": "string",
                                   "description": "concise choice (1-5 words)"},
@@ -377,6 +380,8 @@ TOOLS: list[dict[str, Any]] = [
                         "header": {"type": "string",
                                    "description": "short tab label"},
                         "options": {"type": "array", "maxItems": 4,
+                                    "description": "omit for a dedicated "
+                                                   "free-response tab",
                                     "items": {"type": "object", "properties": {
                                         "label": {"type": "string"},
                                         "description": {"type": "string"},
