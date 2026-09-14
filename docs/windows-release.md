@@ -236,9 +236,11 @@ generically.
 
 After a successful interactive Upgrade, the installer skips its final Finish
 page and schedules one launch under the original user token. The detached
-launcher waits for the installer process to exit before starting the replaced
-desktop, so installer bookkeeping is complete first. Fresh installs and
-silent/unattended invocations do not use this upgrade-only launch path; a
+launcher is staged in the original user's temporary directory before any
+all-users UAC elevation, waits for the installer process to exit, and then
+starts the replaced desktop, so installer bookkeeping is complete first even
+when an alternate administrator account performs the elevation. Fresh installs
+and silent/unattended invocations do not use this upgrade-only launch path; a
 failed or cancelled upgrade remains visible and does not relaunch.
 
 Two things make that a real check rather than a hopeful one. First, the tree is

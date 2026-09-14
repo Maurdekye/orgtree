@@ -358,7 +358,7 @@ FunctionEnd
       SendMessage $1 ${BM_CLICK} 0 0
     FunctionEnd
 
-Function orgtreeUpgradePageLeave
+    Function orgtreeUpgradePageLeave
       ${if} $OrgUpgradeChoice == "upgrade"
         # Set the recorded scope and directory before asking the app to close;
         # the subsequent mode/directory pages are skipped from this state.
