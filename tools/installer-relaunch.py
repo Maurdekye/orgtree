@@ -57,6 +57,11 @@ this helper must already be able to keep before it makes it.
    handle and the ownership. Anything else gives away the fallback on a promise
    that may not be keepable.
 
+And the claim is RELEASED on every path that ends without a launch, because
+owning the launch and performing it are different things: a claim left behind by
+a helper that gave up is a reservation with no live owner, and the installer
+would read it as "something else is about to start the application".
+
 Exit codes, all of them also written to the log:
   0  the installer's exit was observed and the application was launched once
   2  the arguments were unusable
@@ -192,6 +197,36 @@ def claim_launch(claim):
     finally:
         os.close(descriptor)
     return OWNED
+
+
+def release_claim(claim):
+    """Give the launch back when this helper is not going to perform it.
+
+    ⚠ A CLAIM IS NOT THE SAME THING AS A LAUNCH THAT IS GOING TO HAPPEN. This
+    helper can own the launch and then still end without performing it — the
+    wait times out, the installer's state stops being readable, the application
+    fails to start. Leaving the claim behind in those cases leaves a RESERVATION
+    with no live owner: the installer's Finish page would find it, conclude that
+    somebody else is about to start the application, and tell the user so. That
+    is a promise nobody is left to keep.
+
+    So the claim is released on every path that ends WITHOUT a launch, and kept
+    only when one actually happened — where it is the record of this invocation.
+
+    Only ever the claim this helper created. Another party's claim is never
+    touched, because releasing somebody else's ownership is how two launches
+    happen.
+    """
+    if not claim:
+        return
+    try:
+        os.remove(claim)
+        record("released the launch claim %s without launching, so it is not left reserved" % claim)
+    except OSError as error:
+        # Worth a line but not worth failing over: the Finish page treats an
+        # unexplained claim as unknown ownership rather than as a live launch,
+        # which is exactly the conservative reading this failure needs.
+        record("could not release the launch claim %s: %s" % (claim, describe(error)))
 
 
 def describe(error):
@@ -365,10 +400,12 @@ def main(argv):
         record("waiting for installer process %d before starting %s" % (pid, executable))
         outcome = wait_on(handle, pid, timeout_ms)
         if outcome == STILL_RUNNING:
+            release_claim(claim)
             return EXIT_STILL_RUNNING
         if outcome != EXITED:
             # UNREADABLE. wait_on has already recorded why. Nothing is launched:
             # "I could not tell" must never become "it had exited".
+            release_claim(claim)
             return EXIT_UNREADABLE
 
     # No second check before launching, and that is deliberate: ownership was
@@ -381,6 +418,7 @@ def main(argv):
         # Name the path. "The upgrade did not restart the app" with no path in
         # the log is the report that cannot be acted on.
         record('could not start "%s": %s' % (executable, describe(error)))
+        release_claim(claim)
         return EXIT_LAUNCH_FAILED
 
     record("started %s once, after installer process %d exited" % (executable, pid))

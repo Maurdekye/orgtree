@@ -118,6 +118,10 @@ Var pid
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeExe
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchDir
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchPrepared
+      # The launch identity is INHERITED, never re-derived: the inner instance
+      # is a different process with a different process id, and two identities
+      # for one update would mean both parties could "own" the launch.
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchClaim
     ${endif}
   !ifndef ORGTREE_DEV_CHANNEL
     ${if} ${UAC_IsInnerInstance}
@@ -822,11 +826,29 @@ orgtreeSilentElevateDone:
       # an atomic claim that exactly one party can win.
       Call orgtreeClaimUpgradeLaunch
       ${if} $OrgUpgradeLaunchOwned == "other"
-        # The helper owns it and will start the application when this installer
-        # exits. Saying so is the honest answer to a button the user just
-        # pressed; starting a second copy is not.
-        !insertmacro OrgLog "finish-run-owned-elsewhere" "the launch is already owned by the relaunch helper; leaving it to start [$0] after Setup closes"
-        MessageBox MB_OK|MB_ICONINFORMATION "Orgtree will start as soon as Setup closes." /SD IDOK
+        # ⚠ A CLAIM IS NOT A LAUNCH THAT IS GOING TO HAPPEN, so what this says
+        # depends on whether the owner was ever heard from.
+        #
+        # An acknowledged helper reported that it holds both the installer's
+        # process handle and the launch, so "it will start" is a statement about
+        # something that was observed. Without that acknowledgement the claim is
+        # a RESERVATION BY AN UNKNOWN PARTY: it may be a helper that is still
+        # coming, or one that took ownership and then died before it could tell
+        # anyone — a claim whose marker write failed is exactly that shape. The
+        # user is told the truth in that case and pointed at a control that
+        # works, rather than being promised a start nobody may be left to
+        # perform.
+        #
+        # What this never does is take the claim anyway. Stealing ownership from
+        # a party that might be alive is how two copies start, and this
+        # installer cannot tell a dead owner from a slow one.
+        ${if} $OrgUpgradeRelaunchAcknowledged == "1"
+          !insertmacro OrgLog "finish-run-owned-elsewhere" "the launch is owned by the relaunch helper, which acknowledged; leaving it to start [$0] after Setup closes"
+          MessageBox MB_OK|MB_ICONINFORMATION "Orgtree will start as soon as Setup closes." /SD IDOK
+        ${else}
+          !insertmacro OrgLog "finish-run-owner-unknown" "a launch claim exists at [$OrgUpgradeRelaunchClaim] but its owner never acknowledged, so whether anything will start is unknown; directing the user to the shortcut"
+          MessageBox MB_OK|MB_ICONEXCLAMATION "Setup cannot confirm whether Orgtree is about to start, so it has not started a second copy.$\r$\nIf Orgtree does not appear shortly, start it from its shortcut." /SD IDOK
+        ${endif}
         Return
       ${endif}
       ${if} $OrgUpgradeLaunchOwned != "1"
@@ -893,20 +915,45 @@ orgtreeSilentElevateDone:
     # The claim is a FILE BESIDE the staged helper directory, never inside it:
     # the helper deletes that directory as it exits, and an ownership record
     # that disappears when one of the owners finishes is not an ownership
-    # record. It stays derived from the same directory so both instances of an
-    # elevated upgrade agree on it, since $OrgUpgradeRelaunchDir is what preInit
-    # carries across the UAC boundary.
+    # record.
+    #
+    # ⚠ AND ITS NAME IS UNIQUE PER INVOCATION, NOT PER PROCESS ID. An earlier
+    # version derived it from the installer's pid alone. Windows REUSES process
+    # ids, and this file outlives the run that made it, so a later install could
+    # resolve the identical name, find a claim whose owner died weeks ago, and
+    # conclude the launch belonged to somebody else — permanently refusing to
+    # start the application it had just installed. A GUID is allocated ONCE per
+    # invocation and then reused by everything that needs it: the dispatch that
+    # hands it to the helper, the Finish page's own claim, and the elevated
+    # inner instance, which inherits it in preInit rather than deriving its own.
+    #
+    # Nothing here ever deletes a claim it did not create. A stale file from an
+    # unrelated invocation is somebody else's record, and it can no longer
+    # collide with this one.
     Function orgtreeResolveUpgradeLaunchClaim
-      ${if} $OrgUpgradeRelaunchDir != ""
-        StrCpy $OrgUpgradeRelaunchClaim "$OrgUpgradeRelaunchDir.launch-claim"
+      ${if} $OrgUpgradeRelaunchClaim != ""
         Return
       ${endif}
-      # $0 is saved because the Finish page's run action is holding the
-      # executable path in it while this runs.
-      Push $0
-      System::Call 'kernel32::GetCurrentProcessId() i .r0'
-      StrCpy $OrgUpgradeRelaunchClaim "$TEMP\OrgtreeInstallerRelaunch-$0.launch-claim"
-      Pop $0
+      # $2 and $3 rather than $0/$1: the Finish page's run action holds the
+      # executable path in $0 and its dispatch result in $1, and $1 in
+      # particular must stay readable as the ExecShellAsUser token — testing
+      # that token numerically is the 2.1.4-RC4 regression, and a guard in the
+      # suite forbids `$1 != 0` appearing in this file at all.
+      Push $2
+      Push $3
+      System::Call 'ole32::CoCreateGuid(g .r2) i .r3'
+      ${if} $3 != 0
+      ${orif} $2 == ""
+        # No GUID: fall back to process id + tick count, which still survives
+        # process-id reuse across installs, and say in the log that it happened.
+        System::Call 'kernel32::GetCurrentProcessId() i .r2'
+        System::Call 'kernel32::GetTickCount() i .r3'
+        StrCpy $2 "$2-$3"
+        !insertmacro OrgLog "launch-claim-identity" "no GUID available; using process id and tick count for the launch claim identity"
+      ${endif}
+      StrCpy $OrgUpgradeRelaunchClaim "$TEMP\OrgtreeInstallerRelaunch-$2.launch-claim"
+      Pop $3
+      Pop $2
     FunctionEnd
 
     # The dispatch is its own function so the compiled upgrade harness can
@@ -996,7 +1043,13 @@ orgtreeSilentElevateDone:
           # be revoked here; the Finish page's Run action will claim when the
           # user presses it, and if a late helper claimed first the page says so
           # rather than starting a second copy.
-          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged, so it never took launch ownership; the Finish page keeps its Run Orgtree action"
+          # ⚠ SAY ONLY WHAT IS KNOWN. An earlier version of this line claimed
+          # the helper "never took launch ownership", which does not follow: the
+          # claim is taken BEFORE the acknowledgement, so a helper whose marker
+          # write failed owns the launch while looking exactly like one that
+          # never started. Whether anything is holding the launch is unknown
+          # from here, and the Finish page's own claim is what settles it.
+          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged; whether it holds the launch is unknown from here, and the Finish page keeps its Run Orgtree action"
           MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not confirm that it will start after Setup closes.$\r$\nLeave Run Orgtree ticked on the next page to start it, or use its shortcut." /SD IDOK
         ${endif}
       ${else}
@@ -1045,6 +1098,12 @@ orgtreeSilentElevateDone:
       StrCpy $OrgUpgradeRelaunchPrepared "0"
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
       StrCpy $OrgUpgradeRelaunchDir "$TEMP\OrgtreeInstallerRelaunch-$0"
+      # Allocate this update's launch identity HERE, which is the earliest point
+      # every later party can inherit it from: preparation runs before the
+      # all-users elevation, so the elevated inner instance receives the same
+      # identity in preInit instead of allocating a second one, and the dispatch
+      # and the Finish page then reuse whatever is already set.
+      Call orgtreeResolveUpgradeLaunchClaim
       # Filesystem instructions inherit NSIS's process-wide Error flag. The
       # upgrade probe and page flow legitimately perform optional reads before
       # reaching this function, so stale Errors must not turn a successful

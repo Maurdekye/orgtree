@@ -200,7 +200,11 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
   // "(error ok)" dialog; the routing must accept exactly the two success
   // tokens and show anything else verbatim.
   assert.match(installer, /\$\{if\} \$1 == "ok"[\s\S]*?\$\{orif\} \$1 == "fallback"[\s\S]*?StrCpy \$OrgUpgradeRelaunchScheduled "1"[\s\S]*?StrCpy \$OrgUpgradeRelaunchReady "1"[\s\S]*?\$\{else\}[\s\S]*?MessageBox[\s\S]*?\(result: \$1\)[\s\S]*?\$\{endif\}/)
-  assert.doesNotMatch(installer, /\$1 != 0/, 'the numeric ExecShellAsUser result test is the RC4 regression')
+  // Instructions only: a comment that NAMES the regression (to warn the next
+  // reader off it) is not the regression, and a guard that cannot tell the
+  // difference punishes writing the warning down.
+  assert.doesNotMatch(installer.split(/\r?\n/).filter(line => !/^\s*#/.test(line)).join('\n'),
+    /\$1 != 0/, 'the numeric ExecShellAsUser result test is the RC4 regression')
   assert.match(installer, /!insertmacro MUI_PAGE_FINISH/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
@@ -435,8 +439,33 @@ test('the retained Finish page carries a real launch action, under the original 
     'the helper must claim with the same exclusive-create primitive')
   // Both sides must name the SAME file, or the claim decides nothing.
   assert.match(installer, /\$OrgUpgradeRelaunchArgs '"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py" \$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker" "\$OrgUpgradeRelaunchClaim"'/)
-  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchClaim "\$OrgUpgradeRelaunchDir\.launch-claim"/,
-    'the claim must sit beside the staged directory, which the helper deletes on its way out')
+  // THE IDENTITY IS PER INVOCATION, NOT PER PROCESS ID. The claim file outlives
+  // the run that made it and Windows reuses process ids, so a pid-derived name
+  // lets an unrelated later install resolve a claim whose owner died weeks ago
+  // and refuse to start the application it just installed.
+  assert.match(installer, /Function orgtreeResolveUpgradeLaunchClaim[\s\S]*?ole32::CoCreateGuid\(g \.r2\) i \.r3/)
+  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchClaim "\$TEMP\\OrgtreeInstallerRelaunch-\$2\.launch-claim"/)
+  assert.doesNotMatch(installer, /StrCpy \$OrgUpgradeRelaunchClaim "\$OrgUpgradeRelaunchDir\.launch-claim"/,
+    'deriving the claim from the staged directory derives it from the process id, which is the reuse defect')
+  // Allocated ONCE and then inherited, never re-derived: an already-set
+  // identity is kept, preparation allocates it before the all-users elevation,
+  // and the elevated inner instance receives it in preInit.
+  assert.match(installer, /Function orgtreeResolveUpgradeLaunchClaim\r?\n\s*\$\{if\} \$OrgUpgradeRelaunchClaim != ""\r?\n\s*Return/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?Call orgtreeResolveUpgradeLaunchClaim/)
+  assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchClaim/,
+    'the elevated inner instance must inherit the identity rather than allocate a second one')
+
+  // A CLAIM IS NOT A LAUNCH THAT IS GOING TO HAPPEN. The claim is taken before
+  // the acknowledgement, so an unacknowledged helper may still own it — a
+  // helper whose marker write failed looks exactly like one that never started.
+  // Only an acknowledged owner may be reported as a start that is coming.
+  assert.match(body, /\$OrgUpgradeRelaunchAcknowledged == "1"[\s\S]*?Orgtree will start as soon as Setup closes[\s\S]*?\$\{else\}[\s\S]*?finish-run-owner-unknown[\s\S]*?shortcut/,
+    'an unacknowledged owner must be reported as unknown and pointed at the shortcut, never promised')
+  assert.doesNotMatch(installer, /never acknowledged, so it never took launch ownership/,
+    'that claim does not follow from an absent acknowledgement and was the contradictory log line')
+  // Ownership is never taken from a party that might still be alive.
+  assert.doesNotMatch(installer, /Delete "\$OrgUpgradeRelaunchClaim"/,
+    'stealing or replaying somebody else\'s claim is how two copies start')
 
   // The old protocol must be gone on BOTH sides, not merely unused on one.
   assert.doesNotMatch(installer, /relaunch-withdrawn|orgtreeWithdrawUpgradeRelaunch/,
@@ -468,8 +497,15 @@ test('the relaunch helper waits on a process handle and never guesses', () => {
   assert.match(relaunch, /if result == WAIT_OBJECT_0:\r?\n\s*return EXITED/)
   assert.match(relaunch, /if result == WAIT_TIMEOUT:[\s\S]*?return STILL_RUNNING/)
   assert.match(relaunch, /return UNREADABLE/)
-  assert.match(relaunch, /if outcome == STILL_RUNNING:\r?\n\s*return EXIT_STILL_RUNNING/)
-  assert.match(relaunch, /if outcome != EXITED:[\s\S]*?return EXIT_UNREADABLE/)
+  assert.match(relaunch, /if outcome == STILL_RUNNING:\r?\n\s*release_claim\(claim\)\r?\n\s*return EXIT_STILL_RUNNING/)
+  assert.match(relaunch, /if outcome != EXITED:[\s\S]*?release_claim\(claim\)\r?\n\s*return EXIT_UNREADABLE/)
+  // OWNING THE LAUNCH AND PERFORMING IT ARE DIFFERENT THINGS. Every path that
+  // ends without a launch gives the claim back, or it leaves a reservation with
+  // no live owner and the installer reads that as "something else is starting".
+  assert.match(relaunch, /release_claim\(claim\)\r?\n\s*return EXIT_LAUNCH_FAILED/)
+  assert.doesNotMatch(relaunch, /release_claim\(claim\)\r?\n\s*record\("started/,
+    'a completed launch keeps its claim: that file is the record of this invocation')
+  assert.match(relaunch, /def release_claim\(claim\)[\s\S]*?os\.remove\(claim\)/)
   // A process id that does not exist at all is the one failure that IS an exit:
   // OpenProcess answers ERROR_INVALID_PARAMETER for it, and nothing else.
   assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER:[\s\S]*?return None, EXITED/)
@@ -683,6 +719,39 @@ test('two helpers racing for one launch produce exactly one launch', {
     assert.match(each.logText(), /already owned by another party/)
   } finally {
     installerProcess.kill()
+    discard(each.base)
+  }
+})
+
+// THE RESERVATION WITH NO LIVE OWNER. Claim-before-acknowledgement does NOT
+// mean "no acknowledgement implies no claim": announcing readiness is
+// best-effort, so a helper can own the launch and then fail to write its
+// marker. If it then gives up, the claim it leaves behind is a reservation
+// nobody will honour — and the installer would read it as a launch that is
+// coming. Every path that ends WITHOUT a launch therefore gives the claim back.
+test('a helper that owns the launch but gives up releases it again', {
+  skip: helperSkip, timeout: 60000,
+}, async () => {
+  const each = helperCase('reservation')
+  const installer = livingProcess(30000)
+  try {
+    // The marker path is inside a directory that does not exist, which is how
+    // an acknowledgement fails while the claim itself succeeds — the shape
+    // queue-drain reproduced.
+    const unwritable = path.join(each.base, 'no-such-directory', 'relaunch-started.txt')
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, String(installer.pid), each.target, unwritable, each.claim],
+      { env: { ...each.env, ORGTREE_RELAUNCH_TIMEOUT_MS: '400' } })
+
+    assert.equal(run.status, 4, `the wait timed out, which is its own exit code: ${each.logText()}`)
+    assert.ok(!fs.existsSync(unwritable), 'this case requires the acknowledgement to have failed')
+    assert.equal(await settledLaunches(each, 0), 0, 'nothing may be launched over a live installer')
+    assert.ok(!fs.existsSync(each.claim),
+      'the claim must be released: a helper that is not going to launch must not leave the launch reserved')
+    assert.match(each.logText(), /could not write the ready marker/)
+    assert.match(each.logText(), /released the launch claim[\s\S]*not left reserved/)
+  } finally {
+    installer.kill()
     discard(each.base)
   }
 })

@@ -28,7 +28,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 const root = path.resolve(import.meta.dirname, '..')
 const source = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -132,15 +132,43 @@ assert.equal(unclaimable.owned, '',
   'a claim that cannot be made must answer "no ownership", which is what stops the launch')
 console.log('PASS an impossible claim is a refusal, not ownership')
 
-// The resolver: with no claim path set, one is derived from the staged helper
-// directory — BESIDE it, never inside it, because the helper deletes that
-// directory as it exits and an ownership record cannot live in it.
+// THE IDENTITY, which is where the PID-reuse defect lived. The claim file
+// outlives the run that made it, so a name derived from the installer's process
+// id alone can be resolved again by a completely unrelated later install —
+// which would find a claim whose owner died weeks ago and permanently refuse to
+// start the application it had just installed. Windows reuses process ids, so
+// this is not hypothetical.
+//
+// Both of these fixtures are given the SAME staged directory, which is what a
+// reused process id would produce, and they must still come out with different
+// identities.
 const staged = path.join(temp, 'OrgtreeInstallerRelaunch-4242')
-const derived = runInstallerClaim({ name: 'derived-claim', claim: '', dir: staged })
-assert.equal(derived.claim, `${staged}.launch-claim`,
-  'the claim must be derived beside the staged directory, not inside it')
-assert.equal(derived.owned, '1', 'the derived claim must be usable')
-console.log('PASS the claim path is derived beside the staged helper directory')
+const firstRun = runInstallerClaim({ name: 'identity-first', claim: '', dir: staged })
+const secondRun = runInstallerClaim({ name: 'identity-second', claim: '', dir: staged })
+assert.equal(firstRun.owned, '1', 'an allocated identity must be usable')
+assert.equal(secondRun.owned, '1',
+  'a later invocation must NOT be blocked by an older claim: that is the process-id reuse defect')
+assert.notEqual(firstRun.claim, secondRun.claim,
+  'two invocations must not share a launch identity, however their process ids fall')
+assert.doesNotMatch(firstRun.claim, /OrgtreeInstallerRelaunch-4242\.launch-claim$/,
+  'the identity must not be derived from the staged directory (i.e. from the process id) alone')
+for (const allocated of [firstRun.claim, secondRun.claim]) {
+  assert.match(allocated, /OrgtreeInstallerRelaunch-.+\.launch-claim$/,
+    'an allocated claim must still be recognisable as this installer\'s, in the temp directory beside its staged helper')
+  assert.ok(path.isAbsolute(allocated), 'the claim path must be absolute')
+  // Allocated in the real temp directory rather than this harness's, so clean
+  // up after the fixtures that made them — but only ever these two.
+  fs.rmSync(allocated, { force: true })
+}
+console.log('PASS each invocation allocates its own launch identity, so a reused process id cannot block a later update')
+
+// And an identity that has already been allocated is INHERITED, not replaced —
+// this is what the elevated inner instance receives in preInit, and re-deriving
+// it there would give one update two identities and therefore two owners.
+const inherited = path.join(temp, 'inherited.launch-claim')
+const kept = runInstallerClaim({ name: 'identity-inherited', claim: inherited, dir: staged })
+assert.equal(kept.claim, inherited, 'an identity that is already set must be kept, not re-derived')
+console.log('PASS an inherited launch identity is kept rather than re-derived')
 
 // ---------------------------------------------------------------------------
 // BOTH SIDES, ONE CLAIM. This is the part a single-language test cannot show:
@@ -189,17 +217,57 @@ if (!engineRuntime) {
   assert.ok(!fs.existsSync(launchMarker), 'the losing helper must not start the application')
   console.log('PASS the helper loses an installer-held claim, launches nothing, and does not acknowledge')
 
-  // And the reverse: the helper owns it, the installer's Finish action loses.
+  // And the reverse: a LIVE helper owns it and the installer's Finish action
+  // must lose. The helper is left running for this one — a helper that has
+  // already exited is a different case, and conflating the two is exactly the
+  // "reservation with no live owner" confusion this round is about.
   const helperHeld = path.join(temp, 'helper-held.launch-claim')
-  const helperWins = runHelper('helper-wins', helperHeld)
-  assert.ok(fs.existsSync(helperHeld), 'the helper must leave its claim behind')
-  assert.equal(helperWins.status, 4,
-    'this helper owns the launch and then times out waiting, which is the expected exit for a live installer')
-  assert.ok(helperWins.ready, 'a helper that holds handle and ownership must acknowledge')
-  const installerLoses = runInstallerClaim({ name: 'installer-loses', claim: helperHeld })
-  assert.equal(installerLoses.owned, 'other',
-    'the installer must see the helper\'s claim and hand the launch to it rather than starting a second copy')
-  console.log('PASS the installer loses a helper-held claim and defers to it')
+  const heldStaging = fs.mkdtempSync(path.join(temp, 'helper-holds-'))
+  const heldScript = path.join(heldStaging, 'installer-relaunch.py')
+  fs.copyFileSync(helper, heldScript)
+  const heldReady = path.join(temp, 'helper-holds-ready.txt')
+  const holder = spawn(pythonw, [heldScript, String(process.pid), target, heldReady, helperHeld], {
+    windowsHide: true, stdio: 'ignore',
+    env: { ...process.env, ORGTREE_RELAUNCH_LOG_DIR: temp, ORGTREE_RELAUNCH_TIMEOUT_MS: '30000' },
+  })
+  try {
+    const deadline = Date.now() + 20000
+    while (!fs.existsSync(heldReady) && Date.now() < deadline) spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},50)'])
+    assert.ok(fs.existsSync(heldReady), 'the holding helper never acknowledged, so this case never got set up')
+    assert.ok(fs.existsSync(helperHeld), 'the holding helper must be holding its claim while it waits')
+    const installerLoses = runInstallerClaim({ name: 'installer-loses', claim: helperHeld })
+    assert.equal(installerLoses.owned, 'other',
+      'the installer must see the live helper\'s claim and hand the launch to it rather than starting a second copy')
+    console.log('PASS the installer loses a live helper-held claim and defers to it')
+  } finally {
+    holder.kill()
+  }
+
+  // A HELPER THAT GIVES UP MUST GIVE THE LAUNCH BACK. Owning the launch and
+  // performing it are different things: this one claims, then times out
+  // waiting, and a claim left behind by it would be a reservation with no live
+  // owner — which the Finish page would otherwise read as "something else is
+  // about to start the application" and tell the user so.
+  const abandoned = path.join(temp, 'abandoned.launch-claim')
+  const gaveUp = runHelper('helper-gives-up', abandoned)
+  assert.equal(gaveUp.status, 4, 'this helper owns the launch and then times out waiting')
+  assert.ok(!fs.existsSync(abandoned),
+    'a helper that ended without launching must release its claim, or it leaves a reservation nobody will honour')
+  const afterRelease = runInstallerClaim({ name: 'after-release', claim: abandoned })
+  assert.equal(afterRelease.owned, '1',
+    'once the claim is released the installer must be able to take it and actually start the application')
+  console.log('PASS a helper that gives up releases the launch, and the installer can then take it')
+
+  // A KILLED owner cannot release anything, which is the stale claim the Finish
+  // page has to survive. The file is still there and nothing may assume a
+  // launch is coming from it; the installer's own claim then answers "other"
+  // and the page reports unknown ownership rather than promising a start.
+  assert.ok(fs.existsSync(helperHeld),
+    'a killed owner leaves its claim behind: this is the stale-claim state the Finish page must report as unknown')
+  const stale = runInstallerClaim({ name: 'stale-claim', claim: helperHeld })
+  assert.equal(stale.owned, 'other',
+    'a stale claim must still be refused rather than stolen; the truthful message is the Finish page\'s job')
+  console.log('PASS a stale claim from a killed owner is refused, not stolen')
 
   assert.ok(!fs.existsSync(launchMarker),
     'nothing in this harness may have started the stand-in application: every helper here either lost or timed out')
