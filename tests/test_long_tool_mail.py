@@ -240,6 +240,13 @@ class LongToolTests(unittest.TestCase):
         with patch.object(store, 'save_org', side_effect=fail_cleanup):
             self.release.set()
             self.assertTrue(failed.wait(1))
+            # The failure signal precedes the publisher's durable retry metadata.
+            # Wait for that publication pass before making its retry due.
+            self.assertTrue(toolwait._publish_lock.acquire(timeout=5))
+            try:
+                self.assertEqual(toolwait.records()[0]['publish_failures'], 1)
+            finally:
+                toolwait._publish_lock.release()
         self.retry_due()
         toolwait.sweep()
         self.assertEqual(len(self.mails()), 1)
