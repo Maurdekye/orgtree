@@ -57,13 +57,7 @@ def staff_args(org: Org, item: dict[str, Any], ctx: dict[str, Any],
         "tier": tier, "name": name,
         "grant": int(org.d.get("default_top_grant", 50)) if top else 0,
         "charter": f"Own the docket item {item['slug']}: {item['title']}. Read its full description and complete its requirements. Keep the docket current.",
-        "done_so_far": list(item.get("done_so_far") or []),
-        "working_on_next": list(item.get("working_on_next") or []),
     }
-    # The existing staffing operation requires one nonempty progress list;
-    # the staffing-flow update will remove that requirement for assignment.
-    if not args["done_so_far"] and not args["working_on_next"]:
-        args["working_on_next"] = ["Read the ticket and begin the assigned work."]
     if not top:
         args["target"] = owner["node"]
     if node:

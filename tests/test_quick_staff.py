@@ -91,6 +91,34 @@ class QuickStaffTests(unittest.TestCase):
                     self.assertEqual(item["owner"]["node"], r.json()["node"])
                     self.assertEqual(item["status"], "open")
 
+    def test_immediate_staffing_preserves_progress_or_generates_standard_boundary(self):
+        for mode in ("under_assignee", "top_level"):
+            for empty in (False, True):
+                with self.subTest(mode=mode, empty=empty):
+                    org = ledger.Org(copy.deepcopy(self.org.d))
+                    before = org._work_find(self.item)[0]
+                    if empty:
+                        before["done_so_far"] = []; before["working_on_next"] = []
+                    store.save_org(org); appsettings.set_quick_staff_behavior(mode)
+                    r = self.send(self.selection("haiku"))
+                    self.assertEqual(r.status_code, 200, r.text)
+                    item = self.loaded()._work_find(self.item)[0]
+                    self.assertEqual(item["done_so_far"], before["done_so_far"])
+                    if empty:
+                        self.assertEqual(item["working_on_next"],
+                            [ledger.Org.STAFFING_BOUNDARY.format(node=r.json()["node"])])
+                    else:
+                        self.assertEqual(item["working_on_next"], before["working_on_next"])
+
+    def test_agent_cannot_use_operator_top_level_hire_normalization(self):
+        before = copy.deepcopy(self.org.d)
+        with self.assertRaises(ledger.LedgerError):
+            api._hire_seat(self.org, self.org.d["slug"], self.owner,
+                {"tier": "haiku", "name": "escaped", "grant": 0, "target": ledger.USER,
+                 "charter": "Do the work.", "add_dirs": [],
+                 "tools": self.org.node(self.owner)["scope"]["tools"], "org_visibility": "self"}, [])
+        self.assertEqual(self.org.d, before)
+
     def test_missing_and_retired_fallback_disclosed_before_selection(self):
         for mode in ("request", "under_assignee"):
             for missing in (False, True):
