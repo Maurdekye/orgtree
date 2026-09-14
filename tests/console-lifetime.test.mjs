@@ -25,8 +25,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
+import { acquireConsoleWindowLock } from './fixtures/console-window-lock.mjs'
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+/** ⚠ POLL, DO NOT SLEEP, for anything that has to APPEAR or to DIE. A fixed
+ *  wait is a guess about machine load, and `npm test` runs every file in this
+ *  directory concurrently: a 1.5s wait for a console to open was measured
+ *  failing under that load, which reads as "the probe never started" and has
+ *  nothing to do with the property under test. The await is load-bearing —
+ *  a Promise is truthy, so an un-awaited predicate would pass on the first
+ *  tick. A survival claim still waits a fixed time first: there is nothing to
+ *  poll for when the expected answer is "nothing happened". */
+const waitFor = async (predicate, ms = 10000) => {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) { if (await predicate()) return true; await sleep(200) }
+  return await predicate()
+}
 
 const ps = (script) => new Promise((resolve) => {
   execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
@@ -79,49 +94,70 @@ const probePid = () => ps(`
   if ($p) { $p.ProcessId } else { '' }
 `)
 
+/** Wait for the console probe this file just started to exist and be findable.
+ *  Its window also has to be up before a close can be posted to it, which is
+ *  why the caller does not race ahead on a fixed wait. */
+const waitForProbePid = async () => {
+  let pid = ''
+  await waitFor(async () => !!(pid = await probePid()))
+  return pid
+}
+
 const cleanup = (pids) => ps(pids.filter(Boolean).map(p => `Stop-Process -Id ${p} -Force -ErrorAction SilentlyContinue`).join('; '))
 
 test('§1 POSITIVE CONTROL: a process attached to a console DIES when that console is closed', async (t) => {
+  // Serialised against the other console-window tests: see
+  // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
+  // invisible to each other, and one close can end the other's probe.
+  t.after(await acquireConsoleWindowLock())
   // Without this firing, §2 below is worthless: a harness that cannot observe
   // a console-close death would report "survived" for everything.
   spawnInOwnConsole()
-  await sleep(1200)
-  const pid = await probePid()
+  const pid = await waitForProbePid()
   assert.ok(pid, 'the probe console started and was found')
   t.after(() => cleanup([pid]))
   assert.equal(await alive(pid), true, 'precondition: it is running')
 
   const posted = await closeConsoleWindowOf()
   assert.equal(posted, 'posted', 'the console window was found and WM_CLOSE was posted to it')
-  await sleep(2500)
-  assert.equal(await alive(pid), false,
+  assert.equal(await waitFor(async () => !(await alive(pid))), true,
     'CONTROL: closing the console a process is attached to ends it — so this '
     + 'harness can detect exactly the failure being investigated')
 })
 
 test('§2 a process that did NOT open the console is untouched when it closes', async (t) => {
+  // Serialised against the other console-window tests: see
+  // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
+  // invisible to each other, and one close can end the other's probe.
+  t.after(await acquireConsoleWindowLock())
   // The installed Orgtree shape: a child of the shell, no console of its own.
   // `windowsHide` plus piped stdio is what the app's own engine spawn uses.
   const bystander = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'],
     { windowsHide: true, stdio: 'pipe' })
   const bystanderPid = bystander.pid
   spawnInOwnConsole()
-  await sleep(1200)
-  const consolePid = await probePid()
+  const consolePid = await waitForProbePid()
   assert.ok(consolePid, 'the unrelated console started')
   t.after(() => { try { bystander.kill() } catch { /* already gone */ } })
   t.after(() => cleanup([consolePid]))
 
   assert.equal(await alive(bystanderPid), true, 'precondition: the bystander is running')
   assert.equal(await closeConsoleWindowOf(), 'posted')
-  await sleep(2500)
-  assert.equal(await alive(consolePid), false, 'the console really did close (§1 s mechanism)')
+  assert.equal(await waitFor(async () => !(await alive(consolePid))), true,
+    'the console really did close (§1 s mechanism)')
+  // a survival claim gets a settle wait rather than a poll: there is nothing to
+  // poll for when the expected answer is that nothing happened
+  await sleep(1500)
   assert.equal(await alive(bystanderPid), true,
     'THE TICKET S REQUIREMENT: closing an unrelated visible console leaves a '
     + 'process that did not open it alive')
 })
 
 test('§3 a PARENT is untouched when a console belonging to its CHILD is closed', async (t) => {
+  // Serialised against the other console-window tests: see
+  // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
+  // invisible to each other, and one close can end the other's probe.
+  t.after(await acquireConsoleWindowLock())
   // The measured Orgtree topology: Orgtree -> engine -> agent consoles. Closing
   // an agent console must not cascade up. The parent here spawns a child into
   // its own console exactly as the engine spawns agents.
@@ -132,16 +168,15 @@ test('§3 a PARENT is untouched when a console belonging to its CHILD is closed'
     setTimeout(() => {}, 60000)
   `], { windowsHide: true, stdio: 'pipe' })
   const parentPid = parent.pid
-  await sleep(1500)
-  const childConsolePid = await probePid()
+  const childConsolePid = await waitForProbePid()
   assert.ok(childConsolePid, 'the child console started')
   t.after(() => { try { parent.kill() } catch { /* already gone */ } })
   t.after(() => cleanup([childConsolePid]))
 
   assert.equal(await alive(parentPid), true, 'precondition: the parent is running')
   assert.equal(await closeConsoleWindowOf(), 'posted')
-  await sleep(2500)
-  assert.equal(await alive(childConsolePid), false, 'the child console closed')
+  assert.equal(await waitFor(async () => !(await alive(childConsolePid))), true, 'the child console closed')
+  await sleep(1500)
   assert.equal(await alive(parentPid), true,
     'closing a console owned by a CHILD does not reach the parent — so the '
     + 'engine s agent consoles cannot, by this mechanism, end Orgtree')

@@ -30,6 +30,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, execFile } from 'node:child_process'
+import { acquireConsoleWindowLock } from './fixtures/console-window-lock.mjs'
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -145,6 +146,10 @@ test.after(() => { try { fs.rmSync(workdir, { recursive: true, force: true }) } 
 // --------------------------------------------------------------- console signals
 
 test('§1 POSITIVE CONTROL: with NO signal handler, a console close leaves no orderly record', async (t) => {
+  // Serialised against the other console-window tests: see
+  // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
+  // invisible to each other, and one close can end the other's probe.
+  t.after(await acquireConsoleWindowLock())
   // This is the state apps/desktop/main was in before 7218d78: not one
   // SIGHUP/SIGINT/SIGBREAK listener anywhere. Without this control firing, §2
   // would pass against a process that simply happened to write its marker.
@@ -164,6 +169,10 @@ test('§1 POSITIVE CONTROL: with NO signal handler, a console close leaves no or
 })
 
 test('§2 the handler shape index.ts installs DOES fire, and the shutdown grace is used', async (t) => {
+  // Serialised against the other console-window tests: see
+  // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
+  // invisible to each other, and one close can end the other's probe.
+  t.after(await acquireConsoleWindowLock())
   // §1 having fired, this is a real measurement rather than a tautology: same
   // probe, same console, same close, the only difference being the handlers.
   assert.ok(appSignals.includes('SIGHUP'),
