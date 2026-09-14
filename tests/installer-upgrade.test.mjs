@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
-const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.js'), 'utf8')
+const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.py'), 'utf8')
 
 // IMAGE_SUBSYSTEM values from the PE optional header. Only these two matter
 // here: a GUI-subsystem image is started by ShellExecute with no console, a
@@ -46,6 +47,29 @@ function peSubsystem(file) {
 function systemPath(nsisPath) {
   return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32',
     nsisPath.replace(/^\$SYSDIR\\/, '').replace(/\\/g, path.sep))
+}
+
+// The relaunch host now lives inside the INSTALLED tree, so there is no
+// installed copy to read in a source checkout. The provisioned runtime is the
+// same build that gets packaged into it (engine/runtime is gitignored, so it is
+// located rather than assumed). Everything that depends on it SKIPS with a
+// reason when it is absent — a missing runtime is an environment limit, not a
+// silent pass.
+const engineRuntime = (() => {
+  const candidates = [process.env.ORGTREE_ENGINE_RUNTIME, path.join(root, 'engine', 'runtime')].filter(Boolean)
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'pythonw.exe'))) return candidate
+  }
+  return null
+})()
+
+// Resolves whatever build/installer.nsh names as the relaunch host onto a file
+// this checkout can actually read.
+function hostPath(nsisPath) {
+  if (nsisPath.startsWith('$SYSDIR\\')) return systemPath(nsisPath)
+  const installed = nsisPath.match(/^\$INSTDIR\\resources\\engine\\runtime\\(.+)$/)
+  if (installed && engineRuntime) return path.join(engineRuntime, installed[1])
+  throw new Error(`cannot resolve the relaunch host ${nsisPath} in a source checkout`)
 }
 const app = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8')
 const docs = fs.readFileSync(path.join(root, 'docs/windows-release.md'), 'utf8')
@@ -147,23 +171,20 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /!macro customFinishPage[\s\S]*?!define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre[\s\S]*?!insertmacro MUI_PAGE_FINISH/)
   assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"[\s\S]*?Call orgtreeScheduleUpgradeRelaunch[\s\S]*?\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort/)
   assert.match(installer, /System::Call 'kernel32::GetCurrentProcessId\(\) i \.r0'/)
-  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.js.*\$0 "\$OrgUpgradeExe"/)
-  assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\wscript\.exe"/)
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.py.*\$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker"/)
+  assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$OrgUpgradeRelaunchHost"/)
+  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchHost "\$INSTDIR\\resources\\engine\\runtime\\pythonw\.exe"/)
   assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
-  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.js" \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.py" \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?ClearErrors\r?\n\s+CopyFiles \/SILENT/)
-  assert.match(installer, /"\$OrgUpgradeRelaunchDir\\installer-relaunch\.js"/)
-  // The engine is pinned rather than left to the .js file association, which an
-  // installed editor may own, and batch mode keeps a script error from raising
-  // a modal dialog — which would be a visible window, the thing being removed.
-  assert.match(installer, /\/\/E:JScript \/\/B /)
+  assert.match(installer, /"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py"/)
   // Wait strictly before launch, and exactly one launch site.
-  const wait = relaunch.indexOf('waitForExit(pid)')
-  const launch = relaunch.indexOf('launch(executablePath)')
+  const wait = relaunch.indexOf('wait_for_exit(pid, timeout_ms)')
+  const launch = relaunch.indexOf('launch(executable)\n')
   assert.ok(wait >= 0 && launch > wait, 'the app must start only after the installer-exit wait')
-  assert.equal((relaunch.match(/^\s*launch\(executablePath\)/gm) ?? []).length, 1, 'the helper has one launch site')
-  assert.match(relaunch, /function waitForExit\(pid\)[\s\S]*?while \(isRunning\(pid\)\)[\s\S]*?WScript\.Sleep/)
-  assert.match(relaunch, /fso\.DeleteFolder\(fso\.GetParentFolderName\(WScript\.ScriptFullName\), true\)/)
+  assert.equal((relaunch.match(/^\s*launch\(executable\)$/gm) ?? []).length, 1, 'the helper has one launch site')
+  assert.equal((relaunch.match(/^\s*subprocess\.Popen\($/gm) ?? []).length, 1, 'the helper starts exactly one process')
+  assert.match(relaunch, /shutil\.rmtree\(directory, ignore_errors=True\)/)
 })
 
 test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch', () => {
@@ -184,15 +205,15 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
 
 test('all-users elevation carries a user-owned helper across the UAC boundary', () => {
   const prepared = installer.indexOf('Function orgtreePrepareUpgradeRelaunch')
-  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.js" $OrgUpgradeRelaunchDir')
+  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.py" $OrgUpgradeRelaunchDir')
   const call = installer.indexOf('Call orgtreePrepareUpgradeRelaunch')
   const elevation = installer.indexOf('!insertmacro UAC_RunElevated')
   assert.ok(prepared >= 0 && copy > prepared && call >= 0 && call < elevation, 'helper staging is called before all-users elevation')
   assert.match(installer, /StrCpy \$OrgUpgradeRelaunchDir "\$TEMP\\OrgtreeInstallerRelaunch-\$0"/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
-  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.js/)
-  assert.match(relaunch, /fso\.DeleteFolder\(fso\.GetParentFolderName\(WScript\.ScriptFullName\), true\)/)
+  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.py/)
+  assert.match(relaunch, /shutil\.rmtree\(directory, ignore_errors=True\)/)
 })
 
 // The console regression guard. This is the thing that will silently come back:
@@ -202,10 +223,22 @@ test('all-users elevation carries a user-owned helper across the UAC boundary', 
 // PE subsystem byte of whatever executable build/installer.nsh actually names,
 // so pointing the dispatch at any console binary fails, not just the one that
 // caused the incident.
-test('the upgrade relaunch dispatch never targets a console-subsystem host', { skip: process.platform !== 'win32' ? 'Windows only' : false }, () => {
+test('the upgrade relaunch dispatch never targets a console-subsystem host', {
+  skip: process.platform !== 'win32' ? 'Windows only'
+    : !engineRuntime ? 'no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME'
+    : false,
+}, () => {
+  // The dispatch names a VARIABLE now, because the host is the application's
+  // own runtime rather than a file in System32. The variable is resolved from
+  // the same source line that assigns it, so the guard still measures whatever
+  // build/installer.nsh actually names and cannot be satisfied by a stale path.
   const dispatch = installer.match(/\$\{StdUtils\.ExecShellAsUser\} \$1 "([^"]+)"/)
   assert.ok(dispatch, 'the relaunch dispatch line could not be found at all')
-  const target = systemPath(dispatch[1])
+  const named = dispatch[1] === '$OrgUpgradeRelaunchHost'
+    ? installer.match(/StrCpy \$OrgUpgradeRelaunchHost "([^"]+)"/)?.[1]
+    : dispatch[1]
+  assert.ok(named, 'the relaunch host assignment could not be found')
+  const target = hostPath(named)
   assert.ok(fs.existsSync(target), `the dispatch target does not exist: ${target}`)
 
   // THE SUBJECT.
@@ -218,6 +251,13 @@ test('the upgrade relaunch dispatch never targets a console-subsystem host', { s
   assert.equal(peSubsystem(defect), SUBSYSTEM_CUI,
     'powershell.exe no longer reads as console-subsystem, so this guard can no longer detect the original defect')
   assert.notEqual(peSubsystem(defect), SUBSYSTEM_GUI)
+
+  // The host must also not be a component a policy can switch off underneath
+  // the upgrade. Windows Script Host is exactly that, and a disabled WSH cannot
+  // report that it is disabled — the dispatch still answers "ok".
+  const instructions = installer.split(/\r?\n/).filter(line => !/^\s*#/.test(line)).join('\n')
+  assert.doesNotMatch(instructions, /wscript\.exe|cscript\.exe/,
+    'Windows Script Host can be disabled by policy, and a disabled host cannot log its own failure')
 
   // INSTRUMENT CONTROL — break the reader, not just the subject. A probe that
   // returned a value for something it could not read would turn "could not ask"
@@ -331,21 +371,225 @@ test('the manual upgrade elevation is left where it was', () => {
   assert.match(mode[0], /MessageBox[\s\S]*?Administrator approval is required/)
 })
 
-// The helper is JScript under Windows Script Host, which is an ES3 engine, and
-// it runs where nothing can report a syntax error to anyone. These pin the two
-// portability traps that were actually hit while writing it.
-test('the relaunch helper stays within what the WSH JScript engine supports', () => {
-  const code = relaunch.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n')
-  // ES5+ constructs the engine does not have. toISOString was the real one: it
-  // sits inside the error reporter, so calling it would throw in the one place
-  // whose job is to explain a failure.
-  assert.doesNotMatch(code, /toISOString|JSON\.|=>|\bconst\b|\blet\b|\.trim\(\)/)
-  // A thrown COM error here has an EMPTY message and description; `number` is
-  // the only real signal. Reading message alone logged a blank line for exactly
-  // the failures the log exists to explain.
-  assert.match(code, /function describe\(error\)/)
-  assert.match(code, /error\.number/)
-  assert.doesNotMatch(code, /record\(error\.message\)/)
+// THE LIVENESS CONTRACT. The previous helper asked WMI whether the installer
+// was still running and treated a FAILED query as "it has exited", which
+// launched the application immediately, over a live installer, and exited 0 as
+// though it had waited. The replacement waits on a real process handle and
+// keeps the three possible answers apart.
+test('the relaunch helper waits on a process handle and never guesses', () => {
+  // No WMI, no COM, no script host: the dependencies that could not report
+  // their own absence are gone.
+  assert.doesNotMatch(relaunch, /winmgmts|Win32_Process|ActiveXObject|WScript|win32com/)
+  assert.match(relaunch, /kernel32\.OpenProcess\(SYNCHRONIZE, False, pid\)/)
+  assert.match(relaunch, /kernel32\.WaitForSingleObject\(handle, timeout_ms\)/)
+
+  // Three answers, three outcomes, and only one of them may launch.
+  assert.match(relaunch, /if result == WAIT_OBJECT_0:\r?\n\s*return EXITED/)
+  assert.match(relaunch, /if result == WAIT_TIMEOUT:[\s\S]*?return STILL_RUNNING/)
+  assert.match(relaunch, /return UNREADABLE/)
+  assert.match(relaunch, /if outcome == STILL_RUNNING:\r?\n\s*return EXIT_STILL_RUNNING/)
+  assert.match(relaunch, /if outcome != EXITED:[\s\S]*?return EXIT_UNREADABLE/)
+  // A process id that does not exist at all is the one failure that IS an exit:
+  // OpenProcess answers ERROR_INVALID_PARAMETER for it, and nothing else.
+  assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER:[\s\S]*?return EXITED/)
+  assert.equal((relaunch.match(/return EXITED/g) ?? []).length, 2,
+    'only "no such process" and a signalled handle may count as an exit')
+
+  // The acceptance handshake is written BEFORE the wait, or the installer would
+  // have to wait out the whole upgrade to learn the helper started.
+  const ready = relaunch.indexOf('announce_ready(marker)')
+  const waiting = relaunch.indexOf('outcome = wait_for_exit(pid, timeout_ms)')
+  assert.ok(ready >= 0 && waiting > ready, 'the ready marker must be written before the wait begins')
+})
+
+// BEHAVIOURAL. The sections above read the source; these RUN the exact helper
+// under the exact host the installer names. Nothing here is an installer: the
+// "installer" is a throwaway process that sleeps, the "application" is a
+// one-line script that appends to a file, and the host is GUI-subsystem, so no
+// window appears at any point.
+const relaunchHelper = path.join(root, 'tools/installer-relaunch.py')
+const helperSkip = process.platform !== 'win32' ? 'Windows only'
+  : !engineRuntime ? 'no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME'
+  : false
+
+// The launch is DETACHED, so the helper's own exit does not mean the launched
+// process has run yet. Wait for the launch to be observable, then keep waiting
+// a little longer: "exactly once" is only a real claim if a second launch would
+// have had time to land.
+async function settledLaunches(each, expected, timeout = 15000) {
+  const deadline = Date.now() + timeout
+  while (each.launches() < expected && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  await new Promise(resolve => setTimeout(resolve, 750))
+  return each.launches()
+}
+
+function discard(directory) {
+  // Best effort: the launched stand-in is DETACHED and keeps this directory as
+  // its current directory for a moment after it has done its one job, so a
+  // removal can still be refused. The contract is what these tests are for; a
+  // leftover directory under the system temp path is not worth failing one.
+  try {
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+  } catch {}
+}
+
+function helperCase(name) {
+  // Each case gets its own copy of the helper, because the helper deletes its
+  // own directory on the way out — which is itself part of the contract.
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), `orgtree-relaunch-${name}-`))
+  const staged = path.join(base, 'staged helper')
+  fs.mkdirSync(staged)
+  const script = path.join(staged, 'installer-relaunch.py')
+  fs.copyFileSync(relaunchHelper, script)
+  const launchMarker = path.join(base, 'launched.txt')
+  const target = path.join(base, 'fake application.cmd')
+  fs.writeFileSync(target, `@echo launched>>"${launchMarker}"\r\n@exit 0\r\n`)
+  return {
+    base, script, target, launchMarker,
+    ready: path.join(staged, 'relaunch-started.txt'),
+    log: path.join(base, 'orgtree-installer-relaunch.log'),
+    env: { ...process.env, ORGTREE_RELAUNCH_LOG_DIR: base },
+    launches: () => (fs.existsSync(launchMarker)
+      ? fs.readFileSync(launchMarker, 'utf8').split(/\r?\n/).filter(Boolean).length
+      : 0),
+    logText: () => (fs.existsSync(path.join(base, 'orgtree-installer-relaunch.log'))
+      ? fs.readFileSync(path.join(base, 'orgtree-installer-relaunch.log'), 'utf8')
+      : ''),
+  }
+}
+
+// A stand-in for the installer process: it holds a process id for a while and
+// then exits. It is Node, not an installer, and it touches nothing.
+function livingProcess(ms) {
+  return spawn(process.execPath, ['-e', `setTimeout(() => {}, ${ms})`], {
+    windowsHide: true, stdio: 'ignore',
+  })
+}
+
+function runHelper(host, args, options) {
+  return spawnSync(host, args, { windowsHide: true, encoding: 'utf8', timeout: 60000, ...options })
+}
+
+test('the relaunch helper starts the application exactly once, after the installer exits', {
+  skip: helperSkip, timeout: 60000,
+}, async () => {
+  const each = helperCase('waits')
+  const host = path.join(engineRuntime, 'pythonw.exe')
+  const installer = livingProcess(4000)
+  try {
+    const started = Date.now()
+    const helper = spawn(host, [each.script, String(installer.pid), each.target, each.ready], {
+      windowsHide: true, stdio: 'ignore', env: each.env,
+    })
+
+    // The acceptance handshake must appear while the installer is still alive —
+    // that is the whole point of it, and it is what the installer waits for
+    // before it skips its Finish page.
+    const deadline = Date.now() + 15000
+    while (!fs.existsSync(each.ready) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assert.ok(fs.existsSync(each.ready), 'the helper never wrote its ready marker')
+    assert.equal(each.launches(), 0, 'the application was started while the installer was still running')
+
+    const code = await new Promise(resolve => helper.on('exit', resolve))
+    const elapsed = Date.now() - started
+    assert.equal(code, 0, `the helper must report success after a completed relaunch: ${each.logText()}`)
+    assert.ok(elapsed >= 3000, `the helper returned after ${elapsed}ms, so it cannot have waited out the installer`)
+    assert.equal(await settledLaunches(each, 1), 1,
+      `the application must be started exactly once: ${each.logText()}`)
+    assert.ok(!fs.existsSync(path.dirname(each.script)), 'the helper must remove its own staged copy')
+  } finally {
+    installer.kill()
+    discard(each.base)
+  }
+})
+
+// THE REGRESSION FOR THE WMI DEFECT. An unreadable process state is not an
+// observed exit. PID 4 is the System process: it exists, and OpenProcess is
+// refused for it, which is exactly the shape of "I cannot tell".
+test('an unreadable installer state never becomes an observed exit', { skip: helperSkip, timeout: 60000 }, () => {
+  const each = helperCase('unreadable')
+  try {
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, '4', each.target, each.ready], { env: each.env })
+    assert.equal(run.status, 3,
+      `an unreadable state must report its own exit code, not success: ${each.logText()}`)
+    assert.equal(each.launches(), 0,
+      `nothing may be launched when the installer's state could not be read: ${each.logText()}`)
+    assert.match(each.logText(), /could not open installer process 4[\s\S]*not launching/)
+  } finally {
+    discard(each.base)
+  }
+})
+
+// NEGATIVE CONTROL for the section above. Restore the reviewed behaviour — an
+// unreadable state counted as an exit — in a copy of the helper, and the same
+// run must launch the application over a process it never observed exiting. If
+// this control stops reproducing, the section above proves nothing.
+test('the unreadable-state guard is measuring something', { skip: helperSkip, timeout: 60000 }, async () => {
+  const each = helperCase('unreadable-control')
+  try {
+    const defective = fs.readFileSync(each.script, 'utf8')
+      .replace('        return UNREADABLE\n', '        return EXITED\n')
+    assert.notEqual(defective, fs.readFileSync(each.script, 'utf8'),
+      'the control could not restore the pre-fix answer; its anchor moved')
+    fs.writeFileSync(each.script, defective)
+
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, '4', each.target, each.ready], { env: each.env })
+    assert.equal(run.status, 0, 'CONTROL IS BROKEN: the pre-fix answer was expected to report success')
+    assert.equal(await settledLaunches(each, 1), 1,
+      'CONTROL IS BROKEN: the pre-fix answer was expected to launch over an unobserved installer')
+  } finally {
+    discard(each.base)
+  }
+})
+
+test('an installer that outlives the wait is reported, not overtaken', { skip: helperSkip, timeout: 60000 }, () => {
+  const each = helperCase('timeout')
+  const installer = livingProcess(30000)
+  try {
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, String(installer.pid), each.target, each.ready],
+      { env: { ...each.env, ORGTREE_RELAUNCH_TIMEOUT_MS: '400' } })
+    assert.equal(run.status, 4, `a timed-out wait has its own exit code: ${each.logText()}`)
+    assert.equal(each.launches(), 0,
+      `starting the application over a live installer is the failure the wait exists to prevent: ${each.logText()}`)
+    assert.match(each.logText(), /had not exited after 400 ms[\s\S]*not launching/)
+  } finally {
+    installer.kill()
+    discard(each.base)
+  }
+})
+
+test('an already-finished installer is launched for immediately, and bad arguments are refused', {
+  skip: helperSkip, timeout: 60000,
+}, async () => {
+  const finished = helperCase('finished')
+  const gone = livingProcess(1)
+  await new Promise(resolve => gone.on('exit', resolve))
+  try {
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [finished.script, String(gone.pid), finished.target, finished.ready], { env: finished.env })
+    assert.equal(run.status, 0, `an installer that has already exited is not an error: ${finished.logText()}`)
+    assert.equal(await settledLaunches(finished, 1), 1, 'the application must still be started exactly once')
+  } finally {
+    discard(finished.base)
+  }
+
+  const bad = helperCase('bad-arguments')
+  try {
+    const noPid = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [bad.script, 'not-a-pid', bad.target], { env: bad.env })
+    assert.equal(noPid.status, 2, 'an unusable process id must be refused')
+    assert.equal(bad.launches(), 0, 'nothing may be launched from unusable arguments')
+    assert.match(bad.logText(), /is not a number/)
+  } finally {
+    discard(bad.base)
+  }
 })
 
 test('graceful shutdown is path-bound, retryable, and never force-kills', () => {

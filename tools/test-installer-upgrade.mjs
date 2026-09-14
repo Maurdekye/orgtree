@@ -33,6 +33,21 @@ const functions = macro('orgtreeUpgradeFunctions')
 const welcome = macro('customWelcomePage')
 const installMode = macro('customInstallMode')
 const finish = macro('customFinishPage')
+
+// The real OrgLog macro calls orgtreeInstallerLog, which is defined inside
+// customHeader — and no fixture here includes customHeader, because these
+// fixtures exist to compile the upgrade/mode/finish macros in isolation. Once
+// those macros started logging, every fixture stopped compiling with
+// `macro named "OrgLog" not found`. The arguments are still expanded into
+// StrCpy, so a call site with the wrong argument count still fails here exactly
+// as it would in the generated script; only the file write is dropped.
+const logStub = `Var OrgFixtureLogStage
+Var OrgFixtureLogDetail
+!macro OrgLog stage detail
+  StrCpy $OrgFixtureLogStage "\${stage}"
+  StrCpy $OrgFixtureLogDetail "\${detail}"
+!macroend`
+
 const nsi = `!include LogicLib.nsh
 !include "${mui}"
 Name "Orgtree upgrade fixture"
@@ -51,6 +66,7 @@ SilentInstall silent
 !define isUpdated \`"" _isUpdated ""\`
 !define orgtreeOriginalIsUpdated \`\${isUpdated}\`
 ${vars}
+${logStub}
 # electron-builder supplies UAC.nsh; the fixture supplies the same surface so
 # the mode macro compiles in isolation. customInstallMode elevates for an
 # all-users upgrade, which is where electron-builder elevates too.
@@ -143,6 +159,7 @@ SilentInstall silent
 !define isUpdated \`"" _isUpdated ""\`
 !define orgtreeOriginalIsUpdated \`\${isUpdated}\`
 ${vars}
+${logStub}
 !macro _StubExecShellAsUser _result _exe _verb _args
   StrCpy \`\${_result}\` "ok"
 !macroend
@@ -153,7 +170,7 @@ ${welcome}
 Var installMode
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.js "${path.join(root, 'tools/installer-relaunch.js')}"
+  File /oname=$PLUGINSDIR\\installer-relaunch.py "${path.join(root, 'tools/installer-relaunch.py')}"
 FunctionEnd
 Section
   # Simulate the stale NSIS error flag left by a failed probe immediately
@@ -182,7 +199,7 @@ const [prepared, preparedDir] = fs.readFileSync(preparationMarker, 'utf8').trim(
 assert.equal(prepared, '1', `compiled helper preparation failed in packaged path: ${preparedDir}`)
 assert.ok(preparedDir.includes('OrgtreeInstallerRelaunch-'), `unexpected helper directory: ${preparedDir}`)
 assert.ok(preparedDir.startsWith(preparationTemp), `helper directory escaped the configured temp path: ${preparedDir}`)
-assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.js')), 'compiled fixture did not copy the helper')
+assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.py')), 'compiled fixture did not copy the helper')
 fs.rmSync(preparedDir, { recursive: true, force: true })
 console.log('PASS compiled NSIS helper extraction/preparation path')
 
@@ -219,7 +236,7 @@ console.log('PASS compiled regression reproduces stale NSIS Errors before the fi
 // `$1 != 0` test walked that success into "(error ok)" — so this coverage
 // refuses to stub the plugin: it compiles the repository's real dispatch
 // function against electron-builder's own StdUtils.dll, lets it start the
-// real installer-relaunch.js helper, and watches the helper launch the
+// real installer-relaunch.py helper, and watches the helper launch the
 // (fixture) executable exactly once after the installer process exits.
 const stdUtilsPlugins = (() => {
   if (process.env.ORGTREE_NSIS_PLUGINS) return path.resolve(process.env.ORGTREE_NSIS_PLUGINS)
@@ -244,6 +261,32 @@ const dispatchTemp = path.join(temp, 'dispatch temp with spaces')
 fs.mkdirSync(dispatchTemp)
 const dispatchEnv = { ...process.env, TEMP: dispatchTemp, TMP: dispatchTemp }
 
+// The relaunch host is the application's OWN pythonw.exe, read out of the
+// installed tree, so the fixture needs an $INSTDIR that looks installed. The
+// runtime is provisioned rather than committed (engine/runtime is gitignored),
+// so it is located rather than assumed, and it is LINKED rather than copied —
+// a directory junction needs no privileges and no 100 MB of duplication.
+//
+// This junction is a throwaway inside the harness temp directory. It is not a
+// node_modules link: nothing installs through it, and it is removed with the
+// temp tree.
+const runtimeSource = (() => {
+  const candidates = [
+    process.env.ORGTREE_ENGINE_RUNTIME,
+    path.join(root, 'engine', 'runtime'),
+  ].filter(Boolean)
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'pythonw.exe'))) return candidate
+  }
+  return null
+})()
+if (!runtimeSource) {
+  throw new Error('INERT: no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME')
+}
+const installRoot = path.join(temp, 'fixture install root')
+fs.mkdirSync(path.join(installRoot, 'resources', 'engine'), { recursive: true })
+fs.symlinkSync(runtimeSource, path.join(installRoot, 'resources', 'engine', 'runtime'), 'junction')
+
 function dispatchFixture(finishMacro, executable, resultMarker, launchTarget) {
   return `Unicode true
 !include LogicLib.nsh
@@ -267,6 +310,7 @@ SilentInstall silent
 !define isUpdated \`"" _isUpdated ""\`
 !define orgtreeOriginalIsUpdated \`\${isUpdated}\`
 ${vars}
+${logStub}
 ${finishMacro}
 ${welcome}
 !insertmacro customFinishPage
@@ -274,7 +318,12 @@ Var installMode
 Var rawToken
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.js "${path.join(root, 'tools/installer-relaunch.js')}"
+  File /oname=$PLUGINSDIR\\installer-relaunch.py "${path.join(root, 'tools/installer-relaunch.py')}"
+  # The dispatch reads its host out of the installed tree, so the fixture has to
+  # look like one: $INSTDIR\\resources\\engine\\runtime\\pythonw.exe must exist
+  # or the real function refuses to schedule anything, which is the guard this
+  # fixture is not trying to exercise.
+  StrCpy $INSTDIR "${installRoot.replaceAll('\\', '\\\\')}"
 FunctionEnd
 Section
   # Raw plugin contract, no stubs: the same call shape production uses. This
@@ -283,10 +332,12 @@ Section
   # ⚠ This raw probe deliberately still dispatches powershell.exe. It exists to
   # record what the DLL itself answers, and keeping the historical target keeps
   # that reading comparable with the 2.1.4-RC4 evidence. It is NOT production's
-  # call shape any more — production dispatches wscript.exe, because
-  # powershell.exe is console-subsystem and ShellExecute therefore allocates a
-  # console for it. Expect this ONE probe to flash a console while this harness
-  # runs; that is the harness, not a regression of the fix.
+  # call shape any more — production dispatches the application's own
+  # pythonw.exe, because powershell.exe is console-subsystem and ShellExecute
+  # therefore allocates a console for it. Expect this ONE probe to flash a
+  # console while this harness runs; that is the harness, not a regression of
+  # the fix, and it is why this harness may not be run where a visible window is
+  # forbidden.
   \${StdUtils.ExecShellAsUser} $rawToken "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" "open" "-NoProfile -NonInteractive -WindowStyle Hidden -Command exit"
   Call orgtreePrepareUpgradeRelaunch
   StrCpy $OrgUpgradeExe "${launchTarget}"

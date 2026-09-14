@@ -88,10 +88,10 @@ Var pid
     File /oname=$PLUGINSDIR\installer-upgrade.ps1 "${PROJECT_DIR}\tools\installer-upgrade.ps1"
     # Loaded by the upgrade-only finish hook and launched under the original
     # user token; it waits for this installer process to exit before starting
-    # the replaced application. It is a Windows Script Host script rather than
-    # PowerShell because it is dispatched with ShellExecute, which allocates a
-    # console for any console-subsystem target — see orgtreeDispatchUpgradeRelaunch.
-    File /oname=$PLUGINSDIR\installer-relaunch.js "${PROJECT_DIR}\tools\installer-relaunch.js"
+    # the replaced application. It is run by the application's own pythonw.exe
+    # because the dispatch is a ShellExecute, which allocates a console for any
+    # console-subsystem target — see orgtreeDispatchUpgradeRelaunch.
+    File /oname=$PLUGINSDIR\installer-relaunch.py "${PROJECT_DIR}\tools\installer-relaunch.py"
 
     # An elevated inner instance is a BRAND NEW installer process. It re-runs
     # onInit and every page from the beginning and knows nothing about the
@@ -163,8 +163,11 @@ Var OrgUpgradePathLabel
 Var OrgUpgradeScopeLabel
 Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
+Var OrgUpgradeRelaunchAcknowledged
 Var OrgUpgradeRelaunchArgs
 Var OrgUpgradeRelaunchDir
+Var OrgUpgradeRelaunchHost
+Var OrgUpgradeRelaunchReadyMarker
 Var OrgUpgradeRelaunchPrepared
 Var OrgUpgradeRelaunchReady
 Var OrgUpgradeRelaunchScheduled
@@ -801,24 +804,44 @@ orgtreeSilentElevateDone:
       # visible WindowsTerminal.exe + OpenConsole.exe pair one second before the
       # upgraded app started, then sat there orphaned after PowerShell exited.
       #
-      # -WindowStyle Hidden WAS ALREADY IN THESE ARGUMENTS AND DID NOT PREVENT
+      # -WindowStyle Hidden WAS ALREADY IN THOSE ARGUMENTS AND DID NOT PREVENT
       # IT: that is a PowerShell preference applied after PowerShell starts,
       # acting on its own console window, and under Windows Terminal there is no
       # classic window of its own to hide. Do not attempt to fix a recurrence by
       # adding hiding flags — hiding a console after it exists is the defect.
-      # wscript.exe is GUI-subsystem, so no console is ever created.
+      #
+      # ⚠ AND THE HOST MUST NOT BE SOMETHING POLICY CAN SWITCH OFF. The first
+      # fix for the console used wscript.exe, which is GUI-subsystem and ships
+      # with Windows — but Windows Script Host is disabled by policy on plenty
+      # of managed machines, and a disabled WSH cannot run the script that would
+      # have reported that it could not run. The dispatch would answer "ok", the
+      # Finish page would be skipped, and nothing would start or be logged.
+      #
+      # pythonw.exe is the runtime this application already ships and already
+      # needs in order to run at all, so on a machine where a relaunch means
+      # anything it is present — and unlike a policy switch, its absence is a
+      # FILE that can be checked, which is what the guard below does before this
+      # process commits to skipping the Finish page. It is GUI-subsystem, so no
+      # console is ever created, and it reaches the real Win32 process APIs, so
+      # the helper waits on a handle instead of interrogating WMI.
       #
       # tests/installer-upgrade.test.mjs reads the PE subsystem byte of the
       # executable this line names and fails if it is console-subsystem, so a
       # regression here is caught without running an installer.
-      #
-      # //E:JScript pins the engine instead of trusting the .js file
-      # association, which any editor may have taken over. //B is batch mode:
-      # without it a script error raises a MODAL DIALOG, which would be the very
-      # visible window this change exists to remove.
+      StrCpy $OrgUpgradeRelaunchHost "$INSTDIR\resources\engine\runtime\pythonw.exe"
+      ${ifNot} ${FileExists} "$OrgUpgradeRelaunchHost"
+        # Checked BEFORE the dispatch, because the only thing worse than not
+        # relaunching is skipping the Finish page and then not relaunching: the
+        # user is left with no application and no button that would have started
+        # one. Falling through leaves the normal Finish page in place.
+        !insertmacro OrgLog "relaunch-host-missing" "no runtime host at [$OrgUpgradeRelaunchHost]; leaving the Finish page in place instead of scheduling a relaunch"
+        Return
+      ${endif}
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
-      StrCpy $OrgUpgradeRelaunchArgs '//E:JScript //B "$OrgUpgradeRelaunchDir\installer-relaunch.js" $0 "$OrgUpgradeExe"'
-      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\wscript.exe" "open" "$OrgUpgradeRelaunchArgs"
+      StrCpy $OrgUpgradeRelaunchReadyMarker "$OrgUpgradeRelaunchDir\relaunch-started.txt"
+      Delete "$OrgUpgradeRelaunchReadyMarker"
+      StrCpy $OrgUpgradeRelaunchArgs '"$OrgUpgradeRelaunchDir\installer-relaunch.py" $0 "$OrgUpgradeExe" "$OrgUpgradeRelaunchReadyMarker"'
+      ${StdUtils.ExecShellAsUser} $1 "$OrgUpgradeRelaunchHost" "open" "$OrgUpgradeRelaunchArgs"
       # StdUtils.ExecShellAsUser answers with a TOKEN, not an exit code —
       # testing it against 0 is the 2.1.4-RC4 field failure: the call
       # SUCCEEDED, returned "ok", and "ok" != 0 walked the success into the
@@ -830,12 +853,43 @@ orgtreeSilentElevateDone:
       # Anything else is a real failure and is shown verbatim.
       ${if} $1 == "ok"
       ${orif} $1 == "fallback"
-        StrCpy $OrgUpgradeRelaunchScheduled "1"
-        !insertmacro OrgLog "relaunch-scheduled" "the replaced application will be started once this installer exits"
-        StrCpy $OrgUpgradeRelaunchReady "1"
+        # ⚠ A SUCCESSFUL DISPATCH IS NOT A RUNNING HELPER. The token says the
+        # shell accepted the request, nothing more. The helper writes its ready
+        # marker before it begins waiting, so this is the point where "it
+        # started" stops being an assumption — and it is the check that makes
+        # this path safe against a host that cannot execute, whatever the reason.
+        Call orgtreeAwaitUpgradeRelaunchHelper
+        ${if} $OrgUpgradeRelaunchAcknowledged == "1"
+          StrCpy $OrgUpgradeRelaunchScheduled "1"
+          !insertmacro OrgLog "relaunch-scheduled" "the launch helper acknowledged; the replaced application will be started once this installer exits"
+          StrCpy $OrgUpgradeRelaunchReady "1"
+        ${else}
+          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged; keeping the Finish page so the user can start Orgtree"
+          MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not confirm that it will start after Setup closes. Use Finish to start it, or its shortcut." /SD IDOK
+        ${endif}
       ${else}
+        !insertmacro OrgLog "relaunch-dispatch-failed" "the launch helper could not be dispatched (result $1); keeping the Finish page"
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1). You can start Orgtree from its shortcut." /SD IDOK
       ${endif}
+    FunctionEnd
+
+    # The acceptance handshake. Bounded by design: this runs on the Finish page
+    # of an upgrade the user is waiting on, so it may cost a moment and must not
+    # cost more than one. A helper that has not written its marker within this
+    # window is treated as not running, which keeps the Finish page — the
+    # conservative direction, because the alternative leaves the user with no
+    # application and no button.
+    Function orgtreeAwaitUpgradeRelaunchHelper
+      StrCpy $OrgUpgradeRelaunchAcknowledged "0"
+      StrCpy $R5 0
+      ${do}
+        ${if} ${FileExists} "$OrgUpgradeRelaunchReadyMarker"
+          StrCpy $OrgUpgradeRelaunchAcknowledged "1"
+          ${break}
+        ${endif}
+        Sleep 100
+        IntOp $R5 $R5 + 1
+      ${loopUntil} $R5 >= 50
     FunctionEnd
 
     Function orgtreeScheduleUpgradeRelaunch
@@ -870,7 +924,7 @@ orgtreeSilentElevateDone:
         Return
       ${endif}
       ClearErrors
-      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.js" $OrgUpgradeRelaunchDir
+      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.py" $OrgUpgradeRelaunchDir
       ${if} ${Errors}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
         Return
