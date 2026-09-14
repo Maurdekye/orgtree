@@ -253,9 +253,26 @@ def resolve_row_tier(row: dict[str, Any]) -> str | None:
     return None
 
 
+def invalidate_status_cache(exe: str | None = None) -> None:
+    """Invalidate cached /status capability observations.
+
+    If exe is specified, invalidates entries for that executable;
+    otherwise clears all cached capability observations.
+    """
+    with _lock:
+        if exe is None:
+            _status_supported_cache.clear()
+        else:
+            for k in list(_status_supported_cache.keys()):
+                if k[0] == exe:
+                    _status_supported_cache.pop(k, None)
+
+
 def _clear_unlocked() -> None:
     _cache.update(at=0.0, data=None, account=None,
                   version=capability.UNOBSERVED)
+    _status_supported_cache.clear()
+
 
 
 def _capability(status: dict[str, Any], supported: bool) -> dict[str, Any]:
@@ -421,17 +438,37 @@ def _run_usage(exe: str) -> dict[str, Any]:
     return _decode(result.stdout)
 
 
-_status_supported_cache: dict[str, bool] = {}
+_status_supported_cache: dict[tuple[str, str], bool] = {}
 
 
-def _supports_status(exe: str) -> bool:
+def _supports_status(exe: str, version: str | None = None) -> bool:
     """Check whether the CLI exposes /status as a registered slash command.
 
     Uses `agy --print /help --output-format json` which is a verified zero-turn,
-    zero-token command. Caches the result to avoid repeated calls.
+    zero-token command. Caches the result keyed by (executable path, version),
+    preventing a stale negative cache across an in-place CLI upgrade.
     """
-    if exe in _status_supported_cache:
-        return _status_supported_cache[exe]
+    if version is None:
+        try:
+            st = providers.antigravity_status()
+            if isinstance(st, dict) and st.get("path") == exe and st.get("version"):
+                version = st.get("version")
+        except Exception:
+            pass
+        if not version:
+            try:
+                cached_st = providers.antigravity_cached_status()
+                if isinstance(cached_st, dict) and cached_st.get("path") == exe and cached_st.get("version"):
+                    version = cached_st.get("version")
+            except Exception:
+                pass
+
+    vkey = capability.version_key(version) if version is not None else capability.UNOBSERVED
+    cache_key = (exe, vkey)
+    with _lock:
+        if cache_key in _status_supported_cache:
+            return _status_supported_cache[cache_key]
+
     log_dir = providers.antigravity_probe_dir()
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "help-probe.log")
@@ -441,6 +478,7 @@ def _supports_status(exe: str) -> bool:
         "--output-format", "json",
         "--print-timeout", "10s",
     ]
+    supported = False
     try:
         result = subprocess.run(
             argv, capture_output=True, text=True, timeout=FETCH_TIMEOUT,
@@ -453,21 +491,24 @@ def _supports_status(exe: str) -> bool:
             if _read_only(decoded):
                 cmds = decoded.get("command", {}).get("data", {}).get("commands", [])
                 supported = any(isinstance(c, dict) and c.get("name") == "status" for c in cmds)
-                _status_supported_cache[exe] = supported
-                return supported
     except (OSError, subprocess.TimeoutExpired, ValueError):
         pass
-    _status_supported_cache[exe] = False
-    return False
+
+    with _lock:
+        for k in list(_status_supported_cache.keys()):
+            if k[0] == exe and k[1] != vkey:
+                del _status_supported_cache[k]
+        _status_supported_cache[cache_key] = supported
+    return supported
 
 
-def _run_status(exe: str) -> dict[str, Any] | None:
+def _run_status(exe: str, version: str | None = None) -> dict[str, Any] | None:
     """Query /status with structured JSON output if supported by the CLI.
 
     Returns the parsed JSON response when /status is a verified read-only
     zero-turn command. Returns None if /status is not supported or raises.
     """
-    if not _supports_status(exe):
+    if not _supports_status(exe, version=version):
         return None
     log_dir = providers.antigravity_probe_dir()
     os.makedirs(log_dir, exist_ok=True)
@@ -585,7 +626,7 @@ def fetch(force: bool = False) -> dict[str, Any]:
             return _account({"available": False,
                              "error": "Antigravity CLI is not installed"}, status)
         try:
-            status_json = _run_status(exe)
+            status_json = _run_status(exe, version=status.get("version"))
             status_tier = None
             if isinstance(status_json, dict):
                 cmd_data = (status_json.get("command", {}) or {}).get("data")

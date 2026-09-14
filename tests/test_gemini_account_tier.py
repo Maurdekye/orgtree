@@ -542,6 +542,120 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
         email, tier = providers._extract_antigravity_log_tier(leak_log, "user@example.test")
         self.assertIsNone(tier)
 
+    def test_supports_status_in_place_upgrade_invalidates_negative_cache(self):
+        """When an executable is upgraded in-place from an older version without /status
+        to a newer version with /status, the negative cache must not suppress the new feature.
+        """
+        antigravity_limits.invalidate_status_cache()
+
+        help_unsupported = json.dumps({
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {
+                "name": "help",
+                "data": {"commands": [{"name": "help"}, {"name": "usage"}]},
+            },
+        })
+        help_supported = json.dumps({
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {
+                "name": "help",
+                "data": {"commands": [{"name": "help"}, {"name": "usage"}, {"name": "status"}]},
+            },
+        })
+
+        exe_path = "C:\\Tools\\antigravity\\agy.exe"
+        call_count = 0
+
+        def fake_run(argv, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if "/help" in argv:
+                stdout = help_unsupported if call_count == 1 else help_supported
+                return mock.Mock(returncode=0, stdout=stdout, stderr="")
+            return mock.Mock(returncode=1, stdout="", stderr="")
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            # 1. First call on version 1.2.2: unsupported
+            self.assertFalse(antigravity_limits._supports_status(exe_path, version="1.2.2"))
+            self.assertEqual(call_count, 1)
+
+            # 2. Second call on same version 1.2.2: returns cached False, does not probe again
+            self.assertFalse(antigravity_limits._supports_status(exe_path, version="1.2.2"))
+            self.assertEqual(call_count, 1)
+
+            # 3. In-place upgrade on same path to version 1.3.0: cache miss triggers re-probe
+            self.assertTrue(antigravity_limits._supports_status(exe_path, version="1.3.0"))
+            self.assertEqual(call_count, 2)
+
+            # 4. Subsequent call on version 1.3.0: returns cached True, call count stays 2
+            self.assertTrue(antigravity_limits._supports_status(exe_path, version="1.3.0"))
+            self.assertEqual(call_count, 2)
+
+    def test_fetch_recovers_status_tier_after_in_place_cli_upgrade(self):
+        """fetch() observes in-place CLI version upgrade, re-probes /help, and extracts status tier."""
+        antigravity_limits.invalidate_status_cache()
+
+        help_unsupported = {
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {"name": "help", "data": {"commands": [{"name": "help"}]}},
+        }
+        help_supported = {
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {"name": "help", "data": {"commands": [{"name": "status"}]}},
+        }
+        status_payload = {
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {"name": "status", "data": {"tier": "Gemini Advanced"}},
+        }
+        usage_res = _base_usage_result()
+
+        status_v1 = {
+            "installed": True, "connected": True, "path": "agy.exe",
+            "email": "user@example.test", "version": "1.2.2",
+        }
+        status_v2 = {
+            "installed": True, "connected": True, "path": "agy.exe",
+            "email": "user@example.test", "version": "1.3.0",
+        }
+
+        # Step 1: on v1, /status is unsupported; fallback to tier unavailable
+        with mock.patch.object(providers, "antigravity_status", return_value=status_v1), \
+             mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res), \
+             mock.patch("subprocess.run", return_value=mock.Mock(returncode=0, stdout=json.dumps(help_unsupported), stderr="")):
+            b1 = antigravity_limits.fetch(force=True)
+            self.assertNotIn("tier", b1)
+
+        # Step 2: on v2 (same exe, new version), /help advertises status, /status returns Gemini Advanced
+        with mock.patch.object(providers, "antigravity_status", return_value=status_v2), \
+             mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res), \
+             mock.patch.object(antigravity_limits, "_supports_status", side_effect=antigravity_limits._supports_status), \
+             mock.patch("subprocess.run", return_value=mock.Mock(returncode=0, stdout=json.dumps(help_supported), stderr="")), \
+             mock.patch.object(antigravity_limits, "_run_status", return_value=status_payload):
+            b2 = antigravity_limits.fetch(force=True)
+            self.assertEqual(b2["tier"], "Gemini Advanced")
+
 
 if __name__ == "__main__":
     unittest.main()
