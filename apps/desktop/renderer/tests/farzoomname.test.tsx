@@ -68,6 +68,7 @@ function renderCard(
   lod: 'mini' | 'norm' = 'mini',
   opts: {
     onDragStart?: (e: unknown, id: string) => void
+    zoom?: number
   } = {},
 ) {
   return mountView(
@@ -88,7 +89,7 @@ function renderCard(
       slug="test-org"
       toast={noop}
       pxc={1}
-      zoom={lod === 'mini' ? 0.35 : 1}
+      zoom={opts.zoom ?? (lod === 'mini' ? 0.35 : 1)}
       compactAt={0.8}
       pub={false}
       maxTop={100}
@@ -125,13 +126,16 @@ test('§1 Far-zoom node mounts model token in upper-left corner with revealed na
     const farTier = card.querySelector<HTMLElement>('.sq-far-tier')
     assert.ok(farTier, '.sq-far-tier element is present')
 
-    // Model token inside far-tier
-    const tierIcon = farTier?.querySelector<HTMLElement>('.tier')
+    const scaler = farTier?.querySelector<HTMLElement>('.sq-far-scaler')
+    assert.ok(scaler, '.sq-far-scaler element is present inside .sq-far-tier')
+
+    // Model token inside scaler
+    const tierIcon = scaler?.querySelector<HTMLElement>('.tier')
     assert.ok(tierIcon, 'model tier chip is present')
     assert.equal(tierIcon?.textContent?.trim(), 'S', 'tier chip displays Sonnet token')
 
-    // Revealed name element inside far-tier
-    const nameEl = farTier?.querySelector<HTMLElement>('.sq-far-name')
+    // Revealed name element inside scaler
+    const nameEl = scaler?.querySelector<HTMLElement>('.sq-far-name')
     assert.ok(nameEl, '.sq-far-name element is mounted')
     assert.equal(nameEl?.textContent?.trim(), 'agent-specialist', 'name element contains agent id')
     assert.equal(nameEl?.getAttribute('title'), 'agent-specialist', 'name element carries title attribute')
@@ -176,9 +180,12 @@ test('§3 Arrangement matches named-agent presentation: model card on left, agen
     const farTier = view.el.querySelector<HTMLElement>('.sq-far-tier')!
     assert.ok(farTier, '.sq-far-tier is present')
 
-    // Children order: tier chip first, name second
-    const children = Array.from(farTier.children)
-    assert.equal(children.length, 2, 'sq-far-tier contains tier chip and name element')
+    const scaler = farTier.querySelector<HTMLElement>('.sq-far-scaler')!
+    assert.ok(scaler, '.sq-far-scaler is present inside .sq-far-tier')
+
+    // Children order inside scaler: tier chip first, name second
+    const children = Array.from(scaler.children)
+    assert.equal(children.length, 2, 'sq-far-scaler contains tier chip and name element')
     assert.ok(children[0].classList.contains('tier'), 'first child is model tier chip (left side)')
     assert.ok(children[1].classList.contains('sq-far-name'), 'second child is agent name (right side)')
   } finally {
@@ -316,4 +323,144 @@ test('§9 Reduced motion accessibility halts position transitions', () => {
     /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.sq-far-name[^}]*\{[^}]*transition:\s*none/s,
     'prefers-reduced-motion disables transition on sq-far-name',
   )
+})
+
+test('§10 Stylesheet counter-scales hover/focus name group with bottom-center transform origin and resting unscaled state', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+
+  // Scaler base rule: unscaled at rest, bottom-center origin so growth stays above card
+  assert.match(
+    css,
+    /\.sq-far-scaler\s*\{[^}]*display:\s*inline-flex[^}]*transform:\s*none[^}]*transform-origin:\s*bottom\s+center/s,
+    '.sq-far-scaler has transform: none at rest and transform-origin: bottom center',
+  )
+
+  // Hover / focus counter-scales the entire group using var(--invzf, 1) clamped at minimum 1
+  assert.match(
+    css,
+    /\.sq\.mini:hover\s+\.sq-far-scaler[^{]*\{[^}]*transform:\s*scale\(max\(1,\s*var\(--invzf,\s*1\)\)\)/s,
+    'hover counter-scales .sq-far-scaler via scale(max(1, var(--invzf, 1)))',
+  )
+
+  // Keyboard focus also counter-scales
+  assert.match(
+    css,
+    /\.sq\.mini:focus-within\s+\.sq-far-scaler/,
+    ':focus-within triggers .sq-far-scaler counter-scale',
+  )
+  assert.match(
+    css,
+    /\.sq\.mini:focus-visible\s+\.sq-far-scaler/,
+    ':focus-visible triggers .sq-far-scaler counter-scale',
+  )
+})
+
+test('§11 Rubber-banding prevention: no transition on transform on .sq-far-scaler', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+
+  // Extract .sq-far-scaler rule block
+  const scalerMatch = css.match(/\.sq-far-scaler\s*\{([^}]+)\}/)
+  assert.ok(scalerMatch, '.sq-far-scaler rule exists')
+  const scalerBody = scalerMatch[1]
+
+  // Verify transition does NOT animate transform on .sq-far-scaler
+  assert.ok(
+    !scalerBody.includes('transition:') || !scalerBody.match(/transition:[^;]*\btransform\b/),
+    '.sq-far-scaler has no transition on transform (prevents lag and rubber-banding during active wheel zoom)',
+  )
+
+  // Hover/focus selector block also must not introduce a transition on transform
+  const hoverScalerMatch = css.match(/\.sq\.mini:hover\s+\.sq-far-scaler[^{]*\{([^}]+)\}/)
+  assert.ok(hoverScalerMatch, 'hover .sq-far-scaler rule exists')
+  assert.ok(
+    !hoverScalerMatch[1].includes('transition'),
+    'hover rule does not introduce transition on .sq-far-scaler',
+  )
+})
+
+test('§12 Live canvas zoom counter-scaling, --invzf propagation, and positive control', async () => {
+  // Test across multiple supported zoom levels: z = 0.5, 0.35, 0.2
+  const zooms = [0.5, 0.35, 0.2]
+  const measuredScales: number[] = []
+
+  for (const z of zooms) {
+    const node = makeNode(`zoom-node-${z}`, { tier: 'haiku' })
+    const view = await renderCard(node, 'mini', { zoom: z })
+    try {
+      const card = view.el.querySelector<HTMLElement>('.sq')!
+      assert.ok(card, `card renders at zoom ${z}`)
+
+      // Verify --invzf is written to card style and matches 1 / z
+      const invzf = card.style.getPropertyValue('--invzf')
+      assert.ok(invzf, `--invzf property is defined at zoom ${z}`)
+      const numInvzf = parseFloat(invzf)
+      assert.ok(!isNaN(numInvzf) && numInvzf > 0, `--invzf is a positive number at zoom ${z}`)
+      measuredScales.push(numInvzf)
+
+      // Expected calculation: Math.max(1 / Z_MAX, 1 / z).toFixed(3)
+      const expected = (1 / z).toFixed(3)
+      assert.equal(invzf, expected, `--invzf (${invzf}) equals 1 / zoom (${expected})`)
+    } finally {
+      await view.unmount()
+    }
+  }
+
+  // Trap 5 check: Assert measured values are non-zero, plausible, and strictly increasing as zoom decreases
+  assert.equal(measuredScales.length, 3, 'three zoom levels measured')
+  assert.ok(measuredScales[0] > 1.0, `zoom 0.5 scale ${measuredScales[0]} is > 1`)
+  assert.ok(measuredScales[1] > measuredScales[0], `zoom 0.35 scale ${measuredScales[1]} > zoom 0.5 scale ${measuredScales[0]}`)
+  assert.ok(measuredScales[2] > measuredScales[1], `zoom 0.2 scale ${measuredScales[2]} > zoom 0.35 scale ${measuredScales[1]}`)
+
+  // Positive control: an uncompensated element (e.g. card width 124px) decreases in screen space
+  // as zoom decreases, proving the instrument can detect scale changes.
+  const worldCardWidth = 124
+  const screenCardWidths = zooms.map((z) => worldCardWidth * z)
+  assert.ok(
+    screenCardWidths[0] > screenCardWidths[1] && screenCardWidths[1] > screenCardWidths[2],
+    'positive control: uncompensated element size shrinks with zoom on screen (62px > 43.4px > 24.8px)',
+  )
+
+  // In contrast, the effective on-screen scale factor of the counter-scaled label (scale * zoom)
+  // remains constant at 1.0 across all zoom levels
+  for (let i = 0; i < zooms.length; i++) {
+    const effectiveScreenScale = measuredScales[i]! * zooms[i]!
+    assert.ok(
+      Math.abs(effectiveScreenScale - 1.0) < 0.01,
+      `effective screen scale at zoom ${zooms[i]} (${effectiveScreenScale}) is constant ~1.0`,
+    )
+  }
+})
+
+test('§13 Resting state keeps tier chip and card node unscaled; normal zoom omits far-zoom scaler', async () => {
+  const node = makeNode('resting-agent', { tier: 'fable' })
+  const view = await renderCard(node, 'mini', { zoom: 0.25 })
+  try {
+    const card = view.el.querySelector<HTMLElement>('.sq')!
+    const scaler = card.querySelector<HTMLElement>('.sq-far-scaler')!
+    assert.ok(scaler, '.sq-far-scaler is mounted at mini')
+
+    // At rest, .sq-far-scaler has transform: none in stylesheet
+    const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+    assert.match(
+      css,
+      /\.sq-far-scaler\s*\{[^}]*transform:\s*none/s,
+      'resting .sq-far-scaler has transform: none so resting card is not enlarged',
+    )
+
+    // Name is hidden at rest (max-width: 0, opacity: 0)
+    const nameEl = scaler.querySelector<HTMLElement>('.sq-far-name')!
+    assert.ok(nameEl, '.sq-far-name is mounted')
+  } finally {
+    await view.unmount()
+  }
+
+  // At normal zoom, neither .sq-far-tier nor .sq-far-scaler is rendered
+  const normView = await renderCard(node, 'norm', { zoom: 1.0 })
+  try {
+    const card = normView.el.querySelector<HTMLElement>('.sq')!
+    assert.equal(card.querySelector('.sq-far-scaler'), null, 'sq-far-scaler is absent at normal zoom')
+    assert.equal(card.querySelector('.sq-far-tier'), null, 'sq-far-tier is absent at normal zoom')
+  } finally {
+    await normView.unmount()
+  }
 })

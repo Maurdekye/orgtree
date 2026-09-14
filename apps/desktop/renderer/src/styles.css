@@ -785,13 +785,18 @@ button.badge.audience-fold.alert {
   pointer-events: none;
   display: inline-flex;
   align-items: center;
-  gap: 0;
   transition: top 0.2s cubic-bezier(0.2, 0, 0.2, 1),
               left 0.2s cubic-bezier(0.2, 0, 0.2, 1),
-              transform 0.2s cubic-bezier(0.2, 0, 0.2, 1),
-              gap 0.2s cubic-bezier(0.2, 0, 0.2, 1);
+              transform 0.2s cubic-bezier(0.2, 0, 0.2, 1);
 }
-.sq-far-tier .tier {
+.sq-far-scaler {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  transform: none;
+  transform-origin: bottom center;
+}
+.sq-far-scaler .tier {
   flex: none;
 }
 .sq-far-name {
@@ -820,6 +825,11 @@ button.badge.audience-fold.alert {
   top: -26px;
   left: 50%;
   transform: translateX(-50%);
+}
+.sq.mini:hover .sq-far-scaler,
+.sq.mini:focus-within .sq-far-scaler,
+.sq.mini:focus-visible .sq-far-scaler {
+  transform: scale(max(1, var(--invzf, 1)));
   gap: 5px;
 }
 .sq.mini:hover .sq-far-name,
@@ -922,6 +932,7 @@ button.badge.audience-fold.alert {
     opacity: .92;
   }
   .sq-far-tier,
+  .sq-far-scaler,
   .sq-far-name {
     transition: none;
   }

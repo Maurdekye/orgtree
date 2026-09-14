@@ -22,7 +22,7 @@ import {
 } from '../icons'
 import {
   ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
-  USER_H, USER_W, useAgentShortcuts,
+  USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
   AttentionPip, CanvasNode, DraftScope, DraftState, HireState, MailLinkFn, OpFn, Pile,
@@ -1382,9 +1382,11 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   }
   return <>
     <span className="sq-far-tier">
-      <TierChip tier={node.tier} />
-      <span className="sq-far-name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>
-        {node.id}
+      <span className="sq-far-scaler">
+        <TierChip tier={node.tier} />
+        <span className="sq-far-name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>
+          {node.id}
+        </span>
       </span>
     </span>
     {stateIcon}
@@ -1546,6 +1548,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     transform: `translate(${pos.x}px, ${pos.y}px)`,
     width: NODE_W, height: NODE_H,
     zIndex: focused ? 5 : dragging ? 8 : undefined,
+  }
+  if (zoom != null && zoom > 0) {
+    Object.assign(style, {
+      '--invzf': Math.max(1 / Z_MAX, 1 / zoom).toFixed(3),
+    })
   }
   if (node.account && node.account_tint_ordinal != null) {
     const family = providerOf(node.tier ?? '')
