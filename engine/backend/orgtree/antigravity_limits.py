@@ -421,6 +421,83 @@ def _run_usage(exe: str) -> dict[str, Any]:
     return _decode(result.stdout)
 
 
+_status_supported_cache: dict[str, bool] = {}
+
+
+def _supports_status(exe: str) -> bool:
+    """Check whether the CLI exposes /status as a registered slash command.
+
+    Uses `agy --print /help --output-format json` which is a verified zero-turn,
+    zero-token command. Caches the result to avoid repeated calls.
+    """
+    if exe in _status_supported_cache:
+        return _status_supported_cache[exe]
+    log_dir = providers.antigravity_probe_dir()
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "help-probe.log")
+    argv = providers.antigravity_argv(exe) + [
+        "--log-file", log_path,
+        "--print", "/help",
+        "--output-format", "json",
+        "--print-timeout", "10s",
+    ]
+    try:
+        result = subprocess.run(
+            argv, capture_output=True, text=True, timeout=FETCH_TIMEOUT,
+            cwd=log_dir, stdin=subprocess.DEVNULL,
+            env=providers.antigravity_env(),
+            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+                           if os.name == "nt" else 0))
+        if result.returncode == 0:
+            decoded = _decode(result.stdout)
+            if _read_only(decoded):
+                cmds = decoded.get("command", {}).get("data", {}).get("commands", [])
+                supported = any(isinstance(c, dict) and c.get("name") == "status" for c in cmds)
+                _status_supported_cache[exe] = supported
+                return supported
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    _status_supported_cache[exe] = False
+    return False
+
+
+def _run_status(exe: str) -> dict[str, Any] | None:
+    """Query /status with structured JSON output if supported by the CLI.
+
+    Returns the parsed JSON response when /status is a verified read-only
+    zero-turn command. Returns None if /status is not supported or raises.
+    """
+    if not _supports_status(exe):
+        return None
+    log_dir = providers.antigravity_probe_dir()
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "status-probe.log")
+    argv = providers.antigravity_argv(exe) + [
+        "--log-file", log_path,
+        "--print", "/status",
+        "--output-format", "json",
+        "--print-timeout", "10s",
+    ]
+    try:
+        result = subprocess.run(
+            argv, capture_output=True, text=True, timeout=FETCH_TIMEOUT,
+            cwd=log_dir, stdin=subprocess.DEVNULL,
+            env=providers.antigravity_env(),
+            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+                           if os.name == "nt" else 0))
+        if result.returncode != 0:
+            return None
+        decoded = _decode(result.stdout)
+        if not _read_only(decoded):
+            return None
+        cmd = decoded.get("command")
+        if not isinstance(cmd, dict) or cmd.get("name") != "status":
+            return None
+        return decoded
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
 def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
     tier = _sanitize_tier(data.get("tier")) or _sanitize_tier(data.get("plan"))
     if not tier:
@@ -429,6 +506,22 @@ def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
             if cleaned:
                 tier = cleaned
                 break
+    if not tier:
+        log_dir = providers.antigravity_probe_dir()
+        for probe_file in ("usage-probe.log", "models-probe.log"):
+            log_path = os.path.join(log_dir, probe_file)
+            if os.path.isfile(log_path):
+                try:
+                    with open(log_path, encoding="utf-8", errors="replace") as f:
+                        probe_text = f.read()
+                    _, log_tier = providers._extract_antigravity_log_tier(  # pyright: ignore[reportPrivateUsage]
+                        probe_text, expected_email=status.get("email")
+                    )
+                    if log_tier:
+                        tier = log_tier
+                        break
+                except OSError:
+                    pass
     safe_data = {k: v for k, v in data.items() if k not in ("tier", "plan")}
     res: dict[str, Any] = {
         "account": ACCOUNT,
@@ -492,9 +585,21 @@ def fetch(force: bool = False) -> dict[str, Any]:
             return _account({"available": False,
                              "error": "Antigravity CLI is not installed"}, status)
         try:
+            status_json = _run_status(exe)
+            status_tier = None
+            if isinstance(status_json, dict):
+                cmd_data = (status_json.get("command", {}) or {}).get("data")
+                status_tier = _extract_tier(
+                    status_json,
+                    cmd_data if isinstance(cmd_data, dict) else {}
+                )
+
             raw = _run_usage(exe)
             observed = time.time()
             data = _normalize(raw, observed)
+            if status_tier:
+                data["tier"] = status_tier
+                data["plan"] = status_tier
             if not data["available"]:
                 data["error"] = "Antigravity reported no usage-limit windows"
             after = providers.antigravity_status(force=True)

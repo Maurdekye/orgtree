@@ -960,6 +960,119 @@ def _antigravity_version(exe: str) -> str:
 
 _ANTIGRAVITY_EMAIL_RE: Final = re.compile(
     r"authenticated successfully as (\S+@\S+)")
+_ANTIGRAVITY_AUTH_RESULT_RE: Final = re.compile(
+    r"applyAuthResult:\s*email=([^,\s]+),\s*authMethod=([^,\s]+)",
+    re.IGNORECASE)
+_ANTIGRAVITY_SET_USER_TIER_RE: Final = re.compile(
+    r"\[AuthProvider\] SetUserTier called with userTier:\s*\"([^\"]*)\",\s*tierDisplayName:\s*\"([^\"]*)\"",
+    re.IGNORECASE)
+_ANTIGRAVITY_KEYRING_USER_TIER_RE: Final = re.compile(
+    r"Restored saved token from keyring:.*userTier=\"([^\"]+)\"",
+    re.IGNORECASE)
+
+_ANTIGRAVITY_USER_TIER_DISPLAY: Final = {
+    "free_tier": "Free",
+    "g1_pro_tier": "Google One Pro",
+    "g1_ultra_tier": "Google One Ultra",
+    "g1_ultra_lite_tier": "Google One Ultra Lite",
+    "g1_plus_tier": "Google One Plus",
+    "cs_standard_tier": "Standard",
+    "aida_tier": "Standard",
+    "agy_business_paygo_tier": "Business Pay-As-You-Go",
+    "enterprise_agent_tier": "Enterprise",
+    "gcp_enterprise_tier": "GCP Enterprise",
+    "gcp_ge_paygo_tier": "GCP Pay-As-You-Go",
+    "gcp_ge_plus_tier": "GCP Plus",
+    "gcp_ge_standard_tier": "GCP Standard",
+}
+
+_ANTIGRAVITY_AUTH_METHOD_TIERS: Final = {
+    "consumer": "Consumer",
+    "personal": "Consumer",
+    "enterprise": "Enterprise",
+    "gcp": "GCP",
+    "workforce": "Workforce",
+    "adc": "ADC",
+}
+
+_RE_SAFE_TIER: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\s._\-+]{0,63}$")
+_RE_SECRET_PATTERN: Final = re.compile(
+    r"(?:ya29\.[a-zA-Z0-9_\-]+|sk-[a-zA-Z0-9_\-]+|ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|ghp_[a-zA-Z0-9]+|bearer\s+|[a-f0-9]{32,})",
+    re.IGNORECASE,
+)
+_RE_BILLING_PATTERN: Final = re.compile(
+    r"(?:sub_[a-zA-Z0-9]+|cus_[a-zA-Z0-9]+|ba-[a-zA-Z0-9]+|billing-[a-zA-Z0-9]+)",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_tier(val: object) -> str | None:
+    """Validate and sanitize a tier string.
+
+    Rejects paths, secrets, access tokens, billing identifiers, multiline text,
+    and non-string values. Never returns a guess or fabricated value.
+    """
+    if not isinstance(val, str):
+        return None
+    if "\n" in val or "\r" in val or "\t" in val:
+        return None
+    cleaned = val.strip()
+    if not cleaned or len(cleaned) > 64:
+        return None
+    if "/" in cleaned or "\\" in cleaned or "{" in cleaned or "}" in cleaned or '"' in cleaned:
+        return None
+    if _RE_SECRET_PATTERN.search(cleaned):
+        return None
+    if _RE_BILLING_PATTERN.search(cleaned):
+        return None
+    if not _RE_SAFE_TIER.match(cleaned):
+        return None
+    return cleaned
+
+
+def _extract_antigravity_log_tier(
+    log_text: str, expected_email: str | None = None
+) -> tuple[str | None, str | None]:
+    """Extract authoritative account email and tier from Antigravity probe log.
+
+    Attaches tier only when the authenticated email matches expected_email
+    (or when expected_email is not yet known), preserving per-account attribution.
+    """
+    found_email: str | None = None
+    m_email = _ANTIGRAVITY_EMAIL_RE.search(log_text)
+    if m_email:
+        found_email = m_email.group(1)
+
+    tier: str | None = None
+    m_tier = _ANTIGRAVITY_SET_USER_TIER_RE.search(log_text)
+    if m_tier:
+        raw_user_tier, raw_disp = m_tier.group(1), m_tier.group(2)
+        if raw_disp:
+            tier = _sanitize_tier(raw_disp)
+        if not tier and raw_user_tier:
+            tier = _ANTIGRAVITY_USER_TIER_DISPLAY.get(raw_user_tier.lower()) or _sanitize_tier(raw_user_tier)
+
+    if not tier:
+        m_keyring = _ANTIGRAVITY_KEYRING_USER_TIER_RE.search(log_text)
+        if m_keyring:
+            raw_user_tier = m_keyring.group(1)
+            tier = _ANTIGRAVITY_USER_TIER_DISPLAY.get(raw_user_tier.lower()) or _sanitize_tier(raw_user_tier)
+
+    m_auth = _ANTIGRAVITY_AUTH_RESULT_RE.search(log_text)
+    if m_auth:
+        auth_email, auth_method = m_auth.group(1), m_auth.group(2).lower()
+        if not found_email:
+            found_email = auth_email
+        target_email = expected_email or found_email
+        if target_email and target_email.lower() == auth_email.lower():
+            if not tier:
+                tier = _ANTIGRAVITY_AUTH_METHOD_TIERS.get(auth_method)
+
+    target_email = expected_email or found_email
+    if expected_email and found_email and expected_email.lower() != found_email.lower():
+        return found_email, None
+
+    return found_email, tier
 
 
 def antigravity_probe_dir() -> str:
@@ -1018,9 +1131,13 @@ def _antigravity_account(exe: str) -> dict[str, Any]:
         out["kind"] = "oauth"
         try:
             with open(log_path, encoding="utf-8", errors="replace") as f:
-                m = _ANTIGRAVITY_EMAIL_RE.search(f.read())
-            if m:
-                out["email"] = m.group(1)
+                log_text = f.read()
+            email, tier = _extract_antigravity_log_tier(log_text)
+            if email:
+                out["email"] = email
+            if tier:
+                out["tier"] = tier
+                out["plan"] = tier
         except OSError:
             pass
     return out

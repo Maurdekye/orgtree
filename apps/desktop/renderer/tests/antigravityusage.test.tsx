@@ -176,3 +176,51 @@ test('non-Gemini provider rows remain unchanged', async (t) => {
   assert.doesNotMatch(v3.el.textContent ?? '', /tier unavailable/)
 })
 
+test('UsageBars and modal reproduce image-115 resolution with Consumer tier and intact quota buckets', async (t) => {
+  const agy: AccountUsage = {
+    account: 'antigravity', provider: 'Antigravity', label: 'ncolaprete@gmail.com',
+    available: true, tier: 'Consumer', limits: [
+      { kind: 'weekly_scoped', group: 'gemini-weekly', percent: 25.8,
+        severity: 'normal', resets_at: '2026-09-19T19:40:25Z',
+        is_active: false, model: 'Gemini Models',
+        label: 'Gemini Models · Weekly' },
+      { kind: 'session', group: 'gemini-5h', percent: 58.6,
+        severity: 'normal', resets_at: '2026-09-14T17:09:59Z',
+        is_active: false, model: 'Gemini Models',
+        label: 'Gemini Models · Five Hour' },
+      { kind: 'weekly_scoped', group: '3p-weekly', percent: 0,
+        severity: 'normal', resets_at: '2026-09-21T13:46:17Z',
+        is_active: false, model: 'Claude and GPT models',
+        label: 'Claude and GPT models · Weekly' },
+      { kind: 'session', group: '3p-5h', percent: 0,
+        severity: 'normal', resets_at: '2026-09-14T18:46:17Z',
+        is_active: false, model: 'Claude and GPT models',
+        label: 'Claude and GPT models · Five Hour' },
+    ],
+  }
+  const viewBars = await mountView(<UsageBars u={agy} />, el => el)
+  t.after(async () => { await viewBars.unmount() })
+  const barText = viewBars.el.textContent ?? ''
+  assert.match(barText, /Antigravity Consumer/)
+  assert.doesNotMatch(barText, /tier unavailable/)
+  assert.match(barText, /Gemini Models · Weekly/)
+  assert.match(barText, /26%/)
+  assert.match(barText, /Gemini Models · Five Hour/)
+  assert.match(barText, /59%/)
+
+  const restore = stubFetch(agy)
+  try {
+    const viewModal = await mountView(<UsageModal close={() => {}} />, el => el)
+    await inAct(async () => { await flush(8) })
+    const modalText = viewModal.el.textContent ?? ''
+    assert.match(modalText, /Antigravity Consumer/)
+    assert.match(modalText, /ncolaprete@gmail\.com/)
+    assert.doesNotMatch(modalText, /tier unavailable/)
+    assert.match(modalText, /Gemini Models · Weekly/)
+    assert.match(modalText, /Claude and GPT models · Five Hour/)
+  } finally {
+    restore()
+  }
+})
+
+

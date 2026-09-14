@@ -304,5 +304,244 @@ class MultiAccountAttributionTests(unittest.TestCase):
         self.assertNotIn("plan", sec_view)
 
 
+class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
+    """Installed Antigravity tier detection correction (2026-09-14).
+    
+    Covers:
+    - Status probe preferred when supported with structured JSON output.
+    - Status probe ignored and rejected if ungrounded/billed (num_turns > 0).
+    - Structured log extraction of authMethod (consumer -> Consumer, enterprise -> Enterprise).
+    - Structured log extraction of SetUserTier and keyring userTier.
+    - Image-115 reproduction: ncolaprete@gmail.com with authMethod=consumer resolves Consumer tier
+      while preserving all 4 quota windows.
+    - Cross-account attribution isolation for probe log entries.
+    - Unavailable retained when every supported structured source genuinely lacks tier.
+    - Secret and billing identifier exclusion from probe log lines.
+    """
+
+    def setUp(self):
+        antigravity_limits.invalidate()
+        antigravity_limits._status_supported_cache.clear()
+        self.probe_dir = tempfile.mkdtemp(prefix="probe-dir-", dir=_root.name)
+
+    def test_status_probe_preferred_when_supported(self):
+        """Structured /status JSON output is preferred over other sources when supported."""
+        status_result = {
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {
+                "name": "status",
+                "data": {"tier": "Gemini Advanced", "plan": "Gemini Advanced"},
+            },
+        }
+        usage_res = _base_usage_result()
+        usage_res["command"]["data"]["tier"] = "Standard"
+
+        ambient_status = {
+            "installed": True,
+            "connected": True,
+            "path": "agy.exe",
+            "email": "user@example.test",
+            "version": "1.2.2",
+            "tier": "Standard",
+        }
+
+        with mock.patch.object(providers, "antigravity_status", return_value=ambient_status), \
+             mock.patch.object(antigravity_limits, "_run_status", return_value=status_result), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res):
+            board = antigravity_limits.fetch(force=True)
+
+        self.assertEqual(board["tier"], "Gemini Advanced")
+        self.assertEqual(board["plan"], "Gemini Advanced")
+        self.assertTrue(board["available"])
+        self.assertEqual(len(board["limits"]), 1)
+
+    def test_status_probe_rejected_if_billed_or_not_read_only(self):
+        """Billed model turn on /status (num_turns != 0) is rejected as a read-only source."""
+        billed_status = {
+            "conversation_id": "conv-123",
+            "status": "SUCCESS",
+            "num_turns": 1,
+            "usage": {"input_tokens": 50, "output_tokens": 100, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 150},
+            "response": "I am an AI",
+        }
+        usage_res = _base_usage_result()
+        ambient_status = {
+            "installed": True,
+            "connected": True,
+            "path": "agy.exe",
+            "email": "user@example.test",
+            "version": "1.2.2",
+        }
+
+        log_content = (
+            "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: "
+            "email=user@example.test, authMethod=consumer, quotaProject=\n"
+        )
+        (Path(self.probe_dir) / "usage-probe.log").write_text(log_content, encoding="utf-8")
+
+        with mock.patch.object(providers, "antigravity_status", return_value=ambient_status), \
+             mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
+             mock.patch.object(antigravity_limits, "_run_status", return_value=billed_status), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res):
+            board = antigravity_limits.fetch(force=True)
+
+        # Billed status was ignored; structured probe log fallback was used
+        self.assertEqual(board["tier"], "Consumer")
+        self.assertEqual(board["plan"], "Consumer")
+
+    def test_image_115_reproduction_consumer_tier_with_all_quota_windows(self):
+        """Reproduction of uploads/image-115.png: ncolaprete@gmail.com with authMethod=consumer
+        resolves Antigravity Consumer and preserves all 4 quota windows.
+        """
+        image_115_usage = {
+            "conversation_id": "",
+            "status": "SUCCESS",
+            "num_turns": 0,
+            "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+                      "cache_read_tokens": 0, "total_tokens": 0},
+            "command": {
+                "name": "usage",
+                "data": {
+                    "groups": [
+                        {
+                            "name": "Gemini Models",
+                            "buckets": [
+                                {
+                                    "id": "gemini-weekly",
+                                    "name": "Weekly Limit Remaining",
+                                    "window": "weekly",
+                                    "remaining_fraction": 0.19,  # 81% used
+                                    "reset_time": "2026-09-17T19:40:25Z",
+                                },
+                                {
+                                    "id": "gemini-5h",
+                                    "name": "Five Hour Limit Remaining",
+                                    "window": "5h",
+                                    "remaining_fraction": 1.0,  # 0% used
+                                    "reset_time": "2026-09-15T04:35:27Z",
+                                },
+                            ],
+                        },
+                        {
+                            "name": "Claude and GPT models",
+                            "buckets": [
+                                {
+                                    "id": "3p-weekly",
+                                    "name": "Weekly Limit Remaining",
+                                    "window": "weekly",
+                                    "remaining_fraction": 1.0,  # 0% used
+                                    "reset_time": "2026-09-21T19:40:25Z",
+                                },
+                                {
+                                    "id": "3p-5h",
+                                    "name": "Five Hour Limit Remaining",
+                                    "window": "5h",
+                                    "remaining_fraction": 1.0,  # 0% used
+                                    "reset_time": "2026-09-15T04:35:27Z",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        }
+
+        ambient_status = {
+            "installed": True,
+            "connected": True,
+            "path": "agy.exe",
+            "email": "ncolaprete@gmail.com",
+            "version": "1.2.2",
+        }
+
+        probe_log = (
+            "I0914 23:14:17.918219 1 keyring.go:64] keyringAuth: loaded token, expired=false\n"
+            "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=ncolaprete@gmail.com, authMethod=consumer, quotaProject=\n"
+            "I0914 23:14:17.918219 1 server_oauth.go:197] OAuth: authenticated successfully as ncolaprete@gmail.com\n"
+        )
+        (Path(self.probe_dir) / "models-probe.log").write_text(probe_log, encoding="utf-8")
+
+        with mock.patch.object(providers, "antigravity_status", return_value=ambient_status), \
+             mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=image_115_usage):
+            board = antigravity_limits.fetch(force=True)
+
+        self.assertEqual(board["tier"], "Consumer")
+        self.assertEqual(board["plan"], "Consumer")
+        self.assertEqual(board["label"], "ncolaprete@gmail.com")
+        self.assertEqual(board["account"], "antigravity")
+        self.assertTrue(board["available"])
+        self.assertEqual(len(board["limits"]), 4)
+        self.assertEqual(board["limits"][0]["label"], "Gemini Models · Weekly")
+        self.assertEqual(board["limits"][0]["percent"], 81.0)
+        self.assertEqual(board["limits"][1]["label"], "Gemini Models · Five Hour")
+        self.assertEqual(board["limits"][1]["percent"], 0.0)
+        self.assertEqual(board["limits"][2]["label"], "Claude and GPT models · Weekly")
+        self.assertEqual(board["limits"][2]["percent"], 0.0)
+        self.assertEqual(board["limits"][3]["label"], "Claude and GPT models · Five Hour")
+        self.assertEqual(board["limits"][3]["percent"], 0.0)
+
+    def test_user_tier_and_tier_display_name_in_probe_log(self):
+        """SetUserTier and keyring userTier in probe logs take precedence over generic authMethod."""
+        log_with_display = (
+            'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
+            '[AuthProvider] SetUserTier called with userTier: "G1_PRO_TIER", tierDisplayName: "Google One AI Premium"\n'
+        )
+        email, tier = providers._extract_antigravity_log_tier(log_with_display, "user@example.test")
+        self.assertEqual(email, "user@example.test")
+        self.assertEqual(tier, "Google One AI Premium")
+
+        log_with_enum = (
+            'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
+            'Restored saved token from keyring: authMethod=consumer projectID="" region="" userTier="CS_STANDARD_TIER" wifProvider=""\n'
+        )
+        email2, tier2 = providers._extract_antigravity_log_tier(log_with_enum, "user@example.test")
+        self.assertEqual(tier2, "Standard")
+
+    def test_probe_log_cross_account_isolation(self):
+        """Probe log for a different email must not be attributed to the current account."""
+        foreign_log = (
+            "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: "
+            "email=other@example.test, authMethod=enterprise, quotaProject=\n"
+        )
+        email, tier = providers._extract_antigravity_log_tier(foreign_log, "user@example.test")
+        self.assertIsNone(tier)
+
+    def test_tier_unavailable_when_all_structured_sources_lack_tier(self):
+        """Retains unavailable presentation when no supported structured source reports tier."""
+        usage_res = _base_usage_result()
+        ambient_status = {
+            "installed": True,
+            "connected": True,
+            "path": "agy.exe",
+            "email": "user@example.test",
+            "version": "1.2.2",
+        }
+        # Empty probe dir, no log files
+        with mock.patch.object(providers, "antigravity_status", return_value=ambient_status), \
+             mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
+             mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res):
+            board = antigravity_limits.fetch(force=True)
+
+        self.assertNotIn("tier", board)
+        self.assertNotIn("plan", board)
+        self.assertTrue(board["available"])
+        self.assertEqual(len(board["limits"]), 1)
+
+    def test_secrets_and_paths_in_probe_log_sanitized(self):
+        """Bearer tokens, file paths, and billing IDs in log tier fields are rejected."""
+        leak_log = (
+            'applyAuthResult: email=user@example.test, authMethod=ya29.secret_token, quotaProject=\n'
+            '[AuthProvider] SetUserTier called with userTier: "C:\\Users\\admin\\secret.json", tierDisplayName: "sub_12345678"\n'
+        )
+        email, tier = providers._extract_antigravity_log_tier(leak_log, "user@example.test")
+        self.assertIsNone(tier)
+
+
 if __name__ == "__main__":
     unittest.main()
