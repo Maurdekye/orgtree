@@ -44,7 +44,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
-import { DeskChat, ServingAccountBadge } from './desk'
+import { DeskChat } from './desk'
 import { AgentName } from './identity'
 import { providerOf, TIER_LETTER } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
@@ -637,15 +637,18 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
             onJump?.(id)
           }} />
         {state && <span className="pinwin-state" title={`this agent is ${state}; the window stays readable`}>{state}</span>}
-        {/* WHICH ACCOUNT SERVES THIS AGENT, on the pinned Desk header too
-            (user report 2026-09-14: the card was on the canvas node but
-            absent from pinned Desk headers). Same shared component, same
-            backend-composed field and gates as the desk header and the
-            near-zoom card — null means the backend said "do not show this",
-            and the pinned title bar is screen-space, so no far-zoom
-            exclusion applies. Its own pointerdown stop keeps a press on the
-            card from starting the title-bar drag. */}
-        <ServingAccountBadge account={node.serving_account} />
+        {/* ⚠ NO ACCOUNT CARD HERE, DELIBERATELY (user report 2026-09-14, with a
+            screenshot: a pinned desk showed the account twice — a `default`
+            pill against the agent's name up here, and the intended `default`
+            token below beside MCP, cache, state, gen and cost).
+            A pinned window is its title bar PLUS a whole `DeskChat` in
+            `.pinwin-body`, and that desk draws its own header row — so the
+            account already arrives with the desk, in the variable-presence
+            token list where it belongs beside its neighbours. Adding one here
+            (3b301d9, fixing an RC4 report that the title bar carried none) put
+            a second copy a few pixels from the first rather than the only copy.
+            The token list is the one place; see ServingAccountBadge's call site
+            in desk.tsx's `.cc-head-meta`. */}
         <span className="spacer" />
         <button className="pinwin-unpin" title={`unpin ${node.id} — minimise back to its desk`}
           aria-label={`unpin ${node.id}`}

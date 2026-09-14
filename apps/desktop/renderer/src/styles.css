@@ -6500,10 +6500,6 @@ label.set-row { cursor: pointer; }
   font-size: 10px; color: var(--dim); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 5px;
 }
-/* The account card sits in the title bar, at the very top of a window with
-   overflow:hidden — a tip that opens UPWARD (its default) would be clipped
-   to nothing there, so in this one context it drops below the badge. */
-.pinwin-title .serving-account-tip { bottom: auto; top: calc(100% + 5px); }
 .pinwin-unpin {
   background: none; border: none; padding: 2px; display: inline-flex;
   color: var(--dim); font-size: 15px; cursor: pointer; border-radius: 3px;

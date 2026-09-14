@@ -75,7 +75,7 @@ function tree(withAccount: boolean, account: ServingAccount | null = null, tier 
   })
 }
 
-async function mountPinned(t: TestContext, withAccount: boolean,
+async function mountCanvas(t: TestContext, withAccount: boolean,
   account: ServingAccount | null = null, tier = 'luna') {
   useFakeClock()
   localStorage.clear()
@@ -89,6 +89,12 @@ async function mountPinned(t: TestContext, withAccount: boolean,
   const view = await mountView(<Host />, (el) => el)
   t.after(async () => { await view.unmount(); realClock(); localStorage.clear(); forgetPins() })
   await flush()
+  return view
+}
+
+async function mountPinned(t: TestContext, withAccount: boolean,
+  account: ServingAccount | null = null, tier = 'luna') {
+  const view = await mountCanvas(t, withAccount, account, tier)
   await inAct(() => addPin('mine', 'worker', { x: 10, y: 10, w: 500, h: 500 }))
   await flush()
   const win = view.el.querySelector<HTMLElement>('.pinwin[data-id="worker"]')
@@ -96,39 +102,52 @@ async function mountPinned(t: TestContext, withAccount: boolean,
   return win!
 }
 
-test('the pinned Desk header wears the account card with the exact token', async (t: TestContext) => {
+test('a pinned desk renders the account ID EXACTLY ONCE, in the token list', async (t: TestContext) => {
   const win = await mountPinned(t, true)
-  const title = win.querySelector<HTMLElement>('.pinwin-title')!
-  const badge = title.querySelector<HTMLElement>('.badge.serving-account')
-  assert.ok(badge, 'the pinned title bar must carry the account card (RC4 omitted it)')
-  assert.equal(badge!.textContent, 'default')
-  // the token contract: never the provider-qualified spelling, never `primary`
-  assert.doesNotMatch(badge!.textContent ?? '', /openai\/|primary/)
-  // the same shared component: its detail reveal rides along
-  assert.ok(title.querySelector('.serving-account-tip'), 'the hover/focus detail surface is present')
-  // and the desk body inside the very same window still has its own copy —
-  // the title-bar card ADDS a surface, it does not move one
-  assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
-    'the desk header inside the pinned body keeps its card')
+
+  // THE WHOLE POINT, stated as a count. Both halves matter: `1` and not `2`
+  // is the duplicate being gone, and `1` and not `0` is the identity still
+  // being there — a fix that deleted it everywhere would pass the first.
+  assert.equal(win.querySelectorAll('.badge.serving-account').length, 1,
+    'exactly one account ID on a pinned desk')
+
+  // …and it is the TOKEN LIST's copy that survived, beside cost/cache/MCP —
+  // not the title bar's. Asserting the count alone would let the two swap.
+  const token = win.querySelector<HTMLElement>('.pinwin-body .cc-head-meta .badge.serving-account')
+  assert.ok(token, 'the surviving card is the desk header token, beside its neighbours')
+  assert.equal(win.querySelector('.pinwin-title .badge.serving-account'), null,
+    'and the pinned title bar carries none (user report 2026-09-14, with a screenshot: '
+    + 'a `default` pill against the agent name AND the intended one below)')
+
+  // the token's own contract is untouched: the exact spelling, never the
+  // provider-qualified form, never `primary`, and its detail reveal intact
+  assert.equal(token!.textContent, 'default')
+  assert.doesNotMatch(token!.textContent ?? '', /openai\/|primary/)
+  assert.ok(win.querySelector('.pinwin-body .serving-account-tip'),
+    'the hover/focus detail surface rides along as before')
 })
 
-test('a Fable agent on a Claude secondary wears the same card on node and pinned title', async (t: TestContext) => {
+test('a Fable agent on a Claude secondary wears exactly one card, in the token list', async (t: TestContext) => {
   // The provider-generic half: the backend now composes the field for every
   // multi-account provider, and the renderer surfaces are provider-blind —
   // the same shared component renders a Claude secondary's immutable id.
   const win = await mountPinned(t, true, claudeServing(), 'fable')
-  const badge = win.querySelector<HTMLElement>('.pinwin-title .badge.serving-account')
-  assert.ok(badge, 'the pinned title bar must carry the Claude account card')
-  assert.equal(badge!.textContent, 'claude-4')
-  assert.doesNotMatch(badge!.textContent ?? '', /claude\/|primary/)
-  assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
-    'the desk header inside the pinned body keeps its card for Claude too')
+  assert.equal(win.querySelectorAll('.badge.serving-account').length, 1,
+    'exactly once for a Claude secondary too — the duplicate was provider-blind, so this is')
+  const token = win.querySelector<HTMLElement>('.pinwin-body .cc-head-meta .badge.serving-account')
+  assert.ok(token, 'the desk header token carries the Claude account card')
+  assert.equal(token!.textContent, 'claude-4')
+  assert.doesNotMatch(token!.textContent ?? '', /claude\/|primary/)
+  assert.equal(win.querySelector('.pinwin-title .badge.serving-account'), null)
 })
 
-test('without the backend field the pinned Desk header shows nothing', async (t: TestContext) => {
+test('without the backend field a pinned desk shows no account card at all', async (t: TestContext) => {
   const win = await mountPinned(t, false)
+  // the gate is still the backend's: a null field renders nothing ANYWHERE in
+  // the window, title bar and token list alike
+  assert.equal(win.querySelectorAll('.badge.serving-account').length, 0)
+  assert.equal(win.querySelector('.serving-account-wrap'), null)
   assert.equal(win.querySelector('.pinwin-title .badge.serving-account'), null)
-  assert.equal(win.querySelector('.pinwin-title .serving-account-wrap'), null)
 })
 
 test('the card uses the compact badge typography of its neighbours in every context', () => {
@@ -157,9 +176,43 @@ test('the card uses the compact badge typography of its neighbours in every cont
     size(/\.desk-body \.badge \{[^}]*?font-size:\s*([\d.]+)px/))
 })
 
-test('the title-bar detail surface opens downward, away from the clipped window edge', () => {
+test('the title bar carries no account styling to orphan', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  // .pinwin is overflow:hidden and the title bar is its very first row: the
-  // default upward tip would be clipped to nothing there.
-  assert.match(css, /\.pinwin-title \.serving-account-tip \{[^}]*bottom:\s*auto;[^}]*top:\s*calc\(100% \+ 5px\);[^}]*\}/)
+  // This rule existed only to stop the TITLE BAR's tip being clipped by
+  // `.pinwin`'s overflow:hidden. With no card there, it styled nothing — a
+  // rule no surface can reach is a rule the next reader has to disprove.
+  assert.doesNotMatch(css, /\.pinwin-title[^{]*\.serving-account/)
+  // the card's own typography rules stay: they serve the canvas node and the
+  // desk body, which is where the card still lives
+  assert.match(css, /\.desk-body button\.badge\.serving-account \{/)
+  assert.match(css, /\.sq-badges button\.badge\.serving-account \{/)
+})
+
+
+/** ⚠ THE CONTROL, and it is not decoration. "Renders exactly once" is
+ *  satisfiable by deleting the account card from the app entirely, so the
+ *  regression above is only worth something beside a test that fails if the
+ *  identity stops being drawn where it is INTENDED. Same tree, same agent,
+ *  nothing pinned: the canvas node must still wear it.
+ *
+ *  The other intentional surfaces — the near-zoom node, the unpinned Desk
+ *  header's metadata row, far-zoom exclusion, the hover/focus detail — are
+ *  held by servingaccount.test.tsx (§2a-§2m) and were not touched by this
+ *  change. This is the cheap in-file guard against the obvious wrong fix. */
+test('CONTROL: an UNPINNED desk still shows the account ID on its canvas node', async (t: TestContext) => {
+  const view = await mountCanvas(t, true)
+  const onNode = view.el.querySelector<HTMLElement>('.sq-badges .badge.serving-account')
+  assert.ok(onNode, 'the canvas node card keeps its account ID — this change touched only the pinned title bar')
+  assert.equal(onNode!.textContent, 'default')
+  // and nothing was pinned, so no pinned window exists to have taken it
+  assert.equal(view.el.querySelector('.pinwin'), null)
+})
+
+test('CONTROL: pinning MOVES nothing — the node keeps its card while pinned', async (t: TestContext) => {
+  // The title-bar card was added as an extra surface, never as a relocation,
+  // so removing it must not disturb the node's own. Asserted from the same
+  // mount as the pinned window, which is the only way to see both at once.
+  const win = await mountPinned(t, true)
+  assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
+    'the pinned desk shows it in the token list')
 })
