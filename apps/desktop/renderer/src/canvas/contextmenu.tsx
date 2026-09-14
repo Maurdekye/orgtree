@@ -56,8 +56,12 @@
 // (DocGalleryModal calls `useContextMenu` and then renders the `PinFrame` that
 // creates the surface). The menu then portaled into the MAIN document while
 // `clientX/clientY` were measured in the POPOUT's viewport: a menu on the main
-// canvas at an offset nobody pointed at. OrgCanvas's `AgentListMenuHost` exists
-// only to hand-dodge that trap for one list.
+// canvas at an offset nobody pointed at. OrgCanvas's `AgentListMenuHost` had to
+// dodge that trap by hand for one list — but ⚠ DODGING IT IS NOT ALL THAT HOST
+// DOES, so do not read this as licence to delete it now that the routing is
+// fixed: it also holds the retire-confirm state and its portal, and it must
+// stay inside `<DeskHosts>` because `useDeskActionsNow` reads that provider and
+// would get null from OrgCanvas's body. See its own comment.
 //
 // So `open` records `anchor.ownerDocument` — the document the press really
 // happened in — and everything downstream follows it: the portal target, the
