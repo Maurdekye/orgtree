@@ -1139,9 +1139,9 @@ def _r_unread(ev: _R) -> str:
             f'the recipient\'s current tool call returns'
             + (f", and {nid} has not reported a steering poll for {b}" if b else "")
             + f'. Nothing is lost — it is delivered at that boundary, or at {nid}\'s '
-              f'next turn if the turn ends first. If it cannot wait that long, '
-              f'orgtree_interrupt (⏸) on {nid} creates a boundary immediately without '
-              f'ending its session.')
+              f'next turn if the turn ends first. A safe boundary is requested; '
+              f'opaque tools may defer it until they return. The tool is not '
+              f'interrupted or repeated to deliver this mail.')
 
 
 @renderer("runtime.ui_crash_report")

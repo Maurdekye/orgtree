@@ -1147,6 +1147,8 @@ def _recover_startup() -> None:
     supervisor.start_extern_sweeper()
     supervisor.start_steer_late_watchdog()
     supervisor.maildrain.start()
+    from . import toolwait
+    toolwait.start()
     supervisor.start_prime_restart_engine()
     supervisor.start_working_cache_keeper()
     restart_wake.on_backend_startup()
@@ -9047,21 +9049,22 @@ async def _run_chat_read(function: Any, *args: Any) -> Any:
 
 @app.post("/api/agent")
 async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]:
+    from . import toolwait
+    if body.node != USER and toolwait.tool_name(body) in toolwait.TOOLS:
+        from fastapi.concurrency import run_in_threadpool
+
+        def managed():
+            caller = _agent_identity(body, request)
+            return toolwait.invoke(body, caller, lambda: agent_call(body, request))
+        return await run_in_threadpool(managed)
     if body.tool == 'orgtree_read_transcript':
         return await _run_chat_read(agent_call, body, request)
     from fastapi.concurrency import run_in_threadpool
     return await run_in_threadpool(agent_call, body, request)
 
 
-def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
-    """Backend for the orgtree MCP server every node loads. The calling NODE is the
-    actor — the ledger enforces authority, budgets, capability subsets, addressing,
-    and the no-defaults hire rule.
-
-    №22: plain `def` (threadpooled) — this endpoint parses transcripts and
-    walks scratch dirs, and as `async def` it did that ON the event loop
-    while holding DOC_LOCK. The read-only tools also run outside the lock
-    entirely: they read the filesystem, not the doc."""
+def _agent_identity(body: AgentCall, request: Request) -> dict[str, Any]:
+    """Authenticate before creating a managed operation, then again at execution."""
     # a sandboxed container's secret pins it to its OWN org — a compromised
     # sandbox cannot act as another org's agents
     identity = getattr(request.state, "agent_identity", None)
@@ -9079,6 +9082,18 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     bridge_slug = getattr(request.state, "bridge_slug", None)
     if bridge_slug and body.org != bridge_slug:
         raise HTTPException(403, "bridge secret is scoped to its own org")
+    if body.node == USER:
+        return {}
+    with store.DOC_LOCK:
+        try:
+            return dict(store.load_org(body.org).node(body.node))
+        except LedgerError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
+    """Execute one authenticated tool through the existing authority/admission gates."""
+    _agent_identity(body, request)
     # ⚠ BEFORE EVERY GATE BELOW, because unwrapping only substitutes the call
     # this request was always making: after it, `body.tool` is the real verb
     # and every authority, capability and policy check below sees THAT.

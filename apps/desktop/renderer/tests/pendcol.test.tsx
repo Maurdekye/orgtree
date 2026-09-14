@@ -296,7 +296,7 @@ domTest('§8 the delivery tag is its own line BELOW the card — never inside it
     assert.ok(bubble, 'the pending row rendered')
     const tag = bubble!.querySelector('.pend-tag')
     assert.ok(tag, 'the tag renders')
-    assert.match(tag!.textContent ?? '', /delivering mid-task/)
+    assert.match(tag!.textContent ?? '', /queued mid-task/)
     assert.ok(tag!.parentElement === bubble,
       'its own line in the row — not inside the card')
     assert.equal(tag!.closest('.turn-mail'), null,

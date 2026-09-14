@@ -2334,12 +2334,23 @@ def _desktop_relaunch_catalogue(
     return out
 
 
+MANAGED_WAIT_TOOLS = frozenset({'orgtree_staff', 'orgtree_hire', 'orgtree_rehire',
+                              'orgtree_retire', 'orgtree_dissolve', 'orgtree_cheap_compact',
+                              'orgtree_watchdog', 'orgtree_send_file'})
+
+
 def available_tools() -> list[dict[str, Any]]:
     """The tool catalogue permitted by the install-wide deployment policy."""
 
     tools = TOOLS if deployment.current_policy().allow_agent_restart else [
         tool for tool in TOOLS
         if str(tool.get("name") or "") not in _AGENT_RESTART_TOOLS]
+    tools = [{**tool, 'description': tool['description'] +
+              ' If this call takes over ten seconds, it may return state=running '
+              'with an operation_id. That is not completion: the original backend '
+              'operation continues once, independently of your turn, and sends its '
+              'result as durable mail. Handle incoming mail; do not repeat the call.'}
+             if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in tools]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
         return tools
     tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))

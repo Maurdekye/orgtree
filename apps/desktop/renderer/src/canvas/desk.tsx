@@ -3806,7 +3806,9 @@ export const pendTag = (m: PendingMail): string =>
   m.stage === 'stranded'
     ? '⚠ stuck — no turn owns this message; report it (an orgtree restart re-presents it)'
     : m.stage === 'queued'
-      ? 'queued — delivers at the next turn boundary…'
+      ? 'queued for a future turn boundary — not read yet'
+    : m.stage === 'requested'
+      ? 'steering requested — awaiting the running process'
     // D1: past the steer store. `claimed` does NOT mean the hook has it (a
     // lost response leaves a claim with nothing delivered); `acked` means the
     // hook said it received it; only the CLI's record makes it delivered
@@ -3815,8 +3817,8 @@ export const pendTag = (m: PendingMail): string =>
     : m.stage === 'acked'
       ? 'received by the hook — awaiting the CLI’s record…'
       : m.stage === 'turn' || (!m.stage && m.via === 'turn')
-        ? 'delivering…'
-        : 'delivering mid-task…'
+        ? 'queued for this turn — awaiting the provider receipt'
+        : 'queued mid-task — waiting for a safe tool boundary'
 
 /** Pending mail uses the same full-width card as the settled transcript.
  * Delivery status occupies its own line below the card (user 2026-09-10);

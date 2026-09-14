@@ -8907,9 +8907,8 @@ def _delivery_stages(slug: str, nid: str,
 
       turn      riding the running turn's own text (drained at its start);
                 the transcript takes over when the provider echoes it
-      steer     in the steer store of a responding turn, or popped by its
-                pump and awaiting the provider's acceptance — delivered at
-                the next tool boundary
+      steer     queued in the engine for a responding turn's safe boundary
+      requested a pump has requested steering; no provider acceptance yet
       queued    behind a busy turn, in the in-memory queue — delivered at
                 the next result boundary or as the next turn; on a node
                 nothing owns it is `stranded` like any other carrier
@@ -8952,6 +8951,9 @@ def _delivery_stages(slug: str, nid: str,
                       if isinstance(x, dict) for t in x.get("toks") or []}
         queue_toks = {str(t) for x in st["queue"]
                       if isinstance(x, dict) for t in x.get("toks") or []}
+        requested_toks = {str(t) for entry in st.get("steer_limbo") or []
+                          for x in entry.get("carriers") or []
+                          if isinstance(x, dict) for t in x.get("toks") or []}
         # D1: a carrier a hook has CLAIMED (and maybe acked) is further along
         # than "in the steer store" — say so, keyed by token
         claimed: dict[str, str] = {}
@@ -8979,8 +8981,9 @@ def _delivery_stages(slug: str, nid: str,
             # (review round 2), and the receipt must say so
             out[tok] = "queued" if (owned or young) else "stranded"
         elif owned or young:
-            out[tok] = (claimed.get(tok) or ("steer" if tok in steer_toks
-                        else "turn" if via_turn else "steer"))
+            out[tok] = (claimed.get(tok) or (
+                "requested" if tok in requested_toks else
+                "steer" if tok in steer_toks else "turn" if via_turn else "steer"))
         else:
             out[tok] = "stranded"
     return out
@@ -14924,6 +14927,13 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             if method == "item/completed":
                 _it = (msg.get("params") or {}).get("item")
                 _ityp = str(_it.get("type") or "") if isinstance(_it, dict) else ""
+                if (_ityp in ('mcpToolCall', 'dynamicToolCall', 'commandExecution', 'fileChange')
+                        and turn.turn_id
+                        and (msg.get('params') or {}).get('threadId') == turn.thread_id
+                        and (msg.get('params') or {}).get('turnId') == turn.turn_id):
+                    # An actual tool result is a boundary. The steer pump's
+                    # polling timer and its input acknowledgment are not.
+                    note_steer_poll(slug, nid)
                 turnlog.emit(trec, "codex_item", n=_ie_n,
                              type={"agentMessage": "agent_message",
                                    "reasoning": "reasoning", "plan": "plan",
@@ -27367,7 +27377,7 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
 @halt.delivery(list)
 def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
               defer_commit: bool = False) -> list[Any]:
-    """The steering hook's fetch: everything pending for this node, atomically.
+    """The steering hook's fetch: up to 32 pending carriers, atomically in FIFO order.
 
     By default the fetch IS the delivery — the claude lane's hook puts the text
     straight into the agent's tool-result context, so returning it is proof
@@ -27395,8 +27405,9 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
     the eventual commit can still confirm its own batch."""
     st = state(slug, nid)
     with _state_lock:
-        msgs = st.get("steer") or []
-        st["steer"] = []
+        pending = st.get("steer") or []
+        msgs = pending[:32]
+        st["steer"] = pending[32:]
         if defer_commit:
             # Keep ownership while a pump holds carriers outside the queue.
             # Halt must capture them even before steer_limbo is installed.
@@ -27947,11 +27958,11 @@ def steer_receipt_text(e: Mapping[str, Any]) -> str:
     if level == "recorded":
         base = "delivered mid-task — recorded by the CLI"
     elif level == "accepted":
-        base = "delivered mid-task — accepted by the provider"
+        base = "handed to the running process — provider accepted the input; model-read receipt unavailable"
     elif level == "handoff":
-        base = "delivered mid-task — handed to the hook (legacy hook, receipt unconfirmed)"
+        base = "handed to the hook — injection receipt unconfirmed (legacy hook)"
     else:
-        base = "delivered mid-task (older row, evidence not recorded)"
+        base = "delivery state unknown (older row, evidence not recorded)"
     if e.get("confirmed_duplicate"):
         # two OR MORE distinct recorded deliveries -- never say a number
         base += " · recorded more than once (a confirmed duplicate)"
@@ -28039,14 +28050,9 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     ever meant "the recipient is archived"; nothing in that result was a
     delivery receipt, and it read like one.
 
-    The rule this text follows: NEVER SAY DELIVERED FOR SOMETHING THAT IS
-    MERELY ACCEPTED. A steered carrier is handed to the recipient's running
-    turn and injected at its next PostToolUse boundary — soonest possible
-    without interrupting (D-044/D-045), which is right, but it is a WAIT and
-    the sender is the one who has to decide whether it can afford it. When
-    no steering poll has arrived for `STEER_LATE_AFTER`
-    the note also names ⏸ `orgtree_interrupt`, because that is the one thing
-    that DOES land immediately and the sender will otherwise not think of it.
+    A queued carrier is not a process handoff or a read receipt. Managed
+    long calls can yield; opaque tools wait for the next supported boundary.
+    Neither path interrupts or repeats a tool merely to deliver mail.
     """
     if r.get("deferred") == "halted":
         return (f"NOT delivered: {nid} is halted; mail is preserved unread "
@@ -28068,30 +28074,22 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
         return (f"NOT delivered: {nid} is {r['deferred']}. The mail waits in "
                 f"its inbox and nothing reads it until somebody rehires it.")
     if r.get("already_delivered"):
-        return f"already delivered — {nid}'s mailbox had been drained already."
+        return f"no new delivery — {nid}'s mailbox was already drained; this is not a read receipt."
     if r.get("steering"):
         wait = r.get("wait")
         wait = wait if isinstance(wait, (int, float)) else steer_wait(slug, nid)
-        # ONE sentence, whichever branch (coordinator ruling 2026-09-03): this
-        # is copy an agent reads on EVERY send to a busy peer, and a paragraph
-        # on the ordinary path is what trains a reader to skip the line that
-        # matters. The ⏸ pointer appears only in the branch where it is the
-        # right advice — §2's anti-vacuity check pins that it is absent from a
-        # send whose recipient is between two short calls.
-        head = f"handed to {nid}'s RUNNING turn — NOT read yet"
+        # Report the wait without recommending interruption of a live tool.
+        head = f"queued for {nid}'s running turn — NOT read yet"
         if isinstance(wait, (int, float)) and wait >= STEER_LATE_AFTER:
             return (f"{head}, and ⚠ {nid} has not reported a steering poll for "
                     f"{_dur(wait)} — a long call or a failed delivery hook can prevent an "
-                    f"observed poll; if this cannot wait, "
-                    f"orgtree_interrupt (⏸) on {nid} lands immediately and the "
-                    f"mail is delivered at the boundary that creates.")
+                    f"observed poll; delivery is requested at the next supported safe "
+                    f"boundary, without interrupting or repeating the tool.")
         if isinstance(wait, (int, float)):
-            return (f"{head}; mid-turn mail is injected when the recipient's "
-                    f"current tool call returns, and {nid}'s last boundary was "
+            return (f"{head}; input waits for a supported sampling or tool-result "
+                    f"boundary, and {nid}'s last observed boundary was "
                     f"{_dur(wait)} ago.")
-        return (f"{head}; mid-turn mail is injected when the recipient's "
-                f"current tool call returns, so it arrives at that boundary, "
-                f"not now.")
+        return f"{head}; input waits for a supported safe boundary."
     if r.get("queued"):
         return (f"queued behind {nid}'s running turn — NOT read yet; it is fed "
                 f"to the same live process at its next result boundary.")
@@ -28103,7 +28101,7 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
                 f"starts a turn, so this is read at its next turn, whenever "
                 f"that is.")
     if r.get("accepted"):
-        return f"delivered — a turn started for {nid} to read it."
+        return f"accepted and queued — a turn was requested for {nid}; no read receipt yet."
     return f"not accepted: {r.get('error') or 'unknown'}"
 
 

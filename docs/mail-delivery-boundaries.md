@@ -68,3 +68,59 @@ and journals, partial delivery and storage failures, thread-admission retry,
 bounded nested work and round-robin recovery, passive mail, holds, and upgrade
 adoption. Provider responses are controlled at the provider seam; these tests
 do not spend subscription capacity or send live messages.
+
+## Long managed tools and opaque provider tools
+
+The agent API gives `orgtree_staff`, `orgtree_hire`, `orgtree_rehire`,
+`orgtree_retire`, `orgtree_dissolve`, `orgtree_cheap_compact`,
+`orgtree_watchdog`, and `orgtree_send_file` a ten-second synchronous wait.
+After that wait, a still-running operation returns `state: running` and an
+`operation_id`. This is an actual tool result, creating the usual safe
+delivery boundary. It is explicitly **not** a success/completion result.
+The backend worker continues independently of the agent's turn and sends
+the eventual outcome as durable mail. Quick calls retain their original
+result and do not send a duplicate completion message. Authentication is
+checked before registration and again at execution; normal tool authority
+and admission gates remain in the dispatcher.
+
+Before execution, the backend records the operation identity in
+`<data-root>/tool-waits.db`, using a separate SQLite transaction so a tool
+holding the org document lock cannot prevent the HTTP wait from yielding.
+There are at most eight executing workers and 64 unresolved records;
+capacity refusal occurs before execution. The ten-second bound is the
+execution wait, excluding authentication and durable-storage admission.
+Completion persistence is retried without reexecuting the operation.
+Publication stores the mail and its deduplication marker in the same org
+transaction, then retires the operation journal record. Caller seat identity
+follows rename and compaction but does not hand private results to a later
+hire that reused the name. A missing recipient leaves the result retained.
+
+At restart, unresolved running operations produce an **unknown outcome**
+message. They are never automatically restarted: their effects may already
+have happened. Existing operation receipts and actual org state must resolve
+that uncertainty before a caller repeats an action. Completed yielded
+operations retry publication. Recovery rotates through at most 32 records
+per pass; it uses the existing durable mail drain and respects holds.
+
+Orgtree cannot safely yield a provider-owned/native/external tool for which
+the protocol exposes no such operation. Codex's separate steer pump requests
+input every two seconds while tools run; hook-based transports have their
+next-boundary request queued in the engine. A request does not promise model
+visibility before a non-interruptible tool returns. No tool is cancelled or
+repeated to make a boundary. Each pump fetch is capped at 32 FIFO carriers.
+
+Delivery labels now distinguish engine-queued input, a steering request in
+flight, provider acceptance into the running process, and a hook injection
+recorded by the CLI. Provider acceptance alone is **not** a model-read receipt.
+Only actual matching Codex tool-result events update its observed boundary
+clock; pump polling and steering acknowledgments do not. The earlier
+provider-consumed-before-durable-receipt ambiguity above is unchanged.
+
+`tests/test_long_tool_mail.py` covers the adapter, HTTP identity checks,
+single execution, durable completion/retry, restart uncertainty, compaction,
+holds, bounded admission, FIFO and truthful receipts. The explicit
+`tests/long-tool-mail-probe.py 130` uses a 130-second controlled staffing
+dispatcher and a provider-boundary seam: the previous route holds three
+user messages until the tool returns, while the new route yields at about
+ten seconds and exposes them in order. It never calls a live provider or
+performs live staffing.

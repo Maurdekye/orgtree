@@ -905,6 +905,7 @@ class OrgDoc(TypedDict):
     max_children: NotRequired[int]
     mail: NotRequired[dict[str, list[MailEntry]]]
     mail_drain_version: NotRequired[int]  # queued-mail upgrade completed
+    tool_result_receipts: NotRequired[dict[str, str]]  # atomic tool-result mail outbox receipts
     mail_log: NotRequired[dict[str, list[MailEntry]]]   # full-body archive, cap 100/node
     # Bounded identity/state transitions for mail, child tasks, watchdogs and
     # delivery warnings. Bodies remain in their owning records.

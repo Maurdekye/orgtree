@@ -1083,7 +1083,7 @@ export interface PendingMail {
    *  next boundary or as the next turn; `stranded` — NO turn owns it and the
    *  node is idle, which the backend now prevents and the desk must never
    *  present as an ordinary "delivering…". Absent on a plain mailbox row. */
-  stage?: 'turn' | 'steer' | 'queued' | 'stranded' | 'claimed' | 'acked'
+  stage?: 'turn' | 'steer' | 'requested' | 'queued' | 'stranded' | 'claimed' | 'acked'
   attachments?: MailAttachment[]
 }
 

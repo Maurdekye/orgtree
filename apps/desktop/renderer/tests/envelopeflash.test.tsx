@@ -202,15 +202,16 @@ frameTest('§2 the pending tag says where the message IS — and a stranded one 
     assert.ok(tag, `the bubble for ${JSON.stringify(body)} carries a tag`)
     return tag!
   }
-  assert.equal(tagOf('riding the turn').textContent, 'delivering…')
-  assert.equal(tagOf('in the steer store').textContent, 'delivering mid-task…')
-  assert.match(tagOf('behind the busy turn').textContent || '', /^queued — delivers at the next turn boundary/)
+  assert.equal(tagOf('riding the turn').textContent, 'queued for this turn — awaiting the provider receipt')
+  assert.equal(tagOf('in the steer store').textContent, 'queued mid-task — waiting for a safe tool boundary')
+  assert.match(tagOf('behind the busy turn').textContent || '', /^queued for a future turn boundary/)
   const stranded = tagOf('owned by nobody')
   assert.match(stranded.textContent || '', /stuck — no turn owns this message/)
   assert.ok(stranded.classList.contains('warn'), 'the stranded tag is a WARNING')
   // the legacy shapes keep their exact words
-  assert.equal(tagOf('legacy turn').textContent, 'delivering…')
-  assert.equal(tagOf('legacy steer').textContent, 'delivering mid-task…')
+  assert.equal(tagOf('legacy turn').textContent, 'queued for this turn — awaiting the provider receipt')
+  assert.equal(tagOf('legacy steer').textContent, 'queued mid-task — waiting for a safe tool boundary')
+  assert.match(pendTag({ ...rows[0]!, stage: 'requested' }), /steering requested/)
   // …and no other tag wears the warning
   assert.equal(el.querySelectorAll('.pend-tag.warn').length, 1)
   // the pure function agrees with the DOM (so a test elsewhere can use it)
