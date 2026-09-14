@@ -7,6 +7,19 @@
 !include "StrFunc.nsh"
 !include "getProcessInfo.nsh"
 Var pid
+# ⚠ DECLARED HERE, AT TOP LEVEL, AND THE POSITION IS THE WHOLE POINT. These back
+# the OrgLog macro below. They used to be declared inside `customHeader`, which
+# electron-builder expands AFTER `customWelcomePage` — so the first OrgLog
+# expansion reached StrCpy before the names existed, and NSIS read the undeclared
+# long name as a built-in short variable plus trailing text and refused the whole
+# compile with "Usage: StrCpy $(user_var: output) str [maxlen] [startoffset]".
+# A Var must be declared before the first expansion that assigns it, not merely
+# before the function that reads it. Keep these above every macro definition.
+!ifndef BUILD_UNINSTALLER
+  Var OrgLogPath
+  Var OrgLogStage
+  Var OrgLogDetail
+!endif
 # The dev channel compiles out the preInit SID probe — this instantiation's
 # only caller — and NSIS treats the resulting unreferenced function as an
 # error, so the instantiation goes with it.
@@ -707,9 +720,8 @@ FunctionEnd
 
 !macro customHeader
   !ifndef BUILD_UNINSTALLER
-    Var OrgLogPath
-    Var OrgLogStage
-    Var OrgLogDetail
+    # OrgLogPath/OrgLogStage/OrgLogDetail are declared at the top of this file,
+    # not here: this macro expands after the first OrgLog expansion.
     # Defined at top level so preInit can call it: preInit runs inside .onInit
     # and cannot declare functions, and it is also the earliest point in the
     # whole run — which is where the first line has to be written, because
