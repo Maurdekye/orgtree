@@ -36,7 +36,7 @@ import {
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
-import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
+import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
@@ -1478,6 +1478,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onRetireAsk: setAsking,
       canRetireAll: !pub,
       onDismiss,
+      // the same public gate the frozen badge's own unstick already applies:
+      // a kiosk visitor releases nothing and moves no account (the backend
+      // refuses the route outright, this keeps the entry off their menu)
+      onContinueOn: pub ? undefined
+        : (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {

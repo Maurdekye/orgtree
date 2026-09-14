@@ -680,6 +680,8 @@ export interface CanvasNode {
   last_approvals?: TreeNode['last_approvals']
   turns?: TreeNode['turns']
   frozen?: TreeNode['frozen']
+  /** ⭐ the accounts this frozen agent could be continued on (TreeNode's) */
+  continue_accounts?: TreeNode['continue_accounts']
   halt?: TreeNode['halt']
   halt_queued?: number
   audiences_held?: string[]

@@ -169,14 +169,23 @@ def read_board(row: dict[str, Any]) -> dict[str, Any]:
     return data if time.time() - age >= before else {}
 
 
-def eligible(org: Any, nid: str) -> bool:
+def movable(org: Any, nid: str) -> bool:
+    """Is this node's FREEZE the kind another account could actually clear —
+    every condition except whether the operator opted into automatic moves.
+
+    Split out of `eligible` so the manual recovery action (user requirement
+    2026-09-14: `Continue on <account-id>`) asks the identical question. The
+    two paths differ in exactly one thing — who decides to move — and a
+    second copy of this list would be a second answer to "could another
+    account help", drifting the moment either is edited.
+    """
     from . import supervisor
     n = org.node(nid)
-    if not org.account_fallback_for(nid) or n.get("pending_switch"):
+    if n.get("pending_switch"):
         return False
     fz = supervisor._resumable(n)
     st = supervisor.state(org.d["slug"], nid)
-    return bool(org.account_fallback_for(nid) and fz and fz.get("limit")
+    return bool(fz and fz.get("limit")
                 and not fz.get("untrusted") and not fz.get("on_fallback")
                 and not fz.get("cause") and source_matches(n)
                 and not re.search(r"per[-_ ](?:minute|second)|requests? per (?:minute|second)|\b(?:tpm|rpm)\b",
@@ -195,9 +204,121 @@ def eligible(org: Any, nid: str) -> bool:
                 and providers.provider_of(str(n.get("model") or "")) in ("claude", "openai"))
 
 
+def eligible(org: Any, nid: str) -> bool:
+    """…and the operator asked for the move to happen by itself."""
+    return bool(org.account_fallback_for(nid) and movable(org, nid))
+
+
+def manual_only(org: Any, nid: str) -> bool:
+    """…and the operator did NOT, so the move is theirs to make by hand.
+
+    The manual entries exist BECAUSE automatic fallback is off (user
+    requirement 2026-09-14). With it on, the automatic path owns the move and
+    adding a hand control beside it would be two mechanisms racing for the
+    same binding.
+    """
+    return bool(not org.account_fallback_for(nid) and movable(org, nid))
+
+
 def identity(node: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy({k: node.get(k) for k in
                           ("account", "model", "generation", "session_id", "frozen")})
+
+
+def pool_of(n: dict[str, Any]) -> str:
+    """Which resource pool this node's freeze has to be cleared out of."""
+    provider = providers.provider_of(str(n.get("model") or ""))
+    fz = n.get("frozen") or {}
+    return str(fz.get("resource_pool") or ("plan" if provider == "openai" else
+                                           str(n.get("model") or "")))
+
+
+def replacements(org: Any, nid: str,
+                 rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Every registry row that could REPLACE this node's binding, before any
+    capacity evidence is consulted — identity only.
+
+    The list `candidates` walked inline, lifted out so the manual action and
+    its menu ask one question. Excluded here, and the ticket names every one:
+    the account already bound, another provider's accounts, a credential kind
+    that is not a profile, an observed signed-out row, and — for a node with
+    no binding at all — the ambient profile it is already running on, which
+    is the very login that just hit its wall.
+
+    `rows` lets a caller that has ALREADY loaded the registry for this render
+    hand its list over. `api._org_view` loads it once for the whole graph, and
+    re-reading it per node would be the per-node filesystem work D-239 forbids
+    — the trap `accounts.serving_label` documents having fallen into once.
+    """
+    n = org.node(nid)
+    provider = providers.provider_of(str(n.get("model") or ""))
+    current = str(n.get("account") or "")
+    ambient = (os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+               if provider == "openai" else os.path.dirname(subproxy.CREDS))
+    out: list[dict[str, Any]] = []
+    for row in (registry.list_accounts(org=org.d["slug"]) if rows is None
+                else rows):
+        cred = row.get("credential") or {}
+        if (row["id"] == current or row["provider"] != provider
+                or cred.get("kind") not in ("managed", "imported")
+                or row.get("auth") == "unauthenticated"
+                or (not current and os.path.normcase(os.path.abspath(cred["path"]))
+                    == os.path.normcase(os.path.abspath(ambient)))):
+            continue
+        out.append(row)
+    return out
+
+
+def cached_board(row: dict[str, Any]) -> dict[str, Any]:
+    """This account's standing FROM CACHE ONLY — no fetch, no process, no
+    credential read.
+
+    ⚠ WHY THE MENU MAY NOT USE `read_board`. That one forces a live provider
+    read per account: for Codex it starts an app-server process. The node
+    payload is recomposed for every node on a 6 s heartbeat, so calling it
+    there is the per-node provider IO D-239 forbids and `accountusage`'s
+    `allow_fetch=False` promise refuses by construction. So menu VISIBILITY
+    is decided on the evidence already observed, and `continue_on` re-decides
+    it with a forced read before it moves anything. An account whose cache
+    says nothing simply does not appear — absence of evidence is not
+    eligibility, which is exactly what the ticket asks for unreadable rows.
+    """
+    key = f'acct:{row["id"]}'
+    try:
+        if row["provider"] == "openai":
+            return codex_limits.snapshot_for_key(key)
+        return limits.snapshot_for_key(key)
+    except (OSError, ValueError, RuntimeError, KeyError):
+        return {}
+
+
+def alternatives(org: Any, nid: str, *, board_of: Any = None,
+                 rows: list[dict[str, Any]] | None = None) -> list[str]:
+    """The account IDs a frozen node could continue on, in registry order.
+
+    `board_of` supplies the standing evidence — `cached_board` for the menu,
+    `read_board` for the action about to commit. The capacity rule itself is
+    `capacity`, the same one the automatic path uses, so "eligible to run this
+    exact model" means the same thing on both paths and for every provider:
+    a Claude tier needs its session AND its weekly window clear (the fable
+    tier's own weekly one when that is the tier), a Codex tier needs the pool
+    its freeze names, and a row carrying an active capacity mark is out.
+    """
+    n = org.node(nid)
+    tier = str(n.get("model") or "")
+    pool = pool_of(n)
+    read = board_of or cached_board
+    out: list[str] = []
+    for row in replacements(org, nid, rows):
+        if marked(row, tier, pool):
+            continue
+        try:
+            if not capacity(row, read(row), tier, pool):
+                continue
+        except (OSError, ValueError, RuntimeError, KeyError):
+            continue
+        out.append(str(row["id"]))
+    return out
 
 
 def candidates(org: Any) -> dict[str, dict[str, Any]]:
@@ -216,21 +337,9 @@ def candidates(org: Any) -> dict[str, dict[str, Any]]:
                 continue
             _scanned[(slug, nid)] = (stamp, time.time())
         tier = str(n.get("model") or "")
-        provider = providers.provider_of(tier)
-        pool = str(fz.get("resource_pool") or ("plan" if provider == "openai" else tier))
-        current = str(n.get("account") or "")
-        # Old unbound nodes use the ambient profile; never choose that profile
-        # again under a new registry name after its own limit.
-        ambient = (os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
-                   if provider == "openai" else os.path.dirname(subproxy.CREDS))
-        for row in registry.list_accounts(org=slug):
-            cred = row.get("credential") or {}
-            if (row["id"] == current or row["provider"] != provider
-                    or cred.get("kind") not in ("managed", "imported")
-                    or row.get("auth") == "unauthenticated"
-                    or (not current and os.path.normcase(os.path.abspath(cred["path"]))
-                        == os.path.normcase(os.path.abspath(ambient)))
-                    or marked(row, tier, pool)):
+        pool = pool_of(n)
+        for row in replacements(org, nid):
+            if marked(row, tier, pool):
                 continue
             try:
                 if row["id"] not in boards:

@@ -385,6 +385,16 @@ export interface TreeNode {
    *  still resumes it — replacing the credential and pressing ▶ is the fix.
    *  Such a node is `resumable` and counts. Ask capacity separately. */
   resumable: boolean
+  /** ⭐ the other accounts this FROZEN agent could be continued on (user
+   *  requirement 2026-09-14) — immutable managed account ids, already
+   *  filtered by the backend for provider, model allowance, capacity marks
+   *  and sign-in state, because `account_fallback` owns those rules and a
+   *  second reading of them here would be a second answer.
+   *  ⚠ A CANDIDATE LIST, NOT A PROMISE: it is composed from cache-only
+   *  evidence, and `/continue-on` re-decides it against a forced provider
+   *  read before it moves anything. Empty for every ordinary agent, for a
+   *  node whose automatic fallback is on, and for a kiosk visitor. */
+  continue_accounts?: string[]
   last_status: NodeStatus | null
   prev_status: NodeStatus | null
   inflight_at: string | null

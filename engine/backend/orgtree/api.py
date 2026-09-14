@@ -80,6 +80,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 
+from . import account_fallback as accountfallback
 from . import crashreports
 from . import events
 from . import registry
@@ -665,6 +666,14 @@ def _public_denied(method: str, rest: str, slug: str) -> tuple[int, str] | None:
         # unstick does not touch it, so this was never a way past the spend
         # cap — only past every other lock the owner relies on.)
         or rest.endswith("/unstick")                         # user-only override
+        # ⚠ THE SAME BOUNDARY, for the same reason. `/continue-on` also
+        # passes USER unconditionally — to `assign_account` AND to the
+        # `unstick` it performs — so it is every power `/unstick` has plus
+        # the power to move an agent's billing onto another of the operator's
+        # accounts. Frozen here or a share-token holder could spend an
+        # account the kiosk was never meant to reach; it also names account
+        # ids, which D-145 keeps off the public side entirely.
+        or rest.endswith("/continue-on")                     # user-only override
         # /scope is OPEN (ceiling spec §2): visitors retool freely WITHIN the
         # kiosk permission ceiling — the ledger clamps, never a 403 here
         or rest.endswith("/kiosk")                           # kiosk caps/token/ceiling
@@ -2291,6 +2300,31 @@ def _org_view(slug: str, request: Request,
         # "resumable" would inflate a banner for a button that will not act
         node["resumable"] = (supervisor.resumable(org.node(node["id"]))
                              and not org.d.get("killswitch"))
+        # ⚠ WHICH OTHER ACCOUNTS COULD CARRY THIS FROZEN AGENT'S HELD WORK
+        # (user requirement 2026-09-14). Composed HERE for `serving_account`'s
+        # own reason: the backend owns the registry and the per-model allowance
+        # rules, and a renderer deciding "eligible" itself would be a second
+        # definition to disagree with `account_fallback`'s.
+        #
+        # ⚠ GATED BEFORE IT COSTS ANYTHING. `frozen` is the cheap field on the
+        # node itself, and it is read FIRST so an ordinary live agent — every
+        # node in a healthy org — pays nothing at all on the 6 s heartbeat.
+        # Past that gate the evidence is CACHE-ONLY (`cached_board`), never a
+        # provider read, and the registry rows are the ones already loaded for
+        # this whole render rather than re-read per node (D-239).
+        #
+        # ⚠ A KIOSK VISITOR IS TOLD NOTHING. This names accounts, so it sits
+        # behind the same D-145 bound as `serving_account`; and it is only
+        # ever a candidate list, never a promise — `/continue-on` re-decides
+        # it against a forced read before it moves a binding.
+        node["continue_accounts"] = []
+        if node.get("frozen") and not public_view and node["state"] == "live":
+            try:
+                if accountfallback.manual_only(org, node["id"]):
+                    node["continue_accounts"] = accountfallback.alternatives(
+                        org, node["id"], rows=list(account_rows.values()))
+            except (LedgerError, KeyError, ValueError, OSError):
+                node["continue_accounts"] = []
         st = supervisor.state(slug, node["id"])
         node["busy"] = st["busy"]
         # №12: three states wore one pulse — split them: waiting on a turn
@@ -7021,6 +7055,131 @@ async def node_unstick(slug: str, nid: str) -> dict[str, Any]:
         supervisor.notify(slug, nid, "turn_started")
     await hub.changed(slug)
     return r
+
+
+class ContinueOn(Body):
+    account: str
+
+
+#: one continuation at a time per node — the guard against a double-click, a
+#: lagging menu and a concurrent refresh all firing the same move
+_continue_locks: dict[tuple[str, str], threading.Lock] = {}
+_continue_guard = threading.Lock()
+
+
+def _continue_lock(slug: str, nid: str) -> threading.Lock:
+    with _continue_guard:
+        return _continue_locks.setdefault((slug, nid), threading.Lock())
+
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/continue-on")
+async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, Any]:
+    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT (user requirement
+    2026-09-14): move the binding to `account`, then release the freeze so the
+    held work goes on — one operator action, two steps, reported honestly.
+
+    ⚠ THE ORDER IS THE SAFETY PROPERTY. The switch happens first and the
+    unstick only if it succeeded, because unsticking first would resume the
+    agent onto the very account that just hit its wall — the freeze would
+    return, and the second failure would look like the feature not working.
+    A switch that fails therefore leaves a frozen agent exactly as it was.
+
+    ⚠ AND THE SECOND STEP IS NOT ASSUMED. If the switch lands and the release
+    fails, that is a REAL state — the agent is on the new account and still
+    frozen — and it is reported as `switched_not_resumed` with the retry that
+    finishes it (`/unstick`), rather than being called a continuation. Nothing
+    here claims work resumed that has not.
+
+    Eligibility is re-decided at THIS moment against a forced provider read,
+    not against whatever the menu was showing: the payload's list is cache-only
+    and a minute old at worst, and capacity is exactly the thing that moves.
+    """
+    account = str(body.account or "").strip()
+    lock = _continue_lock(slug, nid)
+    # A second click while the first is still moving is not a second move.
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, f"{nid} is already being continued on another "
+                                 f"account; that operation is still running")
+    try:
+        with store.DOC_LOCK:
+            try:
+                org = store.load_org(slug)
+                node = org.node(nid)
+            except LedgerError as e:
+                raise HTTPException(404, str(e)) from e
+            if not accountfallback.manual_only(org, nid):
+                # covers: not frozen any more, automatic fallback on, busy,
+                # already switching, or a freeze another account cannot clear
+                raise HTTPException(
+                    409, f"{nid} cannot be continued on another account right "
+                         f"now — it is not frozen in a way a different account "
+                         f"would clear, or automatic account fallback is on")
+            rows = registry.list_accounts(org=slug)
+            offered = {str(r["id"]) for r in
+                       accountfallback.replacements(org, nid, rows)}
+            tier = str(node.get("model") or "")
+        if account not in offered:
+            raise HTTPException(
+                422, f"{account!r} is not an alternative account for {nid} — "
+                     f"it is the account already bound, belongs to another "
+                     f"provider, is signed out, or is not a registered profile")
+        # ⚠ OFF DOC_LOCK. This is a live provider read (for Codex it starts an
+        # app-server); account_fallback's own rule is that provider reads never
+        # happen under the document lock.
+        row = next(r for r in rows if str(r["id"]) == account)
+        fresh = accountfallback.alternatives(
+            org, nid, board_of=accountfallback.read_board, rows=[row])
+        if account not in fresh:
+            raise HTTPException(
+                409, f"{account} has no capacity for {tier} right now, or its "
+                     f"standing could not be established — nothing was changed")
+        try:
+            disclosure = supervisor.assign_account(
+                slug, nid, account, actor=USER, via="manual_continue")
+        except (LedgerError, RuntimeError, ValueError, KeyError) as e:
+            raise HTTPException(422, f"account switch failed, {nid} left frozen "
+                                     f"and unchanged: {e}") from e
+        # …switched. From here the agent IS on the new account whatever else
+        # happens, so every exit below says so.
+        with store.DOC_LOCK:
+            try:
+                org = store.load_org(slug)
+                released = org.unstick(USER, nid)
+                store.save_org(org)
+            except LedgerError as e:
+                await hub.changed(slug)
+                return {"switched": True, "resumed": False,
+                        "state": "switched_not_resumed", "account": account,
+                        "disclosure": disclosure,
+                        "error": str(e),
+                        "retry": f"/api/orgs/{slug}/nodes/{nid}/unstick",
+                        "status": f"{nid} is now on {account} but is STILL "
+                                  f"FROZEN — releasing it failed ({e}). Its "
+                                  f"held work has not resumed; use unstick to "
+                                  f"finish the move."}
+        if released.get("released"):
+            texts = cast("list[str]", released.get("resume_texts") or []) or [
+                f"(orgtree) The user moved you to account {account} and "
+                f"released your freeze — handle any mail above and continue "
+                f"from where you left off."]
+            views = cast("list[str]", released.get("resume_views") or [])
+            for i, t in enumerate(texts):
+                supervisor.send_message(slug, nid, t,
+                                        view=views[i] if i < len(views) else t)
+            supervisor.notify(slug, nid, "turn_started")
+        await hub.changed(slug)
+        return {"switched": True, "resumed": bool(released.get("released")),
+                "state": "continued" if released.get("released")
+                else "switched_nothing_to_release",
+                "account": account, "disclosure": disclosure,
+                "released": released.get("released") or [],
+                "warnings": released.get("warnings") or [],
+                "status": (f"{nid} continues on {account}"
+                           if released.get("released") else
+                           f"{nid} is on {account}; there was no freeze left "
+                           f"to release")}
+    finally:
+        lock.release()
 
 
 @app.get("/api/orgs/{slug}/inbox")

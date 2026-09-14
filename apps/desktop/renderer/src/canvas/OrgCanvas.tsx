@@ -50,7 +50,7 @@ import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
-import { AgentRetireConfirm, agentMenuEntries } from './agentmenu'
+import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
@@ -2516,6 +2516,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       canRetireAll: !tree.public,
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
+      // same executor, same words as the card's entry — the whole point of
+      // this file being the single menu definition
+      onContinueOn: tree.public ? undefined
+        : (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
     }, {
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,

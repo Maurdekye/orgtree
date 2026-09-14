@@ -32,6 +32,7 @@
 // menu was opened from (contextmenu.tsx), so a builder that added its own
 // would double them.
 
+import { continueOnAccount } from '../api'
 import { lineageCount } from '../archived'
 import type { ToastFn } from '../types'
 import type { MenuEntry } from './contextmenu'
@@ -82,6 +83,12 @@ export interface AgentMenuHandlers {
   canRetireAll?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
+  /** ⭐ continue this FROZEN agent on another account (user requirement
+   *  2026-09-14). One entry per id in `node.continue_accounts`; the handler
+   *  performs the switch-then-release and reports what actually happened.
+   *  A surface that cannot offer it passes nothing and the entries vanish,
+   *  exactly like every other handler-gated entry here. */
+  onContinueOn?: (account: string) => void
 }
 
 export interface AgentMenuState {
@@ -135,6 +142,29 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const lineage = h.onLineage
   if (lineage && lineageCount(node) > 0) {
     entries.push({ label: 'Show lineage', onSelect: () => lineage() })
+  }
+  // ⭐ RECOVERY BEFORE CONFIGURATION. A frozen agent that another account
+  // could carry is the one thing an operator opened this menu to fix, so the
+  // entries sit above Settings rather than under the lifecycle actions at the
+  // bottom — and they are absent for every healthy agent, so they cost an
+  // ordinary reader nothing.
+  //
+  // ⚠ EVERY GATE IS THE BACKEND'S. `continue_accounts` is empty unless the
+  // agent is frozen, its automatic fallback is off, and the account is a
+  // signed-in, same-provider, capacity-clear alternative to the one it is on.
+  // Re-deciding any of that here would be a second definition of eligible.
+  // The label carries the immutable account id verbatim — never an email, a
+  // mutable label, or a provider display name.
+  const continueOn = h.onContinueOn
+  if (continueOn && live) {
+    for (const account of node.continue_accounts ?? []) {
+      entries.push({
+        label: `Continue on ${account}`,
+        title: `move ${node.id} to account ${account} and release its freeze `
+          + 'so the work it is holding continues there',
+        onSelect: () => continueOn(account),
+      })
+    }
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   const pin = h.onPin, showPin = h.onShowPin
@@ -239,6 +269,47 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
         .catch(() => {})}
       close={close} />
   )
+}
+
+/** The nodes with a continuation already in flight. A context menu can be
+ *  re-raised, an entry double-activated, and a tree refresh can land between
+ *  the two — and the operation behind it moves an account binding, so the
+ *  second firing must not happen at all rather than race the first. The
+ *  backend refuses a concurrent second attempt too (409); this keeps the
+ *  operator from seeing that refusal for their own double-click. */
+const continuing = new Set<string>()
+
+/**
+ * Switch a frozen agent onto `account` and release its freeze — the shared
+ * executor behind every `Continue on <id>` entry, so both surfaces report the
+ * same outcomes in the same words.
+ *
+ * ⚠ IT REPORTS THREE OUTCOMES, NOT TWO. The switch can succeed while the
+ * release fails, and that is a real state — the agent is on the new account
+ * and still frozen. Saying "continued" there would be a lie the operator acts
+ * on; saying "failed" would send them to re-run a switch that already
+ * happened. So the middle state is named, and the toast says what remains.
+ */
+export async function continueFrozenOnAccount(slug: string, nid: string,
+  account: string, toast: ToastFn): Promise<void> {
+  const key = `${slug}/${nid}`
+  if (continuing.has(key)) return
+  continuing.add(key)
+  try {
+    const r = await continueOnAccount(slug, nid, account)
+    if (r.state === 'switched_not_resumed') {
+      toast([r.status ?? `${nid} was moved to ${account} but is still frozen.`,
+        'Its held work has NOT resumed — use unstick on the agent to finish the move.'])
+      return
+    }
+    toast([r.status ?? `${nid} continues on ${account}`, ...(r.warnings ?? [])])
+  } catch (e) {
+    // Nothing was changed on this path: the backend refuses before it
+    // switches, and a failed switch never reaches the release.
+    toast([`could not continue ${nid} on ${account}: ${(e as Error).message}`])
+  } finally {
+    continuing.delete(key)
+  }
 }
 
 /** Execute one normal retirement per current direct report. Keeping this as a

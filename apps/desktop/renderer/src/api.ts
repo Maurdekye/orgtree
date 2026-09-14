@@ -329,6 +329,25 @@ export const compactNode = (slug: string, nid: string): Promise<{ started: boole
 export const unstickNode = (slug: string, nid: string):
   Promise<{ released: string[]; status?: string; warnings?: string[] }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/unstick`, { method: 'POST' })
+/** ⭐ continue a FROZEN agent on another of the operator's accounts (user
+ *  requirement 2026-09-14): switch the binding, then release the freeze so the
+ *  held work goes on. ⚠ `switched` and `resumed` are SEPARATE answers — the
+ *  switch can land while the release fails, and that state is neither a
+ *  failure nor a continuation. Render what the backend says rather than
+ *  assuming the pair. */
+export const continueOnAccount = (slug: string, nid: string, account: string):
+  Promise<{
+    switched: boolean; resumed: boolean
+    state: 'continued' | 'switched_not_resumed' | 'switched_nothing_to_release'
+    account: string; status?: string; error?: string; retry?: string
+    released?: string[]; warnings?: string[]
+  }> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/nodes/${encodeURIComponent(nid)}/continue-on`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account }),
+    })
 export const removeReplyEvents = (slug: string, nid: string): Promise<{ removed: number }> =>
   req(`/api/orgs/${encodeURIComponent(slug)}/nodes/${encodeURIComponent(nid)}/reply-events`, { method: 'DELETE' })
 export const creditDecide = (
