@@ -1027,10 +1027,16 @@ orgtreeSilentElevateDone:
       ${if} $1 == "ok"
       ${orif} $1 == "fallback"
         # ⚠ A SUCCESSFUL DISPATCH IS NOT A RUNNING HELPER. The token says the
-        # shell accepted the request, nothing more. The helper writes its ready
-        # marker before it begins waiting, so this is the point where "it
-        # started" stops being an assumption — and it is the check that makes
-        # this path safe against a host that cannot execute, whatever the reason.
+        # shell accepted the request, nothing more, so this is where "it
+        # started" stops being an assumption: the helper publishes its ready
+        # marker once it holds both the installer's process handle and the
+        # launch, and that is what makes this path safe against a host that
+        # cannot execute, whatever the reason.
+        #
+        # An ABSENT acknowledgement, though, says less than it looks like it
+        # does — see the else branch below. It does not mean the helper is not
+        # holding the launch, because the claim is taken before the marker is
+        # written and writing the marker can fail on its own.
         Call orgtreeAwaitUpgradeRelaunchHelper
         ${if} $OrgUpgradeRelaunchAcknowledged == "1"
           StrCpy $OrgUpgradeRelaunchScheduled "1"
