@@ -172,6 +172,28 @@ class ServingAccountTests(unittest.TestCase):
         self.assertEqual(card["id"], "openai/primary")
         self.assertFalse(card["active"])
 
+    def test_unregistered_codex_ambient_identity_counts_with_managed_row(self):
+        # Installed RC2 shape: the registry has only openai-1 while the host
+        # login is represented by the ambient Codex home, not a registry row.
+        managed = self._row("openai", "secondary", auth="authenticated")
+        rows, _ = self._rows()
+        ambient = {"claude": None, "openai": os.path.join(self.root, "codex-home"),
+                   "google": None}
+        by_id = self.au.rows_for_cards(
+            rows, "primary", ambient, host_metadata={"openai": {"email": None}})
+        self.assertEqual(set(by_id), {managed["id"], "openai/primary"})
+        card = self.au.serving_card(
+            None, busy=False, public=False, rows_by_id=by_id,
+            counts=self.au.available_counts(list(by_id.values())),
+            registered=self.au.registered_counts(list(by_id.values())),
+            configured_account="primary", primary="primary",
+            ambient_paths=ambient, provider="openai")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], "openai/primary")
+        self.assertFalse(card["active"])
+        self.assertNotIn(ambient["openai"], repr(card))
+
     def test_idle_codex_secondary_card_uses_immutable_configured_id(self):
         self._row("openai", "host", auth="unobserved")
         second = self._row("openai", "secondary", auth="authenticated")

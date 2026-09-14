@@ -2217,7 +2217,8 @@ def _org_view(slug: str, request: Request,
     from .registry_migration import observe_ambient
     primary = registry.resolve_alias("primary")
     ambient_paths = observe_ambient()
-    account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
+    account_rows = accountusage.rows_for_cards(
+        registry.list_accounts(org=slug), primary, ambient_paths)
     # HOW MANY ACCOUNTS EACH PROVIDER HAS AVAILABLE, counted ONCE for the whole
     # graph off the rows already loaded on the line above. The serving-account
     # card is only shown where there is something to disambiguate, so every

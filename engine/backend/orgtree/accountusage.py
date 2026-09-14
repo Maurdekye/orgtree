@@ -245,6 +245,41 @@ def registered_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return out
 
 
+def rows_for_cards(rows: list[dict[str, Any]], primary: str,
+                   ambient_paths: dict[str, str | None],
+                   host_metadata: dict[str, dict[str, str | None]] | None = None,
+                   ) -> dict[str, dict[str, Any]]:
+    """Return card rows, including an unregistered ambient Codex identity.
+
+    The registry deliberately does not mint a row for an ambient login that
+    has not been migrated. The usage modal represents that login as the
+    provider's host lane instead, but the all-agent card still needs its
+    canonical identity to count and resolve it beside managed rows. This
+    projection is memory-only: its credential path is used only for ambient
+    matching and never enters the returned payload.
+    """
+    out = {str(row.get("id")): row for row in rows if row.get("id")}
+    provider = "openai"
+    path = ambient_paths.get(provider)
+    if not path or any(ambient_covered(row, primary, ambient_paths)
+                       for row in out.values()
+                       if row.get("provider") == provider):
+        return out
+    metadata = (host_metadata if host_metadata is not None
+                else host_identities()).get(provider) or {}
+    ident = registry.primary_name(provider)
+    out[ident] = {
+        "id": ident,
+        "provider": provider,
+        "label": ident,
+        "credential": {"kind": "managed", "path": path},
+        "identity": {"email": metadata.get("email")} if metadata.get("email") else {},
+        "auth": "unobserved",
+        "marks": {},
+    }
+    return out
+
+
 def configured_row(account: Any, rows_by_id: dict[str, dict[str, Any]],
                    primary: str, ambient_paths: dict[str, str | None],
                    provider: str | None) -> dict[str, Any] | None:
