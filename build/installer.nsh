@@ -590,6 +590,95 @@ FunctionEnd
         ${endif}
       ${endif}
     !endif
+
+    # ELEVATE HERE FOR A SILENT ALL-USERS UPDATE, AND THE POSITION IS THE WHOLE
+    # POINT. This is the defect that stranded 2.1.3 clients: they could not
+    # update at all, and every retry took the identical route.
+    #
+    # A silent --updated run reaches NO PAGE, so it never reaches
+    # customInstallMode — the install-mode page PRE callback is the only place
+    # this installer elevated, and page callbacks do not run under silence.
+    #
+    # electron-builder DOES ship a silent counterpart, and it is worth being
+    # precise about why it did not save us. templates/nsis/installer.nsi has an
+    # elevation block whose own comment reads "If we're running a silent upgrade
+    # of a per-machine installation, elevate so extracting the new app will
+    # succeed" — but it sits at the TOP OF `Section "install"`. Our boot
+    # preflight section is defined through customHeader, which installer.nsi
+    # expands at line 45, while `Section "install"` is declared at line 94. NSIS
+    # runs sections in declaration order, so OUR section runs FIRST, finds no
+    # administrator rights, and quits with error 2 before the stock elevation
+    # block is ever reached. The stock path is not missing; it is unreachable.
+    #
+    # Elevating here rather than relying on that block is deliberate. Its guard
+    # is `$hasPerMachineInstallation == "1"`, which is read from the HKLM
+    # InstallLocation value, while the decision that actually matters to us is
+    # the resolved $installMode — and the /D= block directly above can make
+    # those two disagree. Depending on a condition that is merely usually the
+    # same as ours is how this class of bug returns.
+    #
+    # WHY .onInit AND NOT A SECTION. Elevating from a section is the 2.1.3-RC4
+    # field failure recorded in the boot preflight below: UAC_RunElevated starts
+    # a second complete wizard and blocks the first, which sat visible at 3%
+    # forever. .onInit runs before every section and before every page, so there
+    # is no half-drawn installer to strand.
+    #
+    # WHY THIS DOES NOT REPEAT THE RC5 FAILURE. The inner instance inherits
+    # --updated on its command line, so it is silent too — which is correct
+    # here, because a background update is meant to be invisible. RC5 was a
+    # MANUAL upgrade whose inner instance was silenced by the redefined
+    # ${isUpdated}; this block is gated on ${orgtreeOriginalIsUpdated}, the real
+    # command-line entry point, so a manual Upgrade never enters it at all and
+    # keeps every page it has today.
+    !ifndef BUILD_UNINSTALLER
+    !ifndef INSTALL_MODE_PER_ALL_USERS
+      ${if} $installMode == "all"
+        ${ifNot} ${UAC_IsAdmin}
+          # An inner instance that lacked admin has already been refused by
+          # electron-builder's own initMultiUser, so reaching this line as the
+          # inner instance should be impossible. It is guarded rather than
+          # assumed, because the failure it would produce is an elevation loop.
+          ${ifNot} ${UAC_IsInnerInstance}
+            # Written BEFORE the prompt for the same reason as the manual path:
+            # from here the next thing that happens is a permission prompt, and
+            # if it is declined this is the only process that can say so.
+            !insertmacro OrgLog "elevation-requested" "silent update of an all-users installation in [$INSTDIR]; asking for administrator rights"
+            ShowWindow $HWNDPARENT ${SW_HIDE}
+            !insertmacro UAC_RunElevated
+            ${if} $0 == 0
+            ${andif} $1 == 1
+              !insertmacro OrgLog "elevation-approved" "an elevated instance ran the silent update; this outer process is done"
+              # ⚠ SAY SUCCESS EXPLICITLY. Quitting from .onInit exits with code
+              # 2 by default — measured, not assumed: every other cell of the
+              # fixture matrix in tools/test-installer-silent-elevation.mjs
+              # exits 0 and only this one returned 2. On the SILENT path that
+              # exit code is the auto-updater's only signal, so leaving the
+              # default would report a successful handoff as a failed update and
+              # invite the client to retry an upgrade that already happened.
+              # The inner instance did the work and reported success in $1.
+              SetErrorLevel 0
+              Quit
+            ${endif}
+            # No MessageBox on this path. SetSilent is already in force, so
+            # /SD would auto-dismiss it unseen; the exit code is what the
+            # updater can actually act on, and the log is what a person can
+            # read afterwards.
+            ${if} $0 == 1223
+              !insertmacro OrgLog "elevation-declined" "the Windows permission prompt was DISMISSED by the user (1223); nothing was changed"
+            ${elseif} $0 == 0
+              !insertmacro OrgLog "elevation-unavailable" "no administrator account was available to elevate to; nothing was changed"
+            ${else}
+              !insertmacro OrgLog "elevation-error" "could not request administrator approval, Windows error $0; nothing was changed"
+            ${endif}
+            SetErrorLevel 2
+            Quit
+          ${endif}
+        ${else}
+          !insertmacro OrgLog "elevation-held" "silent update already has administrator rights; no prompt needed"
+        ${endif}
+      ${endif}
+    !endif
+    !endif
   ${endif}
 !macroend
 !macro customFinishPage

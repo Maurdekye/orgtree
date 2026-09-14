@@ -227,6 +227,51 @@ test('the upgrade relaunch dispatch never targets a console-subsystem host', { s
   assert.throws(() => peSubsystem(path.join(root, 'package.json')), /no MZ signature|too small/)
 })
 
+// The stranded-client guard. A silent --updated run reaches no page, so it never
+// reaches customInstallMode — the install-mode page PRE callback was the only
+// place this installer elevated. These pin the SHAPE; the reachability itself is
+// measured by running a compiled fixture in
+// tools/test-installer-silent-elevation.mjs, which this cannot do because the
+// normal suite must not require the NSIS compiler.
+test('the silent update path reaches an elevation decision of its own', () => {
+  const init = installer.match(/!macro customInit\r?\n[\s\S]*?\r?\n!macroend/)
+  assert.ok(init, 'customInit must exist')
+  const body = init[0]
+
+  // customInit is expanded from .onInit, which runs under silence — unlike a
+  // page callback. The decision has to live here to be reachable at all.
+  assert.match(body, /\$\{if\} \$installMode == "all"[\s\S]*?\$\{ifNot\} \$\{UAC_IsAdmin\}[\s\S]*?!insertmacro UAC_RunElevated/)
+  // Gated on the real --updated entry point, so a MANUAL Upgrade never enters
+  // it and keeps every page it has today. This is the RC5 boundary.
+  const gate = body.indexOf('${if} ${orgtreeOriginalIsUpdated}')
+  const elevate = body.indexOf('!insertmacro UAC_RunElevated')
+  assert.ok(gate >= 0 && elevate > gate, 'the silent elevation must sit inside the --updated gate')
+  // An inner instance re-elevating is an elevation loop.
+  assert.match(body, /\$\{ifNot\} \$\{UAC_IsInnerInstance\}/)
+  // Scope and location are resolved by the /D= block; elevating before it would
+  // decide on a scope that the destination can still change.
+  const destination = body.indexOf('!insertmacro GetDParameter')
+  assert.ok(destination >= 0 && elevate > destination,
+    'elevation must come after the /D= destination resolution, or it decides on a scope that is not final yet')
+  // A successful handoff must report success. Quitting from .onInit exits 2 by
+  // default, and on the silent path that code is the updater's only signal.
+  assert.match(body, /elevation-approved[\s\S]*?SetErrorLevel 0\r?\n\s*Quit/)
+  // A refusal must be distinguishable and must not be silent-failure-by-zero.
+  assert.match(body, /\$0 == 1223[\s\S]*?elevation-declined/)
+  assert.match(body, /SetErrorLevel 2\r?\n\s*Quit/)
+  // The window is hidden before the prompt, as at every other elevation site.
+  assert.match(body, /ShowWindow \$HWNDPARENT \$\{SW_HIDE\}\r?\n\s*!insertmacro UAC_RunElevated/)
+})
+
+test('the manual upgrade elevation is left where it was', () => {
+  // The silent path gets its own decision; the field-tested manual one must not
+  // be disturbed by that, or this trades a silent failure for a visible one.
+  const mode = installer.match(/!macro customInstallMode\r?\n[\s\S]*?\r?\n!macroend/)
+  assert.ok(mode, 'customInstallMode must exist')
+  assert.match(mode[0], /\$OrgUpgradeSelected == "1"[\s\S]*?\$OrgUpgradeInstallMode == "all"[\s\S]*?\$\{ifNot\} \$\{UAC_IsAdmin\}[\s\S]*?ShowWindow \$HWNDPARENT \$\{SW_HIDE\}[\s\S]*?!insertmacro UAC_RunElevated/)
+  assert.match(mode[0], /MessageBox[\s\S]*?Administrator approval is required/)
+})
+
 // The helper is JScript under Windows Script Host, which is an ES3 engine, and
 // it runs where nothing can report a syntax error to anyone. These pin the two
 // portability traps that were actually hit while writing it.
