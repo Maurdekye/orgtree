@@ -34,14 +34,32 @@ import { acquireConsoleWindowLock } from './fixtures/console-window-lock.mjs'
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+/** ⚠ AN UNANSWERABLE QUESTION RESOLVES TO null, NOT TO ''. This used to
+ *  collapse both into '', and `alive()` then read that as "the process is
+ *  dead" — so every death assertion in this file was satisfiable by an
+ *  instrument that measured NOTHING. Proven by mutation: pointing this helper
+ *  at an executable that does not exist left the parent-exit control passing,
+ *  1 pass 0 fail. An unanswered gate is not a passed gate. */
 const ps = (script) => new Promise((resolve) => {
   execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { windowsHide: true, timeout: 20000 }, (error, stdout) => resolve(error ? '' : String(stdout).trim()))
+    { windowsHide: true, timeout: 20000 }, (error, stdout) => resolve(error ? null : String(stdout).trim()))
 })
 
 /** Is this pid running? The one observation every survival claim rests on, so
  *  each section that uses it also makes it report `false` at least once. */
-const alive = async (pid) => (await ps(`if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }`)) === 'yes'
+/** ⚠ THROWS RATHER THAN GUESSING. The probe must answer exactly 'yes' or
+ *  'no'; anything else — a failed powershell, a timeout, unexpected output —
+ *  is the instrument being broken, and that must fail the test rather than be
+ *  scored as a verdict. This is the only reason a death assertion here means
+ *  anything at all. */
+const alive = async (pid) => {
+  const answer = await ps(`if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }`)
+  if (answer !== 'yes' && answer !== 'no') {
+    throw new Error(`the liveness probe could not answer for pid ${pid}: `
+      + (answer === null ? 'powershell failed or timed out' : JSON.stringify(answer)))
+  }
+  return answer === 'yes'
+}
 
 /** Force-kill by pid WITHOUT /T. The tree flag is deliberately absent: killing
  *  the tree would also end the detached child, which is the very thing under
@@ -198,29 +216,74 @@ test('§2 the handler shape index.ts installs DOES fire, and the shutdown grace 
 
 // ------------------------------------------------- parent exit and parent kill
 
-test('§3 POSITIVE CONTROL: a child bound to its parent by a pipe DIES when the parent exits', async () => {
-  // The harness must be able to observe parent-exit-driven death, or §4 and §5
-  // are meaningless. The binding used here is a real one and not a contrivance:
-  // stdio 'pipe' is exactly how apps/desktop/main/engine.ts spawns the engine,
-  // and a child reading that pipe sees EOF the moment the parent goes.
-  const bound = writeScript('bound.cjs', `
-    process.stdin.on('end', () => process.exit(0))
-    process.stdin.resume()
+/** Spawn a child with the given options from a parent that then EXITS, and
+ *  report whether the child outlived it.
+ *
+ *  ⚠ THE CHILD NEVER READS ITS STDIN, deliberately. An earlier version of §3
+ *  told a story about pipes: the child read stdin, saw EOF when the parent
+ *  exited, and exited itself. It passed — and it was measuring the child's own
+ *  cooperation rather than anything Windows does. Removing that coupling left
+ *  the section passing anyway, which is how staffing-flow found it. With the
+ *  read gone, `detached` is the only variable left. */
+const outlivesParent = async ({ detached, stdio, label }) => {
+  const marker = at(`matrix-${label}.log`)
+  const child = writeScript(`matrix-child-${label}.cjs`, `
+    const fs = require('node:fs')
+    const file = ${JSON.stringify(marker)}
+    fs.appendFileSync(file, 'started ' + process.pid + '\\n')
+    // If this child is asked to leave, it records it. Nothing writes this when
+    // the process is force-terminated, which is how we can tell the two apart.
+    process.on('exit', () => { try { fs.appendFileSync(file, 'orderly-exit\\n') } catch {} })
     setInterval(() => {}, 1000)
   `)
-  const parent = writeScript('pipe-parent.cjs', `
+  const parent = writeScript(`matrix-parent-${label}.cjs`, `
     const { spawn } = require('node:child_process')
-    const c = spawn(process.execPath, [${JSON.stringify(bound)}], { windowsHide: true, stdio: 'pipe' })
-    process.stdout.write(String(c.pid))
-    setTimeout(() => process.exit(0), 600)
+    const c = spawn(process.execPath, [${JSON.stringify(child)}],
+      { windowsHide: true, stdio: ${JSON.stringify(stdio)}, detached: ${detached} })
+    ${detached ? 'c.unref()' : ''}
+    setTimeout(() => process.exit(0), 700)
   `)
-  const childPid = Number(await new Promise(resolve => {
-    execFile(process.execPath, [parent], { windowsHide: true, timeout: 15000 }, (_e, stdout) => resolve(String(stdout).trim()))
-  }))
-  assert.ok(childPid > 0, 'the bound child reported its pid')
-  assert.ok(await waitFor(async () => !(await alive(childPid)), 8000) || !(await alive(childPid)),
-    'CONTROL: the parent exiting ended it — so this harness can detect exactly '
-    + 'the parent-lifetime failure the next two sections claim does NOT happen')
+  await new Promise(resolve => execFile(process.execPath, [parent], { windowsHide: true, timeout: 20000 }, () => resolve()))
+  assert.ok(await waitFor(() => startedPid(marker) > 0), `${label}: the child started`)
+  const pid = startedPid(marker)
+  // the parent is already gone — execFile resolved on its exit
+  await sleep(1500)
+  const survived = await alive(pid)
+  if (survived) await killOnly(pid)
+  return { survived, pid, orderly: lines(marker).includes('orderly-exit') }
+}
+
+test('§3 THE DISCRIMINATOR IS `detached`, and this is the control for §4 and §5', async () => {
+  // A four-way matrix, because §4 and §5 differ from a dying child in TWO
+  // properties at once (detached AND stdio) and so cannot say which one keeps
+  // the installer alive. If a later reader drops `detached` from the installer
+  // spawn on the strength of a pipe story, this is what stops them.
+  //
+  // It is also the POSITIVE CONTROL the two sections below depend on: the
+  // bottom two rows are real parent-exit deaths, so the harness demonstrably
+  // detects exactly the failure §4 and §5 claim does not happen.
+  const matrix = [
+    { detached: true, stdio: 'ignore', label: 'detached-ignore', expect: true },
+    { detached: true, stdio: 'pipe', label: 'detached-pipe', expect: true },
+    { detached: false, stdio: 'ignore', label: 'attached-ignore', expect: false },
+    { detached: false, stdio: 'pipe', label: 'attached-pipe', expect: false },
+  ]
+  const results = []
+  for (const row of matrix) results.push({ ...row, ...await outlivesParent(row) })
+
+  for (const row of results) {
+    assert.equal(row.survived, row.expect,
+      `detached:${row.detached} stdio:${row.stdio} — expected the child to `
+      + `${row.expect ? 'OUTLIVE' : 'DIE WITH'} its parent`)
+  }
+  // The property stated once, plainly, so it cannot be read off the rows wrongly:
+  const byDetached = new Map(results.map(r => [r.detached, r.survived]))
+  assert.equal(byDetached.get(true), true, 'every detached child survived, whatever its stdio')
+  assert.equal(byDetached.get(false), false, 'every attached child died, whatever its stdio')
+  assert.deepEqual(results.filter(r => !r.survived).map(r => r.orderly), [false, false],
+    'and the ones that died were FORCE-TERMINATED — their own exit handler never '
+    + 'ran, so this is Windows ending them rather than the child noticing '
+    + 'anything and leaving politely')
 })
 
 test('§4 PARENT-SHELL EXIT: an installer-shaped child outlives the shell that launched it', async (t) => {
@@ -378,7 +441,7 @@ test('§7 ENGINE KILL: the app observes its engine dying and stays up', async (t
     + 'why the console-close report is not engine-death propagation')
 })
 
-test('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does die', async () => {
+test('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does die', async (t) => {
   // Without this, §7 passes against a harness that cannot kill anything or
   // cannot see a parent exit at all.
   const marker = at('engine-coupled.log')
@@ -391,6 +454,11 @@ test('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does 
     engine.on('exit', () => process.exit(0))   // the coupling main/ does NOT have
     setInterval(() => {}, 1000)
   `], { windowsHide: true, stdio: 'ignore' })
+  // ⚠ CLEANUP THE SECTION USED TO LACK, and its absence was worse than a
+  // failure: when the coupling is broken this parent never exits, the live
+  // spawn handle keeps the test process alive, and `npm test` HANGS with no
+  // verdict at all. A failure is information; a hang is not. §7 always had this.
+  t.after(() => killOnly(coupled.pid))
   assert.ok(await waitFor(() => lines(marker).some(l => l.startsWith('engine ')), 8000), 'the engine child started')
   const enginePid = Number(lines(marker).find(l => l.startsWith('engine ')).slice('engine '.length))
 

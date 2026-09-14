@@ -43,12 +43,30 @@ const waitFor = async (predicate, ms = 10000) => {
   return await predicate()
 }
 
+/** ⚠ AN UNANSWERABLE QUESTION RESOLVES TO null, NOT TO ''. This used to
+ *  collapse both into '', and `alive()` then read that as "the process is
+ *  dead" — so every death assertion in this file was satisfiable by an
+ *  instrument that measured NOTHING. Proven by mutation: pointing this helper
+ *  at an executable that does not exist left the parent-exit control passing,
+ *  1 pass 0 fail. An unanswered gate is not a passed gate. */
 const ps = (script) => new Promise((resolve) => {
   execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
-    { windowsHide: true, timeout: 20000 }, (error, stdout) => resolve(error ? '' : String(stdout).trim()))
+    { windowsHide: true, timeout: 20000 }, (error, stdout) => resolve(error ? null : String(stdout).trim()))
 })
 
-const alive = async (pid) => (await ps(`if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }`)) === 'yes'
+/** ⚠ THROWS RATHER THAN GUESSING. The probe must answer exactly 'yes' or
+ *  'no'; anything else — a failed powershell, a timeout, unexpected output —
+ *  is the instrument being broken, and that must fail the test rather than be
+ *  scored as a verdict. This is the only reason a death assertion here means
+ *  anything at all. */
+const alive = async (pid) => {
+  const answer = await ps(`if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }`)
+  if (answer !== 'yes' && answer !== 'no') {
+    throw new Error(`the liveness probe could not answer for pid ${pid}: `
+      + (answer === null ? 'powershell failed or timed out' : JSON.stringify(answer)))
+  }
+  return answer === 'yes'
+}
 
 const PROBE_TITLE = 'orgtree-lifetime-probe'
 
