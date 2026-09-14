@@ -1,6 +1,8 @@
 import { flush, inAct, mountView, advance, useFakeClock, realClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createPortal } from 'react-dom'
+import { JSDOM } from 'jsdom'
 import { useContextMenu } from '../src/canvas/contextmenu'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import { quickStaffEntry } from '../src/canvas/quickstaff'
@@ -110,6 +112,47 @@ test('pointer hover reveals fallback before model selection, with clickable mode
   assert.equal(sent[0]!.tier, 'dynamic-model')
   assert.equal('effort' in sent[0]!, false)
   assert.equal(document.querySelector('.ctxmenu'), null)
+})
+
+test('popout nested menus join the origin Escape stack and collapse one level at a time', async () => {
+  const child = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' })
+  const childDoc = child.window.document
+  function PopoutFixture() {
+    const menu = useContextMenu()
+    return <>{createPortal(<button data-origin onContextMenu={e => menu.open(e,
+      [quickStaffEntry('org', 'popout-keyboard', preview('top_level'), () => {})])}>Ticket</button>, childDoc.body)}{menu.node}</>
+  }
+  const v = await mountView(<PopoutFixture />, h => h)
+  const item = (name: string) => [...childDoc.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(b => b.textContent?.replace(' ▸', '') === name)!
+  const childKey = async (el: EventTarget, value: string) => {
+    await inAct(() => { el.dispatchEvent(new child.window.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })) })
+    await flush(2)
+  }
+  try {
+    await inAct(() => { childDoc.querySelector('[data-origin]')!.dispatchEvent(
+      new child.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
+    await flush(2)
+    assert.equal(document.querySelector('.ctxmenu'), null)
+    assert.ok(item('Staff…'))
+    await childKey(item('Staff…'), 'ArrowRight')
+    await childKey(item('dynamic-model'), 'ArrowRight')
+    assert.equal(childDoc.activeElement, item('low'))
+    assert.equal(childDoc.querySelectorAll('[role="menu"]').length, 3)
+    // A key in another window must not dismiss any level in this one.
+    await key(document.body, 'Escape')
+    assert.equal(childDoc.querySelectorAll('[role="menu"]').length, 3)
+    // Dispatch on the origin window itself to exercise the Escape stack,
+    // without the submenu's React key handler masking incorrect registration.
+    await childKey(child.window, 'Escape')
+    assert.equal(childDoc.querySelectorAll('[role="menu"]').length, 2)
+    assert.equal(childDoc.activeElement, item('dynamic-model'))
+    await childKey(child.window, 'Escape')
+    assert.equal(childDoc.querySelectorAll('[role="menu"]').length, 1)
+    assert.equal(childDoc.activeElement, item('Staff…'))
+    await childKey(child.window, 'Escape')
+    assert.equal(childDoc.querySelector('.ctxmenu'), null)
+  } finally { await v.unmount(); child.window.close() }
 })
 
 test('duplicates are suppressed and failed retries retain the operation identity', async t => {
