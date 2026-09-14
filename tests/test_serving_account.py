@@ -194,6 +194,33 @@ class ServingAccountTests(unittest.TestCase):
         self.assertFalse(card["active"])
         self.assertNotIn(ambient["openai"], repr(card))
 
+    def test_api_tree_accepts_explicit_codex_primary_binding(self):
+        # The ambient card row is card-only: it has no registry tint ordinal.
+        # An explicitly primary-bound node must still pass the full API tree
+        # annotation path without trying to tint that synthetic row.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from engine.backend.orgtree import api, ledger, registry_migration, store
+
+        managed = self._row("openai", "secondary", auth="authenticated")
+        ambient = {"claude": None,
+                   "openai": os.path.join(self.root, "codex-home"),
+                   "google": None}
+        org = ledger.Org.create("serving-card-primary-binding")
+        hired = org.hire(ledger.USER, None, "luna", 0, "primary-codex")
+        org.node(hired["node"])["account"] = "openai/primary"
+        store.save_org(org)
+        request = SimpleNamespace(
+            state=SimpleNamespace(), headers={},
+            url=SimpleNamespace(path="/api/orgs/serving-card-primary-binding"))
+        with patch.object(registry_migration, "observe_ambient",
+                          return_value=ambient):
+            tree = api.org_tree("serving-card-primary-binding", request)
+        node = tree["roots"][0]
+        self.assertEqual(node["account"], "openai/primary")
+        self.assertEqual(node["serving_account"]["id"], "openai/primary")
+        self.assertFalse(node["serving_account"]["active"])
+
     def test_idle_codex_secondary_card_uses_immutable_configured_id(self):
         self._row("openai", "host", auth="unobserved")
         second = self._row("openai", "secondary", auth="authenticated")

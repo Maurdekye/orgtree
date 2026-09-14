@@ -2217,16 +2217,21 @@ def _org_view(slug: str, request: Request,
     from .registry_migration import observe_ambient
     primary = registry.resolve_alias("primary")
     ambient_paths = observe_ambient()
-    account_rows = accountusage.rows_for_cards(
-        registry.list_accounts(org=slug), primary, ambient_paths)
+    # Keep the registry projection used for normal binding annotation separate
+    # from the additive card projection.  The latter may synthesize the
+    # unregistered ambient OpenAI identity; it has no allocated tint ordinal
+    # because it is not a registry account and must not reach this path.
+    account_rows = {row["id"]: row for row in registry.list_accounts(org=slug)}
+    card_rows = accountusage.rows_for_cards(
+        list(account_rows.values()), primary, ambient_paths)
     # HOW MANY ACCOUNTS EACH PROVIDER HAS AVAILABLE, counted ONCE for the whole
     # graph off the rows already loaded on the line above. The serving-account
     # card is only shown where there is something to disambiguate, so every
     # node needs this number — and counting it per node would re-read the
     # registry per seat, which is the D-239 trap `accounts.serving_label`
     # documents having fallen into once already.
-    available = accountusage.available_counts(list(account_rows.values()))
-    registered = accountusage.registered_counts(list(account_rows.values()))
+    available = accountusage.available_counts(list(card_rows.values()))
+    registered = accountusage.registered_counts(list(card_rows.values()))
     # ⚠ a KIOSK visitor is told nothing about which account serves a turn
     # (D-145). Resolved once here, beside the other per-request facts.
     public_view = _public_slug(request) is not None
@@ -2325,7 +2330,7 @@ def _org_view(slug: str, request: Request,
         # why this uses the very same `st["busy"]` that gate does.
         node["serving_account"] = accountusage.serving_card(
             st.get("ran_as"), busy=bool(st.get("busy")), public=public_view,
-            rows_by_id=account_rows, counts=available,
+            rows_by_id=card_rows, counts=available,
             primary=primary, ambient_paths=ambient_paths,
             provider=providers.provider_of(str(node.get("tier") or "")),
             configured_account=node.get("account"), registered=registered)
