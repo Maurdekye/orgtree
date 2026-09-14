@@ -37,6 +37,10 @@ export type UpdateStage =
   /** No installer will start: the prompt was dismissed, the launch was blocked,
    *  or nothing ever appeared. The app must be put back, not quietly closed. */
   | 'installer-never-started'
+  /** The installer could not be IDENTIFIED, so no proof was obtainable and the
+   *  old unproven exit was taken. Distinct from 'installer-running': it records
+   *  that nobody checked, which is exactly what a later reader needs to know. */
+  | 'installer-proof-unavailable'
   | 'watchdog-exit'            /* preparation outlived its deadline */
   | 'updater'                  /* a line from electron-updater's own logger */
   | 'error'

@@ -17,7 +17,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
-import { bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -386,6 +386,42 @@ else {
   /** Put the app back after a shutdown that must not complete. `quitting` is
    *  latched by then, which is what makes every app.quit() a no-op, so leaving
    *  it set is the 2.0.3 wedge by another route. */
+  /** The installer's own file name, lower-cased — the ONLY image that proves
+   *  the update is really running. Empty when electron-updater cannot name the
+   *  file, which the caller treats as "no proof is obtainable" rather than as
+   *  a failure: see the fallback in sampleInstallerProcesses. */
+  const installerImageName = (): string => {
+    try {
+      const file = (autoUpdater as unknown as { installerPath?: string }).installerPath
+      return file ? path.basename(file).toLowerCase() : ''
+    } catch { return '' }
+  }
+  /** One look at the process table, as `awaitInstallerProof` wants it.
+   *
+   *  ⚠ elevate.exe IS NOT A SUBSTITUTE for the installer. It is the UAC broker,
+   *  and it is alive for the whole time the prompt is on screen — so treating
+   *  it as proof would report success in exactly the case where the user is
+   *  about to click No.
+   *
+   *  One `tasklist` per look rather than one per image: the cost is a process
+   *  spawn either way, and asking twice doubles it for no extra truth. A failed
+   *  or unparsable listing yields "nothing seen", which is the safe direction —
+   *  it can only delay a verdict, never invent one. */
+  const sampleInstallerProcesses = (installerImage: string) => async () => {
+    const listing = await new Promise<string>(resolve => {
+      execFile('tasklist', ['/NH', '/FO', 'CSV'], { windowsHide: true, timeout: 4000, maxBuffer: 8 << 20 },
+        (error, stdout) => resolve(error ? '' : String(stdout)))
+    })
+    const running = new Set<string>()
+    for (const line of listing.split(/\r?\n/)) {
+      const name = /^"([^"]+)"/.exec(line)?.[1]
+      if (name) running.add(name.toLowerCase())
+    }
+    return {
+      installerRunning: !!installerImage && running.has(installerImage),
+      elevatorRunning: running.has('elevate.exe'),
+    }
+  }
   const abandonUpdateShutdown = (message: string, detail: string) => {
     cancelUpdateWatchdog()
     quitting = false; quitComplete = false; updateApplying = false
@@ -403,6 +439,15 @@ else {
   }
   /** electron-updater reports a spawn failure asynchronously. Resolves with the
    *  error if one arrives inside the window, or undefined if none does. */
+  /** Whatever electron-updater has reported SO FAR, consumed. Synchronous,
+   *  because the proof loop asks between looks rather than waiting on it — the
+   *  waiting is the loop's job and it has better reasons to stop. */
+  const takeInstallError = (): unknown => {
+    if (lastInstallError === undefined) return undefined
+    const seen = lastInstallError
+    lastInstallError = undefined
+    return seen
+  }
   const awaitInstallError = (ms: number) => new Promise<unknown>(resolve => {
     if (lastInstallError !== undefined) { const seen = lastInstallError; lastInstallError = undefined; return resolve(seen) }
     const timer = setTimeout(() => { installErrorWaiter = undefined; resolve(undefined) }, ms)
@@ -526,17 +571,64 @@ else {
       app.relaunch(); app.exit(0)
       return
     }
-    // The installer was LAUNCHED, which is not the same as succeeded: a spawn
-    // that fails does so asynchronously, on the 'error' event, after install()
-    // has already returned true. Measured, that failure still quit the app and
-    // installed nothing. Owning the quit lets us wait a bounded moment for it.
-    const spawnFailure = await awaitInstallError(UPDATE_SPAWN_GRACE_MS)
-    if (spawnFailure !== undefined) {
+    // The installer was LAUNCHED, which is not the same as succeeded — and
+    // "launched" is itself weaker than it sounds. `install()` returning true
+    // means electron-updater got a PID BACK (BaseUpdater.spawnLog resolves on
+    // `p.pid !== undefined`), which says a process object was created and
+    // nothing more. The only failure it can report is a spawn-time 'error'; a
+    // process that STARTS AND THEN DIES emits nothing at all. So waiting a few
+    // quiet seconds and then quitting is exactly how an update disappeared:
+    // the app closed, the installer never ran, and the log said 'handoff'.
+    //
+    // The exit now waits for a VERDICT instead. See awaitInstallerProof.
+    //
+    // ⚠ THE WATCHDOG IS CANCELLED FIRST, and that is not a loosening. It was
+    // sized for a sequence with no human in it and ends in app.exit(1); the
+    // wait below can legitimately outlast it, because a Windows permission
+    // prompt takes as long as the person takes. Killing the app there would
+    // destroy the very update it exists to protect. The loop is the new bound,
+    // and it is bounded everywhere a bound is honest.
+    cancelUpdateWatchdog()
+    const installerImage = installerImageName()
+    if (!installerImage) {
+      // ⚠ NO PROOF IS OBTAINABLE, so do not manufacture a verdict. If the
+      // library cannot name the file it launched, "no process by that name is
+      // running" is a statement about our ignorance, not about the installer,
+      // and failing on it would turn working updates into false alarms. Fall
+      // back to the old behaviour and SAY SO, so the log distinguishes an
+      // unproven exit from a proven one.
+      updateLog.record('installer-proof-unavailable',
+        'electron-updater did not expose the installer path, so its process could not be identified', { from: app.getVersion(), to: version })
+      const spawnFailure = await awaitInstallError(UPDATE_SPAWN_GRACE_MS)
+      if (spawnFailure !== undefined) {
+        updateLog.record('handoff-refused', spawnFailure)
+        updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
+        app.relaunch(); app.exit(0)
+        return
+      }
+      app.quit()
+      return
+    }
+    const proof = await awaitInstallerProof({
+      sample: sampleInstallerProcesses(installerImage),
+      now: () => Date.now(),
+      sleep: (ms) => new Promise<void>(resolve => { setTimeout(resolve, ms).unref?.() }),
+      record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
+      // the one failure electron-updater CAN tell us about, folded in so the
+      // wait ends on it rather than running out a bound for something already
+      // known not to be coming
+      reportedError: () => takeInstallError(),
+    })
+    if (proof.verdict === 'failed') {
       // Unlike the unconfirmed-stop path, the engine here IS confirmed gone, so
       // carrying on in place would leave a running app with a dead engine.
       // Relaunch into a working one, exactly as a declined handoff does.
-      updateLog.record('handoff-refused', spawnFailure)
       updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
+      // ⚠ AND SAY SO. Shutting down and then silently doing nothing is the
+      // whole complaint; a failure the user never sees is the same defect
+      // wearing a quieter hat.
+      void dialog.showMessageBox({ type: 'warning', message: 'Orgtree did not install the update.',
+        detail: `${proof.detail}\n\nOrgtree has been left running and the update is still ready — try again from the tray. The full record is in update-log.json beside Orgtree's data.` }).catch(() => {})
       app.relaunch(); app.exit(0)
       return
     }
