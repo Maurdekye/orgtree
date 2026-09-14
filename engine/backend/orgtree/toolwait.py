@@ -20,6 +20,8 @@ from .mcptool import MANAGED_WAIT_TOOLS as TOOLS
 
 WAIT_S = 10.0
 MAX_RUNNING = 8
+MAX_PUBLISH_FAILURES = 8
+MAX_PUBLISH_AGE_S = 3600
 # Read/control/mail calls stay short and retain their existing response path.
 # These operations can wait on processes, files, provider discovery or smoke runs.
 _slots = threading.BoundedSemaphore(MAX_RUNNING)
@@ -36,6 +38,8 @@ def _db():
     db = sqlite3.connect(path, timeout=2)
     db.execute('PRAGMA synchronous=FULL')
     db.execute('CREATE TABLE IF NOT EXISTS operations '
+               '(id TEXT PRIMARY KEY, record TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS dead_letters '
                '(id TEXT PRIMARY KEY, record TEXT NOT NULL)')
     return db
 
@@ -58,6 +62,28 @@ def records():
     return rows
 
 
+def dead_letters():
+    """Retained diagnostic evidence, outside the active admission bound."""
+    with closing(_db()) as db:
+        return [json.loads(r[0]) for r in db.execute(
+            'SELECT record FROM dead_letters ORDER BY rowid')]
+
+
+def _dead_letter(row, reason):
+    archived = dict(row, delivery_failure=reason, retired_at=time.time())
+    # Keep the entire result before freeing its slot, in ONE transaction.
+    with closing(_db()) as db, db:
+        db.execute('INSERT OR REPLACE INTO dead_letters VALUES (?, ?)',
+                   (row['id'], json.dumps(archived)))
+        db.execute('DELETE FROM operations WHERE id=?', (row['id'],))
+    print(f"[orgtree] managed tool {row['id']} for {row['org']}/{row['node']}: "
+          f"{reason}; result retained in tool-waits.db dead_letters")
+
+
+class _DestinationGone(Exception):
+    pass
+
+
 def tool_name(body):
     name = body.args.get('tool', '') if body.tool == 'orgtree_op_call' else body.tool
     return name if isinstance(name, str) else ''
@@ -72,33 +98,55 @@ def _destination(org, row):
 
 
 def _publish(row):
-    """Mail + its receipt commit together; deleting our journal is step two."""
+    """Bounded publication retries; permanently unavailable results retain evidence."""
     from . import halt, supervisor as sup
     with _publish_lock:
-        # Another sweep or the HTTP owner may already have retired this result.
-        if row['id'] not in {r['id'] for r in records()}:
+        # Use the current durable row, including any publication checkpoint.
+        row = next((r for r in records() if r['id'] == row['id']), None)
+        if row is None or row.get('retry_at', 0) > time.time():
             return
-        with store.DOC_LOCK:
-            org = store.load_org(row['org'])
-            nid = _destination(org, row)
-            if not nid:
-                return  # retain evidence; never send it to a reused name
-            receipts = org.d.setdefault('tool_result_receipts', {})
-            if row['id'] not in receipts:
-                body = (f"[ORGTREE TOOL RESULT {row['id']}]\n"
-                        f"Tool: {row['tool']}\nState: {row['state']}\n"
-                        + json.dumps(row['result'], ensure_ascii=False)
-                        + '\nDo not repeat the original operation. This is its result, '
-                          'not a request to run it again.')
-                msg = org.post_mail(ledger.SYSTEM, nid, body)
-                receipts[row['id']] = msg['id']
-                maildrain.request(org, nid)
-                if halt.blocked(row['org'], nid):
-                    maildrain.suspend(org, nid)
+        try:
+            with store.DOC_LOCK:
+                org = store.load_org(row['org'])
+                nid = _destination(org, row)
+                if not nid:
+                    raise _DestinationGone('recipient seat no longer exists')
+                receipts = org.d.setdefault('tool_result_receipts', {})
+                if not row.get('published'):
+                    if row['id'] not in receipts:
+                        body = (f"[ORGTREE TOOL RESULT {row['id']}]\n"
+                                f"Tool: {row['tool']}\nState: {row['state']}\n"
+                                + json.dumps(row['result'], ensure_ascii=False)
+                                + '\nDo not repeat the original operation. This is its result, '
+                                  'not a request to run it again.')
+                        msg = org.post_mail(ledger.SYSTEM, nid, body)
+                        receipts[row['id']] = msg['id']
+                        maildrain.request(org, nid)
+                        if halt.blocked(row['org'], nid):
+                            maildrain.suspend(org, nid)
+                        store.save_org(org)
+                    # Checkpoint before removing the org marker. Recovery can
+                    # now finish cleanup without recreating the message, even
+                    # if the marker was cleared and the final delete failed.
+                    row['published'] = True
+                    _save(row)
+                receipts.pop(row['id'], None)
                 store.save_org(org)
-            _delete(row['id'])
-            receipts.pop(row['id'], None)
-            store.save_org(org)
+                _delete(row['id'])
+        except Exception as exc:
+            gone = (isinstance(exc, _DestinationGone) or
+                    isinstance(exc, ledger.LedgerError) and str(exc).startswith('no such org:'))
+            now = time.time()
+            row['publish_failures'] = int(row.get('publish_failures', 0)) + 1
+            row.setdefault('first_publish_failure_at', now)
+            if (gone or row['publish_failures'] >= MAX_PUBLISH_FAILURES or
+                    now - row['first_publish_failure_at'] >= MAX_PUBLISH_AGE_S):
+                _dead_letter(row, str(exc))
+            else:
+                row['retry_at'] = now + min(60, 2 ** row['publish_failures'])
+                row['last_publish_error'] = str(exc)
+                _save(row)
+            return
         # Normal admission checks holds. The durable drain already owns a wake
         # if this immediate delivery attempt fails or the process exits here.
         sup.send_message(row['org'], nid, 'A managed tool result is ready.',

@@ -93,7 +93,16 @@ Completion persistence is retried without reexecuting the operation.
 Publication stores the mail and its deduplication marker in the same org
 transaction, then retires the operation journal record. Caller seat identity
 follows rename and compaction but does not hand private results to a later
-hire that reused the name. A missing recipient leaves the result retained.
+hire that reused the name. A provably missing recipient or deleted org moves
+the full result and failure reason atomically to the `dead_letters` table,
+outside the 64 active slots. Temporary publication failures back off from
+two seconds to one minute; eight failed attempts or one hour since the
+first failure likewise archives the result without executing it again.
+The backend logs the operation identity and archive location. Archived
+evidence is retained for diagnosis but is not polled or counted as active work.
+After mail commits, a durable publication checkpoint precedes receipt-marker
+cleanup; the active record is deleted last. A crash during cleanup therefore
+retries cleanup without recreating the mail or leaving an abandoned marker.
 
 At restart, unresolved running operations produce an **unknown outcome**
 message. They are never automatically restarted: their effects may already

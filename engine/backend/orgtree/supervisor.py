@@ -28084,7 +28084,9 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
             return (f"{head}, and ⚠ {nid} has not reported a steering poll for "
                     f"{_dur(wait)} — a long call or a failed delivery hook can prevent an "
                     f"observed poll; delivery is requested at the next supported safe "
-                    f"boundary, without interrupting or repeating the tool.")
+                    f"boundary, without interrupting or repeating the tool. You may "
+                    f"explicitly use orgtree_interrupt (⏸), which can interrupt active "
+                    f"work; this is never done automatically for mail delivery.")
         if isinstance(wait, (int, float)):
             return (f"{head}; input waits for a supported sampling or tool-result "
                     f"boundary, and {nid}'s last observed boundary was "

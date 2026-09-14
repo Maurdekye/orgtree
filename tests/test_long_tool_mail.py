@@ -34,8 +34,8 @@ class LongToolTests(unittest.TestCase):
     def tearDown(self):
         self.release.set()
         deadline = time.monotonic() + 3
-        while toolwait._live and time.monotonic() < deadline:
-            toolwait.sweep()
+        while (toolwait._live or toolwait.records()) and time.monotonic() < deadline:
+            self.retry_due()
             time.sleep(.01)
         self.drives.stop()
         maildrain._forget(self.slug, 'worker')
@@ -48,6 +48,16 @@ class LongToolTests(unittest.TestCase):
 
     def mails(self):
         return store.load_org(self.slug).d.get('mail', {}).get('worker', [])
+
+    def retry_due(self):
+        for row in toolwait.records():
+            toolwait._save(dict(row, retry_at=0))
+        toolwait.sweep()
+
+    def result_row(self, oid, **kw):
+        return dict(id=oid, org=self.slug, node='worker', seat=self.caller['seat_id'],
+                    tool='orgtree_staff', at=time.time(), state='completed',
+                    result={'node': 'already-created'}, yielded=True, **kw)
 
     def finish(self):
         self.release.set()
@@ -230,10 +240,11 @@ class LongToolTests(unittest.TestCase):
         with patch.object(store, 'save_org', side_effect=fail_cleanup):
             self.release.set()
             self.assertTrue(failed.wait(1))
-        toolwait.sweep()
+        self.retry_due()
         toolwait.sweep()
         self.assertEqual(len(self.mails()), 1)
         self.assertFalse(toolwait.records())
+        self.assertFalse(store.load_org(self.slug).d.get('tool_result_receipts'))
         self.assertEqual(self.calls, 1)
 
     def test_reused_recipient_name_cannot_inherit_private_result(self):
@@ -244,7 +255,10 @@ class LongToolTests(unittest.TestCase):
         try:
             toolwait.sweep()
             self.assertFalse(self.mails())
-            self.assertEqual(len(toolwait.records()), 1)
+            self.assertFalse(toolwait.records())
+            archived = [r for r in toolwait.dead_letters() if r['id'] == row['id']]
+            self.assertEqual(archived[0]['result'], row['result'])
+            self.assertIn('no longer exists', archived[0]['delivery_failure'])
         finally:
             toolwait._delete(row['id'])
 
@@ -267,6 +281,69 @@ class LongToolTests(unittest.TestCase):
         self.finish()
         self.assertEqual(self.calls, 1)
         self.assertIn('unknown', self.mails()[0]['body'])
+
+    def test_64_unpublishable_results_release_admission_capacity(self):
+        for i in range(64):
+            row = self.result_row(f'gone-{i}')
+            row['seat'] = 'deleted-seat'
+            toolwait._save(row)
+        with patch('builtins.print'):
+            for _ in range(3):
+                toolwait.sweep()
+        self.assertFalse(toolwait.records())
+        self.assertEqual(len([r for r in toolwait.dead_letters() if r['id'].startswith('gone-')]), 64)
+        self.assertEqual(toolwait.invoke(self.body, self.caller, lambda: {'ok': True}, wait_s=1), {'ok': True})
+        self.assertFalse(self.mails())
+
+    def test_deleted_org_is_archived_but_unreadable_org_is_retried(self):
+        gone = self.result_row('deleted-org')
+        gone['org'] = 'no-such-org'
+        toolwait._save(gone)
+        toolwait.sweep()
+        self.assertFalse(toolwait.records())
+        toolwait._save(self.result_row('temporarily-unreadable'))
+        with patch.object(store, 'load_org', side_effect=OSError('database temporarily locked')) as load:
+            toolwait.sweep()
+            toolwait.sweep()
+            self.assertEqual(load.call_count, 1)  # backoff, not a 1 Hz retry storm
+        self.assertEqual(len(toolwait.records()), 1)
+        self.retry_due()
+        self.assertFalse(toolwait.records())
+        self.assertEqual(len(self.mails()), 1)
+
+    def test_persistent_publication_failure_has_a_finite_attempt_budget(self):
+        toolwait._save(self.result_row('persistent-failure'))
+        with patch.object(store, 'load_org', side_effect=OSError('unreadable database')) as load:
+            for _ in range(toolwait.MAX_PUBLISH_FAILURES + 2):
+                self.retry_due()
+        self.assertEqual(load.call_count, toolwait.MAX_PUBLISH_FAILURES)
+        self.assertFalse(toolwait.records())
+        row = next(r for r in toolwait.dead_letters() if r['id'] == 'persistent-failure')
+        self.assertEqual(row['result'], {'node': 'already-created'})
+        self.assertIn('unreadable', row['delivery_failure'])
+
+    def test_old_temporary_failure_expires_even_before_attempt_budget(self):
+        toolwait._save(self.result_row('expired-failure',
+            first_publish_failure_at=time.time() - toolwait.MAX_PUBLISH_AGE_S - 1))
+        with patch.object(store, 'load_org', side_effect=OSError('still unavailable')):
+            toolwait.sweep()
+        self.assertFalse(toolwait.records())
+        self.assertTrue(any(r['id'] == 'expired-failure' for r in toolwait.dead_letters()))
+
+    def test_failed_archive_write_keeps_original_evidence_and_slot(self):
+        row = self.result_row('archive-write-failed')
+        row['seat'] = 'deleted-seat'
+        toolwait._save(row)
+        with patch.object(toolwait, '_dead_letter', side_effect=OSError('archive failed')):
+            toolwait.sweep()
+        self.assertEqual(toolwait.records()[0]['result'], row['result'])
+        toolwait.sweep()
+        self.assertFalse(toolwait.records())
+
+    def test_late_note_offers_explicit_interrupt_without_auto_interrupt(self):
+        note = sup.delivery_note(self.slug, 'worker', {'steering': True, 'wait': 999})
+        self.assertIn('explicitly use orgtree_interrupt', note)
+        self.assertIn('never done automatically', note)
 
 
 if __name__ == '__main__':
