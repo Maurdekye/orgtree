@@ -25,6 +25,18 @@ export type UpdateStage =
   | 'engine-shutdown' | 'engine-shutdown-timeout'
   | 'handoff'                  /* electron-updater accepted the install request */
   | 'handoff-refused'          /* it declined, and will therefore never quit the app */
+  /** An installer process was OBSERVED RUNNING. This is the only stage that
+   *  says an update is really under way: 'handoff' means a pid came back, which
+   *  a process that died instantly also produces. Nothing may quit the app on
+   *  the strength of 'handoff' alone. */
+  | 'installer-running'
+  /** Waiting on a Windows permission prompt. Recorded because an update that
+   *  sits here for a minute is indistinguishable, in every earlier log, from
+   *  one that wedged. */
+  | 'installer-awaiting-elevation'
+  /** No installer will start: the prompt was dismissed, the launch was blocked,
+   *  or nothing ever appeared. The app must be put back, not quietly closed. */
+  | 'installer-never-started'
   | 'watchdog-exit'            /* preparation outlived its deadline */
   | 'updater'                  /* a line from electron-updater's own logger */
   | 'error'
@@ -393,6 +405,100 @@ export function installDownloadedUpdate(updater: InstallableUpdater, directory: 
   // silently ignored as a duplicate.
   if (!accepted) updater.quitAndInstallCalled = false
   return { accepted, directory, ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryWillBeQuoted: true }) }
+}
+
+// ------------------------------------------------- proof that an installer LIVES
+// `install()` returning true means electron-updater got a pid back, and a pid
+// means a process OBJECT WAS CREATED — not that it survived, not that it is the
+// installer, and not that it accepted anything (BaseUpdater.spawnLog resolves
+// on `p.pid !== undefined`). The only failure it can ever report is a
+// spawn-time 'error'. A process that STARTS AND THEN DIES emits nothing at all,
+// so the app recorded a handoff, waited out a silent grace, and quit having
+// installed nothing — the reported "shut down but never visibly proceeded".
+//
+// ⚠ THE DISCRIMINATOR IS THE INSTALLER'S OWN IMAGE, NEVER elevate.exe. When
+// admin rights are required the library spawns resources/elevate.exe, which
+// raises the UAC prompt and only then launches the installer. WHILE THAT PROMPT
+// IS ON SCREEN elevate.exe IS ALIVE — so "something we spawned is running" is
+// satisfied by the exact case this exists to catch. Only a process whose image
+// is the downloaded installer proves the user approved.
+//
+// ⚠ AND THEREFORE NO DEADLINE WHILE THE ELEVATOR LIVES. A person can leave a
+// UAC prompt up for as long as they like. Timing out mid-prompt would declare
+// failure over an update that is still perfectly able to succeed, and would
+// relaunch the app straight into a race with the installer it just disowned. So
+// an elevator that is still running is `pending` for as long as it runs — the
+// app holds, engine already stopped, saying what it is waiting for. The bound
+// applies only where nothing human is involved.
+
+/** One look at the process table, reduced to the two facts the verdict needs.
+ *  Gathering it is the caller's (it is platform work); deciding is here. */
+export interface InstallerSighting {
+  /** a process whose image is the DOWNLOADED INSTALLER is running now */
+  installerRunning: boolean
+  /** resources/elevate.exe — the UAC broker — is running now */
+  elevatorRunning: boolean
+  /** milliseconds since the handoff returned */
+  elapsedMs: number
+}
+
+/** What survives between sightings. The elevator having EVER been seen is the
+ *  whole memory: its later absence is what turns "no installer yet" from
+ *  waiting into a refusal. */
+export interface InstallerProofMemory { elevatorSeen: boolean }
+
+export type InstallerVerdict =
+  /** an installer process was OBSERVED running — the update is really under way */
+  | { verdict: 'started'; detail: string }
+  /** it will never start: the prompt was dismissed, or nothing ever appeared */
+  | { verdict: 'failed'; detail: string }
+  /** no answer yet, and waiting is correct */
+  | { verdict: 'pending' }
+
+export const INSTALLER_PROOF = {
+  /** How long an installer spawned with NO elevation may take to appear. It is
+   *  a direct CreateProcess with no human in the path, so this is generous
+   *  rather than tight — but it is bounded, because nothing will ever arrive to
+   *  end the wait if the process died on the way up. */
+  appearMs: 8000,
+  /** How often to look. Cheap enough to be frequent; a short-lived installer
+   *  that dies between two looks is still caught, because its absence at the
+   *  next look is not what decides — the elevator rule and the appear bound
+   *  are. */
+  pollMs: 250,
+}
+
+/** Fold one sighting into a verdict. Pure, so every branch — approved,
+ *  cancelled, blocked, died instantly, slow prompt, no elevation at all — is
+ *  testable without installing anything on the machine running the tests. */
+export function installerProofStep(memory: InstallerProofMemory, seen: InstallerSighting,
+  bounds: { appearMs: number } = INSTALLER_PROOF): { memory: InstallerProofMemory; result: InstallerVerdict } {
+  // The one positive proof. Checked FIRST and unconditionally: an installer
+  // that is running settles the question no matter what the elevator is doing
+  // or how long it took to get here.
+  if (seen.installerRunning) {
+    return { memory, result: { verdict: 'started', detail: `installer process observed running after ${seen.elapsedMs}ms` } }
+  }
+  const next: InstallerProofMemory = { elevatorSeen: memory.elevatorSeen || seen.elevatorRunning }
+  // The elevator is up: a Windows prompt is in front of the user, or it is
+  // about to launch the installer. Waiting is the only correct answer, and it
+  // is deliberately unbounded — see the note above.
+  if (seen.elevatorRunning) return { memory: next, result: { verdict: 'pending' } }
+  // It WAS up and is now gone without an installer ever appearing. That is a
+  // decision, and it was "no": the prompt was dismissed, or the launch was
+  // refused by policy. This is the UAC-cancel case that previously read as
+  // success.
+  if (next.elevatorSeen) {
+    return { memory: next, result: { verdict: 'failed',
+      detail: 'the elevation helper exited without starting the installer - the Windows permission prompt was dismissed, or the launch was blocked' } }
+  }
+  // No elevation was ever involved, so the installer should have appeared
+  // almost at once. Past the bound, it is not coming.
+  if (seen.elapsedMs >= bounds.appearMs) {
+    return { memory: next, result: { verdict: 'failed',
+      detail: `no installer process appeared within ${bounds.appearMs}ms of the handoff` } }
+  }
+  return { memory: next, result: { verdict: 'pending' } }
 }
 
 export type PreparationOutcome =
