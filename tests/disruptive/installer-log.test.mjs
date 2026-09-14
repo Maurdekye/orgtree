@@ -28,7 +28,10 @@
 // in-flight work. So the full end-to-end integration stays unexercised, and
 // that limit is recorded on the ticket rather than papered over here.
 //
-// Run: node --test tests/installer-log.test.mjs
+// Run: THIS PROBE IS OPT-IN AND WILL DISTURB THE DESKTOP.
+//   set ORGTREE_DISRUPTIVE_PROBES=1  and then  npm run test:disruptive
+//   (or: node --test tests/disruptive/installer-log.test.mjs, same variable set)
+//   Without that variable every test here SKIPS and measures nothing.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -36,8 +39,22 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile, spawn } from 'node:child_process'
+import { requireDisruptiveOptIn } from './gate.mjs'
 
-const root = path.resolve(import.meta.dirname, '..')
+// DISRUPTIVE PROBE — SECOND BARRIER. This file opens consoles or windows,
+// or drives the real installer toolchain, so it must never run because
+// somebody typed `npm test`. Barrier one is the folder: the default glob
+// `tests/*.test.mjs` does not recurse, so it cannot reach this file.
+// Barrier two is this gate: without an explicit opt-in every test below is
+// SKIPPED, which node:test reports as skipped rather than as a pass — a
+// probe that was never asked for must never read as one that ran and was
+// fine. Run these deliberately with `npm run test:disruptive` after setting
+// ORGTREE_DISRUPTIVE_PROBES=1, on a machine you are willing to have
+// interrupted.
+const DISRUPTIVE_OK = requireDisruptiveOptIn('installer log')
+const gatedTest = DISRUPTIVE_OK ? test : test.skip
+
+const root = path.resolve(import.meta.dirname, '..', '..')
 const installerNsh = path.join(root, 'build', 'installer.nsh')
 
 /** electron-builder's cached toolchain — the compiler the published installer
@@ -138,7 +155,7 @@ const freshDir = (name) => {
 
 test.after(() => { try { fs.rmSync(workdir, { recursive: true, force: true }) } catch { /* temp */ } })
 
-test('the shipped logger and the real compiler are both present', () => {
+gatedTest('the shipped logger and the real compiler are both present', () => {
   assert.ok(makensis, `makensis must be available (looked under ${cache})`)
   assert.match(logFunction(), /FileWrite \$0/, 'the shipped function must still write to a file')
   assert.match(logFunction(), /FileClose \$0/,
@@ -146,7 +163,7 @@ test('the shipped logger and the real compiler are both present', () => {
   assert.match(logMacro(), /Call orgtreeInstallerLog/, 'and the macro must still call it')
 })
 
-test('§1 THE PROPERTY THAT MATTERS: an installer that dies partway leaves its earlier stages on disk', async () => {
+gatedTest('§1 THE PROPERTY THAT MATTERS: an installer that dies partway leaves its earlier stages on disk', async () => {
   // Three stages, then Quit before the fourth. Quit is how every refusal path
   // in the installer ends, including the declined-elevation one.
   const dir = freshDir('aborted')
@@ -174,7 +191,7 @@ test('§1 THE PROPERTY THAT MATTERS: an installer that dies partway leaves its e
   assert.match(text, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[init\] /m)
 })
 
-test('§2 CONTROL: the harness detects the log NOT being written', async () => {
+gatedTest('§2 CONTROL: the harness detects the log NOT being written', async () => {
   // Without this, §1's "the log exists" is unfalsifiable — a harness that
   // reported a log for every run would pass §1 no matter what the code did.
   const dir = freshDir('silent')
@@ -186,7 +203,7 @@ test('§2 CONTROL: the harness detects the log NOT being written', async () => {
   assert.equal(readLog(logIn(dir)), '')
 })
 
-test('§3 CONTROL: the missing stage in §1 is the abort, not a broken write', async () => {
+gatedTest('§3 CONTROL: the missing stage in §1 is the abort, not a broken write', async () => {
   // §1 asserts install-complete is ABSENT. That absence has two possible
   // causes, and they mean opposite things: the abort worked, or the writer
   // cannot write that line at all. Same stage, no abort, must appear.
@@ -202,7 +219,7 @@ test('§3 CONTROL: the missing stage in §1 is the abort, not a broken write', a
     + 'abort rather than an inability to write')
 })
 
-test('§4 the log is BOUNDED, and rotates at the start of a run rather than mid-run', async () => {
+gatedTest('§4 the log is BOUNDED, and rotates at the start of a run rather than mid-run', async () => {
   const dir = freshDir('bounded')
   const bound = sizeBound()
   // A log left oversized by earlier runs.
@@ -230,7 +247,7 @@ test('§4 the log is BOUNDED, and rotates at the start of a run rather than mid-
     + 'section was caused by the size and not by every run truncating')
 })
 
-test('§6 A SILENT INSTALL NEVER RUNS A PAGE HOOK — which is where this installer elevates', async () => {
+gatedTest('§6 A SILENT INSTALL NEVER RUNS A PAGE HOOK — which is where this installer elevates', async () => {
   // ⚠ WHY THIS SECTION IS HERE AT ALL. Reading the templates to work out what
   // the new log would have recorded on the machine that failed turned up
   // something worse than a missing log: `customInstallMode` — the ONLY place
@@ -321,7 +338,7 @@ test('§6 A SILENT INSTALL NEVER RUNS A PAGE HOOK — which is where this instal
     + 'reported incident, and it is NOT a reproduction of it')
 })
 
-test('§5 an unwritable primary location falls back instead of losing the run', async () => {
+gatedTest('§5 an unwritable primary location falls back instead of losing the run', async () => {
   // $EXEDIR is preferred because it is where Setup sits and belongs to the
   // invoking user whichever account approved elevation — but Setup can be
   // launched from somewhere unwritable. A directory standing where the file

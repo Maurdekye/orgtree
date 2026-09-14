@@ -28,7 +28,10 @@
 // script. No installer runs, no update is applied, and the real app is never
 // started.
 //
-// Run: node --test tests/failure-report-lifecycle.test.mjs
+// Run: THIS PROBE IS OPT-IN AND WILL DISTURB THE DESKTOP.
+//   set ORGTREE_DISRUPTIVE_PROBES=1  and then  npm run test:disruptive
+//   (or: node --test tests/disruptive/failure-report-lifecycle.test.mjs, same variable set)
+//   Without that variable every test here SKIPS and measures nothing.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,6 +40,20 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { requireDisruptiveOptIn } from './gate.mjs'
+
+// DISRUPTIVE PROBE — SECOND BARRIER. This file opens consoles or windows,
+// or drives the real installer toolchain, so it must never run because
+// somebody typed `npm test`. Barrier one is the folder: the default glob
+// `tests/*.test.mjs` does not recurse, so it cannot reach this file.
+// Barrier two is this gate: without an explicit opt-in every test below is
+// SKIPPED, which node:test reports as skipped rather than as a pass — a
+// probe that was never asked for must never read as one that ran and was
+// fine. Run these deliberately with `npm run test:disruptive` after setting
+// ORGTREE_DISRUPTIVE_PROBES=1, on a machine you are willing to have
+// interrupted.
+const DISRUPTIVE_OK = requireDisruptiveOptIn('failure report lifecycle')
+const gatedTest = DISRUPTIVE_OK ? test : test.skip
 
 const require_ = createRequire(import.meta.url)
 /** The real Electron binary, resolved the way the repo's other native probes
@@ -154,14 +171,14 @@ const wrote = (file) => { try { return fs.readFileSync(file, 'utf8').trim() } ca
 
 test.after(() => { try { fs.rmSync(workdir, { recursive: true, force: true }) } catch { /* temp */ } })
 
-test('real Electron is available to measure this at all', () => {
+gatedTest('real Electron is available to measure this at all', () => {
   // Asserted rather than skipped: without it the sections below are not
   // evidence, and that has to be visible rather than inferred from a green run.
   assert.ok(electron, 'the electron binary must be resolvable from node_modules')
   assert.equal(fs.existsSync(electron), true, `and must exist on disk: ${electron}`)
 })
 
-test('§1 POSITIVE CONTROL: an AWAITED dialog really does hold the exit open', async (t) => {
+gatedTest('§1 POSITIVE CONTROL: an AWAITED dialog really does hold the exit open', async (t) => {
   // The shape that was one edit away from shipping. Nobody clicks this dialog,
   // which is exactly the unattended case: if the process is still alive at the
   // end of the window, the block is real and §2 is measuring something.
@@ -191,7 +208,7 @@ test('§1 POSITIVE CONTROL: an AWAITED dialog really does hold the exit open', a
     + 'app.relaunch() included')
 })
 
-test('§2 THE SHIPPED SHAPE EXITS AT ONCE, with nobody present', async (t) => {
+gatedTest('§2 THE SHIPPED SHAPE EXITS AT ONCE, with nobody present', async (t) => {
   // The statements the failure branch actually executes: record, then exit.
   // Nothing is put on screen, so nothing can hold the process open.
   const probe = runElectron('records-and-exits', `
@@ -219,7 +236,7 @@ test('§2 THE SHIPPED SHAPE EXITS AT ONCE, with nobody present', async (t) => {
   assert.ok(exitedAfter < 5000, `and promptly: ${exitedAfter}ms`)
 })
 
-test('§3 THE REPORT DOES RENDER, in an instance that stays running', async (t) => {
+gatedTest('§3 THE REPORT DOES RENDER, in an instance that stays running', async (t) => {
   // The other half. Reporting from a live app means the dialog is presented
   // without anything waiting on it — so this must show a real window, and the
   // process must still be there afterwards rather than exiting behind it.
@@ -259,7 +276,7 @@ test('§3 THE REPORT DOES RENDER, in an instance that stays running', async (t) 
     + 'delivered that no human ever saw')
 })
 
-test('§3b CONTROL: the window probe does not report a window for an app that shows none', async (t) => {
+gatedTest('§3b CONTROL: the window probe does not report a window for an app that shows none', async (t) => {
   // Without this, §3 would pass against a probe that answers "window" for any
   // live Electron process — the observation has to be capable of saying no.
   const probe = runElectron('no-dialog', `

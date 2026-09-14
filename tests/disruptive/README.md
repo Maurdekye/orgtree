@@ -70,3 +70,29 @@ Two bounds of the text scan itself, found by the same review:
 
 So: the folder and the gate are the protection. The guard's job is to notice when
 a known-disruptive form is added back to a file an ordinary run can reach.
+
+## What actually lives here
+
+Until 2026-09-14 this folder was EMPTY, which meant §5 of the guard had nothing
+to check and passed vacuously. The five probes below were then moved in from
+`tests/`, where an ordinary `npm test` ran them — that is the defect the whole
+barrier exists for. Each one is listed with the thing it does to the machine.
+
+- `console-lifetime.test.mjs` — opens real console windows and closes them with
+  `user32`, to measure what a console close does to a process.
+- `lifetime-controls.test.mjs` — the same console and `user32` work, plus
+  installer-shaped detached children that outlive their parent.
+- `failure-report-lifecycle.test.mjs` — launches the real Electron binary and
+  shows a dialog, to measure whether a failure report can render at all.
+- `nsis-destination.test.mjs` — compiles and runs real NSIS installers with
+  `makensis`.
+- `installer-log.test.mjs` — also compiles and runs real NSIS installers.
+
+Moving them changed no assertion. Each file gained the gate import and a
+`gatedTest` wrapper, and two of them had a relative path corrected for sitting
+one directory deeper. The measurements themselves are exactly the reviewed ones.
+
+**None of them has been run since the move.** Their evidence is therefore
+`not_exercised`, not `passing`: the move was verified statically, by the policy
+guard reading the files, and a probe nobody has run under the opt-in has proved
+nothing about the machine either way.

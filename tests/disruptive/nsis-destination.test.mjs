@@ -60,7 +60,10 @@
 // directory under its own temp folder, and exits. It has no install section and
 // it is not our installer.
 //
-// Run: node --test tests/nsis-destination.test.mjs
+// Run: THIS PROBE IS OPT-IN AND WILL DISTURB THE DESKTOP.
+//   set ORGTREE_DISRUPTIVE_PROBES=1  and then  npm run test:disruptive
+//   (or: node --test tests/disruptive/nsis-destination.test.mjs, same variable set)
+//   Without that variable every test here SKIPS and measures nothing.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -69,6 +72,20 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { requireDisruptiveOptIn } from './gate.mjs'
+
+// DISRUPTIVE PROBE — SECOND BARRIER. This file opens consoles or windows,
+// or drives the real installer toolchain, so it must never run because
+// somebody typed `npm test`. Barrier one is the folder: the default glob
+// `tests/*.test.mjs` does not recurse, so it cannot reach this file.
+// Barrier two is this gate: without an explicit opt-in every test below is
+// SKIPPED, which node:test reports as skipped rather than as a pass — a
+// probe that was never asked for must never read as one that ran and was
+// fine. Run these deliberately with `npm run test:disruptive` after setting
+// ORGTREE_DISRUPTIVE_PROBES=1, on a machine you are willing to have
+// interrupted.
+const DISRUPTIVE_OK = requireDisruptiveOptIn('nsis destination')
+const gatedTest = DISRUPTIVE_OK ? test : test.skip
 
 const require_ = createRequire(import.meta.url)
 
@@ -230,7 +247,7 @@ const probe = async (args, { verbatim = false, label = 'run' } = {}) => {
 
 test.after(() => { try { fs.rmSync(workdir, { recursive: true, force: true }) } catch { /* temp */ } })
 
-test('the real toolchain, the real macro, and the versions that built the failing installer', () => {
+gatedTest('the real toolchain, the real macro, and the versions that built the failing installer', () => {
   // Asserted rather than skipped: if any of this stops being available the
   // sections below stop being evidence, and that must be visible rather than
   // inferred from a green run with skips in it.
@@ -247,7 +264,7 @@ test('the real toolchain, the real macro, and the versions that built the failin
   assert.equal(require_('electron-updater/package.json').version, '6.8.9')
 })
 
-test('§1 CONTROL: Node really does quote it, and the macro really does keep the quote', async () => {
+gatedTest('§1 CONTROL: Node really does quote it, and the macro really does keep the quote', async () => {
   // This is the firing control for everything below. It establishes that the
   // fixture reproduces the exact condition the incident log recorded — if this
   // stops passing, §2 is not a refutation of anything, it is a broken probe.
@@ -263,7 +280,7 @@ test('§1 CONTROL: Node really does quote it, and the macro really does keep the
     'one character longer than the path, which is the quote and nothing else')
 })
 
-test('§2 THE REFUTATION: $INSTDIR strips that quote, so the destination is correct anyway', async () => {
+gatedTest('§2 THE REFUTATION: $INSTDIR strips that quote, so the destination is correct anyway', async () => {
   const quoted = await probe(['--updated', '/S', '--force-run', `/D=${spacedTarget}`], { label: 'quoted' })
 
   assert.equal(quoted.instdir, spacedTarget,
@@ -302,7 +319,7 @@ test('§2 THE REFUTATION: $INSTDIR strips that quote, so the destination is corr
     + '$INSTDIR sanitisation happens to catch')
 })
 
-test('§3 with no /D= at all, the destination the installer resolved for itself stands', async () => {
+gatedTest('§3 with no /D= at all, the destination the installer resolved for itself stands', async () => {
   // Recorded because it is the premise of the "just omit the argument" repair.
   // It holds — but §2 means there is nothing here to repair, so the app is not
   // taking that route.
@@ -378,7 +395,7 @@ const poisonSource = () => [
   '',
 ].join('\n')
 
-test('§4 INSTRUMENT CONTROL: this readback CAN show a trailing quote — and $INSTDIR still loses it', async () => {
+gatedTest('§4 INSTRUMENT CONTROL: this readback CAN show a trailing quote — and $INSTDIR still loses it', async () => {
   const script = path.join(workdir, 'poison.nsi')
   fs.writeFileSync(script, '﻿' + poisonSource(), 'utf8')
   await new Promise((resolve, reject) => {

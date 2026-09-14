@@ -20,12 +20,29 @@
 // the user's mouse does. Killing the process instead would prove something
 // else entirely.
 //
-// Run: node --test tests/console-lifetime.test.mjs
+// Run: THIS PROBE IS OPT-IN AND WILL DISTURB THE DESKTOP.
+//   set ORGTREE_DISRUPTIVE_PROBES=1  and then  npm run test:disruptive
+//   (or: node --test tests/disruptive/console-lifetime.test.mjs, same variable set)
+//   Without that variable every test here SKIPS and measures nothing.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
-import { acquireConsoleWindowLock } from './fixtures/console-window-lock.mjs'
+import { acquireConsoleWindowLock } from '../fixtures/console-window-lock.mjs'
+import { requireDisruptiveOptIn } from './gate.mjs'
+
+// DISRUPTIVE PROBE — SECOND BARRIER. This file opens consoles or windows,
+// or drives the real installer toolchain, so it must never run because
+// somebody typed `npm test`. Barrier one is the folder: the default glob
+// `tests/*.test.mjs` does not recurse, so it cannot reach this file.
+// Barrier two is this gate: without an explicit opt-in every test below is
+// SKIPPED, which node:test reports as skipped rather than as a pass — a
+// probe that was never asked for must never read as one that ran and was
+// fine. Run these deliberately with `npm run test:disruptive` after setting
+// ORGTREE_DISRUPTIVE_PROBES=1, on a machine you are willing to have
+// interrupted.
+const DISRUPTIVE_OK = requireDisruptiveOptIn('console lifetime')
+const gatedTest = DISRUPTIVE_OK ? test : test.skip
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -123,7 +140,7 @@ const waitForProbePid = async () => {
 
 const cleanup = (pids) => ps(pids.filter(Boolean).map(p => `Stop-Process -Id ${p} -Force -ErrorAction SilentlyContinue`).join('; '))
 
-test('§1 POSITIVE CONTROL: a process attached to a console DIES when that console is closed', async (t) => {
+gatedTest('§1 POSITIVE CONTROL: a process attached to a console DIES when that console is closed', async (t) => {
   // Serialised against the other console-window tests: see
   // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
   // invisible to each other, and one close can end the other's probe.
@@ -143,7 +160,7 @@ test('§1 POSITIVE CONTROL: a process attached to a console DIES when that conso
     + 'harness can detect exactly the failure being investigated')
 })
 
-test('§2 a process that did NOT open the console is untouched when it closes', async (t) => {
+gatedTest('§2 a process that did NOT open the console is untouched when it closes', async (t) => {
   // Serialised against the other console-window tests: see
   // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
   // invisible to each other, and one close can end the other's probe.
@@ -171,7 +188,7 @@ test('§2 a process that did NOT open the console is untouched when it closes', 
     + 'process that did not open it alive')
 })
 
-test('§3 a PARENT is untouched when a console belonging to its CHILD is closed', async (t) => {
+gatedTest('§3 a PARENT is untouched when a console belonging to its CHILD is closed', async (t) => {
   // Serialised against the other console-window tests: see
   // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
   // invisible to each other, and one close can end the other's probe.

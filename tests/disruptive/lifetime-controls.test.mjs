@@ -22,7 +22,10 @@
 // or closes a running agent's console or window; nothing installs anything;
 // no real installer, updater or packaged Orgtree is launched.
 //
-// Run: node --test tests/lifetime-controls.test.mjs
+// Run: THIS PROBE IS OPT-IN AND WILL DISTURB THE DESKTOP.
+//   set ORGTREE_DISRUPTIVE_PROBES=1  and then  npm run test:disruptive
+//   (or: node --test tests/disruptive/lifetime-controls.test.mjs, same variable set)
+//   Without that variable every test here SKIPS and measures nothing.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -30,7 +33,21 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, execFile } from 'node:child_process'
-import { acquireConsoleWindowLock } from './fixtures/console-window-lock.mjs'
+import { acquireConsoleWindowLock } from '../fixtures/console-window-lock.mjs'
+import { requireDisruptiveOptIn } from './gate.mjs'
+
+// DISRUPTIVE PROBE — SECOND BARRIER. This file opens consoles or windows,
+// or drives the real installer toolchain, so it must never run because
+// somebody typed `npm test`. Barrier one is the folder: the default glob
+// `tests/*.test.mjs` does not recurse, so it cannot reach this file.
+// Barrier two is this gate: without an explicit opt-in every test below is
+// SKIPPED, which node:test reports as skipped rather than as a pass — a
+// probe that was never asked for must never read as one that ran and was
+// fine. Run these deliberately with `npm run test:disruptive` after setting
+// ORGTREE_DISRUPTIVE_PROBES=1, on a machine you are willing to have
+// interrupted.
+const DISRUPTIVE_OK = requireDisruptiveOptIn('lifetime controls')
+const gatedTest = DISRUPTIVE_OK ? test : test.skip
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -124,7 +141,7 @@ const closeProbeConsole = () => ps(`
  *  and the probe stops registering it, the console close goes unhandled, and §2
  *  fails. A hand-copied list would have kept passing. */
 const appSignals = (() => {
-  const main = fs.readFileSync(path.join(path.resolve(import.meta.dirname, '..'),
+  const main = fs.readFileSync(path.join(path.resolve(import.meta.dirname, '..', '..'),
     'apps/desktop/main/index.ts'), 'utf8')
   const found = /for \(const signal of \[([^\]]*)\] as const\)/.exec(main)
   return found ? found[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')).filter(Boolean) : []
@@ -163,7 +180,7 @@ test.after(() => { try { fs.rmSync(workdir, { recursive: true, force: true }) } 
 
 // --------------------------------------------------------------- console signals
 
-test('§1 POSITIVE CONTROL: with NO signal handler, a console close leaves no orderly record', async (t) => {
+gatedTest('§1 POSITIVE CONTROL: with NO signal handler, a console close leaves no orderly record', async (t) => {
   // Serialised against the other console-window tests: see
   // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
   // invisible to each other, and one close can end the other's probe.
@@ -186,7 +203,7 @@ test('§1 POSITIVE CONTROL: with NO signal handler, a console close leaves no or
     + 'is written on the way out, which is the defect OBS-B describes')
 })
 
-test('§2 the handler shape index.ts installs DOES fire, and the shutdown grace is used', async (t) => {
+gatedTest('§2 the handler shape index.ts installs DOES fire, and the shutdown grace is used', async (t) => {
   // Serialised against the other console-window tests: see
   // fixtures/console-window-lock.mjs — a tabbed host makes concurrent probes
   // invisible to each other, and one close can end the other's probe.
@@ -253,7 +270,7 @@ const outlivesParent = async ({ detached, stdio, label }) => {
   return { survived, pid, orderly: lines(marker).includes('orderly-exit') }
 }
 
-test('§3 THE DISCRIMINATOR IS `detached`, and this is the control for §4 and §5', async () => {
+gatedTest('§3 THE DISCRIMINATOR IS `detached`, and this is the control for §4 and §5', async () => {
   // A four-way matrix, because §4 and §5 differ from a dying child in TWO
   // properties at once (detached AND stdio) and so cannot say which one keeps
   // the installer alive. If a later reader drops `detached` from the installer
@@ -286,7 +303,7 @@ test('§3 THE DISCRIMINATOR IS `detached`, and this is the control for §4 and �
     + 'anything and leaving politely')
 })
 
-test('§4 PARENT-SHELL EXIT: an installer-shaped child outlives the shell that launched it', async (t) => {
+gatedTest('§4 PARENT-SHELL EXIT: an installer-shaped child outlives the shell that launched it', async (t) => {
   // The ticket's parent-shell-exit control. The options are electron-updater's
   // own (BaseUpdater.spawnLog: detached + ignore + unref), and the launching
   // shell is a real cmd.exe that exits normally, as a script or a launcher does.
@@ -317,7 +334,7 @@ test('§4 PARENT-SHELL EXIT: an installer-shaped child outlives the shell that l
   assert.equal(await alive(pid), true, 'and it is still there')
 })
 
-test('§5 DESKTOP KILL: the same child survives its parent being force-killed, not merely exiting', async () => {
+gatedTest('§5 DESKTOP KILL: the same child survives its parent being force-killed, not merely exiting', async () => {
   // Distinct from §4 on purpose: a normal exit and a TerminateProcess are
   // different events, and only one of them is what "the desktop was killed"
   // means. Stop-Process without -Tree kills the originator alone.
@@ -352,7 +369,7 @@ test('§5 DESKTOP KILL: the same child survives its parent being force-killed, n
 
 // ---------------------------------------------- the whole handoff, end to end
 
-test('§6 a detached updater completes after EVERY originator is gone, installing once and relaunching once', async (t) => {
+gatedTest('§6 a detached updater completes after EVERY originator is gone, installing once and relaunching once', async (t) => {
   // The ticket's composite requirement. The topology mirrors the real one:
   //   cmd.exe (shell)  ->  "desktop" (spawns, records, quits)  ->  detached "installer"
   // The desktop quits IMMEDIATELY after the handoff, which is the app's real
@@ -412,7 +429,7 @@ test('§6 a detached updater completes after EVERY originator is gone, installin
 
 // ------------------------------------------------------------------ engine kill
 
-test('§7 ENGINE KILL: the app observes its engine dying and stays up', async (t) => {
+gatedTest('§7 ENGINE KILL: the app observes its engine dying and stays up', async (t) => {
   // engine.ts childExited only clears the endpoint and sets state 'stopped';
   // nothing in main/ quits the app on engine exit. That is load-bearing — it is
   // why OBS-B is not engine-death propagation — so it gets a control of its own.
@@ -441,7 +458,7 @@ test('§7 ENGINE KILL: the app observes its engine dying and stays up', async (t
     + 'why the console-close report is not engine-death propagation')
 })
 
-test('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does die', async (t) => {
+gatedTest('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does die', async (t) => {
   // Without this, §7 passes against a harness that cannot kill anything or
   // cannot see a parent exit at all.
   const marker = at('engine-coupled.log')
@@ -471,7 +488,7 @@ test('§7b POSITIVE CONTROL: a parent WIRED to exit on engine death really does 
 
 // -------------------------------------------- helper launch failure, and the defect
 
-test('§8 HELPER LAUNCH FAILURE is reported — and the failure that is NOT reported is the whole OBS-A defect', async () => {
+gatedTest('§8 HELPER LAUNCH FAILURE is reported — and the failure that is NOT reported is the whole OBS-A defect', async () => {
   // Measured here rather than read out of the library, because everything the
   // fix does rests on it.
   //

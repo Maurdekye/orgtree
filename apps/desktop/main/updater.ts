@@ -467,7 +467,7 @@ export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
  *  VALUE AS A FILENAME: every character Windows forbids is removed. Measured
  *  against the real parser and the real makensis — 76 characters parsed, 75 in
  *  $INSTDIR, and all six of " * ? < > | stripped from a poisoned control in
- *  one run (tests/nsis-destination.test.mjs). Both forms therefore arrive at an
+ *  one run (tests/disruptive/nsis-destination.test.mjs). Both forms therefore arrive at an
  *  identical destination and a directory created from it is the intended one.
  *
  *  ⚠ WHICH MAKES THE HANDOFF ACCIDENTALLY SAFE, NOT ROBUST. The quoting is
@@ -494,7 +494,7 @@ export function installDirectoryIsSafeForNsis(directory: string): boolean {
  *
  *  Driven against the REAL parser — the shipped GetDParameter macro, compiled
  *  by the real makensis, launched through Node's own spawn (see
- *  tests/nsis-destination.test.mjs):
+ *  tests/disruptive/nsis-destination.test.mjs):
  *
  *    /D= quoted   -> the macro's output variable ends with a stray `"` ...
  *                    ... and `StrCpy $INSTDIR $R0` REMOVES IT. Measured: 76

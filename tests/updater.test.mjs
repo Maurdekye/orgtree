@@ -1133,7 +1133,7 @@ test('the /D= handoff sends the installation directory last, and the quoting is 
   // pass-through as the strongest candidate cause and asked for this test to be
   // replaced by one requiring a safe handoff.
   //
-  // IT WAS REPLACED BY MEASURING INSTEAD. tests/nsis-destination.test.mjs drives
+  // IT WAS REPLACED BY MEASURING INSTEAD. tests/disruptive/nsis-destination.test.mjs drives
   // the real shipped GetDParameter macro, compiled by the real makensis, with
   // the quoting done by Node's own spawn. The result:
   //
