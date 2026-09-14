@@ -355,9 +355,32 @@ def _native_session_hold_reason(org: Any, nid: str, *, inventory: NativeInventor
         return None
     native = imported.get("native_continuity") or {}
     if native.get("status") == "transitioned":
+        if native.get("provider") != provider_for(node):
+            return "Imported successor identity changed without a recorded native transition"
+        # ⚠ A CODEX session_id IS the provider threadId, and it is HARVESTED
+        # rather than minted: the first turn after any in-place session
+        # replacement throws away the placeholder recorded a moment earlier
+        # and adopts the real thread, under the SAME generation. Pinning the
+        # recorded id alone therefore wedged the seat FOR GOOD, and silently
+        # — a hold refuses the send path AND `maildrain.recover`, so the
+        # agent stopped receiving mail entirely and nothing anywhere said why
+        # (user report 2026-09-14: coordinator-astra, account switched at
+        # 14:18, nine messages stranded in its mailbox while it sat idle and
+        # not mid-turn).
+        #
+        # So accept the OTHER proof that this seat runs a session of its own,
+        # the one `retire_native_binding` validates and that cannot go stale:
+        # its session IS its provider resume handle. `follow_session` keeps
+        # the record in step at every site that replaces the id, but this
+        # seat no longer DEPENDS on that bookkeeping being complete, which is
+        # what made one missed site permanent. An arbitrary SID edit still
+        # matches neither and still holds.
+        if (provider_for(node) == "codex" and not node.get("session_unrun")
+                and node.get("codex_thread")
+                and node.get("codex_thread") == node.get("session_id")):
+            return None
         if (native.get("session_id") == node.get("session_id")
-                and native.get("generation") == node.get("generation")
-                and native.get("provider") == provider_for(node)):
+                and native.get("generation") == node.get("generation")):
             if native.get("rewind"):
                 from .desktop_native_claude_rewind import hold_reason
                 return hold_reason(doc, nid, native["rewind"])
@@ -433,6 +456,37 @@ Rename alone needs no retirement because storage_node stays stable.
     }
     if rewind:
         node["desktop_import"]["native_continuity"]["rewind"] = rewind
+    return True
+
+
+def follow_session(node: dict, new_sid: str, *, generation: int | None = None) -> bool:
+    """A RETIRED import binding follows the seat it describes.
+
+    Bookkeeping, never a transition: it only moves a record that is already
+    in step with the node, and it cannot turn a held import into a running
+    one (`status` must already be "transitioned"). Callers are the places
+    that legitimately replace a session id under the same generation — the
+    codex threadId harvest and the fresh session an account switch mints.
+    The hold no longer depends on this being current (see
+    `_native_session_hold_reason`); keeping it current keeps the RECORD true,
+    so a later reader is not told the seat runs a session it abandoned days
+    ago.
+    """
+    imported = node.get("desktop_import")
+    if not imported or not new_sid or new_sid == node.get("session_id"):
+        return False
+    native = imported.get("native_continuity") or {}
+    if native.get("status") != "transitioned":
+        return False
+    if native.get("session_id") != node.get("session_id"):
+        return False        # already adrift; a guess is worse than history
+    if native.get("rewind"):
+        return False        # a pending rewind names its own session
+    node["desktop_import"] = copy.deepcopy(imported)
+    node["desktop_import"]["native_continuity"] = {
+        **native, "session_id": new_sid,
+        "generation": (node.get("generation", native.get("generation", 0))
+                       if generation is None else int(generation))}
     return True
 
 

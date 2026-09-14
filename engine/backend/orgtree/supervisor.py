@@ -13247,7 +13247,12 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 org._fold_notices(nid)
                 node = org.node(nid)
             else:
-                node["session_id"] = str(uuid.uuid4())
+                fresh = str(uuid.uuid4())
+                # the seat keeps its generation, so a retired import binding
+                # is still describing THIS seat — move it with the session
+                from .desktop_native import follow_session
+                follow_session(node, fresh)
+                node["session_id"] = fresh
                 node["session_unrun"] = True
             node.pop("antigravity_conversation", None)
             node.pop("antigravity_account", None)
@@ -15154,11 +15159,16 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # Otherwise first-turn snapshots are filed under the hire placeholder
         # and vanish when the start response installs the real thread id.
         if tid and tid != n.get('session_id'):
+            from .desktop_native import follow_session
             with store.DOC_LOCK:
                 current = store.load_org(slug)
                 if nid in current.nodes:
+                    # a retired import binding follows the harvest; left
+                    # behind it names a thread this seat abandoned
+                    follow_session(current.node(nid), tid)
                     current.node(nid)['session_id'] = tid
                     store.save_org(current)
+            follow_session(n, tid)
             n['session_id'] = tid
         held: list[Callable[[], None]] = []
         # `emit_lock` FIRST and held across the flush: while this runs, no
@@ -15263,15 +15273,20 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         if tid and (tid != n.get("session_id") or n.get("session_unrun")
                     or tid != n.get("codex_thread")
                     or str(n.get("codex_account") or "") != str(_bound_id or "")):
+            from .desktop_native import follow_session
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
                 if nid in o2.nodes:
+                    # same as the on_thread hook: a RETIRED import binding
+                    # follows the harvested thread instead of going stale
+                    follow_session(o2.node(nid), tid)
                     o2.node(nid)["session_id"] = tid
                     # the resume marker: session_id is a REAL codex threadId
                     o2.node(nid)["codex_thread"] = tid
                     o2.node(nid)["codex_account"] = _bound_id
                     o2.node(nid).pop("session_unrun", None)
                     store.save_org(o2)
+            follow_session(n, tid)
             n["session_id"] = tid
             n["codex_thread"] = tid
             n["codex_account"] = _bound_id
@@ -30071,6 +30086,15 @@ def _import_recovery_unsettled(org: Org, nid: str) -> bool:
     if not meta.get("recovery_pending"):
         return False
     if nid not in (meta.get("active_nodes") or []):
+        return False
+    # An ARCHIVED seat runs nothing: its retained intent can never be
+    # dispatched and no operator decision can ever settle it, so treating it
+    # as unsettled held the node — and, through `recovery_pending`, the whole
+    # org — for good. desktop_recovery._records writes the same conclusion
+    # down; this is the predicate, which must not wait for it (user report
+    # 2026-09-14).
+    node = org.nodes.get(nid)
+    if node is None or node.get("state") == "archived":
         return False
     row = (meta.get("recovery_attempts") or {}).get(nid)
     return not (isinstance(row, dict) and row.get("phase") in _IMPORT_SETTLED)

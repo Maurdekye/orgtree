@@ -463,6 +463,103 @@ class MailDrainTests(unittest.TestCase):
         maildrain.discover()
         self.assertFalse(self.recover_inline())
 
+    # ---------------------------------------------------------- native holds
+    # User report 2026-09-14: "the coordinator isn't receiving new messages
+    # despite not being in a turn". Two independent holds had closed both
+    # doors at once — the send path AND this consumer — and neither said so.
+
+    def real_hold(self):
+        """Run the real native-hold predicate, not setUp's stub."""
+        stub = self.patches[0]
+        stub.stop()
+        self.addCleanup(stub.start)
+
+    def imported_codex(self, *, thread, recorded):
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            n = org.node('worker')
+            n['model'] = 'luna'
+            n.pop('session_unrun', None)
+            n['codex_thread'] = thread
+            n['session_id'] = thread
+            n['desktop_import'] = {'native_continuity': {
+                'status': 'transitioned', 'provider': 'codex',
+                'session_id': recorded, 'generation': n.get('generation', 0)}}
+            store.save_org(org)
+        return store.load_org(self.slug)
+
+    def test_harvested_codex_thread_does_not_hold_mail_after_a_transition(self):
+        # The real failure: an account switch started a fresh provider thread,
+        # the seat adopted it (session_id IS the threadId for codex), and the
+        # id recorded at the transition — a placeholder minted moments before
+        # it — no longer matched. Nine messages sat undelivered.
+        self.real_hold()
+        org = self.imported_codex(thread='01a0a049-2aeb-77c2-bf8c-375e465466',
+                                  recorded='1a350a78-b52e-4057-9d7c-0c8261061')
+        self.assertIsNone(sup._native_context_hold(org, 'worker'))
+        self.post('after the account switch')
+        maildrain.discover()
+        self.assertTrue(self.recover_inline())
+        self.assertEqual(self.delivered, ['after the account switch'])
+
+    def test_an_arbitrary_session_edit_still_holds_and_says_why(self):
+        # The other half: the seat's session is NOT its provider handle, so
+        # this is an unsanctioned identity change and still refuses — but now
+        # the refusal is written down where somebody diagnosing a silent
+        # mailbox will find it, instead of nowhere at all.
+        self.real_hold()
+        org = self.imported_codex(thread='01a0a049-2aeb-77c2-bf8c-375e465466',
+                                  recorded='1a350a78-b52e-4057-9d7c-0c8261061')
+        with store.DOC_LOCK:
+            org.node('worker')['session_id'] = 'hand-edited-elsewhere'
+            store.save_org(org)
+        self.post('never delivered')
+        maildrain.discover()
+        self.assertFalse(self.recover_inline())
+        self.assertEqual(self.delivered, [])
+        held = store.load_org(self.slug).node('worker')['mail_drain']
+        self.assertIn('identity changed', held['held_reason'])
+        self.assertTrue(held['held_since'])
+        # …and it clears itself the moment the seat can be reached again.
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.node('worker')['session_id'] = org.node('worker')['codex_thread']
+            store.save_org(org)
+        self.assertTrue(self.recover_inline())
+        self.assertEqual(self.delivered, ['never delivered'])
+        self.assertNotIn('held_reason',
+                         store.load_org(self.slug).node('worker').get('mail_drain') or {})
+
+    def test_unsettled_import_recovery_never_blocks_ordinary_mail(self):
+        # Import recovery owns ONE retained intent, which this consumer never
+        # replays. Gating new mail on it switched the drain off for good on an
+        # org whose recovery could not settle (archived imported agents).
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.d['desktop_import'] = {
+                'active_nodes': ['worker'], 'recovery_pending': True,
+                'recovery_attempts': {'worker': {'node': 'worker',
+                                                 'phase': 'not-dispatched'}}}
+            store.save_org(org)
+        self.assertTrue(sup._import_recovery_unsettled(
+            store.load_org(self.slug), 'worker'))
+        self.post('ordinary mail during recovery')
+        maildrain.discover()
+        self.assertTrue(self.recover_inline())
+        self.assertEqual(self.delivered, ['ordinary mail during recovery'])
+
+    def test_an_archived_seat_cannot_keep_import_recovery_pending(self):
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.d['desktop_import'] = {
+                'active_nodes': ['worker'], 'recovery_pending': True,
+                'recovery_attempts': {'worker': {'node': 'worker',
+                                                 'phase': 'uncertain'}}}
+            org.node('worker')['state'] = 'archived'
+            store.save_org(org)
+        self.assertFalse(sup._import_recovery_unsettled(
+            store.load_org(self.slug), 'worker'))
+
 
 if __name__ == '__main__':
     unittest.main()

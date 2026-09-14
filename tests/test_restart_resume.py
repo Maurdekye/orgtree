@@ -77,9 +77,12 @@ class RestartResumeTests(unittest.TestCase):
                 'imported': {'node': 'imported', 'attempt': 'a1',
                              'phase': 'not-dispatched',
                              'intent': retained},
-                # the row that makes the flag unsettleable: an agent that was
-                # archived after the import keeps its 'uncertain' phase for
-                # good, so `recovery_pending` never goes back to False
+                # the row that USED to make the flag unsettleable: an agent
+                # archived after the import kept its 'uncertain' phase for
+                # good, so `recovery_pending` never went back to False and
+                # everything gated on it stayed off with it. It now settles
+                # itself — an archived seat runs nothing, so no operator
+                # decision about its retained intent is even possible.
                 'gone-with-the-import': {'node': 'gone-with-the-import',
                                          'attempt': 'a2', 'phase': 'uncertain',
                                          'intent': {'text': '', 'view': ''}}}}
@@ -138,9 +141,12 @@ class RestartResumeTests(unittest.TestCase):
         self.assertEqual(sorted(n for n, _, _ in driven), ['other', 'worker'])
         self.assertEqual(saved.node('imported')['inflight']['text'], RETAINED)
         self.assertTrue(desktop_recovery.status('held')['pending'])
+        # …and the LIVE row is the only reason it is still pending: the row
+        # for a seat that no longer runs settles itself, so one departed
+        # agent can no longer pin the whole org's recovery open.
         self.assertEqual(
             {r['node']: r['phase'] for r in desktop_recovery.status('held')['nodes']},
-            {'imported': 'not-dispatched', 'gone-with-the-import': 'uncertain'})
+            {'imported': 'not-dispatched', 'gone-with-the-import': 'handled'})
 
     def test_an_imported_agent_with_no_recovery_record_yet_is_held(self):
         # the recovery panel is lazy: before anyone opens it there is no row,

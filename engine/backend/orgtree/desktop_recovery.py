@@ -22,6 +22,19 @@ def _records(org):
         records[nid]={'node':nid,'attempt':uuid.uuid4().hex,
             'phase':'uncertain' if missing or meta.get('recovery_phase') in {'admitting','uncertain'} else 'not-dispatched',
             'identity':_identity(org.node(nid)), 'intent':dict(intent), 'at':now()}
+    # An ARCHIVED seat runs nothing, so its retained intent can never be
+    # dispatched and no operator decision can ever settle it. Left open, one
+    # such row pinned `recovery_pending` for the WHOLE org permanently — on
+    # the user's own org it had stood since the 2026-09-08 import, two of the
+    # three imported agents being archived — and everything that consults
+    # that flag stayed switched off with it (user report 2026-09-14).
+    for nid,row in records.items():
+        if row['phase'] in SETTLED: continue
+        node=org.nodes.get(nid)
+        if node is not None and node.get('state')!='archived': continue
+        row['phase']='handled'
+        row['resolution']={'action':'mark-handled','by':'system','note':
+            'the seat is archived and can never dispatch its retained import intent'}
     return records
 
 def _save(org):
@@ -68,7 +81,8 @@ def resume_import(slug):
         org=store.load_org(slug); meta=org.d.get('desktop_import') or {}
         if not meta.get('recovery_pending'): return {'selected':[],'pending':[],'already_reconciled':True}
         rows=_records(org)
-        if any(row['phase'] not in {'not-dispatched','held'} for row in rows.values()):
+        if any(row['phase'] not in {'not-dispatched','held'} and row['phase'] not in SETTLED
+               for row in rows.values()):
             raise RuntimeError('Previous recovery admission is uncertain; explicit operator resolution required')
         selected=list(rows); _save(org)
     marked=supervisor.reconcile(slug,active_only=True,

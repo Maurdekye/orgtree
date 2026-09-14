@@ -132,15 +132,44 @@ def recover(slug: str, nid: str) -> bool:
             _forget(slug, nid)
             return False
         demand = n['mail_drain']
+        # ⚠ Import recovery is NOT a mail gate (user report 2026-09-14). It
+        # owns exactly ONE thing — the single retained intent an import
+        # interrupted — and `supervisor._import_recovery_hold` guards that at
+        # the place it would be replayed. This consumer never replays it; it
+        # delivers ordinary NEW mail, which cannot re-dispatch an imported
+        # turn. Gating here switched the drain off from the import onward for
+        # an org whose recovery can never settle (archived imported agents
+        # leave their rows "uncertain" for good), and the same reasoning is
+        # already written out at `_import_recovery_hold`.
         if (n['state'] != 'live' or n.get('halt') or org.d.get('killswitch')
                 or n.get('frozen') or n.get('limit_locked')
                 or n.get('remote_controlled') or org.d.get('spend_frozen')
                 or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug))
-                or sup._native_context_hold(org, nid)
-                or sup._import_recovery_unsettled(org, nid)
                 or demand.get('retry_at', 0) > time.time()
                 or halt._workers.get((slug, nid))):
             return False
+        # SAY SO WHEN A SEAT CANNOT BE REACHED AT ALL. Every refusal above is
+        # already visible on the agent's card — archived, frozen, limit-
+        # locked, halted, out of spend. A native-context hold was not, and it
+        # refuses the send path too, so an agent could stop receiving mail
+        # completely with nothing anywhere saying why: the 2026-09-14 report
+        # was "the coordinator isn't receiving new messages despite not being
+        # in a turn", with 9 messages sitting undelivered in its mailbox.
+        # Written once per distinct reason — this loop runs every second.
+        held = sup._native_context_hold(org, nid)
+        if held:
+            if demand.get('held_reason') != held:
+                from .ledger import now
+                org.node(nid)['mail_drain'] = {
+                    **demand, 'held_reason': held, 'held_since': now()}
+                store.save_org(org)
+                print(f'[orgtree] {slug}/{nid}: mail delivery held — {held}')
+            return False
+        if demand.get('held_reason') or demand.get('held_since'):
+            demand = {k: v for k, v in demand.items()
+                      if k not in ('held_reason', 'held_since')}
+            org.node(nid)['mail_drain'] = demand
+            store.save_org(org)
         st = sup.state(slug, nid)
         with sup._state_lock:
             if st.get('busy') or st.get('proc_control') or st.get('responding'):

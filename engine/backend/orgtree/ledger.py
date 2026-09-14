@@ -9729,6 +9729,12 @@ class Org:
         # opposite case and keeps it.
         pred.pop("session_unrun", None)
         self.nodes[pred_id] = pred
+        # A RETIRED import binding describes this seat, not the dead session:
+        # left pointing at the session re-seed just buried it would hold the
+        # rescued node for good (desktop_native.follow_session). Called while
+        # `n` still carries the old id — that is how it proves it is in step.
+        from .desktop_native import follow_session
+        follow_session(n, new_session_id, generation=gen + 1)
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
         n["predecessor"] = pred_id

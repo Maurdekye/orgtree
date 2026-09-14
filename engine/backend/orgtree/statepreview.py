@@ -108,6 +108,21 @@ def _safe_node(org: Org, nid: str) -> dict[str, Any]:
         }
     else:
         row["last_status"] = None
+    # WHY A SEAT IS NOT RECEIVING MAIL, where somebody diagnosing that will
+    # actually look. `frozen`, `pending_switch` and `state` already explain
+    # the visible refusals; this is the one that used to explain nothing at
+    # all (user report 2026-09-14: "isn't receiving new messages despite not
+    # being in a turn", nine messages queued behind a native-context hold).
+    # `maildrain.recover` writes it and clears it.
+    drain = n.get("mail_drain")
+    if isinstance(drain, Mapping) and drain.get("held_reason"):
+        row["mail_blocked"] = {
+            "reason": str(drain["held_reason"]),
+            "since": drain.get("held_since"),
+            "queued": len(drain.get("ids") or []),
+        }
+    else:
+        row["mail_blocked"] = None
     return row
 
 
