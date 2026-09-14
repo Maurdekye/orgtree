@@ -223,8 +223,10 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "array", "maxItems": 10,
                     "items": {"type": "string"},
                     "description": "files to send WITH the mail — paths "
-                                   "relative to your working folder, ≤25 MB "
-                                   "each. Recipients: 'user' (they get "
+                                   "relative to your working folder. For 'user' "
+                                   "mail there is no product per-file byte cap; "
+                                   "@net: peers retain a 25 MB per-file cap. "
+                                   "Recipients: 'user' (they get "
                                    "download cards on the mail — an IMAGE "
                                    "renders viewable in place — say what "
                                    "you attached in the body) and '@net:' "

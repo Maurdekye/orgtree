@@ -9477,7 +9477,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         # path goes through the exact _agent_send_file
                         # validate-and-copy that the standalone card uses, so
                         # this inherits its capability-root enforcement,
-                        # traversal guard, 25 MB cap, storage block and
+                        # traversal guard, storage block and
                         # sandbox path translation. The metas it returns are
                         # already the shape MailList renders. (If post_mail
                         # refuses below, the outbox copies remain without a
@@ -9485,7 +9485,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         # never announced, counted by storage metering.)
                         for rel in raw_atts:
                             user_atts.append(_agent_send_file(
-                                org, body.node, {"path": rel})["sent"])
+                                org, body.node, {"path": rel},
+                                max_bytes=None)["sent"])
                     elif dest.startswith("@net:"):
                         ab = os.path.realpath(
                             supervisor.scratch_dir(body.org, body.node))
@@ -10660,7 +10661,7 @@ def _node_reachable_file(org: Org, nid: str, raw: str, *, verb: str = "send",
 
 
 def _outbox_snapshot(org: Org, nid: str, raw: str, *,
-                     max_bytes: int = _SENDFILE_MAX,
+                     max_bytes: int | None = _SENDFILE_MAX,
                      always_copy: bool = False,
                      html_bundle: bool = False) -> tuple[str, int]:
     """Copy a node-reachable file into the node's outbox/ — the
@@ -10682,7 +10683,7 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
     size = os.path.getsize(src)
     if size == 0:
         raise LedgerError(f"{raw} is empty — nothing to send")
-    if size > max_bytes:
+    if max_bytes is not None and size > max_bytes:
         raise LedgerError(f"{raw} is {size // 1048576} MB — over the "
                           f"{max_bytes // 1048576} MB cap")
     if org.d.get("storage_blocked"):
@@ -10881,13 +10882,14 @@ def _agent_submit_report(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _agent_send_file(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any]:
+def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
+                     max_bytes: int | None = _SENDFILE_MAX) -> dict[str, Any]:
     """orgtree_send_file: snapshot the file into outbox/ (see
     _outbox_snapshot) and describe the card the chat will render."""
     raw = _no_nul(str(a.get("path") or "")).strip()
     if not raw:
         raise LedgerError("path is required — the file to deliver")
-    final, size = _outbox_snapshot(org, nid, raw)
+    final, size = _outbox_snapshot(org, nid, raw, max_bytes=max_bytes)
     sent = {"name": os.path.basename(final), "path": f"outbox/{final}",
             "bytes": size}
     note = " ".join(str(a.get("note") or "").split())[:300]
