@@ -71,6 +71,7 @@ OutFile "${executable}"
 RequestExecutionLevel user
 SilentInstall silent
 !define PRODUCT_NAME "Orgtree"
+!define APP_EXECUTABLE_FILENAME "Orgtree.exe"
 !define INSTALL_REGISTRY_KEY "Software\\com.maurdekye.orgtree\\fixture"
 !define UNINSTALL_REGISTRY_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{fixture}"
 
@@ -143,9 +144,16 @@ Section
   # Reached only if customInit did NOT quit. On the real silent all-users path a
   # successful elevation quits the outer process, so this line NOT appearing is
   # itself part of the expected result.
+  #
+  # The target fields are written out here as well. They are what the close
+  # helper is invoked with, and on the silent route the executable was empty —
+  # a value no source reading of customInit can confirm, because it depends on
+  # which assignments actually execute under silence.
   FileOpen $R9 "${marker}" a
   FileSeek $R9 0 END
   FileWrite $R9 "SECTION_RAN$\\r$\\n"
+  FileWrite $R9 "EXE=[$OrgUpgradeExe]$\\r$\\n"
+  FileWrite $R9 "DIR=[$OrgUpgradeInstallDir]$\\r$\\n"
   FileClose $R9
 SectionEnd
 `,
@@ -162,11 +170,17 @@ function run(spec) {
   const text = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : ''
   const attempts = text.split(/\r?\n/).filter(line => line.includes('ELEVATION_REACHED')).length
   console.log('  %s → exit %s, reached %j', spec.name, ran.status, text.trim().split(/\r?\n/).join('+') || 'nothing')
+  const field = name => {
+    const match = text.match(new RegExp(`^${name}=\\[(.*)\\]$`, 'm'))
+    return match ? match[1] : null
+  }
   return {
     status: ran.status,
     elevated: attempts > 0,
     attempts,
     section: text.includes('SECTION_RAN'),
+    exe: field('EXE'),
+    dir: field('DIR'),
   }
 }
 
@@ -207,6 +221,29 @@ const elevatedAlready = run({ name: 'silent-allusers-elevated', body: customInit
 assert.ok(!elevatedAlready.elevated, 'an already-elevated silent update must not ask for elevation again')
 assert.ok(elevatedAlready.section, 'an already-elevated silent update must carry on into the sections')
 console.log('PASS already-elevated silent update proceeds without a prompt')
+
+// ---------------------------------------------------------------------------
+// THE TARGET THE CLOSE HELPER IS GIVEN. installer-upgrade.ps1 declares
+// -ExecutablePath mandatory, so an empty value is refused at binding and the
+// graceful shutdown request never runs. Only an executed customInit can answer
+// what the value actually is under silence.
+assert.equal(elevatedAlready.exe, `${elevatedAlready.dir}\\Orgtree.exe`,
+  `the silent route must resolve an executable under its own resolved directory, got ${JSON.stringify(elevatedAlready.exe)}`)
+assert.ok(elevatedAlready.dir && elevatedAlready.dir.endsWith('Orgtree fixture'),
+  `the recorded directory must be the resolved destination, got ${JSON.stringify(elevatedAlready.dir)}`)
+console.log('PASS the silent route carries a non-empty executable target')
+
+// NEGATIVE CONTROL: remove the block that records the target and the same cell
+// must come back with an EMPTY executable — the reviewed state, in which the
+// close helper is refused at parameter binding.
+const withoutTarget = customInit.replace(
+  /\r?\n    # THE TARGET, RE-RECORDED FROM THE RESOLVED DESTINATION[\s\S]*?\r?\n    !endif\r?\n/,
+  '\n')
+assert.notEqual(withoutTarget, customInit, 'the control could not remove the target block; its anchor moved')
+const untargeted = run({ name: 'control-no-target', body: withoutTarget, admin: true })
+assert.equal(untargeted.exe, '',
+  `CONTROL IS BROKEN: without the target block the executable was expected to be empty, got ${JSON.stringify(untargeted.exe)}`)
+console.log('PASS negative control: without the target block the silent route carries an empty executable')
 
 const perUser = run({ name: 'silent-peruser-unelevated', body: customInit, mode: 'CurrentUser' })
 assert.ok(!perUser.elevated, 'a per-user install needs no elevation and must not ask for it')

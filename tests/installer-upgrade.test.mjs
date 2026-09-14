@@ -274,6 +274,54 @@ test('the silent update path reaches an elevation decision of its own', () => {
   assert.match(body, /ShowWindow \$HWNDPARENT \$\{SW_HIDE\}\r?\n\s*!insertmacro UAC_RunElevated/)
 })
 
+// The silent route reached the close helper with an EMPTY executable, which is
+// a recovery gap rather than a cosmetic one: the helper's parameter is
+// mandatory, so PowerShell refuses the binding and the helper's body — the
+// graceful shutdown request — never runs at all.
+test('the silent update path resolves a real executable before anything can close the app', () => {
+  const init = installer.match(/!macro customInit\r?\n[\s\S]*?\r?\n!macroend/)
+  assert.ok(init, 'customInit must exist')
+  const body = init[0]
+
+  const assignment = body.indexOf('StrCpy $OrgUpgradeExe "$INSTDIR\\${APP_EXECUTABLE_FILENAME}"')
+  assert.ok(assignment >= 0,
+    'customInit must set the executable itself: the only other assignment is reached from the upgrade page, which silence skips')
+  // Ordering is the whole content of this fix. setInstallModePerAllUsers and
+  // setInstallModePerUser rewrite $INSTDIR, so reading it before the /D= block
+  // records the directory this run STARTED with rather than its destination.
+  const destination = body.indexOf('!insertmacro GetDParameter')
+  assert.ok(destination >= 0 && assignment > destination,
+    'the target must be recorded AFTER the /D= destination resolution, or it names a directory the run will not install into')
+  // Before elevation, so a log that stops at a declined prompt still names the
+  // destination, and so the elevated child's own customInit re-resolves it.
+  const elevate = body.indexOf('!insertmacro UAC_RunElevated')
+  assert.ok(elevate > assignment, 'the target must be recorded before the elevation hand-off')
+  assert.match(body, /StrCpy \$OrgUpgradeInstallDir \$INSTDIR[\s\S]*?StrCpy \$OrgUpgradeExe/)
+  assert.match(body, /\$installMode == "all"[\s\S]*?StrCpy \$OrgUpgradeRegistryRoot "HKLM"[\s\S]*?\$\{else\}[\s\S]*?"HKCU"/)
+
+  // The close call the empty value was flowing into.
+  assert.match(installer, /installer-upgrade\.ps1" -InstallDir "\$OrgUpgradeInstallDir" -ExecutablePath "\$OrgUpgradeExe"/)
+  assert.match(helper, /\[Parameter\(Mandatory = \$true\)\]\r?\n\s*\[string\] \$ExecutablePath/)
+})
+
+test('an empty executable path stops the close helper before its body runs', {
+  skip: process.platform !== 'win32' ? 'Windows only' : false,
+}, () => {
+  // Parameter BINDING only. An empty mandatory string is refused before the
+  // script body exists, so nothing here can close an application, inspect a
+  // process or touch an installation — which is also why this is the only way
+  // to exercise the real contract headlessly.
+  const script = path.join(root, 'tools/installer-upgrade.ps1').replaceAll("'", "''")
+  const command = `try { & '${script}' -InstallDir 'C:\\Program Files\\Orgtree' -ExecutablePath ''; exit 99 } catch { [Console]::WriteLine($_.Exception.Message); exit 17 }`
+  const run = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+    windowsHide: true, encoding: 'utf8', timeout: 30000,
+  })
+  assert.equal(run.status, 17,
+    `an empty -ExecutablePath must be REFUSED at binding (exit 99 means the body ran): ${run.stdout}${run.stderr}`)
+  assert.match(run.stdout, /ExecutablePath[\s\S]*empty string/,
+    'the refusal must be the mandatory-parameter one, not some later failure')
+})
+
 test('the manual upgrade elevation is left where it was', () => {
   // The silent path gets its own decision; the field-tested manual one must not
   // be disturbed by that, or this trades a silent failure for a visible one.

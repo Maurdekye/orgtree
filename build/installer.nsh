@@ -592,6 +592,39 @@ FunctionEnd
       ${endif}
     !endif
 
+    # THE TARGET, RE-RECORDED FROM THE RESOLVED DESTINATION. Everything above
+    # this line can still move it: setInstallModePerAllUsers and
+    # setInstallModePerUser both rewrite $INSTDIR from the registered location
+    # (and then from /D= again), so the values copied a few lines up are the
+    # ones this run STARTED with, not the ones it will install into.
+    #
+    # ⚠ $OrgUpgradeExe WAS NEVER SET ON THIS PATH AT ALL, and that stranded the
+    # silent route twice over. The only other assignment lives in
+    # orgtreeDetectUpgradeInstall, which is reached from the upgrade PAGE —
+    # skipped under silence — so a silent --updated run carried an empty
+    # executable into orgtreeCloseForUpgrade. That call passes it as
+    # -ExecutablePath to installer-upgrade.ps1, where the parameter is a
+    # mandatory non-empty string: PowerShell refuses the binding with "Cannot
+    # bind argument to parameter 'ExecutablePath' because it is an empty
+    # string", the helper's body never runs, no graceful shutdown is ever
+    # requested, and the silent message box defaults to Cancel. An elevated
+    # inner instance inherited the same empty value and did not repair it.
+    # Elevating correctly would still have hit that wall.
+    #
+    # Recorded BEFORE the elevation below so a log that stops at a declined
+    # prompt still names the destination the run had resolved.
+    !ifndef BUILD_UNINSTALLER
+      StrCpy $OrgUpgradeInstallMode $installMode
+      StrCpy $OrgUpgradeInstallDir $INSTDIR
+      StrCpy $OrgUpgradeExe "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+      ${if} $installMode == "all"
+        StrCpy $OrgUpgradeRegistryRoot "HKLM"
+      ${else}
+        StrCpy $OrgUpgradeRegistryRoot "HKCU"
+      ${endif}
+      !insertmacro OrgLog "target" "silent update target resolved: scope [$OrgUpgradeInstallMode], directory [$OrgUpgradeInstallDir], executable [$OrgUpgradeExe]"
+    !endif
+
     # ELEVATE HERE FOR A SILENT ALL-USERS UPDATE, AND THE POSITION IS THE WHOLE
     # POINT. This is the defect that stranded 2.1.3 clients: they could not
     # update at all, and every retry took the identical route.
