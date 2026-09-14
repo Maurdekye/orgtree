@@ -303,8 +303,12 @@ class StaffProgressOptional(unittest.TestCase):
 
         org = store.load_org(self.slug)
         self.assertEqual(set(org.d['nodes']), before)
+        # ⚠ NOT IN `nodes` AT ALL, which is the assertion that means something:
+        # a retired agent is not removed from `nodes`, it stays there with
+        # state='archived'. So "the seat was rolled back" is exactly "the key
+        # is absent", and a rolled-back hire must not be sitting archived
+        # either.
         self.assertNotIn('ghost', org.d['nodes'])
-        self.assertNotIn('ghost', org.d.get('archived', {}))
         after = self.read(wid)
         self.assertEqual(after['done_so_far'], ['built it'])
         self.assertEqual(after['owner']['node'], 'manager')
@@ -335,6 +339,82 @@ class StaffProgressOptional(unittest.TestCase):
         self.assertEqual(after['done_so_far'], ['built it'])
         self.assertEqual(after['working_on_next'], ['land it'])
         self.assertNotIn('charterless', store.load_org(self.slug).d['nodes'])
+
+    def test_s6d_a_rehire_refusal_puts_the_archived_seat_back(self):
+        """⚠ THE HARDER HALF OF ROLLBACK, and the one the tests above do not
+        reach. On a HIRE, "leave nothing behind" means a seat was never made.
+        On a REHIRE it means an agent that was ALREADY THERE, archived, must
+        end up archived again with its record intact — a restore rather than
+        an absence, on a different code path. (Raised by quick-staff's
+        independent review probe; my own §6 only refused on fresh hires.)"""
+        wid = self.item(done_so_far=['half done'], working_on_next=['finish'])
+        org = store.load_org(self.slug)
+        org.hire('manager', 'manager', 'haiku', 0, 'comeback',
+                 add_dirs=[], tools=NO_TOOLS, org_visibility='self',
+                 charter='fixture')
+        org.retire('manager', 'comeback')
+        store.save_org(org)
+        before = store.load_org(self.slug)
+        # a retired agent stays in `nodes` carrying state='archived' — there is
+        # no separate archive table, so "still archived" is a state assertion
+        self.assertEqual(before.d['nodes']['comeback']['state'], 'archived')
+        record_before = dict(before.d['nodes']['comeback'])
+        keys_before = set(before.d['nodes'])
+
+        with self.assertRaises(Exception):
+            # refuses inside work_update — strictly AFTER _rehire_seat has
+            # already brought the agent back out of the archive
+            self.call('orgtree_staff', action='update', slug=wid,
+                      node='comeback', staff_mode='rehire', status='review')
+
+        org = store.load_org(self.slug)
+        # archived again, not left live and not destroyed
+        self.assertEqual(org.d['nodes']['comeback']['state'], 'archived')
+        self.assertEqual(set(org.d['nodes']), keys_before)
+        # and its stored record is the one it had, field for field — a restore,
+        # not a rebuilt stub that merely happens to be archived
+        self.assertEqual(dict(org.d['nodes']['comeback']), record_before)
+        # the item never moved either
+        after = self.read(wid)
+        self.assertEqual(after['status'], 'open')
+        self.assertEqual(after['owner']['node'], 'manager')
+        self.assertEqual(after['done_so_far'], ['half done'])
+        self.assertEqual(after['working_on_next'], ['finish'])
+
+    def test_s6e_a_refused_rehire_that_renamed_says_the_rename_stuck(self):
+        """⚠ THE ONE DOCUMENTED EXCEPTION TO ALL-OR-NOTHING, pinned here so it
+        stays documented rather than becoming a surprise. A rehire's RENAME
+        runs before the transaction and outside it, so a later refusal cannot
+        undo it. api.agent_call does not hide that: it says so and names the
+        id to retry against, instead of letting the caller retry under a name
+        that no longer exists. Nothing ELSE is applied, and the seat is still
+        archived."""
+        wid = self.item(done_so_far=['half done'])
+        org = store.load_org(self.slug)
+        org.hire('manager', 'manager', 'haiku', 0, 'oldname',
+                 add_dirs=[], tools=NO_TOOLS, org_visibility='self',
+                 charter='fixture')
+        org.retire('manager', 'oldname')
+        store.save_org(org)
+
+        with self.assertRaises(Exception) as ctx:
+            self.call('orgtree_staff', action='update', slug=wid,
+                      node='oldname', staff_mode='rehire', name='newname',
+                      status='review')
+
+        detail = str(getattr(ctx.exception, 'detail', ctx.exception))
+        self.assertIn('RENAME', detail)
+        self.assertIn('newname', detail)
+        org = store.load_org(self.slug)
+        # renamed, still archived, and NOT started
+        self.assertIn('newname', org.d['nodes'])
+        self.assertEqual(org.d['nodes']['newname']['state'], 'archived')
+        self.assertNotIn('oldname', org.d['nodes'])
+        # and the item is untouched, which is the part that matters here
+        after = self.read(wid)
+        self.assertEqual(after['status'], 'open')
+        self.assertEqual(after['owner']['node'], 'manager')
+        self.assertEqual(after['done_so_far'], ['half done'])
 
     # ── §7 the guidance says so ─────────────────────────────────────────
     def test_s7_the_tool_card_tells_callers_progress_is_optional(self):
