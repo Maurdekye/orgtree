@@ -734,6 +734,42 @@ else {
   })
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
+  // ---------------------------------------------------- console signals
+  // A CONSOLE CLOSING MUST NOT KILL THIS PROCESS COLD (user report: closing a
+  // console window they had not opened made Orgtree exit immediately).
+  //
+  // ⚠ WHAT THIS CAN AND CANNOT DO, because the difference matters and the
+  // honest half is easy to overstate. On Windows, Node raises SIGHUP when a
+  // console the process is ATTACHED to is closed, SIGINT on Ctrl+C and
+  // SIGBREAK on Ctrl+Break. With NO listener installed — which is what this
+  // file had, for all three — the default disposition terminates the process
+  // at once: no layout flush, no graceful engine stop, provider logins left
+  // orphaned. Installing a listener does NOT make the process immortal; for a
+  // console close Windows still terminates it after a few seconds' grace. What
+  // it buys is that the grace is USED, so the exit is the same orderly one a
+  // tray Quit performs instead of a hard kill.
+  //
+  // ⚠ AND FOR THE INSTALLED SHAPE, NOTHING ARRIVES HERE AT ALL. A packaged
+  // Orgtree launched from a shortcut is a child of explorer.exe with no console
+  // of its own (measured, 2026-09-14), so no console close can reach it and
+  // these handlers never fire. They exist for every OTHER way the process can
+  // end up attached to one — started from a terminal, from a script, or from a
+  // launcher that owns a console — which is precisely the set of cases nobody
+  // has been able to enumerate.
+  //
+  // Routed through app.quit() rather than doing the work here, so there is ONE
+  // shutdown sequence and this cannot drift from it.
+  for (const signal of ['SIGHUP', 'SIGINT', 'SIGBREAK'] as const) {
+    try {
+      process.on(signal, () => {
+        // Recorded before anything else: an exit nobody could explain is how
+        // this arrived, and the log is the only thing that outlives it.
+        try { updateLog.record('startup', `shutting down on ${signal} — a console this process was attached to closed, or was interrupted`) } catch { /* never worth failing the shutdown over */ }
+        app.quit()
+      })
+    } catch { /* a platform without this signal simply has no handler */ }
+  }
+
   app.on('before-quit', event => {
     if (quitComplete) return
     if (installerUpgradeShutdown) { event.preventDefault(); return }
