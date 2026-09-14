@@ -236,3 +236,37 @@ test('real docket rows load Staff only for backlog and submit the previewed sele
   assert.equal(requests[1]!.body!.mode, 'request')
   assert.equal('tier' in requests[1]!.body!, false)
 })
+
+
+test('request offers render selectable exact tokens while Direct still renders its disabled rows', async t => {
+  const sent = captureFetch(t)
+  const request = preview()
+  request.models = [
+    { tier: 'haiku', seat: 1, reason: null, efforts: ['low', 'high'] },
+    { tier: 'or-vendor-live', seat: 2, reason: null, efforts: [] },
+  ]
+  const direct = preview('top_level')
+  direct.models = [
+    { ...request.models[0]!, reason: 'Default account limit', efforts: [] },
+    { ...request.models[1]!, reason: 'Not enough credits' },
+    { tier: 'or-vendor-history', seat: 2, reason: 'Provider unavailable', efforts: [] },
+  ]
+  for (const [id, data] of [['request', request], ['direct', direct]] as const) {
+    const menu = quickStaffEntry('regression', id, data, () => {})
+    const view = await mountView(<Fixture entries={[menu]} />, h => h)
+    try {
+      await open(); await key(named('Staff…'), 'ArrowRight')
+      assert.ok(named('haiku')); assert.ok(named('or-vendor-live'))
+      if (id === 'request') {
+        assert.equal(named('or-vendor-history'), undefined)
+        assert.equal(document.querySelectorAll('[role="menuitem"][aria-disabled="true"]').length, 0)
+        await inAct(() => { named('or-vendor-live').click() }); await flush()
+        assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
+      } else {
+        assert.ok(named('or-vendor-history'))
+        assert.equal(named('haiku').getAttribute('aria-disabled'), 'true')
+        assert.equal(named('or-vendor-live').getAttribute('aria-disabled'), 'true')
+      }
+    } finally { await view.unmount() }
+  }
+})

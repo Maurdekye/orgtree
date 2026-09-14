@@ -5,7 +5,7 @@ import copy
 import time
 from typing import Any
 
-from . import accountusage, appsettings, codex_limits, codex_route, limits, providers, registry
+from . import accountusage, appsettings, codex_limits, codex_route, limits, openrouter, providers, registry
 from .ledger import LedgerError, Org, USER, app_prefer_reserve_default, slugify
 
 
@@ -69,7 +69,56 @@ def staff_args(org: Org, item: dict[str, Any], ctx: dict[str, Any],
     return args
 
 
+def request_models() -> list[dict[str, Any]]:
+    """Offer existing models, independently of the actor's ability to hire.
+
+    Provider discovery owns machine-wide configuration/sign-in and offered
+    hire tokens. Its OpenRouter rows are favorites, so they additionally need
+    live catalog membership: a saved favorite alone is not availability.
+    Discovery errors are errors, never an authoritative empty model list.
+    """
+    from .api import _providers_payload
+    try:
+        document = _providers_payload()
+    except Exception as e:
+        raise LedgerError("Could not verify Request staffing models. Retry the menu.") from e
+    if not isinstance(document, dict) or not isinstance(document.get("providers"), list):
+        raise LedgerError("Provider discovery returned no model list. Retry the menu.")
+    choices = []
+    catalog_ids = None
+    for provider in document["providers"]:
+        if (not isinstance(provider, dict) or not isinstance(provider.get("id"), str)
+                or not isinstance(provider.get("hire_enabled"), bool)
+                or not isinstance(provider.get("tiers"), list)):
+            raise LedgerError("Provider discovery returned invalid model data. Retry the menu.")
+        if not provider["hire_enabled"]:
+            continue
+        for model in provider["tiers"]:
+            if not isinstance(model, dict):
+                raise LedgerError("Provider discovery returned an invalid model. Retry the menu.")
+            tier = model.get("tier")
+            if not isinstance(tier, str) or not tier.strip():
+                continue  # A model without a hire token cannot be requested.
+            if provider["id"] == openrouter.PROVIDER_ID:
+                if catalog_ids is None:
+                    try:
+                        # catalog() can silently fall back to stale disk data.
+                        # This explicit user action needs a current answer.
+                        catalog_ids = {card["id"] for card in openrouter.refresh_catalog()}
+                    except openrouter.OpenRouterError as e:
+                        raise LedgerError("Could not verify current OpenRouter models. Retry the menu.") from e
+                if model.get("model") not in catalog_ids:
+                    continue
+            choices.append({"tier": tier, "seat": model.get("seat"), "reason": None,
+                            "efforts": supported_efforts(tier)})
+    return choices
+
+
 def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str) -> None:
+    if ctx["mode"] == "request":
+        if not any(model["tier"] == tier for model in request_models()):
+            raise LedgerError("That model is not currently offered for Request staffing. Reopen Staff….")
+        return
     from .api import provider_hire_gate
     if tier not in org.d["tiers"]:
         raise LedgerError("That model is not available in this organization. Reopen Staff….")
@@ -141,6 +190,9 @@ def account_reason(org: Org, tier: str) -> str | None:
 
 def preview(org: Org, wid: str) -> dict[str, Any]:
     item, result = context(org, wid)
+    if result["mode"] == "request":
+        result["models"] = request_models()
+        return result
     choices = []
     for tier, seat in org.d["tiers"].items():
         reason = None

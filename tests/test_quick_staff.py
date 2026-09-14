@@ -38,6 +38,11 @@ class QuickStaffTests(unittest.TestCase):
         self.drive = p.start(); self.addCleanup(p.stop)
         for target, value in [("account_reason", None), ("supported_efforts", ["low", "high"])]:
             p = patch.object(quickstaff, target, return_value=value); p.start(); self.addCleanup(p.stop)
+        self.offered = {"providers": [{"id": "claude", "hire_enabled": True,
+            "tiers": [{"tier": "haiku", "seat": 1}]},
+            {"id": "openai", "hire_enabled": True, "tiers": [{"tier": "luna", "seat": .2}]}]}
+        p = patch.object(api, "_providers_payload", return_value=self.offered)
+        p.start(); self.addCleanup(p.stop)
         appsettings.set_quick_staff_behavior("request")
 
     def preview(self):
@@ -177,6 +182,7 @@ class QuickStaffTests(unittest.TestCase):
         self.assertEqual(self.send(body).status_code, 200)
 
     def test_provider_failure_is_visible_and_revalidated(self):
+        appsettings.set_quick_staff_behavior("top_level")
         with patch.object(api, "provider_hire_gate", side_effect=ledger.LedgerError("Sign in to the provider")):
             p = self.preview()
             self.assertIn("Sign in", p["models"][0]["reason"])
@@ -235,6 +241,135 @@ class QuickStaffTests(unittest.TestCase):
             self.assertEqual(appsettings.quick_staff_behavior(), mode)
         r = self.client.put("/api/app-settings/runtime", headers=HEADERS, json={"quick_staff_behavior": "bad"})
         self.assertEqual(r.status_code, 422)
+
+
+    def test_request_does_not_consult_actor_hire_gates(self):
+        # Each failing instrument fires in Direct, while Request must not
+        # consult it. Nonempty rows and a real POST rule out an empty-menu fix.
+        for target, name in [(api, "provider_hire_gate"),
+                             (ledger.Org, "_check_tier_ceiling"),
+                             (quickstaff, "account_reason"), (ledger.Org, "hire")]:
+            with self.subTest(gate=name):
+                store.save_org(self.org)
+                appsettings.set_quick_staff_behavior("top_level")
+                with patch.object(target, name, side_effect=ledger.LedgerError(name)) as gate:
+                    direct = quickstaff.preview(self.org, self.item)
+                    self.assertEqual([m["tier"] for m in direct["models"]], ["haiku", "luna"])
+                    self.assertTrue(all(m["reason"] for m in direct["models"]))
+                    self.assertGreater(gate.call_count, 0)
+                    gate.reset_mock()
+                    appsettings.set_quick_staff_behavior("request")
+                    request = self.preview()
+                    self.assertEqual([m["tier"] for m in request["models"]], ["haiku", "luna"])
+                    self.assertTrue(all(m["reason"] is None for m in request["models"]))
+                    self.assertEqual(self.send(self.selection("haiku")).status_code, 200)
+                    gate.assert_not_called()
+                    self.assertEqual(len(self.loaded().nodes), 1)
+
+    def test_request_visibility_and_exact_tokens_come_from_current_offers(self):
+        self.org.d["tiers"].update({"gpt-reserve": 1, "or-old": 1, "or-gone": 1, "or-live": 1})
+        store.save_org(self.org)
+        self.offered["providers"].extend([
+            {"id": "openrouter", "hire_enabled": True, "tiers": [
+                {"tier": "or-gone", "model": "vendor/gone", "seat": 1},
+                {"tier": "or-live", "model": "vendor/live", "seat": 1},
+                {"model": "vendor/tokenless", "seat": 1},
+                {"tier": "", "model": "vendor/empty-token", "seat": 1}]},
+            {"id": "google", "hire_enabled": False, "tiers": [{"tier": "flash", "seat": 1}]}])
+        with patch.object(quickstaff.openrouter, "refresh_catalog", return_value=[
+                {"id": "vendor/live"}, {"id": "vendor/tokenless"}]) as catalog:
+            request = self.preview()
+            self.assertEqual([m["tier"] for m in request["models"]], ["haiku", "luna", "or-live"])
+            self.assertTrue(all(m["reason"] is None for m in request["models"]))
+            catalog.assert_called_once_with()
+            before = copy.deepcopy(self.loaded().d)
+            for unavailable in ("gpt-reserve", "or-old", "or-gone", "flash"):
+                self.assertEqual(self.send(self.selection(unavailable)).status_code, 422)
+                self.assertEqual(self.loaded().d, before)
+            self.assertEqual(self.send(self.selection("or-live")).status_code, 200)
+            self.assertIn("Suggested model: or-live.", str(self.loaded().d))
+
+    def test_request_omits_each_unavailable_provider_and_missing_token(self):
+        for state in ("unconfigured", "signed out", "explicitly disabled"):
+            with self.subTest(state=state):
+                provider = self.offered["providers"][0]
+                provider.update(hire_enabled=False, reason=state)
+                request = self.preview()
+                self.assertEqual([m["tier"] for m in request["models"]], ["luna"])
+                self.assertTrue(all(m["reason"] is None for m in request["models"]))
+                self.assertEqual(self.send(self.selection("haiku")).status_code, 422)
+        self.offered["providers"][1]["tiers"].extend([{"model": "tokenless"}, {"tier": "  "}])
+        self.assertEqual([m["tier"] for m in self.preview()["models"]], ["luna"])
+
+    def test_request_revalidates_provider_and_catalog_after_preview(self):
+        body = self.selection("haiku")
+        self.offered["providers"][0]["hire_enabled"] = False
+        before = copy.deepcopy(self.loaded().d)
+        self.assertEqual(self.send(body).status_code, 422)
+        self.assertEqual(self.loaded().d, before)
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        with patch.object(quickstaff.openrouter, "refresh_catalog", return_value=[{"id": "vendor/live"}]) as catalog:
+            body = self.selection("or-live")
+            catalog.return_value = []
+            self.assertEqual(self.send(body).status_code, 422)
+            self.assertEqual(self.loaded().d, before)
+
+    def test_request_discovery_failure_is_not_an_empty_availability_verdict(self):
+        body = self.selection("haiku")
+        before = copy.deepcopy(self.loaded().d)
+        for broken in (None, {}, {"providers": [{}]}):
+            with self.subTest(document=broken), patch.object(api, "_providers_payload", return_value=broken):
+                self.assertEqual(self.client.get(self.path, headers=HEADERS).status_code, 422)
+                self.assertEqual(self.send(body).status_code, 422)
+                self.assertEqual(self.loaded().d, before)
+        with patch.object(api, "_providers_payload", side_effect=RuntimeError("discovery offline")):
+            self.assertEqual(self.send(body).status_code, 422)
+            self.assertEqual(self.loaded().d, before)
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-gone", "model": "vendor/gone", "seat": 1}]})
+        # A stale picker cache must never turn a failed current lookup into a
+        # successful request (or a false claim that the provider has no models).
+        with patch.object(quickstaff.openrouter, "catalog", return_value=[{"id": "vendor/gone"}]), \
+             patch.object(quickstaff.openrouter, "refresh_catalog", side_effect=quickstaff.openrouter.OpenRouterError("offline")):
+            reply = self.client.get(self.path, headers=HEADERS)
+            self.assertEqual(reply.status_code, 422)
+            self.assertIn("Could not verify", reply.text)
+            self.assertEqual(self.send(body | {"tier": "or-gone"}).status_code, 422)
+            self.assertEqual(self.loaded().d, before)
+
+    def test_direct_previews_keep_pre_fix_rows_order_and_disabled_states(self):
+        # This literal baseline is also executed against unmodified main in
+        # the review controls; no request filters may leak into Direct.
+        self.org.d["tiers"]["or-history"] = 4
+        store.save_org(self.org)
+        def machine_gate(org, tier):
+            if tier == "or-history":
+                raise ledger.LedgerError("provider unavailable")
+        def account_gate(org, tier):
+            return "default account limit" if tier == "haiku" else None
+        expected = [
+            {"tier": "haiku", "seat": 1, "reason": "default account limit", "efforts": []},
+            {"tier": "luna", "seat": .2, "reason": None, "efforts": ["low", "high"]},
+            {"tier": "or-history", "seat": 4, "reason": "provider unavailable", "efforts": []}]
+        with patch.object(api, "provider_hire_gate", side_effect=machine_gate), \
+             patch.object(quickstaff, "account_reason", side_effect=account_gate):
+            for mode in ("top_level", "under_assignee"):
+                appsettings.set_quick_staff_behavior(mode)
+                self.assertEqual(quickstaff.preview(self.org, self.item)["models"], expected)
+            # Configured Request with a retired owner actually hires at top
+            # level; it must retain the Direct baseline, not request rules.
+            appsettings.set_quick_staff_behavior("request")
+            self.org.nodes[self.owner]["state"] = "archived"
+            store.save_org(self.org)
+            self.assertTrue(self.preview()["fallback"])
+            self.assertEqual(quickstaff.preview(self.org, self.item)["models"], expected)
+
+    def test_request_endpoint_still_requires_desktop_authority(self):
+        body = self.selection("haiku")
+        before = copy.deepcopy(self.loaded().d)
+        self.assertIn(self.client.post(self.path, json=body).status_code, (401, 403))
+        self.assertEqual(self.loaded().d, before)
 
 
 class QuickStaffEligibilityTests(unittest.TestCase):
