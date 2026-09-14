@@ -777,6 +777,7 @@ def codex_model_inventory(
                         codex_home=str(st.get("codex_home") or "") or None)
                     client.initialize(timeout=CODEX_MODEL_INVENTORY_TIMEOUT)
                     ids: set[str] = set()
+                    efforts: dict[str, list[str]] = {}
                     cursor: str | None = None
                     seen: set[str] = set()
                     while True:
@@ -796,6 +797,9 @@ def codex_model_inventory(
                             if not isinstance(model_id, str) or not model_id:
                                 raise ValueError("model/list row has no model id")
                             ids.add(model_id)
+                            efforts[model_id] = [str(e["reasoningEffort"])
+                                for e in row.get("supportedReasoningEfforts", [])
+                                if isinstance(e, dict) and e.get("reasoningEffort")]
                         nxt = page.get("nextCursor")
                         cursor = str(nxt) if nxt else None
                         if not cursor:
@@ -803,7 +807,7 @@ def codex_model_inventory(
                         if cursor in seen:
                             raise ValueError("model/list repeated a pagination cursor")
                         seen.add(cursor)
-                    result = {"available": True, "models": sorted(ids),
+                    result = {"available": True, "models": sorted(ids), "efforts": efforts,
                               "error": None, "fetched_at": time.time()}
                 except Exception as e:  # noqa: BLE001 — fail closed at boundary
                     result = _inventory_failure(

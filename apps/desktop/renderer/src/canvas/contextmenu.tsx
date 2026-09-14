@@ -95,6 +95,10 @@ export interface MenuItem {
   label: string
   onSelect: () => void
   disabled?: boolean
+  /** Submenu parents can be expanded even when selecting the parent is unavailable. */
+  children?: MenuEntry[]
+  actionDisabled?: boolean
+  description?: string
   /** a destructive action — drawn in the caution colour; callers place it
    *  after a separator at the end of the list */
   danger?: boolean
@@ -194,6 +198,7 @@ export function nativeMenuPreferred(e: { target: EventTarget | null; currentTarg
 }
 
 interface MenuState {
+  opening: number
   x: number
   y: number
   entries: MenuEntry[]
@@ -221,9 +226,10 @@ function liveBody(doc: Document | null | undefined): HTMLElement | null {
 }
 
 export interface ContextMenuHandle {
+  append: (entry: MenuEntry, opening: number) => void
   /** the object's `onContextMenu`. `entries` may be a thunk so a list that
    *  renders many rows builds only the pressed row's items. */
-  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => void
+  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => number | undefined
   close: () => void
   /** Point the open menu at the element that carries its object NOW.
    *
@@ -260,7 +266,10 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   // a synthetic anchor still lands in its own surface rather than at `document`
   const surfaceDocument = useSurfaceDocument()
   const anchorRef = useRef<Element | null>(null)
+  const opening = useRef(0)
   const close = useCallback(() => setState(null), [])
+  const append = useCallback((entry: MenuEntry, id: number) => setState(s => s && opening.current === id ? { ...s,
+    entries: [...s.entries.filter(e => e === 'sep' || entry === 'sep' || e.label !== entry.label), entry] } : s), [])
   const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
   const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
     if (e.defaultPrevented) return           // an inner object already took it
@@ -287,6 +296,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       && e.clientY >= r.top && e.clientY <= r.bottom
     anchorRef.current = el
     setState({
+      opening: ++opening.current,
       x: inside ? e.clientX : r.left,
       y: inside ? e.clientY : r.bottom,
       entries: list,
@@ -294,6 +304,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       keyboard: !inside,
       doc,
     })
+    return opening.current
   }, [feedback, surfaceDocument])
 
   // THE ORIGIN CLOSING WHILE THE MENU IS UP. `pagehide` is what MovableSurface
@@ -318,7 +329,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const node = target
     ? createPortal(<ContextMenu state={state} anchorRef={anchorRef} close={close} />, target)
     : null
-  return { open, close, reanchor, isOpen: !!target, node }
+  return { open, close, append, reanchor, isOpen: !!target, node }
 }
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
@@ -339,6 +350,7 @@ function ContextMenu({ state, anchorRef, close }:
   // would close that surface straight through an open menu.
   useEsc(close, true, state.doc)
   const [pos, setPos] = useState({ x: state.x, y: state.y })
+  const focusedOpening = useRef<number | undefined>(undefined)
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -354,9 +366,12 @@ function ContextMenu({ state, anchorRef, close }:
     // focus: the first enabled item for a keyboard open, else the menu
     // itself (a mouse open highlights nothing, as native menus do; the arrow
     // keys still walk from here)
-    const first = el.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
-    if (state.keyboard && first) first.focus()
-    else el.focus({ preventScroll: true })
+    if (focusedOpening.current !== state.opening) {
+      focusedOpening.current = state.opening
+      const first = el.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+      if (state.keyboard && first) first.focus()
+      else el.focus({ preventScroll: true })
+    }
   }, [state])
 
   useEffect(() => {
@@ -422,11 +437,11 @@ function ContextMenu({ state, anchorRef, close }:
     }
   }, [restore])
 
-  const items = () => Array.from(
-    ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     e.stopPropagation()   // the host's own key handling (mail alt+↑/↓, card) stays out
-    const list = items()
+    const level = (e.target as Element).closest('[role="menu"]') ?? ref.current
+    const list = Array.from(level?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])
+      .filter(b => b.closest('[role="menu"]') === level)
     if (!list.length) return
     const idx = list.findIndex((b) => b === e.currentTarget.ownerDocument.activeElement)
     let next: number | null = null
@@ -446,22 +461,67 @@ function ContextMenu({ state, anchorRef, close }:
       onPointerDown={stop} onPointerUp={stop} onPointerMove={stop}
       onMouseDown={stop} onMouseUp={stop} onClick={stop} onDoubleClick={stop}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation() }}>
-      {state.entries.map((entry, i) => entry === 'sep'
-        ? <div key={'sep' + i} className="ctxmenu-sep" role="separator" />
-        : <button key={i} type="button" role="menuitem" tabIndex={-1}
-            className={'ctxmenu-item' + (entry.danger ? ' danger' : '')}
-            disabled={entry.disabled} title={entry.title}
-            onClick={(e) => {
-              e.stopPropagation()
-              // close FIRST: the action may open a dialog that takes focus,
-              // and the restore-focus effect must see that, not the menu
-              close()
-              entry.onSelect()
-            }}>
-            {entry.label}
-          </button>)}
+      <MenuEntries entries={state.entries} close={close} within={state.doc} />
     </div>
   )
+}
+
+function MenuEntries({ entries, close, within }: { entries: MenuEntry[]; close: () => void; within: Document }) {
+  const [expanded, setExpanded] = useState<number | null>(null)
+  return <>{entries.map((entry, i) => entry === 'sep'
+    ? <div key={'sep' + i} className="ctxmenu-sep" role="separator" />
+    : <NestedMenuItem key={i} entry={entry} close={close} within={within} expanded={expanded === i}
+        expand={() => setExpanded(i)} collapse={() => setExpanded(null)} />)}</>
+}
+
+function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
+  entry: MenuItem; close: () => void; expanded: boolean; expand: () => void; collapse: () => void
+  within: Document
+}) {
+  const button = useRef<HTMLButtonElement>(null)
+  const submenu = useRef<HTMLDivElement>(null)
+  const keyboardOpen = useRef(false)
+  useEsc(() => { collapse(); button.current?.focus() }, expanded && !!entry.children, within)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  useLayoutEffect(() => {
+    if (!expanded || !entry.children || !button.current || !submenu.current) return
+    const anchor = button.current.getBoundingClientRect()
+    const box = submenu.current.getBoundingClientRect()
+    const win = button.current.ownerDocument.defaultView!
+    setPos({ x: Math.max(EDGE_GAP, anchor.right + box.width <= win.innerWidth - EDGE_GAP
+      ? anchor.right : anchor.left - box.width),
+      y: Math.max(EDGE_GAP, Math.min(anchor.top, win.innerHeight - box.height - EDGE_GAP)) })
+    if (keyboardOpen.current) {
+      submenu.current.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+      keyboardOpen.current = false
+    }
+  }, [expanded, entry.children])
+  return <div className="ctxmenu-branch" onMouseEnter={expand} onMouseLeave={collapse}>
+    <button ref={button} type="button" role="menuitem" tabIndex={-1}
+      className={'ctxmenu-item' + (entry.danger ? ' danger' : '')}
+      disabled={entry.disabled} aria-disabled={entry.actionDisabled || entry.disabled || undefined}
+      aria-haspopup={entry.children ? 'menu' : undefined}
+      aria-expanded={entry.children ? expanded : undefined} title={entry.title}
+      onFocus={() => { if (!expanded) collapse() }}
+      onKeyDown={e => {
+        if (e.key === 'ArrowRight' && entry.children) {
+          e.preventDefault(); e.stopPropagation(); keyboardOpen.current = true
+          if (expanded) { submenu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus(); keyboardOpen.current = false }
+          else expand()
+        }
+      }}
+      onClick={e => { e.stopPropagation(); if (entry.actionDisabled) return; close(); entry.onSelect() }}>
+      {entry.label}{entry.children && <span aria-hidden="true"> ▸</span>}
+    </button>
+    {expanded && entry.children && <div ref={submenu} className="ctxmenu ctxmenu-submenu" role="menu"
+      aria-label={entry.label} style={{ left: pos.x, top: pos.y }}
+      onKeyDown={e => { if (e.key === 'ArrowLeft' || e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation(); collapse(); button.current?.focus()
+      } }}>
+      {entry.description && <div className="ctxmenu-description" role="note">{entry.description}</div>}
+      <MenuEntries entries={entry.children} close={close} within={within} />
+    </div>}
+  </div>
 }
 
 /** write to the clipboard of the WINDOW the element lives in (a popped-out

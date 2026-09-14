@@ -1,0 +1,195 @@
+import { flush, inAct, mountView, advance, useFakeClock, realClock } from './harness'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { useContextMenu } from '../src/canvas/contextmenu'
+import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
+import { quickStaffEntry } from '../src/canvas/quickstaff'
+import type { QuickStaffPreview } from '../src/canvas/quickstaff'
+import { QuickStaffSetting } from '../src/canvas/quickstaffsetting'
+import { DocketModal } from '../src/canvas/docket'
+import type { TreePayload, WorkItem } from '../src/types'
+
+const W = window as unknown as Window & typeof globalThis
+const preview = (mode: QuickStaffPreview['mode'] = 'request'): QuickStaffPreview => ({
+  mode, configured_mode: mode, owner: { node: 'manager', born: 'one' }, fallback: false,
+  disclosure: mode === 'request' ? 'Request staffing from the assignee.' : 'Staff immediately at top level. Choose a model.',
+  models: [{ tier: 'dynamic-model', seat: 2, efforts: ['low', 'high'] }],
+})
+function Fixture({ entries }: { entries: MenuEntry[] }) {
+  const menu = useContextMenu()
+  return <div tabIndex={0} data-open onContextMenu={e => menu.open(e, entries)}>Ticket{menu.node}</div>
+}
+const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+const named = (name: string) => buttons().find(b => b.textContent?.replace(' ▸', '') === name)!
+async function key(el: Element, value: string) {
+  await inAct(() => { el.dispatchEvent(new W.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })) })
+  await flush(2)
+}
+async function open() {
+  await inAct(() => { document.querySelector('[data-open]')!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
+  await flush(2)
+}
+function captureFetch(t: { after: (fn: () => void) => void }, fail = false) {
+  const old = globalThis.fetch
+  const sent: Record<string, unknown>[] = []
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) sent.push(JSON.parse(String(init.body)))
+    return new Response(JSON.stringify(fail ? { detail: 'Account unavailable' } : { message: 'Staffed successfully' }),
+      { status: fail ? 422 : 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  t.after(() => { globalThis.fetch = old })
+  return sent
+}
+
+test('request selection sends exactly bare, model-only, or model-and-effort', async t => {
+  const sent = captureFetch(t)
+  for (const [depth, expected] of [[0, {}], [1, { tier: 'dynamic-model' }], [2, { tier: 'dynamic-model', effort: 'high' }]] as const) {
+    const menu = quickStaffEntry('org', `request-${depth}`, preview(), () => {})
+    const model = menu.children![0] as MenuItem
+    const entry = depth === 0 ? menu : depth === 1 ? model : model.children![1] as MenuItem
+    entry.onSelect(); await flush()
+    const body = sent.at(-1)!
+    assert.deepEqual({ ...(body.tier ? { tier: body.tier } : {}), ...(body.effort ? { effort: body.effort } : {}) }, expected)
+    assert.equal(body.mode, 'request')
+  }
+})
+
+test('both immediate modes require a model and leave model-only effort absent', async t => {
+  const sent = captureFetch(t)
+  for (const mode of ['under_assignee', 'top_level'] as const) {
+    const entry = quickStaffEntry('org', mode, preview(mode), () => {})
+    assert.equal(entry.actionDisabled, true)
+    entry.onSelect(); await flush()
+    const count = sent.length
+    ;(entry.children![0] as MenuItem).onSelect(); await flush()
+    assert.equal(sent.length, count + 1)
+    assert.equal(sent.at(-1)!.mode, mode)
+    assert.equal('effort' in sent.at(-1)!, false)
+  }
+})
+
+test('keyboard traverses three levels and Escape returns to the parent before dismissal', async t => {
+  const sent = captureFetch(t)
+  const v = await mountView(<Fixture entries={[quickStaffEntry('org', 'keyboard', preview('top_level'), () => {})]} />, h => h)
+  t.after(() => v.unmount())
+  await open()
+  const root = named('Staff…')
+  assert.equal(root.getAttribute('aria-haspopup'), 'menu')
+  assert.equal(root.getAttribute('aria-disabled'), 'true')
+  await key(root, 'ArrowRight')
+  assert.equal(document.activeElement, named('dynamic-model'))
+  await key(named('dynamic-model'), 'ArrowRight')
+  assert.equal(document.activeElement, named('low'))
+  await key(named('low'), 'ArrowDown')
+  assert.equal(document.activeElement, named('high'))
+  await key(named('high'), 'Escape')
+  assert.equal(document.activeElement, named('dynamic-model'))
+  assert.ok(document.querySelector('.ctxmenu'))
+  await key(named('dynamic-model'), 'ArrowLeft')
+  assert.equal(document.activeElement, root)
+  assert.equal(sent.length, 0)
+  await key(root, 'Escape')
+  assert.equal(document.querySelector('.ctxmenu'), null)
+})
+
+test('pointer hover reveals fallback before model selection, with clickable model parents', async t => {
+  const sent = captureFetch(t)
+  const p = { ...preview('top_level'), configured_mode: 'request' as const, fallback: true,
+    disclosure: 'Assignee unavailable — selected agent will be staffed immediately at top level. Choose a model.' }
+  const v = await mountView(<Fixture entries={[quickStaffEntry('org', 'pointer', p, () => {})]} />, h => h)
+  t.after(() => v.unmount())
+  await open()
+  await inAct(() => { named('Staff…').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
+  await flush()
+  assert.match(document.querySelector('.ctxmenu-description')!.textContent!, /Assignee unavailable.*immediately at top level/)
+  await inAct(() => { named('dynamic-model').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
+  await flush()
+  assert.ok(named('high'))
+  await inAct(() => { named('dynamic-model').click() }); await flush()
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]!.tier, 'dynamic-model')
+  assert.equal('effort' in sent[0]!, false)
+  assert.equal(document.querySelector('.ctxmenu'), null)
+})
+
+test('duplicates are suppressed and failed retries retain the operation identity', async t => {
+  const sent = captureFetch(t, true)
+  const feedback: string[] = []
+  const entry = quickStaffEntry('org', 'retry', preview(), x => feedback.push(x))
+  entry.onSelect(); entry.onSelect(); await flush()
+  assert.equal(sent.length, 1)
+  assert.ok(feedback.some(x => x.includes('Account unavailable')))
+  entry.onSelect(); await flush()
+  assert.equal(sent.length, 2)
+  assert.equal(sent[0]!.request_id, sent[1]!.request_id)
+})
+
+test('unavailable models explain their reason and never expose selectable efforts', () => {
+  const p = preview(); p.models[0]!.reason = 'Not enough credits'; p.models[0]!.efforts = []
+  const entry = quickStaffEntry('org', 'disabled', p, () => {})
+  const model = entry.children![0] as MenuItem
+  assert.equal(model.disabled, true)
+  assert.equal(model.title, 'Not enough credits')
+  assert.equal(model.children, undefined)
+})
+
+test('setting restores and writes all three modes through application preferences', async t => {
+  const old = globalThis.fetch
+  let mode = 'under_assignee'
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) mode = JSON.parse(String(init.body)).quick_staff_behavior
+    return new Response(JSON.stringify({ quick_staff_behavior: mode }))
+  }
+  t.after(() => { globalThis.fetch = old })
+  const v = await mountView(<QuickStaffSetting />, h => h); t.after(() => v.unmount()); await flush()
+  const select = document.querySelector<HTMLSelectElement>('[aria-label="Quick staff behavior"]')!
+  assert.equal(select.value, 'under_assignee')
+  for (const value of ['request', 'under_assignee', 'top_level']) {
+    await inAct(() => { select.value = value; select.dispatchEvent(new W.Event('change', { bubbles: true })) }); await flush()
+    assert.equal(mode, value); assert.equal(select.value, value)
+  }
+})
+
+test('real docket rows load Staff only for backlog and submit the previewed selection', async t => {
+  useFakeClock(); t.after(realClock)
+  const old = globalThis.fetch; t.after(() => { globalThis.fetch = old })
+  window.localStorage.removeItem('orgtree.docket.group')
+  const base = { rev: 1, kind: 'code', title: 'Ticket', owner: { node: 'manager', generation: 0 },
+    created_by: { node: 'manager', generation: 0 }, at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z',
+    done_so_far: [], working_on_next: [], objective: 'Do it', acceptance: [], evidence: [],
+    questions: [], attention_sources: [], effective_attention: false, archived: false, history: [], participants: [] }
+  const backlog = { ...base, slug: 'backlog', status: 'backlogged' } as unknown as WorkItem
+  const active = { ...base, slug: 'active', status: 'open' } as unknown as WorkItem
+  const requests: { url: string; body?: Record<string, unknown> }[] = []
+  globalThis.fetch = async (url, init) => {
+    const path = String(url)
+    if (path.endsWith('/quick-staff')) {
+      requests.push({ url: path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+      return new Response(JSON.stringify(init?.method === 'POST' ? { message: 'Staffing requested from manager; ticket moved to Open.' } : preview()))
+    }
+    return new Response(JSON.stringify(path.includes('/work-items') ? {
+      items: [active], backlogged: [backlog], counts: { active: 1, backlogged: 1, archived: 0, attention: 0 }, now: '2026-09-01T00:00:00Z',
+    } : { pending: [], delivered: [], sent: [] }))
+  }
+  const tree = { slug: 'org1', name: 'Org', epoch: 1, rev: 1, roots: [], asks: [],
+    work_items_summary: { active: 1, attention: 0 } } as unknown as TreePayload
+  const v = await mountView(<DocketModal slug="org1" tree={tree} close={() => {}} toast={() => {}} jumpTo={null} />, h => h)
+  t.after(() => v.unmount()); await flush(); await advance(200, 16); await flush()
+  const toggle = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    .find(x => x.parentElement?.textContent?.includes('Show backlogged'))!
+  assert.ok(toggle)
+  if (!toggle.checked) await inAct(() => { toggle.click() })
+  await flush(); await advance(200, 16); await flush()
+  const row = (slug: string) => [...document.querySelectorAll('.docket-row')]
+    .find(x => x.querySelector('.docket-rowname')?.textContent === slug)!
+  await inAct(() => { row('active').dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) }); await flush()
+  assert.equal(named('Staff…'), undefined)
+  assert.equal(requests.length, 0)
+  await inAct(() => { row('backlog').dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) }); await flush()
+  assert.ok(named('Staff…'))
+  assert.equal(requests.length, 1)
+  await inAct(() => { named('Staff…').click() }); await flush()
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1]!.body!.mode, 'request')
+  assert.equal('tier' in requests[1]!.body!, false)
+})

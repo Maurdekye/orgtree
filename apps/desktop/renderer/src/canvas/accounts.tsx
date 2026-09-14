@@ -3,6 +3,7 @@ import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
+import { QuickStaffSetting } from './quickstaffsetting'
 import { CharterDocumentsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
@@ -627,6 +628,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />
+      <QuickStaffSetting />
       <CharterDocumentsSetting />
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}

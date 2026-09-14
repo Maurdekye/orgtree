@@ -4124,6 +4124,7 @@ async def openrouter_favorite(body: OpenRouterFavorite) -> dict[str, Any]:
 
 
 class RuntimePreference(Body):
+    quick_staff_behavior: Literal["request", "under_assignee", "top_level"] | None = None
     # `enabled` is the established process-warming wire key. Keep it stable;
     # the explicit second key lets either control change without rewriting the
     # other durable value.
@@ -4135,8 +4136,9 @@ class RuntimePreference(Body):
     git_periodic_fetch_enabled: bool | None = None
 
 
-def _runtime_preferences() -> dict[str, bool]:
+def _runtime_preferences() -> dict[str, Any]:
     return {
+        "quick_staff_behavior": appsettings.quick_staff_behavior(),
         "git_periodic_fetch_enabled": appsettings.git_periodic_fetch_enabled(),
         "warming_enabled": warmpool.warm_enabled(),
         "working_checkups_enabled": appsettings.working_checkups_enabled(),
@@ -4150,7 +4152,7 @@ def _runtime_preferences() -> dict[str, bool]:
 
 
 @app.get("/api/app-settings/runtime")
-async def runtime_preference_info() -> dict[str, bool]:
+async def runtime_preference_info() -> dict[str, Any]:
     """Return machine-wide process and reported-working lifecycle choices.
 
     Process warming still reads D-201's warm.flag through warmpool rather than
@@ -4163,7 +4165,7 @@ async def runtime_preference_info() -> dict[str, bool]:
 
 
 @app.put("/api/app-settings/runtime")
-async def runtime_preference(body: RuntimePreference) -> dict[str, bool]:
+async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
     """Update one runtime choice without disturbing the others."""
     from fastapi.concurrency import run_in_threadpool
 
@@ -4171,9 +4173,13 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, bool]:
             and body.wait_for_mcp_tools_enabled is None
             and body.idle_docket_reminders_enabled is None
             and body.blocked_docket_reminders_enabled is None
-            and body.git_periodic_fetch_enabled is None):
+            and body.git_periodic_fetch_enabled is None
+            and body.quick_staff_behavior is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
+        if body.quick_staff_behavior is not None:
+            await run_in_threadpool(appsettings.set_quick_staff_behavior,
+                                    body.quick_staff_behavior)
         if body.enabled is not None:
             await run_in_threadpool(warmpool.set_enabled, body.enabled)
         if body.working_checkups_enabled is not None:
@@ -5520,6 +5526,90 @@ async def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
 # Work items (docs/work-items.md, docket-final-spec.md). The user-side surface
 # is deliberately small: read, reply to the last updater, dismiss a manual
 # flag, accept. Everything else is the agent tool `orgtree_work` below.
+
+class QuickStaffSelection(Body):
+    request_id: uuid.UUID
+    mode: Literal["request", "under_assignee", "top_level"]
+    configured_mode: Literal["request", "under_assignee", "top_level"]
+    owner: dict[str, Any]
+    tier: str | None = None
+    effort: str | None = None
+
+
+@app.get("/api/orgs/{slug}/work-items/{wid}/quick-staff")
+def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
+    from . import quickstaff
+    try:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            _work_identity_ready(org, slug)
+            return quickstaff.preview(org, wid)
+    except LedgerError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.post("/api/orgs/{slug}/work-items/{wid}/quick-staff")
+def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[str, Any]:
+    from . import quickstaff
+    drive: list[str] = []
+    request_id = str(body.request_id)
+    selection = body.model_dump(exclude={"request_id"})
+    try:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            _work_identity_ready(org, slug)
+            item = org._work_find(wid)[0]
+            receipts = item.get("quick_staff_receipts") or {}
+            previous = receipts.get(request_id)
+            if previous:
+                if previous["selection"] != selection:
+                    raise LedgerError("That staffing request id already belongs to a different selection.")
+                return {**previous["result"], "replayed": True}
+            item, ctx = quickstaff.context(org, wid)
+            if any(selection[k] != ctx[k] for k in ("mode", "configured_mode", "owner")):
+                raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.")
+            if body.effort is not None and not body.tier:
+                raise LedgerError("Select a model before choosing an effort.")
+            if ctx["mode"] != "request" and not body.tier:
+                raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
+            if body.tier:
+                quickstaff.check_choice(org, item, ctx, body.tier)
+                if body.effort is not None and body.effort not in quickstaff.supported_efforts(body.tier):
+                    raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
+            if ctx["mode"] == "request":
+                nid = str(ctx["owner"]["node"])
+                text = f"Please staff the docket ticket {item['slug']} ({item['title']})."
+                if body.tier:
+                    text += f" Suggested model: {body.tier}."
+                if body.effort is not None:
+                    text += f" Suggested effort: {body.effort}."
+                org.work_update(USER, wid, item.get("done_so_far") or [],
+                    item.get("working_on_next") or ["Staff the ticket."], status="open")
+                mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
+                if not mailed.get("deferred"):
+                    drive.append(nid)
+                result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
+                          "requested_from": nid, "mail": mailed.get("id")}
+            else:
+                args = quickstaff.staff_args(org, item, ctx, str(body.tier), body.effort)
+                result = _staff_call(org, slug, USER, args, drive, None, [])
+                result["message"] = f"Staffed {result['node']} " + (
+                    "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + "; ticket moved to Open."
+            # Receipts commit WITH the request/seat and status. Retries after a
+            # lost response or restart cannot create another agent or request.
+            item = org._work_find(wid)[0]
+            receipts = item.setdefault("quick_staff_receipts", {})
+            receipts[request_id] = {"selection": selection, "result": result}
+            store.save_org(org)
+    except (LedgerError, ValueError) as e:
+        raise HTTPException(422, str(e)) from e
+    hub_changed(slug)
+    for nid in dict.fromkeys(drive):
+        mail_notify(slug, USER, nid)
+        supervisor.send_message(slug, nid, "(orgtree) The user requested staffing of this ticket. Handle the mail above.",
+                                mail_ping=True, sender=USER, ping_reason="quick_staff")
+    return result
+
 
 class WorkReply(Body):
     body: str
@@ -8190,11 +8280,13 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     # `parent` is the pre-D-224 spelling of `target` and still
     # works; both omitted = exactly today's behaviour.
     _dest = str(a.get("target") or a.get("parent") or actor)
+    _top_level = actor == USER and _dest == USER
     _htype = str(a.get("hire_type") or "subordinate")
     # validated BEFORE the hire, so a bad destination creates
     # nothing (the seat would otherwise be discarded with the
     # unsaved doc — correct, but the refusal reads better here)
-    org.check_placement(actor, _dest, _htype)
+    if not (_top_level and _htype == "subordinate"):
+        org.check_placement(actor, _dest, _htype)
     if _htype == "superior":
         # THE SEAT'S SCOPE IS NOT THE CALLER'S TO CHOOSE HERE, and
         # accepting the fields anyway produced a response that
@@ -8245,7 +8337,7 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                 f"{', '.join(_missing)} explicitly ([] is a "
                 f"valid add_dirs). Only hire_type='superior' "
                 f"takes them from the target instead")
-    result = org.hire(actor, _dest,
+    result = org.hire(actor, None if _top_level else _dest,
                       a.get("tier"), _arg_num(a, "grant", 0),  # type: ignore[arg-type]  # ledger 422s a missing tier; _arg_num so hire's own whole-grant refusal can still fire
                       a.get("name") or "", add_dirs=hdirs,
                       tools=a.get("tools"),

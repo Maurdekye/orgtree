@@ -7091,6 +7091,10 @@ html.mobile .popout-button { display: none; }
 .ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
 .ctxmenu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.ctxmenu-description { padding: 6px 12px; max-width: 280px; white-space: normal; color: var(--dim); }
+.ctxmenu-item[aria-disabled="true"] { color: var(--dim); }
+.ctxmenu-submenu { max-height: calc(100vh - 8px); overflow-y: auto; }
+.docket-staff-feedback { display: block; white-space: normal; color: var(--ink); padding: 4px 0; }
 /* THE EVENT THE MENU IS ABOUT (user spec 2026-09-12). A right-click aims at
    one event, and the menu that follows says nothing about which one — with a
    transcript still moving underneath, "Reply" and "Copy contents" were an act

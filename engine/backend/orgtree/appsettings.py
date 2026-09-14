@@ -40,6 +40,21 @@ APIKEY_PROVIDERS: Final = frozenset({"claude", "openai", "google"})
 #: no subscription half.
 SUBSCRIPTION_PROVIDERS: Final = frozenset({"claude", "openai", "google"})
 _LOCK = threading.RLock()
+QUICK_STAFF_MODES: Final = ("request", "under_assignee", "top_level")
+
+
+def quick_staff_behavior() -> str:
+    value = load().get("runtime", {}).get("quick_staff_behavior")
+    return value if value in QUICK_STAFF_MODES else "request"
+
+
+def set_quick_staff_behavior(value: str) -> None:
+    if value not in QUICK_STAFF_MODES:
+        raise ValueError("unknown Quick staff behavior")
+    with _LOCK:
+        doc = load(strict=True)
+        doc["runtime"]["quick_staff_behavior"] = value
+        _save(doc)
 
 
 class AppSettingsUnreadable(RuntimeError):

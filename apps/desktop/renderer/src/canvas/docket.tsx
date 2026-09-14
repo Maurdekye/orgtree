@@ -34,6 +34,7 @@ import {
   deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems,
   replyWorkItem, uploadWorkItemAttachment, workItemArtifactUrl,
   workItemAttachmentUrl,
+  req,
 } from '../api'
 import { CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { AttachThumb, fmtBytes, isImg } from './img'
@@ -50,6 +51,8 @@ import type { MentionIndex } from './workrefs'
 import { RefProse, refToken } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { quickStaffEntry, quickStaffPath } from './quickstaff'
+import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
 import type { RefKind, TypedRef } from './workrefs'
@@ -1829,6 +1832,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   // through the work tool and have no user-facing control here; the menu
   // does not invent them.
   const menu = useContextMenu()
+  const [staffFeedback, setStaffFeedback] = useState('')
   const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
@@ -1874,9 +1878,22 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // title, so nothing is lost and the row stays one line of name.
     <div data-copy-ticket-title={item.title} className={cls} title={item.title} onClick={onClick}
       onDoubleClick={copySlug} ref={rowRef}
-      onContextMenu={(e) => menu.open(e, () => rowMenu(e))}
+      onContextMenu={(e) => {
+        const staffable = !!org && !item.archived && item.status === 'backlogged'
+        const opening = menu.open(e, () => [...rowMenu(e), ...(staffable ? [
+          { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} },
+        ] : [])])
+        if (opening === undefined || !staffable) return
+        void req<QuickStaffPreview>(quickStaffPath(org!, item.slug)).then(preview => {
+          menu.append(quickStaffEntry(org!, item.slug, preview, message => {
+            setStaffFeedback(message); toast?.([message])
+          }), opening)
+        }).catch((error: Error) => menu.append({ label: 'Staff…', disabled: true,
+          title: error.message, description: error.message, onSelect: () => {} }, opening))
+      }}
       style={depth ? { '--docket-depth': depth } as React.CSSProperties : undefined}>
       {menu.node}
+      {staffFeedback && <span className="docket-staff-feedback" role="status">{staffFeedback}</span>}
       {copied && (
         <span key={copied.id} className="docket-copied" role="status"
           style={{ left: `${copied.x * 100}%`, top: `${copied.y * 100}%` }}>Copied!</span>
