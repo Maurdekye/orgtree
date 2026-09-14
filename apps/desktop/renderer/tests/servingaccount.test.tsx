@@ -129,6 +129,22 @@ test('§2c no field, no card — idle, single-account and unattributable alike',
     }
   })
 
+test('idle Codex card identifies the configured account', async (t: TestContext) => {
+  const account = serving({ id: 'openai-1', provider: 'openai', active: false })
+  const view = await card(agent({
+    busy: false, tier: 'luna', model_id: 'luna', account: 'openai-1',
+    serving_account: account,
+  }), 'norm')
+  t.after(() => view.unmount())
+  await flush()
+  const badge = onCard(view.el)
+  assert.ok(badge, 'no configured-account card on an idle Codex node')
+  const tip = view.el.querySelector('.serving-account-tip')!
+  assert.match(tip.textContent ?? '', /configured account/)
+  assert.doesNotMatch(tip.textContent ?? '', /serving this turn/)
+  assert.match(badge!.getAttribute('aria-label') ?? '', /configured account/)
+})
+
 /* ─── the far-zoom exclusions ────────────────────────────────────────────── */
 
 test('§2d FAR ZOOM RENDERS NO ACCOUNT CARD, even mid-inference', async (t: TestContext) => {
@@ -216,6 +232,19 @@ test('§2h the desk drops the card the moment inference ends', async (t: TestCon
   await view.render(desk(agent({ busy: false, ran_as: 'claude-4', serving_account: null })))
   await flush()
   assert.equal(onDesk(view.el), null, 'the card outlived the inference it described')
+})
+
+test('the Desk header keeps the idle configured-account card', async (t: TestContext) => {
+  installFetch(new FakeServer())
+  const view = await mountView(desk(agent({
+    busy: false, tier: 'luna', model_id: 'luna', account: 'openai-1',
+    serving_account: serving({ id: 'openai-1', provider: 'openai', active: false }),
+  })), (el) => el)
+  t.after(() => view.unmount())
+  await flush()
+  const badge = onDesk(view.el)
+  assert.ok(badge, 'no configured-account card in the idle Desk header')
+  assert.match(badge!.getAttribute('aria-label') ?? '', /configured account/)
 })
 
 /* ─── hover / focus detail, and what must never be in it ─────────────────── */

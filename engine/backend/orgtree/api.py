@@ -2225,6 +2225,7 @@ def _org_view(slug: str, request: Request,
     # registry per seat, which is the D-239 trap `accounts.serving_label`
     # documents having fallen into once already.
     available = accountusage.available_counts(list(account_rows.values()))
+    registered = accountusage.registered_counts(list(account_rows.values()))
     # ⚠ a KIOSK visitor is told nothing about which account serves a turn
     # (D-145). Resolved once here, beside the other per-request facts.
     public_view = _public_slug(request) is not None
@@ -2325,7 +2326,8 @@ def _org_view(slug: str, request: Request,
             st.get("ran_as"), busy=bool(st.get("busy")), public=public_view,
             rows_by_id=account_rows, counts=available,
             primary=primary, ambient_paths=ambient_paths,
-            provider=providers.provider_of(str(node.get("tier") or "")))
+            provider=providers.provider_of(str(node.get("tier") or "")),
+            configured_account=node.get("account"), registered=registered)
         # ⚠ WHICH POOL A LUNA IS ACTUALLY ON (item 12; user spec 2026-09-04:
         # a header token when Luna RUNS ON RESERVE). The in-memory record
         # is the turn in flight or the last one this process ran; the

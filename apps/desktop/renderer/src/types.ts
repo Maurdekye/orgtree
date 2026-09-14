@@ -1481,9 +1481,10 @@ export interface ReserveInfo {
  *  shows; nothing here is a credential, a token or a profile path.
  *
  *  ⚠ THE BACKEND DECIDES WHETHER THIS EXISTS AT ALL, not the renderer. It is
- *  non-null only while the node is busy, only when the serving account was
- *  established authoritatively (an `account-env-mismatch` spawn reads as
- *  unknown, never as the id it carries), and only when that provider has more
+ *  non-null for an authoritative active turn, or for an idle Codex node's
+ *  effective configured account when multiple identities are registered. An
+ *  `account-env-mismatch` active spawn reads as unknown, never as the id it
+ *  carries. Codex plurality is based on registered identities; other provider
  *  than one AVAILABLE account — because with one account there is nothing to
  *  disambiguate. So a surface renders it or omits it; it never re-derives the
  *  rule, and the near-zoom node and the Desk header therefore cannot disagree
@@ -1509,6 +1510,10 @@ export interface ServingAccount {
    *  that has just gone limited is exactly when knowing who is serving
    *  matters most. */
   state: string
+  /** True when this account was authoritatively identified as serving the
+   * current turn; false for an idle Codex configured-account card. Older
+   * payload fixtures omit this field and are treated as active by the renderer. */
+  active?: boolean
 }
 
 /** A routed (luna) node's ACTUAL route — the turn in flight, or the last one

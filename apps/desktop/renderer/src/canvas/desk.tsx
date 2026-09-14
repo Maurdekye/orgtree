@@ -269,7 +269,8 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
     `sign-in ${account.auth}`,
     `standing ${account.state}`,
   ].filter(Boolean)
-  const detail = `serving this turn — ${parts.join(' · ')}`
+  const active = account.active !== false
+  const detail = `${active ? 'serving this turn' : 'configured account'} — ${parts.join(' · ')}`
   return (
     <span className="serving-account-wrap">
       <button type="button"
@@ -281,7 +282,7 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
         {account.id}
       </button>
       <span className="serving-account-tip" role="presentation" aria-hidden="true">
-        <span className="sa-tip-head">serving this turn</span>
+        <span className="sa-tip-head">{active ? 'serving this turn' : 'configured account'}</span>
         {parts.map((p) => <span className="sa-tip-row" key={p}>{p}</span>)}
       </span>
     </span>

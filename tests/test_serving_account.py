@@ -64,12 +64,14 @@ class ServingAccountTests(unittest.TestCase):
         return rows, {r["id"]: r for r in rows}
 
     def _card(self, ran_as, *, busy=True, public=False, primary="primary",
-              ambient=None):
+              ambient=None, configured=None, provider=None):
         rows, by_id = self._rows()
         return self.au.serving_card(
             ran_as, busy=busy, public=public, rows_by_id=by_id,
             counts=self.au.available_counts(rows), primary=primary,
-            ambient_paths=ambient or {"claude": None, "openai": None, "google": None})
+            ambient_paths=ambient or {"claude": None, "openai": None, "google": None},
+            configured_account=configured,
+            registered=self.au.registered_counts(rows), provider=provider)
 
     # ------------------------------------------------------- the plurality gate
     def test_two_signed_in_accounts_produce_a_card(self):
@@ -83,6 +85,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertEqual(card["email"], "one@example.test")
         self.assertEqual(card["auth"], "authenticated")
         self.assertEqual(card["state"], "ready")
+        self.assertTrue(card["active"])
 
     def test_a_single_signed_in_account_produces_nothing(self):
         # nothing to disambiguate: the card would be pure noise
@@ -155,6 +158,67 @@ class ServingAccountTests(unittest.TestCase):
         assert card is not None
         self.assertEqual(card["id"], "openai/primary")
         self.assertEqual(card["provider"], "openai")
+        self.assertTrue(card["active"])
+
+    def test_idle_codex_primary_card_uses_ambient_configured_identity(self):
+        host = self._row("openai", "host", auth="unobserved")
+        self._row("openai", "secondary", auth="authenticated")
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        card = self._card(None, busy=False, configured="primary", provider="openai",
+                          primary="not-the-host", ambient=ambient)
+        self.assertIsNotNone(card, "idle Codex primary binding was hidden")
+        assert card is not None
+        self.assertEqual(card["id"], "openai/primary")
+        self.assertFalse(card["active"])
+
+    def test_idle_codex_secondary_card_uses_immutable_configured_id(self):
+        self._row("openai", "host", auth="unobserved")
+        second = self._row("openai", "secondary", auth="authenticated")
+        card = self._card(None, busy=False, configured=second["id"], provider="openai")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], second["id"])
+        self.assertFalse(card["active"])
+
+    def test_busy_codex_runtime_identity_overrides_configured_binding(self):
+        host = self._row("openai", "host", auth="unobserved")
+        second = self._row("openai", "secondary", auth="authenticated")
+        card = self._card(second["id"], busy=True, configured=host["id"], provider="openai")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], second["id"])
+        self.assertTrue(card["active"])
+
+    def test_idle_codex_unknown_binding_is_hidden(self):
+        self._row("openai", "host", auth="unobserved")
+        self._row("openai", "secondary", auth="authenticated")
+        self.assertIsNone(self._card(None, busy=False, configured="missing:gone",
+                                     provider="openai"))
+
+    def test_busy_codex_unknown_runtime_does_not_fall_back_to_configured(self):
+        host = self._row("openai", "host", auth="unobserved")
+        self._row("openai", "secondary", auth="authenticated")
+        self.assertIsNone(self._card("account-env-mismatch:wrong", busy=True,
+                                     configured=host["id"], provider="openai"))
+
+    def test_codex_card_uses_registered_not_available_plurality(self):
+        host = self._row("openai", "host", auth="unobserved")
+        self._row("openai", "signed-out", auth="unauthenticated")
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        card = self._card(None, busy=False, configured="primary", provider="openai",
+                          primary="primary", ambient=ambient)
+        # There are two registered identities even though only one is currently
+        # observed as usable; the all-agent card distinguishes identities.
+        self.assertIsNotNone(card)
+
+    def test_codex_single_registered_account_stays_hidden_when_idle(self):
+        host = self._row("openai", "host", auth="unobserved")
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        self.assertIsNone(self._card(None, busy=False, configured="primary",
+                                     provider="openai", ambient=ambient))
 
     def test_a_disabled_key_row_is_not_available(self):
         # a disabled apikey row is skipped by routing, so it cannot serve and
@@ -242,7 +306,7 @@ class ServingAccountTests(unittest.TestCase):
         card = self._card(a["id"])
         assert card is not None
         self.assertEqual(
-            set(card), {"id", "provider", "label", "email", "auth", "state"})
+            set(card), {"id", "provider", "label", "email", "auth", "state", "active"})
         # the row's own credential block names a profile path and a token ref;
         # neither may appear anywhere in the composed card
         blob = repr(card)

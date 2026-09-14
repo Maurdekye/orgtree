@@ -147,6 +147,18 @@ SERVING_SENTINELS: Final = ("api-key", "key:unattributed", "openrouter")
 MISMATCH_PREFIX: Final = "account-env-mismatch:"
 
 
+def _ambient_row(rows_by_id: dict[str, dict[str, Any]], primary: str,
+                 ambient_paths: dict[str, str | None],
+                 provider: str | None) -> dict[str, Any] | None:
+    """Resolve one provider's ambient primary row from loaded registry data."""
+    candidates = [
+        row for row in rows_by_id.values()
+        if (provider is None or row.get("provider") == provider)
+        and ambient_covered(row, primary, ambient_paths)
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def serving_row(ran_as: Any, rows_by_id: dict[str, dict[str, Any]],
                 primary: str, ambient_paths: dict[str, str | None],
                 provider: str | None = None) -> dict[str, Any] | None:
@@ -178,14 +190,7 @@ def serving_row(ran_as: Any, rows_by_id: dict[str, dict[str, Any]],
         # ambient-path evidence used by `canonical_name`, so an OpenAI
         # primary turn cannot be mistaken for a Claude row (or disappear when
         # the Claude row is the only alias target).
-        candidates = [
-            row for row in rows_by_id.values()
-            if (provider is None or row.get("provider") == provider)
-            and ambient_covered(row, primary, ambient_paths)
-        ]
-        if len(candidates) != 1:
-            return None
-        return candidates[0]
+        return _ambient_row(rows_by_id, primary, ambient_paths, provider)
     return rows_by_id.get(ident)
 
 
@@ -225,15 +230,55 @@ def available_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return out
 
 
+def registered_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Return the number of registered account identities per provider.
+
+    This is intentionally separate from ``available_counts``. The all-agent
+    Codex card answers whether there is more than one identity to distinguish,
+    not whether every registered identity currently has capacity.
+    """
+    out: dict[str, int] = {}
+    for row in rows:
+        provider = str(row.get("provider") or "")
+        if provider:
+            out[provider] = out.get(provider, 0) + 1
+    return out
+
+
+def configured_row(account: Any, rows_by_id: dict[str, dict[str, Any]],
+                   primary: str, ambient_paths: dict[str, str | None],
+                   provider: str | None) -> dict[str, Any] | None:
+    """Resolve an idle node's effective configured account from loaded rows."""
+    if not provider:
+        return None
+    ident = str(account or "").strip()
+    if not ident or ident in (accounts.PRIMARY, registry.primary_name(provider)):
+        return _ambient_row(rows_by_id, primary, ambient_paths, provider)
+    if ident.startswith("missing:"):
+        return None
+    row = rows_by_id.get(ident)
+    if row is None or str(row.get("provider") or "") != provider:
+        return None
+    return row
+
+
 def serving_card(ran_as: Any, *, busy: bool, public: bool,
                  rows_by_id: dict[str, dict[str, Any]], counts: dict[str, int],
                  primary: str,
                  ambient_paths: dict[str, str | None],
-                 provider: str | None = None) -> dict[str, Any] | None:
-    """The node payload's "which account is serving THIS inference" card, or
-    None when it must not be shown.
+                 provider: str | None = None,
+                 configured_account: Any = None,
+                 registered: dict[str, int] | None = None) -> dict[str, Any] | None:
+    """Compose the safe account card for a node, or return ``None``.
 
-    Four gates, and each one is a line of the ticket:
+    Codex gets an additive all-agent card when more than one account identity
+    is registered: an authoritative busy-turn row wins, while an idle node
+    falls back to the node's effective configured binding. An active turn with
+    an unresolved runtime identity remains hidden.
+    Other providers retain the active-turn-only contract. Public/kiosk views
+    never receive the card, and the plurality decision is provider-specific.
+
+    The active-turn gates are:
       · `busy`      — only while inference is actually running. The same gate
                       `codex_route` uses for `live`, for the same reason: a
                       token that cannot tell a running turn from yesterday's
@@ -257,13 +302,43 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
     the observed address, and the standing's two words. No token, no key, no
     profile path, no auth material of any kind passes through here.
     """
-    if public or not busy:
+    if public:
         return None
-    row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
-    if row is None:
-        return None
-    provider = str(row.get("provider") or "")
-    if counts.get(provider, 0) <= 1:
+    provider = str(provider or "")
+    row: dict[str, Any] | None = None
+    active = False
+    # Preserve the direct helper's historical inference when callers do not
+    # provide a provider (the API always does). This also keeps non-Codex
+    # callers from needing to duplicate the tier-to-provider mapping.
+    if not provider and busy:
+        row = serving_row(ran_as, rows_by_id, primary, ambient_paths)
+        if row is not None:
+            provider = str(row.get("provider") or "")
+            active = True
+    if provider == "openai":
+        if (registered or registered_counts(list(rows_by_id.values()))).get(provider, 0) <= 1:
+            return None
+        if busy:
+            if row is None:
+                row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
+            # An active turn with no authoritative runtime identity must stay
+            # unknown; its stored binding is not evidence of what served it.
+            if row is None:
+                return None
+            active = True
+        else:
+            row = configured_row(configured_account, rows_by_id, primary,
+                                 ambient_paths, provider)
+        if row is None:
+            return None
+    else:
+        if not busy:
+            return None
+        row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
+        if row is None or counts.get(provider, 0) <= 1:
+            return None
+        active = True
+    if str(row.get("provider") or "") != provider:
         return None
     standing = registry.standing_of(row)
     identity = cast("dict[str, Any]", row.get("identity") or {})
@@ -281,6 +356,7 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
         "email": str(identity.get("email") or "") or None,
         "auth": standing["auth"],
         "state": standing["state"],
+        "active": active,
     }
 
 
