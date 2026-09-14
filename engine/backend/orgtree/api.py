@@ -5577,7 +5577,20 @@ def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
-            return quickstaff.preview(org, wid)
+            _, before = quickstaff.context(org, wid)
+            kiosk = bool(org.d.get("kiosk"))
+            if before["mode"] != "request":
+                return quickstaff.preview(org, wid)
+        # Provider/catalog/effort discovery can perform I/O. Never hold the
+        # global document lock while waiting; compare the context before use.
+        offers = quickstaff.request_models(kiosk=kiosk)
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            _work_identity_ready(org, slug)
+            _, current = quickstaff.context(org, wid)
+            if current != before or bool(org.d.get("kiosk")) != kiosk:
+                raise LedgerError("The staffing context changed. Reopen the ticket menu.")
+            return quickstaff.preview(org, wid, request_offers=offers)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -5589,6 +5602,23 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
     request_id = str(body.request_id)
     selection = body.model_dump(exclude={"request_id"})
     try:
+        offers = None
+        kiosk = None
+        if body.mode == "request" and body.tier:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                _work_identity_ready(org, slug)
+                item = org._work_find(wid)[0]
+                previous = (item.get("quick_staff_receipts") or {}).get(request_id)
+                if previous:
+                    if previous["selection"] != selection:
+                        raise LedgerError("That staffing request id already belongs to a different selection.")
+                    return {**previous["result"], "replayed": True}
+                _, before = quickstaff.context(org, wid)
+                if any(selection[k] != before[k] for k in ("mode", "configured_mode", "owner")):
+                    raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu.")
+                kiosk = bool(org.d.get("kiosk"))
+            offers = quickstaff.request_models(kiosk=kiosk)
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
@@ -5606,10 +5636,14 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 raise LedgerError("Select a model before choosing an effort.")
             if ctx["mode"] != "request" and not body.tier:
                 raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
+            if kiosk is not None and bool(org.d.get("kiosk")) != kiosk:
+                raise LedgerError("The staffing context changed. Reopen the ticket menu.")
             if body.tier:
-                quickstaff.check_choice(org, item, ctx, body.tier)
-                if body.effort is not None and body.effort not in quickstaff.supported_efforts(body.tier):
-                    raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
+                chosen = quickstaff.check_choice(org, item, ctx, body.tier, request_offers=offers)
+                if body.effort is not None:
+                    efforts = chosen["efforts"] if chosen is not None else quickstaff.supported_efforts(body.tier)
+                    if body.effort not in efforts:
+                        raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
             if ctx["mode"] == "request":
                 nid = str(ctx["owner"]["node"])
                 text = f"Please staff the docket ticket {item['slug']} ({item['title']})."

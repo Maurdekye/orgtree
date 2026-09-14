@@ -69,7 +69,7 @@ def staff_args(org: Org, item: dict[str, Any], ctx: dict[str, Any],
     return args
 
 
-def request_models() -> list[dict[str, Any]]:
+def request_models(*, kiosk: bool = False) -> list[dict[str, Any]]:
     """Offer existing models, independently of the actor's ability to hire.
 
     Provider discovery owns machine-wide configuration/sign-in and offered
@@ -91,6 +91,8 @@ def request_models() -> list[dict[str, Any]]:
                 or not isinstance(provider.get("hire_enabled"), bool)
                 or not isinstance(provider.get("tiers"), list)):
             raise LedgerError("Provider discovery returned invalid model data. Retry the menu.")
+        if kiosk and provider["id"] in ("openai", "google", openrouter.PROVIDER_ID):
+            continue  # These providers are not admitted in kiosk organizations.
         if not provider["hire_enabled"]:
             continue
         for model in provider["tiers"]:
@@ -114,11 +116,14 @@ def request_models() -> list[dict[str, Any]]:
     return choices
 
 
-def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str) -> None:
+def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str,
+                 request_offers: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
     if ctx["mode"] == "request":
-        if not any(model["tier"] == tier for model in request_models()):
-            raise LedgerError("That model is not currently offered for Request staffing. Reopen Staff….")
-        return
+        offers = request_offers if request_offers is not None else request_models(kiosk=bool(org.d.get("kiosk")))
+        for model in offers:
+            if model["tier"] == tier:
+                return model
+        raise LedgerError("That model is not currently offered for Request staffing. Reopen Staff….")
     from .api import provider_hire_gate
     if tier not in org.d["tiers"]:
         raise LedgerError("That model is not available in this organization. Reopen Staff….")
@@ -188,10 +193,12 @@ def account_reason(org: Org, tier: str) -> str | None:
     return "Default provider account is at 100%. Change the hire default account or wait for reset." if exhausted else None
 
 
-def preview(org: Org, wid: str) -> dict[str, Any]:
+def preview(org: Org, wid: str,
+            request_offers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     item, result = context(org, wid)
     if result["mode"] == "request":
-        result["models"] = request_models()
+        result["models"] = (request_offers if request_offers is not None
+                            else request_models(kiosk=bool(org.d.get("kiosk"))))
         return result
     choices = []
     for tier, seat in org.d["tiers"].items():

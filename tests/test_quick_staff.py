@@ -372,6 +372,90 @@ class QuickStaffTests(unittest.TestCase):
         self.assertEqual(self.loaded().d, before)
 
 
+    def test_request_discovery_and_efforts_are_outside_document_lock(self):
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        observed = []
+        def probe(kind, result):
+            self.assertFalse(store.DOC_LOCK._is_owned(), kind)
+            observed.append(kind)
+            return result
+        # Firing control: the very same instrument must detect a held lock.
+        with store.DOC_LOCK:
+            with self.assertRaises(AssertionError):
+                probe("positive-held-lock", None)
+        with patch.object(api, "_providers_payload", side_effect=lambda: probe("providers", self.offered)), \
+             patch.object(quickstaff.openrouter, "refresh_catalog", side_effect=lambda: probe("catalog", [{"id": "vendor/live"}])), \
+             patch.object(quickstaff, "supported_efforts", side_effect=lambda tier: probe("efforts", ["low", "high"])):
+            preview = self.preview()
+            body = {k: preview[k] for k in ("mode", "configured_mode", "owner")} | {
+                "tier": "or-live", "effort": "high", "request_id": str(uuid.uuid4())}
+            self.assertEqual(self.send(body).status_code, 200)
+        self.assertEqual(observed.count("providers"), 2)
+        self.assertEqual(observed.count("catalog"), 2)
+        self.assertGreaterEqual(observed.count("efforts"), 2)
+        # Replaying a completed request must not depend on current discovery.
+        with patch.object(api, "_providers_payload", side_effect=AssertionError("replay did discovery")):
+            self.assertTrue(self.send(body).json()["replayed"])
+
+    def test_request_rechecks_context_after_unlocked_discovery(self):
+        for endpoint in ("preview", "select"):
+            for change in ("owner", "mode", "backlog", "kiosk"):
+                with self.subTest(endpoint=endpoint, change=change):
+                    store.save_org(self.org)
+                    appsettings.set_quick_staff_behavior("request")
+                    body = self.selection("haiku")
+                    changed = {}
+                    def discovery():
+                        self.assertFalse(store.DOC_LOCK._is_owned())
+                        with store.DOC_LOCK:
+                            current = self.loaded()
+                            if change == "owner":
+                                current.nodes[self.owner]["state"] = "archived"
+                            elif change == "mode":
+                                appsettings.set_quick_staff_behavior("top_level")
+                            elif change == "backlog":
+                                current._work_find(self.item)[0]["status"] = "open"
+                            else:
+                                current.d["kiosk"] = {"auto_raise": False, "max_scope": {"tools": current.node(self.owner)["scope"]["tools"]}}
+                            store.save_org(current)
+                            changed.update(copy.deepcopy(self.loaded().d))
+                        return self.offered
+                    with patch.object(api, "_providers_payload", side_effect=discovery):
+                        reply = (self.client.get(self.path, headers=HEADERS) if endpoint == "preview"
+                                 else self.send(body))
+                    self.assertEqual(reply.status_code, 422, reply.text)
+                    self.assertTrue(changed)
+                    self.assertEqual(self.loaded().d, changed)
+
+    def test_kiosk_request_omits_org_barred_providers_without_catalog_io(self):
+        self.offered["providers"].extend([
+            {"id": "google", "hire_enabled": True, "tiers": [{"tier": "flash", "seat": 1}]},
+            {"id": "openrouter", "hire_enabled": True,
+             "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]}])
+        # Positive control: non-kiosk offers every one of these exact tokens.
+        with patch.object(quickstaff.openrouter, "refresh_catalog", return_value=[{"id": "vendor/live"}]):
+            self.assertEqual([m["tier"] for m in self.preview()["models"]],
+                             ["haiku", "luna", "flash", "or-live"])
+        self.org.d["kiosk"] = {"auto_raise": False, "max_scope": {"tools": self.org.node(self.owner)["scope"]["tools"]}}
+        store.save_org(self.org)
+        before = copy.deepcopy(self.loaded().d)
+        with patch.object(quickstaff.openrouter, "refresh_catalog", side_effect=AssertionError("kiosk requested catalog")):
+            self.assertEqual([m["tier"] for m in self.preview()["models"]], ["haiku"])
+            for tier in ("luna", "flash", "or-live"):
+                self.assertEqual(self.send(self.selection(tier)).status_code, 422)
+                self.assertEqual(self.loaded().d, before)
+            self.assertEqual(self.send(self.selection("haiku")).status_code, 200)
+
+    def test_direct_actions_never_call_request_discovery(self):
+        for mode in ("top_level", "under_assignee"):
+            with self.subTest(mode=mode):
+                store.save_org(self.org)
+                appsettings.set_quick_staff_behavior(mode)
+                with patch.object(quickstaff, "request_models", side_effect=AssertionError("Direct requested discovery")):
+                    self.assertEqual(self.send(self.selection("haiku")).status_code, 200)
+
+
 class QuickStaffEligibilityTests(unittest.TestCase):
     def setUp(self):
         self.org = ledger.Org.create("eligibility")
