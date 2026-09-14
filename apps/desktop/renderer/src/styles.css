@@ -611,12 +611,22 @@ button.badge.frozen:hover { border-color: var(--accent); }
 .serving-account-wrap:hover .serving-account-tip,
 .serving-account:focus-visible ~ .serving-account-tip { opacity: 1; }
 .serving-account-tip .sa-tip-head { color: var(--dim); }
+/* ⚠ COMPACT, LIKE ITS NEIGHBOURS. `font: inherit` here is only the UA-button
+   reset; the SIZES are restated explicitly because this selector outweighs
+   `.badge`/`.sq-badges .badge`/`.desk-body .badge`, and `font-size: inherit`
+   (the 2.1.4-RC4 state) made the card wear the CARD's text size — a `default`
+   pill twice the height of the `last: reserve` pill beside it. The three
+   sizes below mirror the span-badge sizes for the same three contexts; keep
+   them in step with `.badge` (10.5px), `.sq-badges .badge` (9.5px), and
+   `.desk-body .badge` (10px). */
 button.badge.serving-account {
-  font: inherit; font-size: inherit; font-family: var(--mono);
+  font: inherit; font-size: 10.5px; font-family: var(--mono);
   cursor: default;
   border-color: color-mix(in srgb, var(--provider-accent, var(--accent)) 45%, transparent);
   color: var(--agent-accent-text, var(--accent));
 }
+.sq-badges button.badge.serving-account { font-size: 9.5px; }
+.desk-body button.badge.serving-account { font-size: 10px; }
 button.badge.serving-account:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px;
 }
@@ -6432,6 +6442,10 @@ label.set-row { cursor: pointer; }
   font-size: 10px; color: var(--dim); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 5px;
 }
+/* The account card sits in the title bar, at the very top of a window with
+   overflow:hidden — a tip that opens UPWARD (its default) would be clipped
+   to nothing there, so in this one context it drops below the badge. */
+.pinwin-title .serving-account-tip { bottom: auto; top: calc(100% + 5px); }
 .pinwin-unpin {
   background: none; border: none; padding: 2px; display: inline-flex;
   color: var(--dim); font-size: 15px; cursor: pointer; border-radius: 3px;

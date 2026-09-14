@@ -44,7 +44,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
-import { DeskChat } from './desk'
+import { DeskChat, ServingAccountBadge } from './desk'
 import { AgentName } from './identity'
 import { providerOf, TIER_LETTER } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
@@ -637,6 +637,15 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
             onJump?.(id)
           }} />
         {state && <span className="pinwin-state" title={`this agent is ${state}; the window stays readable`}>{state}</span>}
+        {/* WHICH ACCOUNT SERVES THIS AGENT, on the pinned Desk header too
+            (user report 2026-09-14: the card was on the canvas node but
+            absent from pinned Desk headers). Same shared component, same
+            backend-composed field and gates as the desk header and the
+            near-zoom card — null means the backend said "do not show this",
+            and the pinned title bar is screen-space, so no far-zoom
+            exclusion applies. Its own pointerdown stop keeps a press on the
+            card from starting the title-bar drag. */}
+        <ServingAccountBadge account={node.serving_account} />
         <span className="spacer" />
         <button className="pinwin-unpin" title={`unpin ${node.id} — minimise back to its desk`}
           aria-label={`unpin ${node.id}`}
