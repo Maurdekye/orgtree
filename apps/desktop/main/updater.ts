@@ -124,6 +124,28 @@ export function pendingUpdateHold(entries: UpdateLogEntry[], runningVersion: str
  *  shouting, while still surviving an instance that dies with the dialog up. */
 export const FAILURE_REPORT_SHOWS = 3
 
+/** The official release page is a recovery route, not an in-app download.
+ * Keeping this URL static means it remains available when the configured feed
+ * cannot be reached, while the user still chooses whether to leave Orgtree. */
+export const MANUAL_UPGRADE_URL = 'https://github.com/Maurdekye/orgtree/releases/latest'
+export const MANUAL_UPGRADE_LABEL = 'Download manually'
+
+export function updateFailureDialogOptions(message: string, detail: string, type: 'error' | 'warning' = 'error') {
+  const recoveryDetail = detail.replace(/The update is still ready [^.?!]*try again from the tray\./,
+    'Download the latest release manually if the in-app update could not be completed.')
+  return {
+    type,
+    message,
+    // A failed updater error can stringify to an empty value. Keep the dialog
+    // visibly informative even then; an empty detail would make a test of the
+    // recovery branch pass without proving the user can see its explanation.
+    detail: recoveryDetail.trim() || 'No additional details were provided.',
+    buttons: [MANUAL_UPGRADE_LABEL, 'Close'],
+    defaultId: 1,
+    cancelId: 1,
+  }
+}
+
 /** A FAILED UPDATE THE USER HAS NOT BEEN TOLD ABOUT YET, or null.
  *
  *  ⚠ WHY THIS EXISTS AT ALL, because the obvious alternative is worse in a way

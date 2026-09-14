@@ -22,7 +22,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // on main ever since refreshTrayUpdateMenu joined the same import.
   const updaterImport = main.match(/import \{([^}]*)\} from '\.\/updater'/)
   assert.ok(updaterImport, 'the main process must import from ./updater')
-  for (const name of ['checkForUpdatesViaEvents', 'installDownloadedUpdate', 'UpdateController', 'prepareAndHandOff', 'UpdateLog', 'updateLogger', 'bounded', 'installDirectoryWritable']) {
+  for (const name of ['checkForUpdatesViaEvents', 'installDownloadedUpdate', 'UpdateController', 'prepareAndHandOff', 'UpdateLog', 'updateLogger', 'bounded', 'installDirectoryWritable', 'MANUAL_UPGRADE_URL', 'updateFailureDialogOptions']) {
     assert.ok(updaterImport[1].split(',').map(part => part.trim()).includes(name), `main must import ${name}`)
   }
   // the install directory is still the RUNNING install's own directory
@@ -98,6 +98,25 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(main, /autoUpdater\.on\('download-progress', progress => updater\.progress\(Math\.round\(progress\.percent\)\)\)/)
   assert.doesNotMatch(main, /autoUpdater\.on\('error', \(\) => \{ broadcast/,
     'the error handler must route through the controller, not broadcast a hardcoded state directly')
+
+  // Failed updates have an explicit, user-selected escape route. The app only
+  // opens the official page after the first dialog button is chosen; it never
+  // downloads or executes an installer itself.
+  assert.match(main, /const showUpdateFailure = \(message: string, detail: string, type: 'error' \| 'warning' = 'error'\)/)
+  assert.match(main, /dialog\.showMessageBox\(updateFailureDialogOptions\(message, detail, type\)\)/)
+  assert.match(main, /if \(response === 0\) void shell\.openExternal\(MANUAL_UPGRADE_URL\)/)
+  assert.match(main, /const showUpdateInstallError = \(error: unknown\)/)
+  assert.match(main, /const failedUpdate = updateFailureToReport\(updateLog\.lastAttempt\(\), app\.getVersion\(\)\)/,
+    'the direct tray route must use the durable proven-failure predicate')
+  assert.match(main, /if \(failedUpdate\) \{[\s\S]*?showUpdateFailure\('Orgtree could not install the update\.'/,
+    'the direct tray install failure must show the manual route only after proof')
+  assert.match(main, /return dialog\.showMessageBox\(\{ type: 'error', message: 'Orgtree could not install the update\.', detail \}\)/,
+    'a non-proven transient error must remain a plain visible error')
+  assert.match(main, /requestUpdateInstall\(\)\.catch\(error => \{ void showUpdateInstallError\(error\) \}\)/)
+  assert.match(main, /void showUpdateFailure\('Orgtree did not install the update\.'/,
+    'the relaunched failure report must show the manual route')
+  assert.doesNotMatch(main, /shell\.openExternal\([^)]*\.exe/,
+    'failure recovery must not open or execute a downloaded installer')
 
   // ---- the 2.0.3 hang and the shutdown-without-install ----
   // electron-updater's default logger is `console`, which a packaged Windows

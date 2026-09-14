@@ -17,7 +17,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
-import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -226,6 +226,23 @@ else {
     effectiveTheme = value
     rebuildTray()
   }
+  /** Keep the recovery path behind an explicit user action. The app never
+   * downloads or executes the release; the browser handles the official page.
+   * A failed browser launch must not turn a dialog the user already dismissed
+   * into an undelivered failure report. */
+  const showUpdateFailure = (message: string, detail: string, type: 'error' | 'warning' = 'error') =>
+    dialog.showMessageBox(updateFailureDialogOptions(message, detail, type)).then(({ response }) => {
+      if (response === 0) void shell.openExternal(MANUAL_UPGRADE_URL).catch(() => {})
+    })
+  const showUpdateInstallError = (error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error)
+    const failedUpdate = updateFailureToReport(updateLog.lastAttempt(), app.getVersion())
+    if (failedUpdate) {
+      return showUpdateFailure('Orgtree could not install the update.',
+        `${detail}\n\nThe update attempt ended without changing the installed version. Download the latest release manually if the in-app update could not be completed.`)
+    }
+    return dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.', detail })
+  }
   const refreshTrayUpdates = () => {
     if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
@@ -251,10 +268,7 @@ else {
     const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
       { id: 'update-status', label: 'Updates have not been checked', enabled: false },
       { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
-        click: () => { void requestUpdateInstall().catch(error => {
-          void dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.',
-            detail: error instanceof Error ? error.message : String(error) })
-        }) } },
+        click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
       { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
         enabled: canInstallUnattended(),
         click: item => setPreferences({ automaticUpdates: item.checked }) },
@@ -1256,10 +1270,10 @@ else {
         // ended at 'handoff' and there was nothing else anywhere.
         const installerLog = ingestInstallerLog()
         updateLog.record('failure-report-shown', 'the previous failure was put on screen')
-        void dialog.showMessageBox({ type: 'warning', message: 'Orgtree did not install the update.',
-          detail: `${failedUpdate.detail}\n\nOrgtree restarted and is running normally, still on ${app.getVersion()}${failedUpdate.to ? ` rather than ${failedUpdate.to}` : ''}. The update is still ready — try again from the tray.`
+        void showUpdateFailure('Orgtree did not install the update.',
+          `${failedUpdate.detail}\n\nOrgtree restarted and is running normally, still on ${app.getVersion()}${failedUpdate.to ? ` rather than ${failedUpdate.to}` : ''}. The update is still ready — try again from the tray.`
             + `\n\nThe full record is in update-log.json beside Orgtree's data`
-            + (installerLog ? `, and now includes the installer's own log from ${installerLog}.` : '. The installer left no log of its own this time.') })
+            + (installerLog ? `, and now includes the installer's own log from ${installerLog}.` : '. The installer left no log of its own this time.'), 'warning')
           .then(() => { updateLog.record('failure-reported', 'the user dismissed the failure report') })
           .catch(() => { /* never shown, so never recorded as delivered: it repeats */ })
       }

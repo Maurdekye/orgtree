@@ -11,7 +11,8 @@ await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: tr
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
   uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
-  updateFailureToReport, FAILURE_REPORT_SHOWS, installerLogTail, INSTALLER_LOG_TAIL,
+  updateFailureToReport, FAILURE_REPORT_SHOWS, updateFailureDialogOptions, MANUAL_UPGRADE_URL, MANUAL_UPGRADE_LABEL,
+  installerLogTail, INSTALLER_LOG_TAIL,
   compareUpdateVersions, updateOfferIsNewer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
@@ -978,6 +979,30 @@ test('the report is DELIVERED once, not merely written once, and repeats are bou
     'under the bound it still reports')
   assert.equal(updateFailureToReport([...failed, ...shows(FAILURE_REPORT_SHOWS)], '2.1.3'), null,
     'at the bound it stops shouting')
+})
+
+test('every visible update failure offers the official manual recovery action', () => {
+  const oldRetryAdvice = 'The update is still ready - try again from the tray.'
+  const detail = 'the installer was started but the installed version did not change'
+  const options = updateFailureDialogOptions('Orgtree did not install the update.', detail, 'warning')
+
+  // Positive control: the helper carries a real failure detail into the dialog
+  // model, so the route assertion cannot pass with an absent or empty branch.
+  assert.equal(options.detail, detail)
+  assert.equal(options.message, 'Orgtree did not install the update.')
+  assert.equal(options.type, 'warning')
+  assert.deepEqual(options.buttons, [MANUAL_UPGRADE_LABEL, 'Close'])
+  assert.equal(options.defaultId, 1)
+  assert.equal(options.cancelId, 1)
+  assert.equal(MANUAL_UPGRADE_URL, 'https://github.com/Maurdekye/orgtree/releases/latest')
+
+  // Regression control: old retry-loop advice is removed even if a caller
+  // passes a legacy detail string, and an empty error still renders visibly.
+  const migrated = updateFailureDialogOptions('Orgtree could not install the update.', oldRetryAdvice)
+  assert.doesNotMatch(migrated.detail, /try again from the tray/)
+  assert.match(migrated.detail, /Download the latest release manually/)
+  assert.notEqual(updateFailureDialogOptions('Orgtree could not install the update.', '').detail, '',
+    'a failure dialog must not silently render an empty explanation')
 })
 
 test('the installer log tail keeps the END, which is the part nearest the failure', () => {
