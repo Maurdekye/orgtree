@@ -432,7 +432,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
-        editable, window: w, redock, flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
+        editable, window: w, redock, reveal, identity: () => latest.current.restore,
+        flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
       captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
       restore(); w.focus()
@@ -484,8 +485,13 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (!w) return
     const onGone = () => redock()
     w.addEventListener('pagehide', onGone)
+    // NO `reveal` HERE, deliberately: this surface is a guest in a window it
+    // did not open, so it has no frame name to address and `child.current` is
+    // null. `revealSurface` finds the surface that owns this same window and
+    // asks it instead — see windowlife.ts.
     const unregister = registerWindow({ id: `hosted:${kind}:${Math.random()}`, kind, org,
-      editable, window: w, redock, flush: () => latest.current.flush?.() })
+      editable, window: w, redock, identity: () => latest.current.restore,
+      flush: () => latest.current.flush?.() })
     return () => { w.removeEventListener('pagehide', onGone); unregister() }
   }, [owner, detached, parent, kind, org, editable])
   return <>

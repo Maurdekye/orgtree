@@ -39,6 +39,7 @@ import { CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
+import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentName } from './identity'
 import { MailReplyBox } from './mail'
@@ -986,9 +987,13 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const openRef = useCallback((r: ResolvedRef) => {
     if (r.ref.kind === 'item') goToItem(r.ref.id)
     else if (r.ref.kind === 'agent') onFocusAgent?.(r.ref.id)
-    else if (r.ref.kind === 'doc') setDocView(r.ref.id)
+    // Already in a popped-out window? Surface THAT one. The docket's reader is
+    // a second reader surface beside the canvas's, so without this a document
+    // the canvas already has in a window gets a duplicate window here — see
+    // `openDocView` in OrgCanvas.tsx for the whole rule.
+    else if (r.ref.kind === 'doc') { if (!revealDetachedDocument(slug, r.ref.id)) setDocView(r.ref.id) }
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
-  }, [goToItem, onFocusAgent, onOpenMail])
+  }, [goToItem, onFocusAgent, onOpenMail, slug])
 
   // the flash is a hint, not a state: it clears itself and never survives to
   // confuse the next visit

@@ -1,4 +1,5 @@
 import { beginWindowExit, endWindowExit } from './windowlayout'
+import type { WindowRestore } from './windowlayout'
 // One opener owns all movable surfaces and the restart decision. No React/API
 // imports: api.ts can consult this without creating an application cycle.
 export interface WindowSurface {
@@ -9,6 +10,21 @@ export interface WindowSurface {
   window: Window
   redock: () => void
   flush?: () => void
+  /** WHAT THIS SURFACE IS SHOWING, READ LIVE.
+   *
+   *  ⚠ A GETTER, NOT A VALUE. A surface registers ONCE, when it pops out, and
+   *  a popped-out reader is then re-pointed at other content without ever
+   *  re-registering — the canvas has exactly ONE document reader, so opening a
+   *  second presentation swaps the document inside the window it is already
+   *  in. A snapshot taken at open time would keep naming the first document
+   *  for the rest of the window's life, which is worse than no answer: the
+   *  lookup below would surface the wrong window and refuse to open the right
+   *  one. */
+  identity?: () => WindowRestore | undefined
+  /** Restore this surface's own native window if minimized, raise it and focus
+   *  it. Present only on the surface that OWNS a window; a surface merely
+   *  hosted inside someone else's window resolves through `revealSurface`. */
+  reveal?: () => void
 }
 const surfaces = new Map<string, WindowSurface>()
 const listeners = new Set<() => void>()
@@ -25,6 +41,57 @@ export function registerWindow(surface: WindowSurface) {
   return () => { if (surfaces.get(surface.id) === surface) { surfaces.delete(surface.id); changed() } }
 }
 export const detachedKind = (kind: string) => openSurfaces().some((s) => s.kind === kind)
+
+/** Bring the window this surface lives in to the front, restoring it first if
+ *  it is minimized.
+ *
+ *  TWO KINDS OF SURFACE LIVE IN A POPPED-OUT WINDOW and only one of them owns
+ *  it. The surface that called `window.open` carries `reveal` and knows the
+ *  frame name the native side addresses windows by. A surface merely HOSTED in
+ *  that window — a reader opened by a click inside a popped-out docket, which
+ *  is placed in the initiating document without detaching — has no name of its
+ *  own, so it is resolved to whichever registered surface owns the same
+ *  `Window`. Failing both, the browser's own focus is still better than
+ *  nothing (and is all a plain browser ever had). */
+export function revealSurface(surface: WindowSurface): boolean {
+  const owner = surface.reveal ? surface : openSurfaces().find((s) => s.reveal && s.window === surface.window)
+  if (owner?.reveal) { owner.reveal(); return true }
+  try { surface.window.focus(); return true } catch { return false }
+}
+
+/** Is this surface's window still there?
+ *
+ *  A surface unregisters on redock and on unmount, and Electron does fire
+ *  `pagehide`, so a registration outliving its window is not a case anyone has
+ *  reproduced. It is guarded anyway because of HOW it would fail: the lookup
+ *  would match, the click would be treated as handled, and the reader would
+ *  never open — a document silently unopenable, with nothing on screen to say
+ *  why. A plain object window (a test's, or a surface hosted somewhere with no
+ *  `closed` property) reads as live, which is the same answer as before. */
+const windowLives = (surface: WindowSurface): boolean => {
+  try { return !surface.window.closed } catch { return false }
+}
+
+/** The popped-out window already showing this exact presentation, if there is
+ *  one. Identity is the document's own id WITHIN its organization: two orgs
+ *  are separate namespaces, so a window belonging to another org is never an
+ *  answer here even if the ids happened to collide. */
+export const detachedDocument = (org: string | null, document: string): WindowSurface | undefined =>
+  document ? openSurfaces().find((s) => s.org === org && s.identity?.()?.document === document && windowLives(s)) : undefined
+
+/** Surface the existing window for this presentation. `true` means the click
+ *  was fully handled — the caller must NOT then open a reader of its own,
+ *  which is what would put a second window on screen for one document.
+ *
+ *  ⚠ IT REPORTS WHAT ACTUALLY HAPPENED, not merely that a match was found. A
+ *  match we could not raise is not a handled click: answering `true` there
+ *  would swallow the press and leave the user with nothing at all, which is
+ *  the same dead click this whole change exists to remove. Falling through to
+ *  opening a reader is the right failure. */
+export function revealDetachedDocument(org: string | null, document: string): boolean {
+  const surface = detachedDocument(org, document)
+  return surface ? revealSurface(surface) : false
+}
 export const flushWindowDrafts = () => { for (const s of openSurfaces()) s.flush?.() }
 export const returnWindows = (org?: string) => {
   for (const s of openSurfaces()) if (org === undefined || s.org === org) s.redock()

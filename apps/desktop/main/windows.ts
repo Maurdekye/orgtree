@@ -109,6 +109,27 @@ export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { na
   }
 }
 
+/** What "bring this popout to the front" has to do natively.
+ *
+ *  ORDER IS THE WHOLE CONTENT OF THIS FUNCTION. A MINIMIZED window must be
+ *  restored FIRST: `show()` on a minimized window leaves it in the taskbar,
+ *  and `focus()` then focuses something the user cannot see. The renderer's own
+ *  `child.focus()` does nothing at all here — a renderer cannot restore or
+ *  raise the native window it opened (user report 2026-09-11) — so this is the
+ *  only path that actually surfaces the window.
+ *
+ *  Returns whether a window was acted on, so a caller can tell "surfaced it"
+ *  from "there was no such window" instead of assuming the first. */
+export function revealPopout(window: {
+  isMinimized(): boolean; restore(): void; show(): void; focus(): void
+} | undefined | null): boolean {
+  if (!window) return false
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  return true
+}
+
 export function parsePopoutFeatures(features?: string): { minWidth?: number; minHeight?: number } {
   if (!features || typeof features !== 'string') return {}
   const minWidth = /(?:^|,)\s*minWidth=(\d+)/i.exec(features)?.[1]

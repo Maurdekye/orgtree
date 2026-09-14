@@ -24,7 +24,7 @@ const stubElectron = {
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron] })
-const { popoutRegistry, parsePopoutFeatures } = createRequire(import.meta.url)(out)
+const { popoutRegistry, parsePopoutFeatures, revealPopout } = createRequire(import.meta.url)(out)
 
 /** A native window reduced to what the registry reads, plus the levers a test
  *  needs: it can be maximized, it can be destroyed, and it can fire its own
@@ -144,4 +144,59 @@ test('parsePopoutFeatures returns empty object when min dimensions are not decla
   assert.deepEqual(parsePopoutFeatures('popup,left=100,top=100,width=800,height=600'), {})
   assert.deepEqual(parsePopoutFeatures(''), {})
   assert.deepEqual(parsePopoutFeatures(undefined), {})
+})
+
+// ------------------------------------------------------- surfacing a window
+// A presentation card whose document is already in one of these windows raises
+// that window rather than opening a second reader (2026-09-14), which is the
+// same native act as the placeholder's "Show window". The renderer cannot do
+// any of it: it can only name the window.
+
+/** A native window reduced to what revealPopout touches, recording the ORDER
+ *  its calls arrived in — which is the whole of what that function decides. */
+function fakeNativeWindow({ minimized = false } = {}) {
+  const calls = []
+  return {
+    calls, minimized,
+    isMinimized() { return this.minimized },
+    restore() { calls.push('restore'); this.minimized = false },
+    show() { calls.push('show') },
+    focus() { calls.push('focus') },
+  }
+}
+
+test('a minimized popout is restored BEFORE it is shown and focused', () => {
+  const window = fakeNativeWindow({ minimized: true })
+  assert.equal(revealPopout(window), true)
+  // show() on a minimized window leaves it in the taskbar and focus() then
+  // focuses something the user cannot see, so the order is the behaviour
+  assert.deepEqual(window.calls, ['restore', 'show', 'focus'])
+  assert.equal(window.minimized, false)
+})
+
+test('a window that is merely buried is shown and focused, and not disturbed further', () => {
+  const window = fakeNativeWindow()
+  assert.equal(revealPopout(window), true)
+  assert.deepEqual(window.calls, ['show', 'focus'],
+    'restore() must not be called on a window that was never minimized')
+})
+
+test('naming no window at all does nothing and says so', () => {
+  // popoutRegistry answers `undefined` for an unknown name, a non-string, and a
+  // window that has since gone — every one of those must be a no-op here
+  // rather than an exception on the main process's IPC thread.
+  for (const nothing of [undefined, null]) assert.equal(revealPopout(nothing), false)
+  const registry = popoutRegistry(() => {})
+  assert.equal(revealPopout(registry.window('never-opened')), false)
+})
+
+test('the name a command carries is the window revealPopout acts on', () => {
+  const registry = popoutRegistry(() => {})
+  const mine = fakeNativeWindow(), theirs = fakeNativeWindow()
+  for (const w of [mine, theirs]) { w.isDestroyed = () => false; w.isMaximized = () => false; w.on = () => {}; w.once = () => {} }
+  registry.track('orgtree-popout-1', mine)
+  registry.track('orgtree-popout-2', theirs)
+  revealPopout(registry.window('orgtree-popout-2'))
+  assert.deepEqual(theirs.calls, ['show', 'focus'])
+  assert.deepEqual(mine.calls, [], 'raising one presentation\'s window must never raise another\'s')
 })

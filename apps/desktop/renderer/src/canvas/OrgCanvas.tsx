@@ -1,5 +1,6 @@
 import { adoptPinLayer, usePinSurfaces, pinSnapId } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
+import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
@@ -295,6 +296,31 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const [restoredDocs, setRestoredDocs] = useState(() => restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document))
   const restoredModalOrg = useRef<string | null>(null)
   const [docView, setDocView] = useState<string | null>(null)   // FR-03 reader
+  /** OPENING a presentation — every card, chip, badge, `@doc:` reference and
+   *  cross-surface jump on the canvas goes through here rather than calling
+   *  `setDocView` directly.
+   *
+   *  ⚠ A PRESENTATION THAT IS ALREADY IN A WINDOW IS NOT OPENED AGAIN (user
+   *  report: the click looked dead). `setDocView` is a React state write, and
+   *  the reader that document is in may not be in THIS window at all:
+   *
+   *   - It is already this reader's document. `setDocView(same)` is a bail-out
+   *     render that changes nothing, so a popped-out window sitting behind the
+   *     main window — or minimized — stayed exactly where it was.
+   *   - It is in a DIFFERENT reader's window (the docket's, or a reader
+   *     restored under its own kind). Opening here would mount a second reader
+   *     for one presentation, and if this surface is itself popped out that is
+   *     literally two windows showing the same document.
+   *
+   *  Matching is by the document's own id within this org — not its title and
+   *  not its row in any list — so the right window is found across several
+   *  open presentations, and a window belonging to another organization is
+   *  never mistaken for this one's. With nothing popped out this is exactly
+   *  the `setDocView` it replaced. */
+  const openDocView = useCallback((id: string) => {
+    if (id && revealDetachedDocument(slug, id)) return
+    setDocView(id)
+  }, [slug])
   const [trayOpen, setTrayOpen] = useState(false)   // the flat agent tray
   const trayWrapRef = useRef<HTMLDivElement | null>(null)
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
@@ -558,9 +584,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [openMailAt, onOpenMailHandled])
   useEffect(() => {
     if (!openDocAt) return
-    setDocView(openDocAt)
+    openDocView(openDocAt)
     onOpenDocHandled?.()
-  }, [openDocAt, onOpenDocHandled])
+  }, [openDocAt, onOpenDocHandled, openDocView])
   // THE DOCKET LIVES IN APP, so a work link is handed straight up rather than
   // half-handled here. The canvas owns the inbox modals and genuinely routes
   // mail; it owns nothing of the docket and should not pretend to.
@@ -1668,7 +1694,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const canvasRefs = useRefRoutes(slug, map, {
     onOpenItem: onWorkItem ? (s: string) => onWorkItem(s) : undefined,
     onFocusAgent: (id: string) => { centerRef.current?.(id) },
-    onOpenDoc: (id: string) => setDocView(id),
+    onOpenDoc: (id: string) => openDocView(id),
     onOpenMail: (r: TypedRef) => { openMailRef.current?.(mailRefTarget(r)) },
     // the canvas is not AT any agent, so every name here is somewhere to
     // go; it can say what each one is running
@@ -1682,11 +1708,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const docRefs = useMemo(() => ({
     world: canvasRefs.world,
     onOpen: (r: ResolvedRef) => {
-      if (r.ref.kind === 'doc') { setDocView(r.ref.id); return }
+      if (r.ref.kind === 'doc') { openDocView(r.ref.id); return }
       setDocView(null)
       canvasRefs.onOpen(r)
     },
-  }), [canvasRefs])
+  }), [canvasRefs, openDocView])
 
   useEffect(() => {
     if (!focusAgent) return
@@ -2984,7 +3010,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 onInbox?.()
               }}
               onGear={onOrgSettings}
-              onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
+              onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
               /* switchboard panel headers mirror the desk header identically
                  (user spec 2026-08-19): the gen badge and gear in each panel
                  open the same canvas-level lineage/config surfaces */
@@ -3022,7 +3048,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)} onLineage={() => toggleNodeSurface('lineage', n.id, setLineageId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onTeamDocket={() => toggleNodeSurface('team-docket', n.id, setTeamDocketId)}
-              onOpenDoc={setDocView}
+              onOpenDoc={openDocView}
               onOpenAgentGallery={onOpenAgentGallery}
               onMailLink={openMail} onWorkLink={openWork}
               onRecenter={() => centerOn(n.id)}   /* recenter AND re-zoom to fill */
@@ -3182,7 +3208,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         <PinLayer slug={slug} map={map} viewportRef={viewportRef}
           targetOf={cardRectOf} op={op} toast={toast} pub={!!tree.public}
           compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
-          pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
+          pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
@@ -3545,7 +3571,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 <DeskChat bare node={n} map={map} op={op} slug={slug}
                   toast={toast} pub={!!tree.public} compactAt={tree.compact_at}
                   maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
-                  onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView}
+                  onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
                   onLineage={() => toggleNodeSurface('lineage', sheetId, setLineageId)}
                   onConfig={() => toggleConfig(sheetId)}
                   onJump={(id) => {
@@ -3604,7 +3630,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           }}>Return to canvas</button></div>
           <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
             compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
-            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={setDocView} onJump={centerOn} />
+            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
         </div>
       })}
     </div></DeskHosts>

@@ -636,6 +636,10 @@ export interface AgentGalleryViewProps {
   initialLoaded?: LoadedDoc
   selectedRow?: DocRow
   pinKind?: string
+  /** Report the row currently in the reading pane — null when nothing is
+   *  selected. Only the modal wrapper passes it, so it can publish what its
+   *  WINDOW is showing; the desk's inline gallery has no window and omits it. */
+  onShown?: (id: string | null) => void
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
@@ -643,13 +647,34 @@ export interface AgentGalleryViewProps {
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery' }: AgentGalleryViewProps & { close: () => void }) {
+  /** WHICH PRESENTATION THIS SURFACE IS SHOWING — the row on screen right now,
+   *  NOT the one it was opened on.
+   *
+   *  ⚠ THE READER IS THE GALLERY. `DocReader` renders this modal with
+   *  `initialDocument`, and picking another row from the list beside the
+   *  reading pane is this surface's PRIMARY interaction, not a corner of it.
+   *  `initialDocument` never follows that: it is the id the surface was
+   *  mounted with and it stays put for the life of the mount.
+   *
+   *  So a restore built from `initialDocument` describes a window that may
+   *  have been showing something else for an hour. Two things then go wrong at
+   *  once, and the second is worse than the first — a click on the card for
+   *  the document actually on screen opens a SECOND reader for it, and a click
+   *  on the card for the document this window merely used to show raises this
+   *  window (where it is not) and swallows the click, so it can never be
+   *  opened at all. Found by team-docket reviewing the first candidate, with
+   *  an executable probe; kept honest by §8 in presentfocus.test.tsx.
+   *
+   *  `setShown` is a useState setter, so its identity is stable and the
+   *  report-upward effect below does not re-run on the render it causes. */
+  const [shown, setShown] = useState<string | null>(initialDocument ?? null)
   return (
     <PinFrame kind={pinKind} title={`Presented documents for ${nid}`}
-      restore={{ agent: nid, generation: node?.generation, ...(initialDocument ? {document:initialDocument} : {}) }}
+      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
-        onFocusAgent={onFocusAgent} onReply={onReply} refs={refs}
+        onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
         onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow} />
     </PinFrame>
   )
@@ -661,7 +686,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  refs, onChanged, initialDocument, initialLoaded, selectedRow }: AgentGalleryViewProps) {
+  refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid)
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
@@ -691,6 +716,11 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
+  // Tell an owning window WHAT IS ON SCREEN, every time it changes — a row
+  // picked from the list, a document opened by reference from the pane, a
+  // dismissal that clears the selection. Whoever holds the window publishes
+  // this as the surface's identity; see AgentGalleryModal.
+  useEffect(() => { onShown?.(selId) }, [selId, onShown])
   const cur = rows.find((r) => r.id === selId)
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)
