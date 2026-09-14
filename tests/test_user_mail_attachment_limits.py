@@ -1,6 +1,7 @@
 """User-mail attachments are uncapped while outside transport limits remain."""
 
 import os
+import filecmp
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -55,9 +56,26 @@ class UserMailAttachmentLimitTests(unittest.TestCase):
         )
 
     def test_user_mail_accepts_over_25mb_and_preserves_exact_download_bytes(self):
-        size = 25 * 1024 * 1024 + 1
-        data = (b"ORGTREE-ATTACHMENT\x00" * (size // 18 + 1))[:size]
-        source = self._org_with_file("user-large", "installer.bin", data)
+        # 256 MiB + 1 is the former user-mail ceiling (_SENDFILE_MAX), not
+        # merely the separate 25 MiB @net ceiling. Seek creates a bounded,
+        # sparse fixture on the test filesystem without allocating a giant
+        # Python bytes object; the final byte makes the content non-empty.
+        size = 256 * 1024 * 1024 + 1
+        _ORGS.append("user-large")
+        org = store.create_org("user-large")
+        org.hire(ledger.USER, None, "haiku", 0, "sender")
+        store.save_org(org)
+        source = Path(supervisor.scratch_dir("user-large", "sender")) / "installer.bin"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        with source.open("wb") as handle:
+            handle.seek(size - 1)
+            handle.write(b"Z")
+
+        # The default path is still capped for standalone send_file/present;
+        # user mail opts out explicitly below.
+        with self.assertRaises(ledger.LedgerError):
+            api._agent_send_file(store.load_org("user-large"), "sender",
+                                 {"path": source.name})
 
         result = self._message("user-large", attachments=[source.name])
         self.assertEqual(result["delivered"], "user_inbox")
@@ -68,7 +86,8 @@ class UserMailAttachmentLimitTests(unittest.TestCase):
         self.assertEqual(attachment["bytes"], size)
         stored = (Path(supervisor.scratch_dir("user-large", "sender")) /
                   "outbox" / "installer.bin")
-        self.assertEqual(stored.read_bytes(), data)
+        self.assertEqual(stored.stat().st_size, size)
+        self.assertTrue(filecmp.cmp(source, stored, shallow=False))
 
     def test_missing_or_copy_failed_attachment_creates_no_user_mail(self):
         self._org_with_file("user-failure", "present.txt", b"present")
