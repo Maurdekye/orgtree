@@ -149,7 +149,7 @@ function tree(roots: CanvasNode[], killswitch: { at: string; by: string } | null
   })
 }
 
-test('§5 the canvas outline follows any-halt; .killswitched follows the latch alone', async () => {
+test('§5 the canvas outline follows the org latch, independently of local halts', async () => {
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   const mountTree = (t: TreePayload) => mountView(
     <OrgCanvas tree={t} op={op} slug="mine" toast={noop} mailEvt={null} />, (el) => el)
@@ -166,24 +166,48 @@ test('§5 the canvas outline follows any-halt; .killswitched follows the latch a
   try {
     await flush()
     const vp = view.el.querySelector('.viewport')!
-    assert.ok(vp.classList.contains('redalert'),
-      'one halted agent outlines the org (docket rev 4)')
+    assert.ok(!vp.classList.contains('redalert'),
+      'one individually halted agent does not outline the org')
     assert.ok(!vp.classList.contains('killswitched'),
       'an individual halt never claims the org-wide killswitch state')
   } finally { await view.unmount() }
 
-  view = await mountTree(tree([node('ceo'), node('cto')],
+  view = await mountTree(tree([node('ceo'), node('cto', { halt: halted }),
+    node('cfo', { halt: halted })]))
+  try {
+    await flush()
+    const vp = view.el.querySelector('.viewport')!
+    assert.ok(!vp.classList.contains('redalert'),
+      'several individually halted agents do not outline the org')
+    assert.equal(vp.querySelectorAll('.sq.halted').length, 2,
+      'each individually halted agent keeps its local red marker')
+  } finally { await view.unmount() }
+
+  view = await mountTree(tree([node('ceo'), node('cto', { halt: halted })],
     { at: '2026-09-13T09:00:00Z', by: 'USER' }))
   try {
     await flush()
     const vp = view.el.querySelector('.viewport')!
     assert.ok(vp.classList.contains('killswitched'), 'the latch marks the org')
     assert.ok(vp.classList.contains('redalert'),
-      'a killswitch latch always outlines the org')
+      'the org latch outlines the org even with a local halt')
+    assert.equal(vp.querySelectorAll('.sq.halted').length, 1,
+      'the local halt remains marked while the org latch is active')
+
+    await view.render(<OrgCanvas tree={tree([node('ceo'), node('cto', { halt: halted })])}
+      op={op} slug="mine" toast={noop} mailEvt={null} />)
+    await flush()
+    const cleared = view.el.querySelector('.viewport')!
+    assert.ok(!cleared.classList.contains('killswitched'),
+      'clearing the org latch removes the org signal promptly')
+    assert.ok(!cleared.classList.contains('redalert'),
+      'clearing the org latch removes the canvas outline')
+    assert.equal(cleared.querySelectorAll('.sq.halted').length, 1,
+      'clearing the org latch preserves the individual halt marker')
   } finally { await view.unmount() }
 
-  // an ARCHIVED halted seat must not outline the org: the rule counts live
-  // agents (retirement participates in admission, not in the red theme)
+  // An archived halted seat has no local red marker and does not activate the
+  // org signal either.
   view = await mountTree(tree([node('ceo'),
     node('old', { halt: halted, state: 'archived' })]))
   try {

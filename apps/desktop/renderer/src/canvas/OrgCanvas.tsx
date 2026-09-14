@@ -2716,12 +2716,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return { circ, seats: circ - free, free }
   }, [tree])
 
-  // the office border wears the safety red whenever ANY live agent is halted
-  // — individually or effectively via the org killswitch (docket rev 4);
-  // `killswitched` additionally paints every card via the CSS cascade
-  const redAlert = useMemo(() => !!tree.killswitch
-    || [...map.values()].some((n) => n.state === 'live' && n.halt),
-  [tree.killswitch, map])
+  // The office border is an organization-wide signal: only the authoritative
+  // org killswitch may activate it. Individual `halt` records stay local to
+  // their own cards, while `killswitched` separately drives the org cascade.
+  const redAlert = !!tree.killswitch
 
   return (
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
