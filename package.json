@@ -10,6 +10,7 @@
     "build": "node tools/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
+    "test:disruptive": "node --test tests/disruptive/*.test.mjs",
     "test:renderer": "node apps/desktop/renderer/tests/run.mjs",
     "start": "electron .",
     "dev": "npm run build && electron .",
