@@ -37,13 +37,14 @@ test('native settings save through bridge and adopt tray changes; failure leaves
       'Notifications',
       'Questions',
       'Urgent mail',
+      'Terminal failures',
       'Docket attention',
       'All mail',
       'New presented document',
       'Agent frozen',
       'Notify while Orgtree is focused',
     ])
-    assert.deepEqual(switches.map(x => x.checked), [true, false, true, true, true, true, true, false, false, false, false])
+    assert.deepEqual(switches.map(x => x.checked), [true, false, true, true, true, true, true, true, false, false, false, false])
     await inAct(async () => { switches[1]!.click(); await flush(5) })
     assert.deepEqual(writes, [{ exitOnClose: true }])
     assert.equal(switches[1]!.checked, true)
@@ -59,13 +60,15 @@ test('native settings save through bridge and adopt tray changes; failure leaves
     assert.deepEqual(writes.at(-1), { notificationsEnabled: false })
     assert.equal(switches[3]!.checked, false)
     assert.ok(switches.slice(4).every(s => s.disabled), 'category switches are disabled while master switch is off')
-    assert.deepEqual(switches.slice(4).map(s => s.checked), [true, true, true, false, false, false, false], 'category values preserved while disabled')
+    assert.deepEqual(switches.slice(4).map(s => s.checked), [true, true, true, true, false, false, false, false], 'category values preserved while disabled')
     await inAct(async () => { event({ type: 'preferences', data: { ...prefs, notificationsEnabled: true } }) })
     assert.equal(switches[3]!.checked, true, 'tray changes restore master switch')
     assert.ok(switches.slice(4).every(s => !s.disabled), 'category switches re-enabled')
     fail = true
-    await inAct(async () => { switches[7]!.click(); await flush(5) })
-    assert.equal(switches[7]!.checked, false)
+    // index 8 = "All mail" (default off) — the Terminal-failures toggle
+    // shifted every category switch after Urgent mail down by one
+    await inAct(async () => { switches[8]!.click(); await flush(5) })
+    assert.equal(switches[8]!.checked, false)
     assert.match(v.el.textContent!, /Cannot save preferences/)
   } finally { await v.unmount(); native() }
 })

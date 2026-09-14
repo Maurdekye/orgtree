@@ -163,7 +163,9 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     const panel = view.el.querySelector<HTMLElement>(
       '#app-settings-panel-runtime')!
     const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')].filter(row => row.querySelector('input[role="switch"]'))
-    assert.equal(rows.length, 4)
+    // warm processes, working checkups, MCP readiness wait, idle docket
+    // reminders, and the blocked-docket variant that joined them later
+    assert.equal(rows.length, 5)
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!
       const name = box.getAttribute('aria-label')
