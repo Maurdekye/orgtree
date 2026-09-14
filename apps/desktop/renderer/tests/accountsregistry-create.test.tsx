@@ -78,6 +78,35 @@ test('creating a managed Codex account renders in Codex with sign-in and closes 
   assert.doesNotMatch(lane('claude').textContent!, /new-openai/)
 })
 
+test('Antigravity replaces unsupported profile setup with an accessible upstream issue link', async t => {
+  await setup(t)
+  await open('google')
+  const current = dialog()
+  assert.deepEqual([...current.querySelectorAll('section.account-add-option h4')].map(h => h.textContent), [
+    'Secondary subscription accounts unavailable', 'Use an API key',
+  ])
+  assert.equal(current.querySelector('button')?.textContent, 'Add API-key account',
+    'the supported API-key account control remains available')
+  assert.equal(current.querySelector('input[aria-label="Profile folder"]'), null,
+    'the unsupported profile-folder input is absent')
+  assert.equal(button(current, 'Create managed account'), undefined,
+    'the unsupported managed-account control is absent')
+  assert.equal(button(current, 'Browse...'), undefined,
+    'the unsupported folder picker is absent')
+  assert.equal(button(current, 'Import folder'), undefined,
+    'the unsupported folder import control is absent')
+
+  const link = current.querySelector<HTMLAnchorElement>('.account-upstream-link')
+  assert.ok(link, 'the upstream support link is present')
+  assert.equal(link?.href, 'https://github.com/google-antigravity/antigravity-cli/issues/381')
+  assert.equal(link?.target, '_blank')
+  assert.equal(link?.rel, 'noopener noreferrer')
+  assert.ok((link?.textContent ?? '').includes('issue #381'), 'the issue link is clearly labelled')
+  assert.equal(link?.tabIndex, 0, 'the link is keyboard reachable')
+  assert.equal(current.getAttribute('role'), 'dialog', 'the modal remains a dialog')
+  assert.equal(current.getAttribute('aria-label'), 'Add secondary Antigravity account')
+})
+
 test('folder import retains input on failure and creates its row in the selected provider on retry', async t => {
   const { state, calls } = await setup(t)
   await open('claude')

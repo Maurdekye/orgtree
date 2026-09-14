@@ -21,6 +21,8 @@ type AccountRow = {
   bound: { org: string; node: string; state: string }[]
 }
 const LABELS: Record<AccountProvider, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity' }
+const ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE =
+  'https://github.com/google-antigravity/antigravity-cli/issues/381'
 const COLORS: Record<AccountProvider, string> = {
   claude: THEMES.claude.accent, openai: THEMES.codex.accent, google: THEMES.antigravity.accent,
 }
@@ -128,20 +130,31 @@ export function AddAccountDialog({ provider, onAdded, close }: {
   return <PinFrame kind="add-secondary-account" title={`Add ${LABELS[provider]} account`} panel="settings add-account-dialog"
     close={dismiss} onEsc={dismiss} pinnable={false} dialogLabel={`Add secondary ${LABELS[provider]} account`}>
     <h3>Add secondary {LABELS[provider]} account</h3>
-    <section className="account-add-option">
-      <h4>Create a managed account</h4>
-      <p className="dim">Create a separate profile for this account, then sign in.</p>
-      <button disabled={busy} onClick={() => { void create('managed') }}>Create managed account</button>
-    </section>
-    <section className="account-add-option">
-      <h4>Import a folder</h4>
-      <p className="dim">Use an existing {LABELS[provider]} profile folder.</p>
-      <label>Profile folder<input aria-label="Profile folder" value={path} disabled={busy} onChange={e => setPath(e.target.value)} /></label>
-      <div className="account-management">
-        <button disabled={busy} onClick={() => { void browse() }}>Browse...</button>
-        <button disabled={busy || !path.trim()} onClick={() => { void create('imported') }}>Import folder</button>
-      </div>
-    </section>
+    {provider === 'google' ? (
+      <section className="account-add-option account-upstream-note">
+        <h4>Secondary subscription accounts unavailable</h4>
+        <p className="dim">Native secondary subscription-account setup is waiting on upstream Antigravity CLI support.</p>
+        <a className="account-upstream-link" href={ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE}
+          target="_blank" rel="noopener noreferrer">
+          Track Antigravity CLI account-profile support (issue #381)
+        </a>
+      </section>
+    ) : <>
+      <section className="account-add-option">
+        <h4>Create a managed account</h4>
+        <p className="dim">Create a separate profile for this account, then sign in.</p>
+        <button disabled={busy} onClick={() => { void create('managed') }}>Create managed account</button>
+      </section>
+      <section className="account-add-option">
+        <h4>Import a folder</h4>
+        <p className="dim">Use an existing {LABELS[provider]} profile folder.</p>
+        <label>Profile folder<input aria-label="Profile folder" value={path} disabled={busy} onChange={e => setPath(e.target.value)} /></label>
+        <div className="account-management">
+          <button disabled={busy} onClick={() => { void browse() }}>Browse...</button>
+          <button disabled={busy || !path.trim()} onClick={() => { void create('imported') }}>Import folder</button>
+        </div>
+      </section>
+    </>}
     {/* ⚠ OFFERED WHETHER OR NOT THE PROVIDER'S SUBSCRIPTION IS SIGNED IN
         (ticket requirement): an API-key account is an ordinary account, not a
         spare bolted onto a subscription, and Orgtree can run on keys alone.
