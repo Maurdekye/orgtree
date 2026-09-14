@@ -249,6 +249,132 @@ class ServingAccountTests(unittest.TestCase):
         self.assertEqual(idle["display"], key[:8])
         self.assertFalse(idle["active"])
 
+    # ------------------------------------- the provider-generic Claude card
+    # (user requirement 2026-09-14: the live Fable agent had NO card beside
+    # two registered Claude accounts, because the all-agent branch was
+    # Codex-only. The same contract now holds for every provider.)
+    def test_claude_primary_serving_row_uses_the_claude_ambient_identity(self):
+        host = self._row("claude", "host", auth="unobserved")
+        self._row("claude", "secondary", auth="authenticated")
+        ambient = {"claude": host["credential"]["path"], "openai": None,
+                   "google": None}
+        rows, by_id = self._rows()
+        card = self.au.serving_card(
+            "primary", busy=True, public=False, rows_by_id=by_id,
+            counts=self.au.available_counts(rows), primary="not-the-host",
+            ambient_paths=ambient, provider="claude")
+        self.assertIsNotNone(card, "Claude primary turn lost its serving card")
+        assert card is not None
+        self.assertEqual(card["id"], "claude/primary")
+        self.assertEqual(card["display"], "default")
+        self.assertEqual(card["provider"], "claude")
+        self.assertTrue(card["active"])
+        self.assertIsNone(card["label"])
+
+    def test_idle_claude_primary_card_uses_ambient_configured_identity(self):
+        host = self._row("claude", "host", auth="unobserved")
+        self._row("claude", "secondary", auth="authenticated")
+        ambient = {"claude": host["credential"]["path"], "openai": None,
+                   "google": None}
+        card = self._card(None, busy=False, configured="primary", provider="claude",
+                          primary="not-the-host", ambient=ambient)
+        self.assertIsNotNone(card, "idle Claude primary binding was hidden")
+        assert card is not None
+        self.assertEqual(card["id"], "claude/primary")
+        self.assertEqual(card["display"], "default")
+        self.assertFalse(card["active"])
+        # Neither the provider-qualified selector nor the bare word `primary`
+        # may be the visible token, and the label may not smuggle them back.
+        self.assertNotIn("claude/", card["display"])
+        self.assertNotEqual(card["display"], "primary")
+        self.assertIsNone(card["label"])
+
+    def test_idle_claude_secondary_card_uses_immutable_configured_id(self):
+        self._row("claude", "host", auth="unobserved")
+        second = self._row("claude", "secondary", auth="authenticated")
+        card = self._card(None, busy=False, configured=second["id"], provider="claude")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], second["id"])
+        self.assertEqual(card["display"], second["id"])
+        self.assertFalse(card["active"])
+
+    def test_busy_claude_runtime_identity_overrides_configured_binding(self):
+        host = self._row("claude", "host", auth="unobserved")
+        second = self._row("claude", "secondary", auth="authenticated")
+        card = self._card(second["id"], busy=True, configured=host["id"], provider="claude")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], second["id"])
+        self.assertEqual(card["display"], second["id"])
+        self.assertTrue(card["active"])
+
+    def test_claude_single_registered_account_stays_hidden_when_idle(self):
+        host = self._row("claude", "host", auth="unobserved")
+        ambient = {"claude": host["credential"]["path"], "openai": None,
+                   "google": None}
+        self.assertIsNone(self._card(None, busy=False, configured="primary",
+                                     provider="claude", ambient=ambient))
+
+    def test_claude_card_uses_registered_not_available_plurality(self):
+        host = self._row("claude", "host", auth="unobserved")
+        self._row("claude", "signed-out", auth="unauthenticated")
+        ambient = {"claude": host["credential"]["path"], "openai": None,
+                   "google": None}
+        card = self._card(None, busy=False, configured="primary", provider="claude",
+                          primary="primary", ambient=ambient)
+        # Two registered identities, one currently observed usable: the
+        # all-agent card distinguishes identities, same as the Codex rule.
+        self.assertIsNotNone(card)
+
+    def test_unregistered_claude_ambient_identity_counts_with_managed_row(self):
+        # The operator's live shape: one managed secondary in the registry,
+        # the host login present only as the ambient Claude home.
+        managed = self._row("claude", "secondary", auth="authenticated")
+        rows, _ = self._rows()
+        ambient = {"claude": os.path.join(self.root, "claude-home"),
+                   "openai": None, "google": None}
+        by_id = self.au.rows_for_cards(
+            rows, "primary", ambient, host_metadata={"claude": {"email": None}})
+        self.assertEqual(set(by_id), {managed["id"], "claude/primary"})
+        card = self.au.serving_card(
+            None, busy=False, public=False, rows_by_id=by_id,
+            counts=self.au.available_counts(list(by_id.values())),
+            registered=self.au.registered_counts(list(by_id.values())),
+            configured_account="primary", primary="primary",
+            ambient_paths=ambient, provider="claude")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["id"], "claude/primary")
+        self.assertEqual(card["display"], "default")
+        self.assertFalse(card["active"])
+        self.assertNotIn(ambient["claude"], repr(card))
+
+    def test_claude_apikey_card_uses_only_the_first_eight_key_characters(self):
+        from engine.backend.orgtree import tokens
+
+        key = "sk-ant-account-key-never-render-the-rest"
+        ref = "fixture-claude-key-prefix"
+        tokens.put(ref, key)
+        api_row = self.registry.create_account(
+            "claude", "metered", {"kind": "apikey", "token_ref": ref},
+            mode="apikey")
+        self._row("claude", "subscription", auth="unobserved")
+        card = self._card(api_row["id"], provider="claude")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["display"], key[:8])
+        self.assertNotIn(key, repr(card))
+        self.assertNotIn(ref, repr(card))
+        self.assertNotIn("claude/", repr(card))
+        self.assertNotIn("primary", repr(card))
+        idle = self._card(None, busy=False, configured=api_row["id"],
+                          provider="claude")
+        self.assertIsNotNone(idle)
+        assert idle is not None
+        self.assertEqual(idle["display"], key[:8])
+        self.assertFalse(idle["active"])
+
     def test_idle_codex_secondary_card_uses_immutable_configured_id(self):
         self._row("openai", "host", auth="unobserved")
         second = self._row("openai", "secondary", auth="authenticated")

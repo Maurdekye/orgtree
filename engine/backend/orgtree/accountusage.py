@@ -75,8 +75,14 @@ def ambient_covered(row: dict[str, Any], primary: str,
     envelope decides "is this account already on the board" by the identical
     rule the modal decides "have I already drawn this account".
     """
-    if row["provider"] == "claude":
-        return row["id"] == primary
+    if row["provider"] == "claude" and row["id"] == primary:
+        # the claude row the `primary` alias names IS the host login,
+        # whatever its stored path says
+        return True
+    # …and for every provider — claude included, so an ambient login that has
+    # no alias-named registry row (the synthesized card row, or an imported
+    # row whose profile directory IS the ambient home) is still recognized as
+    # the host identity rather than counted as a phantom second account —
     cred = row.get("credential") or {}
     if cred.get("kind") not in ("imported", "managed"):
         return False
@@ -133,12 +139,15 @@ def canonical_name(row: dict[str, Any], primary: str,
 
 def card_display(row: dict[str, Any], primary: str,
                  ambient_paths: dict[str, str | None]) -> str | None:
-    """Return the exact safe token shown on an OpenAI account card.
+    """Return the exact safe token shown on an account card, any provider.
 
     Subscription ambient/default accounts are displayed as ``default``;
     subscription secondaries use their immutable id. API-key accounts use
     only the first eight characters of the key, resolved through the token
     store's dedicated display boundary. An unresolved key stays hidden.
+    Provider-qualified primary names (``openai/primary``, ``claude/primary``)
+    and the bare word ``primary`` never appear as the visible token
+    (user requirement 2026-09-14: the contract is provider-generic).
     """
     if registry.account_mode(row) == "apikey":
         ref = str((row.get("credential") or {}).get("token_ref") or "")
@@ -267,7 +276,7 @@ def rows_for_cards(rows: list[dict[str, Any]], primary: str,
                    ambient_paths: dict[str, str | None],
                    host_metadata: dict[str, dict[str, str | None]] | None = None,
                    ) -> dict[str, dict[str, Any]]:
-    """Return card rows, including an unregistered ambient Codex identity.
+    """Return card rows, including unregistered ambient host identities.
 
     The registry deliberately does not mint a row for an ambient login that
     has not been migrated. The usage modal represents that login as the
@@ -275,26 +284,32 @@ def rows_for_cards(rows: list[dict[str, Any]], primary: str,
     canonical identity to count and resolve it beside managed rows. This
     projection is memory-only: its credential path is used only for ambient
     matching and never enters the returned payload.
+
+    Every provider with an observed ambient login gets this treatment, not
+    only Codex (user requirement 2026-09-14: the card is provider-generic) —
+    a machine with an ambient Claude login plus a managed secondary has two
+    Claude identities to distinguish exactly as the Codex case does.
     """
     out = {str(row.get("id")): row for row in rows if row.get("id")}
-    provider = "openai"
-    path = ambient_paths.get(provider)
-    if not path or any(ambient_covered(row, primary, ambient_paths)
-                       for row in out.values()
-                       if row.get("provider") == provider):
-        return out
-    metadata = (host_metadata if host_metadata is not None
-                else host_identities()).get(provider) or {}
-    ident = registry.primary_name(provider)
-    out[ident] = {
-        "id": ident,
-        "provider": provider,
-        "label": ident,
-        "credential": {"kind": "managed", "path": path},
-        "identity": {"email": metadata.get("email")} if metadata.get("email") else {},
-        "auth": "unobserved",
-        "marks": {},
-    }
+    metadata_by_provider: dict[str, dict[str, str | None]] | None = host_metadata
+    for provider, path in ambient_paths.items():
+        if not path or any(ambient_covered(row, primary, ambient_paths)
+                           for row in out.values()
+                           if row.get("provider") == provider):
+            continue
+        if metadata_by_provider is None:
+            metadata_by_provider = host_identities()
+        metadata = metadata_by_provider.get(provider) or {}
+        ident = registry.primary_name(provider)
+        out[ident] = {
+            "id": ident,
+            "provider": provider,
+            "label": ident,
+            "credential": {"kind": "managed", "path": path},
+            "identity": {"email": metadata.get("email")} if metadata.get("email") else {},
+            "auth": "unobserved",
+            "marks": {},
+        }
     return out
 
 
@@ -324,12 +339,15 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
                  registered: dict[str, int] | None = None) -> dict[str, Any] | None:
     """Compose the safe account card for a node, or return ``None``.
 
-    Codex gets an additive all-agent card when more than one account identity
-    is registered: an authoritative busy-turn row wins, while an idle node
-    falls back to the node's effective configured binding. An active turn with
-    an unresolved runtime identity remains hidden.
-    Other providers retain the active-turn-only contract. Public/kiosk views
-    never receive the card, and the plurality decision is provider-specific.
+    EVERY provider with more than one registered account identity gets the
+    additive all-agent card (user requirement 2026-09-14 — the live Fable
+    agent had no card beside two registered Claude accounts, because this
+    branch was Codex-only): an authoritative busy-turn row wins, while an
+    idle node falls back to the node's effective configured binding. An
+    active turn with an unresolved runtime identity remains hidden.
+    Only the legacy direct-helper path — a call that supplies no provider —
+    retains the historical active-turn-only, available-count contract.
+    Public/kiosk views never receive the card.
 
     The active-turn gates are:
       · `busy`      — only while inference is actually running. The same gate
@@ -368,12 +386,20 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
         if row is not None:
             provider = str(row.get("provider") or "")
             active = True
-    if provider == "openai":
+    if active:
+        # Inferred-provider legacy path (no provider supplied): keep its
+        # historical availability plurality and active-only contract exactly.
+        if row is None or counts.get(provider, 0) <= 1:
+            return None
+    elif provider:
+        # The provider-generic all-agent card — the same rules Codex shipped
+        # with, now for every provider (Claude/Fable included): registered
+        # identities decide plurality, a busy turn must name its row
+        # authoritatively, and an idle node wears its configured binding.
         if (registered or registered_counts(list(rows_by_id.values()))).get(provider, 0) <= 1:
             return None
         if busy:
-            if row is None:
-                row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
+            row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
             # An active turn with no authoritative runtime identity must stay
             # unknown; its stored binding is not evidence of what served it.
             if row is None:
@@ -385,25 +411,21 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
         if row is None:
             return None
     else:
-        if not busy:
-            return None
-        row = serving_row(ran_as, rows_by_id, primary, ambient_paths, provider)
-        if row is None or counts.get(provider, 0) <= 1:
-            return None
-        active = True
+        return None
     if str(row.get("provider") or "") != provider:
         return None
     standing = registry.standing_of(row)
     identity = cast("dict[str, Any]", row.get("identity") or {})
-    display = (card_display(row, primary, ambient_paths)
-               if provider == "openai"
-               else canonical_name(row, primary, ambient_paths))
+    # One display rule for every provider: `default`, the immutable secondary
+    # id, or the API key's first eight characters — never `openai/primary`,
+    # `claude/primary`, or the bare word `primary`.
+    display = card_display(row, primary, ambient_paths)
     if not display:
         return None
     # The ambient selector is an internal canonical id; its public card token
     # is exactly `default`, and neither the provider-qualified id nor the word
     # `primary` may re-enter through the mutable label detail.
-    label = (None if provider == "openai" and display == "default"
+    label = (None if display == "default"
              else str(row.get("label") or "") or None)
     return {
         # the canonical API selector, the same one `account_label` carries for

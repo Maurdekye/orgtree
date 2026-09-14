@@ -39,15 +39,25 @@ function serving(): ServingAccount {
   } as unknown as ServingAccount
 }
 
-function tree(withAccount: boolean): TreePayload {
+/** the operator's live Fable shape: a managed Claude secondary serving —
+ *  the provider-generic half of the same requirement (2026-09-14: the card
+ *  was OpenAI-only in the backend, so Fable agents never wore one) */
+function claudeServing(): ServingAccount {
+  return {
+    id: 'claude-4', display: 'claude-4', provider: 'claude', label: null,
+    email: null, auth: 'authenticated', state: 'ready', active: false,
+  } as unknown as ServingAccount
+}
+
+function tree(withAccount: boolean, account: ServingAccount | null = null, tier = 'luna'): TreePayload {
   const mk = (id: string) => ({
-    id, title: id, tier: 'luna', model_id: 'luna', state: 'live',
+    id, title: id, tier, model_id: tier, state: 'live',
     seat: 1, grant: 0, free: 0, ui_order: 0, cost_usd: 0, occupancy: null,
     context_window: null, charter: null, mail_pending: 0, limit_locked: false,
     last_status: null, prev_status: null, inflight_at: null, last_denials: [],
     turns: [], frozen: null, audiences_held: [], bearer_state: null,
     generation: 0, children: [], lineage: [],
-    ...(withAccount ? { serving_account: serving() } : {}),
+    ...(withAccount ? { serving_account: account ?? serving() } : {}),
     scope: { permission_mode: 'default', add_dirs: [], tools: {}, org_visibility: 'team' },
   })
   return asTree({
@@ -65,13 +75,14 @@ function tree(withAccount: boolean): TreePayload {
   })
 }
 
-async function mountPinned(t: TestContext, withAccount: boolean) {
+async function mountPinned(t: TestContext, withAccount: boolean,
+  account: ServingAccount | null = null, tier = 'luna') {
   useFakeClock()
   localStorage.clear()
   forgetPins()
   const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
   function Host() {
-    const [payload] = useState(tree(withAccount))
+    const [payload] = useState(tree(withAccount, account, tier))
     return <OrgCanvas tree={payload} op={() => Promise.resolve({} as never)}
       slug="mine" toast={() => {}} mailEvt={null} />
   }
@@ -99,6 +110,19 @@ test('the pinned Desk header wears the account card with the exact token', async
   // the title-bar card ADDS a surface, it does not move one
   assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
     'the desk header inside the pinned body keeps its card')
+})
+
+test('a Fable agent on a Claude secondary wears the same card on node and pinned title', async (t: TestContext) => {
+  // The provider-generic half: the backend now composes the field for every
+  // multi-account provider, and the renderer surfaces are provider-blind —
+  // the same shared component renders a Claude secondary's immutable id.
+  const win = await mountPinned(t, true, claudeServing(), 'fable')
+  const badge = win.querySelector<HTMLElement>('.pinwin-title .badge.serving-account')
+  assert.ok(badge, 'the pinned title bar must carry the Claude account card')
+  assert.equal(badge!.textContent, 'claude-4')
+  assert.doesNotMatch(badge!.textContent ?? '', /claude\/|primary/)
+  assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
+    'the desk header inside the pinned body keeps its card for Claude too')
 })
 
 test('without the backend field the pinned Desk header shows nothing', async (t: TestContext) => {
