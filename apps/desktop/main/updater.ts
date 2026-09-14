@@ -501,6 +501,67 @@ export function installerProofStep(memory: InstallerProofMemory, seen: Installer
   return { memory: next, result: { verdict: 'pending' } }
 }
 
+/** Everything the wait needs from the world, injected — a look at the process
+ *  table, a clock, a sleep, the log, and whatever electron-updater has said.
+ *  Gathering is the caller's because it is platform work; the WAITING, which is
+ *  where every mistake lives, is here and is driven entirely by tests. */
+export interface InstallerProofSeams {
+  /** One look at the process table. `installerRunning` must match the
+   *  DOWNLOADED INSTALLER's own image — see the note on installerProofStep for
+   *  why elevate.exe is not a substitute. */
+  sample: () => Promise<{ installerRunning: boolean; elevatorRunning: boolean }>
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+  record: (stage: UpdateStage, detail?: unknown) => void
+  /** A spawn error electron-updater reported. It ends the wait at once — it is
+   *  the one failure the library CAN tell us about, and waiting out a bound
+   *  after it would be waiting for something already known not to be coming. */
+  reportedError?: () => unknown | undefined
+  bounds?: { appearMs: number; pollMs: number }
+}
+
+/** Wait until the installer is either PROVEN to be running or known not to be
+ *  coming, and say which.
+ *
+ *  ⚠ THE APP MUST NOT QUIT ON THE STRENGTH OF A HANDOFF. That is the whole
+ *  defect: `install()` returning true means a pid came back, and the app then
+ *  exited on three seconds of silence. Silence is not consent — a process that
+ *  started and died emits nothing at all — so the exit now waits for a verdict.
+ *
+ *  ⚠ AND IT MAY WAIT A LONG TIME, deliberately, when a Windows permission
+ *  prompt is up. 'installer-awaiting-elevation' is recorded ONCE when that
+ *  starts, so a log showing a minute of nothing is readable afterwards as "a
+ *  human was being asked" rather than as a wedge. */
+export async function awaitInstallerProof(seams: InstallerProofSeams): Promise<InstallerVerdict> {
+  const bounds = seams.bounds ?? INSTALLER_PROOF
+  const began = seams.now()
+  let memory: InstallerProofMemory = { elevatorSeen: false }
+  let announcedElevation = false
+  for (;;) {
+    const reported = seams.reportedError?.()
+    if (reported !== undefined) {
+      seams.record('installer-never-started', reported)
+      return { verdict: 'failed', detail: sanitizeUpdateDetail(reported) }
+    }
+    const seen = await seams.sample()
+    const step = installerProofStep(memory, { ...seen, elapsedMs: seams.now() - began }, bounds)
+    memory = step.memory
+    if (memory.elevatorSeen && !announcedElevation) {
+      announcedElevation = true
+      seams.record('installer-awaiting-elevation', 'a Windows permission prompt is open; waiting for the answer')
+    }
+    if (step.result.verdict === 'started') {
+      seams.record('installer-running', step.result.detail)
+      return step.result
+    }
+    if (step.result.verdict === 'failed') {
+      seams.record('installer-never-started', step.result.detail)
+      return step.result
+    }
+    await seams.sleep(bounds.pollMs)
+  }
+}
+
 export type PreparationOutcome =
   /** The installer was launched. Whether it SUCCEEDS is still unknown here. */
   | { stage: 'handed-off'; handoff: HandoffResult }

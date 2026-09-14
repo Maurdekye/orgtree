@@ -152,3 +152,84 @@ test('§9 NEGATIVE CONTROL: the old rule — "a pid came back and nothing errore
     assert.equal(run(seq).settled?.verdict, 'failed', `${name}: the new rule reports failure`)
   }
 })
+
+// ---------------------------------------------------------------- the WAIT
+// §1-§9 are the rule. These drive the loop that applies it: what gets recorded,
+// how long it is prepared to wait, and that it never returns on silence.
+
+const { awaitInstallerProof } = createRequire(import.meta.url)(outfile)
+
+/** Drive the loop over a scripted sequence of looks. The clock advances by
+ *  pollMs per look, so `elapsedMs` is real without any waiting. */
+function wait(script, extra = {}) {
+  const stages = []
+  let i = 0, clock = 0
+  const bounds = { appearMs: INSTALLER_PROOF.appearMs, pollMs: INSTALLER_PROOF.pollMs }
+  return awaitInstallerProof({
+    sample: async () => script[Math.min(i++, script.length - 1)],
+    now: () => clock,
+    sleep: async () => { clock += bounds.pollMs },
+    record: (stage, detail) => stages.push({ stage, detail }),
+    bounds,
+    ...extra,
+  }).then(result => ({ result, stages, looks: i }))
+}
+const look = (installerRunning, elevatorRunning) => ({ installerRunning, elevatorRunning })
+
+test('§10 a proven installer is recorded as RUNNING — the stage that means an update is really under way', async () => {
+  const { result, stages } = await wait([look(false, false), look(false, false), look(true, false)])
+  assert.equal(result.verdict, 'started')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-running'])
+  assert.match(stages[0].detail, /observed running/)
+})
+
+test('§11 a UAC prompt is announced ONCE, and the wait outlasts it', async () => {
+  const script = []
+  for (let n = 0; n < 200; n++) script.push(look(false, true))   // prompt up, far past any grace
+  script.push(look(true, true))                                   // approved
+  const { result, stages } = await wait(script)
+  assert.equal(result.verdict, 'started')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-awaiting-elevation', 'installer-running'],
+    'the prompt is recorded once, not on every look — a readable log, not a wall')
+  assert.match(stages[0].detail, /permission prompt is open/)
+})
+
+test('§12 a dismissed prompt ends the wait as NEVER STARTED, not as success', async () => {
+  const { result, stages } = await wait([look(false, true), look(false, true), look(false, false)])
+  assert.equal(result.verdict, 'failed')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-awaiting-elevation', 'installer-never-started'])
+  assert.match(stages[1].detail, /dismissed, or the launch was blocked/)
+})
+
+test('§13 SILENCE never returns success — the loop runs to the bound and then reports failure', async () => {
+  const { result, stages, looks } = await wait([look(false, false)])
+  assert.equal(result.verdict, 'failed')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-never-started'])
+  assert.ok(looks > 1, 'it really did keep looking rather than deciding on the first glance')
+})
+
+test('§14 a spawn error electron-updater DOES report ends the wait at once', async () => {
+  // The one failure the library can tell us about. Waiting out a bound after it
+  // would be waiting for something already known not to be coming.
+  const { result, stages, looks } = await wait([look(false, false)], { reportedError: () => new Error('ENOENT installer missing') })
+  assert.equal(result.verdict, 'failed')
+  assert.equal(looks, 0, 'it did not even look at the process table')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-never-started'])
+  // the raw error is handed to record() on purpose - UpdateLog.record
+  // sanitizes every detail it is given, and passing the value through keeps
+  // the most information. This fake record does not sanitize, hence String().
+  assert.match(String(stages[0].detail), /ENOENT/)
+})
+
+test('§15 every terminal path records exactly one durable verdict stage', async () => {
+  const paths = [
+    [look(true, false)],
+    [look(false, true), look(false, false)],
+    [look(false, false)],
+  ]
+  for (const script of paths) {
+    const { stages } = await wait(script)
+    const verdicts = stages.filter(s => s.stage === 'installer-running' || s.stage === 'installer-never-started')
+    assert.equal(verdicts.length, 1, `exactly one verdict recorded, got ${JSON.stringify(stages.map(s => s.stage))}`)
+  }
+})
