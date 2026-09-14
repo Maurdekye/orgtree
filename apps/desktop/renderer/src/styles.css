@@ -776,13 +776,59 @@ button.badge.audience-fold.alert {
     0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),
     0 0 20px color-mix(in srgb, var(--provider-accent) 20%, transparent);
 }
-/* ---- Far-zoom singular state icon (lod === 'mini') ---- */
+/* ---- Far-zoom singular state icon and name hover reveal (lod === 'mini') ---- */
 .sq-far-tier {
   position: absolute;
   top: 4px;
-  right: 4px;
-  z-index: 1;
+  left: 4px;
+  z-index: 2;
   pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  transition: top 0.2s cubic-bezier(0.2, 0, 0.2, 1),
+              left 0.2s cubic-bezier(0.2, 0, 0.2, 1),
+              transform 0.2s cubic-bezier(0.2, 0, 0.2, 1),
+              gap 0.2s cubic-bezier(0.2, 0, 0.2, 1);
+}
+.sq-far-tier .tier {
+  flex: none;
+}
+.sq-far-name {
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 600 11.5px/1.2 var(--mono);
+  color: var(--ink-strong);
+  background: var(--tip-panel);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+  transition: opacity 0.15s ease,
+              max-width 0.2s cubic-bezier(0.2, 0, 0.2, 1),
+              padding 0.15s ease,
+              border-color 0.15s ease;
+}
+.sq.mini:hover .sq-far-tier,
+.sq.mini:focus-within .sq-far-tier,
+.sq.mini:focus-visible .sq-far-tier {
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 5px;
+}
+.sq.mini:hover .sq-far-name,
+.sq.mini:focus-within .sq-far-name,
+.sq.mini:focus-visible .sq-far-name {
+  opacity: 1;
+  max-width: 180px;
+  padding: 3px 8px;
+  border-color: var(--line);
 }
 .sq-far-icon {
   flex: none;
@@ -874,6 +920,10 @@ button.badge.audience-fold.alert {
   .sq-far-icon.compacting {
     animation: none;
     opacity: .92;
+  }
+  .sq-far-tier,
+  .sq-far-name {
+    transition: none;
   }
 }
 

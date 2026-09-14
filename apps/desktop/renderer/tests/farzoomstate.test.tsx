@@ -856,7 +856,7 @@ test('§6 Reduced motion accessibility rules present in stylesheet for far-zoom 
   )
   assert.match(
     css,
-    /\.sq-far-tier\s*\{[^}]*position:\s*absolute[^}]*top:\s*4px[^}]*right:\s*4px/s,
+    /\.sq-far-tier\s*\{[^}]*position:\s*absolute[^}]*top:\s*4px[^}]*left:\s*4px/s,
     'far-zoom model token is positioned in a top corner',
   )
   assert.match(
@@ -890,5 +890,10 @@ test('§6 Reduced motion accessibility rules present in stylesheet for far-zoom 
     css,
     /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.sq-far-icon\.working[^}]*\{[^}]*animation:\s*none/s,
     'prefers-reduced-motion halts working pulse animation',
+  )
+  assert.match(
+    css,
+    /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.sq-far-tier[^}]*\{[^}]*transition:\s*none/s,
+    'prefers-reduced-motion halts far-zoom hover transitions',
   )
 })

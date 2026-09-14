@@ -1381,7 +1381,12 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
       break
   }
   return <>
-    <span className="sq-far-tier"><TierChip tier={node.tier} /></span>
+    <span className="sq-far-tier">
+      <TierChip tier={node.tier} />
+      <span className="sq-far-name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>
+        {node.id}
+      </span>
+    </span>
     {stateIcon}
   </>
 }
