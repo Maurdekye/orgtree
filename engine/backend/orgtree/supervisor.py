@@ -4678,6 +4678,36 @@ def identity_in_env(env: dict[str, str]) -> str:
     return accounts.PRIMARY
 
 
+def identity_in_spec(spec: Mapping[str, Any]) -> str:
+    """WHICH account a PROVIDER-LANE spawn carrying this resolved process
+    spec will authenticate as — the provider-lane form of `identity_in_env`
+    above, for the legs that hand their child a frozen spec instead of a
+    fully resolved environment dict. (The antigravity leg reads the same
+    `env_extra` marker inline today; this is that expression, named, tested
+    and given the reason it is not `identity_in_env`.)
+
+    ⚠ IT READS THE FROZEN SPEC, NOT THE NODE. Same rule, same reason: the
+    marker in `env_extra` is the one the app-server process actually
+    receives, written there by the lane's single injector beside the profile
+    home it belongs with, so this says what the launch IS rather than what
+    the resolver would answer if asked again after a binding moved.
+
+    A lane whose spec carries no marker is on that provider's AMBIENT login
+    — the unmigrated machine account, which owns no registry row and is
+    named `primary` exactly as the claude lane names its own. `serving_row`
+    resolves that sentinel through the provider it was launched for, so an
+    ambient codex turn cannot be mistaken for a claude one.
+
+    ⚠ THE CLAUDE-SHAPED FALLBACKS OF `identity_in_env` MUST NOT RUN HERE.
+    Its `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` / OpenRouter branches
+    describe Anthropic lanes, and a codex spawn is stripped of every
+    `ANTHROPIC_*` variable — reading one off an inherited environment would
+    attribute a codex turn to an Anthropic credential it never held.
+    """
+    marker = str((spec.get("env_extra") or {}).get(registry.MARKER) or "")
+    return marker or accounts.PRIMARY
+
+
 #: the `ran_as` sentinel of a turn billed to the OpenRouter key — beside
 #: "api-key" and "key:unattributed", never a stored account row
 OPENROUTER_IDENTITY: Final = "openrouter"
@@ -14248,6 +14278,19 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     # manifest whose local login evidence has already moved.
     _codex_require_manifest_account_current(
         startup_manifest, "before route/process admission")
+    # ⚠ WHICH ACCOUNT THIS TURN IS RUNNING AS — captured here because the
+    # claude lane's own capture (`st["ran_as"] = identity_in_env(env)`) sits
+    # BEYOND the provider seam that sent this turn here, and the antigravity
+    # leg reads the same marker off its own spec for the same reason. The
+    # codex leg recorded nothing at all, so every codex turn left `ran_as`
+    # empty — the field that answers "what actually served this turn" was
+    # blank for a whole provider. `serving_card` refuses to guess a busy
+    # node's identity from its stored binding, so the account card vanished
+    # from every codex agent for as long as it was mid-turn while claude
+    # agents kept theirs (user report 2026-09-14, reopened regression).
+    # Read AFTER the account-currency gate above, so a launch whose login
+    # evidence has already moved raises instead of being attributed.
+    st["ran_as"] = identity_in_spec(process_spec)
     tools_sc = n["scope"].get("tools", {})
     cwd = str(process_spec["cwd"])
     # Identity through Codex's two distinct doors. Managed AGENTS.md is a

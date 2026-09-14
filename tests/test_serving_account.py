@@ -425,6 +425,181 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNone(self._card(None, busy=False, configured="primary",
                                      provider="openai", ambient=ambient))
 
+    # ------------------------------ the codex lane's runtime attribution
+    # (user report 2026-09-14, reopened `show-codex-account-ids-on-every-agent`:
+    # claude agents wore account cards and codex agents wore none. The card
+    # composition was sound — see the idle tests above, which pass on the
+    # installed registry shape. What was missing is the OTHER half of the
+    # contract: a BUSY node must name its runtime account authoritatively or
+    # stay hidden, and the codex leg recorded no `ran_as` at all, so every
+    # codex agent lost its card for exactly as long as it was mid-turn.)
+    def test_codex_spawn_identity_is_read_off_the_frozen_process_spec(self):
+        from engine.backend.orgtree import accounts, supervisor
+        bound = self._row("openai", "secondary")
+        # the shape `_codex_process_spec` returns: the marker is injected
+        # beside the profile home by the codex lane's single injector
+        self.assertEqual(
+            supervisor.identity_in_spec(
+                {"env_extra": {self.registry.MARKER: bound["id"]},
+                 "codex_home": bound["credential"]["path"]}),
+            bound["id"])
+        # …and an UNBOUND node is on the ambient machine login, which owns no
+        # registry row and is named exactly as the claude lane names its own
+        for spec in ({"env_extra": {}}, {"env_extra": {self.registry.MARKER: ""}},
+                     {}):
+            self.assertEqual(supervisor.identity_in_spec(spec), accounts.PRIMARY)
+
+    def test_codex_leg_captures_ran_as_before_it_does_anything_else(self):
+        # ⚠ THE WIRING, not just the helper. The capture must happen inside
+        # the codex leg — the claude lane's own capture sits beyond the
+        # provider seam that sent this turn here — and it must happen BEFORE
+        # the leg can fail, so a turn that dies still says what it ran as.
+        # `codex_bound_home` is the next call after it, so stopping there
+        # proves the ordering as well as the value.
+        from unittest.mock import patch
+
+        from engine.backend.orgtree import ledger, store, supervisor
+
+        host = self._row("openai", "host", auth="unobserved")
+        bound = self._row("openai", "secondary")
+        org = ledger.Org.create("codex-leg-ran-as")
+        hired = org.hire(ledger.USER, None, "luna", 0, "codex-worker")
+        nid = hired["node"]
+        org.node(nid)["account"] = bound["id"]
+        store.save_org(org)
+
+        class _Stop(Exception):
+            pass
+
+        manifest = {"provider_spec": {
+            "env_extra": {self.registry.MARKER: bound["id"]},
+            "cwd": self.root, "identity": "ident",
+            "config_overrides": [], "port": "7360",
+            "codex_home": bound["credential"]["path"]}}
+        st: dict[str, object] = {}
+        with patch.object(supervisor, "_codex_require_manifest_account_current"), \
+             patch.object(supervisor, "codex_bound_home", side_effect=_Stop):
+            with self.assertRaises(_Stop):
+                supervisor._codex_leg_attempt(  # pyright: ignore[reportPrivateUsage]
+                    "codex-leg-ran-as", nid, org, st, "hello", [],
+                    startup_manifest=manifest)
+        self.assertEqual(st.get("ran_as"), bound["id"])
+        # …and the whole chain in one place: what the leg captured is what the
+        # card composes from while the turn runs. Without the capture above
+        # this is None — the installed failure exactly.
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        card = self._card(st.get("ran_as"), busy=True, provider="openai",
+                          configured=bound["id"], ambient=ambient)
+        assert card is not None
+        self.assertEqual(card["display"], bound["id"])
+        self.assertTrue(card["active"])
+
+    def test_busy_codex_node_wears_the_account_that_served_the_turn(self):
+        # the end of the same chain: the captured identity resolves to a row,
+        # and the card names it while the turn runs
+        host = self._row("openai", "host", auth="unobserved")
+        bound = self._row("openai", "secondary")
+        ambient = {"claude": None, "openai": host["credential"]["path"],
+                   "google": None}
+        card = self._card(bound["id"], busy=True, provider="openai",
+                          configured=bound["id"], ambient=ambient)
+        assert card is not None
+        self.assertEqual(card["display"], bound["id"])
+        self.assertTrue(card["active"])
+        # …and an ambient codex turn, whose captured identity is the same
+        # `primary` sentinel the claude lane uses, resolves through its OWN
+        # provider rather than disappearing or naming a claude row
+        from engine.backend.orgtree import accounts
+        ambient_card = self._card(accounts.PRIMARY, busy=True, provider="openai",
+                                  configured=None, ambient=ambient)
+        assert ambient_card is not None
+        self.assertEqual(ambient_card["display"], "default")
+        self.assertTrue(ambient_card["active"])
+
+    def test_claude_and_codex_cards_coexist_in_one_org(self):
+        # the installed 2.1.4 shape, both providers plural at once: a managed
+        # secondary beside an unregistered ambient host login, per provider.
+        # One provider's rows must not decide the other's card.
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from engine.backend.orgtree import (api, ledger, registry_migration,
+                                            store, supervisor)
+
+        claude_secondary = self._row("claude", "second")
+        codex_secondary = self._row("openai", "second")
+        ambient = {"claude": os.path.join(self.root, "claude-home"),
+                   "openai": os.path.join(self.root, "codex-home"),
+                   "google": None}
+        org = ledger.Org.create("mixed-provider-cards")
+        seats = {
+            "claude-bound": ("opus", claude_secondary["id"]),
+            "claude-ambient": ("opus", None),
+            "codex-bound": ("luna", codex_secondary["id"]),
+            "codex-ambient": ("luna", None),
+        }
+        ids: dict[str, str] = {}
+        for title, (tier, account) in seats.items():
+            hired = org.hire(ledger.USER, None, tier, 0, title)
+            ids[title] = hired["node"]
+            if account:
+                org.node(hired["node"])["account"] = account
+        store.save_org(org)
+        request = SimpleNamespace(state=SimpleNamespace(), headers={},
+                                  url=SimpleNamespace(
+                                      path="/api/orgs/mixed-provider-cards"))
+        # every seat mid-turn, each carrying the identity its own lane
+        # captures at spawn — the state the user actually looked at
+        running = {
+            ids["claude-bound"]: claude_secondary["id"],
+            ids["claude-ambient"]: "primary",
+            ids["codex-bound"]: codex_secondary["id"],
+            ids["codex-ambient"]: "primary",
+        }
+        real_state = supervisor.state
+
+        def busy_state(slug: str, nid: str) -> dict[str, object]:
+            # the real per-node state, with only the two turn facts the lanes
+            # capture at spawn overlaid — everything else annotate reads stays
+            # exactly what the supervisor answers
+            st = dict(real_state(slug, nid))
+            st.update(busy=True, ran_as=running.get(nid, ""))
+            return st
+
+        with patch.object(registry_migration, "observe_ambient",
+                          return_value=ambient), \
+             patch.object(supervisor, "state", side_effect=busy_state):
+            tree = api.org_tree("mixed-provider-cards", request)
+
+        def walk(nodes):
+            for node in nodes:
+                yield node
+                yield from walk(node.get("children") or [])
+
+        cards = {n["id"]: n.get("serving_account") for n in walk(tree["roots"])}
+        for title, expected in (
+                ("claude-bound", claude_secondary["id"]),
+                ("claude-ambient", "default"),
+                ("codex-bound", codex_secondary["id"]),
+                ("codex-ambient", "default")):
+            card = cards[ids[title]]
+            self.assertIsNotNone(card, f"{title} lost its account card")
+            assert card is not None
+            self.assertEqual(card["display"], expected, title)
+            self.assertTrue(card["active"], title)
+        self.assertEqual(cards[ids["claude-bound"]]["provider"], "claude")
+        self.assertEqual(cards[ids["codex-bound"]]["provider"], "openai")
+        # The VISIBLE half of every card — the token and its label detail —
+        # never spells a provider-qualified primary or the bare word
+        # `primary`, on either provider. (`id` is the canonical API selector
+        # and deliberately still carries it, so a reader comparing serving
+        # against bound compares like with like.)
+        for card in cards.values():
+            assert card is not None
+            self.assertNotIn("primary", str(card["display"]))
+            self.assertNotIn("primary", str(card["label"] or ""))
+
     def test_a_disabled_key_row_is_not_available(self):
         # a disabled apikey row is skipped by routing, so it cannot serve and
         # must not be counted as a second account

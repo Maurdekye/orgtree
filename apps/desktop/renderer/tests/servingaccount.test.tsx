@@ -173,6 +173,47 @@ test('Codex cards render exact default, secondary, and API-key display tokens',
     assert.doesNotMatch(keyView.el.textContent ?? '', /openai\/|primary/)
   })
 
+test('a busy Codex agent wears its card BESIDE the reserve badge, and a busy '
+  + 'Claude agent keeps its own in the same org', async (t: TestContext) => {
+  // ⚠ THE REOPENED REGRESSION (user report 2026-09-14). In the installed
+  // 2.1.4 the user saw account cards on every claude agent and none on any
+  // codex agent. The renderer was never the cause — it is provider-blind,
+  // and that is exactly what this pins: given the field, BOTH providers wear
+  // it, mid-turn, in the same org, and the codex card sits beside the route
+  // badge rather than in place of it. The backend half of the same
+  // regression — the codex leg capturing `ran_as` at all, without which a
+  // busy codex node is composed as null and there is nothing to render — is
+  // in tests/test_serving_account.py.
+  const route = {
+    route: 'reserve', pool: 'reserve', model: 'gpt-5.6', requested: 'gpt-5.6',
+    reason: 'preference', selection: 'preflight', prefer: 'reserve',
+    outcome: null, reported_model: null, live: true, at: null,
+    label: 'reserve',
+  } as CanvasNode['codex_route']
+  const codex = await card(agent({
+    id: 'luna-worker', busy: true, tier: 'luna', model_id: 'luna',
+    codex_route: route,
+    serving_account: serving({ id: 'openai-1', provider: 'openai',
+      display: 'openai-1', label: 'openai-0', active: true }),
+  }), 'norm')
+  t.after(() => codex.unmount())
+  await flush()
+  const codexBadge = onCard(codex.el)
+  assert.ok(codexBadge, 'the busy Codex agent wore no account card')
+  assert.equal(codexBadge!.textContent, 'openai-1')
+  assert.ok(codex.el.querySelector('.badge.route-reserve'),
+    'the account card displaced the reserve badge')
+
+  const claude = await card(agent({
+    id: 'opus-worker', busy: true,
+    serving_account: serving({ display: 'claude-4', active: true }),
+  }), 'norm')
+  t.after(() => claude.unmount())
+  await flush()
+  assert.equal(onCard(claude.el)!.textContent, 'claude-4',
+    'restoring the Codex card cost the Claude one')
+})
+
 /* ─── the far-zoom exclusions ────────────────────────────────────────────── */
 
 test('§2d FAR ZOOM RENDERS NO ACCOUNT CARD, even mid-inference', async (t: TestContext) => {
