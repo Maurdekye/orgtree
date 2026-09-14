@@ -80,6 +80,8 @@ Var pid
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallMode
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallDir
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeExe
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchDir
+      !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchPrepared
     ${endif}
   !ifndef ORGTREE_DEV_CHANNEL
     ${if} ${UAC_IsInnerInstance}
@@ -126,6 +128,7 @@ Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
 Var OrgUpgradeRelaunchArgs
 Var OrgUpgradeRelaunchDir
+Var OrgUpgradeRelaunchPrepared
 Var OrgUpgradeRelaunchReady
 Var OrgUpgradeRelaunchScheduled
 !endif
@@ -355,7 +358,7 @@ FunctionEnd
       SendMessage $1 ${BM_CLICK} 0 0
     FunctionEnd
 
-    Function orgtreeUpgradePageLeave
+Function orgtreeUpgradePageLeave
       ${if} $OrgUpgradeChoice == "upgrade"
         # Set the recorded scope and directory before asking the app to close;
         # the subsequent mode/directory pages are skipped from this state.
@@ -368,6 +371,11 @@ FunctionEnd
         Call orgtreeCloseForUpgrade
         Pop $0
         ${if} $0 != "1"
+          Quit
+        ${endif}
+        Call orgtreePrepareUpgradeRelaunch
+        ${if} $OrgUpgradeRelaunchPrepared != "1"
+          SetErrorLevel 2
           Quit
         ${endif}
         StrCpy $OrgUpgradeSelected "1"
@@ -526,18 +534,14 @@ FunctionEnd
       ${if} ${Silent}
         Return
       ${endif}
+      ${if} $OrgUpgradeRelaunchPrepared != "1"
+        Return
+      ${endif}
 
       # Start under the original user token, including for an elevated
       # all-users inner instance. The helper waits for this exact installer PID
       # before launching the newly installed desktop.
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
-      StrCpy $OrgUpgradeRelaunchDir "$TEMP\OrgtreeInstallerRelaunch-$0"
-      CreateDirectory $OrgUpgradeRelaunchDir
-      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.ps1" $OrgUpgradeRelaunchDir
-      ${if} ${Errors}
-        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but its post-Setup launch helper could not be prepared. You can start Orgtree from its shortcut." /SD IDOK
-        Return
-      ${endif}
       StrCpy $OrgUpgradeRelaunchArgs '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$OrgUpgradeRelaunchDir\installer-relaunch.ps1" -InstallerPid $0 -ExecutablePath "$OrgUpgradeExe"'
       ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "open" "$OrgUpgradeRelaunchArgs"
       ${if} $1 != 0
@@ -546,6 +550,19 @@ FunctionEnd
       ${endif}
       StrCpy $OrgUpgradeRelaunchScheduled "1"
       StrCpy $OrgUpgradeRelaunchReady "1"
+    FunctionEnd
+
+    Function orgtreePrepareUpgradeRelaunch
+      StrCpy $OrgUpgradeRelaunchPrepared "0"
+      System::Call 'kernel32::GetCurrentProcessId() i .r0'
+      StrCpy $OrgUpgradeRelaunchDir "$TEMP\OrgtreeInstallerRelaunch-$0"
+      CreateDirectory $OrgUpgradeRelaunchDir
+      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.ps1" $OrgUpgradeRelaunchDir
+      ${if} ${Errors}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
+        Return
+      ${endif}
+      StrCpy $OrgUpgradeRelaunchPrepared "1"
     FunctionEnd
 
     Function orgtreeUpgradeFinishPagePre

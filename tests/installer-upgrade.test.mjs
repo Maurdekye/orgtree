@@ -111,7 +111,7 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.ps1.*-InstallerPid \$0.*-ExecutablePath "\$OrgUpgradeExe"/)
   assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe"/)
   assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
-  assert.match(installer, /CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.ps1" \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.ps1" \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /-File "\$OrgUpgradeRelaunchDir\\installer-relaunch\.ps1"/)
   assert.match(relaunch, /while \(\$null -ne \(Get-Process -Id \$InstallerPid -ErrorAction SilentlyContinue\)\)/)
   const wait = relaunch.indexOf('while ($null -ne (Get-Process -Id $InstallerPid')
@@ -127,6 +127,22 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
   assert.match(installer, /Function orgtreeScheduleUpgradeRelaunch[\s\S]*?\$\{if\} \$OrgUpgradeRelaunchScheduled == "1"[\s\S]*?Return[\s\S]*?\$\{endif\}[\s\S]*?\$\{if\} \$\{Silent\}[\s\S]*?Return[\s\S]*?\$\{endif\}/)
   assert.match(installer, /\$1 != 0[\s\S]*?MessageBox[\s\S]*?Return[\s\S]*?\$\{endif\}/)
   assert.match(installer, /!insertmacro MUI_PAGE_FINISH/)
+  assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
+  assert.match(installer, /Call orgtreePrepareUpgradeRelaunch[\s\S]*?\$OrgUpgradeRelaunchPrepared != "1"[\s\S]*?Quit/)
+})
+
+test('all-users elevation carries a user-owned helper across the UAC boundary', () => {
+  const prepared = installer.indexOf('Function orgtreePrepareUpgradeRelaunch')
+  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.ps1" $OrgUpgradeRelaunchDir')
+  const call = installer.indexOf('Call orgtreePrepareUpgradeRelaunch')
+  const elevation = installer.indexOf('!insertmacro UAC_RunElevated')
+  assert.ok(prepared >= 0 && copy > prepared && call >= 0 && call < elevation, 'helper staging is called before all-users elevation')
+  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchDir "\$TEMP\\OrgtreeInstallerRelaunch-\$0"/)
+  assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
+  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.ps1/)
+  assert.match(relaunch, /Remove-Item -LiteralPath \$PSScriptRoot -Recurse -Force/)
 })
 
 test('graceful shutdown is path-bound, retryable, and never force-kills', () => {
