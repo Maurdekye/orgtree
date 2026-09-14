@@ -88,8 +88,10 @@ Var pid
     File /oname=$PLUGINSDIR\installer-upgrade.ps1 "${PROJECT_DIR}\tools\installer-upgrade.ps1"
     # Loaded by the upgrade-only finish hook and launched under the original
     # user token; it waits for this installer process to exit before starting
-    # the replaced application.
-    File /oname=$PLUGINSDIR\installer-relaunch.ps1 "${PROJECT_DIR}\tools\installer-relaunch.ps1"
+    # the replaced application. It is a Windows Script Host script rather than
+    # PowerShell because it is dispatched with ShellExecute, which allocates a
+    # console for any console-subsystem target — see orgtreeDispatchUpgradeRelaunch.
+    File /oname=$PLUGINSDIR\installer-relaunch.js "${PROJECT_DIR}\tools\installer-relaunch.js"
 
     # An elevated inner instance is a BRAND NEW installer process. It re-runs
     # onInit and every page from the beginning and knows nothing about the
@@ -606,9 +608,33 @@ FunctionEnd
       # Start under the original user token, including for an elevated
       # all-users inner instance. The helper waits for this exact installer PID
       # before launching the newly installed desktop.
+      #
+      # ⚠ THE HOST MUST STAY GUI-SUBSYSTEM. ExecShellAsUser is a ShellExecute,
+      # and ShellExecute cannot pass CREATE_NO_WINDOW, so Windows allocates a
+      # console for any CONSOLE-SUBSYSTEM target. This line used to name
+      # powershell.exe, which is console-subsystem, and on Windows 11 with
+      # Windows Terminal as the default terminal that console appeared as a
+      # visible WindowsTerminal.exe + OpenConsole.exe pair one second before the
+      # upgraded app started, then sat there orphaned after PowerShell exited.
+      #
+      # -WindowStyle Hidden WAS ALREADY IN THESE ARGUMENTS AND DID NOT PREVENT
+      # IT: that is a PowerShell preference applied after PowerShell starts,
+      # acting on its own console window, and under Windows Terminal there is no
+      # classic window of its own to hide. Do not attempt to fix a recurrence by
+      # adding hiding flags — hiding a console after it exists is the defect.
+      # wscript.exe is GUI-subsystem, so no console is ever created.
+      #
+      # tests/installer-upgrade.test.mjs reads the PE subsystem byte of the
+      # executable this line names and fails if it is console-subsystem, so a
+      # regression here is caught without running an installer.
+      #
+      # //E:JScript pins the engine instead of trusting the .js file
+      # association, which any editor may have taken over. //B is batch mode:
+      # without it a script error raises a MODAL DIALOG, which would be the very
+      # visible window this change exists to remove.
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
-      StrCpy $OrgUpgradeRelaunchArgs '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$OrgUpgradeRelaunchDir\installer-relaunch.ps1" -InstallerPid $0 -ExecutablePath "$OrgUpgradeExe"'
-      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "open" "$OrgUpgradeRelaunchArgs"
+      StrCpy $OrgUpgradeRelaunchArgs '//E:JScript //B "$OrgUpgradeRelaunchDir\installer-relaunch.js" $0 "$OrgUpgradeExe"'
+      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\wscript.exe" "open" "$OrgUpgradeRelaunchArgs"
       # StdUtils.ExecShellAsUser answers with a TOKEN, not an exit code —
       # testing it against 0 is the 2.1.4-RC4 field failure: the call
       # SUCCEEDED, returned "ok", and "ok" != 0 walked the success into the
@@ -660,7 +686,7 @@ FunctionEnd
         Return
       ${endif}
       ClearErrors
-      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.ps1" $OrgUpgradeRelaunchDir
+      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.js" $OrgUpgradeRelaunchDir
       ${if} ${Errors}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade could not prepare its post-Setup launch helper. Nothing has been changed." /SD IDOK
         Return

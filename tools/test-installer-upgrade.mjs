@@ -153,7 +153,7 @@ ${welcome}
 Var installMode
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.ps1 "${path.join(root, 'tools/installer-relaunch.ps1')}"
+  File /oname=$PLUGINSDIR\\installer-relaunch.js "${path.join(root, 'tools/installer-relaunch.js')}"
 FunctionEnd
 Section
   # Simulate the stale NSIS error flag left by a failed probe immediately
@@ -182,7 +182,7 @@ const [prepared, preparedDir] = fs.readFileSync(preparationMarker, 'utf8').trim(
 assert.equal(prepared, '1', `compiled helper preparation failed in packaged path: ${preparedDir}`)
 assert.ok(preparedDir.includes('OrgtreeInstallerRelaunch-'), `unexpected helper directory: ${preparedDir}`)
 assert.ok(preparedDir.startsWith(preparationTemp), `helper directory escaped the configured temp path: ${preparedDir}`)
-assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.ps1')), 'compiled fixture did not copy the helper')
+assert.ok(fs.existsSync(path.join(preparedDir, 'installer-relaunch.js')), 'compiled fixture did not copy the helper')
 fs.rmSync(preparedDir, { recursive: true, force: true })
 console.log('PASS compiled NSIS helper extraction/preparation path')
 
@@ -219,7 +219,7 @@ console.log('PASS compiled regression reproduces stale NSIS Errors before the fi
 // `$1 != 0` test walked that success into "(error ok)" — so this coverage
 // refuses to stub the plugin: it compiles the repository's real dispatch
 // function against electron-builder's own StdUtils.dll, lets it start the
-// real installer-relaunch.ps1 helper, and watches the helper launch the
+// real installer-relaunch.js helper, and watches the helper launch the
 // (fixture) executable exactly once after the installer process exits.
 const stdUtilsPlugins = (() => {
   if (process.env.ORGTREE_NSIS_PLUGINS) return path.resolve(process.env.ORGTREE_NSIS_PLUGINS)
@@ -274,12 +274,19 @@ Var installMode
 Var rawToken
 Function .onInit
   InitPluginsDir
-  File /oname=$PLUGINSDIR\\installer-relaunch.ps1 "${path.join(root, 'tools/installer-relaunch.ps1')}"
+  File /oname=$PLUGINSDIR\\installer-relaunch.js "${path.join(root, 'tools/installer-relaunch.js')}"
 FunctionEnd
 Section
   # Raw plugin contract, no stubs: the same call shape production uses. This
   # records what the DLL actually answers so the routing below is checked
   # against evidence rather than against an assumed convention.
+  # ⚠ This raw probe deliberately still dispatches powershell.exe. It exists to
+  # record what the DLL itself answers, and keeping the historical target keeps
+  # that reading comparable with the 2.1.4-RC4 evidence. It is NOT production's
+  # call shape any more — production dispatches wscript.exe, because
+  # powershell.exe is console-subsystem and ShellExecute therefore allocates a
+  # console for it. Expect this ONE probe to flash a console while this harness
+  # runs; that is the harness, not a regression of the fix.
   \${StdUtils.ExecShellAsUser} $rawToken "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" "open" "-NoProfile -NonInteractive -WindowStyle Hidden -Command exit"
   Call orgtreePrepareUpgradeRelaunch
   StrCpy $OrgUpgradeExe "${launchTarget}"

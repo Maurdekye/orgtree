@@ -7,7 +7,46 @@ import { spawnSync } from 'node:child_process'
 const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
-const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.ps1'), 'utf8')
+const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.js'), 'utf8')
+
+// IMAGE_SUBSYSTEM values from the PE optional header. Only these two matter
+// here: a GUI-subsystem image is started by ShellExecute with no console, a
+// console-subsystem image causes Windows to allocate one.
+const SUBSYSTEM_GUI = 2
+const SUBSYSTEM_CUI = 3
+
+// Reads the subsystem byte out of a PE image. This is the instrument behind the
+// console regression guard, so it THROWS on anything it cannot read rather than
+// returning a value: a reader that answered "GUI" for a missing or malformed
+// file would turn "could not ask" into "the answer is safe", and would look
+// exactly like a working guard until the day it mattered.
+function peSubsystem(file) {
+  const fd = fs.openSync(file, 'r')
+  try {
+    const dos = Buffer.alloc(0x40)
+    if (fs.readSync(fd, dos, 0, 0x40, 0) !== 0x40) throw new Error(`${file}: too small to be a PE image`)
+    if (dos.readUInt16LE(0) !== 0x5a4d) throw new Error(`${file}: no MZ signature`)
+    const peOffset = dos.readUInt32LE(0x3c)
+    const signature = Buffer.alloc(4)
+    if (fs.readSync(fd, signature, 0, 4, peOffset) !== 4) throw new Error(`${file}: truncated at the PE signature`)
+    if (signature.toString('latin1') !== 'PE\u0000\u0000') throw new Error(`${file}: no PE signature`)
+    // The optional header follows the 20-byte COFF header, and Subsystem sits
+    // at offset 68 within it for BOTH PE32 and PE32+ — the extra 4 bytes of
+    // ImageBase in PE32+ are offset by the absent BaseOfData.
+    const field = Buffer.alloc(2)
+    if (fs.readSync(fd, field, 0, 2, peOffset + 24 + 68) !== 2) throw new Error(`${file}: truncated before Subsystem`)
+    return field.readUInt16LE(0)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+// Resolves an NSIS $SYSDIR-rooted path the way the 32-bit installer process
+// would see it, so the guard measures the same file Windows would start.
+function systemPath(nsisPath) {
+  return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32',
+    nsisPath.replace(/^\$SYSDIR\\/, '').replace(/\\/g, path.sep))
+}
 const app = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8')
 const docs = fs.readFileSync(path.join(root, 'docs/windows-release.md'), 'utf8')
 const updater = fs.readFileSync(path.join(root, 'apps/desktop/main/updater.ts'), 'utf8')
@@ -108,18 +147,23 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /!macro customFinishPage[\s\S]*?!define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre[\s\S]*?!insertmacro MUI_PAGE_FINISH/)
   assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"[\s\S]*?Call orgtreeScheduleUpgradeRelaunch[\s\S]*?\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort/)
   assert.match(installer, /System::Call 'kernel32::GetCurrentProcessId\(\) i \.r0'/)
-  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.ps1.*-InstallerPid \$0.*-ExecutablePath "\$OrgUpgradeExe"/)
-  assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe"/)
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.js.*\$0 "\$OrgUpgradeExe"/)
+  assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\wscript\.exe"/)
   assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
-  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.ps1" \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.js" \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?ClearErrors\r?\n\s+CopyFiles \/SILENT/)
-  assert.match(installer, /-File "\$OrgUpgradeRelaunchDir\\installer-relaunch\.ps1"/)
-  assert.match(relaunch, /while \(\$null -ne \(Get-Process -Id \$InstallerPid -ErrorAction SilentlyContinue\)\)/)
-  const wait = relaunch.indexOf('while ($null -ne (Get-Process -Id $InstallerPid')
-  const launch = relaunch.indexOf('Start-Process -FilePath $ExecutablePath')
+  assert.match(installer, /"\$OrgUpgradeRelaunchDir\\installer-relaunch\.js"/)
+  // The engine is pinned rather than left to the .js file association, which an
+  // installed editor may own, and batch mode keeps a script error from raising
+  // a modal dialog — which would be a visible window, the thing being removed.
+  assert.match(installer, /\/\/E:JScript \/\/B /)
+  // Wait strictly before launch, and exactly one launch site.
+  const wait = relaunch.indexOf('waitForExit(pid)')
+  const launch = relaunch.indexOf('launch(executablePath)')
   assert.ok(wait >= 0 && launch > wait, 'the app must start only after the installer-exit wait')
-  assert.equal((relaunch.match(/Start-Process -FilePath \$ExecutablePath/g) ?? []).length, 1, 'the helper has one launch site')
-  assert.match(relaunch, /Remove-Item -LiteralPath \$PSScriptRoot -Recurse -Force/)
+  assert.equal((relaunch.match(/^\s*launch\(executablePath\)/gm) ?? []).length, 1, 'the helper has one launch site')
+  assert.match(relaunch, /function waitForExit\(pid\)[\s\S]*?while \(isRunning\(pid\)\)[\s\S]*?WScript\.Sleep/)
+  assert.match(relaunch, /fso\.DeleteFolder\(fso\.GetParentFolderName\(WScript\.ScriptFullName\), true\)/)
 })
 
 test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch', () => {
@@ -140,15 +184,64 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
 
 test('all-users elevation carries a user-owned helper across the UAC boundary', () => {
   const prepared = installer.indexOf('Function orgtreePrepareUpgradeRelaunch')
-  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.ps1" $OrgUpgradeRelaunchDir')
+  const copy = installer.indexOf('CopyFiles /SILENT "$PLUGINSDIR\\installer-relaunch.js" $OrgUpgradeRelaunchDir')
   const call = installer.indexOf('Call orgtreePrepareUpgradeRelaunch')
   const elevation = installer.indexOf('!insertmacro UAC_RunElevated')
   assert.ok(prepared >= 0 && copy > prepared && call >= 0 && call < elevation, 'helper staging is called before all-users elevation')
   assert.match(installer, /StrCpy \$OrgUpgradeRelaunchDir "\$TEMP\\OrgtreeInstallerRelaunch-\$0"/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
-  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.ps1/)
-  assert.match(relaunch, /Remove-Item -LiteralPath \$PSScriptRoot -Recurse -Force/)
+  assert.match(installer, /File \/oname=\$PLUGINSDIR\\installer-relaunch\.js/)
+  assert.match(relaunch, /fso\.DeleteFolder\(fso\.GetParentFolderName\(WScript\.ScriptFullName\), true\)/)
+})
+
+// The console regression guard. This is the thing that will silently come back:
+// the dispatch is a ShellExecute, so naming a CONSOLE-SUBSYSTEM binary here
+// makes Windows allocate a console, which under Windows Terminal is a visible
+// terminal window. The guard does not match on a name blocklist — it reads the
+// PE subsystem byte of whatever executable build/installer.nsh actually names,
+// so pointing the dispatch at any console binary fails, not just the one that
+// caused the incident.
+test('the upgrade relaunch dispatch never targets a console-subsystem host', { skip: process.platform !== 'win32' ? 'Windows only' : false }, () => {
+  const dispatch = installer.match(/\$\{StdUtils\.ExecShellAsUser\} \$1 "([^"]+)"/)
+  assert.ok(dispatch, 'the relaunch dispatch line could not be found at all')
+  const target = systemPath(dispatch[1])
+  assert.ok(fs.existsSync(target), `the dispatch target does not exist: ${target}`)
+
+  // THE SUBJECT.
+  assert.equal(peSubsystem(target), SUBSYSTEM_GUI,
+    `${dispatch[1]} is console-subsystem; ShellExecute cannot suppress its console and a terminal window will appear`)
+
+  // POSITIVE CONTROL — the assertion must FAIL for the exact binary the defect
+  // used. Without this, a guard that could never fire would read as a pass.
+  const defect = systemPath('$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe')
+  assert.equal(peSubsystem(defect), SUBSYSTEM_CUI,
+    'powershell.exe no longer reads as console-subsystem, so this guard can no longer detect the original defect')
+  assert.notEqual(peSubsystem(defect), SUBSYSTEM_GUI)
+
+  // INSTRUMENT CONTROL — break the reader, not just the subject. A probe that
+  // returned a value for something it could not read would turn "could not ask"
+  // into "the answer is GUI" and pass forever. Both a missing file and a real
+  // file that is not a PE image must THROW.
+  assert.throws(() => peSubsystem(path.join(root, 'no-such-binary-for-the-guard.exe')))
+  assert.throws(() => peSubsystem(path.join(root, 'package.json')), /no MZ signature|too small/)
+})
+
+// The helper is JScript under Windows Script Host, which is an ES3 engine, and
+// it runs where nothing can report a syntax error to anyone. These pin the two
+// portability traps that were actually hit while writing it.
+test('the relaunch helper stays within what the WSH JScript engine supports', () => {
+  const code = relaunch.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n')
+  // ES5+ constructs the engine does not have. toISOString was the real one: it
+  // sits inside the error reporter, so calling it would throw in the one place
+  // whose job is to explain a failure.
+  assert.doesNotMatch(code, /toISOString|JSON\.|=>|\bconst\b|\blet\b|\.trim\(\)/)
+  // A thrown COM error here has an EMPTY message and description; `number` is
+  // the only real signal. Reading message alone logged a blank line for exactly
+  // the failures the log exists to explain.
+  assert.match(code, /function describe\(error\)/)
+  assert.match(code, /error\.number/)
+  assert.doesNotMatch(code, /record\(error\.message\)/)
 })
 
 test('graceful shutdown is path-bound, retryable, and never force-kills', () => {
