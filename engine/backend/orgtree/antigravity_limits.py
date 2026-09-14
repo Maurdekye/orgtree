@@ -422,19 +422,20 @@ def _run_usage(exe: str) -> dict[str, Any]:
 
 
 def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
-    tier = data.get("tier")
+    tier = _sanitize_tier(data.get("tier")) or _sanitize_tier(data.get("plan"))
     if not tier:
         for key in ("tier", "plan", "account_tier", "user_tier", "subscriptionType"):
             cleaned = _sanitize_tier(status.get(key))
             if cleaned:
                 tier = cleaned
                 break
+    safe_data = {k: v for k, v in data.items() if k not in ("tier", "plan")}
     res: dict[str, Any] = {
         "account": ACCOUNT,
         "label": status.get("email") or "signed-in account",
         "email": status.get("email") or None,
         "provider": PROVIDER,
-        **data,
+        **safe_data,
     }
     if tier:
         res["tier"] = tier

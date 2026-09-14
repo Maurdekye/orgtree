@@ -139,6 +139,44 @@ class NormalizeTierTests(unittest.TestCase):
         self.assertNotIn("plan", board)
 
 
+class AccountFunctionTierTests(unittest.TestCase):
+    """_account() sanitizes data tier/plan and never leaks raw unsafe values."""
+
+    def test_safe_tier_in_data_is_preserved(self):
+        acct = antigravity_limits._account(
+            {"available": True, "tier": "Standard", "limits": []},
+            {"email": "user@example.test", "connected": True, "installed": True},
+        )
+        self.assertEqual(acct["tier"], "Standard")
+        self.assertEqual(acct["plan"], "Standard")
+
+    def test_unsafe_data_tier_and_plan_are_sanitized_and_omitted(self):
+        acct = antigravity_limits._account(
+            {
+                "available": True,
+                "tier": "ya29.secret_token",
+                "plan": "sk-ant-api03-token",
+                "limits": [],
+            },
+            {"email": "user@example.test", "connected": True, "installed": True},
+        )
+        self.assertNotIn("tier", acct)
+        self.assertNotIn("plan", acct)
+
+    def test_unsafe_status_tier_is_sanitized_and_omitted(self):
+        acct = antigravity_limits._account(
+            {"available": True, "limits": []},
+            {
+                "email": "user@example.test",
+                "connected": True,
+                "installed": True,
+                "tier": "C:\\Users\\admin\\secret.json",
+            },
+        )
+        self.assertNotIn("tier", acct)
+        self.assertNotIn("plan", acct)
+
+
 class ProfileTierTests(unittest.TestCase):
     """profile_tier reads tier from account directory."""
 
