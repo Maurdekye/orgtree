@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { usePendingAttention } from '../pending-attention'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import type {
@@ -1369,6 +1369,71 @@ export function agentItems(data: {
     .filter((it) => it.owner?.node === nid || it.reviewer?.node === nid)
 }
 
+/** ONE AGENT'S WHOLE TEAM — that agent and every descendant of it, at any
+ *  depth, as THE VIEWER'S OWN TREE reports them right now.
+ *
+ *  ⚠ THE VIEWER'S TREE IS THE AUTHORITY, and that is the entire permission
+ *  story of the team docket. The payload the canvas renders has already been
+ *  narrowed by the backend to the agents this viewer may see, so a branch the
+ *  viewer cannot see contributes no ids here and its work can never surface in
+ *  a team view. The filter NARROWS what is already visible; there is no path
+ *  by which it widens it.
+ *
+ *  ⚠ AND AN UNKNOWN ROOT IS A TEAM OF ONE, never the whole org. When the tree
+ *  does not hold `rootId` — pruned, mid-refresh, or simply not visible — the
+ *  answer is the bare `{rootId}`. Both other answers are worse: an empty set
+ *  makes an agent that plainly owns work look like it owns none, and a
+ *  "match everything" answer turns the team docket into the full docket, which
+ *  is the one thing the ticket says it must never fall back to.
+ *
+ *  ⚠ READ FRESH, NEVER CACHED. Membership is recomputed from whatever tree the
+ *  caller is holding, so a reparent or a hire shows up on the next refresh
+ *  without anyone invalidating anything. */
+export function teamNodeIds(roots: TreeNode[] | undefined,
+                            rootId: string): Set<string> {
+  const ids = new Set<string>([rootId])
+  const collect = (n: TreeNode) => {
+    if (n.id) ids.add(n.id)
+    for (const c of n.children ?? []) collect(c)
+  }
+  const find = (nodes?: TreeNode[]): boolean => {
+    for (const n of nodes ?? []) {
+      if (n.id === rootId) { collect(n); return true }
+      if (find(n.children)) return true
+    }
+    return false
+  }
+  find(roots)
+  return ids
+}
+
+/** The items ONE TEAM is answerable for: everything whose CURRENT ASSIGNED
+ *  OWNER is the team root or any of its descendants.
+ *
+ *  ⚠ OWNERSHIP ONLY — deliberately narrower than `agentItems`, which also
+ *  hands an agent the items it was named to REVIEW. The ticket is explicit
+ *  that membership is the assigned owner and that anything "assigned outside
+ *  that subtree" is excluded, so an item somebody else owns does not join this
+ *  team's docket because a team member happens to be checking it. Its reviewer
+ *  still sees it on their own desk docket, where that rule lives.
+ *
+ *  ⚠ MATCHED BY NAME, AT ANY GENERATION, exactly as `agentItems` matches: an
+ *  item assigned to `worker` before a cheap compaction is still `worker`'s
+ *  work, and the generation is what the row's model chip reasons about, never
+ *  what decides whose work this is.
+ *
+ *  Pure, so the membership rule can be tested without mounting anything. */
+export function teamItems(data: {
+  items?: WorkItem[]; archived?: WorkItem[]; backlogged?: WorkItem[]
+} | null | undefined, rootId: string, roots?: TreeNode[],
+  includeArchived = false): WorkItem[] | null {
+  if (!data) return null
+  const team = teamNodeIds(roots, rootId)
+  return [...(data.items ?? []), ...(data.backlogged ?? []),
+          ...(includeArchived ? (data.archived ?? []) : [])]
+    .filter((it) => !!it.owner?.node && team.has(it.owner.node))
+}
+
 const NON_ACTIONABLE_BADGE_STATUSES = new Set([
   'done', 'archived', 'dropped', 'superseded', 'backlogged', 'blocked',
 ])
@@ -1408,7 +1473,8 @@ export function actionableAssignedCount(data: {
  *  generation is what the row's chip reasons about, never what decides whether
  *  the work is yours. */
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
-  onChanged, showArchived = false, onShowArchived = () => {}, refs }: {
+  onChanged, showArchived = false, onShowArchived = () => {}, refs,
+  emptyText }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
@@ -1426,6 +1492,14 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
    *  Required, not optional: a fallback world here would be a second answer to
    *  the same question on the same desk, and the two would drift. */
   refs: RefRoutes
+  /** WHAT AN EMPTY LIST MEANS HERE, when the default sentence would be wrong.
+   *  The default speaks for the one filter this view was written for — the
+   *  items assigned to `nid` — and the team docket narrows by a DIFFERENT rule
+   *  (that agent's whole subtree), so an empty team saying "nothing is
+   *  assigned to team-lead" would describe a filter this view is not running.
+   *  The empty BRANCH is otherwise untouched: an empty list still says so in
+   *  place, and never falls back to showing rows the filter excluded. */
+  emptyText?: ReactNode
 }) {
   const controlsId = useId()
   const [showBacklog, setShowBacklog] = useState(false)
@@ -1547,8 +1621,10 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
         ? <div className="dim pad">loading…</div>
         : sections.length === 0
           ? <div className="dim pad">
-              no docket items are assigned to {nid} — assignment is ownership,
-              so this is everything it is responsible for
+              {emptyText ?? <>
+                no docket items are assigned to {nid} — assignment is ownership,
+                so this is everything it is responsible for
+              </>}
             </div>
           : (
             <div className="mailer">

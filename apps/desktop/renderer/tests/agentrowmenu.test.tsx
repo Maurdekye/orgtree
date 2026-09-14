@@ -206,7 +206,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     // ...and the order itself, written down once. The equality above cannot
     // catch a change made to both surfaces at once; this can.
     assert.deepEqual(have, [
-      'Copy agent name', 'Open desk', 'Open inbox', 'Open docket', 'Settings',
+      'Copy agent name', 'Open desk', 'Open inbox', 'Open docket',
+      'Open team docket', 'Settings',
       'Pin desk as a window', 'Open desk in a new window',
       'Hire a subordinate…', 'Retire…',
     ], 'the agent menu, in order')

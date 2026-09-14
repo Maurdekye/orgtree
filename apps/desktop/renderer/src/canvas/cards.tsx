@@ -1215,6 +1215,10 @@ interface NodeSquareProps {
   onConfig: () => void
   onInbox: () => void
   onDocket?: () => void
+  /** the context menu's "Open team docket" — this agent's docket widened to
+   *  its whole subtree. There is no button for it on the card: the ticket's
+   *  RC1 ruling puts the view behind the context menu and nowhere else. */
+  onTeamDocket?: () => void
   onLineage: () => void
   /** FR-03: open a presented document in the in-page reader */
   onOpenDoc?: (id: string) => void
@@ -1383,7 +1387,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
 }
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
-  toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onLineage, onOpenDoc, onOpenAgentGallery,
+  toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
@@ -1450,6 +1454,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onOpenDesk: onRecenter,
       onInbox,
       onDocket,
+      onTeamDocket,
       onPresentations: onOpenAgentGallery
         ? () => onOpenAgentGallery(node.id) : undefined,
       onLineage,

@@ -52,6 +52,12 @@ export interface AgentMenuHandlers {
   onOpenDesk?: () => void
   onInbox: () => void
   onDocket?: () => void
+  /** the reduced docket for this agent's WHOLE TEAM — it and everyone below
+   *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
+   *  gate is the handler: a surface that cannot open the panel (or a viewer
+   *  the panel is not available to) simply passes nothing and the entry is
+   *  absent, exactly the way "Open docket" above already behaves. */
+  onTeamDocket?: () => void
   /** the agent's presented documents — the entry appears only when it has
    *  some, so the gate is here and the caller passes the opener */
   onPresentations?: () => void
@@ -108,6 +114,18 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   ]
   const docket = h.onDocket
   if (docket) entries.push({ label: 'Open docket', onSelect: () => docket() })
+  // …and the same docket widened to this agent's REPORTS. It sits next to
+  // "Open docket" because the two answer the same question at two scopes, and
+  // the label says whose team it is rather than "Team docket": the menu is
+  // already raised on the agent, so the scope is the news.
+  const teamDocket = h.onTeamDocket
+  if (teamDocket) {
+    entries.push({
+      label: 'Open team docket',
+      title: `tickets assigned to ${node.id} or to any agent below it`,
+      onSelect: () => teamDocket(),
+    })
+  }
   const presentations = h.onPresentations
   if (presentations && (node.documents?.length ?? 0) > 0) {
     entries.push({ label: 'Open presentations', onSelect: () => presentations() })
