@@ -876,12 +876,6 @@ export async function prepareAndHandOff(seams: PreparationSeams): Promise<Prepar
     seams.record('handoff-refused', 'electron-updater declined the install request')
     return { stage: 'refused' }
   }
-  // ⚠ THE LINE THIS REPLACES IS IN THE INCIDENT LOG, TWICE: "installer launched
-  // for C:\Program Files\Orgtree\Orgtree (NOTE: this /D= argument will reach
-  // NSIS quoted)". It described the defect while performing it. What is
-  // recorded now is HOW the destination was communicated, because a log saying
-  // only "installer launched" cannot tell the two mechanisms apart and they
-  // fail in entirely different ways.
   // ⚠ THE LINE THIS REPLACES IS IN THE INCIDENT RECORD, TWICE, AND IT WAS A
   // FALSE CLUE. It read "installer launched for C:\Program Files\Orgtree\Orgtree
   // (NOTE: this /D= argument will reach NSIS quoted)", printed on every
