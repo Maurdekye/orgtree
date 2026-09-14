@@ -234,6 +234,13 @@ whose image lives under the install directory, and every descendant of one. It
 reports which processes are holding the upgrade rather than naming them
 generically.
 
+After a successful interactive Upgrade, the installer skips its final Finish
+page and schedules one launch under the original user token. The detached
+launcher waits for the installer process to exit before starting the replaced
+desktop, so installer bookkeeping is complete first. Fresh installs and
+silent/unattended invocations do not use this upgrade-only launch path; a
+failed or cancelled upgrade remains visible and does not relaunch.
+
 Two things make that a real check rather than a hopeful one. First, the tree is
 read by an enumeration that reports parentage — CIM, falling back to WMI — and
 if neither can answer, the helper says so and refuses instead of reporting a

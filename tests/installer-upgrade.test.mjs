@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
+const relaunch = fs.readFileSync(path.join(root, 'tools/installer-relaunch.ps1'), 'utf8')
 const app = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8')
 const docs = fs.readFileSync(path.join(root, 'docs/windows-release.md'), 'utf8')
 const updater = fs.readFileSync(path.join(root, 'apps/desktop/main/updater.ts'), 'utf8')
@@ -101,6 +102,31 @@ test('Upgrade reuses scope and directory and skips only after consent', () => {
   assert.match(installer, /"&Advanced setup"/)
   assert.match(installer, /WriteRegStr SHELL_CONTEXT "\$\{INSTALL_REGISTRY_KEY\}" OrgtreeUpgradeMetadata "1"/)
   assert.match(installer, /WriteRegStr SHELL_CONTEXT "\$\{UNINSTALL_REGISTRY_KEY\}" OrgtreeUpgradeMetadata "1"/)
+})
+
+test('successful interactive upgrades skip Finish and relaunch once after installer exit', () => {
+  assert.match(installer, /!macro customFinishPage[\s\S]*?!define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre[\s\S]*?!insertmacro MUI_PAGE_FINISH/)
+  assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"[\s\S]*?Call orgtreeScheduleUpgradeRelaunch[\s\S]*?\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort/)
+  assert.match(installer, /System::Call 'kernel32::GetCurrentProcessId\(\) i \.r0'/)
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs .*installer-relaunch\.ps1.*-InstallerPid \$0.*-ExecutablePath "\$OrgUpgradeExe"/)
+  assert.match(installer, /\$\{StdUtils\.ExecShellAsUser\} \$1 "\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe"/)
+  assert.match(installer, /\$OrgUpgradeRelaunchScheduled == "1"/)
+  assert.match(installer, /CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.ps1" \$OrgUpgradeRelaunchDir/)
+  assert.match(installer, /-File "\$OrgUpgradeRelaunchDir\\installer-relaunch\.ps1"/)
+  assert.match(relaunch, /while \(\$null -ne \(Get-Process -Id \$InstallerPid -ErrorAction SilentlyContinue\)\)/)
+  const wait = relaunch.indexOf('while ($null -ne (Get-Process -Id $InstallerPid')
+  const launch = relaunch.indexOf('Start-Process -FilePath $ExecutablePath')
+  assert.ok(wait >= 0 && launch > wait, 'the app must start only after the installer-exit wait')
+  assert.equal((relaunch.match(/Start-Process -FilePath \$ExecutablePath/g) ?? []).length, 1, 'the helper has one launch site')
+  assert.match(relaunch, /Remove-Item -LiteralPath \$PSScriptRoot -Recurse -Force/)
+})
+
+test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch', () => {
+  assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"/)
+  assert.match(installer, /\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort[\s\S]*?\$\{endif\}[\s\S]*?\$\{endif\}/)
+  assert.match(installer, /Function orgtreeScheduleUpgradeRelaunch[\s\S]*?\$\{if\} \$OrgUpgradeRelaunchScheduled == "1"[\s\S]*?Return[\s\S]*?\$\{endif\}[\s\S]*?\$\{if\} \$\{Silent\}[\s\S]*?Return[\s\S]*?\$\{endif\}/)
+  assert.match(installer, /\$1 != 0[\s\S]*?MessageBox[\s\S]*?Return[\s\S]*?\$\{endif\}/)
+  assert.match(installer, /!insertmacro MUI_PAGE_FINISH/)
 })
 
 test('graceful shutdown is path-bound, retryable, and never force-kills', () => {

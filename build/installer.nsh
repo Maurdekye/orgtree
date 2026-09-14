@@ -52,6 +52,10 @@ Var pid
     # only to NSIS's private temporary plugin directory.
     InitPluginsDir
     File /oname=$PLUGINSDIR\installer-upgrade.ps1 "${PROJECT_DIR}\tools\installer-upgrade.ps1"
+    # Loaded by the upgrade-only finish hook and launched under the original
+    # user token; it waits for this installer process to exit before starting
+    # the replaced application.
+    File /oname=$PLUGINSDIR\installer-relaunch.ps1 "${PROJECT_DIR}\tools\installer-relaunch.ps1"
 
     # An elevated inner instance is a BRAND NEW installer process. It re-runs
     # onInit and every page from the beginning and knows nothing about the
@@ -120,6 +124,10 @@ Var OrgUpgradePathLabel
 Var OrgUpgradeScopeLabel
 Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
+Var OrgUpgradeRelaunchArgs
+Var OrgUpgradeRelaunchDir
+Var OrgUpgradeRelaunchReady
+Var OrgUpgradeRelaunchScheduled
 !endif
 
 # Snapshot the generated update predicate before the assisted installer
@@ -499,6 +507,60 @@ FunctionEnd
     !endif
   ${endif}
 !macroend
+!macro customFinishPage
+  !ifndef BUILD_UNINSTALLER
+    # Fresh and Advanced setup retain electron-builder's normal Finish page.
+    # An accepted Upgrade reaches this page only after install bookkeeping has
+    # succeeded; schedule a post-exit launch and skip the extra click.
+    !define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre
+    !insertmacro MUI_PAGE_FINISH
+
+    Function orgtreeScheduleUpgradeRelaunch
+      StrCpy $OrgUpgradeRelaunchReady "0"
+      ${if} $OrgUpgradeRelaunchScheduled == "1"
+        StrCpy $OrgUpgradeRelaunchReady "1"
+        Return
+      ${endif}
+      # A silent/unattended invocation must not acquire this interactive
+      # upgrade relaunch path.
+      ${if} ${Silent}
+        Return
+      ${endif}
+
+      # Start under the original user token, including for an elevated
+      # all-users inner instance. The helper waits for this exact installer PID
+      # before launching the newly installed desktop.
+      System::Call 'kernel32::GetCurrentProcessId() i .r0'
+      StrCpy $OrgUpgradeRelaunchDir "$TEMP\OrgtreeInstallerRelaunch-$0"
+      CreateDirectory $OrgUpgradeRelaunchDir
+      CopyFiles /SILENT "$PLUGINSDIR\installer-relaunch.ps1" $OrgUpgradeRelaunchDir
+      ${if} ${Errors}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but its post-Setup launch helper could not be prepared. You can start Orgtree from its shortcut." /SD IDOK
+        Return
+      ${endif}
+      StrCpy $OrgUpgradeRelaunchArgs '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$OrgUpgradeRelaunchDir\installer-relaunch.ps1" -InstallerPid $0 -ExecutablePath "$OrgUpgradeExe"'
+      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "open" "$OrgUpgradeRelaunchArgs"
+      ${if} $1 != 0
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (error $1). You can start Orgtree from its shortcut." /SD IDOK
+        Return
+      ${endif}
+      StrCpy $OrgUpgradeRelaunchScheduled "1"
+      StrCpy $OrgUpgradeRelaunchReady "1"
+    FunctionEnd
+
+    Function orgtreeUpgradeFinishPagePre
+      ${if} $OrgUpgradeSelected == "1"
+        Call orgtreeScheduleUpgradeRelaunch
+        ${if} $OrgUpgradeRelaunchReady == "1"
+          # Finish is the final page, so its normal page-pre skip closes the
+          # successful upgrade without presenting Start Orgtree/Finish.
+          Abort
+        ${endif}
+      ${endif}
+    FunctionEnd
+  !endif
+!macroend
+
 !macro customHeader
   !ifndef BUILD_UNINSTALLER
     # Sections execute in declaration order, before bundled uninstall/copy.
