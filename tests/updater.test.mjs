@@ -11,7 +11,7 @@ await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: tr
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
   uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
-  updateFailureToReport, FAILURE_REPORT_SHOWS, updateFailureDialogOptions, MANUAL_UPGRADE_URL, MANUAL_UPGRADE_LABEL,
+  updateAttemptFailed, updateFailureToReport, FAILURE_REPORT_SHOWS, updateFailureDialogOptions, MANUAL_UPGRADE_URL, MANUAL_UPGRADE_LABEL,
   installerLogTail, INSTALLER_LOG_TAIL,
   compareUpdateVersions, updateOfferIsNewer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
@@ -120,6 +120,42 @@ test('the periodic tick still leaves a prepared update alone', async () => {
   await controller.tick()
   assert.deepEqual(reports, [], 'the unattended path must not touch a known-pending download')
   assert.equal(calls, 1, 'and must not reach the feed either')
+})
+
+test('a prepared package whose install failed permits a later periodic replacement check', async () => {
+  let calls = 0
+  let failed = false
+  const { controller, reports, advance } = rig({
+    run: async () => { calls++; return { hasUpdate: true, version: calls === 1 ? '2.0.4' : '2.0.5' } },
+    preparedInstallFailed: () => failed,
+  })
+  await controller.tick()
+  controller.downloaded('2.0.4')
+  failed = true
+  advance(6 * 60 * 60 * 1000)
+  reports.length = 0
+
+  // Positive control: the failed-package signal must actually open the feed
+  // path; quiet output alone could be a fixture that never became due.
+  await controller.tick()
+  assert.equal(calls, 2, 'a failed prepared package must not permanently stop background checks')
+  assert.deepEqual(reports.slice(0, 2), [{ state: 'checking' }, { state: 'downloading', version: '2.0.5' }])
+})
+
+test('a failed prepared package still rejects equal or older offers', async () => {
+  let now = 0
+  let calls = 0
+  const { controller, downloads } = rig({
+    now: () => now,
+    run: async () => { calls++; return { hasUpdate: true, version: '2.0.4' } },
+    preparedInstallFailed: () => true,
+  })
+  controller.downloaded('2.0.5')
+  now = 6 * 60 * 60 * 1000
+  await controller.tick()
+  assert.equal(calls, 1, 'the failed package permits the check')
+  assert.deepEqual(downloads, [], 'an older offer must not replace the prepared package')
+  assert.deepEqual(controller.current(), { state: 'pending-idle', version: '2.0.5', recheck: 'up-to-date' })
 })
 
 test('a manual check now RUNS with an update already prepared, and a newer release replaces it', async () => {
@@ -979,6 +1015,18 @@ test('the report is DELIVERED once, not merely written once, and repeats are bou
     'under the bound it still reports')
   assert.equal(updateFailureToReport([...failed, ...shows(FAILURE_REPORT_SHOWS)], '2.1.3'), null,
     'at the bound it stops shouting')
+})
+
+test('failed-attempt detection survives report acknowledgement but rejects healthy and changed versions', () => {
+  const attempt = { at: 't0', stage: 'attempt', from: '2.1.3', to: '2.1.4' }
+  const failed = [attempt, { at: 't1', stage: 'handoff' },
+    { at: 't2', stage: 'failure-report-shown' }, { at: 't3', stage: 'failure-reported' }]
+  assert.equal(updateAttemptFailed(failed, '2.1.3'), true,
+    'a dismissed report must not make the still-prepared failed package look healthy')
+  assert.equal(updateAttemptFailed([attempt, { at: 't1', stage: 'layout' }], '2.1.3'), false,
+    'an attempt still in flight is not a failed prepared package')
+  assert.equal(updateAttemptFailed([attempt, { at: 't1', stage: 'handoff' }], '2.1.4'), false,
+    'a changed running version means the update succeeded')
 })
 
 test('every visible update failure offers the official manual recovery action', () => {

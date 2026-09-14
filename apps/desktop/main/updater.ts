@@ -124,6 +124,17 @@ export function pendingUpdateHold(entries: UpdateLogEntry[], runningVersion: str
  *  shouting, while still surviving an instance that dies with the dialog up. */
 export const FAILURE_REPORT_SHOWS = 3
 
+/** Whether a prepared update attempt ended without changing the running
+ * version. This is deliberately independent of whether its failure report
+ * was already dismissed or reached the display bound: a failed package must
+ * remain eligible for replacement by a later release. */
+export function updateAttemptFailed(entries: UpdateLogEntry[], runningVersion: string): boolean {
+  if (!entries.length || entries[0]!.stage !== 'attempt') return false
+  const ended = entries.some(e => e.stage === 'handoff' || e.stage === 'handoff-refused'
+    || e.stage === 'not-installed' || e.stage === 'installer-running')
+  return ended && entries[0]!.from === runningVersion
+}
+
 /** The official release page is a recovery route, not an in-app download.
  * Keeping this URL static means it remains available when the configured feed
  * cannot be reached, while the user still chooses whether to leave Orgtree. */
@@ -166,7 +177,7 @@ export function updateFailureDialogOptions(message: string, detail: string, type
  *  Pure, so exactly-once reporting is testable without a filesystem, an
  *  Electron app, or a human to dismiss anything. */
 export function updateFailureToReport(entries: UpdateLogEntry[], runningVersion: string): { detail: string; to?: string } | null {
-  if (!entries.length || entries[0]!.stage !== 'attempt') return null
+  if (!updateAttemptFailed(entries, runningVersion)) return null
   // ⚠ THE TRIGGER IS "THE VERSION DID NOT CHANGE", NOT "WE DETECTED A FAILURE",
   // and that difference is the whole point of this rule.
   //
@@ -187,9 +198,6 @@ export function updateFailureToReport(entries: UpdateLogEntry[], runningVersion:
   //
   // So the condition is the same one the one-run hold uses: an attempt that
   // ENDED, and a running version that did not move.
-  const ended = entries.some(e => e.stage === 'handoff' || e.stage === 'handoff-refused'
-    || e.stage === 'not-installed' || e.stage === 'installer-running')
-  if (!ended) return null
   // ⚠ DELIVERED IS NOT THE SAME AS WRITTEN, and getting this backwards loses
   // the message outright. 'failure-reported' is written when the user DISMISSES
   // the dialog, so an instance that dies with it still on screen has not
@@ -212,7 +220,6 @@ export function updateFailureToReport(entries: UpdateLogEntry[], runningVersion:
   // SUCCESSFUL update leaves behind — attempt, handoff, then a new version — so
   // without this the report would fire after every working upgrade, which is a
   // lie told at the worst possible moment.
-  if (entries[0]!.from !== runningVersion) return null
   // The reason, most specific first: the verdict that named it, then the
   // generic line, then the bare fact — which is still worth saying, because on
   // the reported machine the bare fact was never said to anybody.
@@ -928,6 +935,9 @@ interface UpdateCallbacks {
   now?: () => number
   /** Manual checks remain available when background updates are disabled. */
   automaticEnabled?: () => boolean
+  /** A prepared package whose own handoff ended without changing the running
+   * version must be replaceable by a later periodic check. */
+  preparedInstallFailed?: () => boolean
 }
 
 interface UpdateOptions {
@@ -963,11 +973,14 @@ export class UpdateController {
   current() { return this.status }
 
   /** Drive from a periodic poll (e.g. every 5s, matching the existing engine poll cadence);
-   *  only actually checks the network when due, and never while a real update is already known. */
+   *  only actually checks the network when due. A prepared package blocks polls
+   *  until it has failed its own install, then a later release may replace it. */
   async tick(): Promise<void> {
     if (this.callbacks.automaticEnabled?.() === false) return
     if (this.inFlight) return
-    if (this.status.state === 'downloading' || this.status.state === 'pending-idle') return
+    const failedPreparedInstall = this.status.state === 'pending-idle'
+      && this.callbacks.preparedInstallFailed?.() === true
+    if (this.status.state === 'downloading' || (this.status.state === 'pending-idle' && !failedPreparedInstall)) return
     const now = this.now()
     // lastCheckAt is only set on success, so a failure must be judged solely by nextRetryAt -
     // otherwise "never succeeded yet" would keep looking like "never checked yet" and skip backoff entirely.

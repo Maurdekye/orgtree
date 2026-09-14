@@ -22,7 +22,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // on main ever since refreshTrayUpdateMenu joined the same import.
   const updaterImport = main.match(/import \{([^}]*)\} from '\.\/updater'/)
   assert.ok(updaterImport, 'the main process must import from ./updater')
-  for (const name of ['checkForUpdatesViaEvents', 'installDownloadedUpdate', 'UpdateController', 'prepareAndHandOff', 'UpdateLog', 'updateLogger', 'bounded', 'installDirectoryWritable', 'MANUAL_UPGRADE_URL', 'updateFailureDialogOptions']) {
+  for (const name of ['checkForUpdatesViaEvents', 'installDownloadedUpdate', 'UpdateController', 'prepareAndHandOff', 'UpdateLog', 'updateLogger', 'bounded', 'installDirectoryWritable', 'MANUAL_UPGRADE_URL', 'updateAttemptFailed', 'updateFailureDialogOptions']) {
     assert.ok(updaterImport[1].split(',').map(part => part.trim()).includes(name), `main must import ${name}`)
   }
   // the install directory is still the RUNNING install's own directory
@@ -117,6 +117,11 @@ test('the update controller is wired end to end: contracts, preload, main proces
     'the relaunched failure report must show the manual route')
   assert.doesNotMatch(main, /shell\.openExternal\([^)]*\.exe/,
     'failure recovery must not open or execute a downloaded installer')
+
+  // A failed prepared package may be replaced by a later periodic release,
+  // but a healthy prepared package continues to suppress background checks.
+  assert.match(main, /preparedInstallFailed: \(\) => updateAttemptFailed\(updateLog\.lastAttempt\(\), app\.getVersion\(\)\)/,
+    'periodic checks must reuse the durable failed-attempt fact')
 
   // ---- the 2.0.3 hang and the shutdown-without-install ----
   // electron-updater's default logger is `console`, which a packaged Windows

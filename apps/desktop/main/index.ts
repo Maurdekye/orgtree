@@ -17,7 +17,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
-import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -843,6 +843,7 @@ else {
   // any engine-issued request.
   const updater = new UpdateController({
     automaticEnabled: () => updatesSupported && preferences.get().automaticUpdates,
+    preparedInstallFailed: () => updateAttemptFailed(updateLog.lastAttempt(), app.getVersion()),
     // electron-updater's own update-available/update-not-available events are the
     // authoritative "is this actually newer" answer (channel/prerelease/downgrade
     // rules included) - comparing version strings here would get an older or
