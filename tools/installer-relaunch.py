@@ -42,8 +42,12 @@ token (the installer's job, via ExecShellAsUser), start only after the
 installer process has exited, and launch exactly once.
 
 Arguments are positional: <installer-pid> <executable-path> [<ready-marker>].
-The ready marker is the installer's acceptance handshake — it is written before
-the wait begins, and the installer skips its Finish page only if it appears.
+The ready marker is the installer's acceptance handshake, and it is published
+only AFTER this helper holds the process handle it will wait on — the installer
+reads it as permission to close its own Finish page, so it must not be written
+on the strength of a wait that has not been secured yet. The installer withdraws
+a relaunch it gave up on by writing relaunch-withdrawn.txt beside that marker,
+which a late helper checks before launching so the user cannot end up with two.
 
 Exit codes, all of them also written to the log:
   0  the installer's exit was observed and the application was launched once
@@ -51,6 +55,7 @@ Exit codes, all of them also written to the log:
   3  the installer's state could not be read, so nothing was launched
   4  the installer had not exited within the timeout, so nothing was launched
   5  the application could not be started
+  6  the installer withdrew the relaunch, so the user owns the launch
 """
 
 import ctypes
@@ -62,6 +67,7 @@ import time
 from ctypes import wintypes
 
 LOG_NAME = "orgtree-installer-relaunch.log"
+CANCEL_NAME = "relaunch-withdrawn.txt"
 DEFAULT_TIMEOUT_MS = 120000
 
 SYNCHRONIZE = 0x00100000
@@ -75,6 +81,7 @@ EXIT_BAD_ARGUMENTS = 2
 EXIT_UNREADABLE = 3
 EXIT_STILL_RUNNING = 4
 EXIT_LAUNCH_FAILED = 5
+EXIT_WITHDRAWN = 6
 
 # DETACHED_PROCESS, not CREATE_NO_WINDOW: the launched process gets no console
 # at all rather than a hidden one, and it does not inherit this helper's.
@@ -127,6 +134,27 @@ def announce_ready(marker):
         record("could not write the ready marker %s: %s" % (marker, describe(error)))
 
 
+def cancelled(marker):
+    """Has the installer withdrawn this relaunch?
+
+    The installer writes this file beside the ready marker when it has given up
+    waiting for the acknowledgement and handed the launch back to the user
+    through its Finish page. A helper that starts late would otherwise launch a
+    second copy of an application the user has already started by hand.
+
+    Best effort in one direction only: if this cannot be read, the helper
+    launches. A missed withdrawal costs one redundant start, which the
+    application's single-instance lock collapses; a missed LAUNCH costs the user
+    their upgraded application.
+    """
+    if not marker:
+        return False
+    try:
+        return os.path.exists(os.path.join(os.path.dirname(marker), CANCEL_NAME))
+    except Exception:
+        return False
+
+
 def describe(error):
     text = str(error).strip()
     number = getattr(error, "winerror", None)
@@ -137,13 +165,56 @@ def describe(error):
     return "%s (Windows error %s)" % (text or "no detail", number)
 
 
+ACQUIRED = "acquired"
 EXITED = "exited"
 STILL_RUNNING = "still-running"
 UNREADABLE = "unreadable"
 
 
-def wait_for_exit(pid, timeout_ms):
-    """Answer EXITED, STILL_RUNNING or UNREADABLE.
+def _kernel32():
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    return kernel32
+
+
+def acquire(pid):
+    """Take the handle this helper will wait on, and answer what it holds.
+
+    ⚠ THIS RUNS BEFORE THE ACKNOWLEDGEMENT, AND THAT ORDER IS THE POINT. The
+    installer treats the ready marker as permission to close its own Finish page,
+    so publishing it before knowing whether this helper can wait at all gives
+    away the user's fallback on a promise that may not be keepable: OpenProcess
+    can still be refused, and a marker already read cannot be taken back by
+    deleting the file. Nothing is acknowledged until the handle is in hand.
+
+    Returns (handle, status). A handle is returned only with ACQUIRED; EXITED
+    means the process id is already gone, which is a race this helper may win.
+    """
+    kernel32 = _kernel32()
+    handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+    if handle:
+        return handle, ACQUIRED
+
+    error = ctypes.get_last_error()
+    if error == ERROR_INVALID_PARAMETER:
+        # There is no such process id. The installer exited before this helper
+        # got far enough to open a handle on it.
+        record("installer process %d had already exited" % pid)
+        return None, EXITED
+    # Anything else — access denied above all — is NOT evidence of exit.
+    record(
+        "could not open installer process %d to wait on it: Windows error %d; "
+        "not launching and NOT acknowledging, because an unreadable state is "
+        "neither an observed exit nor a wait this helper can promise to keep" % (pid, error)
+    )
+    return None, UNREADABLE
+
+
+def wait_on(handle, pid, timeout_ms):
+    """Answer EXITED, STILL_RUNNING or UNREADABLE for an ACQUIRED handle.
 
     THE THREE ANSWERS ARE KEPT APART. A process that ended, a process that is
     still running, and a process whose state could not be read are different
@@ -151,28 +222,7 @@ def wait_for_exit(pid, timeout_ms):
     into the first is the WMI defect this replaced: it launched early and
     reported success.
     """
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.WaitForSingleObject.restype = wintypes.DWORD
-    kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
-
-    handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
-    if not handle:
-        error = ctypes.get_last_error()
-        if error == ERROR_INVALID_PARAMETER:
-            # There is no such process id. The installer exited before this
-            # helper got far enough to open a handle on it, which is a race this
-            # helper is allowed to win.
-            record("installer process %d had already exited" % pid)
-            return EXITED
-        # Anything else — access denied above all — is NOT evidence of exit.
-        record(
-            "could not open installer process %d to wait on it: Windows error %d; "
-            "not launching, because an unreadable state is not an observed exit" % (pid, error)
-        )
-        return UNREADABLE
-
+    kernel32 = _kernel32()
     try:
         result = kernel32.WaitForSingleObject(handle, timeout_ms)
     finally:
@@ -246,16 +296,32 @@ def main(argv):
     except ValueError:
         timeout_ms = DEFAULT_TIMEOUT_MS
 
-    announce_ready(marker)
-    record("waiting for installer process %d before starting %s" % (pid, executable))
-
-    outcome = wait_for_exit(pid, timeout_ms)
-    if outcome == STILL_RUNNING:
-        return EXIT_STILL_RUNNING
-    if outcome != EXITED:
-        # UNREADABLE. wait_for_exit has already recorded why. Nothing is
-        # launched: "I could not tell" must never become "it had exited".
+    # THE HANDLE FIRST, THE ACKNOWLEDGEMENT SECOND. See acquire().
+    handle, status = acquire(pid)
+    if status == UNREADABLE:
+        # acquire() has already recorded why. No marker is written, so the
+        # installer keeps its Finish page and the user keeps a way to start the
+        # application — which is the whole reason this ordering matters.
         return EXIT_UNREADABLE
+
+    announce_ready(marker)
+
+    if status == ACQUIRED:
+        record("waiting for installer process %d before starting %s" % (pid, executable))
+        outcome = wait_on(handle, pid, timeout_ms)
+        if outcome == STILL_RUNNING:
+            return EXIT_STILL_RUNNING
+        if outcome != EXITED:
+            # UNREADABLE. wait_on has already recorded why. Nothing is launched:
+            # "I could not tell" must never become "it had exited".
+            return EXIT_UNREADABLE
+
+    if cancelled(marker):
+        # The installer gave up on this helper and handed the launch back to the
+        # user. Starting now would be a SECOND launch of an application the user
+        # may already have started from the page this helper failed to close.
+        record("the installer withdrew this relaunch; leaving the launch to the user")
+        return EXIT_WITHDRAWN
 
     try:
         launch(executable)

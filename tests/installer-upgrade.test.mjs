@@ -178,10 +178,14 @@ test('successful interactive upgrades skip Finish and relaunch once after instal
   assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?CopyFiles \/SILENT "\$PLUGINSDIR\\installer-relaunch\.py" \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /Function orgtreePrepareUpgradeRelaunch[\s\S]*?ClearErrors\r?\n\s+CreateDirectory \$OrgUpgradeRelaunchDir[\s\S]*?ClearErrors\r?\n\s+CopyFiles \/SILENT/)
   assert.match(installer, /"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py"/)
-  // Wait strictly before launch, and exactly one launch site.
-  const wait = relaunch.indexOf('wait_for_exit(pid, timeout_ms)')
-  const launch = relaunch.indexOf('launch(executable)\n')
-  assert.ok(wait >= 0 && launch > wait, 'the app must start only after the installer-exit wait')
+  // Wait strictly before launch, and exactly one launch site. These anchor on
+  // the CALLS, not the definitions, and they are line-ending agnostic: a
+  // literal '\n' anchor silently finds nothing in a normal CRLF checkout, which
+  // is an assertion that passes by not looking.
+  const wait = relaunch.search(/^\s*outcome = wait_on\(handle, pid, timeout_ms\)\s*$/m)
+  const launch = relaunch.search(/^\s*launch\(executable\)\s*$/m)
+  assert.ok(wait >= 0, 'the helper must call the wait; the anchor found no call at all')
+  assert.ok(launch > wait, 'the app must start only after the installer-exit wait')
   assert.equal((relaunch.match(/^\s*launch\(executable\)$/gm) ?? []).length, 1, 'the helper has one launch site')
   assert.equal((relaunch.match(/^\s*subprocess\.Popen\($/gm) ?? []).length, 1, 'the helper starts exactly one process')
   assert.match(relaunch, /shutil\.rmtree\(directory, ignore_errors=True\)/)
@@ -228,22 +232,44 @@ test('the upgrade relaunch dispatch never targets a console-subsystem host', {
     : !engineRuntime ? 'no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME'
     : false,
 }, () => {
-  // The dispatch names a VARIABLE now, because the host is the application's
-  // own runtime rather than a file in System32. The variable is resolved from
-  // the same source line that assigns it, so the guard still measures whatever
-  // build/installer.nsh actually names and cannot be satisfied by a stale path.
-  const dispatch = installer.match(/\$\{StdUtils\.ExecShellAsUser\} \$1 "([^"]+)"/)
-  assert.ok(dispatch, 'the relaunch dispatch line could not be found at all')
-  const named = dispatch[1] === '$OrgUpgradeRelaunchHost'
-    ? installer.match(/StrCpy \$OrgUpgradeRelaunchHost "([^"]+)"/)?.[1]
-    : dispatch[1]
-  assert.ok(named, 'the relaunch host assignment could not be found')
-  const target = hostPath(named)
-  assert.ok(fs.existsSync(target), `the dispatch target does not exist: ${target}`)
+  // EVERY dispatch, not the first one. There are two now — the relaunch helper's
+  // host and the Finish page's launch action — and a guard that stopped at the
+  // first would have gone on passing while a console came back through the
+  // second. Targets name VARIABLES, so each is resolved from the line that
+  // assigns it; an unrecognised target is a failure rather than a skip, because
+  // "I could not resolve it" must never read as "it is safe".
+  const dispatches = [...installer.matchAll(/\$\{StdUtils\.ExecShellAsUser\} \$\d+ "([^"]+)"/g)].map(m => m[1])
+  assert.ok(dispatches.length >= 2, `expected the helper dispatch and the Finish launch, found ${dispatches.length}`)
 
-  // THE SUBJECT.
-  assert.equal(peSubsystem(target), SUBSYSTEM_GUI,
-    `${dispatch[1]} is console-subsystem; ShellExecute cannot suppress its console and a terminal window will appear`)
+  for (const named of dispatches) {
+    if (named === '$OrgUpgradeRelaunchHost') {
+      // The helper's host: a real file this checkout can read.
+      const assigned = installer.match(/StrCpy \$OrgUpgradeRelaunchHost "([^"]+)"/)?.[1]
+      assert.ok(assigned, 'the relaunch host assignment could not be found')
+      const target = hostPath(assigned)
+      assert.ok(fs.existsSync(target), `the dispatch target does not exist: ${target}`)
+      // THE SUBJECT.
+      assert.equal(peSubsystem(target), SUBSYSTEM_GUI,
+        `${assigned} is console-subsystem; ShellExecute cannot suppress its console and a terminal window will appear`)
+      continue
+    }
+    if (named === '$0') {
+      // The Finish page's launch action. $0 is assigned immediately above it
+      // and is the INSTALLED APPLICATION — Electron, GUI-subsystem — with a
+      // fallback to $INSTDIR\<app>.exe. There is no such file in a source
+      // checkout, so what is asserted here is that it is the application and
+      // not a host: a script host or interpreter reintroduces the console this
+      // work removed.
+      const run = installer.match(/Function orgtreeFinishPageRun[\s\S]*?FunctionEnd/)?.[0]
+      assert.ok(run, 'the Finish launch function could not be found')
+      assert.match(run, /StrCpy \$0 "\$OrgUpgradeExe"/)
+      assert.match(run, /StrCpy \$0 "\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}"/)
+      assert.doesNotMatch(run, /\$SYSDIR|\.ps1|\.js\b|\.py\b|pythonw?\.exe|powershell\.exe|cmd\.exe/,
+        'the Finish page must start the application directly, not through a host')
+      continue
+    }
+    assert.fail(`unrecognised ExecShellAsUser target ${named}: resolve it here rather than letting it pass unmeasured`)
+  }
 
   // POSITIVE CONTROL — the assertion must FAIL for the exact binary the defect
   // used. Without this, a guard that could never fire would read as a pass.
@@ -371,6 +397,51 @@ test('the manual upgrade elevation is left where it was', () => {
   assert.match(mode[0], /MessageBox[\s\S]*?Administrator approval is required/)
 })
 
+// THE FALLBACK HAS TO EXIST. Defining customFinishPage takes away the ELSE
+// branch of app-builder-lib's assistedInstaller.nsh, and that branch is where
+// the stock StartApp function and the MUI_FINISHPAGE_RUN defines live — so this
+// page had no launch control at all, while the upgrade failure paths told the
+// user to start the application from it.
+test('the retained Finish page carries a real launch action, under the original user token', () => {
+  const finish = installer.match(/!macro customFinishPage\r?\n[\s\S]*?\r?\n!macroend/)
+  assert.ok(finish, 'customFinishPage must exist')
+  const body = finish[0]
+
+  assert.match(body, /!define MUI_FINISHPAGE_RUN\r?\n\s*!define MUI_FINISHPAGE_RUN_FUNCTION orgtreeFinishPageRun/)
+  assert.match(body, /Function orgtreeFinishPageRun[\s\S]*?\$\{StdUtils\.ExecShellAsUser\} \$1 "\$0" "open" ""/)
+  // The target is the installed application, which is GUI-subsystem. Starting
+  // it through a script host here would put the console back exactly where the
+  // incident put it.
+  assert.match(body, /Function orgtreeFinishPageRun[\s\S]*?StrCpy \$0 "\$OrgUpgradeExe"[\s\S]*?\$0 == ""[\s\S]*?\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}/)
+  // One owner for the launch: taking it back from a helper that may still be
+  // coming happens BEFORE the user's launch, not after it.
+  const withdraw = body.indexOf('Call orgtreeWithdrawUpgradeRelaunch')
+  const dispatch = body.indexOf('${StdUtils.ExecShellAsUser} $1 "$0" "open" ""')
+  assert.ok(withdraw >= 0 && dispatch > withdraw,
+    'the pending relaunch must be withdrawn before the user starts the application by hand')
+  assert.match(body, /Function orgtreeWithdrawUpgradeRelaunch[\s\S]*?FileOpen \$R6 "\$OrgUpgradeRelaunchDir\\relaunch-withdrawn\.txt" w/)
+  assert.match(relaunch, /CANCEL_NAME = "relaunch-withdrawn\.txt"/,
+    'the installer and the helper must agree on the withdrawal file name')
+
+  // Every path that keeps the page must also hand the relaunch back, or a late
+  // helper and the user both launch.
+  for (const stage of ['relaunch-unacknowledged', 'relaunch-dispatch-failed']) {
+    const at = body.indexOf(stage)
+    assert.ok(at >= 0, `${stage} must be logged`)
+    const before = body.slice(0, at)
+    assert.ok(before.lastIndexOf('Call orgtreeWithdrawUpgradeRelaunch') > before.lastIndexOf('${StdUtils.ExecShellAsUser}'),
+      `${stage} must withdraw the relaunch before it hands the launch back to the user`)
+  }
+
+  // A MESSAGE MAY NOT PROMISE A CONTROL THAT IS NOT THERE. This is the guard on
+  // the defect itself: the old text said to use Finish on a page that could
+  // only close.
+  if (/Run Orgtree ticked|start it from Finish|Use Finish to start/i.test(installer)) {
+    assert.match(body, /!define MUI_FINISHPAGE_RUN\b/,
+      'the installer tells the user the Finish page can start Orgtree, so it must define that action')
+  }
+})
+
 // THE LIVENESS CONTRACT. The previous helper asked WMI whether the installer
 // was still running and treated a FAILED query as "it has exited", which
 // launched the application immediately, over a live installer, and exited 0 as
@@ -391,15 +462,31 @@ test('the relaunch helper waits on a process handle and never guesses', () => {
   assert.match(relaunch, /if outcome != EXITED:[\s\S]*?return EXIT_UNREADABLE/)
   // A process id that does not exist at all is the one failure that IS an exit:
   // OpenProcess answers ERROR_INVALID_PARAMETER for it, and nothing else.
-  assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER:[\s\S]*?return EXITED/)
-  assert.equal((relaunch.match(/return EXITED/g) ?? []).length, 2,
+  assert.match(relaunch, /if error == ERROR_INVALID_PARAMETER:[\s\S]*?return None, EXITED/)
+  assert.equal((relaunch.match(/return (?:None, )?EXITED/g) ?? []).length, 2,
     'only "no such process" and a signalled handle may count as an exit')
 
-  // The acceptance handshake is written BEFORE the wait, or the installer would
-  // have to wait out the whole upgrade to learn the helper started.
-  const ready = relaunch.indexOf('announce_ready(marker)')
-  const waiting = relaunch.indexOf('outcome = wait_for_exit(pid, timeout_ms)')
-  assert.ok(ready >= 0 && waiting > ready, 'the ready marker must be written before the wait begins')
+  // ⚠ ORDER: THE HANDLE, THEN THE ACKNOWLEDGEMENT. The installer reads the
+  // marker as permission to close its own Finish page, so writing it before
+  // knowing whether this helper can wait at all gives away the user's fallback
+  // on a promise that may not be keepable — OpenProcess can still be refused,
+  // and a marker that has been read cannot be withdrawn by deleting the file.
+  const acquiring = relaunch.search(/^\s*handle, status = acquire\(pid\)\s*$/m)
+  const ready = relaunch.search(/^\s*announce_ready\(marker\)\s*$/m)
+  const waiting = relaunch.search(/^\s*outcome = wait_on\(handle, pid, timeout_ms\)\s*$/m)
+  assert.ok(acquiring >= 0, 'the helper must acquire the handle in its own step')
+  assert.ok(ready > acquiring, 'the handle must be acquired BEFORE the acknowledgement is published')
+  assert.ok(waiting > ready, 'the acknowledgement must precede the wait, or the installer waits out the upgrade')
+  // And an unreadable acquisition must return before the acknowledgement, not
+  // merely skip the launch later.
+  assert.match(relaunch, /handle, status = acquire\(pid\)\r?\n\s*if status == UNREADABLE:[\s\S]*?return EXIT_UNREADABLE/)
+
+  // The withdrawal check is the last thing before the launch, so a helper that
+  // acknowledged late cannot start a second copy behind the user.
+  const withdrawn = relaunch.search(/^\s*if cancelled\(marker\):\s*$/m)
+  const launching = relaunch.search(/^\s*launch\(executable\)\s*$/m)
+  assert.ok(withdrawn > waiting && launching > withdrawn,
+    'the withdrawal must be checked after the wait and before the launch')
 })
 
 // BEHAVIOURAL. The sections above read the source; these RUN the exact helper
@@ -520,7 +607,44 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
     assert.equal(each.launches(), 0,
       `nothing may be launched when the installer's state could not be read: ${each.logText()}`)
     assert.match(each.logText(), /could not open installer process 4[\s\S]*not launching/)
+    // AND IT MUST NOT HAVE ACKNOWLEDGED. This is the ordering defect: the
+    // marker used to be written first, so the installer could read it, skip its
+    // Finish page, and only then have this helper refuse to launch — leaving no
+    // application and no way to start one. A marker deleted afterwards cannot
+    // take back a decision the installer has already made.
+    assert.ok(!fs.existsSync(each.ready),
+      'a helper that could not acquire the handle must NOT publish the acknowledgement that authorises closing Setup')
   } finally {
+    discard(each.base)
+  }
+})
+
+// The other half of R1: the installer can hand the launch back to the user, and
+// a helper that acknowledged late must not then start a second copy.
+test('a withdrawn relaunch launches nothing and says so', { skip: helperSkip, timeout: 60000 }, async () => {
+  const each = helperCase('withdrawn')
+  const installerProcess = livingProcess(1500)
+  try {
+    const helper = spawn(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, String(installerProcess.pid), each.target, each.ready],
+      { windowsHide: true, stdio: 'ignore', env: each.env })
+
+    // Withdraw while the helper is still waiting — the same order the installer
+    // uses when it gives up and shows its Finish page.
+    const deadline = Date.now() + 15000
+    while (!fs.existsSync(each.ready) && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assert.ok(fs.existsSync(each.ready), 'the helper never acknowledged, so this case never got set up')
+    fs.writeFileSync(path.join(path.dirname(each.ready), 'relaunch-withdrawn.txt'), 'withdrawn\r\n')
+
+    const code = await new Promise(resolve => helper.on('exit', resolve))
+    assert.equal(code, 6, `a withdrawn relaunch has its own exit code: ${each.logText()}`)
+    assert.equal(await settledLaunches(each, 0), 0,
+      `a withdrawn relaunch must start nothing — the user owns the launch now: ${each.logText()}`)
+    assert.match(each.logText(), /withdrew this relaunch/)
+  } finally {
+    installerProcess.kill()
     discard(each.base)
   }
 })
@@ -532,9 +656,14 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
 test('the unreadable-state guard is measuring something', { skip: helperSkip, timeout: 60000 }, async () => {
   const each = helperCase('unreadable-control')
   try {
-    const defective = fs.readFileSync(each.script, 'utf8')
-      .replace('        return UNREADABLE\n', '        return EXITED\n')
-    assert.notEqual(defective, fs.readFileSync(each.script, 'utf8'),
+    // Line-ending agnostic on purpose: a literal '\n' anchor does not match a
+    // normal CRLF checkout, so the mutation silently does nothing and the
+    // control passes by being inert — the exact failure mode a control exists
+    // to rule out. The replacement targets the refusal inside acquire(), which
+    // is the answer the pre-fix helper did not have.
+    const original = fs.readFileSync(each.script, 'utf8')
+    const defective = original.replace(/return None, UNREADABLE(\r?\n)/, 'return None, EXITED$1')
+    assert.notEqual(defective, original,
       'the control could not restore the pre-fix answer; its anchor moved')
     fs.writeFileSync(each.script, defective)
 

@@ -784,8 +784,66 @@ orgtreeSilentElevateDone:
     # Fresh and Advanced setup retain electron-builder's normal Finish page.
     # An accepted Upgrade reaches this page only after install bookkeeping has
     # succeeded; schedule a post-exit launch and skip the extra click.
+    #
+    # ⚠ THE RUN ACTION HAS TO BE DEFINED HERE, BY US. Defining customFinishPage
+    # at all takes the ELSE branch of app-builder-lib's assistedInstaller.nsh
+    # away, and that branch is where the stock StartApp function and the
+    # MUI_FINISHPAGE_RUN defines live. Without these two lines Modern UI shows
+    # no launch control at all, so this page offered nothing but a Close button
+    # — which is exactly what the failure path below now needs it to offer. A
+    # message telling the user to start the application from Finish, on a page
+    # with no way to do that, is a promise the installer cannot keep.
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_FUNCTION orgtreeFinishPageRun
     !define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre
     !insertmacro MUI_PAGE_FINISH
+
+    # The Finish page's launch action, and the FALLBACK the upgrade path depends
+    # on when it could not hand the relaunch to a helper.
+    Function orgtreeFinishPageRun
+      # Under the ORIGINAL user token, for the same reason the helper is: an
+      # all-users upgrade runs this page in an elevated inner instance, and an
+      # application started from there would run elevated for the rest of its
+      # life. ExecShellAsUser answers with a token, never an exit code — see the
+      # dispatch below for what the values mean.
+      #
+      # The target is the installed executable, which is GUI-subsystem, so this
+      # allocates no console. It is deliberately NOT a script host: the
+      # incident this work exists for was a console appearing at exactly this
+      # moment in the flow.
+      StrCpy $0 "$OrgUpgradeExe"
+      ${if} $0 == ""
+        StrCpy $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+      ${endif}
+      # WITHDRAW A HELPER THAT MAY STILL BE COMING. The user is starting the
+      # application by hand, so a helper that acknowledged late must not start a
+      # second one. It checks for this file immediately before launching.
+      Call orgtreeWithdrawUpgradeRelaunch
+      ${StdUtils.ExecShellAsUser} $1 "$0" "open" ""
+      ${if} $1 == "ok"
+      ${orif} $1 == "fallback"
+        !insertmacro OrgLog "finish-run" "the user started [$0] from the Finish page"
+      ${else}
+        !insertmacro OrgLog "finish-run-failed" "starting [$0] from the Finish page failed with result $1"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "Orgtree could not be started (result: $1). You can start it from its shortcut." /SD IDOK
+      ${endif}
+    FunctionEnd
+
+    # Writing this file is how the installer takes the relaunch back. The helper
+    # stages itself in $OrgUpgradeRelaunchDir and looks for it there as its last
+    # act before launching; if the directory is gone the helper is gone with it,
+    # and there is nothing to withdraw.
+    Function orgtreeWithdrawUpgradeRelaunch
+      ${if} $OrgUpgradeRelaunchDir == ""
+        Return
+      ${endif}
+      ClearErrors
+      FileOpen $R6 "$OrgUpgradeRelaunchDir\relaunch-withdrawn.txt" w
+      ${ifNot} ${Errors}
+        FileWrite $R6 "withdrawn$\r$\n"
+        FileClose $R6
+      ${endif}
+    FunctionEnd
 
     # The dispatch is its own function so the compiled upgrade harness can
     # drive it against the REAL StdUtils.dll: the 2.1.4-RC4 field failure
@@ -834,7 +892,7 @@ orgtreeSilentElevateDone:
         # relaunching is skipping the Finish page and then not relaunching: the
         # user is left with no application and no button that would have started
         # one. Falling through leaves the normal Finish page in place.
-        !insertmacro OrgLog "relaunch-host-missing" "no runtime host at [$OrgUpgradeRelaunchHost]; leaving the Finish page in place instead of scheduling a relaunch"
+        !insertmacro OrgLog "relaunch-host-missing" "no runtime host at [$OrgUpgradeRelaunchHost]; leaving the Finish page and its Run Orgtree action in place instead of scheduling a relaunch"
         Return
       ${endif}
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
@@ -864,12 +922,18 @@ orgtreeSilentElevateDone:
           !insertmacro OrgLog "relaunch-scheduled" "the launch helper acknowledged; the replaced application will be started once this installer exits"
           StrCpy $OrgUpgradeRelaunchReady "1"
         ${else}
-          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged; keeping the Finish page so the user can start Orgtree"
-          MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not confirm that it will start after Setup closes. Use Finish to start it, or its shortcut." /SD IDOK
+          # The helper never acknowledged, so it is not holding the relaunch —
+          # and it must not pick it up later either, because the user is about
+          # to be offered the launch on the Finish page. Withdraw first, then
+          # tell them where the action is.
+          Call orgtreeWithdrawUpgradeRelaunch
+          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged; the relaunch is withdrawn and the Finish page keeps its Run Orgtree action"
+          MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not confirm that it will start after Setup closes.$\r$\nLeave Run Orgtree ticked on the next page to start it, or use its shortcut." /SD IDOK
         ${endif}
       ${else}
-        !insertmacro OrgLog "relaunch-dispatch-failed" "the launch helper could not be dispatched (result $1); keeping the Finish page"
-        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1). You can start Orgtree from its shortcut." /SD IDOK
+        Call orgtreeWithdrawUpgradeRelaunch
+        !insertmacro OrgLog "relaunch-dispatch-failed" "the launch helper could not be dispatched (result $1); the relaunch is withdrawn and the Finish page keeps its Run Orgtree action"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1).$\r$\nLeave Run Orgtree ticked on the next page to start it, or use its shortcut." /SD IDOK
       ${endif}
     FunctionEnd
 
