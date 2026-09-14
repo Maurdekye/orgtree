@@ -523,6 +523,35 @@ FunctionEnd
     !define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre
     !insertmacro MUI_PAGE_FINISH
 
+    # The dispatch is its own function so the compiled upgrade harness can
+    # drive it against the REAL StdUtils.dll: the 2.1.4-RC4 field failure
+    # ("error ok") lived exactly here, and a fixture that stubs the plugin
+    # can never see it again.
+    Function orgtreeDispatchUpgradeRelaunch
+      # Start under the original user token, including for an elevated
+      # all-users inner instance. The helper waits for this exact installer PID
+      # before launching the newly installed desktop.
+      System::Call 'kernel32::GetCurrentProcessId() i .r0'
+      StrCpy $OrgUpgradeRelaunchArgs '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$OrgUpgradeRelaunchDir\installer-relaunch.ps1" -InstallerPid $0 -ExecutablePath "$OrgUpgradeExe"'
+      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "open" "$OrgUpgradeRelaunchArgs"
+      # StdUtils.ExecShellAsUser answers with a TOKEN, not an exit code —
+      # testing it against 0 is the 2.1.4-RC4 field failure: the call
+      # SUCCEEDED, returned "ok", and "ok" != 0 walked the success into the
+      # error dialog as "(error ok)" while the Finish page stayed up.
+      #   ok       — dispatched under the original (non-elevated) user
+      #   fallback — the impersonation path was unavailable and the helper
+      #              was dispatched with this process's own rights instead;
+      #              the launch still happens exactly once after Setup exits
+      # Anything else is a real failure and is shown verbatim.
+      ${if} $1 == "ok"
+      ${orif} $1 == "fallback"
+        StrCpy $OrgUpgradeRelaunchScheduled "1"
+        StrCpy $OrgUpgradeRelaunchReady "1"
+      ${else}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1). You can start Orgtree from its shortcut." /SD IDOK
+      ${endif}
+    FunctionEnd
+
     Function orgtreeScheduleUpgradeRelaunch
       StrCpy $OrgUpgradeRelaunchReady "0"
       ${if} $OrgUpgradeRelaunchScheduled == "1"
@@ -537,19 +566,7 @@ FunctionEnd
       ${if} $OrgUpgradeRelaunchPrepared != "1"
         Return
       ${endif}
-
-      # Start under the original user token, including for an elevated
-      # all-users inner instance. The helper waits for this exact installer PID
-      # before launching the newly installed desktop.
-      System::Call 'kernel32::GetCurrentProcessId() i .r0'
-      StrCpy $OrgUpgradeRelaunchArgs '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$OrgUpgradeRelaunchDir\installer-relaunch.ps1" -InstallerPid $0 -ExecutablePath "$OrgUpgradeExe"'
-      ${StdUtils.ExecShellAsUser} $1 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "open" "$OrgUpgradeRelaunchArgs"
-      ${if} $1 != 0
-        MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (error $1). You can start Orgtree from its shortcut." /SD IDOK
-        Return
-      ${endif}
-      StrCpy $OrgUpgradeRelaunchScheduled "1"
-      StrCpy $OrgUpgradeRelaunchReady "1"
+      Call orgtreeDispatchUpgradeRelaunch
     FunctionEnd
 
     Function orgtreePrepareUpgradeRelaunch

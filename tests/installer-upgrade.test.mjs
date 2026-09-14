@@ -126,7 +126,12 @@ test('fresh, failed/cancelled, and silent flows do not inherit upgrade relaunch'
   assert.match(installer, /Function orgtreeUpgradeFinishPagePre[\s\S]*?\$OrgUpgradeSelected == "1"/)
   assert.match(installer, /\$OrgUpgradeRelaunchReady == "1"[\s\S]*?Abort[\s\S]*?\$\{endif\}[\s\S]*?\$\{endif\}/)
   assert.match(installer, /Function orgtreeScheduleUpgradeRelaunch[\s\S]*?\$\{if\} \$OrgUpgradeRelaunchScheduled == "1"[\s\S]*?Return[\s\S]*?\$\{endif\}[\s\S]*?\$\{if\} \$\{Silent\}[\s\S]*?Return[\s\S]*?\$\{endif\}/)
-  assert.match(installer, /\$1 != 0[\s\S]*?MessageBox[\s\S]*?Return[\s\S]*?\$\{endif\}/)
+  // StdUtils.ExecShellAsUser answers a token, never an exit code. RC4
+  // shipped `$1 != 0`, which turned the real success token "ok" into the
+  // "(error ok)" dialog; the routing must accept exactly the two success
+  // tokens and show anything else verbatim.
+  assert.match(installer, /\$\{if\} \$1 == "ok"[\s\S]*?\$\{orif\} \$1 == "fallback"[\s\S]*?StrCpy \$OrgUpgradeRelaunchScheduled "1"[\s\S]*?StrCpy \$OrgUpgradeRelaunchReady "1"[\s\S]*?\$\{else\}[\s\S]*?MessageBox[\s\S]*?\(result: \$1\)[\s\S]*?\$\{endif\}/)
+  assert.doesNotMatch(installer, /\$1 != 0/, 'the numeric ExecShellAsUser result test is the RC4 regression')
   assert.match(installer, /!insertmacro MUI_PAGE_FINISH/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchDir/)
   assert.match(installer, /UAC_AsUser_GetGlobalVar \$OrgUpgradeRelaunchPrepared/)
