@@ -1483,6 +1483,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   const live = node.state === 'live'
   const cls = ['sq', node.state, focused ? 'desk' : lod, 'tier-' + node.tier,
                'edge-' + edge]
+  // A plain press on every non-draft, unfocused agent card walks to that
+  // agent's desk (endNodeDrag -> centerOn). Keep that affordance distinct from
+  // the canvas pan cursor; the lifted class below still owns the cursor while
+  // the same card is actually being rearranged.
+  const zoomable = !focused && !mapMode && node.state !== 'draft'
+  if (zoomable) cls.push('zoomable')
   // provider theming (user spec 2026-08-28): codex agents wear an
   // blue accent — desk border/shadow and busy ring — where claude
   // wears terracotta. Dormant until codex hire lands; keyed on the tier

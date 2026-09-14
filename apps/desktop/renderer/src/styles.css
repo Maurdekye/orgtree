@@ -517,6 +517,11 @@ main {
   box-shadow: 0 0 9px color-mix(
     in srgb, var(--provider-accent) 28%, transparent);
 }
+/* Unfocused, non-draft agent cards focus their desk on a stationary press.
+   Give that surface a zoom-in affordance instead of leaking the viewport's
+   pan cursor through the card. A dragged card remains an explicit grab target;
+   dedicated controls/handles keep their own cursor declarations. */
+.sq.zoomable:not(.lifted) { cursor: zoom-in; }
 .sq.lifted {
   cursor: grabbing; border-color: #5a5a5a;
   box-shadow: 0 14px 44px rgba(0, 0, 0, .6);
