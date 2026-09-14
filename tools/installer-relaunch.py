@@ -41,13 +41,21 @@ The behaviour contract is otherwise unchanged: run under the original user
 token (the installer's job, via ExecShellAsUser), start only after the
 installer process has exited, and launch exactly once.
 
-Arguments are positional: <installer-pid> <executable-path> [<ready-marker>].
-The ready marker is the installer's acceptance handshake, and it is published
-only AFTER this helper holds the process handle it will wait on — the installer
-reads it as permission to close its own Finish page, so it must not be written
-on the strength of a wait that has not been secured yet. The installer withdraws
-a relaunch it gave up on by writing relaunch-withdrawn.txt beside that marker,
-which a late helper checks before launching so the user cannot end up with two.
+Arguments are positional:
+    <installer-pid> <executable-path> [<ready-marker> [<launch-claim>]]
+
+THE ORDER OF THE FIRST THREE STEPS IS THE PROTOCOL, and each one is a promise
+this helper must already be able to keep before it makes it.
+
+1. ACQUIRE the installer's process handle. Without it there is no wait to offer.
+2. CLAIM the launch, atomically, against the same file the installer's Finish
+   page Run action claims. Exactly one party may start the application; the
+   loser of that claim must not start anything.
+3. ACKNOWLEDGE, by writing the ready marker. The installer reads that marker as
+   permission to close its own Finish page — the user's only other way to start
+   the application — so it is published only once this helper holds both the
+   handle and the ownership. Anything else gives away the fallback on a promise
+   that may not be keepable.
 
 Exit codes, all of them also written to the log:
   0  the installer's exit was observed and the application was launched once
@@ -55,7 +63,8 @@ Exit codes, all of them also written to the log:
   3  the installer's state could not be read, so nothing was launched
   4  the installer had not exited within the timeout, so nothing was launched
   5  the application could not be started
-  6  the installer withdrew the relaunch, so the user owns the launch
+  6  another party already owned the launch, so nothing was started here
+  7  launch ownership could not be established at all, so nothing was started
 """
 
 import ctypes
@@ -67,7 +76,6 @@ import time
 from ctypes import wintypes
 
 LOG_NAME = "orgtree-installer-relaunch.log"
-CANCEL_NAME = "relaunch-withdrawn.txt"
 DEFAULT_TIMEOUT_MS = 120000
 
 SYNCHRONIZE = 0x00100000
@@ -81,7 +89,8 @@ EXIT_BAD_ARGUMENTS = 2
 EXIT_UNREADABLE = 3
 EXIT_STILL_RUNNING = 4
 EXIT_LAUNCH_FAILED = 5
-EXIT_WITHDRAWN = 6
+EXIT_OWNED_ELSEWHERE = 6
+EXIT_UNCLAIMABLE = 7
 
 # DETACHED_PROCESS, not CREATE_NO_WINDOW: the launched process gets no console
 # at all rather than a hidden one, and it does not inherit this helper's.
@@ -134,25 +143,55 @@ def announce_ready(marker):
         record("could not write the ready marker %s: %s" % (marker, describe(error)))
 
 
-def cancelled(marker):
-    """Has the installer withdrawn this relaunch?
+def claim_launch(claim):
+    """Take exclusive ownership of the launch, or answer who has it.
 
-    The installer writes this file beside the ready marker when it has given up
-    waiting for the acknowledgement and handed the launch back to the user
-    through its Finish page. A helper that starts late would otherwise launch a
-    second copy of an application the user has already started by hand.
+    ⚠ THIS IS AN ATOMIC CLAIM, NOT A CHECK-THEN-ACT. Two parties can start this
+    application after an upgrade — this helper and the installer's own Finish
+    page Run action — and exactly one of them may. Reading a file to see whether
+    the other one has launched is a race with a window between the read and the
+    launch; creating a file that cannot be created twice has no window. The
+    kernel decides, once, and the loser knows it lost.
 
-    Best effort in one direction only: if this cannot be read, the helper
-    launches. A missed withdrawal costs one redundant start, which the
-    application's single-instance lock collapses; a missed LAUNCH costs the user
-    their upgraded application.
+    O_CREAT | O_EXCL is that primitive on the Python side; the installer uses
+    CreateFileW with CREATE_NEW, which is the same NTFS operation. Whoever
+    creates the file owns the launch.
+
+    Three answers, and only the first one may launch:
+      OWNED        this process created the claim
+      OWNED_ELSEWHERE  it already existed, so the other party owns the launch
+      UNCLAIMABLE  ownership could not be established at all
+
+    UNCLAIMABLE IS A FAILURE, NOT A PERMISSION. An earlier version treated an
+    unreadable withdrawal as licence to launch anyway and leaned on the
+    application's single-instance lock to collapse a double start. That is a
+    false success: it reports a clean relaunch while having no idea whether it
+    caused a second one, and it makes correctness depend on a lock in another
+    program. Not knowing means not launching, and saying so.
     """
-    if not marker:
-        return False
+    if not claim:
+        record("no launch-ownership path was supplied; not launching, because ownership cannot be established")
+        return UNCLAIMABLE
     try:
-        return os.path.exists(os.path.join(os.path.dirname(marker), CANCEL_NAME))
-    except Exception:
-        return False
+        descriptor = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        record("the launch is already owned by another party (%s exists); not launching" % claim)
+        return OWNED_ELSEWHERE
+    except OSError as error:
+        record(
+            "could not establish launch ownership at %s: %s; not launching, because "
+            "an unestablished claim is not permission to start a second copy" % (claim, describe(error))
+        )
+        return UNCLAIMABLE
+    try:
+        os.write(descriptor, b"helper %d\r\n" % os.getpid())
+    except OSError:
+        # The claim is taken either way — the create is what owns it, and the
+        # note inside is only for a person reading the temp directory later.
+        pass
+    finally:
+        os.close(descriptor)
+    return OWNED
 
 
 def describe(error):
@@ -166,6 +205,9 @@ def describe(error):
 
 
 ACQUIRED = "acquired"
+OWNED = "owned"
+OWNED_ELSEWHERE = "owned-elsewhere"
+UNCLAIMABLE = "unclaimable"
 EXITED = "exited"
 STILL_RUNNING = "still-running"
 UNREADABLE = "unreadable"
@@ -278,6 +320,7 @@ def main(argv):
 
     raw_pid, executable = argv[0], argv[1]
     marker = argv[2] if len(argv) > 2 else ""
+    claim = argv[3] if len(argv) > 3 else ""
 
     try:
         pid = int(raw_pid)
@@ -296,13 +339,25 @@ def main(argv):
     except ValueError:
         timeout_ms = DEFAULT_TIMEOUT_MS
 
-    # THE HANDLE FIRST, THE ACKNOWLEDGEMENT SECOND. See acquire().
+    # HANDLE, THEN OWNERSHIP, THEN ACKNOWLEDGEMENT. Each step is a promise this
+    # helper must be able to keep before it is made; see acquire() and
+    # claim_launch(). Nothing below this point is reached without both.
     handle, status = acquire(pid)
     if status == UNREADABLE:
         # acquire() has already recorded why. No marker is written, so the
         # installer keeps its Finish page and the user keeps a way to start the
         # application — which is the whole reason this ordering matters.
         return EXIT_UNREADABLE
+
+    ownership = claim_launch(claim)
+    if ownership != OWNED:
+        # claim_launch() has recorded which it was. Either way this helper does
+        # not launch and does not acknowledge, so the installer keeps its page:
+        # losing the claim means the other party launches, and failing to make
+        # one means nobody may.
+        if handle:
+            _kernel32().CloseHandle(handle)
+        return EXIT_OWNED_ELSEWHERE if ownership == OWNED_ELSEWHERE else EXIT_UNCLAIMABLE
 
     announce_ready(marker)
 
@@ -316,13 +371,10 @@ def main(argv):
             # "I could not tell" must never become "it had exited".
             return EXIT_UNREADABLE
 
-    if cancelled(marker):
-        # The installer gave up on this helper and handed the launch back to the
-        # user. Starting now would be a SECOND launch of an application the user
-        # may already have started from the page this helper failed to close.
-        record("the installer withdrew this relaunch; leaving the launch to the user")
-        return EXIT_WITHDRAWN
-
+    # No second check before launching, and that is deliberate: ownership was
+    # settled atomically before this helper acknowledged, so there is nothing
+    # left to re-read. A check here would be exactly the check-then-act race the
+    # claim exists to remove.
     try:
         launch(executable)
     except Exception as error:

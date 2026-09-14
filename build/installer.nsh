@@ -163,7 +163,9 @@ Var OrgUpgradePathLabel
 Var OrgUpgradeScopeLabel
 Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
+Var OrgUpgradeLaunchOwned
 Var OrgUpgradeRelaunchAcknowledged
+Var OrgUpgradeRelaunchClaim
 Var OrgUpgradeRelaunchArgs
 Var OrgUpgradeRelaunchDir
 Var OrgUpgradeRelaunchHost
@@ -815,10 +817,27 @@ orgtreeSilentElevateDone:
       ${if} $0 == ""
         StrCpy $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
       ${endif}
-      # WITHDRAW A HELPER THAT MAY STILL BE COMING. The user is starting the
-      # application by hand, so a helper that acknowledged late must not start a
-      # second one. It checks for this file immediately before launching.
-      Call orgtreeWithdrawUpgradeRelaunch
+      # TAKE OWNERSHIP OR DO NOT LAUNCH. The helper may still be alive and about
+      # to start the same application, so this is not "tell it to stop" — it is
+      # an atomic claim that exactly one party can win.
+      Call orgtreeClaimUpgradeLaunch
+      ${if} $OrgUpgradeLaunchOwned == "other"
+        # The helper owns it and will start the application when this installer
+        # exits. Saying so is the honest answer to a button the user just
+        # pressed; starting a second copy is not.
+        !insertmacro OrgLog "finish-run-owned-elsewhere" "the launch is already owned by the relaunch helper; leaving it to start [$0] after Setup closes"
+        MessageBox MB_OK|MB_ICONINFORMATION "Orgtree will start as soon as Setup closes." /SD IDOK
+        Return
+      ${endif}
+      ${if} $OrgUpgradeLaunchOwned != "1"
+        # ⚠ COULD NOT ESTABLISH OWNERSHIP, WHICH IS A FAILURE AND NOT A
+        # PERMISSION. Launching here would be a guess about whether something
+        # else is also launching, and reporting success would be a guess about
+        # whether this worked. The user is told, and the shortcut still works.
+        !insertmacro OrgLog "finish-run-unclaimable" "could not establish launch ownership at [$OrgUpgradeRelaunchClaim]; refusing to start a second copy"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "Orgtree could not be started from Setup, because it could not confirm that nothing else is starting it.$\r$\nStart Orgtree from its shortcut." /SD IDOK
+        Return
+      ${endif}
       ${StdUtils.ExecShellAsUser} $1 "$0" "open" ""
       ${if} $1 == "ok"
       ${orif} $1 == "fallback"
@@ -829,20 +848,65 @@ orgtreeSilentElevateDone:
       ${endif}
     FunctionEnd
 
-    # Writing this file is how the installer takes the relaunch back. The helper
-    # stages itself in $OrgUpgradeRelaunchDir and looks for it there as its last
-    # act before launching; if the directory is gone the helper is gone with it,
-    # and there is nothing to withdraw.
-    Function orgtreeWithdrawUpgradeRelaunch
-      ${if} $OrgUpgradeRelaunchDir == ""
+    # THE SHARED, ATOMIC LAUNCH CLAIM. Two parties can start the application
+    # after an upgrade — the relaunch helper and the Finish page above — and
+    # exactly one of them may. This is not a flag anybody reads and then acts
+    # on: that has a window between the read and the launch, and an earlier
+    # version of this file lost exactly that race. CreateFileW with CREATE_NEW
+    # cannot succeed twice, so the kernel decides once and the loser knows.
+    # tools/installer-relaunch.py claims the same path with O_CREAT | O_EXCL,
+    # which is the same NTFS operation from the other side.
+    #
+    # $OrgUpgradeLaunchOwned answers "1" (this process owns the launch), "other"
+    # (somebody else got there first) or "" (ownership could not be established
+    # at all). THE THIRD ONE IS A FAILURE, NOT A PERMISSION: it never licenses a
+    # launch, and it is never reported as success.
+    Function orgtreeClaimUpgradeLaunch
+      StrCpy $OrgUpgradeLaunchOwned ""
+      ${if} $OrgUpgradeRelaunchClaim == ""
+        Call orgtreeResolveUpgradeLaunchClaim
+      ${endif}
+      ${if} $OrgUpgradeRelaunchClaim == ""
+        !insertmacro OrgLog "launch-claim-unavailable" "no launch-ownership path could be resolved"
         Return
       ${endif}
-      ClearErrors
-      FileOpen $R6 "$OrgUpgradeRelaunchDir\relaunch-withdrawn.txt" w
-      ${ifNot} ${Errors}
-        FileWrite $R6 "withdrawn$\r$\n"
-        FileClose $R6
+      # GENERIC_WRITE, no sharing, CREATE_NEW, FILE_ATTRIBUTE_NORMAL. The `? e`
+      # suffix pushes GetLastError, which is the only way to tell "somebody else
+      # owns this" (ERROR_FILE_EXISTS, 80) from "this could not be done at all".
+      StrCpy $9 "$OrgUpgradeRelaunchClaim"
+      System::Call 'kernel32::CreateFileW(w r9, i 0x40000000, i 0, p 0, i 1, i 0x80, p 0) p .r8 ? e'
+      Pop $7
+      ${if} $8 == "-1"
+        ${if} $7 == 80
+          StrCpy $OrgUpgradeLaunchOwned "other"
+          !insertmacro OrgLog "launch-claim-taken" "the launch is already owned by another party ([$OrgUpgradeRelaunchClaim] exists)"
+        ${else}
+          !insertmacro OrgLog "launch-claim-failed" "could not create the launch claim [$OrgUpgradeRelaunchClaim], Windows error $7"
+        ${endif}
+        Return
       ${endif}
+      System::Call 'kernel32::CloseHandle(p r8)'
+      StrCpy $OrgUpgradeLaunchOwned "1"
+      !insertmacro OrgLog "launch-claim-held" "this installer process owns the launch ([$OrgUpgradeRelaunchClaim])"
+    FunctionEnd
+
+    # The claim is a FILE BESIDE the staged helper directory, never inside it:
+    # the helper deletes that directory as it exits, and an ownership record
+    # that disappears when one of the owners finishes is not an ownership
+    # record. It stays derived from the same directory so both instances of an
+    # elevated upgrade agree on it, since $OrgUpgradeRelaunchDir is what preInit
+    # carries across the UAC boundary.
+    Function orgtreeResolveUpgradeLaunchClaim
+      ${if} $OrgUpgradeRelaunchDir != ""
+        StrCpy $OrgUpgradeRelaunchClaim "$OrgUpgradeRelaunchDir.launch-claim"
+        Return
+      ${endif}
+      # $0 is saved because the Finish page's run action is holding the
+      # executable path in it while this runs.
+      Push $0
+      System::Call 'kernel32::GetCurrentProcessId() i .r0'
+      StrCpy $OrgUpgradeRelaunchClaim "$TEMP\OrgtreeInstallerRelaunch-$0.launch-claim"
+      Pop $0
     FunctionEnd
 
     # The dispatch is its own function so the compiled upgrade harness can
@@ -898,7 +962,11 @@ orgtreeSilentElevateDone:
       System::Call 'kernel32::GetCurrentProcessId() i .r0'
       StrCpy $OrgUpgradeRelaunchReadyMarker "$OrgUpgradeRelaunchDir\relaunch-started.txt"
       Delete "$OrgUpgradeRelaunchReadyMarker"
-      StrCpy $OrgUpgradeRelaunchArgs '"$OrgUpgradeRelaunchDir\installer-relaunch.py" $0 "$OrgUpgradeExe" "$OrgUpgradeRelaunchReadyMarker"'
+      # The helper is handed the SAME ownership path this installer's own Finish
+      # action claims, because a claim only decides anything if both parties
+      # name the same file.
+      Call orgtreeResolveUpgradeLaunchClaim
+      StrCpy $OrgUpgradeRelaunchArgs '"$OrgUpgradeRelaunchDir\installer-relaunch.py" $0 "$OrgUpgradeExe" "$OrgUpgradeRelaunchReadyMarker" "$OrgUpgradeRelaunchClaim"'
       ${StdUtils.ExecShellAsUser} $1 "$OrgUpgradeRelaunchHost" "open" "$OrgUpgradeRelaunchArgs"
       # StdUtils.ExecShellAsUser answers with a TOKEN, not an exit code —
       # testing it against 0 is the 2.1.4-RC4 field failure: the call
@@ -922,17 +990,17 @@ orgtreeSilentElevateDone:
           !insertmacro OrgLog "relaunch-scheduled" "the launch helper acknowledged; the replaced application will be started once this installer exits"
           StrCpy $OrgUpgradeRelaunchReady "1"
         ${else}
-          # The helper never acknowledged, so it is not holding the relaunch —
-          # and it must not pick it up later either, because the user is about
-          # to be offered the launch on the Finish page. Withdraw first, then
-          # tell them where the action is.
-          Call orgtreeWithdrawUpgradeRelaunch
-          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged; the relaunch is withdrawn and the Finish page keeps its Run Orgtree action"
+          # The helper never acknowledged, which means it never took ownership
+          # either — the claim is made BEFORE the acknowledgement, so an
+          # unacknowledged helper cannot be holding the launch. Nothing has to
+          # be revoked here; the Finish page's Run action will claim when the
+          # user presses it, and if a late helper claimed first the page says so
+          # rather than starting a second copy.
+          !insertmacro OrgLog "relaunch-unacknowledged" "the launch helper was dispatched (result $1) but never acknowledged, so it never took launch ownership; the Finish page keeps its Run Orgtree action"
           MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not confirm that it will start after Setup closes.$\r$\nLeave Run Orgtree ticked on the next page to start it, or use its shortcut." /SD IDOK
         ${endif}
       ${else}
-        Call orgtreeWithdrawUpgradeRelaunch
-        !insertmacro OrgLog "relaunch-dispatch-failed" "the launch helper could not be dispatched (result $1); the relaunch is withdrawn and the Finish page keeps its Run Orgtree action"
+        !insertmacro OrgLog "relaunch-dispatch-failed" "the launch helper could not be dispatched (result $1), so nothing holds launch ownership; the Finish page keeps its Run Orgtree action"
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1).$\r$\nLeave Run Orgtree ticked on the next page to start it, or use its shortcut." /SD IDOK
       ${endif}
     FunctionEnd

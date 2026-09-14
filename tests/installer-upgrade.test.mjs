@@ -415,23 +415,33 @@ test('the retained Finish page carries a real launch action, under the original 
   assert.match(body, /Function orgtreeFinishPageRun[\s\S]*?StrCpy \$0 "\$OrgUpgradeExe"[\s\S]*?\$0 == ""[\s\S]*?\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}/)
   // One owner for the launch: taking it back from a helper that may still be
   // coming happens BEFORE the user's launch, not after it.
-  const withdraw = body.indexOf('Call orgtreeWithdrawUpgradeRelaunch')
+  // OWNERSHIP IS TAKEN BEFORE ANYTHING IS STARTED, and losing it is not a
+  // reason to start anyway. This is the ordering that makes "exactly once" a
+  // property of the kernel rather than of two programs being polite.
+  const claim = body.indexOf('Call orgtreeClaimUpgradeLaunch')
   const dispatch = body.indexOf('${StdUtils.ExecShellAsUser} $1 "$0" "open" ""')
-  assert.ok(withdraw >= 0 && dispatch > withdraw,
-    'the pending relaunch must be withdrawn before the user starts the application by hand')
-  assert.match(body, /Function orgtreeWithdrawUpgradeRelaunch[\s\S]*?FileOpen \$R6 "\$OrgUpgradeRelaunchDir\\relaunch-withdrawn\.txt" w/)
-  assert.match(relaunch, /CANCEL_NAME = "relaunch-withdrawn\.txt"/,
-    'the installer and the helper must agree on the withdrawal file name')
+  assert.ok(claim >= 0 && dispatch > claim,
+    'the Finish page must take launch ownership before it starts anything')
+  assert.match(body, /\$OrgUpgradeLaunchOwned == "other"[\s\S]*?MessageBox[\s\S]*?Return/,
+    'losing the claim must defer to the owner and say so, not launch a second copy')
+  assert.match(body, /\$OrgUpgradeLaunchOwned != "1"[\s\S]*?MessageBox[\s\S]*?Return/,
+    'a claim that could not be made must be a visible refusal, not a silent launch')
 
-  // Every path that keeps the page must also hand the relaunch back, or a late
-  // helper and the user both launch.
-  for (const stage of ['relaunch-unacknowledged', 'relaunch-dispatch-failed']) {
-    const at = body.indexOf(stage)
-    assert.ok(at >= 0, `${stage} must be logged`)
-    const before = body.slice(0, at)
-    assert.ok(before.lastIndexOf('Call orgtreeWithdrawUpgradeRelaunch') > before.lastIndexOf('${StdUtils.ExecShellAsUser}'),
-      `${stage} must withdraw the relaunch before it hands the launch back to the user`)
-  }
+  // The primitive itself: CREATE_NEW cannot succeed twice, and the two failure
+  // reasons are told apart by the error code rather than collapsed.
+  assert.match(installer, /Function orgtreeClaimUpgradeLaunch[\s\S]*?kernel32::CreateFileW\(w r9, i 0x40000000, i 0, p 0, i 1, i 0x80, p 0\) p \.r8 \? e/)
+  assert.match(installer, /Function orgtreeClaimUpgradeLaunch[\s\S]*?\$7 == 80[\s\S]*?StrCpy \$OrgUpgradeLaunchOwned "other"/)
+  assert.match(relaunch, /os\.O_CREAT \| os\.O_EXCL \| os\.O_WRONLY/,
+    'the helper must claim with the same exclusive-create primitive')
+  // Both sides must name the SAME file, or the claim decides nothing.
+  assert.match(installer, /\$OrgUpgradeRelaunchArgs '"\$OrgUpgradeRelaunchDir\\installer-relaunch\.py" \$0 "\$OrgUpgradeExe" "\$OrgUpgradeRelaunchReadyMarker" "\$OrgUpgradeRelaunchClaim"'/)
+  assert.match(installer, /StrCpy \$OrgUpgradeRelaunchClaim "\$OrgUpgradeRelaunchDir\.launch-claim"/,
+    'the claim must sit beside the staged directory, which the helper deletes on its way out')
+
+  // The old protocol must be gone on BOTH sides, not merely unused on one.
+  assert.doesNotMatch(installer, /relaunch-withdrawn|orgtreeWithdrawUpgradeRelaunch/,
+    'the check-then-act withdrawal was replaced by the claim; leaving it behind gives two arbiters')
+  assert.doesNotMatch(relaunch, /relaunch-withdrawn|def cancelled/)
 
   // A MESSAGE MAY NOT PROMISE A CONTROL THAT IS NOT THERE. This is the guard on
   // the defect itself: the old text said to use Finish on a page that could
@@ -481,12 +491,19 @@ test('the relaunch helper waits on a process handle and never guesses', () => {
   // merely skip the launch later.
   assert.match(relaunch, /handle, status = acquire\(pid\)\r?\n\s*if status == UNREADABLE:[\s\S]*?return EXIT_UNREADABLE/)
 
-  // The withdrawal check is the last thing before the launch, so a helper that
-  // acknowledged late cannot start a second copy behind the user.
-  const withdrawn = relaunch.search(/^\s*if cancelled\(marker\):\s*$/m)
+  // HANDLE, THEN OWNERSHIP, THEN ACKNOWLEDGEMENT. Each step is a promise the
+  // helper must already be able to keep before it makes it, and the
+  // acknowledgement is the one that costs the user their fallback.
+  const claiming = relaunch.search(/^\s*ownership = claim_launch\(claim\)\s*$/m)
+  assert.ok(claiming > acquiring, 'ownership must be taken after the handle is in hand')
+  assert.ok(ready > claiming, 'the claim must be settled BEFORE the acknowledgement is published')
+  assert.match(relaunch, /ownership != OWNED:[\s\S]*?return EXIT_OWNED_ELSEWHERE if ownership == OWNED_ELSEWHERE else EXIT_UNCLAIMABLE/)
+  // And no second look before launching: re-reading ownership at launch time
+  // would be the check-then-act race the claim exists to remove.
   const launching = relaunch.search(/^\s*launch\(executable\)\s*$/m)
-  assert.ok(withdrawn > waiting && launching > withdrawn,
-    'the withdrawal must be checked after the wait and before the launch')
+  assert.ok(launching > waiting, 'the launch must follow the wait')
+  assert.equal((relaunch.match(/^\s*ownership = claim_launch\(claim\)\s*$/gm) ?? []).length, 1,
+    'ownership is claimed at exactly one place and never re-checked')
 })
 
 // BEHAVIOURAL. The sections above read the source; these RUN the exact helper
@@ -536,6 +553,10 @@ function helperCase(name) {
   return {
     base, script, target, launchMarker,
     ready: path.join(staged, 'relaunch-started.txt'),
+    // BESIDE the staged directory, never inside it — the helper deletes that
+    // directory as it exits, and an ownership record that vanishes when one
+    // owner finishes is not an ownership record.
+    claim: path.join(base, 'relaunch.launch-claim'),
     log: path.join(base, 'orgtree-installer-relaunch.log'),
     env: { ...process.env, ORGTREE_RELAUNCH_LOG_DIR: base },
     launches: () => (fs.existsSync(launchMarker)
@@ -567,7 +588,7 @@ test('the relaunch helper starts the application exactly once, after the install
   const installer = livingProcess(4000)
   try {
     const started = Date.now()
-    const helper = spawn(host, [each.script, String(installer.pid), each.target, each.ready], {
+    const helper = spawn(host, [each.script, String(installer.pid), each.target, each.ready, each.claim], {
       windowsHide: true, stdio: 'ignore', env: each.env,
     })
 
@@ -601,7 +622,7 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
   const each = helperCase('unreadable')
   try {
     const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, '4', each.target, each.ready], { env: each.env })
+      [each.script, '4', each.target, each.ready, each.claim], { env: each.env })
     assert.equal(run.status, 3,
       `an unreadable state must report its own exit code, not success: ${each.logText()}`)
     assert.equal(each.launches(), 0,
@@ -621,30 +642,71 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
 
 // The other half of R1: the installer can hand the launch back to the user, and
 // a helper that acknowledged late must not then start a second copy.
-test('a withdrawn relaunch launches nothing and says so', { skip: helperSkip, timeout: 60000 }, async () => {
-  const each = helperCase('withdrawn')
-  const installerProcess = livingProcess(1500)
+// EXACTLY ONE LAUNCH, DECIDED BY THE KERNEL. Two parties can start the
+// application after an upgrade — this helper and the installer's Finish page
+// Run action — and the previous design arbitrated with a flag one side wrote
+// and the other read, which is check-then-act: a window between the read and
+// the launch, and an unreadable flag was treated as permission to launch and
+// let the application's single-instance lock collapse the duplicate. This runs
+// two real helpers at the same claim and requires the loser to launch nothing.
+test('two helpers racing for one launch produce exactly one launch', {
+  skip: helperSkip, timeout: 60000,
+}, async () => {
+  const each = helperCase('race')
+  const installerProcess = livingProcess(2500)
   try {
-    const helper = spawn(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, String(installerProcess.pid), each.target, each.ready],
-      { windowsHide: true, stdio: 'ignore', env: each.env })
+    const host = path.join(engineRuntime, 'pythonw.exe')
+    // Same claim, same stand-in installer, same target: the only thing that can
+    // separate them is the claim itself.
+    const contenders = ['a', 'b'].map(tag => spawn(host,
+      // The acknowledgement markers go BESIDE the staged directory: the winner
+      // deletes that directory as it exits, which would take its own marker
+      // with it and make "acknowledged" indistinguishable from "never did".
+      [each.script, String(installerProcess.pid), each.target, path.join(each.base, `ready-${tag}.txt`), each.claim],
+      { windowsHide: true, stdio: 'ignore', env: each.env }))
 
-    // Withdraw while the helper is still waiting — the same order the installer
-    // uses when it gives up and shows its Finish page.
-    const deadline = Date.now() + 15000
-    while (!fs.existsSync(each.ready) && Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-    assert.ok(fs.existsSync(each.ready), 'the helper never acknowledged, so this case never got set up')
-    fs.writeFileSync(path.join(path.dirname(each.ready), 'relaunch-withdrawn.txt'), 'withdrawn\r\n')
+    const codes = await Promise.all(contenders.map(child =>
+      new Promise(resolve => child.on('exit', resolve))))
 
-    const code = await new Promise(resolve => helper.on('exit', resolve))
-    assert.equal(code, 6, `a withdrawn relaunch has its own exit code: ${each.logText()}`)
-    assert.equal(await settledLaunches(each, 0), 0,
-      `a withdrawn relaunch must start nothing — the user owns the launch now: ${each.logText()}`)
-    assert.match(each.logText(), /withdrew this relaunch/)
+    assert.equal(await settledLaunches(each, 1), 1,
+      `exactly one launch, whatever the scheduling: ${codes} / ${each.logText()}`)
+    assert.equal(codes.filter(code => code === 0).length, 1,
+      `exactly one contender may report a completed relaunch, got ${codes}`)
+    assert.equal(codes.filter(code => code === 6).length, 1,
+      `the loser must report that the launch was owned elsewhere, got ${codes}`)
+    // And the loser must not have acknowledged either: the acknowledgement is
+    // what closes the user's Finish page, so a helper that will never launch
+    // must not be the one that takes the fallback away.
+    const acknowledgements = ['a', 'b'].filter(tag => fs.existsSync(path.join(each.base, `ready-${tag}.txt`)))
+    assert.equal(acknowledgements.length, 1,
+      `only the owner of the launch may acknowledge, saw ${acknowledgements.length}`)
+    assert.match(each.logText(), /already owned by another party/)
   } finally {
     installerProcess.kill()
+    discard(each.base)
+  }
+})
+
+// The decision that replaced the old behaviour: ownership that cannot be
+// ESTABLISHED is a failure, not a licence. The claim here names a directory
+// that does not exist, which is the same shape as a permissions refusal.
+test('a launch that cannot be claimed is refused, not guessed at', { skip: helperSkip, timeout: 60000 }, async () => {
+  const each = helperCase('unclaimable')
+  const installerProcess = livingProcess(1)
+  await new Promise(resolve => installerProcess.on('exit', resolve))
+  try {
+    const impossible = path.join(each.base, 'no-such-directory', 'relaunch.launch-claim')
+    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
+      [each.script, String(installerProcess.pid), each.target, each.ready, impossible], { env: each.env })
+
+    assert.equal(run.status, 7,
+      `an unestablished claim has its own exit code and is not success: ${each.logText()}`)
+    assert.equal(await settledLaunches(each, 0), 0,
+      `not knowing whether something else is launching is not permission to launch: ${each.logText()}`)
+    assert.ok(!fs.existsSync(each.ready),
+      'a helper that could not take ownership must not acknowledge')
+    assert.match(each.logText(), /could not establish launch ownership[\s\S]*not launching/)
+  } finally {
     discard(each.base)
   }
 })
@@ -668,7 +730,7 @@ test('the unreadable-state guard is measuring something', { skip: helperSkip, ti
     fs.writeFileSync(each.script, defective)
 
     const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, '4', each.target, each.ready], { env: each.env })
+      [each.script, '4', each.target, each.ready, each.claim], { env: each.env })
     assert.equal(run.status, 0, 'CONTROL IS BROKEN: the pre-fix answer was expected to report success')
     assert.equal(await settledLaunches(each, 1), 1,
       'CONTROL IS BROKEN: the pre-fix answer was expected to launch over an unobserved installer')
@@ -682,7 +744,7 @@ test('an installer that outlives the wait is reported, not overtaken', { skip: h
   const installer = livingProcess(30000)
   try {
     const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, String(installer.pid), each.target, each.ready],
+      [each.script, String(installer.pid), each.target, each.ready, each.claim],
       { env: { ...each.env, ORGTREE_RELAUNCH_TIMEOUT_MS: '400' } })
     assert.equal(run.status, 4, `a timed-out wait has its own exit code: ${each.logText()}`)
     assert.equal(each.launches(), 0,
@@ -702,7 +764,7 @@ test('an already-finished installer is launched for immediately, and bad argumen
   await new Promise(resolve => gone.on('exit', resolve))
   try {
     const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [finished.script, String(gone.pid), finished.target, finished.ready], { env: finished.env })
+      [finished.script, String(gone.pid), finished.target, finished.ready, finished.claim], { env: finished.env })
     assert.equal(run.status, 0, `an installer that has already exited is not an error: ${finished.logText()}`)
     assert.equal(await settledLaunches(finished, 1), 1, 'the application must still be started exactly once')
   } finally {
