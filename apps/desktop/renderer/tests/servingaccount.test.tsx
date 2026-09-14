@@ -145,6 +145,34 @@ test('idle Codex card identifies the configured account', async (t: TestContext)
   assert.match(badge!.getAttribute('aria-label') ?? '', /configured account/)
 })
 
+test('Codex cards render exact default, secondary, and API-key display tokens',
+  async (t: TestContext) => {
+    const defaultView = await card(agent({
+      busy: false, tier: 'luna', model_id: 'luna', account: 'openai/primary',
+      serving_account: serving({id: 'openai/primary', provider: 'openai',
+        display: 'default', active: false}),
+    }), 'norm')
+    t.after(() => defaultView.unmount())
+    await flush()
+    const defaultBadge = onCard(defaultView.el)!
+    assert.equal(defaultBadge.textContent, 'default')
+    assert.doesNotMatch(defaultBadge.textContent ?? '', /openai\/|primary/)
+    assert.doesNotMatch(
+      defaultView.el.querySelector('.serving-account-tip')!.textContent ?? '',
+      /openai\/|primary/)
+
+    const keyView = await card(agent({
+      busy: true, tier: 'luna', model_id: 'luna',
+      serving_account: serving({id: 'ak123', provider: 'openai',
+        display: 'sk-live-', active: true}),
+    }), 'norm')
+    t.after(() => keyView.unmount())
+    await flush()
+    const keyBadge = onCard(keyView.el)!
+    assert.equal(keyBadge.textContent, 'sk-live-')
+    assert.doesNotMatch(keyView.el.textContent ?? '', /openai\/|primary/)
+  })
+
 /* ─── the far-zoom exclusions ────────────────────────────────────────────── */
 
 test('§2d FAR ZOOM RENDERS NO ACCOUNT CARD, even mid-inference', async (t: TestContext) => {

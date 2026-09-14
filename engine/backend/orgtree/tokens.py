@@ -135,3 +135,15 @@ def redacted() -> dict[str, str]:
     prefix, not a suffix, not a length. Length is a real disclosure and it
     buys a reader nothing they need."""
     return {uuid: "stored" for uuid in sorted(load()["tokens"])}
+
+
+def display_prefix(uuid: str) -> str:
+    """Return exactly the approved first eight characters for a UI card.
+
+    This is the sole intentional exception to ``redacted``'s no-secret
+    display rule, required by the account-card contract for API-key accounts.
+    It never returns more than eight characters and callers must not log or
+    persist the result.
+    """
+    value = get(uuid)
+    return value[:8] if len(value) >= 8 else ""

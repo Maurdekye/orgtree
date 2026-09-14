@@ -1495,6 +1495,8 @@ export interface ServingAccount {
    *  bound account, so comparing serving against bound compares like with
    *  like rather than two spellings. */
   id: string
+  /** Exact safe token shown on the node and Desk card. */
+  display?: string | null
   provider: string
   /** display metadata only, and explicitly not identity: the registry's own
    *  rule is that a mutable label never stands in for the account. Null when

@@ -56,7 +56,7 @@ import time
 from typing import Any, Final, cast
 
 from . import (accounts, antigravity_limits, capability, codex_limits, limits,
-               registry)
+               registry, tokens)
 
 #: Provider order, the modal's own: Claude, Codex, Antigravity.
 PROVIDER_ORDER: Final[dict[str, int]] = {"claude": 0, "openai": 1, "google": 2}
@@ -129,6 +129,24 @@ def canonical_name(row: dict[str, Any], primary: str,
     """
     return (registry.primary_name(row["provider"])
             if ambient_covered(row, primary, ambient_paths) else str(row["id"]))
+
+
+def card_display(row: dict[str, Any], primary: str,
+                 ambient_paths: dict[str, str | None]) -> str | None:
+    """Return the exact safe token shown on an OpenAI account card.
+
+    Subscription ambient/default accounts are displayed as ``default``;
+    subscription secondaries use their immutable id. API-key accounts use
+    only the first eight characters of the key, resolved through the token
+    store's dedicated display boundary. An unresolved key stays hidden.
+    """
+    if registry.account_mode(row) == "apikey":
+        ref = str((row.get("credential") or {}).get("token_ref") or "")
+        prefix = tokens.display_prefix(ref)
+        return prefix or None
+    if ambient_covered(row, primary, ambient_paths):
+        return "default"
+    return str(row.get("id") or "") or None
 
 
 # ------------------------------------------- which account is serving a turn
@@ -377,13 +395,23 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
         return None
     standing = registry.standing_of(row)
     identity = cast("dict[str, Any]", row.get("identity") or {})
-    label = str(row.get("label") or "") or None
+    display = (card_display(row, primary, ambient_paths)
+               if provider == "openai"
+               else canonical_name(row, primary, ambient_paths))
+    if not display:
+        return None
+    # The ambient selector is an internal canonical id; its public card token
+    # is exactly `default`, and neither the provider-qualified id nor the word
+    # `primary` may re-enter through the mutable label detail.
+    label = (None if provider == "openai" and display == "default"
+             else str(row.get("label") or "") or None)
     return {
         # the canonical API selector, the same one `account_label` carries for
         # the BOUND account — so a reader comparing the two is comparing like
         # with like, and a divergence between them is visible rather than a
         # difference in spelling
         "id": canonical_name(row, primary, ambient_paths),
+        "display": display,
         "provider": provider,
         # display metadata, explicitly NOT identity (the registry's own rule:
         # a mutable label never stands in for the account)

@@ -255,6 +255,7 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  below and nothing else on the object is touched. */
 export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
   if (!account) return null
+  const display = account.display || account.id
   // ⚠ A WHITELIST, NOT A SERIALISATION. Only these fields are ever read off
   // the object, so a field added to the payload later — or one that should
   // never have been there — cannot reach the DOM through this component.
@@ -262,7 +263,7 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
   // as "unknown": an absent address is not an observation, and `unobserved`
   // auth already says so in its own words.
   const parts = [
-    `account ${account.id}`,
+    `account ${display}`,
     `provider ${account.provider}`,
     account.label ? `label ${account.label}` : '',
     account.email ? `${account.email}` : '',
@@ -275,11 +276,11 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
     <span className="serving-account-wrap">
       <button type="button"
         className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
-        data-serving-account={account.id}
+        data-serving-account={display}
         aria-label={detail}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}>
-        {account.id}
+        {display}
       </button>
       <span className="serving-account-tip" role="presentation" aria-hidden="true">
         <span className="sa-tip-head">{active ? 'serving this turn' : 'configured account'}</span>

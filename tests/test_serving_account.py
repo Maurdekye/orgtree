@@ -157,6 +157,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNotNone(card, "Codex primary turn lost its serving card")
         assert card is not None
         self.assertEqual(card["id"], "openai/primary")
+        self.assertEqual(card["display"], "default")
         self.assertEqual(card["provider"], "openai")
         self.assertTrue(card["active"])
 
@@ -170,6 +171,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNotNone(card, "idle Codex primary binding was hidden")
         assert card is not None
         self.assertEqual(card["id"], "openai/primary")
+        self.assertEqual(card["display"], "default")
         self.assertFalse(card["active"])
 
     def test_unregistered_codex_ambient_identity_counts_with_managed_row(self):
@@ -191,6 +193,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNotNone(card)
         assert card is not None
         self.assertEqual(card["id"], "openai/primary")
+        self.assertEqual(card["display"], "default")
         self.assertFalse(card["active"])
         self.assertNotIn(ambient["openai"], repr(card))
 
@@ -221,6 +224,31 @@ class ServingAccountTests(unittest.TestCase):
         self.assertEqual(node["serving_account"]["id"], "openai/primary")
         self.assertFalse(node["serving_account"]["active"])
 
+    def test_openai_apikey_card_uses_only_the_first_eight_key_characters(self):
+        from engine.backend.orgtree import tokens
+
+        key = "sk-live-account-key-never-render-the-rest"
+        ref = "fixture-key-prefix"
+        tokens.put(ref, key)
+        api_row = self.registry.create_account(
+            "openai", "metered", {"kind": "apikey", "token_ref": ref},
+            mode="apikey")
+        self._row("openai", "subscription", auth="unobserved")
+        card = self._card(api_row["id"], provider="openai")
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card["display"], key[:8])
+        self.assertNotIn(key, repr(card))
+        self.assertNotIn(ref, repr(card))
+        self.assertNotIn("openai/", repr(card))
+        self.assertNotIn("primary", repr(card))
+        idle = self._card(None, busy=False, configured=api_row["id"],
+                          provider="openai")
+        self.assertIsNotNone(idle)
+        assert idle is not None
+        self.assertEqual(idle["display"], key[:8])
+        self.assertFalse(idle["active"])
+
     def test_idle_codex_secondary_card_uses_immutable_configured_id(self):
         self._row("openai", "host", auth="unobserved")
         second = self._row("openai", "secondary", auth="authenticated")
@@ -228,6 +256,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNotNone(card)
         assert card is not None
         self.assertEqual(card["id"], second["id"])
+        self.assertEqual(card["display"], second["id"])
         self.assertFalse(card["active"])
 
     def test_busy_codex_runtime_identity_overrides_configured_binding(self):
@@ -237,6 +266,7 @@ class ServingAccountTests(unittest.TestCase):
         self.assertIsNotNone(card)
         assert card is not None
         self.assertEqual(card["id"], second["id"])
+        self.assertEqual(card["display"], second["id"])
         self.assertTrue(card["active"])
 
     def test_idle_codex_unknown_binding_is_hidden(self):
@@ -355,7 +385,7 @@ class ServingAccountTests(unittest.TestCase):
         card = self._card(a["id"])
         assert card is not None
         self.assertEqual(
-            set(card), {"id", "provider", "label", "email", "auth", "state", "active"})
+            set(card), {"id", "display", "provider", "label", "email", "auth", "state", "active"})
         # the row's own credential block names a profile path and a token ref;
         # neither may appear anywhere in the composed card
         blob = repr(card)
