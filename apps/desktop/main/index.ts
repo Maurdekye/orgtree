@@ -17,7 +17,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
-import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -382,6 +382,53 @@ else {
       resolve()
     })
   })
+  /** WHERE THE INSTALLER WRITES ITS OWN LOG, in the order it prefers.
+   *
+   *  The installer records its stages to `orgtree-installer.log` beside Setup
+   *  itself ($EXEDIR) and falls back to the temp folder when that is not
+   *  writable. Neither location is knowable from in here with certainty after a
+   *  restart, so all three candidates are offered and the first that exists is
+   *  used: the path electron-updater downloaded to, the pending directory named
+   *  by app-update.yml, and the temp folder.
+   *
+   *  ⚠ THIS IS THE HALF OF THE RECORD THE APPLICATION CANNOT WRITE. Everything
+   *  after the handoff happens inside the installer, and on the machine that
+   *  failed there was nothing there at all — which is why its outcome could not
+   *  be explained. Copying the installer's own last lines into update-log.json
+   *  means the operator sends ONE file and it leads to both halves. */
+  const installerLogCandidates = (): string[] => {
+    const candidates: string[] = []
+    try {
+      const file = (autoUpdater as unknown as { installerPath?: string }).installerPath
+      if (file) candidates.push(path.join(path.dirname(file), 'orgtree-installer.log'))
+    } catch { /* the library may not have one this run */ }
+    try {
+      // Read the same key electron-updater reads to find its own cache.
+      const config = fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8')
+      const dirName = /updaterCacheDirName:\s*(.+)/.exec(config)?.[1]?.trim()
+      const localAppData = process.env.LOCALAPPDATA
+      if (dirName && localAppData) candidates.push(path.join(localAppData, dirName, 'pending', 'orgtree-installer.log'))
+    } catch { /* unpackaged, or no feed config */ }
+    candidates.push(path.join(os.tmpdir(), 'orgtree-installer.log'))
+    return candidates
+  }
+  /** Fold the installer's own tail into the application log. Bounded to the last
+   *  few lines and recorded one line per entry, because each entry is sanitized
+   *  and length-capped on the way in — a single blob would be truncated exactly
+   *  where the interesting end of it is. */
+  const ingestInstallerLog = (): string | undefined => {
+    for (const file of installerLogCandidates()) {
+      try {
+        if (!fs.existsSync(file)) continue
+        const lines = installerLogTail(fs.readFileSync(file, 'utf8'))
+        if (!lines.length) continue
+        updateLog.record('installer-log', `from ${file}`)
+        for (const line of lines) updateLog.record('installer-log', line)
+        return file
+      } catch { /* try the next candidate */ }
+    }
+    return undefined
+  }
   /** WHERE THE INSTALLER ITSELF BELIEVES THIS INSTALLATION LIVES — RECORDED,
    *  NOT ACTED ON.
    *
@@ -1203,9 +1250,16 @@ else {
       // (the tray hold exists only in the session that consumed it).
       const failedUpdate = updateFailureToReport(updateLog.lastAttempt(), app.getVersion())
       if (failedUpdate) {
+        // ⚠ THE INSTALLER'S OWN RECORD IS COPIED IN FIRST, so the file the
+        // message points at contains both halves of the story by the time
+        // anybody opens it. On the machine that failed, the application's log
+        // ended at 'handoff' and there was nothing else anywhere.
+        const installerLog = ingestInstallerLog()
         updateLog.record('failure-report-shown', 'the previous failure was put on screen')
         void dialog.showMessageBox({ type: 'warning', message: 'Orgtree did not install the update.',
-          detail: `${failedUpdate.detail}\n\nOrgtree restarted and is running normally, still on ${app.getVersion()}${failedUpdate.to ? ` rather than ${failedUpdate.to}` : ''}. The update is still ready — try again from the tray. The full record is in update-log.json beside Orgtree's data.` })
+          detail: `${failedUpdate.detail}\n\nOrgtree restarted and is running normally, still on ${app.getVersion()}${failedUpdate.to ? ` rather than ${failedUpdate.to}` : ''}. The update is still ready — try again from the tray.`
+            + `\n\nThe full record is in update-log.json beside Orgtree's data`
+            + (installerLog ? `, and now includes the installer's own log from ${installerLog}.` : '. The installer left no log of its own this time.') })
           .then(() => { updateLog.record('failure-reported', 'the user dismissed the failure report') })
           .catch(() => { /* never shown, so never recorded as delivered: it repeats */ })
       }

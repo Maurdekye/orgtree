@@ -41,6 +41,11 @@ export type UpdateStage =
    *  old unproven exit was taken. Distinct from 'installer-running': it records
    *  that nobody checked, which is exactly what a later reader needs to know. */
   | 'installer-proof-unavailable'
+  /** A line copied out of the INSTALLER's own log. The application cannot see
+   *  what happens after the handoff, and on the machine that failed nothing
+   *  there survived at all; folding the installer's last stages in here means
+   *  one file answers the whole question. */
+  | 'installer-log'
   /** The failure report was PUT ON SCREEN by a later run. Written every time it
    *  is shown, so repeats are bounded — see FAILURE_REPORT_SHOWS. */
   | 'failure-report-shown'
@@ -195,6 +200,24 @@ export function updateFailureToReport(entries: UpdateLogEntry[], runningVersion:
   const result: { detail: string; to?: string } = { detail }
   if (entries[0]!.to) result.to = entries[0]!.to
   return result
+}
+
+/** How many of the installer's own final lines are folded into the application
+ *  log. Enough to carry the last few stages and the exit; few enough that a
+ *  large installer log cannot crowd out the application's own entries. */
+export const INSTALLER_LOG_TAIL = 12
+
+/** The last lines of the INSTALLER's log, ready to be recorded one per entry.
+ *
+ *  ⚠ ONE LINE PER ENTRY IS NOT A STYLE CHOICE. Every detail written to the
+ *  application log is sanitized and length-capped, so a single blob would be
+ *  truncated exactly at the interesting end — the stages nearest the failure.
+ *  Splitting first keeps the end intact.
+ *
+ *  Pure, so the bound and the blank-line handling are testable without a
+ *  filesystem or an installer. */
+export function installerLogTail(text: string, limit = INSTALLER_LOG_TAIL): string[] {
+  return text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0).slice(-limit)
 }
 
 /** A bounded, append-only record of update attempts, kept beside the other

@@ -186,6 +186,48 @@ test('OBS-B: a console close shuts down in order instead of killing the process 
     'the limits of this defence must stay stated where the defence is')
 })
 
+test('the failure report leads to BOTH logs, and folds the installer half into the app half', () => {
+  const main = read('apps/desktop/main/index.ts')
+
+  // The application cannot see what happens after the handoff. On the machine
+  // that failed there was nothing on the installer side at all, so the
+  // investigation stopped at 'handoff' — decision 7 requires the installer to
+  // keep its own log AND requires the failure UI to make it discoverable.
+  assert.match(main, /const installerLogCandidates = \(\)/,
+    'the app must know where the installer writes its log')
+  const candidates = main.slice(main.indexOf('const installerLogCandidates = ()'))
+  const candidateBody = candidates.slice(0, 1800)
+  assert.match(candidateBody, /installerPath/,
+    'first choice: beside the installer electron-updater actually downloaded')
+  assert.match(candidateBody, /app-update\.yml/,
+    'then the pending directory named by the feed config, which is where Setup '
+    + 'sits for an updater run after a restart has lost installerPath')
+  assert.match(candidateBody, /os\.tmpdir\(\)/,
+    'and finally the temp folder, which is the installer\'s own fallback')
+
+  // ⚠ INGESTED BEFORE THE MESSAGE IS SHOWN, so the file the message points at
+  // already contains both halves when somebody opens it.
+  const reportSite = main.slice(main.indexOf('const failedUpdate = updateFailureToReport('))
+  const reportBody = reportSite.slice(0, 1800)
+  const ingestIndex = reportBody.indexOf('ingestInstallerLog()')
+  const dialogIndex = reportBody.indexOf('dialog.showMessageBox')
+  assert.ok(ingestIndex > 0 && ingestIndex < dialogIndex,
+    'the installer log is copied in BEFORE the dialog is raised')
+  assert.match(reportBody, /update-log\.json/, 'the message names the application log')
+  assert.match(reportBody, /installer's own log from \$\{installerLog\}/,
+    'and names the installer log by its actual path when one was found')
+  assert.match(reportBody, /The installer left no log of its own this time/,
+    'and says so plainly when there was none, rather than naming a file that '
+    + 'does not exist')
+
+  // One line per entry: every detail is sanitized and length-capped on the way
+  // in, so a single blob would be truncated at the end nearest the failure.
+  assert.match(main, /for \(const line of lines\) updateLog\.record\('installer-log', line\)/,
+    'each installer line becomes its own entry')
+  assert.match(main, /installerLogTail\(/,
+    'and the bound lives in updater.ts as a pure function, so it is testable')
+})
+
 test('OBS-A and OBS-B are not treated as one cause', () => {
   // The installer is spawned detached + unref by electron-updater, in its own
   // process group with no inherited console, so no console close or parent exit

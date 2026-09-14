@@ -47,6 +47,27 @@ Var pid
   # Dev channel: no boot task will ever be registered, so the operator-SID
   # probe below has nothing to feed and is skipped.
   !ifndef BUILD_UNINSTALLER
+    # ⚠ THE FIRST LOG LINE IS WRITTEN HERE, AND THE POSITION IS THE POINT. This
+    # is the earliest code in the run: everything that can quit, be refused, or
+    # be declined happens after it. A log whose first entry came later would be
+    # empty for exactly the failures it exists to explain.
+    #
+    # The received command line is recorded verbatim because it is the one fact
+    # nobody could reconstruct afterwards — the field incident turned on which
+    # arguments reached the installer, and the only record of them was the
+    # application's own guess at what it had sent.
+    ${StdUtils.GetAllParameters} $R0 "0"
+    !insertmacro OrgLog "init" "setup=$EXEPATH"
+    !insertmacro OrgLog "init-cmdline" "$R0"
+    ${if} ${UAC_IsInnerInstance}
+      !insertmacro OrgLog "init-elevated-instance" "this process IS the elevated inner instance"
+    ${else}
+      ${if} ${UAC_IsAdmin}
+        !insertmacro OrgLog "init-rights" "started WITH administrator rights"
+      ${else}
+        !insertmacro OrgLog "init-rights" "started WITHOUT administrator rights"
+      ${endif}
+    ${endif}
     # The upgrade page runs before install sections, so its graceful process
     # helper must be available before the first page is shown. File extracts
     # only to NSIS's private temporary plugin directory.
@@ -272,14 +293,17 @@ orgtreeUpgradeShutdownAttempt:
   Pop $1
   ${if} $0 == 0
     DetailPrint "Orgtree is closed; continuing the upgrade."
+    !insertmacro OrgLog "app-closed" "the running Orgtree confirmed a graceful shutdown"
     Push "1"
     Return
   ${endif}
   DetailPrint "Graceful shutdown did not complete: $1"
+  !insertmacro OrgLog "app-close-failed" "graceful shutdown did not complete: $1"
   MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Orgtree is still running or could not be verified as closed.$\r$\n$1$\r$\nRetry to request a graceful close again, or Cancel to leave the existing installation untouched." /SD IDCANCEL IDRETRY orgtreeUpgradeShutdownAttempt IDCANCEL orgtreeUpgradeShutdownCancel
   Push "0"
   Return
 orgtreeUpgradeShutdownCancel:
+  !insertmacro OrgLog "app-close-cancelled" "the user chose to leave the existing installation untouched"
   Push "0"
 FunctionEnd
 !macroend
@@ -418,12 +442,24 @@ FunctionEnd
         # site in electron-builder does it, and it is what makes the outer
         # instance disappear instead of impersonating a hung installer.
         ${ifNot} ${UAC_IsAdmin}
+          # ⚠ WRITTEN BEFORE THE PROMPT, NOT AFTER IT. This is the point
+          # decision 8 is about: from here the next thing that happens is a
+          # Windows permission prompt, and if it is declined the only process
+          # that could describe the decline is this one. A log line written
+          # after the call would already be a log line written after the answer.
+          #
+          # It also marks the one stage that can legitimately take a long time.
+          # An installer that sits here for thirty seconds is a person reading a
+          # prompt, not a wedge — and on the machine that failed, the app
+          # restarted about thirty seconds after launching the installer twice.
+          !insertmacro OrgLog "elevation-requested" "asking for administrator rights to upgrade [$OrgUpgradeInstallDir]; a prompt is now in front of the user"
           ShowWindow $HWNDPARENT ${SW_HIDE}
           !insertmacro UAC_RunElevated
           ${if} $0 == 0
           ${andif} $1 == 1
             # The elevated instance ran the entire upgrade. This process is
             # only the wrapper around it and has nothing left to do.
+            !insertmacro OrgLog "elevation-approved" "an elevated instance ran the upgrade; this outer process is done"
             Quit
           ${endif}
 
@@ -433,21 +469,35 @@ FunctionEnd
           # files in a per-machine installation.
           ShowWindow $HWNDPARENT ${SW_SHOW}
           BringToFront
+          # ⚠ THE EXACT REFUSAL, DISTINGUISHED AND MADE DURABLE. These three
+          # cases were already told apart here and said out loud in a message
+          # box — which is useless twice over on the silent update path, where
+          # /SD IDOK dismisses it and nobody is watching anyway. The refusal is
+          # now recorded as well as announced, and 1223 (the user said No) is
+          # kept distinct from "this account cannot elevate at all" and from a
+          # failure to even ask, because the three call for different answers.
           ${if} $0 == 1223
+            !insertmacro OrgLog "elevation-declined" "the Windows permission prompt was DISMISSED by the user (1223); nothing was changed"
             MessageBox MB_OK|MB_ICONINFORMATION "Administrator approval is required to upgrade the installation in $OrgUpgradeInstallDir.$\r$\nNothing has been changed." /SD IDOK
           ${elseif} $0 == 0
+            !insertmacro OrgLog "elevation-unavailable" "no administrator account was available to elevate to; nothing was changed"
             MessageBox MB_OK|MB_ICONSTOP "Upgrading the installation in $OrgUpgradeInstallDir requires an administrator account.$\r$\nNothing has been changed." /SD IDOK
           ${else}
+            !insertmacro OrgLog "elevation-error" "could not request administrator approval, Windows error $0; nothing was changed"
             MessageBox MB_OK|MB_ICONSTOP "Setup could not request administrator approval (error $0).$\r$\nNothing has been changed." /SD IDOK
           ${endif}
+          !insertmacro OrgLog "exit" "exit code 2 from install-mode elevation; the existing installation is untouched"
           SetErrorLevel 2
           Quit
         ${endif}
         !insertmacro setInstallModePerAllUsers
+        !insertmacro OrgLog "mode" "all users, with administrator rights held"
       ${else}
         !insertmacro setInstallModePerUser
+        !insertmacro OrgLog "mode" "per user"
       ${endif}
       StrCpy $INSTDIR $OrgUpgradeInstallDir
+      !insertmacro OrgLog "destination-final" "installing into [$INSTDIR]"
       Abort
     ${endif}
   !endif
@@ -490,6 +540,9 @@ FunctionEnd
   # parsed would run before StdUtils.dll is available.
   ${if} ${orgtreeOriginalIsUpdated}
     SetSilent silent
+    # The entry point, recorded before the destination is resolved below, so a
+    # log that stops here still says which route the run took.
+    !insertmacro OrgLog "entry" "silent update entry point (--updated); INSTDIR at init = $INSTDIR"
     # Preserve the old one-click/update entry point. Only --updated reaches
     # here, so these never overwrite the values an elevated inner instance
     # inherited in preInit from the outer instance's recorded selection.
@@ -500,6 +553,11 @@ FunctionEnd
     !endif
     !ifndef INSTALL_MODE_PER_ALL_USERS
       !insertmacro GetDParameter $R2
+      # ⚠ THE DESTINATION AS PARSED, not as sent. This is the field the incident
+      # investigation most needed and did not have: the application could only
+      # record what it PASSED, and the question was what the installer received
+      # and made of it. Logged before the mode switches below act on it.
+      !insertmacro OrgLog "destination" "/D= parsed as [$R2]; per-machine registered [$perMachineInstallationFolder]; per-user registered [$perUserInstallationFolder]"
       ${if} $R2 != ""
         GetFullPathName $R2 $R2
         GetFullPathName $R3 $perMachineInstallationFolder
@@ -507,9 +565,13 @@ FunctionEnd
         ${if} $perMachineInstallationFolder != ""
         ${andif} $R2 == $R3
           !insertmacro setInstallModePerAllUsers
+          !insertmacro OrgLog "scope" "all users, matched the registered per-machine location"
         ${elseif} $perUserInstallationFolder != ""
         ${andif} $R2 == $R4
           !insertmacro setInstallModePerUser
+          !insertmacro OrgLog "scope" "per user, matched the registered per-user location"
+        ${else}
+          !insertmacro OrgLog "scope" "kept the default scope: the parsed destination matched neither registered location"
         ${endif}
       ${endif}
     !endif
@@ -546,6 +608,7 @@ FunctionEnd
       ${if} $1 == "ok"
       ${orif} $1 == "fallback"
         StrCpy $OrgUpgradeRelaunchScheduled "1"
+        !insertmacro OrgLog "relaunch-scheduled" "the replaced application will be started once this installer exits"
         StrCpy $OrgUpgradeRelaunchReady "1"
       ${else}
         MessageBox MB_OK|MB_ICONEXCLAMATION "The upgrade completed, but Orgtree could not be scheduled to start after Setup closes (result: $1). You can start Orgtree from its shortcut." /SD IDOK
@@ -605,8 +668,114 @@ FunctionEnd
   !endif
 !macroend
 
+# ---------------------------------------------------------------- installer log
+# WHY THIS EXISTS. A 2.1.3 → 2.1.4 update failed in the field, twice on one
+# machine. The application's own log proved what the APPLICATION did — attempt,
+# layout, engine observed stopped, installer launched — and then said nothing,
+# because from that point everything happens inside this installer and the
+# installer left nothing behind. The one diagnostic it did write
+# (orgtreeCloseForUpgrade's helper log) never ran on the silent path. So the
+# investigation could not say which internal branch ended the run, and the
+# leading hypothesis was later refuted by measurement, leaving the incident
+# unexplained. This is the instrument that would have answered it.
+#
+# ⚠ APPENDED AS EACH STAGE COMPLETES, NEVER ASSEMBLED AND FLUSHED AT EXIT. The
+# failure being diagnosed is an installer that stops partway; a log written at
+# the end records nothing in exactly the case it exists for, and "last completed
+# stage" only means anything if each stage was committed when it finished. Every
+# call here opens, writes one line, and closes.
+#
+# ⚠ NOT IN $PLUGINSDIR. That directory is NSIS's private temporary plugin
+# folder and is removed when the installer exits, which is half of why nothing
+# survived last time. $EXEDIR is preferred: it is where Setup itself sits, so for
+# an updater run it is the pending-download folder the application already knows
+# the path of, and it belongs to the invoking user no matter which account
+# approved elevation. $TEMP is the fallback when Setup was launched from
+# somewhere unwritable.
+#
+# WHAT IS RECORDED: the received command line, the destination as parsed, the
+# install scope, whether this process is elevated or an elevated inner instance,
+# the elevation OUTCOME including the exact refusal, meaningful stages, the exit
+# code where one is set, and the relaunch. No credentials and no user content —
+# paths and switches only, which is what the application log already carries.
+!define ORGTREE_LOG_MAX_BYTES 262144
+!macro OrgLog stage detail
+  StrCpy $OrgLogStage "${stage}"
+  StrCpy $OrgLogDetail "${detail}"
+  Call orgtreeInstallerLog
+!macroend
+
 !macro customHeader
   !ifndef BUILD_UNINSTALLER
+    Var OrgLogPath
+    Var OrgLogStage
+    Var OrgLogDetail
+    # Defined at top level so preInit can call it: preInit runs inside .onInit
+    # and cannot declare functions, and it is also the earliest point in the
+    # whole run — which is where the first line has to be written, because
+    # anything later is after something that can already quit or be declined.
+    Function orgtreeInstallerLog
+      Push $0
+      Push $1
+      Push $2
+      Push $3
+      Push $4
+      Push $5
+      Push $6
+      Push $7
+      ${if} $OrgLogPath == "-"
+        # A previous call found nowhere writable. Never ask the filesystem again.
+        Goto orgLogDone
+      ${endif}
+      ${if} $OrgLogPath == ""
+        StrCpy $OrgLogPath "$EXEDIR\orgtree-installer.log"
+        ClearErrors
+        FileOpen $0 "$OrgLogPath" a
+        ${if} ${errors}
+          StrCpy $OrgLogPath "$TEMP\orgtree-installer.log"
+          ClearErrors
+          FileOpen $0 "$OrgLogPath" a
+          ${if} ${errors}
+            StrCpy $OrgLogPath "-"
+            Goto orgLogDone
+          ${endif}
+        ${endif}
+        # BOUNDED, and rotated on the FIRST write of a run rather than mid-run,
+        # so a single installer's own lines are never split across a rotation.
+        FileSeek $0 0 END $1
+        ${if} $1 > ${ORGTREE_LOG_MAX_BYTES}
+          FileClose $0
+          Delete "$OrgLogPath"
+          ClearErrors
+          FileOpen $0 "$OrgLogPath" a
+          ${if} ${errors}
+            StrCpy $OrgLogPath "-"
+            Goto orgLogDone
+          ${endif}
+        ${endif}
+      ${else}
+        ClearErrors
+        FileOpen $0 "$OrgLogPath" a
+        ${if} ${errors}
+          # Transient: do not latch. A later stage may still be recordable, and
+          # losing one line is better than losing the rest of the run.
+          Goto orgLogDone
+        ${endif}
+        FileSeek $0 0 END
+      ${endif}
+      ${GetTime} "" "L" $2 $3 $4 $5 $6 $7 $R9
+      FileWrite $0 "$4-$3-$2 $6:$7:$R9 [$OrgLogStage] $OrgLogDetail$\r$\n"
+      FileClose $0
+      orgLogDone:
+      Pop $7
+      Pop $6
+      Pop $5
+      Pop $4
+      Pop $3
+      Pop $2
+      Pop $1
+      Pop $0
+    FunctionEnd
     # Sections execute in declaration order, before bundled uninstall/copy.
     # Unlike a page hook, this also runs during silent installations.
     !ifdef ORGTREE_DEV_CHANNEL
@@ -630,6 +799,7 @@ FunctionEnd
           Call orgtreeCloseForUpgrade
           Pop $0
           ${if} $0 != "1"
+            !insertmacro OrgLog "exit" "stopped before the boot preflight because Orgtree could not be confirmed closed; nothing was changed"
             Quit
           ${endif}
         ${endif}
@@ -651,6 +821,7 @@ FunctionEnd
         # than silently opening another installer.
         ${ifNot} ${UAC_IsAdmin}
           DetailPrint "Boot preflight reached without administrator rights."
+          !insertmacro OrgLog "exit" "exit code 2: the boot preflight was reached without administrator rights, which is an ordering defect rather than a user situation"
           MessageBox MB_OK|MB_ICONSTOP "Setup does not have the administrator rights it needs to update the Orgtree boot startup entry.$\r$\nThe existing installation has not been changed." /SD IDOK
           SetErrorLevel 2
           Quit
@@ -722,6 +893,9 @@ FunctionEnd
   # older installs without it safely take the full setup path.
   WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" OrgtreeUpgradeMetadata "1"
   WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" OrgtreeUpgradeMetadata "1"
+  # The one line that says the files and registry work actually completed. Its
+  # ABSENCE after the earlier stages is the shape of the reported incident.
+  !insertmacro OrgLog "install-complete" "files and registry written for [$INSTDIR] at version ${VERSION}"
 !macroend
 !macro customUnInstall
   !ifdef ORGTREE_DEV_CHANNEL

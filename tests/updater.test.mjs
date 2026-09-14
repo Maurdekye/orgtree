@@ -11,7 +11,7 @@ await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: tr
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
   uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
-  updateFailureToReport, FAILURE_REPORT_SHOWS,
+  updateFailureToReport, FAILURE_REPORT_SHOWS, installerLogTail, INSTALLER_LOG_TAIL,
   compareUpdateVersions, updateOfferIsNewer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
@@ -978,6 +978,23 @@ test('the report is DELIVERED once, not merely written once, and repeats are bou
     'under the bound it still reports')
   assert.equal(updateFailureToReport([...failed, ...shows(FAILURE_REPORT_SHOWS)], '2.1.3'), null,
     'at the bound it stops shouting')
+})
+
+test('the installer log tail keeps the END, which is the part nearest the failure', () => {
+  const lines = Array.from({ length: 40 }, (_unused, index) => `2026-01-01 00:00:0${index % 10} [stage-${index}] detail`)
+  const tail = installerLogTail(lines.join('\r\n'))
+  assert.equal(tail.length, INSTALLER_LOG_TAIL, 'bounded')
+  assert.match(tail.at(-1), /stage-39/, 'and it is the LAST lines that survive, not the first')
+  assert.match(tail[0], /stage-28/)
+
+  // CRLF is what the installer writes, and blank/whitespace lines must not
+  // consume the budget — a log ending in blank lines would otherwise push the
+  // real stages out of the window.
+  assert.deepEqual(installerLogTail('a\r\n\r\n  \r\nb\r\n'), ['a', 'b'])
+  assert.deepEqual(installerLogTail(''), [], 'an empty log yields nothing to report')
+  assert.deepEqual(installerLogTail('   \r\n'), [], 'and so does a log of blank lines')
+  // POSITIVE CONTROL for the bound: under it, everything is kept.
+  assert.equal(installerLogTail(lines.slice(0, 5).join('\n')).length, 5)
 })
 
 test('the failure report does not disturb the one-run hold accounting', () => {
