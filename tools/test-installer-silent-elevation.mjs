@@ -44,7 +44,19 @@ const vars = source.split(/\r?\n/).filter(line => /^Var (OrgUpgrade|OrgtreeUpgra
 // `updated` decides whether ${orgtreeOriginalIsUpdated} is true, i.e. whether
 // this run is the auto-updater's --updated entry point or a manual one.
 // `admin`, `inner` and `mode` are the matrix cell being exercised.
-function fixture({ name, body, updated = true, admin = false, inner = false, mode = 'all' }) {
+//
+// `uac` is the answer the stubbed UAC_RunElevated gives back, and it models the
+// REAL return contract rather than a convenient subset of it:
+//   error   → $0, the Win32 error of the elevation operation
+//   outcome → $1, 0 unsupported / 1 started a child / 2 already elevated /
+//             3 ask again (non-admin credentials)
+//   child   → $2, the elevated child's own exit code, which the plugin also
+//             writes to the NSIS error level
+// Stubbing only $0 and $1 is what let a failed child read as a successful
+// update: with $2 never set, the block under test could not tell the two apart
+// and this harness could not see that it didn't.
+function fixture({ name, body, updated = true, admin = false, inner = false, mode = 'all', uac = {} }) {
+  const { error = 0, outcome = 1, child = 0 } = uac
   const marker = path.join(temp, `${name}.txt`)
   const executable = path.join(temp, `${name}.exe`)
   const bool = value => (value ? '"1" "1"' : '"0" "1"')
@@ -84,10 +96,13 @@ SilentInstall silent
 !define UAC_IsInnerInstance \`"" UAC_IsInnerInstance ""\`
 !macro UAC_RunElevated
   Call orgtreeFixtureRecordElevation
-  # Answer the way an APPROVED elevation does, so the macro under test takes its
-  # success branch and quits like the real one.
-  StrCpy $0 "0"
-  StrCpy $1 "1"
+  StrCpy $0 "${error}"
+  StrCpy $1 "${outcome}"
+  StrCpy $2 "${child}"
+${error === 0 && outcome === 1 ? `  # The plugin sets the NSIS error level from the child's exit code as well,
+  # so the stub does too — otherwise a block that simply forgot to report the
+  # child's result would still look correct here.
+  SetErrorLevel ${child}` : '  # $2 and the error level are only defined when $0 == 0 && $1 == 1.'}
 !macroend
 
 ${vars}
@@ -145,8 +160,14 @@ function run(spec) {
   assert.equal(compiled.status, 0, `${spec.name} failed to COMPILE:\n${compiled.stdout}${compiled.stderr}`)
   const ran = spawnSync(executable, ['/S'], { encoding: 'utf8', windowsHide: true, timeout: 30000 })
   const text = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : ''
+  const attempts = text.split(/\r?\n/).filter(line => line.includes('ELEVATION_REACHED')).length
   console.log('  %s → exit %s, reached %j', spec.name, ran.status, text.trim().split(/\r?\n/).join('+') || 'nothing')
-  return { status: ran.status, elevated: text.includes('ELEVATION_REACHED'), section: text.includes('SECTION_RAN') }
+  return {
+    status: ran.status,
+    elevated: attempts > 0,
+    attempts,
+    section: text.includes('SECTION_RAN'),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +216,90 @@ console.log('PASS per-user silent update needs no elevation')
 const innerInstance = run({ name: 'silent-allusers-inner', body: customInit, inner: true })
 assert.ok(!innerInstance.elevated, 'the elevated inner instance must never elevate again — that is an elevation loop')
 console.log('PASS inner instance does not re-elevate')
+
+// ---------------------------------------------------------------------------
+// THE ELEVATION RETURN CONTRACT, one cell per documented answer. The question
+// each of these asks is the same: does the outer process tell the auto-updater
+// what actually happened? Its exit code is the only channel it has.
+const childFailed = run({
+  name: 'silent-allusers-child-failed',
+  body: customInit,
+  uac: { error: 0, outcome: 1, child: 1603 },
+})
+assert.ok(childFailed.elevated, 'the failed-child cell must still have reached the elevation decision')
+assert.ok(!childFailed.section, 'the wrapper process must quit after its child ran, whatever the child answered')
+assert.equal(childFailed.status, 1603,
+  `a child that died with 1603 must be reported as 1603, not ${childFailed.status} — reporting 0 tells the updater a failed all-users update succeeded, and reporting a flat 2 discards which failure it was`)
+console.log('PASS a failed elevated child is reported with its own exit code')
+
+// NEGATIVE CONTROL for that cell: restore the reviewed defect — one
+// unconditional SetErrorLevel 0 for every started child — and the same run must
+// come back 0. Without this, a harness that could not tell the two apart would
+// report the cell above as a pass either way.
+const maskedChildResult = customInit.replace(
+  /\$\{if\} \$2 == 0[\s\S]*?SetErrorLevel \$2\r?\n\s*\$\{endif\}/,
+  'SetErrorLevel 0')
+assert.notEqual(maskedChildResult, customInit,
+  'the control could not restore the unconditional success branch; its anchor moved')
+const masked = run({
+  name: 'control-masked-child-result',
+  body: maskedChildResult,
+  uac: { error: 0, outcome: 1, child: 1603 },
+})
+assert.equal(masked.status, 0,
+  `CONTROL IS BROKEN: the pre-fix branch was expected to report the failed child as 0, but this run exited ${masked.status}, so the cell above proves nothing`)
+console.log('PASS negative control: the pre-fix branch really does report a failed child as success')
+
+const cancelled = run({
+  name: 'silent-allusers-cancelled',
+  body: customInit,
+  uac: { error: 1223, outcome: 0, child: 0 },
+})
+assert.ok(!cancelled.section, 'a dismissed permission prompt must not continue into the sections unelevated')
+assert.equal(cancelled.status, 2, 'a dismissed prompt is a failed update and must not exit 0')
+console.log('PASS a dismissed permission prompt fails the update instead of continuing')
+
+const elevationError = run({
+  name: 'silent-allusers-elevation-error',
+  body: customInit,
+  uac: { error: 87, outcome: 0, child: 0 },
+})
+assert.ok(!elevationError.section, 'a fatal elevation error must not continue into the sections unelevated')
+assert.equal(elevationError.status, 2, 'a fatal elevation error is a failed update and must not exit 0')
+console.log('PASS a fatal elevation error fails the update instead of continuing')
+
+const unsupported = run({
+  name: 'silent-allusers-uac-unsupported',
+  body: customInit,
+  uac: { error: 0, outcome: 0, child: 0 },
+})
+assert.ok(!unsupported.section, 'a system without UAC cannot run an all-users update unelevated')
+assert.equal(unsupported.status, 2, '$0 == 0 with $1 == 0 means UAC is unsupported, which is a failure, not a success')
+console.log('PASS "UAC unsupported" is a failure rather than a silent fall-through')
+
+// $1 == 3 is the plugin's "call RunElevated again" — a non-admin account was
+// typed into the credential prompt. The stub always answers 3, so this also
+// proves the retry is BOUNDED: an unattended update must not prompt forever.
+const nonAdminCredentials = run({
+  name: 'silent-allusers-nonadmin-credentials',
+  body: customInit,
+  uac: { error: 0, outcome: 3, child: 0 },
+})
+assert.equal(nonAdminCredentials.attempts, 2,
+  `non-admin credentials must be retried exactly once (2 attempts), saw ${nonAdminCredentials.attempts} — 1 ignores the plugin's documented answer, more than 2 is an unbounded prompt loop on an unattended update`)
+assert.ok(!nonAdminCredentials.section, 'exhausted credential attempts must not continue into the sections unelevated')
+assert.equal(nonAdminCredentials.status, 2, 'exhausted credential attempts are a failed update')
+console.log('PASS non-admin credentials are retried once, bounded, and then reported as a failure')
+
+const alreadyHighIntegrity = run({
+  name: 'silent-allusers-already-high-integrity',
+  body: customInit,
+  uac: { error: 0, outcome: 2, child: 0 },
+})
+assert.ok(alreadyHighIntegrity.section,
+  '"you are already elevated" must CONTINUE this process, not quit it — quitting there abandons an update that could have proceeded')
+assert.equal(alreadyHighIntegrity.status, 0, 'continuing after an unnecessary elevation is a normal run')
+console.log('PASS "already elevated" continues the run instead of quitting')
 
 const manual = run({ name: 'manual-allusers-unelevated', body: customInit, updated: false })
 assert.ok(!manual.elevated,

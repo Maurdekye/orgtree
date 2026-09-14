@@ -253,9 +253,20 @@ test('the silent update path reaches an elevation decision of its own', () => {
   const destination = body.indexOf('!insertmacro GetDParameter')
   assert.ok(destination >= 0 && elevate > destination,
     'elevation must come after the /D= destination resolution, or it decides on a scope that is not final yet')
-  // A successful handoff must report success. Quitting from .onInit exits 2 by
-  // default, and on the silent path that code is the updater's only signal.
-  assert.match(body, /elevation-approved[\s\S]*?SetErrorLevel 0\r?\n\s*Quit/)
+  // THE CHILD'S RESULT IS THE UPDATE'S RESULT. UAC.nsh returns the elevated
+  // child's exit code in $2 ("The NSIS errlvl is also set"), and $1 == 1 only
+  // says a child ran — not that it worked. Reporting 0 for every started child
+  // tells the auto-updater that a failed all-users update succeeded.
+  assert.match(body, /\$\{if\} \$2 == 0[\s\S]*?SetErrorLevel 0[\s\S]*?\$\{else\}[\s\S]*?SetErrorLevel \$2[\s\S]*?\$\{endif\}\r?\n\s*Quit/)
+  assert.match(body, /elevation-child-succeeded/)
+  assert.match(body, /elevation-child-failed/)
+  // Every other documented answer has its own branch: 3 is "ask again" (a
+  // non-admin account was typed in), 2 is "already elevated", and $0 == 0 with
+  // $1 == 0 means the OS has no UAC at all.
+  assert.match(body, /\$1 == 3[\s\S]*?elevation-retry[\s\S]*?Goto orgtreeSilentElevateAttempt/)
+  assert.match(body, /\$OrgUpgradeElevateAttempts < 2/, 'the credential retry must be bounded')
+  assert.match(body, /\$1 == 2[\s\S]*?elevation-unnecessary[\s\S]*?Goto orgtreeSilentElevateDone/)
+  assert.match(body, /elevation-unavailable/)
   // A refusal must be distinguishable and must not be silent-failure-by-zero.
   assert.match(body, /\$0 == 1223[\s\S]*?elevation-declined/)
   assert.match(body, /SetErrorLevel 2\r?\n\s*Quit/)

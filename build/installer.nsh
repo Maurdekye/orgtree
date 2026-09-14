@@ -148,6 +148,7 @@ Var OrgUpgradeInstallDir
 Var OrgUpgradeInstallMode
 Var OrgUpgradeRegistryRoot
 Var OrgUpgradeExe
+Var OrgUpgradeElevateAttempts
 Var OrgUpgradeProbeValid
 Var OrgUpgradeProbeDir
 Var OrgUpgradeProbeMode
@@ -639,39 +640,100 @@ FunctionEnd
           # inner instance should be impossible. It is guarded rather than
           # assumed, because the failure it would produce is an elevation loop.
           ${ifNot} ${UAC_IsInnerInstance}
+            # THE RETURN CONTRACT, QUOTED FROM THE PINNED PLUGIN. Every branch
+            # below exists because of a specific line of
+            # node_modules/app-builder-lib/templates/nsis/include/UAC.nsh:
+            #   $0  Win32 error; 0 = the elevation OPERATION succeeded, 1223 =
+            #       the user dismissed the prompt, anything else is fatal.
+            #   $1  when $0 == 0: 0 = UAC unsupported by this OS, 1 = an
+            #       elevated CHILD was started and this process is only its
+            #       wrapper, 2 = this process is already high-integrity,
+            #       3 = call RunElevated again (a NON-ADMIN account was typed
+            #       into the credential prompt).
+            #   $2  when $0 == 0 && $1 == 1: THE CHILD'S EXIT CODE. The NSIS
+            #       error level is set from it as well.
+            #   $3  when $0 == 0: 1 if the user is in the administrators group.
+            #
+            # ⚠ STARTING A CHILD IS NOT INSTALLING SUCCESSFULLY. $1 == 1 says a
+            # child ran to completion, not that it worked — the child's own
+            # result is in $2, and an earlier version of this block wrote
+            # SetErrorLevel 0 for every $1 == 1, which turned a child that died
+            # with 1603 into "update succeeded" for the only reader of that
+            # code, the auto-updater. Elevation ACCEPTANCE and installation
+            # OUTCOME are two different answers and both are reported.
+            StrCpy $OrgUpgradeElevateAttempts "0"
+orgtreeSilentElevateAttempt:
+            IntOp $OrgUpgradeElevateAttempts $OrgUpgradeElevateAttempts + 1
             # Written BEFORE the prompt for the same reason as the manual path:
             # from here the next thing that happens is a permission prompt, and
             # if it is declined this is the only process that can say so.
-            !insertmacro OrgLog "elevation-requested" "silent update of an all-users installation in [$INSTDIR]; asking for administrator rights"
+            !insertmacro OrgLog "elevation-requested" "silent update of an all-users installation in [$INSTDIR]; asking for administrator rights (attempt $OrgUpgradeElevateAttempts)"
             ShowWindow $HWNDPARENT ${SW_HIDE}
             !insertmacro UAC_RunElevated
             ${if} $0 == 0
             ${andif} $1 == 1
-              !insertmacro OrgLog "elevation-approved" "an elevated instance ran the silent update; this outer process is done"
-              # ⚠ SAY SUCCESS EXPLICITLY. Quitting from .onInit exits with code
-              # 2 by default — measured, not assumed: every other cell of the
-              # fixture matrix in tools/test-installer-silent-elevation.mjs
-              # exits 0 and only this one returned 2. On the SILENT path that
-              # exit code is the auto-updater's only signal, so leaving the
-              # default would report a successful handoff as a failed update and
-              # invite the client to retry an upgrade that already happened.
-              # The inner instance did the work and reported success in $1.
-              SetErrorLevel 0
+              ${if} $2 == 0
+                !insertmacro OrgLog "elevation-child-succeeded" "the elevated instance ran the silent update and exited 0; this outer process is done"
+                # ⚠ SAY SUCCESS EXPLICITLY. Quitting from .onInit exits with
+                # code 2 by default — measured, not assumed: every other cell of
+                # the fixture matrix in tools/test-installer-silent-elevation.mjs
+                # exits 0 and only this one returned 2. On the SILENT path that
+                # exit code is the auto-updater's only signal, so leaving the
+                # default would report a successful handoff as a failed update
+                # and invite a retry of an upgrade that already happened.
+                SetErrorLevel 0
+              ${else}
+                # The child is the process that actually installed, so its code
+                # is the update's result and it is passed through UNCHANGED.
+                # Reporting 0 here is what hides a failed all-users update from
+                # the updater; reporting a flat 2 would hide WHICH failure it
+                # was (1603 and friends are the diagnosable part).
+                !insertmacro OrgLog "elevation-child-failed" "the elevated instance ran and FAILED with exit code $2; the update did not complete and this outer process reports that code unchanged"
+                SetErrorLevel $2
+              ${endif}
               Quit
             ${endif}
-            # No MessageBox on this path. SetSilent is already in force, so
-            # /SD would auto-dismiss it unseen; the exit code is what the
-            # updater can actually act on, and the log is what a person can
-            # read afterwards.
+            ${if} $0 == 0
+            ${andif} $1 == 3
+              # Non-admin credentials were typed into the prompt. The plugin's
+              # documented answer to this is to ask again, so this is a retry
+              # rather than a failure — but a BOUNDED one: an unbounded loop
+              # would re-prompt a machine with no usable administrator account
+              # forever, and this path is entered by an unattended update.
+              ${if} $OrgUpgradeElevateAttempts < 2
+                !insertmacro OrgLog "elevation-retry" "the credentials supplied were not an administrator account; asking again (attempt $OrgUpgradeElevateAttempts of 2)"
+                Goto orgtreeSilentElevateAttempt
+              ${endif}
+              !insertmacro OrgLog "elevation-refused" "no administrator credentials were supplied in 2 attempts; nothing was changed"
+              SetErrorLevel 2
+              Quit
+            ${endif}
+            ${if} $0 == 0
+            ${andif} $1 == 2
+              # Already high-integrity. ${UAC_IsAdmin} answered otherwise a few
+              # lines above, so this should be unreachable — but the plugin
+              # defines the value, and the safe reading of "you are already
+              # elevated" is to CONTINUE this process rather than quit it.
+              !insertmacro OrgLog "elevation-unnecessary" "UAC reports this process is already elevated; continuing without starting a child"
+              Goto orgtreeSilentElevateDone
+            ${endif}
+            # No MessageBox on any of these paths. SetSilent is already in
+            # force, so /SD would auto-dismiss it unseen; the exit code is what
+            # the updater can act on, and the log is what a person can read
+            # afterwards.
             ${if} $0 == 1223
               !insertmacro OrgLog "elevation-declined" "the Windows permission prompt was DISMISSED by the user (1223); nothing was changed"
             ${elseif} $0 == 0
-              !insertmacro OrgLog "elevation-unavailable" "no administrator account was available to elevate to; nothing was changed"
+              # $0 == 0 with $1 neither 1, 2 nor 3 means $1 == 0: the operating
+              # system does not support UAC at all, so there is nothing to
+              # elevate to.
+              !insertmacro OrgLog "elevation-unavailable" "this system reports no UAC support, so an all-users update cannot be elevated; nothing was changed"
             ${else}
               !insertmacro OrgLog "elevation-error" "could not request administrator approval, Windows error $0; nothing was changed"
             ${endif}
             SetErrorLevel 2
             Quit
+orgtreeSilentElevateDone:
           ${endif}
         ${else}
           !insertmacro OrgLog "elevation-held" "silent update already has administrator rights; no prompt needed"
