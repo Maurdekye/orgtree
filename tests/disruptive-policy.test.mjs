@@ -62,10 +62,51 @@ export function testScriptReachesDisruptive(script) {
   const paths = args.filter(a => a.includes('/') || a.includes('*') || a.endsWith('.mjs'))
   if (paths.length === 0) return 'bare `node --test` searches recursively from the working directory'
   for (const spec of paths) {
-    if (spec.includes('**')) return 'the path ' + spec + ' is recursive'
-    if (/(^|\/)disruptive(\/|$)/.test(spec)) return 'the path ' + spec + ' names the disruptive folder'
+    const hit = PROBE_PATHS.find(p => globToRegExp(spec).test(p))
+    if (hit) return 'the path ' + spec + ' matches ' + hit
   }
   return ''
+}
+
+/** Paths a probe could occupy. `testScriptReachesDisruptive` asks whether a glob
+ *  MATCHES one of these rather than how the glob is SPELLED.
+ *
+ *  The spelling check this replaces passed a single-level wildcard directory —
+ *  "tests", slash, star, slash, star dot test dot mjs — which reaches the folder
+ *  through a wildcard that is neither a double star nor the literal word
+ *  "disruptive". Expanding the glob against the DISK would not have caught it
+ *  either, because the folder holds no probes yet and an empty folder matches
+ *  nothing — so the question has to be asked about a path that may exist, not
+ *  only about paths that do. The nested entry covers a probe in a subfolder. */
+const PROBE_PATHS = ['tests/disruptive/probe.test.mjs', 'tests/disruptive/sub/probe.test.mjs']
+
+/** The subset of glob syntax these scripts use. `*` stops at a separator, `**`
+ *  crosses them, `?` takes one character; everything else is literal. */
+function globToRegExp(spec) {
+  const s = spec.replace(/\\/g, '/')
+  let out = '^'
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === '*' && s[i + 1] === '*') { out += '.*'; i++; if (s[i + 1] === '/') i++ }
+    else if (c === '*') out += '[^/]*'
+    else if (c === '?') out += '[^/]'
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(out + '$')
+}
+
+/** Every script node's own discovery could pick up inside the folder, at any
+ *  depth. Node's no-argument mode is broader than `*.test.mjs` on both counts —
+ *  it recurses, and it also matches `*-test.mjs` and `test-*.mjs` — so a check
+ *  modelled on the narrower set is blind to files that invocation really runs. */
+function disruptiveFolderScripts(dir) {
+  const out = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...disruptiveFolderScripts(full))
+    else if (/\.(mjs|cjs|js)$/.test(entry.name) && entry.name !== 'gate.mjs') out.push(full)
+  }
+  return out
 }
 
 /** Files the DEFAULT glob `tests/*.test.mjs` reaches. Not recursive — that
@@ -114,6 +155,9 @@ test('§3 THE REAL `test` SCRIPT cannot reach tests/disruptive/', () => {
   assert.notEqual(testScriptReachesDisruptive('node --test tests/**/*.test.mjs'), '', 'a recursive glob must be caught')
   assert.notEqual(testScriptReachesDisruptive('node --test'), '', 'bare `node --test` recurses and must be caught')
   assert.notEqual(testScriptReachesDisruptive('node --test tests/disruptive/*.test.mjs'), '', 'naming the folder must be caught')
+  // The two shapes a spelling-based check let through, measured by a reviewer.
+  assert.notEqual(testScriptReachesDisruptive('node --test tests/*/*.test.mjs'), '', 'a single-level wildcard directory must be caught')
+  assert.notEqual(testScriptReachesDisruptive('node --test tests/disruptive*/*.test.mjs'), '', 'a wildcard suffix on the folder name must be caught')
 
   const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(testsDir), 'package.json'), 'utf8'))
   const reason = testScriptReachesDisruptive(pkg.scripts && pkg.scripts.test)
@@ -128,9 +172,10 @@ test('§5 every probe in tests/disruptive/ actually asks the gate', () => {
   // a boolean and nothing obliged a probe to call it. Now the obligation is
   // enforced rather than remembered.
   const dir = path.join(testsDir, 'disruptive')
-  const probes = fs.readdirSync(dir).filter(n => n.endsWith('.test.mjs'))
-  const ungated = probes.filter(n => !/requireDisruptiveOptIn|disruptiveProbesEnabled/.test(fs.readFileSync(path.join(dir, n), 'utf8')))
-  assert.deepEqual(ungated, [], 'these probes never ask the gate, so barrier two does not exist for them: ' + ungated.join(', '))
+  const ungated = disruptiveFolderScripts(dir)
+    .filter(f => !/requireDisruptiveOptIn|disruptiveProbesEnabled/.test(fs.readFileSync(f, 'utf8')))
+    .map(f => path.relative(dir, f).replace(/\\/g, '/'))
+  assert.deepEqual(ungated, [], 'these scripts never ask the gate, so barrier two does not exist for them: ' + ungated.join(', '))
 })
 
 test('§4 the gate opens only on an explicit opt-in', () => {

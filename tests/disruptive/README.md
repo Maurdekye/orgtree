@@ -58,5 +58,15 @@ first version found them, and they are listed here rather than left implied:
   no-spawning-at-all rule would flag much of a legitimate suite. §1b pins that it
   stays unflagged.
 
+Two bounds of the text scan itself, found by the same review:
+
+- `runas` is case-insensitive, so an ordinary identifier such as
+  `const runAs = true` trips the elevation detector. It fails CLOSED — a false
+  alarm, never a miss — and nothing in the repository trips it today.
+- §5 is satisfied by a MENTION of the gate, not by a call to it. A probe whose
+  only occurrence is `// we do not need requireDisruptiveOptIn here` passes. That
+  is the normal bound of reading source as text, and it is acceptable for a
+  tripwire; it is not acceptable as a substitute for reading a new probe.
+
 So: the folder and the gate are the protection. The guard's job is to notice when
 a known-disruptive form is added back to a file an ordinary run can reach.
