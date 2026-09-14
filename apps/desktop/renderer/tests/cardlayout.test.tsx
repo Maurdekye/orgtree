@@ -93,7 +93,15 @@ for (const lod of ['norm', 'mini'] as const) {
           assert.equal(name, null, 'agent name is omitted at mini')
           assert.equal(meta, null, 'sq-meta is omitted at mini')
           assert.equal(root.querySelector('.sq-title'), null, 'title row is omitted at mini')
-          assert.equal(root.querySelector('.tier'), null, 'tier token is omitted at mini')
+          // The MODEL TOKEN is the deliberate exception (009b6a4, "Show
+          // model token at far zoom" — the user asked for it back): it rides
+          // in its own far-zoom slot, not in the unmounted title row. This
+          // line used to assert `.tier` absent, which after that change
+          // matched the far slot's chip — and node:test's diff serializer
+          // OOM'd trying to print the jsdom element, so the failure read as
+          // "[RangeError: Array buffer allocation failed]" instead of a diff.
+          assert.ok(root.querySelector('.sq-far-tier .tier'), 'far-zoom model token stays at mini')
+          assert.equal(root.querySelectorAll('.tier').length, 1, 'only the far-slot tier token is mounted at mini')
           assert.equal(root.querySelector('.sq-idle'), null, 'written state label is omitted at mini')
           assert.equal(root.querySelector('.sq-idle-time'), null, 'elapsed duration is omitted at mini')
           assert.equal(root.querySelector('.cbar-wrap'), null, 'credit bar is omitted at mini')
