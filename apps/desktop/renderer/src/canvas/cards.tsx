@@ -1466,6 +1466,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onShowWindow: desk.show,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
+      canRetireAll: !pub,
       onDismiss,
     }, { pinned, piled: !!pile, detached: desk.detached })
   }

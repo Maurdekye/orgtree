@@ -2475,6 +2475,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
+      canRetireAll: !tree.public,
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
     }, {

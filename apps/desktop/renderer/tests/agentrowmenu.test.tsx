@@ -86,9 +86,11 @@ interface Canvas {
   el: HTMLElement
   ops: OpRequest[]
   galleries: string[]
+  notices: string[][]
 }
 async function mountCanvas(t: TestContext, roots: unknown[],
-  patch: Record<string, unknown> = {}): Promise<Canvas> {
+  patch: Record<string, unknown> = {},
+  run?: (body: OpRequest) => Promise<unknown>): Promise<Canvas> {
   t.after(stubPointerCapture())
   resetConvos()
   const had = (globalThis as { fetch?: typeof fetch }).fetch
@@ -96,14 +98,16 @@ async function mountCanvas(t: TestContext, roots: unknown[],
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const ops: OpRequest[] = []
   const galleries: string[] = []
+  const notices: string[][] = []
   const v = await mountView(
     <OrgCanvas tree={asTree({ ...tree(roots), ...patch })} slug="mine"
-      op={(b) => { ops.push(b); return Promise.resolve({} as never) }} toast={noop}
+      op={(b) => { ops.push(b); return run?.(b) ?? Promise.resolve({}) }}
+      toast={(lines) => { if (lines) notices.push(lines) }}
       mailEvt={null} onOpenAgentGallery={(id) => { galleries.push(id) }} />,
     (h) => h)
   t.after(() => v.unmount())
   await flush(); await advance(400, 50); await flush()
-  return { el: v.el, ops, galleries }
+  return { el: v.el, ops, galleries, notices }
 }
 
 // -------------------------------------------------------------- the gestures
@@ -334,6 +338,13 @@ uiTest('§2g a PUBLIC (kiosk) org gets the same menu on the row as on the card',
     await openTray(c.el)
     const have = await assertParity(c, 'worker', 'a seat in a public org')
     assert.ok(have.includes('Settings') && have.includes('Retire…'), JSON.stringify(have))
+    const c2 = await mountCanvas(t, [mkNode('boss', { children: [
+      mkNode('kid', { parent: 'boss' }),
+    ] })], { public: true, kiosk: { max_tier: 'sonnet', credits: 10 } })
+    await openTray(c2.el)
+    const restricted = await assertParity(c2, 'boss', 'a superior in a public org')
+    assert.ok(!restricted.includes('Retire all subordinates…'),
+      `bulk retirement is hidden without surface authority: ${JSON.stringify(restricted)}`)
   })
 
 // ----------------------------------------------------- §3 it is not a click
@@ -459,6 +470,58 @@ uiTest('§5b a superior\'s Dissolve confirm is the same one the card raises',
     await inAct(() => { (box.querySelector('button.danger.solid') as HTMLButtonElement).click() })
     await flush(2)
     assert.deepEqual(c.ops, [{ op: 'dissolve', node: 'boss' }])
+  })
+
+uiTest('§5c Retire all subordinates confirms the direct count and preserves the chosen agent',
+  async (t) => {
+    const c = await mountCanvas(t, [mkNode('boss', { children: [
+      mkNode('kid-a', { parent: 'boss' }),
+      mkNode('kid-b', { parent: 'boss', children: [mkNode('grandkid', { parent: 'kid-b' })] }),
+    ] })])
+    await openTray(c.el)
+    await rightClick(rowFor(c.el, 'boss')!)
+    assert.ok(labels().includes('Retire all subordinates…'))
+    await pick('Retire all subordinates…')
+    const box = document.querySelector('.confirm-box') as HTMLElement
+    assert.match(box.textContent ?? '', /retires 2 live direct reports/i)
+    assert.match(box.textContent ?? '', /nested descendants \(1\) are included/i)
+    await inAct(() => { (box.querySelector('button.danger.solid') as HTMLButtonElement).click() })
+    await flush(2)
+    assert.deepEqual(c.ops, [
+      { op: 'retire', node: 'kid-a' },
+      { op: 'retire', node: 'kid-b' },
+    ])
+    assert.ok(!c.ops.some((op) => op.node === 'boss'), 'the chosen agent is never targeted')
+  })
+
+uiTest('§5d cancellation and partial failures do not claim complete success',
+  async (t) => {
+    const c = await mountCanvas(t, [mkNode('boss', { children: [
+      mkNode('kid-a', { parent: 'boss' }), mkNode('kid-b', { parent: 'boss' }),
+    ] })], {}, async (body) => {
+      if (body.node === 'kid-b') throw new Error('permission denied')
+      return {}
+    })
+    await openTray(c.el)
+    await rightClick(rowFor(c.el, 'boss')!)
+    await pick('Retire all subordinates…')
+    const box = document.querySelector('.confirm-box') as HTMLElement
+    await inAct(() => { (box.querySelector('button:not(.danger)') as HTMLButtonElement).click() })
+    await flush(2)
+    assert.deepEqual(c.ops, [], 'cancellation starts no retirement')
+
+    await rightClick(rowFor(c.el, 'boss')!)
+    await pick('Retire all subordinates…')
+    const second = document.querySelector('.confirm-box') as HTMLElement
+    await inAct(() => { (second.querySelector('button.danger.solid') as HTMLButtonElement).click() })
+    await flush(2)
+    assert.deepEqual(c.ops, [
+      { op: 'retire', node: 'kid-a' },
+      { op: 'retire', node: 'kid-b' },
+    ])
+    assert.ok(c.notices.some((lines) => lines.some((line) => /Retired 1 subordinate/.test(line))
+      && lines.some((line) => /Could not retire 1 subordinate/.test(line))),
+      `partial outcome was not reported: ${JSON.stringify(c.notices)}`)
   })
 
 // ------------------------------------------------------ §7 the native window

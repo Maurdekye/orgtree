@@ -42,7 +42,7 @@ import type { CanvasNode, OpFn } from './shared'
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
  *  (a node with live reports dissolves, one without retires) so no caller has
  *  to write that rule a second time — it is handed the answer. */
-export type RetireKind = 'retire' | 'dissolve'
+export type RetireKind = 'retire' | 'dissolve' | 'retire-all'
 
 export interface AgentMenuHandlers {
   /** open this agent's desk — the card re-centres the camera on itself, the
@@ -71,6 +71,9 @@ export interface AgentMenuHandlers {
   onHire?: () => void
   /** open the confirm for `kind`; render `AgentRetireConfirm` from it */
   onRetireAsk?: (kind: RetireKind) => void
+  /** presentation-layer authority gate for bulk retirement. The backend still
+   *  rechecks authority for every normal retire operation. */
+  canRetireAll?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
 }
@@ -141,6 +144,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   const ask = h.onRetireAsk
   if (canRetire && ask) {
+    if (liveKids && h.canRetireAll !== false) entries.push({
+      label: 'Retire all subordinates…', danger: true,
+      title: 'retires every live direct report; nested subtrees are included',
+      onSelect: () => ask('retire-all'),
+    })
     entries.push('sep', liveKids
       ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }
       : { label: 'Retire…', danger: true, onSelect: () => ask('retire') })
@@ -172,6 +180,27 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  if (kind === 'retire-all') {
+    const direct = node.children.filter((child) => child.state === 'live')
+    const nested = direct.reduce((count, child) => {
+      const descendants = (n: CanvasNode): number =>
+        n.children.reduce((total, c) => total + 1 + descendants(c), 0)
+      return count + descendants(child)
+    }, 0)
+    const warning = nested
+      ? ` Nested descendants (${nested}) are included through each report's existing recursive retirement path.`
+      : ''
+    const body = direct.length
+      ? `This retires ${direct.length} live direct report${direct.length === 1 ? '' : 's'} of ${node.id}.${warning} ${node.id} stays live. Each report is processed through the normal retirement operation; if another change wins first, the result will show what was already retired or failed.`
+      : `No live direct reports of ${node.id} remain. Nothing will be retired, and ${node.id} stays live.`
+    return (
+      <ConfirmModal title={`retire all subordinates of ${node.id}?`}
+        body={body}
+        confirmLabel="retire all subordinates"
+        onConfirm={() => retireAllSubordinates(node, op, toast)}
+        close={close} />
+    )
+  }
   if (kind === 'dissolve') {
     return (
       <ConfirmModal title={`dissolve ${node.id}?`}
@@ -192,4 +221,38 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
         .catch(() => {})}
       close={close} />
   )
+}
+
+/** Execute one normal retirement per current direct report. Keeping this as a
+ * client-side fan-out is intentional: each call re-enters the established
+ * authority, active-turn interruption, recursive subtree, and seat/grant
+ * accounting path. A concurrent change can therefore affect one target
+ * without making the remaining targets unreportable. */
+export async function retireAllSubordinates(node: CanvasNode, op: OpFn,
+  toast: ToastFn): Promise<void> {
+  const targets = node.children.filter((child) => child.state === 'live')
+  if (!targets.length) {
+    toast([`No live subordinates of ${node.id} remained; nothing was retired.`])
+    return
+  }
+  const retired: string[] = []
+  const alreadyRetired: string[] = []
+  const failed: string[] = []
+  for (const target of targets) {
+    try {
+      const result = await op({ op: 'retire', node: target.id })
+      if ((result.warnings ?? []).some((warning) => /already archived/i.test(warning))) {
+        alreadyRetired.push(target.id)
+      } else {
+        retired.push(target.id)
+      }
+    } catch {
+      failed.push(target.id)
+    }
+  }
+  const lines: string[] = []
+  if (retired.length) lines.push(`Retired ${retired.length} subordinate${retired.length === 1 ? '' : 's'}: ${retired.join(', ')}.`)
+  if (alreadyRetired.length) lines.push(`Already retired before execution (${alreadyRetired.length}): ${alreadyRetired.join(', ')}.`)
+  if (failed.length) lines.push(`Could not retire ${failed.length} subordinate${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}.`)
+  toast(lines)
 }
