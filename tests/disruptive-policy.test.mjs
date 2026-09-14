@@ -36,7 +36,37 @@ const DISRUPTIVE = [
   { name: 'launching the real Electron binary',
     pattern: /spawn\(\s*electron\b/,
     fires: "const child = spawn(electron, [script], opts)" },
+  { name: 'requesting elevation',
+    // A UAC prompt is a modal on somebody else's screen that they cannot ignore.
+    pattern: /(-Verb\s+RunAs|\brunas\b)/i,
+    fires: "spawn('powershell', ['-Command', 'Start-Process -Verb RunAs setup.exe'])" },
+  { name: 'executing a compiled installer',
+    pattern: /(spawn|spawnSync|execFile|execFileSync)[^\n]*(Setup\.exe|msiexec|\.msi\b)/i,
+    fires: "execFile(path.join(dir, 'OrgtreeSetup.exe'), ['/S'])",
+    alsoFires: "spawn('msiexec', ['/i', msi])" },
 ]
+
+/** Does the package's own `test` script stay out of tests/disruptive/?
+ *
+ *  THIS IS WHAT THE FOLDER BARRIER ACTUALLY DEPENDS ON, and the first version of
+ *  this guard did not check it: §3 asserted that the guard's OWN model of the
+ *  glob was non-recursive, which is a statement about the test rather than about
+ *  the repository. An independent review widened the real script to a recursive
+ *  glob and every section stayed green while `npm test` walked into the folder.
+ *  A control that cannot fail is not a control.
+ *
+ *  Returns a reason when the script can reach the folder, '' when it cannot. */
+export function testScriptReachesDisruptive(script) {
+  if (typeof script !== 'string' || !script.includes('--test')) return 'the test script does not run node --test'
+  const args = script.split(/\s+/).filter(a => a && !a.startsWith('-') && a !== 'node' && a !== 'npm')
+  const paths = args.filter(a => a.includes('/') || a.includes('*') || a.endsWith('.mjs'))
+  if (paths.length === 0) return 'bare `node --test` searches recursively from the working directory'
+  for (const spec of paths) {
+    if (spec.includes('**')) return 'the path ' + spec + ' is recursive'
+    if (/(^|\/)disruptive(\/|$)/.test(spec)) return 'the path ' + spec + ' names the disruptive folder'
+  }
+  return ''
+}
 
 /** Files the DEFAULT glob `tests/*.test.mjs` reaches. Not recursive — that
  *  non-recursion is half the safety property, so it is modelled exactly. */
@@ -76,9 +106,31 @@ test('§2 no file reachable from the default glob contains a disruptive primitiv
     `these files can disturb the desktop from an ordinary \`npm test\`. Move them to tests/disruptive/ and gate them on ${DISRUPTIVE_ENV}:\n  ` + offenders.join('\n  '))
 })
 
-test('§3 the default glob cannot reach tests/disruptive/', () => {
+test('§3 THE REAL `test` SCRIPT cannot reach tests/disruptive/', () => {
+  // Samples first, so this section is shown able to fail. The middle two are the
+  // exact mutations an independent review used to prove the previous §3 was not
+  // a control at all: both left it green.
+  assert.equal(testScriptReachesDisruptive('node --test tests/*.test.mjs'), '', 'the shipped shape must pass')
+  assert.notEqual(testScriptReachesDisruptive('node --test tests/**/*.test.mjs'), '', 'a recursive glob must be caught')
+  assert.notEqual(testScriptReachesDisruptive('node --test'), '', 'bare `node --test` recurses and must be caught')
+  assert.notEqual(testScriptReachesDisruptive('node --test tests/disruptive/*.test.mjs'), '', 'naming the folder must be caught')
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(testsDir), 'package.json'), 'utf8'))
+  const reason = testScriptReachesDisruptive(pkg.scripts && pkg.scripts.test)
+  assert.equal(reason, '', 'package.json test script can reach the disruptive folder: ' + reason)
+
   const inside = defaultGlobFiles().filter(f => path.dirname(f).endsWith('disruptive'))
-  assert.deepEqual(inside, [], 'the default glob became recursive; the folder barrier is gone')
+  assert.deepEqual(inside, [], 'the default glob model became recursive')
+})
+
+test('§5 every probe in tests/disruptive/ actually asks the gate', () => {
+  // Barrier two was convention until this existed: requireDisruptiveOptIn returns
+  // a boolean and nothing obliged a probe to call it. Now the obligation is
+  // enforced rather than remembered.
+  const dir = path.join(testsDir, 'disruptive')
+  const probes = fs.readdirSync(dir).filter(n => n.endsWith('.test.mjs'))
+  const ungated = probes.filter(n => !/requireDisruptiveOptIn|disruptiveProbesEnabled/.test(fs.readFileSync(path.join(dir, n), 'utf8')))
+  assert.deepEqual(ungated, [], 'these probes never ask the gate, so barrier two does not exist for them: ' + ungated.join(', '))
 })
 
 test('§4 the gate opens only on an explicit opt-in', () => {
