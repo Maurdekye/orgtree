@@ -30,15 +30,47 @@
 //     press still does what it does), on wheel/scroll/resize/blur, and on
 //     selecting an item;
 //   * a menu raised inside a popped-out surface renders IN THAT WINDOW:
-//     the node portals into the surface document's BODY, and every listener
-//     is bound to the menu element's own document/window, never the module
-//     globals. The body and not the surface's overlay container on purpose:
-//     a desk on the canvas lives under two transforms (`.space`'s camera and
-//     `.desk-inner`'s counter-scale), and `position: fixed` inside a
-//     transformed ancestor is positioned in THAT box, in authored px — a menu
-//     for a row in the desk's inbox tab would land scaled and elsewhere. A
-//     document's body is never transformed, and `useSurfaceDocument()` is the
-//     popped-out window's document when the surface is detached.
+//     the node portals into the ORIGINATING document's BODY, and every
+//     listener is bound to the menu element's own document/window, never the
+//     module globals. The body and not the surface's overlay container on
+//     purpose: a desk on the canvas lives under two transforms (`.space`'s
+//     camera and `.desk-inner`'s counter-scale), and `position: fixed` inside
+//     a transformed ancestor is positioned in THAT box, in authored px — a
+//     menu for a row in the desk's inbox tab would land scaled and elsewhere.
+//     A document's body is never transformed.
+//
+// ⚠ THE ORIGIN IS THE ELEMENT THAT WAS PRESSED, NOT THE REACT TREE (ticket
+// position-context-menus-in-the-originating-popout, user report: a popped-out
+// modal moved away from the main window drew its menu on the main canvas,
+// far from the pointer).
+//
+// Orgtree is ONE renderer with MANY documents: a popout is a frameless native
+// window whose about:blank document is adopted by the main window, so its
+// React handlers run in the main window's realm (see popoutRegistry in
+// main/windows.ts). There is no native Menu.popup and no second webContents to
+// ask — "which window did this come from" is answered here, by the DOM.
+//
+// `useSurfaceDocument()` answers it from REACT CONTEXT, at the component that
+// happens to hold the menu state — and that component is frequently OUTSIDE
+// the `MovableSurface` whose window the user is actually clicking in
+// (DocGalleryModal calls `useContextMenu` and then renders the `PinFrame` that
+// creates the surface). The menu then portaled into the MAIN document while
+// `clientX/clientY` were measured in the POPOUT's viewport: a menu on the main
+// canvas at an offset nobody pointed at. OrgCanvas's `AgentListMenuHost` exists
+// only to hand-dodge that trap for one list.
+//
+// So `open` records `anchor.ownerDocument` — the document the press really
+// happened in — and everything downstream follows it: the portal target, the
+// viewport clamp, the focus restore, the Escape stack and the dismissal
+// listeners. A main-window press resolves to `document` exactly as before, two
+// popouts each resolve to their own window, and an origin whose window has
+// gone opens nothing anywhere (see `liveBody`).
+//
+// NOTHING CONVERTS COORDINATES, ON PURPOSE. `clientX/clientY` are CSS pixels in
+// the originating window's own viewport, and the menu is placed with CSS
+// `left`/`top` in that same document — so a scaled display or a second monitor
+// at another DPI cancels out, because the number never leaves the window it was
+// measured in. Screen-space arithmetic here is what WOULD break mixed DPI.
 //
 // ⚠ A REACT PORTAL STILL BUBBLES THROUGH THE REACT TREE. The menu is a React
 // descendant of the object that opened it, so a press on a menu item would
@@ -166,6 +198,22 @@ interface MenuState {
   /** raised without a usable pointer (keyboard): focus lands on the first
    *  item so the arrow keys have somewhere to start from */
   keyboard: boolean
+  /** THE ORIGIN: the document the right-click actually happened in — the main
+   *  window's, or a particular popout's. `x`/`y` are client coordinates in
+   *  THIS document's window and are only meaningful here. */
+  doc: Document
+}
+
+/** The body to draw a menu for `doc` into, or null when that window is gone.
+ *
+ *  A popout can close between the press and the render — the user hits its ✕,
+ *  or the surface redocks — and a menu is not worth resurrecting in some other
+ *  window: it would be the very "menu on the main canvas" this ticket removes,
+ *  and its entries act on a surface that has moved. So the origin dying closes
+ *  the menu and opens nothing anywhere. */
+function liveBody(doc: Document | null | undefined): HTMLElement | null {
+  const view = doc?.defaultView
+  return view && !view.closed && doc!.body ? doc!.body : null
 }
 
 export interface ContextMenuHandle {
@@ -203,13 +251,22 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const [state, setState] = useState<MenuState | null>(null)
   const inheritedFeedback = useContext(CopyFeedback)
   const feedback = toast ?? inheritedFeedback
-  const overlayRoot = useSurfaceDocument().body
+  // the LAST RESORT only: an anchor always has an ownerDocument, so this is
+  // reached for nothing real. It is kept so a future caller that hands `open`
+  // a synthetic anchor still lands in its own surface rather than at `document`
+  const surfaceDocument = useSurfaceDocument()
   const anchorRef = useRef<Element | null>(null)
   const close = useCallback(() => setState(null), [])
   const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
   const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
     if (e.defaultPrevented) return           // an inner object already took it
     const el = anchor ?? e.currentTarget as HTMLElement
+    // WHICH WINDOW — asked of the element under the pointer, before anything
+    // else reads a coordinate. A press whose window has already gone opens
+    // nothing and is not prevented: there is no viewport left to place a menu
+    // in, and placing it in another window is the bug, not the fallback.
+    const doc = el.ownerDocument ?? surfaceDocument
+    if (!liveBody(doc)) return
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList = (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
@@ -229,14 +286,35 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       x: inside ? e.clientX : r.left,
       y: inside ? e.clientY : r.bottom,
       entries: list,
-      restore: el.ownerDocument.activeElement,
+      restore: doc.activeElement,
       keyboard: !inside,
+      doc,
     })
-  }, [feedback])
-  const node = state
-    ? createPortal(<ContextMenu state={state} anchorRef={anchorRef} close={close} />, overlayRoot)
+  }, [feedback, surfaceDocument])
+
+  // THE ORIGIN CLOSING WHILE THE MENU IS UP. `pagehide` is what MovableSurface
+  // itself listens for to redock a surface whose window went away, so it is
+  // the same signal, taken from the menu's side: the menu goes with the window
+  // it belongs to rather than being left pointing into a torn-down document.
+  const originWindow = state?.doc.defaultView ?? null
+  useEffect(() => {
+    if (!originWindow) return
+    const gone = () => close()
+    originWindow.addEventListener('pagehide', gone)
+    originWindow.addEventListener('unload', gone)
+    return () => {
+      originWindow.removeEventListener('pagehide', gone)
+      originWindow.removeEventListener('unload', gone)
+    }
+  }, [originWindow, close])
+
+  // read at RENDER, not only at open: a window closed without firing anything
+  // we heard still has no body to draw into, and must not take the main one
+  const target = state && liveBody(state.doc)
+  const node = target
+    ? createPortal(<ContextMenu state={state} anchorRef={anchorRef} close={close} />, target)
     : null
-  return { open, close, reanchor, isOpen: state !== null, node }
+  return { open, close, reanchor, isOpen: !!target, node }
 }
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
@@ -248,9 +326,14 @@ function ContextMenu({ state, anchorRef, close }:
   // below stays keyed on `close` alone (re-registering four document listeners
   // on every anchor change would be a second behaviour, not a fix) — and so
   // that `reanchor` can move it without re-rendering this component at all
-  // Escape joins the owning document's stack (shared.ts): pushed last, so it
-  // is the top entry and the surface beneath keeps its own Escape for later
-  useEsc(close, true)
+  // Escape joins the ORIGIN document's stack (shared.ts): pushed last, so it
+  // is the top entry and the surface beneath keeps its own Escape for later.
+  // Named explicitly rather than left to `useSurfaceDocument()`, for the same
+  // reason the portal is: this component's React position is the menu owner's,
+  // which need not be the window the menu is in — and an Escape stack in the
+  // wrong document is one the surface under this menu never shares, so Escape
+  // would close that surface straight through an open menu.
+  useEsc(close, true, state.doc)
   const [pos, setPos] = useState({ x: state.x, y: state.y })
 
   useLayoutEffect(() => {

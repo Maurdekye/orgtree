@@ -2165,8 +2165,16 @@ export const segPoint = (s: Seg, t: number): Pt => {
 
 // Escape closes any overlay panel (they had no keyboard exit at all)
 const escapeStacks = new WeakMap<Document, { current: () => void }[]>()
-export function useEsc(close: () => void, enabled = true) {
-  const ownerDocument = useSurfaceDocument()
+/** `within` NAMES THE DOCUMENT instead of inferring it from the surface this
+ *  hook is called in. Callers that live where they are drawn leave it out and
+ *  keep `useSurfaceDocument()`. The context menu cannot: it is portaled into
+ *  the document the press came from, which is not always the document its
+ *  React position belongs to, and a stack in the wrong document is a stack the
+ *  surface under the menu never shares — Escape would then close that surface
+ *  through the open menu rather than closing the menu (see contextmenu.tsx). */
+export function useEsc(close: () => void, enabled = true, within?: Document | null) {
+  const surfaceDocument = useSurfaceDocument()
+  const ownerDocument = within ?? surfaceDocument
   const latest = useRef(close); latest.current = close
   useEffect(() => {
     if (!enabled) return
