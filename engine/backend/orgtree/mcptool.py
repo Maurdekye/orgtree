@@ -1739,7 +1739,17 @@ TOOLS: list[dict[str, Any]] = [
             "and `hire_type`. To hand an item to an agent that is already "
             "live, use orgtree_work action='assign' instead; to assign an "
             "EXISTING item to a new hire without touching its status, "
-            "orgtree_hire/orgtree_rehire take `work_item`."),
+            "orgtree_hire/orgtree_rehire take `work_item`. ⚠ PROGRESS IS "
+            "OPTIONAL HERE, unlike orgtree_work update: STAFFING IS ITSELF THE "
+            "readable change, so action='update' needs no `done_so_far` or "
+            "`working_on_next` and you should not invent boilerplate to "
+            "satisfy one. Omit both and the item's stored summaries are "
+            "PRESERVED (and if it has none, the docket records one generated "
+            "line saying it was staffed and who holds it). Send either one and "
+            "they REPLACE the pair with ordinary update semantics — so pass "
+            "them only when you actually mean to restate the summary, and pass "
+            "both when you do. A standalone orgtree_work update still has to "
+            "communicate readable progress; that rule is unchanged."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1765,9 +1775,22 @@ TOOLS: list[dict[str, Any]] = [
                 "status": {"type": "string",
                            "description": "backlogged|open|in_progress|blocked|review|deploy_ready"},
                 "done_so_far": {"type": "array", "items": {"type": "string"},
-                                "description": "what is complete — individual entries"},
+                                "description": "OPTIONAL here — what is "
+                                               "complete, individual entries. "
+                                               "Omit BOTH progress fields and "
+                                               "the item's stored summaries "
+                                               "are preserved; send either one "
+                                               "and the pair REPLACES them, "
+                                               "exactly as orgtree_work update "
+                                               "does, so the half you leave "
+                                               "out is cleared"},
                 "working_on_next": {"type": "array", "items": {"type": "string"},
-                                    "description": "what happens next — individual entries"},
+                                    "description": "OPTIONAL here — what "
+                                                   "happens next, individual "
+                                                   "entries. Same rule as "
+                                                   "done_so_far: omit both to "
+                                                   "preserve, send either to "
+                                                   "replace the pair"},
                 "participants": {"type": "array", "items": {"type": "string"},
                                  "description": "create: collaborator node ids"},
                 "acceptance": {"type": "array", "items": {"type": "string"},

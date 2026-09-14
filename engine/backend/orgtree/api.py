@@ -8573,12 +8573,32 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             title=(str(a["title"]) if a.get("title") is not None else None),
             objective=(str(a["objective"])
                        if a.get("objective") is not None else None),
-            reopen=_arg_flag(a, "reopen"), owner=nid)
+            reopen=_arg_flag(a, "reopen"), owner=nid,
+            # ⚠ THE STAFFING ITSELF IS THE SUBSTANTIVE UPDATE, and saying so
+            # here is the whole of the fix. Without it a staffing that sent no
+            # progress argument was refused by the generic "both empty says
+            # nothing the user can read" rule — asking the caller to repeat
+            # summaries it had no reason to restate, purely to satisfy a
+            # validator, on a call whose actual content is the handover. The
+            # ledger now preserves the stored lists in that case (or writes one
+            # generated boundary line when there are none), and everything else
+            # about the update — explicit lists, status, attention, history,
+            # notification — is untouched. Only THIS call site passes it:
+            # `orgtree_work` action='update' names its parameters one by one
+            # and does not name this one, so a standalone update still has to
+            # communicate readable progress.
+            staffed_to=nid)
         item = str(a.get("slug") or "")
     result["item"] = item
     result["ref"] = refs.item(org.d["slug"], item)
     result["assigned_to"] = nid
     result[act + "d"] = item                 # created / updated, as the tools do
+    if w.get("staffing_boundary"):
+        # the item had no stored summary to preserve, so the ledger wrote one
+        # line saying it was staffed and to whom. Disclosed rather than silent:
+        # a caller that wanted different words can send its own progress
+        # entries, and a caller that did not now knows what the docket says.
+        result["staffing_boundary"] = w["staffing_boundary"]
     if w.get("notified"):
         mail_notify(slug, actor, nid)
         if not w.get("deferred") and nid not in drive:
