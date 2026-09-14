@@ -33,12 +33,12 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-installer-proof-'))
 const outfile = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { installerProofStep, INSTALLER_PROOF } = createRequire(import.meta.url)(outfile)
+const { installerProofStep, INSTALLER_PROOF, NO_INSTALLER_SIGHTINGS } = createRequire(import.meta.url)(outfile)
 
 /** Drive a whole sequence of sightings, as the real poll would, and return
  *  every verdict plus the one it settled on. */
 function run(sightings, bounds = INSTALLER_PROOF) {
-  let memory = { elevatorSeen: false }
+  let memory = NO_INSTALLER_SIGHTINGS
   const verdicts = []
   for (const seen of sightings) {
     const step = installerProofStep(memory, seen, bounds)
@@ -49,8 +49,20 @@ function run(sightings, bounds = INSTALLER_PROOF) {
   return { verdicts, settled: null }
 }
 
-const at = (elapsedMs, installerRunning, elevatorRunning) =>
-  ({ elapsedMs, installerRunning, elevatorRunning })
+/** A look that SUCCEEDED. `readable` defaults true here because the interesting
+ *  majority of cases are successful looks; the unreadable ones are built with
+ *  `blind()` below and say so at the call site. */
+const at = (elapsedMs, installerRunning, elevatorRunning, readable = true) =>
+  ({ elapsedMs, installerRunning, elevatorRunning, readable })
+/** A look that FAILED — the process table could not be read at all. It must
+ *  never decide anything: see the sections at the end of this file. */
+const blind = (elapsedMs) => ({ elapsedMs, installerRunning: false, elevatorRunning: false, readable: false })
+/** A run of successful looks showing nothing, at the real poll interval. The
+ *  appear bound needs a FLOOR of real readings before it may fire, so a
+ *  two-element sequence no longer reaches it - which is the whole point of the
+ *  floor, and the reason these sequences are built rather than hand-listed. */
+const nothingSeen = (count, from = 0) =>
+  Array.from({ length: count }, (_unused, index) => at(from + index * INSTALLER_PROOF.pollMs, false, false))
 
 test('§1 the installer running is the ONE positive proof, and it ends the wait', () => {
   const { settled } = run([
@@ -94,21 +106,29 @@ test('§3 a SLOW prompt is never timed out — waiting is unbounded while the el
 })
 
 test('§4 NO elevation: the installer should appear at once, and the wait IS bounded', () => {
-  const before = run([at(0, false, false), at(INSTALLER_PROOF.appearMs - 1, false, false)])
+  // 32 looks at 250ms reaches 7750ms: inside the bound, and past the floor.
+  const before = run(nothingSeen(32))
   assert.equal(before.settled, null, 'inside the bound it is still waiting')
-  const after = run([at(0, false, false), at(INSTALLER_PROOF.appearMs, false, false)])
+  // 33 looks reaches exactly 8000ms.
+  const after = run(nothingSeen(33))
   assert.equal(after.settled?.verdict, 'failed')
   assert.match(after.settled.detail, /no installer process appeared within 8000ms/)
+  assert.match(after.settled.detail, /across \d+ readings of the process list/,
+    'and it says how many real readings it is based on, because "we looked and '
+    + 'saw nothing" is only meaningful if we actually looked')
+
+  // ⚠ THE FLOOR IS LOAD-BEARING: elapsed time alone must not be enough. Two
+  // looks that happen to straddle the bound are not evidence of absence.
+  const tooFewLooks = run([at(0, false, false), at(INSTALLER_PROOF.appearMs, false, false)])
+  assert.equal(tooFewLooks.settled, null,
+    'past the bound but with only 2 successful readings, the wait continues - '
+    + 'without this, a couple of slow looks could condemn a healthy install')
 })
 
 test('§5 an installer that DIES INSTANTLY is caught — the case that emits no error at all', () => {
   // Blocked by anti-virus or policy a moment after CreateProcess: the spawn
   // succeeded, so electron-updater reports nothing, ever.
-  const { settled } = run([
-    at(0, false, false),
-    at(250, false, false),
-    at(INSTALLER_PROOF.appearMs, false, false),
-  ])
+  const { settled } = run(nothingSeen(33))
   assert.equal(settled?.verdict, 'failed', 'silence must never read as success')
 })
 
@@ -132,7 +152,7 @@ test('§7 approval that arrives in the SAME look as the elevator is still approv
 })
 
 test('§8 memory only ever accumulates — a flicker in the elevator reading cannot un-see it', () => {
-  let memory = { elevatorSeen: false }
+  let memory = NO_INSTALLER_SIGHTINGS
   memory = installerProofStep(memory, at(0, false, true)).memory
   assert.equal(memory.elevatorSeen, true)
   memory = installerProofStep(memory, at(250, false, false)).memory
@@ -145,7 +165,7 @@ test('§9 NEGATIVE CONTROL: the old rule — "a pid came back and nothing errore
   const oldRuleSaysInstalled = () => true            // no 'error' ever arrives
   const failing = [
     { name: 'UAC cancelled', seq: [at(0, false, true), at(250, false, false)] },
-    { name: 'installer died instantly', seq: [at(0, false, false), at(INSTALLER_PROOF.appearMs, false, false)] },
+    { name: 'installer died instantly', seq: nothingSeen(33) },
   ]
   for (const { name, seq } of failing) {
     assert.equal(oldRuleSaysInstalled(), true, `${name}: the old rule reports success`)
@@ -164,9 +184,17 @@ const { awaitInstallerProof } = createRequire(import.meta.url)(outfile)
 function wait(script, extra = {}) {
   const stages = []
   let i = 0, clock = 0
-  const bounds = { appearMs: INSTALLER_PROOF.appearMs, pollMs: INSTALLER_PROOF.pollMs }
+  const bounds = { appearMs: INSTALLER_PROOF.appearMs, pollMs: INSTALLER_PROOF.pollMs, ...extra.bounds }
   return awaitInstallerProof({
-    sample: async () => script[Math.min(i++, script.length - 1)],
+    // ⚠ A LOOK CAP, so a non-terminating loop FAILS instead of hanging. The
+    // sampler used to clamp to the last scripted look for ever, which meant a
+    // mutation that stopped the wait from terminating wedged the whole file
+    // with no verdict - and a hang is strictly worse than a failure, because a
+    // failure is information.
+    sample: async () => {
+      if (i > 4000) throw new Error(`awaitInstallerProof did not terminate after ${i} looks`)
+      return script[Math.min(i++, script.length - 1)]
+    },
     now: () => clock,
     sleep: async () => { clock += bounds.pollMs },
     record: (stage, detail) => stages.push({ stage, detail }),
@@ -174,7 +202,9 @@ function wait(script, extra = {}) {
     ...extra,
   }).then(result => ({ result, stages, looks: i }))
 }
-const look = (installerRunning, elevatorRunning) => ({ installerRunning, elevatorRunning })
+const look = (installerRunning, elevatorRunning, readable = true) => ({ installerRunning, elevatorRunning, readable })
+/** A look the sampler could not answer. */
+const blindLook = () => ({ installerRunning: false, elevatorRunning: false, readable: false })
 
 test('§10 a proven installer is recorded as RUNNING — the stage that means an update is really under way', async () => {
   const { result, stages } = await wait([look(false, false), look(false, false), look(true, false)])
@@ -219,6 +249,79 @@ test('§14 a spawn error electron-updater DOES report ends the wait at once', as
   // sanitizes every detail it is given, and passing the value through keeps
   // the most information. This fake record does not sanitize, hence String().
   assert.match(String(stages[0].detail), /ENOENT/)
+})
+
+// ------------------------------------------------- the instrument, not the subject
+// §16-§20 are about the PROCESS LISTING FAILING rather than about the installer.
+// The old rule collapsed "I could not look" into "I looked and saw nothing",
+// which are opposite claims: `tasklist` has a 4000ms timeout and the appear
+// bound is 8000ms, so two hung listings could burn the whole bound and report a
+// perfectly healthy install as never started. The comment beside the sampler
+// claimed an unreadable listing "can only delay a verdict, never invent one" —
+// staffing-flow showed that was true only while an elevator had been seen.
+
+test('§16 THE CASE THAT USED TO INVENT A FAILURE: two hung listings decide nothing', async () => {
+  // Exactly the reported arithmetic: two unreadable looks straddling the bound.
+  const { settled, verdicts } = run([blind(0), blind(4000), blind(8250)])
+  assert.equal(settled, null,
+    'no verdict at all: a bound cannot be burned by looks that never happened')
+  assert.deepEqual(verdicts, ['pending', 'pending', 'pending'])
+
+  // POSITIVE CONTROL, and it is the same arithmetic with the ONLY difference
+  // being that the looks succeeded. Without this the section above would also
+  // pass against a rule that never fails anything.
+  const readable = run(nothingSeen(33))
+  assert.equal(readable.settled?.verdict, 'failed',
+    'CONTROL: the same elapsed time with REAL readings does report failure, so '
+    + '§16 is about readability and not about the bound being unreachable')
+})
+
+test('§17 an unreadable table past the outer bound is UNKNOWN, never failed', () => {
+  const { settled } = run([blind(0), blind(INSTALLER_PROOF.unreadableMs)])
+  assert.equal(settled?.verdict, 'unknown',
+    'we did not observe an absent installer, we failed to observe anything - and '
+    + 'the caller owes that the unproven exit, not a "did not install" message')
+  assert.match(settled.detail, /could not be read/)
+  assert.notEqual(settled.verdict, 'failed')
+})
+
+test('§18 AN ABSENCE IS CONFIRMED TWICE: one readable look after blind ones is not enough', () => {
+  // A single successful look arriving after a gap cannot end the wait, because
+  // a silent install that had already finished would read identically to one
+  // that never started.
+  const single = run([blind(0), blind(4000), at(8250, false, false)])
+  assert.equal(single.settled, null, 'the first readable look after a gap only starts confirming')
+  // The NEXT readable look does decide - the previous one was readable too.
+  const confirmed = run([blind(0), blind(4000), ...nothingSeen(9, 8250)])
+  assert.equal(confirmed.settled?.verdict, 'failed', 'consecutive real readings do decide')
+
+  // AND THE SAME RULE PROTECTS THE ELEVATOR PATH, which is where it matters
+  // most: the elevator seen, then the table unreadable, then one look showing
+  // nothing, must NOT be read as a dismissed prompt.
+  const elevatorGap = run([at(0, false, true), blind(250), at(500, false, false)])
+  assert.equal(elevatorGap.settled, null,
+    'not a refusal yet: the look that saw no elevator followed a blind one')
+  const elevatorReally = run([at(0, false, true), at(250, false, false), at(500, false, false)])
+  assert.equal(elevatorReally.settled?.verdict, 'failed',
+    'CONTROL: two consecutive real readings with the elevator gone IS the refusal')
+})
+
+test('§19 a readable look showing the installer still settles it immediately, gap or not', () => {
+  // Positive proof outranks every caution above: the caution exists to avoid
+  // inventing failures, never to delay success.
+  const { settled } = run([blind(0), blind(4000), at(8250, true, false)])
+  assert.equal(settled?.verdict, 'started')
+})
+
+test('§20 the wait records UNKNOWN as proof-unavailable, and keeps looking until then', async () => {
+  const { result, stages, looks } = await wait([blindLook()], { bounds: { unreadableMs: 2000 } })
+  assert.equal(result.verdict, 'unknown')
+  assert.deepEqual(stages.map(s => s.stage), ['installer-proof-unavailable'],
+    'the same stage the cannot-identify fallback uses, because it is the same '
+    + 'state: nobody checked')
+  assert.ok(looks > 1, 'and it really did keep trying rather than giving up on the first failure')
+  // NEGATIVE CONTROL: it must not be recorded as a verdict about the installer.
+  assert.equal(stages.some(s => s.stage === 'installer-never-started'), false)
 })
 
 test('§15 every terminal path records exactly one durable verdict stage', async () => {

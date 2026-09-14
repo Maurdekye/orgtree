@@ -17,7 +17,7 @@ import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
-import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
+import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installDirectoryWritable, installDownloadedUpdate, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -382,6 +382,49 @@ else {
       resolve()
     })
   })
+  /** WHERE THE INSTALLER ITSELF BELIEVES THIS INSTALLATION LIVES — RECORDED,
+   *  NOT ACTED ON.
+   *
+   *  ⚠ NOTHING BRANCHES ON THIS. It was read in order to decide whether a
+   *  whitespace-bearing /D= could be replaced by letting NSIS resolve its own
+   *  registered location; the fixture then showed the quoted argument reaches
+   *  the right destination anyway, so that change was withdrawn. What is left is
+   *  a diagnostic: an incident log that says where the app was running from AND
+   *  where the installer believes the installation lives can distinguish a
+   *  disagreement that no log could show before.
+   *
+   *  ⚠ NOT THE UNINSTALL KEY. electron-builder writes InstallLocation on its
+   *  APPLICATION key, `Software\<APP_GUID>`, and multiUser.nsh reads it from
+   *  there to assign $INSTDIR. Verified read-only on this machine: the
+   *  application key holds `C:\Program Files\Orgtree` while the uninstall key's
+   *  InstallLocation is EMPTY, so reading the uninstall key would have produced
+   *  a confident wrong answer.
+   *
+   *  HKLM first, then HKCU, matching the scope order the installer uses.
+   *  Failure leaves it undefined and nothing depends on it either way — a read
+   *  that did not answer must not become a fact about the installation. */
+  let registeredInstallLocation: string | undefined
+  const readRegisteredInstallLocation = () => new Promise<void>(resolve => {
+    if (process.platform !== 'win32' || !updatesSupported) return resolve()
+    const roots = ['HKLM', 'HKCU']
+    const next = (index: number): void => {
+      if (index >= roots.length) {
+        updateLog.record('updater', 'registered install location: not found in HKLM or HKCU')
+        return resolve()
+      }
+      execFile('reg', ['query', `${roots[index]}\\SOFTWARE\\${uninstallRegistryGuid(appId)}`, '/v', 'InstallLocation'],
+        { timeout: 4000, windowsHide: true }, (error, stdout) => {
+          const value = error ? '' : (/InstallLocation\s+REG_[A-Z_]+\s+(.+)/.exec(String(stdout))?.[1] ?? '').trim()
+          if (value) {
+            registeredInstallLocation = value
+            updateLog.record('updater', `registered install location (${roots[index]}): ${value}`)
+            return resolve()
+          }
+          next(index + 1)
+        })
+    }
+    next(0)
+  })
   const cancelUpdateWatchdog = () => { if (updateExitWatchdog) clearTimeout(updateExitWatchdog); updateExitWatchdog = undefined }
   /** Put the app back after a shutdown that must not complete. `quitting` is
    *  latched by then, which is what makes every app.quit() a no-op, so leaving
@@ -404,9 +447,16 @@ else {
    *  about to click No.
    *
    *  One `tasklist` per look rather than one per image: the cost is a process
-   *  spawn either way, and asking twice doubles it for no extra truth. A failed
-   *  or unparsable listing yields "nothing seen", which is the safe direction —
-   *  it can only delay a verdict, never invent one. */
+   *  spawn either way, and asking twice doubles it for no extra truth.
+   *
+   *  ⚠ A FAILED LISTING REPORTS ITSELF AS UNREADABLE, and that distinction is
+   *  the whole safety of this. `tasklist` can time out or be blocked, and an
+   *  empty result is then indistinguishable from a clean "nothing is running" —
+   *  which is the opposite claim. Reported as `readable: false`, the verdict
+   *  refuses to conclude anything from it; reported as an empty listing, two
+   *  hung looks would burn the appear bound and declare a perfectly healthy
+   *  install dead. A listing is only believed when it parsed into at least one
+   *  process, because a successful `tasklist` always lists many. */
   const sampleInstallerProcesses = (installerImage: string) => async () => {
     const listing = await new Promise<string>(resolve => {
       execFile('tasklist', ['/NH', '/FO', 'CSV'], { windowsHide: true, timeout: 4000, maxBuffer: 8 << 20 },
@@ -420,6 +470,7 @@ else {
     return {
       installerRunning: !!installerImage && running.has(installerImage),
       elevatorRunning: running.has('elevate.exe'),
+      readable: running.size > 0,
     }
   }
   const abandonUpdateShutdown = (message: string, detail: string) => {
@@ -589,16 +640,15 @@ else {
     // destroy the very update it exists to protect. The loop is the new bound,
     // and it is bounded everywhere a bound is honest.
     cancelUpdateWatchdog()
-    const installerImage = installerImageName()
-    if (!installerImage) {
-      // ⚠ NO PROOF IS OBTAINABLE, so do not manufacture a verdict. If the
-      // library cannot name the file it launched, "no process by that name is
-      // running" is a statement about our ignorance, not about the installer,
-      // and failing on it would turn working updates into false alarms. Fall
-      // back to the old behaviour and SAY SO, so the log distinguishes an
-      // unproven exit from a proven one.
-      updateLog.record('installer-proof-unavailable',
-        'electron-updater did not expose the installer path, so its process could not be identified', { from: app.getVersion(), to: version })
+    /** ⚠ NO PROOF IS OBTAINABLE, so do not manufacture a verdict. Two different
+     *  things land here and they are the same state: the library would not name
+     *  the file it launched, or the process table could not be read at all.
+     *  Either way "no process by that name is running" is a statement about our
+     *  ignorance, not about the installer, and failing on it would turn working
+     *  updates into false alarms. Fall back to the old behaviour — the short
+     *  grace for a reported spawn error, then exit — and SAY SO in the log, so
+     *  an unproven exit is distinguishable from a proven one. */
+    const exitWithoutProof = async () => {
       const spawnFailure = await awaitInstallError(UPDATE_SPAWN_GRACE_MS)
       if (spawnFailure !== undefined) {
         updateLog.record('handoff-refused', spawnFailure)
@@ -607,6 +657,12 @@ else {
         return
       }
       app.quit()
+    }
+    const installerImage = installerImageName()
+    if (!installerImage) {
+      updateLog.record('installer-proof-unavailable',
+        'electron-updater did not expose the installer path, so its process could not be identified', { from: app.getVersion(), to: version })
+      await exitWithoutProof()
       return
     }
     const proof = await awaitInstallerProof({
@@ -619,16 +675,40 @@ else {
       // known not to be coming
       reportedError: () => takeInstallError(),
     })
+    if (proof.verdict === 'unknown') {
+      // The process table could never be read, so we did not observe an absent
+      // installer — we failed to observe anything. That is ignorance, not
+      // failure, and it takes the unproven exit rather than telling the user an
+      // update died when it may well be running. awaitInstallerProof has
+      // already recorded 'installer-proof-unavailable' with the reason.
+      await exitWithoutProof()
+      return
+    }
     if (proof.verdict === 'failed') {
       // Unlike the unconfirmed-stop path, the engine here IS confirmed gone, so
       // carrying on in place would leave a running app with a dead engine.
       // Relaunch into a working one, exactly as a declined handoff does.
+      // ⚠ AND SAY SO — BUT NOT FROM HERE, AND THIS IS THE THIRD SHAPE THIS
+      // BRANCH HAS HAD, so the reasoning is worth keeping.
+      //
+      // It began as `void dialog.showMessageBox(...)` followed by app.exit(0).
+      // That never presented anything: app.exit force-exits on the next
+      // statement. Measured with real Electron — the awaited form shows one
+      // window, the un-awaited form showed ZERO across four runs, the process
+      // gone in 67-224ms. So a failure the user never sees, which is the
+      // original complaint wearing a quieter hat.
+      //
+      // Awaiting it presents the dialog and then BLOCKS THE RELAUNCH until
+      // somebody clicks. This branch is reachable from the AUTOMATIC idle path
+      // (applyDownloadedUpdate(automatic) via the idle timer), so that is an
+      // empty room at 3am holding the restart until morning: a new way for
+      // Orgtree to go away and not come back, again through the fix for it.
+      //
+      // So the exit tells NOBODY and waits for NOTHING. It records the failure
+      // and relaunches at once; the instance that comes back reports it, where
+      // there is a running app and usually a person. See
+      // updateFailureToReport, and the report site in the startup sequence.
       updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
-      // ⚠ AND SAY SO. Shutting down and then silently doing nothing is the
-      // whole complaint; a failure the user never sees is the same defect
-      // wearing a quieter hat.
-      void dialog.showMessageBox({ type: 'warning', message: 'Orgtree did not install the update.',
-        detail: `${proof.detail}\n\nOrgtree has been left running and the update is still ready — try again from the tray. The full record is in update-log.json beside Orgtree's data.` }).catch(() => {})
       app.relaunch(); app.exit(0)
       return
     }
@@ -1093,6 +1173,12 @@ else {
       // Awaited deliberately: canInstallUnattended must not answer before the
       // scope is known, and the first refresh must not run before either.
       await readInstallScope()
+      // ⚠ AWAITED FOR THE SAME REASON, AND IT IS LOAD-BEARING. An undefined
+      // registered location is treated as "not confirmed", which REFUSES a
+      // whitespace-bearing silent install. If this had not answered before the
+      // idle path could fire, a perfectly updatable machine would be held on
+      // the strength of a read that simply had not finished yet.
+      await readRegisteredInstallLocation()
       // A previous attempt that ended without the version changing holds the
       // automatic path for exactly ONE run, so the app cannot spend every idle
       // minute shutting itself down for an install that will not happen.
@@ -1102,6 +1188,26 @@ else {
       if (pendingUpdateHold(updateLog.lastAttempt(), app.getVersion())) {
         updateLog.record('hold-consumed', 'the previous attempt did not change the running version')
         updateHold = 'last install did not complete - use Update now'
+      }
+      // ⚠ WHERE A FAILED UPDATE IS ACTUALLY REPORTED. The exit could not do it:
+      // an un-awaited dialog is never presented before app.exit, and an awaited
+      // one blocks the relaunch on the unattended path. This runs in a live app
+      // instead, so nothing is holding a lifecycle open while it waits.
+      //
+      // ⚠ TWO RECORDS, BECAUSE SHOWN AND DELIVERED ARE DIFFERENT THINGS.
+      // 'failure-report-shown' is written now, and bounds how many launches may
+      // repeat an unacknowledged message. 'failure-reported' is written when the
+      // user actually DISMISSES it, which is the only evidence anybody was told:
+      // writing that one up front would have produced a record saying "reported"
+      // for a dialog nobody ever saw, and there is no second surface to catch it
+      // (the tray hold exists only in the session that consumed it).
+      const failedUpdate = updateFailureToReport(updateLog.lastAttempt(), app.getVersion())
+      if (failedUpdate) {
+        updateLog.record('failure-report-shown', 'the previous failure was put on screen')
+        void dialog.showMessageBox({ type: 'warning', message: 'Orgtree did not install the update.',
+          detail: `${failedUpdate.detail}\n\nOrgtree restarted and is running normally, still on ${app.getVersion()}${failedUpdate.to ? ` rather than ${failedUpdate.to}` : ''}. The update is still ready — try again from the tray. The full record is in update-log.json beside Orgtree's data.` })
+          .then(() => { updateLog.record('failure-reported', 'the user dismissed the failure report') })
+          .catch(() => { /* never shown, so never recorded as delivered: it repeats */ })
       }
       refreshTrayUpdates()
 

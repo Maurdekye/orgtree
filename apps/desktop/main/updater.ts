@@ -41,6 +41,12 @@ export type UpdateStage =
    *  old unproven exit was taken. Distinct from 'installer-running': it records
    *  that nobody checked, which is exactly what a later reader needs to know. */
   | 'installer-proof-unavailable'
+  /** The failure report was PUT ON SCREEN by a later run. Written every time it
+   *  is shown, so repeats are bounded — see FAILURE_REPORT_SHOWS. */
+  | 'failure-report-shown'
+  /** The user DISMISSED the failure report, so it has actually been delivered
+   *  and is never shown again — see updateFailureToReport. */
+  | 'failure-reported'
   | 'watchdog-exit'            /* preparation outlived its deadline */
   | 'updater'                  /* a line from electron-updater's own logger */
   | 'error'
@@ -106,6 +112,89 @@ export function pendingUpdateHold(entries: UpdateLogEntry[], runningVersion: str
   if (!ended) return false
   if (entries.some(e => e.stage === 'hold-consumed')) return false
   return entries[0]!.from === runningVersion
+}
+
+/** How many launches may show the same unacknowledged failure. Bounds the
+ *  "keep telling them until they click" rule so an ignored message stops
+ *  shouting, while still surviving an instance that dies with the dialog up. */
+export const FAILURE_REPORT_SHOWS = 3
+
+/** A FAILED UPDATE THE USER HAS NOT BEEN TOLD ABOUT YET, or null.
+ *
+ *  ⚠ WHY THIS EXISTS AT ALL, because the obvious alternative is worse in a way
+ *  that is easy to miss. The failure branch used to show a dialog and then call
+ *  app.exit(0) on the next statement, which never presented it (measured: zero
+ *  windows). Awaiting the dialog does present it — and then BLOCKS THE RELAUNCH
+ *  until somebody clicks. On the automatic path that is an empty room at 3am:
+ *  the app has shut down, a modal nobody can see is holding the restart, and
+ *  Orgtree is gone until morning. That is the original complaint wearing a new
+ *  hat, arriving through the fix for it.
+ *
+ *  So nothing waits. The exit records the failure and relaunches immediately,
+ *  and the instance that comes back reports it — when there is a running app
+ *  and, usually, a person. The record is the update log, which is already on
+ *  disk and already bounded, so this survives the exit, a crash, and a reboot
+ *  without any new state.
+ *
+ *  Pure, so exactly-once reporting is testable without a filesystem, an
+ *  Electron app, or a human to dismiss anything. */
+export function updateFailureToReport(entries: UpdateLogEntry[], runningVersion: string): { detail: string; to?: string } | null {
+  if (!entries.length || entries[0]!.stage !== 'attempt') return null
+  // ⚠ THE TRIGGER IS "THE VERSION DID NOT CHANGE", NOT "WE DETECTED A FAILURE",
+  // and that difference is the whole point of this rule.
+  //
+  // The first version of this keyed on 'not-installed', which only the app's own
+  // failed verdict writes. That misses the incident this ticket was reopened
+  // for: on the machine that actually failed, the installer WAS launched, the
+  // log recorded 'handoff', and the app came back as the old version having
+  // installed nothing. No 'not-installed' was ever written, so a report keyed on
+  // it would have said nothing — exactly the silence being complained about.
+  //
+  // It also misses the asymmetric elevation case. When the installer raises its
+  // OWN prompt (isAdminRightsRequired false, which is what the failing machine's
+  // update-info.json carried), the installer process appears BEFORE the user has
+  // answered, the proof wait sees it and returns 'started', and the app quits
+  // while the decline is still to come. No process that is still alive can write
+  // that refusal down. THE INSTANCE THAT COMES BACK IS THE ONLY ONE THAT CAN,
+  // and this is where it does it.
+  //
+  // So the condition is the same one the one-run hold uses: an attempt that
+  // ENDED, and a running version that did not move.
+  const ended = entries.some(e => e.stage === 'handoff' || e.stage === 'handoff-refused'
+    || e.stage === 'not-installed' || e.stage === 'installer-running')
+  if (!ended) return null
+  // ⚠ DELIVERED IS NOT THE SAME AS WRITTEN, and getting this backwards loses
+  // the message outright. 'failure-reported' is written when the user DISMISSES
+  // the dialog, so an instance that dies with it still on screen has not
+  // reported anything and the next launch says it again.
+  //
+  // Writing it before showing would have been exactly-once on the WRITE and
+  // zero-times on the DELIVERY — a record saying "reported" with nobody told.
+  // There is no second surface to fall back on: the tray hold is set only in
+  // the session where pendingUpdateHold fires, and that boot records
+  // 'hold-consumed', so by the next launch the label is gone too. Making the
+  // label persist instead is not available — `updateHold` is also the gate that
+  // suppresses unattended retries, so keeping it set would permanently disable
+  // automatic updates, which is a far worse trade than a second dialog.
+  if (entries.some(e => e.stage === 'failure-reported')) return null
+  // ...AND IT IS STILL BOUNDED, because "keep telling them until they click" is
+  // a nag if they never do. Three launches is enough to survive a crash or an
+  // unattended boot and few enough that an ignored message stops shouting.
+  if (entries.filter(e => e.stage === 'failure-report-shown').length >= FAILURE_REPORT_SHOWS) return null
+  // ⚠ AND IF THE VERSION MOVED ON, SAY NOTHING. The same log shape is what a
+  // SUCCESSFUL update leaves behind — attempt, handoff, then a new version — so
+  // without this the report would fire after every working upgrade, which is a
+  // lie told at the worst possible moment.
+  if (entries[0]!.from !== runningVersion) return null
+  // The reason, most specific first: the verdict that named it, then the
+  // generic line, then the bare fact — which is still worth saying, because on
+  // the reported machine the bare fact was never said to anybody.
+  const detail = entries.filter(e => e.stage === 'installer-never-started').at(-1)?.detail
+    || entries.filter(e => e.stage === 'not-installed').at(-1)?.detail
+    || 'the installer was started but the installed version did not change, and it left no reason behind'
+  const result: { detail: string; to?: string } = { detail }
+  if (entries[0]!.to) result.to = entries[0]!.to
+  return result
 }
 
 /** A bounded, append-only record of update attempts, kept beside the other
@@ -339,21 +428,65 @@ export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
   if (check) check.enabled = view.checkEnabled
 }
 
-/** NSIS requires /D= to be the LAST argument and UNQUOTED, even when the path
- *  contains spaces. Node's spawn quotes any argument containing whitespace, so
- *  a directory like `C:\Program Files\Orgtree` reaches the installer as
- *  `"/D=C:\Program Files\Orgtree"` — measured on the real Win32 command
- *  line — and app-builder-lib's own GetDParameter scans the raw command line
- *  for `/D=` and copies everything after it, trailing quote included.
+/** Whether Windows will quote `/D=<directory>` on the way to the installer.
+ *  DIAGNOSTIC ONLY — nothing branches on it. What it records and why is below,
+ *  and the "why" is the opposite of what this comment used to say.
  *
- *  This is REPORTED, NOT ACTED ON. Withholding the argument would change where
- *  the installer lands and which scope it picks, and that cannot be verified
- *  without running the real installer. The existing behaviour is kept and the
- *  hazard is written to the update log so a later, verified change has evidence
- *  to work from. */
+ *  NSIS wants /D= LAST and UNQUOTED. Node's spawn quotes any argument
+ *  containing whitespace, so `C:\Program Files\Orgtree` reaches the installer
+ *  as `"/D=C:\Program Files\Orgtree"`, and app-builder-lib's GetDParameter
+ *  (templates/nsis/multiUser.nsh) scans the RAW command line for `/D=` and
+ *  copies everything after it — trailing quote included — INTO ITS OWN OUTPUT
+ *  VARIABLE.
+ *
+ *  ⚠ NOT INTO $INSTDIR, WHICH IS WHERE THIS COMMENT WAS WRONG. The template
+ *  then does `StrCpy $INSTDIR $R0`, and assignment to $INSTDIR SANITISES THE
+ *  VALUE AS A FILENAME: every character Windows forbids is removed. Measured
+ *  against the real parser and the real makensis — 76 characters parsed, 75 in
+ *  $INSTDIR, and all six of " * ? < > | stripped from a poisoned control in
+ *  one run (tests/nsis-destination.test.mjs). Both forms therefore arrive at an
+ *  identical destination and a directory created from it is the intended one.
+ *
+ *  ⚠ WHICH MAKES THE HANDOFF ACCIDENTALLY SAFE, NOT ROBUST. The quoting is
+ *  harmless only because the single character it adds happens to be one
+ *  $INSTDIR forbids. A corruption made of LEGAL characters would pass straight
+ *  through. Nobody has shown such a shape is reachable from installDirectory()
+ *  and nobody has shown it is not; this is recorded so the measurement is never
+ *  read as a clean bill of health.
+ *
+ *  THE HISTORY, because the old belief is in the incident record and someone
+ *  will re-derive it otherwise: this comment described the mechanism as real,
+ *  the handoff log warned about it on every all-users update, and the incident
+ *  report from the failed 2.1.3 → 2.1.4 machine named it as the strongest
+ *  candidate cause. Measurement refuted it (decision 16), so the change built
+ *  on it was withdrawn rather than shipped, and the field incident is
+ *  unexplained again. */
 export function installDirectoryIsSafeForNsis(directory: string): boolean {
   return directory.length > 0 && !/[\s"]/.test(directory)
 }
+
+/** ⚠ WHAT MEASURING THIS ACTUALLY SHOWED, recorded here because the comment
+ *  above describes a hazard that turns out not to reach the destination, and
+ *  the next reader will otherwise spend a day on it as I did.
+ *
+ *  Driven against the REAL parser — the shipped GetDParameter macro, compiled
+ *  by the real makensis, launched through Node's own spawn (see
+ *  tests/nsis-destination.test.mjs):
+ *
+ *    /D= quoted   -> the macro's output variable ends with a stray `"` ...
+ *                    ... and `StrCpy $INSTDIR $R0` REMOVES IT. Measured: 76
+ *                    characters parsed, 75 in $INSTDIR, and a directory
+ *                    created from it is the intended one.
+ *    /D= unquoted -> identical $INSTDIR.
+ *
+ *  Both forms arrive at the same destination, and those two assignments are the
+ *  only consumers of the parsed value in the templates. So the quoting is NOT
+ *  what left the reported machine on its old version, and this function stays
+ *  DIAGNOSTIC ONLY: nothing branches on it. What did break that machine is
+ *  still unexplained — a declined elevation prompt and an internal installer
+ *  exit are the surviving candidates, and neither is visible from out here,
+ *  which is the case for durable installer-side diagnostics rather than for
+ *  changing this argument. */
 
 /** Whether this process can actually write into the installed application's
  *  own directory, decided by WRITING — `fs.access(W_OK)` on Windows reports the
@@ -379,11 +512,13 @@ export interface HandoffResult {
    *  was launched: a spawn that fails afterwards is reported out of band
    *  through the 'error' event, never through this value. */
   accepted: boolean
-  /** The /D= directory passed to the installer. */
+  /** The directory the installer is expected to install into. */
   directory?: string
-  /** Diagnostic only: Windows will quote this argument and NSIS will mis-parse
-   *  it. Recorded, not corrected — see installDirectoryIsSafeForNsis. */
-  directoryWillBeQuoted?: boolean
+  /** Windows will quote this /D= argument because the path contains whitespace.
+   *  DIAGNOSTIC, and no longer a warning: the quote is stripped when NSIS
+   *  assigns $INSTDIR, measured against the real parser. Kept so a log from a
+   *  future incident still says which form was sent. */
+  directoryQuotedByNode?: boolean
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
@@ -398,6 +533,14 @@ export interface InstallableUpdater {
 }
 
 export function installDownloadedUpdate(updater: InstallableUpdater, directory: string): HandoffResult {
+  // KEPT AS IT WAS, DELIBERATELY. A version of this rerouted whitespace-bearing
+  // directories — omitting /D= so NSIS resolved its own registered location,
+  // and refusing the silent handoff when the registry could not confirm it. The
+  // fixture then showed there is nothing here to route around (see the note on
+  // installDirectoryIsSafeForNsis), and that change would have removed tray
+  // updating for an unenumerable population of users in exchange for defending
+  // against a mechanism that does not occur. It was withdrawn rather than
+  // shipped.
   updater.installDirectory = directory
   // install(), not quitAndInstall(). quitAndInstall schedules app.quit() in a
   // setImmediate the moment the spawn is LAUNCHED, and the spawn's own failure
@@ -408,7 +551,7 @@ export function installDownloadedUpdate(updater: InstallableUpdater, directory: 
   // A refusal must not leave the library's latch set, or every later attempt is
   // silently ignored as a duplicate.
   if (!accepted) updater.quitAndInstallCalled = false
-  return { accepted, directory, ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryWillBeQuoted: true }) }
+  return { accepted, directory, ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryQuotedByNode: true }) }
 }
 
 // ------------------------------------------------- proof that an installer LIVES
@@ -435,27 +578,45 @@ export function installDownloadedUpdate(updater: InstallableUpdater, directory: 
 // app holds, engine already stopped, saying what it is waiting for. The bound
 // applies only where nothing human is involved.
 
-/** One look at the process table, reduced to the two facts the verdict needs.
+/** One look at the process table, reduced to the facts the verdict needs.
  *  Gathering it is the caller's (it is platform work); deciding is here. */
 export interface InstallerSighting {
   /** a process whose image is the DOWNLOADED INSTALLER is running now */
   installerRunning: boolean
   /** resources/elevate.exe — the UAC broker — is running now */
   elevatorRunning: boolean
+  /** ⚠ DID THE LOOK ACTUALLY SUCCEED? Without this, a process listing that
+   *  timed out is indistinguishable from one that came back empty, and the two
+   *  mean opposite things: "nothing is running" versus "I could not see".
+   *  An unreadable look must never decide anything — see below. */
+  readable: boolean
   /** milliseconds since the handoff returned */
   elapsedMs: number
 }
 
-/** What survives between sightings. The elevator having EVER been seen is the
- *  whole memory: its later absence is what turns "no installer yet" from
- *  waiting into a refusal. */
-export interface InstallerProofMemory { elevatorSeen: boolean }
+/** What survives between sightings.
+ *
+ *  `elevatorSeen` is the memory that turns "no installer yet" into a refusal.
+ *  The other two exist so that an ABSENCE is only ever concluded from looks
+ *  that actually happened: `readableLooks` counts successful ones, and
+ *  `lastReadable` says whether the immediately preceding look succeeded. */
+export interface InstallerProofMemory {
+  elevatorSeen: boolean
+  readableLooks: number
+  lastReadable: boolean
+}
+
+export const NO_INSTALLER_SIGHTINGS: InstallerProofMemory = { elevatorSeen: false, readableLooks: 0, lastReadable: false }
 
 export type InstallerVerdict =
   /** an installer process was OBSERVED running — the update is really under way */
   | { verdict: 'started'; detail: string }
   /** it will never start: the prompt was dismissed, or nothing ever appeared */
   | { verdict: 'failed'; detail: string }
+  /** the process table could not be read, so nothing is known either way. NOT
+   *  a failure: the caller must fall back to an unproven exit and say so,
+   *  exactly as it does when the installer cannot be named at all. */
+  | { verdict: 'unknown'; detail: string }
   /** no answer yet, and waiting is correct */
   | { verdict: 'pending' }
 
@@ -470,24 +631,68 @@ export const INSTALLER_PROOF = {
    *  next look is not what decides — the elevator rule and the appear bound
    *  are. */
   pollMs: 250,
+  /** ⚠ THE APPEAR BOUND MAY NOT FIRE ON GUESSES. A healthy run gets about
+   *  appearMs/pollMs = 32 successful looks before the bound is reached, so
+   *  requiring a handful of them costs nothing there — and it stops a couple of
+   *  hung process listings from burning the whole bound and manufacturing a
+   *  failure against an installer that is running perfectly well. */
+  minReadableLooks: 8,
+  /** How long to keep trying when the process table cannot be read at all.
+   *  Past this the answer is 'unknown', never 'failed': we did not observe an
+   *  absent installer, we failed to observe anything. */
+  unreadableMs: 20000,
 }
 
 /** Fold one sighting into a verdict. Pure, so every branch — approved,
- *  cancelled, blocked, died instantly, slow prompt, no elevation at all — is
- *  testable without installing anything on the machine running the tests. */
+ *  cancelled, blocked, died instantly, slow prompt, no elevation at all,
+ *  and a process table that cannot be read — is testable without installing
+ *  anything on the machine running the tests. */
 export function installerProofStep(memory: InstallerProofMemory, seen: InstallerSighting,
-  bounds: { appearMs: number } = INSTALLER_PROOF): { memory: InstallerProofMemory; result: InstallerVerdict } {
-  // The one positive proof. Checked FIRST and unconditionally: an installer
-  // that is running settles the question no matter what the elevator is doing
-  // or how long it took to get here.
-  if (seen.installerRunning) {
-    return { memory, result: { verdict: 'started', detail: `installer process observed running after ${seen.elapsedMs}ms` } }
+  bounds: { appearMs: number; minReadableLooks?: number; unreadableMs?: number } = INSTALLER_PROOF): { memory: InstallerProofMemory; result: InstallerVerdict } {
+  const minReadableLooks = bounds.minReadableLooks ?? INSTALLER_PROOF.minReadableLooks
+  const unreadableMs = bounds.unreadableMs ?? INSTALLER_PROOF.unreadableMs
+  // ⚠ AN UNREADABLE LOOK DECIDES NOTHING, AND IT IS HANDLED FIRST so that no
+  // rule below can read its empty answer as an absence. Both of those rules —
+  // the elevator having gone, and the appear bound — are conclusions ABOUT
+  // SOMETHING NOT BEING THERE, and a listing that timed out reports exactly
+  // the same thing as a listing that came back clean.
+  if (!seen.readable) {
+    const next: InstallerProofMemory = { ...memory, lastReadable: false }
+    if (seen.elapsedMs >= unreadableMs) {
+      return { memory: next, result: { verdict: 'unknown',
+        detail: `the list of running processes could not be read for ${unreadableMs}ms, so whether the installer started is unknown` } }
+    }
+    return { memory: next, result: { verdict: 'pending' } }
   }
-  const next: InstallerProofMemory = { elevatorSeen: memory.elevatorSeen || seen.elevatorRunning }
+  // The one positive proof. Checked FIRST among the readable rules and
+  // unconditionally: an installer that is running settles the question no
+  // matter what the elevator is doing or how long it took to get here.
+  if (seen.installerRunning) {
+    // ⚠ "OBSERVED RUNNING" IS NOT "WILL SUCCEED", and the wording says so on
+    // purpose. On the machine that actually failed, the installer ran — twice —
+    // and replaced nothing; and where the installer raises its OWN elevation
+    // prompt, its process exists BEFORE the user has answered, so this sighting
+    // can precede a decline. This verdict releases the app to quit, which the
+    // installer needs in order to replace files. WHETHER THE UPDATE HAPPENED IS
+    // DECIDED AT THE NEXT BOOT, by comparing the running version against the
+    // attempt — see updateFailureToReport. Nothing here may be read as success.
+    return { memory, result: { verdict: 'started', detail: `installer process observed running after ${seen.elapsedMs}ms - this releases the app to exit and is NOT evidence the update completed` } }
+  }
+  const next: InstallerProofMemory = {
+    elevatorSeen: memory.elevatorSeen || seen.elevatorRunning,
+    readableLooks: memory.readableLooks + 1,
+    lastReadable: true,
+  }
   // The elevator is up: a Windows prompt is in front of the user, or it is
   // about to launch the installer. Waiting is the only correct answer, and it
   // is deliberately unbounded — see the note above.
   if (seen.elevatorRunning) return { memory: next, result: { verdict: 'pending' } }
+  // ⚠ AN ABSENCE IS CONFIRMED TWICE. Neither failure rule may fire unless the
+  // PREVIOUS look also succeeded, so a single readable look arriving after a
+  // gap of blind ones cannot end the wait. Without it, listings that hang for
+  // a few seconds and then recover would let a silent install that had already
+  // finished read as one that never started.
+  if (!memory.lastReadable) return { memory: next, result: { verdict: 'pending' } }
   // It WAS up and is now gone without an installer ever appearing. That is a
   // decision, and it was "no": the prompt was dismissed, or the launch was
   // refused by policy. This is the UAC-cancel case that previously read as
@@ -497,10 +702,11 @@ export function installerProofStep(memory: InstallerProofMemory, seen: Installer
       detail: 'the elevation helper exited without starting the installer - the Windows permission prompt was dismissed, or the launch was blocked' } }
   }
   // No elevation was ever involved, so the installer should have appeared
-  // almost at once. Past the bound, it is not coming.
-  if (seen.elapsedMs >= bounds.appearMs) {
+  // almost at once. Past the bound, it is not coming — but only if we have
+  // actually been looking, hence the readable-look floor.
+  if (seen.elapsedMs >= bounds.appearMs && next.readableLooks >= minReadableLooks) {
     return { memory: next, result: { verdict: 'failed',
-      detail: `no installer process appeared within ${bounds.appearMs}ms of the handoff` } }
+      detail: `no installer process appeared within ${bounds.appearMs}ms of the handoff, across ${next.readableLooks} readings of the process list` } }
   }
   return { memory: next, result: { verdict: 'pending' } }
 }
@@ -513,7 +719,7 @@ export interface InstallerProofSeams {
   /** One look at the process table. `installerRunning` must match the
    *  DOWNLOADED INSTALLER's own image — see the note on installerProofStep for
    *  why elevate.exe is not a substitute. */
-  sample: () => Promise<{ installerRunning: boolean; elevatorRunning: boolean }>
+  sample: () => Promise<{ installerRunning: boolean; elevatorRunning: boolean; readable: boolean }>
   now: () => number
   sleep: (ms: number) => Promise<void>
   record: (stage: UpdateStage, detail?: unknown) => void
@@ -521,7 +727,7 @@ export interface InstallerProofSeams {
    *  the one failure the library CAN tell us about, and waiting out a bound
    *  after it would be waiting for something already known not to be coming. */
   reportedError?: () => unknown | undefined
-  bounds?: { appearMs: number; pollMs: number }
+  bounds?: { appearMs: number; pollMs: number; minReadableLooks?: number; unreadableMs?: number }
 }
 
 /** Wait until the installer is either PROVEN to be running or known not to be
@@ -539,7 +745,7 @@ export interface InstallerProofSeams {
 export async function awaitInstallerProof(seams: InstallerProofSeams): Promise<InstallerVerdict> {
   const bounds = seams.bounds ?? INSTALLER_PROOF
   const began = seams.now()
-  let memory: InstallerProofMemory = { elevatorSeen: false }
+  let memory: InstallerProofMemory = NO_INSTALLER_SIGHTINGS
   let announcedElevation = false
   for (;;) {
     const reported = seams.reportedError?.()
@@ -560,6 +766,14 @@ export async function awaitInstallerProof(seams: InstallerProofSeams): Promise<I
     }
     if (step.result.verdict === 'failed') {
       seams.record('installer-never-started', step.result.detail)
+      return step.result
+    }
+    // ⚠ NOT A FAILURE, AND IT MUST NOT BE TREATED AS ONE. We never saw the
+    // process table, so we never saw an absent installer. This is the same
+    // state as being unable to name the installer at all, and the caller owes
+    // it the same unproven exit rather than a "did not install" verdict.
+    if (step.result.verdict === 'unknown') {
+      seams.record('installer-proof-unavailable', step.result.detail)
       return step.result
     }
     await seams.sleep(bounds.pollMs)
@@ -639,8 +853,27 @@ export async function prepareAndHandOff(seams: PreparationSeams): Promise<Prepar
     seams.record('handoff-refused', 'electron-updater declined the install request')
     return { stage: 'refused' }
   }
+  // ⚠ THE LINE THIS REPLACES IS IN THE INCIDENT LOG, TWICE: "installer launched
+  // for C:\Program Files\Orgtree\Orgtree (NOTE: this /D= argument will reach
+  // NSIS quoted)". It described the defect while performing it. What is
+  // recorded now is HOW the destination was communicated, because a log saying
+  // only "installer launched" cannot tell the two mechanisms apart and they
+  // fail in entirely different ways.
+  // ⚠ THE LINE THIS REPLACES IS IN THE INCIDENT RECORD, TWICE, AND IT WAS A
+  // FALSE CLUE. It read "installer launched for C:\Program Files\Orgtree\Orgtree
+  // (NOTE: this /D= argument will reach NSIS quoted)", printed on every
+  // all-users update whether or not anything was wrong, and the incident report
+  // cited it as corroboration for a hypothesis that measurement later refuted.
+  // A warning that fires on every healthy update is worse than no line at all:
+  // the next person investigating reads it as evidence.
+  //
+  // So what is recorded now is the FORM that was sent and nothing about
+  // consequences. It stays because an incident log that cannot tell the two
+  // forms apart cannot rule either of them in or out.
   seams.record('handoff', 'installer launched for ' + handoff.directory
-    + (handoff.directoryWillBeQuoted ? ' (NOTE: this /D= argument will reach NSIS quoted)' : ''))
+    + (handoff.directoryQuotedByNode
+      ? ' (/D= contains whitespace, so Windows quotes it on the command line)'
+      : ' (/D= contains no whitespace and is passed through unquoted)'))
   return { stage: 'handed-off', handoff }
 }
 

@@ -46,17 +46,38 @@ test('OBS-A: the update exit waits for a PROVEN installer, and never quits on si
   assert.match(main, /if \(proof\.verdict === 'failed'\)/,
     'and the failure branch must be taken on the verdict, not on a timeout')
 
-  // THE REGRESSION GUARD. The old shape was `awaitInstallError(grace)` followed
-  // by an unconditional app.quit(). If that pairing ever comes back as the
-  // primary path, silence means success again.
+  // ⚠ THE REGRESSION GUARD, AND IT DID NOT GUARD. The old shape was
+  // `awaitInstallError(grace)` followed by an unconditional app.quit(); if that
+  // pairing comes back as the primary path, silence means success again.
+  //
+  // The first version of this used indexOf, which finds only the FIRST
+  // occurrence. staffing-flow put the old defect back VERBATIM just before the
+  // proof wait and this file came back 4/4 PASS: the legitimate call still
+  // satisfied the ordering, so a second call anywhere after it was invisible.
+  // It pinned where one call sits; it never bounded how many there are.
+  //
+  // COUNTING is what makes it a guard. There must be EXACTLY ONE, and it must
+  // be inside the cannot-identify fallback.
+  const occurrences = (text, needle) => text.split(needle).length - 1
   const proofIndex = main.indexOf('await awaitInstallerProof(')
-  const guardIndex = main.indexOf('if (!installerImage) {')
+  const guardIndex = main.indexOf('const exitWithoutProof = async () => {')
   const graceIndex = main.indexOf('await awaitInstallError(UPDATE_SPAWN_GRACE_MS)')
   assert.ok(proofIndex > 0, 'the proof wait is present')
-  assert.ok(guardIndex > 0 && graceIndex > guardIndex && graceIndex < proofIndex,
-    'the only remaining awaitInstallError must sit INSIDE the "installer cannot '
-    + 'be identified" guard — it is the fallback for when no proof is obtainable, '
-    + 'never the primary path')
+  assert.equal(occurrences(main, 'awaitInstallError(UPDATE_SPAWN_GRACE_MS)'), 1,
+    'there must be EXACTLY ONE grace wait in the whole file. A second one is how '
+    + 'the old "quit on silence" defect returns, and counting is the only way to '
+    + 'see it — an ordering check is satisfied by the legitimate call and blind '
+    + 'to everything after it')
+  assert.ok(guardIndex > 0 && graceIndex > guardIndex,
+    'and that one must sit INSIDE exitWithoutProof — the shared fallback for '
+    + 'when no proof is obtainable, never the primary path')
+  // The fallback is reached from BOTH unprovable states, and from nowhere else.
+  assert.equal(occurrences(main, 'await exitWithoutProof()'), 2,
+    'exactly two callers: the installer that cannot be named, and the process '
+    + 'table that cannot be read')
+  assert.match(main, /if \(proof\.verdict === 'unknown'\)/,
+    'the unreadable-process-table verdict must take that fallback rather than '
+    + 'being reported to the user as a failed update')
   assert.match(main, /installer-proof-unavailable/,
     'and that fallback must record why nobody checked, so an unproven exit is '
     + 'distinguishable from a proven one')
@@ -64,16 +85,62 @@ test('OBS-A: the update exit waits for a PROVEN installer, and never quits on si
   // The watchdog ends in app.exit(1) and was sized for a sequence with no human
   // in it; a UAC prompt outlasts it. Cancelling it before the wait is load-
   // bearing, not tidying.
-  assert.match(main, /cancelUpdateWatchdog\(\)\s*\n\s*const installerImage/,
-    'the watchdog must be cancelled immediately before the wait, or it kills the '
-    + 'app during a Windows permission prompt')
+  // Pinned to the start of the proof machinery rather than to one specific next
+  // line: the shared unprovable-exit helper is now defined in between, and a
+  // brittle line-pairing here would break on every edit while still not saying
+  // what matters.
+  assert.match(main, /cancelUpdateWatchdog\(\)\s*\n\s*\/\*\* ⚠ NO PROOF IS OBTAINABLE/,
+    'the watchdog must be cancelled immediately before the proof machinery '
+    + 'begins, or it kills the app during a Windows permission prompt')
+  const cancelIndex = main.lastIndexOf('cancelUpdateWatchdog()', proofIndex)
+  assert.ok(cancelIndex > 0 && cancelIndex < proofIndex,
+    'and the cancellation must precede the wait, which is the whole reason it '
+    + 'may outlast the old deadline safely')
+  assert.equal(main.slice(cancelIndex, proofIndex).includes('await engine'), false,
+    'with nothing else awaited in between that could push the wait past a bound '
+    + 'the watchdog is no longer covering')
 
-  // A failure the user never sees is the same defect wearing a quieter hat.
+  // ⚠ THE FAILURE PATH MUST NOT TALK TO ANYBODY, and that is the opposite of
+  // what this asserted a round ago. It required a dialog on this branch; the
+  // dialog was never presented (app.exit force-exits on the next statement), and
+  // awaiting it instead blocks app.relaunch() until a human clicks — which on
+  // the automatic idle path leaves an unattended machine down indefinitely.
   const failureBranch = main.slice(main.indexOf("if (proof.verdict === 'failed')"))
-  assert.match(failureBranch.slice(0, 1200), /dialog\.showMessageBox/,
-    'a failed update must SAY so rather than relaunching silently')
-  assert.match(failureBranch.slice(0, 1200), /app\.relaunch\(\); app\.exit\(0\)/,
-    'and must put the app back, since the engine is confirmed stopped')
+  // ⚠ CODE ONLY. This assertion is about what the branch DOES, and the branch
+  // explains its own history in a comment that names `void
+  // dialog.showMessageBox(...)` as the shape it used to have. Matched against
+  // the raw text it failed on its own documentation — a source-level guard has
+  // to distinguish code from prose or it polices the wrong thing.
+  const codeOnly = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const failureBody = codeOnly(failureBranch.slice(0, 2600))
+  assert.doesNotMatch(failureBody, /dialog\.showMessageBox/,
+    'NOTHING may be put on screen here: no click may be on the critical path to '
+    + 'the app coming back')
+  assert.match(failureBody, /app\.relaunch\(\); app\.exit\(0\)/,
+    'it relaunches immediately, since the engine is confirmed stopped')
+  assert.match(failureBody, /updateLog\.record\('not-installed'/,
+    'and records the outcome first, because the log is the only thing that '
+    + 'outlives this process')
+
+  // ...AND THE REPORT MUST EXIST SOMEWHERE ELSE, or "do not talk here" is just
+  // the silent relaunch that was filed against in the first place.
+  assert.match(main, /const failedUpdate = updateFailureToReport\(updateLog\.lastAttempt\(\), app\.getVersion\(\)\)/,
+    'the relaunched instance must ask whether there is a failure to report')
+  const reportSite = main.slice(main.indexOf('const failedUpdate = updateFailureToReport('))
+  const reportBody = reportSite.slice(0, 1400)
+  assert.match(reportBody, /updateLog\.record\('failure-report-shown'/,
+    'showing it is recorded, which is what bounds the repeats')
+  assert.match(reportBody, /dialog\.showMessageBox/, 'it is actually shown')
+  assert.match(reportBody, /\.then\(\(\) => \{ updateLog\.record\('failure-reported'/,
+    'and DELIVERY is recorded only when the user dismisses it — recording that '
+    + 'up front would mark a message delivered that nobody saw')
+  assert.match(reportBody, /update-log\.json/,
+    'the message must name where the durable record is')
+  // The report is derived from the log, not from a flag set by the dying run:
+  // that is what makes it survive a crash, a reboot, and the exit itself.
+  assert.match(main, /import \{[^}]*updateFailureToReport/,
+    'and the decision lives in updater.ts as a pure function rather than inline '
+    + 'here, which is the only reason its edge cases are testable at all')
 
   // elevate.exe is alive for the whole time a UAC prompt is on screen, so it can
   // never be the proof. This is the single easiest thing to "simplify" wrongly.

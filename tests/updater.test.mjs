@@ -11,6 +11,7 @@ await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile, bundle: tr
 const { trayUpdateState, refreshTrayUpdateMenu, UpdateController, checkForUpdatesViaEvents, installDownloadedUpdate,
   bounded, prepareAndHandOff, installDirectoryIsSafeForNsis, installDirectoryWritable, UpdateLog, updateLogger, sanitizeUpdateDetail,
   uninstallRegistryGuid, UPDATE_DEADLINES, updateWatchdogMs, pendingUpdateHold,
+  updateFailureToReport, FAILURE_REPORT_SHOWS,
   compareUpdateVersions, updateOfferIsNewer, updateReplacementInFlight } = createRequire(import.meta.url)(outfile)
 
 test('downloaded install uses the real NSIS silent-update command and relaunches into the same directory', () => {
@@ -905,6 +906,99 @@ test('a failed install holds the NEXT run exactly once, and a relaunch cannot lo
   }
 })
 
+// ------------------------------------------- telling the user it did not work
+// The exit cannot do it. An un-awaited dialog is never presented before
+// app.exit (measured with real Electron: zero windows across four runs), and an
+// awaited one BLOCKS app.relaunch() until somebody clicks — which on the
+// automatic idle path is an empty room holding the restart until morning. So
+// the dying instance records and relaunches, and the instance that comes back
+// reports it out of the durable log. These drive that decision.
+
+test('a failed update is reported by the NEXT run, and the trigger is the version not changing', () => {
+  const attempt = { at: 't0', stage: 'attempt', detail: 'explicit request', from: '2.1.3', to: '2.1.4' }
+
+  // ⚠ THE INCIDENT SHAPE, and the reason this is not keyed on 'not-installed'.
+  // On the machine that actually failed, the installer WAS launched, the log
+  // recorded 'handoff', and the app came back as the old version. Nothing ever
+  // wrote 'not-installed', so a report keyed on that stage would have said
+  // nothing at all — which is precisely the silence being complained about.
+  const asReported = [attempt, { at: 't1', stage: 'layout' },
+    { at: 't2', stage: 'engine-shutdown' }, { at: 't3', stage: 'handoff' }]
+  const reported = updateFailureToReport(asReported, '2.1.3')
+  assert.ok(reported, 'the handoff-then-unchanged shape MUST be reported')
+  assert.match(reported.detail, /did not change/)
+  assert.equal(reported.to, '2.1.4', 'and it can say which version was expected')
+
+  // ⚠ AND THE ASYMMETRIC ELEVATION CASE. When the installer raises its own
+  // prompt, its process appears BEFORE the user answers, the proof wait returns
+  // 'started', and the app quits while the decline is still to come. No process
+  // that is still alive can write that refusal down; this is where it surfaces.
+  const declinedAfterSighting = [attempt, { at: 't1', stage: 'handoff' },
+    { at: 't2', stage: 'installer-running', detail: 'installer process observed running after 500ms' }]
+  assert.ok(updateFailureToReport(declinedAfterSighting, '2.1.3'),
+    'an observed installer that changed nothing is still a failed update')
+
+  // The most specific reason wins, so the user is told what happened rather
+  // than a generic line.
+  const withReason = [attempt, { at: 't1', stage: 'handoff' },
+    { at: 't2', stage: 'installer-never-started', detail: 'the elevation helper exited without starting the installer' },
+    { at: 't3', stage: 'not-installed', detail: 'the installer could not be started' }]
+  assert.match(updateFailureToReport(withReason, '2.1.3').detail, /elevation helper exited/)
+
+  // POSITIVE CONTROLS — each is a case that must stay SILENT, so "reported"
+  // means something rather than being the answer to everything.
+  assert.equal(updateFailureToReport(asReported, '2.1.4'), null,
+    'THE VERSION MOVED ON: the same log shape is what a SUCCESSFUL update leaves '
+    + 'behind, so reporting here would be a lie told right after an upgrade worked')
+  assert.equal(updateFailureToReport([attempt, { at: 't1', stage: 'layout' }], '2.1.3'), null,
+    'an attempt still in flight is not a failure')
+  assert.equal(updateFailureToReport([], '2.1.3'), null, 'no attempt, nothing to say')
+  assert.equal(updateFailureToReport([{ at: 't0', stage: 'updater', detail: 'x' }], '2.1.3'), null,
+    'and a log that does not start at an attempt is not read as one')
+})
+
+test('the report is DELIVERED once, not merely written once, and repeats are bounded', () => {
+  const attempt = { at: 't0', stage: 'attempt', from: '2.1.3', to: '2.1.4' }
+  const failed = [attempt, { at: 't1', stage: 'handoff' }]
+
+  // Shown but not acknowledged: the instance may have died with the dialog up,
+  // so the next launch says it again. 'failure-report-shown' is written when it
+  // goes on screen; only a dismissal writes 'failure-reported'.
+  assert.ok(updateFailureToReport([...failed, { at: 't2', stage: 'failure-report-shown' }], '2.1.3'),
+    'shown once and not dismissed: say it again, because nobody was told')
+  assert.equal(updateFailureToReport([...failed, { at: 't2', stage: 'failure-report-shown' },
+    { at: 't3', stage: 'failure-reported' }], '2.1.3'), null,
+    'dismissed: never again - a report is not a nag')
+
+  // ...AND IT IS BOUNDED, because "keep telling them until they click" is a nag
+  // if they never do.
+  const shows = (count) => Array.from({ length: count }, (_unused, index) =>
+    ({ at: `s${index}`, stage: 'failure-report-shown' }))
+  assert.ok(updateFailureToReport([...failed, ...shows(FAILURE_REPORT_SHOWS - 1)], '2.1.3'),
+    'under the bound it still reports')
+  assert.equal(updateFailureToReport([...failed, ...shows(FAILURE_REPORT_SHOWS)], '2.1.3'), null,
+    'at the bound it stops shouting')
+})
+
+test('the failure report does not disturb the one-run hold accounting', () => {
+  // The hold is the ONLY mechanism that catches a failure after handoff, and
+  // its guard is delicate: reusing 'not-installed' as the guard once let a
+  // failure hold nothing and retry immediately. The report reads the same
+  // entries and writes DIFFERENT stages, so the two must not interfere.
+  const attempt = { at: 't0', stage: 'attempt', from: '2.1.3', to: '2.1.4' }
+  const failed = [attempt, { at: 't1', stage: 'handoff' }]
+
+  assert.equal(pendingUpdateHold(failed, '2.1.3'), true, 'precondition: the hold fires')
+  const afterReporting = [...failed, { at: 't2', stage: 'hold-consumed' },
+    { at: 't3', stage: 'failure-report-shown' }, { at: 't4', stage: 'failure-reported' }]
+  assert.equal(pendingUpdateHold(afterReporting, '2.1.3'), false,
+    'the hold is spent by hold-consumed exactly as before, and the two report '
+    + 'stages neither revive it nor double it')
+  // And the reverse direction: consuming the hold does not suppress the report.
+  assert.ok(updateFailureToReport([...failed, { at: 't2', stage: 'hold-consumed' }], '2.1.3'),
+    'hold-consumed is not an acknowledgement by the user')
+})
+
 test('the forced exit outlasts every deadline it covers, with margin', () => {
   // The previous watchdog was 20s against deadlines of 5 + 12 + 3 = 20, so it
   // could fire during the very last step it exists to protect.
@@ -1014,14 +1108,46 @@ test('the handoff result reports whether electron-updater actually accepted it',
   assert.equal(refused.quitAndInstallCalled, false)
 })
 
-test('a /D= that Windows will quote is reported, and still passed through unchanged', () => {
-  // Measured on the real Win32 command line: spawn turns
-  //   /D=C:\Program Files\Orgtree
-  // into
-  //   "/D=C:\Program Files\Orgtree"
-  // NSIS requires /D= to be the last parameter AND unquoted; app-builder-lib's
-  // own GetDParameter scans the raw command line for "/D=" and copies
-  // everything after it - trailing quote included - into $INSTDIR.
+test('the /D= handoff sends the installation directory last, and the quoting is measured harmless', () => {
+  // ⚠ THIS TEST USED TO LOCK IN A DEFECT. It was called "a /D= that Windows
+  // will quote is reported, and still passed through unchanged", and it asserted
+  // that the known-unsafe argument was deliberately preserved. The incident
+  // report from the machine that failed its 2.1.3 -> 2.1.4 update named that
+  // pass-through as the strongest candidate cause and asked for this test to be
+  // replaced by one requiring a safe handoff.
+  //
+  // IT WAS REPLACED BY MEASURING INSTEAD. tests/nsis-destination.test.mjs drives
+  // the real shipped GetDParameter macro, compiled by the real makensis, with
+  // the quoting done by Node's own spawn. The result:
+  //
+  //   * the macro's output variable really does end in a stray quote, and
+  //   * `StrCpy $INSTDIR $R0` REMOVES IT, because assignment to $INSTDIR
+  //     validates the value as a filename and strips every character Windows
+  //     forbids (" * ? < > | - all six demonstrated), and
+  //   * those two assignments are the only consumers of the parsed value.
+  //
+  // So the quoted and unquoted forms arrive at an identical $INSTDIR, and a
+  // directory created from it is the intended one. There is no destination
+  // defect to fix here, which is why this asserts the CONTRACT rather than
+  // preserving a hazard: /D= carries the running installation's directory and
+  // is the LAST argument, which is what NSIS requires of it.
+  //
+  // ⚠ AND THE REFUTATION IS NARROWER THAN IT READS. It does NOT say this
+  // handoff is safe or robust. The quoted and unquoted forms converge for THIS
+  // path shape on THESE pinned versions, and the reason is incidental: the only
+  // character the quoting adds is a double quote, which Windows forbids in a
+  // filename. A corruption made of LEGAL characters would pass straight through
+  // that sanitisation. Nobody has shown such a shape is reachable from
+  // installDirectory(), and nobody has shown it is not.
+  //
+  // So this test asserts CONVERGENCE with the mechanism named. It must not
+  // assert the opposite of the old error either: the destination is NOT changed
+  // and the argument is NOT unquoted - astra's ruling (decision 16) is that
+  // neither happens.
+  //
+  // What remains true is that this is still not proof the update SUCCEEDS - see
+  // the installer-running stage and updateFailureToReport for where that is
+  // decided.
   const { NsisUpdater } = createRequire(import.meta.url)('electron-updater/out/NsisUpdater.js')
   const { BaseUpdater } = createRequire(import.meta.url)('electron-updater/out/BaseUpdater.js')
   const calls = []
@@ -1037,21 +1163,25 @@ test('a /D= that Windows will quote is reported, and still passed through unchan
     doInstall(options) { return NsisUpdater.prototype.doInstall.call(this, options) },
     install(isSilent, isForceRunAfter) { return BaseUpdater.prototype.install.call(this, isSilent, isForceRunAfter) },
   }
-  // The behaviour is DELIBERATELY UNCHANGED: withholding the argument would
-  // change where the installer lands and which scope it picks, and that cannot
-  // be verified without running the real installer. Only the log gains a note.
   const flagged = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree')
   assert.equal(flagged.directory, 'C:\\Program Files\\Orgtree')
-  assert.equal(flagged.directoryWillBeQuoted, true)
+  assert.equal(flagged.directoryQuotedByNode, true,
+    'the log still records WHICH form was sent, so a future incident report can '
+    + 'tell them apart - it is a diagnostic now, not a warning')
   assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'],
-    'the exact existing installation directory is still passed through')
+    'the running installation directory is passed, and /D= is LAST - the one '
+    + 'part of the NSIS contract that does bind us')
+  assert.equal(calls.at(-1).args.at(-1).startsWith('/D='), true,
+    'stated separately because "last" is the requirement, and an argument '
+    + 'appended after it would break the parse for real')
 
-  // POSITIVE CONTROL: a directory Windows will not quote carries no warning, so
-  // the flag means something rather than being set on everything.
+  // POSITIVE CONTROL for the diagnostic: a directory Windows will not quote
+  // carries no flag, so the field means something rather than being set on
+  // everything.
   updater.quitAndInstallCalled = false
   const clean = installDownloadedUpdate(updater, 'C:\\Orgtree')
   assert.equal(clean.directory, 'C:\\Orgtree')
-  assert.equal(clean.directoryWillBeQuoted, undefined)
+  assert.equal(clean.directoryQuotedByNode, undefined)
   assert.deepEqual(calls.at(-1).args, ['--updated', '/S', '--force-run', '/D=C:\\Orgtree'])
   assert.equal(installDirectoryIsSafeForNsis('C:\\Orgtree'), true)
   assert.equal(installDirectoryIsSafeForNsis('C:\\Program Files\\Orgtree'), false)
