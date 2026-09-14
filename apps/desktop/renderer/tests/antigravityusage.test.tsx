@@ -5,6 +5,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { UsageModal, usagePeak } from '../src/App'
+import { UsageBars } from '../src/canvas/accounts'
 import type { AccountUsage, UsageAllPayload, UsagePeek } from '../src/types'
 
 const CLAUDE: UsageAllPayload = { accounts: [{
@@ -92,3 +93,86 @@ test('a real Antigravity near-limit bucket drives the shared header glow', () =>
   assert.match(alert?.title ?? '', /Five Hour at 94%/)
   assert.match(alert?.title ?? '', /Antigravity usage$/)
 })
+
+test('UsageBars displays authoritative tier for Gemini account when available', async (t) => {
+  const agy: AccountUsage = {
+    account: 'antigravity', provider: 'Antigravity', label: 'agy@example.test',
+    available: true, tier: 'Standard', limits: [
+      { kind: 'weekly_scoped', group: 'gemini-weekly', percent: 25,
+        severity: 'normal', resets_at: null, is_active: false, model: 'Gemini Models',
+        label: 'Gemini Models · Weekly' },
+    ],
+  }
+  const view = await mountView(<UsageBars u={agy} />, el => el)
+  t.after(async () => { await view.unmount() })
+  const text = view.el.textContent ?? ''
+  assert.match(text, /Antigravity Standard/)
+  assert.match(text, /Gemini Models · Weekly/)
+  assert.match(text, /25%/)
+})
+
+test('UsageBars displays tier unavailable when Gemini tier is missing', async (t) => {
+  const agy: AccountUsage = {
+    account: 'antigravity', provider: 'Antigravity', label: 'agy@example.test',
+    available: true, limits: [
+      { kind: 'weekly_scoped', group: 'gemini-weekly', percent: 25,
+        severity: 'normal', resets_at: null, is_active: false, model: 'Gemini Models',
+        label: 'Gemini Models · Weekly' },
+    ],
+  }
+  const view = await mountView(<UsageBars u={agy} />, el => el)
+  t.after(async () => { await view.unmount() })
+  const text = view.el.textContent ?? ''
+  assert.match(text, /Antigravity tier unavailable/)
+  assert.match(text, /Gemini Models · Weekly/)
+  assert.doesNotMatch(text, /Standard|Advanced|Pro/)
+})
+
+test('multiple Gemini accounts can show different tiers without cross-account attribution', async (t) => {
+  const amb: AccountUsage = {
+    account: 'antigravity', provider: 'Antigravity', label: 'amb@example.test',
+    available: true, tier: 'Advanced', limits: [],
+  }
+  const sec: AccountUsage = {
+    account: 'google-secondary', provider: 'google', label: 'sec@example.test',
+    available: true, tier: 'Standard', limits: [],
+  }
+  const viewAmb = await mountView(<UsageBars u={amb} />, el => el)
+  t.after(async () => { await viewAmb.unmount() })
+  assert.match(viewAmb.el.textContent ?? '', /Antigravity Advanced/)
+  assert.doesNotMatch(viewAmb.el.textContent ?? '', /Standard/)
+
+  const viewSec = await mountView(<UsageBars u={sec} />, el => el)
+  t.after(async () => { await viewSec.unmount() })
+  assert.match(viewSec.el.textContent ?? '', /Antigravity Standard/)
+  assert.doesNotMatch(viewSec.el.textContent ?? '', /Advanced/)
+})
+
+test('non-Gemini provider rows remain unchanged', async (t) => {
+  const claudeWithPlan: AccountUsage = {
+    account: 'primary', provider: 'Claude', label: 'claude@example.test',
+    available: true, plan: 'max', limits: [],
+  }
+  const claudeNoPlan: AccountUsage = {
+    account: 'primary', provider: 'Claude', label: 'claude@example.test',
+    available: true, limits: [],
+  }
+  const codex: AccountUsage = {
+    account: 'codex', provider: 'Codex', label: 'codex@example.test',
+    available: true, limits: [],
+  }
+
+  const v1 = await mountView(<UsageBars u={claudeWithPlan} />, el => el)
+  t.after(async () => { await v1.unmount() })
+  assert.match(v1.el.textContent ?? '', /Claude max/)
+
+  const v2 = await mountView(<UsageBars u={claudeNoPlan} />, el => el)
+  t.after(async () => { await v2.unmount() })
+  assert.doesNotMatch(v2.el.textContent ?? '', /tier unavailable/)
+  assert.doesNotMatch(v2.el.textContent ?? '', /Claude max/)
+
+  const v3 = await mountView(<UsageBars u={codex} />, el => el)
+  t.after(async () => { await v3.unmount() })
+  assert.doesNotMatch(v3.el.textContent ?? '', /tier unavailable/)
+})
+

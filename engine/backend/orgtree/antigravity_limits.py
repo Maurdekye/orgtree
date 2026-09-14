@@ -51,6 +51,15 @@ _RESET_IN_RE: Final = re.compile(
     + r"\s*,?\s*(?:and\s+)?)+)", re.IGNORECASE)
 _PART_RE: Final = re.compile(r"(\d+)\s*" + _UNIT_RE, re.IGNORECASE)
 _UNIT: Final = {"d": 86400.0, "h": 3600.0, "m": 60.0, "s": 1.0}
+_RE_SAFE_TIER: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\s._\-+]{0,63}$")
+_RE_SECRET_PATTERN: Final = re.compile(
+    r"(?:ya29\.[a-zA-Z0-9_\-]+|sk-[a-zA-Z0-9_\-]+|ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|ghp_[a-zA-Z0-9]+|bearer\s+|[a-f0-9]{32,})",
+    re.IGNORECASE,
+)
+_RE_BILLING_PATTERN: Final = re.compile(
+    r"(?:sub_[a-zA-Z0-9]+|cus_[a-zA-Z0-9]+|ba-[a-zA-Z0-9]+|billing-[a-zA-Z0-9]+)",
+    re.IGNORECASE,
+)
 
 _lock = threading.Lock()
 _fetch_lock = threading.Lock()
@@ -147,6 +156,101 @@ def _account_key(status: dict[str, Any]) -> str | None:
         return None
     kind = str(status.get("kind") or "oauth").strip().casefold()
     return f"{kind}:{email.strip().casefold()}"
+
+
+def _sanitize_tier(val: object) -> str | None:
+    """Validate and sanitize a tier string.
+
+    Rejects paths, secrets, access tokens, billing identifiers, multiline text,
+    and non-string values. Never returns a guess or fabricated value.
+    """
+    if not isinstance(val, str):
+        return None
+    if "\n" in val or "\r" in val or "\t" in val:
+        return None
+    cleaned = val.strip()
+    if not cleaned or len(cleaned) > 64:
+        return None
+    if "/" in cleaned or "\\" in cleaned or "{" in cleaned or "}" in cleaned or '"' in cleaned:
+        return None
+    if _RE_SECRET_PATTERN.search(cleaned):
+        return None
+    if _RE_BILLING_PATTERN.search(cleaned):
+        return None
+    if not _RE_SAFE_TIER.match(cleaned):
+        return None
+    return cleaned
+
+
+def _extract_tier(result: dict[str, Any], data: dict[str, Any]) -> str | None:
+    """Extract and sanitize tier metadata from CLI usage response."""
+    for source in (data, result):
+        if not isinstance(source, dict):
+            continue
+        for key in ("tier", "plan", "account_tier", "user_tier",
+                    "subscriptionType", "subscription_tier"):
+            cleaned = _sanitize_tier(source.get(key))
+            if cleaned:
+                return cleaned
+    return None
+
+
+def profile_tier(profile_dir: str | None) -> str | None:
+    """The subscription tier of ONE REGISTERED account, read safely from that
+    account's own profile files — never the ambient store."""
+    if not profile_dir or not isinstance(profile_dir, str) or not os.path.isdir(profile_dir):
+        return None
+    for candidate in ("settings.json", ".credentials.json", "account.json",
+                      "gemini.json", "antigravity.json"):
+        filepath = os.path.join(profile_dir, candidate)
+        if not os.path.isfile(filepath):
+            continue
+        try:
+            with open(filepath, encoding="utf-8") as fh:
+                doc_any: Any = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(doc_any, dict):
+            continue
+        doc = cast("dict[str, Any]", doc_any)
+        for key in ("tier", "plan", "account_tier", "user_tier",
+                    "subscriptionType", "subscription_tier"):
+            cleaned = _sanitize_tier(doc.get(key))
+            if cleaned:
+                return cleaned
+        for sub in ("oauth", "claudeAiOauth", "google", "account", "profile"):
+            sub_val = doc.get(sub)
+            if isinstance(sub_val, dict):
+                for key in ("tier", "plan", "account_tier", "user_tier",
+                            "subscriptionType", "subscription_tier"):
+                    cleaned = _sanitize_tier(cast("dict[str, Any]", sub_val).get(key))
+                    if cleaned:
+                        return cleaned
+    return None
+
+
+def resolve_row_tier(row: dict[str, Any]) -> str | None:
+    """Safely resolve an authoritative tier for one registry row without cross-attribution."""
+    for key in ("tier", "plan", "account_tier", "user_tier"):
+        cleaned = _sanitize_tier(row.get(key))
+        if cleaned:
+            return cleaned
+    for sub in ("identity", "credential", "marks"):
+        sub_val = row.get(sub)
+        if isinstance(sub_val, dict):
+            for key in ("tier", "plan", "account_tier", "user_tier", "subscriptionType"):
+                cleaned = _sanitize_tier(cast("dict[str, Any]", sub_val).get(key))
+                if cleaned:
+                    return cleaned
+    cred_any = row.get("credential")
+    if isinstance(cred_any, dict):
+        cred = cast("dict[str, Any]", cred_any)
+        path = cred.get("path")
+        if isinstance(path, str) and path:
+            pt = profile_tier(path)
+            if pt:
+                return pt
+    return None
 
 
 def _clear_unlocked() -> None:
@@ -271,8 +375,13 @@ def _normalize(result: dict[str, Any], observed_at: float) -> dict[str, Any]:
                 "label": f"{group_name} · {bucket_name}",
                 "observed_at": observed_at,
             })
-    return {"available": bool(limits), "limits": limits,
-            "observed_at": _iso(observed_at)}
+    out: dict[str, Any] = {"available": bool(limits), "limits": limits,
+                           "observed_at": _iso(observed_at)}
+    tier = _extract_tier(result, cast("dict[str, Any]", data_any))
+    if tier:
+        out["tier"] = tier
+        out["plan"] = tier
+    return out
 
 
 def _decode(stdout: str) -> dict[str, Any]:
@@ -313,13 +422,24 @@ def _run_usage(exe: str) -> dict[str, Any]:
 
 
 def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
-    return {
+    tier = data.get("tier")
+    if not tier:
+        for key in ("tier", "plan", "account_tier", "user_tier", "subscriptionType"):
+            cleaned = _sanitize_tier(status.get(key))
+            if cleaned:
+                tier = cleaned
+                break
+    res: dict[str, Any] = {
         "account": ACCOUNT,
         "label": status.get("email") or "signed-in account",
         "email": status.get("email") or None,
         "provider": PROVIDER,
         **data,
     }
+    if tier:
+        res["tier"] = tier
+        res["plan"] = tier
+    return res
 
 
 def fetch(force: bool = False) -> dict[str, Any]:

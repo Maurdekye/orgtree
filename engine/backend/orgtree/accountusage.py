@@ -530,10 +530,14 @@ def _google_view(row: dict[str, Any], out: dict[str, Any], *,
     except Exception:                                          # noqa: BLE001
         ambient = ""
     path = str(cred.get("path") or "")
+    row_tier = antigravity_limits.resolve_row_tier(row)
     if ambient and path and os.path.normcase(os.path.normpath(path)) \
             == os.path.normcase(os.path.normpath(ambient)):
         out.update(antigravity_limits.fetch() if allow_fetch
                    else antigravity_limits.snapshot(now))
+        if row_tier and not out.get("tier"):
+            out["tier"] = row_tier
+            out["plan"] = row_tier
         return out
     out.update(
         available=False,
@@ -551,7 +555,11 @@ def _google_view(row: dict[str, Any], out: dict[str, Any], *,
             detail="the Antigravity CLI answers only for the account it is "
                    "ambiently signed into"),
     )
+    if row_tier:
+        out["tier"] = row_tier
+        out["plan"] = row_tier
     return out
+
 
 
 def view(row: dict[str, Any], *, allow_fetch: bool = True,

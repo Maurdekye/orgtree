@@ -1841,6 +1841,8 @@ export interface AccountUsage {
   enabled?: boolean
   limits?: UsageLimit[]
   plan?: string
+  /** The subscription tier of the account (e.g. 'Standard', 'Advanced'). */
+  tier?: string
   /** Time of the provider observation, not merely when the UI read it. */
   observed_at?: string | null
 }

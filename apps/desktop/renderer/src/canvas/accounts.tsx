@@ -150,16 +150,46 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   // the warning styling. Unreachable for a key row today — `account_usage`
   // always sends `tiers` — this catches an account that is unsupported with
   // no standing to show, which would otherwise render as a blank modal.
+  const prov = (u.provider ?? '').toLowerCase()
+  const isGemini = ['antigravity', 'google', 'gemini'].includes(prov)
+    || u.account === 'antigravity'
+  const geminiProvider = u.provider === 'google' ? 'Antigravity' : (u.provider ?? 'Antigravity')
+  const rawTier = u.tier ?? u.plan
+  const tier = typeof rawTier === 'string' ? rawTier.trim() : ''
+  const isUnresolvedTier = !tier || ['unavailable', 'unknown', 'none'].includes(tier.toLowerCase())
+  const tierLine = isGemini
+    ? (isUnresolvedTier
+        ? `${geminiProvider} tier unavailable`
+        : ((tier.toLowerCase().startsWith('gemini') || tier.toLowerCase().startsWith('antigravity') || tier.toLowerCase().startsWith(geminiProvider.toLowerCase()))
+            ? tier
+            : `${geminiProvider} ${tier}`))
+    : null
+
   if (u.unsupported) {
+    if (isGemini) {
+      return <>
+        <div className="dim">{tierLine}</div>
+        <div className="acct-unsupported">{u.error
+          ?? 'usage is not available for this kind of key'}</div>
+      </>
+    }
     return <div className="acct-unsupported">{u.error
       ?? 'usage is not available for this kind of key'}</div>
   }
   if (!u.available) {
+    if (isGemini && !isUnresolvedTier) {
+      return <>
+        <div className="dim">{tierLine}</div>
+        <div className="dim">{u.error ?? 'usage unavailable'}</div>
+      </>
+    }
     return <div className="dim">{u.error ?? 'usage unavailable'}</div>
   }
   return (
     <>
-      {u.plan && <div className="dim">{u.provider ?? 'Claude'} {u.plan}</div>}
+      {isGemini
+        ? <div className="dim">{tierLine}</div>
+        : (u.plan ? <div className="dim">{u.provider ?? 'Claude'} {u.plan}</div> : null)}
       {(u.limits ?? []).map((l) => {
         // `percent: null` is a real state (UsageLimit's own type), not an
         // absent 0 — OpenRouter reports it for an uncapped key, where the
