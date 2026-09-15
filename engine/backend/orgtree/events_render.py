@@ -1054,6 +1054,21 @@ def _r_bg_task(ev: _R) -> str:
               "state before continuing.")[:8000]
 
 
+def installed_version_line(version: Any, provenance: Any) -> str:
+    """The `Installed version` line, which never guesses and never blanks out.
+
+    Three honest answers, not two. A source checkout has no installed release at
+    all, which is a different fact from a packaged build whose metadata could not
+    be read — and collapsing them would tell a reader running from source that
+    something is broken.
+    """
+    if isinstance(version, str) and version:
+        return f"- Installed version: {version}"
+    if provenance == "source":
+        return "- Installed version: not applicable (running from a source checkout)"
+    return "- Installed version: unavailable (no packaged build metadata)"
+
+
 def _build_lines(ev: _R) -> str:
     o = _obj(ev)
     dirty = " [DIRTY - uncommitted changes present at boot]" if o["dirty"] else ""
@@ -1061,7 +1076,11 @@ def _build_lines(ev: _R) -> str:
     pid = f"{o['pid']}" + (f" (was: {prev})" if prev is not None and prev != o["pid"] else "")
     # the branch rides on the Started-at line, exactly as restart_wake.py wrote it
     branch = f", branch: {ev['branch']}" if ev.get("branch") else ""
-    return (f"Running build:\n- Commit: {o['commit']} (short: {o['short']}){dirty}\n"
+    # ⚠ FIRST, because it is the line a human actually recognises. The commit is
+    # what an agent checks ancestry against; the version is what the person
+    # reading the notice knows their own installation by.
+    return (f"Running build:\n{installed_version_line(ev.get('version'), o['provenance'])}\n"
+            f"- Commit: {o['commit']} (short: {o['short']}){dirty}\n"
             f"- Identity provenance: {o['provenance']}\n"
             f"- Backend PID: {pid}\n- Started at: {ev['started_at']}{branch}")
 

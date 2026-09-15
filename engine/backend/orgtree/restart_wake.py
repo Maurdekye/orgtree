@@ -24,6 +24,7 @@ import uuid
 from typing import Any, Final
 
 from . import events
+from . import events_render
 from . import build_identity
 from . import store
 from . import supervisor
@@ -233,6 +234,9 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
         started_at = boot["started_at"]
         branch = boot["branch"]
         dirty = boot["dirty"]
+        # .get, not [], so a boot record frozen by an older build — or injected
+        # by a test that predates this field — cannot stop the notice going out.
+        current_version = boot.get("version")
 
         # Record this process as current
         d["running_backend_pid"] = current_pid
@@ -245,6 +249,10 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
 
         branch_info = f", branch: {branch}" if branch else ""
         dirty_info = " [DIRTY - uncommitted changes present at boot]" if dirty else ""
+        # The wake text is a plain string, not a typed leaf, so it shares the
+        # renderer's line rather than growing a second wording of the same fact.
+        version_line = events_render.installed_version_line(
+            current_version, boot.get("provenance") or "unknown")
 
         for o in store.list_orgs():
             slug = o["slug"]
@@ -275,6 +283,7 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             wake_text = (
                                 f"[ORGTREE RESTART WAKE] orgtree has restarted and your one-shot wake toggle has fired.\n\n"
                                 f"Running build:\n"
+                                f"{version_line}\n"
                                 f"- Commit: {current_commit} (short: {current_short}){dirty_info}\n"
                                 f"- Identity provenance: {boot.get('provenance') or 'unknown'}\n"
                                 f"- Backend PID: {wake_pid_text}\n"
@@ -300,7 +309,8 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                                  "provenance": str(boot.get("provenance") or "unknown")},
                                 prev_pid=(int(previous_pid) if previous_pid else None),
                                 started_at=str(started_at),
-                                branch=(str(branch) if branch else None))
+                                branch=(str(branch) if branch else None),
+                                version=(str(current_version) if current_version else None))
                             entry: dict[str, Any] = {
                                 "id": uuid.uuid4().hex[:12],
                                 "from": "orgtree",

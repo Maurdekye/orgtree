@@ -416,8 +416,14 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     "runtime.background_task_stopped": leaf("runtime_recovery", "TaskRef",
                                             summary=F("str?", B, True),
                                             output_file=F("str?", B, False)),
+    # `version` is the INSTALLED release the running build reports for itself,
+    # and it is null wherever there is no authoritative one (a source checkout,
+    # unreadable or malformed packaged metadata). It sits on the leaf beside
+    # `branch` and `started_at` rather than on BuildRef, which three unminted
+    # variants also share: this notice is the only place a version is stated.
     "runtime.restart_notice": leaf("runtime_recovery", "BuildRef", prev_pid=F("int?", B, True),
-                                   started_at=F("str", B, True), branch=F("str?", B, True)),
+                                   started_at=F("str", B, True), branch=F("str?", B, True),
+                                   version=F("str?", B, True)),
     "runtime.storage": leaf("runtime_recovery", "OrgRef",
                             level=F("L[heads_up|over|cleared]", B, True),
                             used_mb=F("float", B, True), cap_mb=F("float?", B, True),

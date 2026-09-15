@@ -95,7 +95,7 @@ export function projectEvent(event: KnownEvent): EventView {
     case "runtime.report_limited": return layout(event, "Report limited", [["report", "Report", "context"], ["report_name", "Agent", "header"], ["audience", "Audience", "context"], ["lane", "Lane", "header"], ["reset_at", "Reset at", "header"], ["err", "Error", "body"]])
     case "runtime.subagent_died": return layout(event, "Subagent stopped", [["orphans", "Orphans", "context"], ["count", "Count", "context"], ["reason", "Reason", "body"]])
     case "runtime.background_task_stopped": return layout(event, "Background task stopped", [["summary", "Summary", "body"], ["output_file", "Output file", "context"]])
-    case "runtime.restart_notice": return layout(event, "Backend restarted", [["prev_pid", "Prev pid", "context"], ["started_at", "Started at", "context"], ["branch", "Branch", "context"]])
+    case "runtime.restart_notice": return layout(event, "Backend restarted", [["version", "Installed version", "header"], ["prev_pid", "Prev pid", "context"], ["started_at", "Started at", "context"], ["branch", "Branch", "context"]])
     case "runtime.storage": return layout(event, "Storage update", [["level", "Level", "header"], ["used_mb", "Used mb", "context"], ["cap_mb", "Cap mb", "context"], ["scope", "Scope", "header"]])
     case "runtime.token_expiry": return layout(event, "Credential expiry", [["days", "Days", "context"]])
     case "runtime.delivery_unread": return layout(event, "Delivery unread", [["to", "To", "context"], ["waited", "Waited", "context"], ["boundary_for", "Boundary for", "context"]])

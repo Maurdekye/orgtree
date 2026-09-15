@@ -4511,6 +4511,16 @@
               "type": "null"
             }
           ]
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -4521,7 +4531,8 @@
         "object",
         "prev_pid",
         "started_at",
-        "branch"
+        "branch",
+        "version"
       ],
       "additionalProperties": false
     },
@@ -9692,6 +9703,16 @@
               "type": "null"
             }
           ]
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -9702,7 +9723,8 @@
         "object",
         "prev_pid",
         "started_at",
-        "branch"
+        "branch",
+        "version"
       ],
       "additionalProperties": false
     },
