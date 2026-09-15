@@ -2097,6 +2097,14 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
   immediate?: boolean
   /** delivered mid-task via the steering hook (supervisor.py:1643) */
   steering?: boolean
+  /** supervisor.delivery_note — one sentence saying what actually happened to
+   *  this send. For an unavailable target (halted, retired) it says the mail
+   *  is durably queued and which single event would produce a reader; a
+   *  target that is no node at all never reaches here (post_mail refuses). */
+  delivery?: string
+  /** the recipient's lifecycle state when the mail was stored: 'live' |
+   *  'archived'. What makes a deferral explainable without re-reading it. */
+  recipient_state?: string
   warnings?: string[]
   [k: string]: unknown
 }

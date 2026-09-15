@@ -2338,9 +2338,37 @@ class Org:
                     "operation_id": ue["operation_id"],
                     "warnings": warnings}
 
+        # ⭐ NOT A TARGET AT ALL. `node()`'s generic "no such node: 'x'" is the
+        # right answer for a lookup and the WRONG one for a send: it reads as
+        # a naming complaint, and a sender that skims it can walk away
+        # believing the mail went somewhere. Nothing was stored, nothing is
+        # queued and no rehire or unhalt will ever produce a reader — say
+        # THAT, in the same sentence, so the failed send cannot be mistaken
+        # for the deferred one below (which really is durable).
+        #
+        # ⚠ It names ONLY the address the sender itself supplied and
+        # enumerates nothing: "no agent by that name" must not become a way
+        # to probe an org's membership. `_resolve_recipient(outward=True)`
+        # has already had its chance at @org:/@mcp:/@net:, so by here the
+        # name is neither a node here nor a resolvable outside party.
+        if to not in self.nodes:
+            raise LedgerError(
+                f"NOT DELIVERED — there is no agent named {to!r} in this "
+                f"organization, and the name did not resolve to an outside "
+                f"address either. NOTHING WAS QUEUED and nobody will ever "
+                f"read it: this is a failed send, not a deferred one. Check "
+                f"the name with orgtree_chart (include_archived=true also "
+                f"lists retired agents), or address an outside party with an "
+                f"explicit @org: / @mcp: / @net: prefix.")
         target = self.node(to)
         if target["state"] == "unrecoverable":
-            raise LedgerError(f"{to} is unrecoverable — it cannot receive mail")
+            # A REFUSAL, not a deferral: unlike an archived node there is no
+            # rehire that makes this one readable, so the sentence must not
+            # borrow the "waits in its inbox" shape from the branch below.
+            raise LedgerError(
+                f"NOT DELIVERED — {to} is unrecoverable (its session cannot "
+                f"be restored), so it cannot receive mail and NOTHING WAS "
+                f"QUEUED. Send this to a live agent instead.")
         deferred = target["state"] != "live"
         if deferred:
             # user ruling: archived agents still RECEIVE mail — it is saved in
@@ -2508,6 +2536,14 @@ class Org:
                          message_id=entry["id"], recipient=to,
                          sender=sender, delivery="mailbox")
         return {"delivered": to, "id": entry["id"], "deferred": deferred,
+                # the recipient's lifecycle state AT THE MOMENT THIS WAS
+                # STORED, so the caller can say WHY a send deferred without
+                # re-reading the node (and without inventing a reason). Kept
+                # separate from `deferred`, which stays a bool: the desk and
+                # the killswitch suite both read that flag, and widening it to
+                # a state string would make them depend on this branch's
+                # vocabulary.
+                "recipient_state": target["state"],
                 "operation_id": entry["operation_id"],
                 "warnings": warnings}
 
