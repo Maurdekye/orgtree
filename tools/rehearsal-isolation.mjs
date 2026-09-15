@@ -72,14 +72,33 @@ export function isInside(child, parent) {
  *  cannot be resolved at all is returned as given: this hardens comparison, it
  *  is not itself a gate. */
 export function realPath(target, fileSystem = fs) {
-  let current = path.resolve(String(target ?? ''))
+  const resolved = path.resolve(String(target ?? ''))
+  // ⚠ AN EXISTING PATH THAT WILL NOT RESOLVE IS AN ERROR, NOT A FALLBACK.
+  // Returning the lexical spelling when realpath fails on a path that IS there
+  // means the guard quietly stops being a physical check exactly when something
+  // unusual is going on — which is when it matters.
+  if (fileSystem.existsSync(resolved)) {
+    try { return fileSystem.realpathSync.native(resolved) }
+    catch (error) {
+      throw new Error(`cannot resolve the real path of [${resolved}], which exists: `
+        + `${error?.code ?? error?.message ?? error}. Refusing rather than comparing spellings`)
+    }
+  }
+  // It does not exist yet — normal for an output or work directory. Resolve the
+  // longest existing ancestor and put the un-created tail back on.
+  let current = resolved
   const tail = []
   for (;;) {
-    try { return path.join(fileSystem.realpathSync.native(current), ...tail) } catch { /* climb */ }
     const parent = path.dirname(current)
-    if (parent === current) return path.resolve(String(target ?? ''))
+    if (parent === current) return resolved
     tail.unshift(path.basename(current))
     current = parent
+    if (!fileSystem.existsSync(current)) continue
+    try { return path.join(fileSystem.realpathSync.native(current), ...tail) }
+    catch (error) {
+      throw new Error(`cannot resolve the real path of [${current}], which exists: `
+        + `${error?.code ?? error?.message ?? error}. Refusing rather than comparing spellings`)
+    }
   }
 }
 
@@ -115,6 +134,38 @@ export function productionInstallRoots(env = process.env, installedRoot = null, 
   return [...new Set(roots.map(r => path.resolve(r)))]
 }
 
+/** ⚠ EVERY PROTECTED LOCATION, INSTALLATIONS AND DATA ALIKE, IN ONE LIST.
+ *  The installation guard never covered the production DATA directory, so
+ *  `--out "%APPDATA%\Orgtree v2"` was accepted and would have written packaged
+ *  files into the user's own data without needing any privilege at all. There
+ *  is no reason for these to be two different lists. */
+export function protectedRoots(env = process.env, installedRoot = null, extra = []) {
+  return [...new Set([
+    ...productionInstallRoots(env, installedRoot, extra),
+    path.resolve(productionDataRoot(env)),
+  ])]
+}
+
+/** ⚠ ONE POLICY FOR EVERY MUTABLE DESTINATION. Whatever the rehearsal will
+ *  write to, launch from, or delete — output, work, feed, evidence, userData,
+ *  updater cache — is judged the same way: physically, in both directions,
+ *  against installations AND production data. `label` is what the operator
+ *  sees, so the refusal names the thing they actually typed. */
+export function assertDestinationSafe(label, target, {
+  env = process.env, installedRoot = null, installedRoots = [], fileSystem = fs,
+} = {}) {
+  if (!target) throw new Error(`no ${label} was named`)
+  for (const root of protectedRoots(env, installedRoot, installedRoots)) {
+    if (overlaps(target, root, fileSystem)) {
+      throw new Error(`refusing to use [${path.resolve(target)}] as the ${label}: it is the `
+        + `same physical location as, inside, or around a protected location [${root}]. `
+        + 'Junctions and symlinks are resolved first, so a different spelling of the same '
+        + 'directory is refused too')
+    }
+  }
+  return path.resolve(target)
+}
+
 /** ⚠ THE LAUNCH GUARD. The rehearsal may only ever start an executable it
  *  packaged itself, inside the output directory it was given. Everything else —
  *  the installed release above all — is refused before anything is spawned.
@@ -128,13 +179,15 @@ export function assertRehearsalTarget({
   const resolvedExe = path.resolve(String(exe))
   const resolvedOut = path.resolve(String(outDir))
 
-  for (const root of productionInstallRoots(env, installedRoot, installedRoots)) {
-    // ⚠ OVERLAP IN EITHER DIRECTION. An output directory that CONTAINS an
-    // installation is as bad as one inside it: cleanup scans its descendants.
+  // ⚠ OVERLAP IN EITHER DIRECTION, AND AGAINST PRODUCTION DATA TOO. An output
+  // directory that CONTAINS an installation is as bad as one inside it, because
+  // cleanup scans its descendants — and the production data directory was never
+  // protected here at all, so it was accepted as a packaging destination.
+  for (const root of protectedRoots(env, installedRoot, installedRoots)) {
     if (overlaps(resolvedOut, root, fileSystem)) {
       throw new Error(`the rehearsal output directory [${resolvedOut}] overlaps the `
-        + `installed location [${root}]; a rehearsal must never package into, or around, `
-        + 'an installation')
+        + `protected location [${root}]; a rehearsal must never package into, or around, `
+        + 'an installation or the production data directory')
     }
     if (overlaps(resolvedExe, root, fileSystem)) {
       throw new Error(`refusing to launch [${resolvedExe}]: it is inside the installed `
@@ -373,6 +426,51 @@ export function installedRootsFromRegistry({ entries = null, run = defaultPowerS
     .map(location => path.resolve(String(location))))]
 }
 
+export const RESERVATION_FILE = '.rehearsal-run.json'
+
+/** ⚠ AN EXCLUSIVE CLAIM ON THE OUTPUT DIRECTORY, because a snapshot of running
+ *  processes cannot see a SECOND rehearsal that is about to start. Cleanup
+ *  identifies its processes by that directory; two concurrent runs sharing it
+ *  would each terminate the other's app and each believe it was tidying up
+ *  after itself.
+ *
+ *  Written with the exclusive flag, so the create either wins or fails — there
+ *  is no window between checking and claiming. A reservation whose owning
+ *  process is gone is stale and may be taken over; one whose owner is alive is
+ *  refused. */
+export function reserveRehearsal(outDir, {
+  fileSystem = fs, pid = process.pid, at = null, isAlive = defaultIsAlive,
+} = {}) {
+  const file = path.join(outDir, RESERVATION_FILE)
+  const claim = JSON.stringify({ pid, at: at ?? new Date().toISOString() }, null, 2)
+  fileSystem.mkdirSync(outDir, { recursive: true })
+  try {
+    fileSystem.writeFileSync(file, claim, { flag: 'wx' })
+    return { file, taken: 'fresh' }
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error
+  }
+  let existing = null
+  try { existing = JSON.parse(fileSystem.readFileSync(file, 'utf8')) } catch { /* unreadable */ }
+  if (existing?.pid && isAlive(existing.pid)) {
+    throw new Error(`another rehearsal is already using [${outDir}]: process ${existing.pid}, `
+      + `started ${existing.at ?? 'at an unrecorded time'}. Two runs sharing an output `
+      + 'directory would each stop the other\'s app and each think it was cleaning up '
+      + `after itself. Wait for it, or remove ${RESERVATION_FILE} if you know it is dead`)
+  }
+  // The owner is gone: the claim is stale and this run takes it over.
+  fileSystem.writeFileSync(file, claim)
+  return { file, taken: 'stale', previous: existing }
+}
+
+export function releaseRehearsal(file, { fileSystem = fs } = {}) {
+  try { fileSystem.rmSync(file, { force: true }) } catch { /* best effort */ }
+}
+
+function defaultIsAlive(pid) {
+  try { process.kill(pid, 0); return true } catch (error) { return error?.code === 'EPERM' }
+}
+
 /** Every Orgtree-ish process with a readable image path. Enumerated by PATH
  *  rather than by name, because the engine and its helpers run out of the same
  *  directory under names like python.exe — and a rehearsal that only looks for
@@ -399,9 +497,20 @@ export function processesWithPaths(run = defaultPowerShell) {
  *  made about the rest is exactly the one this measures. */
 export function installedManifest(root, fileSystem = fs) {
   const files = []
+  // ⚠ UNREADABLE IS NOT ABSENT, and conflating them is how a comparison passes
+  // without looking. A directory that throws on enumeration used to be skipped
+  // silently: an installation whose root could not be read produced an empty
+  // manifest, and two empty manifests compare equal. Every failure is recorded
+  // with its path and reason, and `complete` says whether the walk actually saw
+  // the tree.
+  const problems = []
   const walk = (directory, prefix) => {
     let entries
-    try { entries = fileSystem.readdirSync(directory, { withFileTypes: true }) } catch { return }
+    try { entries = fileSystem.readdirSync(directory, { withFileTypes: true }) }
+    catch (error) {
+      problems.push(`${prefix || '.'}: ${error?.code ?? error?.message ?? 'unreadable'}`)
+      return
+    }
     for (const entry of entries) {
       const full = path.join(directory, entry.name)
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name
@@ -409,12 +518,21 @@ export function installedManifest(root, fileSystem = fs) {
       try {
         const stat = fileSystem.statSync(full)
         files.push(`${relative}|${stat.size}|${Math.round(stat.mtimeMs)}`)
-      } catch { files.push(`${relative}|unreadable`) }
+      } catch (error) {
+        problems.push(`${relative}: ${error?.code ?? error?.message ?? 'unreadable'}`)
+      }
     }
   }
-  if (fileSystem.existsSync(root)) walk(root, '')
+  const present = fileSystem.existsSync(root)
+  if (present) walk(root, '')
   files.sort()
   return {
+    present,
+    // Absent is complete — there is nothing to fail to read. Present-but-broken
+    // is not.
+    complete: !present || problems.length === 0,
+    problems: problems.slice(0, 20),
+    problemCount: problems.length,
     count: files.length,
     sha256: crypto.createHash('sha256').update(files.join('\n')).digest('hex'),
   }
@@ -462,15 +580,27 @@ export function compareSnapshots(before, after) {
       ? `build-info sha256 ${after.installedBuildInfo?.sha256?.slice(0, 16) ?? '(absent)'}… unchanged`
       : 'the installed build-info.json or Orgtree.exe CHANGED',
   })
-  const treeOk = eq(before.installedTree, after.installedTree)
+  // ⚠ THE NAME IS WHAT THIS ACTUALLY MEASURES. Path, size and mtime cannot see
+  // a same-size edit that preserves the timestamp, so the row does not claim
+  // content integrity. Only the two hashed files above carry a byte-level claim.
+  const complete = before.installedTree?.complete === true
+    && after.installedTree?.complete === true
+  const treeOk = complete && eq(before.installedTree, after.installedTree)
   rows.push({
-    name: 'no file anywhere under the installation was added, removed, resized or rewritten',
+    name: 'no file under the installation was added, removed, or changed in size or '
+      + 'modification time (metadata only — not a content hash)',
     ok: treeOk,
-    detail: treeOk
-      ? `${after.installedTree?.count ?? 0} files, path/size/mtime digest `
-        + `${after.installedTree?.sha256?.slice(0, 16) ?? '(absent)'}… unchanged`
-      : `the installed tree CHANGED: ${before.installedTree?.count ?? 0} files → `
-        + `${after.installedTree?.count ?? 0} files`,
+    detail: !complete
+      // A comparison that could not read the tree is NOT a pass. The reason is
+      // kept rather than turned into an absence.
+      ? 'THE INSTALLATION COULD NOT BE FULLY ENUMERATED, so it was not verified: '
+        + `${(after.installedTree?.problems ?? before.installedTree?.problems ?? []).join('; ')
+          || 'no diagnostic recorded'}`
+      : eq(before.installedTree, after.installedTree)
+        ? `${after.installedTree?.count ?? 0} files, path/size/mtime digest `
+          + `${after.installedTree?.sha256?.slice(0, 16) ?? '(absent)'}… unchanged`
+        : `the installed tree CHANGED: ${before.installedTree?.count ?? 0} files → `
+          + `${after.installedTree?.count ?? 0} files`,
   })
   rows.push({
     name: 'no uninstall entry was added, removed or changed (key, name, version, location)',
@@ -497,7 +627,7 @@ export function compareSnapshots(before, after) {
  *  injected so this file does not restate the definition a third time. */
 export function isolationChecks({
   feed = null, env = process.env, installedRoot = null, run = defaultPowerShell,
-  isLoopback = () => true, fileSystem = fs, outDir = null,
+  isLoopback = () => true, fileSystem = fs, outDir = null, adopt = false,
 } = {}) {
   const rows = []
   const check = (name, fn) => {
@@ -524,30 +654,59 @@ export function isolationChecks({
     return `${info.version} / ${String(info.commit ?? '').slice(0, 7)} / channel ${info.channel}`
   })
 
-  check('the rehearsal data root is SEPARATE from production', () => {
+  check('the rehearsal data root is PHYSICALLY separate from production', () => {
+    // ⚠ SPELLINGS ARE NOT LOCATIONS. A junction at "Orgtree v2 Dev" pointing at
+    // "Orgtree v2" is two names for one directory, and the lexical comparison
+    // this used to do passed it happily — after which the rehearsal would run
+    // on the user's real data through the dev name.
     const production = productionDataRoot(env)
     const rehearsal = rehearsalDataRoot(env)
-    if (production.toLowerCase() === rehearsal.toLowerCase()) {
-      throw new Error('the two data roots are the same path')
-    }
-    if (isInside(rehearsal, production)) {
-      throw new Error('the rehearsal data root lives inside the production one')
+    if (overlaps(rehearsal, production, fileSystem)) {
+      throw new Error(`the rehearsal data root [${rehearsal}] and the production data root `
+        + `[${production}] are the same physical directory, or one contains the other. `
+        + 'Resolved: '
+        + `[${realPath(rehearsal, fileSystem)}] vs [${realPath(production, fileSystem)}]`)
     }
     return `production=${production} rehearsal=${rehearsal} `
-      + `(exists: ${fileSystem.existsSync(rehearsal)})`
+      + `(exists: ${fileSystem.existsSync(rehearsal)}; physically distinct)`
   })
 
   check('the production engine lock belongs to production alone', () => {
     // Attachment and locking are keyed by the data root, so separate roots mean
     // separate locks and separate dynamically chosen ports: the rehearsal
-    // cannot attach to, or evict, the running release's engine.
+    // cannot attach to, or evict, the running release's engine. Compared on the
+    // REAL locations, for the same reason as above.
     const lock = path.join(productionDataRoot(env), '.desktop-engine.lock')
     const rehearsalLock = path.join(rehearsalDataRoot(env), '.desktop-engine.lock')
-    if (lock.toLowerCase() === rehearsalLock.toLowerCase()) {
-      throw new Error('the two builds would share one engine lock')
+    if (realPath(lock, fileSystem).toLowerCase()
+      === realPath(rehearsalLock, fileSystem).toLowerCase()) {
+      throw new Error('the two builds would share one engine lock: '
+        + `[${realPath(lock, fileSystem)}]`)
     }
     return `production lock ${fileSystem.existsSync(lock) ? 'present' : 'absent'}; `
       + `the rehearsal's would be ${rehearsalLock}`
+  })
+
+  // ⚠ SHARED DEV DATA IS NOT THIS RUN'S TO USE. A quiet output directory says
+  // nothing about the dev data root: another dev build can live at a different
+  // output path and still own that storage. Preserving it during cleanup was
+  // only half the problem — the rehearsal would still have RUN on it.
+  check('the rehearsal data root and updater cache are not somebody else\'s', () => {
+    const existing = []
+    const dataRoot = rehearsalDataRoot(env)
+    const cache = path.join(env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE)
+    if (fileSystem.existsSync(dataRoot)) existing.push(dataRoot)
+    if (fileSystem.existsSync(cache)) existing.push(cache)
+    if (existing.length && !adopt) {
+      throw new Error(`these already exist and are not this run's: ${existing.join(', ')}. `
+        + 'A rehearsal wears the dev identity, so that storage may belong to an ordinary '
+        + 'dev build. Move or remove it, or pass --adopt to run on it deliberately — with '
+        + '--adopt nothing there is ever deleted')
+    }
+    if (existing.length) {
+      return `ADOPTED (nothing here will be deleted): ${existing.join(', ')}`
+    }
+    return 'neither exists; this run creates and owns both'
   })
 
   check('no rehearsal uninstall entry exists', () => {
@@ -590,14 +749,16 @@ export function isolationChecks({
   return rows
 }
 
-export function report(rows, { label = '' } = {}) {
-  for (const row of rows) console.log(`${row.ok ? 'PASS' : 'FAIL'} ${row.name}\n       ${row.detail}`)
+export function report(rows, {
+  label = '', out = (line) => console.log(line), err = (line) => console.error(line),
+} = {}) {
+  for (const row of rows) out(`${row.ok ? 'PASS' : 'FAIL'} ${row.name}\n       ${row.detail}`)
   const failed = rows.filter(r => !r.ok)
   if (failed.length) {
-    console.error(`\n${failed.length} ISOLATION CHECK(S) FAILED${label ? ` (${label})` : ''} — STOP.`)
+    err(`\n${failed.length} ISOLATION CHECK(S) FAILED${label ? ` (${label})` : ''} — STOP.`)
     return false
   }
-  console.log(`\nAll ${rows.length} isolation checks passed${label ? ` (${label})` : ''}.`)
+  out(`\nAll ${rows.length} isolation checks passed${label ? ` (${label})` : ''}.`)
   return true
 }
 

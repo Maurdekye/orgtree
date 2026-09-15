@@ -31,11 +31,11 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process'
 
 import { isLoopbackFeedUrl, serveFeed, writeFeed } from './private-update-feed.mjs'
 import {
-  assertNotElevated, assertRehearsalPackage, assertRehearsalTarget, compareSnapshots,
-  assertFixtureProvenance, assertRehearsalComposition, DEFAULT_REHEARSAL_OUT, isInside,
-  isolationChecks, isRehearsalProcessPath, installedRootsFromRegistry, overlaps,
-  processesWithPaths, productionDataRoot, productionInstallRoots, rehearsalDataRoot,
-  REHEARSAL_UPDATER_CACHE, report, resolveInstalledRoot, snapshot,
+  assertDestinationSafe, assertFixtureProvenance, assertNotElevated, assertRehearsalComposition,
+  assertRehearsalPackage, assertRehearsalTarget, compareSnapshots, DEFAULT_REHEARSAL_OUT,
+  installedRootsFromRegistry, isInside, isolationChecks, isRehearsalProcessPath, overlaps,
+  processesWithPaths, productionDataRoot, realPath, rehearsalDataRoot, releaseRehearsal,
+  REHEARSAL_UPDATER_CACHE, report, reserveRehearsal, resolveInstalledRoot, snapshot,
 } from './rehearsal-isolation.mjs'
 
 export { REHEARSAL_UPDATER_CACHE }
@@ -61,34 +61,27 @@ export function assertRehearsalPaths({
   })
   const resolvedFixture = path.resolve(fixture)
   const resolvedWork = workDir === undefined || workDir === null ? null : path.resolve(workDir)
+  const where = { env, installedRoot, installedRoots, fileSystem }
 
-  const roots = productionInstallRoots(env, installedRoot, installedRoots)
-  const withinAnInstall = (candidate) =>
-    roots.some(root => overlaps(candidate, root, fileSystem))
-
-  if (withinAnInstall(resolvedFixture)) {
-    throw new Error(`refusing to offer [${resolvedFixture}] as the update artifact: it is `
-      + 'inside an installed location, and the artifact served must be the harmless '
-      + 'fixture this repository built, never anything from an installation')
-  }
-  // ⚠ THE WORKING DIRECTORY IS WRITTEN TO, so it is judged by the same rule as
-  // everything else: the feed directory, the baseline and the evidence all land
-  // inside it, and a copy of the artifact lands in the feed.
-  if (resolvedWork !== null) {
-    if (withinAnInstall(resolvedWork)) {
-      throw new Error(`refusing to use [${resolvedWork}] as the rehearsal working `
-        + 'directory: it overlaps an installed location, and this directory is written to')
-    }
-    if (overlaps(resolvedWork, productionDataRoot(env), fileSystem)) {
-      throw new Error(`refusing to use [${resolvedWork}] as the rehearsal working `
-        + 'directory: it overlaps the production data root')
-    }
-  }
+  // ⚠ ONE POLICY, EVERY MUTABLE DESTINATION — physically, both directions,
+  // against installations AND production data. These used to be three
+  // differently-worded checks against two different lists, and the gaps between
+  // them were exactly what review walked through.
+  assertDestinationSafe('update artifact', resolvedFixture, where)
+  // The working directory receives the feed (with a copy of the artifact in
+  // it), the baseline and the evidence.
+  if (resolvedWork !== null) assertDestinationSafe('rehearsal working directory', resolvedWork, where)
 
   const dataRoot = rehearsalDataRoot(env)
   const production = productionDataRoot(env)
-  if (path.resolve(dataRoot).toLowerCase() === path.resolve(production).toLowerCase()) {
-    throw new Error('the rehearsal and production data roots resolve to the same path')
+  // ⚠ PHYSICAL, NOT LEXICAL. A junction at "Orgtree v2 Dev" pointing at
+  // "Orgtree v2" is one directory with two names, and comparing the spellings
+  // accepted it — after which the rehearsal would have run on the user's own
+  // data through the dev name.
+  if (overlaps(dataRoot, production, fileSystem)) {
+    throw new Error(`the rehearsal data root [${dataRoot}] and the production data root `
+      + `[${production}] are the same physical directory, or one contains the other `
+      + `([${realPath(dataRoot, fileSystem)}] vs [${realPath(production, fileSystem)}])`)
   }
 
   return {
@@ -161,6 +154,63 @@ export function receiptToken(body) {
   return declared && declared[1] === complete[1] ? complete[1] : null
 }
 
+/** ⚠ WHICH FILE WOULD PROVE *THIS* ATTEMPT — read out of the app's own handoff
+ *  record, not guessed from what is lying in the data directory.
+ *
+ *  This is the binding review required. The token is minted per attempt by the
+ *  app; the app now names the receipt path it gave the fixture, so the runner
+ *  knows the one file that can settle this attempt before that file exists.
+ *  Without it, "a recent file whose two internal lines agree" was the whole
+ *  test — which an unpublished `.txt.partial`, or a receipt from an unrelated
+ *  attempt, satisfies just as well. */
+export function expectedReceiptFrom(detail) {
+  const match = String(detail ?? '')
+    .match(/its receipt for this attempt is \[([^\]]+)\]/)
+  return match ? match[1] : null
+}
+
+export function receiptTokenFromName(file) {
+  // Exactly the published shape. `update-fixture-<token>.txt.partial` — which
+  // the fixture writes BEFORE its error check and rename, and deletes if either
+  // fails — does not match, and must not: announcing completion for a receipt
+  // the fixture explicitly never published is the failure this prevents.
+  return path.basename(String(file ?? '')).match(/^update-fixture-(.+)\.txt$/)?.[1] ?? null
+}
+
+/** The complete admission test for a receipt, as a pure function so every
+ *  rejection can be driven directly. Returns {ok, reason, token}. */
+export function judgeReceipt({
+  file, body, mtimeMs, expectedPath, startedAt, unpacked, fixture,
+}) {
+  const no = (reason) => ({ ok: false, reason, token: null })
+  if (!expectedPath) {
+    return no('this run observed no handoff naming a receipt path, so no file can prove it')
+  }
+  if (path.resolve(file).toLowerCase() !== path.resolve(expectedPath).toLowerCase()) {
+    return no(`[${file}] is not the receipt this attempt named (${expectedPath})`)
+  }
+  const nameToken = receiptTokenFromName(file)
+  if (!nameToken) return no(`[${file}] is not a published receipt (an unpublished partial?)`)
+  const token = receiptToken(body)
+  if (!token) return no('the receipt has no terminal [fixture-complete] agreeing with its token')
+  if (token !== nameToken) {
+    return no(`the receipt's token [${token}] does not match its own filename [${nameToken}]`)
+  }
+  if (!(mtimeMs >= startedAt)) return no('the receipt predates this run')
+  // Written by the fixture from what it was ACTUALLY given, so these tie the
+  // receipt to this run's directories rather than to any rehearsal's.
+  const lines = String(body ?? '').split(/\r?\n/).map(line => line.trim())
+  const instdir = lines.find(l => l.startsWith('[fixture-instdir]'))?.slice('[fixture-instdir]'.length).trim()
+  if (!instdir || path.resolve(instdir).toLowerCase() !== path.resolve(unpacked).toLowerCase()) {
+    return no(`the receipt reports install directory [${instdir}], not this run's [${unpacked}]`)
+  }
+  const cmdline = lines.find(l => l.startsWith('[fixture-cmdline]')) ?? ''
+  if (!cmdline.toLowerCase().includes(path.resolve(fixture).toLowerCase())) {
+    return no('the receipt does not name this run\'s fixture in its command line')
+  }
+  return { ok: true, reason: null, token }
+}
+
 /** Cleanup is deletion, so it gets its own guard. Only the two directories the
  *  rehearsal itself creates may be removed, identified by their own names —
  *  never the production data root, never anything passed in by accident. */
@@ -195,22 +245,64 @@ function stopRehearsalProcesses(outDir) {
   return stopped
 }
 
+// --------------------------------------------------------------------- main
+//
+// ⚠ EVERY EFFECT IS INJECTABLE, AND THAT IS NOT A STYLE CHOICE. Two review
+// rounds found defects here that pure-predicate tests and source-shape
+// assertions both passed over, because the bugs were in the COMPOSITION —
+// what got written before what was checked, what got stopped when nothing had
+// been started, which file was believed. tests/update-rehearsal.test.mjs runs
+// this exact function with inert filesystem, process and feed effects and
+// asserts on the launches, writes, deletions and result it produces. Nothing in
+// those tests can start a real process or touch a real directory.
+
+/** The real effects. Replaced wholesale by the tests. */
+export function realEffects() {
+  return {
+    fileSystem: fs,
+    spawnProcess: spawn,
+    runPowerShell: (script) => execFileSync('powershell', ['-NoProfile', '-Command', script],
+      { encoding: 'utf8', windowsHide: true }),
+    stopProcess: (id) => spawnSync('powershell', ['-NoProfile', '-Command',
+      `Stop-Process -Id ${Number(id)} -Force -ErrorAction SilentlyContinue`],
+      { encoding: 'utf8', windowsHide: true }),
+    writeFeed,
+    serveFeed,
+    now: () => Date.now(),
+    sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+    isAlive: (pid) => { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } },
+    env: process.env,
+    out: (line) => console.log(line),
+    err: (line) => console.error(line),
+    repoRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+  }
+}
+
 function value(argv, name, fallback) {
   const index = argv.indexOf(name)
   return index >= 0 && argv[index + 1] !== undefined ? argv[index + 1] : fallback
 }
 
-// --------------------------------------------------------------------- main
+export async function main(argv = process.argv.slice(2), injected = {}) {
+  const fx = { ...realEffects(), ...injected }
+  const {
+    fileSystem, spawnProcess, runPowerShell, stopProcess, now, sleep, env, out, err, repoRoot,
+  } = fx
 
-export async function main(argv = process.argv.slice(2)) {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const outDir = path.resolve(repoRoot, value(argv, '--out', DEFAULT_REHEARSAL_OUT))
   const exe = path.join(outDir, 'win-unpacked', 'Orgtree Dev.exe')
+  const unpacked = path.join(outDir, 'win-unpacked')
   const fixture = path.resolve(repoRoot,
     value(argv, '--fixture', 'dist/update-fixture/orgtree-update-fixture.exe'))
   const workDir = path.resolve(repoRoot, value(argv, '--work', 'dist/rehearsal'))
   const budgetMs = Number(value(argv, '--budget', String(DEFAULT_BUDGET_MS / 1000))) * 1000
   const keep = argv.includes('--keep')
+  // ⚠ --adopt IS AN EXPLICIT STATEMENT THAT THE EXISTING DEV STORAGE IS YOURS
+  // TO USE. Without it, a pre-existing dev data root or updater cache refuses
+  // the run: a rehearsal wears the dev identity, so that storage may belong to
+  // somebody's ordinary dev build, and running ON it is worse than the earlier
+  // bug of merely declining to delete it. With it, nothing there is deleted.
+  const adopt = argv.includes('--adopt')
   // ⚠ --dry-run EXISTS SO THE GUARDS CAN BE EXERCISED WITHOUT THE REHEARSAL.
   // A real run needs a minute of untouched machine, which makes it the wrong
   // thing to reach for when what you want to know is whether this machine is in
@@ -222,16 +314,16 @@ export async function main(argv = process.argv.slice(2)) {
     ['the rehearsal build', exe, 'node tools/package-rehearsal.mjs'],
     ['the update fixture', fixture, 'node tools/build-update-fixture.mjs'],
   ]) {
-    if (!fs.existsSync(target)) {
-      console.error(`${label} is missing at ${target}\n  build it first:  ${hint}`)
+    if (!fileSystem.existsSync(target)) {
+      err(`${label} is missing at ${target}\n  build it first:  ${hint}`)
       return 2
     }
   }
 
-  const evidence = { at: new Date().toISOString(), steps: [] }
+  const evidence = { at: new Date(now()).toISOString(), steps: [] }
   const step = (name, detail) => {
     evidence.steps.push({ name, detail })
-    console.log(`· ${name}\n    ${detail}`)
+    out(`· ${name}\n    ${detail}`)
   }
 
   // ⚠ EVERYTHING THAT CAN BE JUDGED BEFORE A SINGLE BYTE IS WRITTEN IS JUDGED
@@ -240,38 +332,41 @@ export async function main(argv = process.argv.slice(2)) {
   // named. Elevation is refused here too, for the same reason.
   let paths
   let installedRoot
+  let installedRoots
   let packagedInfo
   try {
-    assertNotElevated()
-    installedRoot = resolveInstalledRoot()
-    const installedRoots = installedRootsFromRegistry()
+    assertNotElevated(runPowerShell)
+    installedRoot = resolveInstalledRoot({ env, run: runPowerShell })
+    installedRoots = installedRootsFromRegistry({ run: runPowerShell })
     paths = assertRehearsalPaths({
-      outDir, exe, fixture, workDir, installedRoot, installedRoots,
+      outDir, exe, fixture, workDir, env, installedRoot, installedRoots, fileSystem,
     })
-    // What was COMPILED, not what build-info.json claims, and what the bytes
-    // ARE, not where they sit.
-    packagedInfo = assertRehearsalComposition(path.join(outDir, 'win-unpacked'))
-    const provenance = assertFixtureProvenance(paths.fixture, { repoRoot })
+    packagedInfo = assertRehearsalComposition(unpacked, fileSystem)
+    const provenance = assertFixtureProvenance(paths.fixture, { repoRoot, fileSystem })
     step('the artifact is this repository\'s fixture',
       `sha256 ${provenance.sha256.slice(0, 16)}…, built from ${provenance.source}`)
   } catch (error) {
-    console.error(`REFUSED: ${error?.message ?? error}`)
-    console.error('Nothing was created, launched, stopped or removed.')
+    err(`REFUSED: ${error?.message ?? error}`)
+    err('Nothing was created, launched, stopped or removed.')
     return 1
   }
 
-  fs.mkdirSync(paths.workDir, { recursive: true })
-  const written = writeFeed({
-    directory: path.join(paths.workDir, 'feed'),
-    artifact: paths.fixture,
-    version: FIXTURE_VERSION,
-    releaseDate: new Date().toISOString(),
-  })
-  const server = await serveFeed(written.directory)
-  evidence.feed = server.url
-  console.log(`· loopback feed ${server.url} offering ${written.version} `
-    + `(${written.file}, ${written.size} bytes)`)
+  // ⚠ THE RESERVATION COMES BEFORE THE FEED, because it is the thing that makes
+  // "every process under the output directory is mine" safe against a SECOND
+  // rehearsal starting a moment from now — which no snapshot of running
+  // processes can see.
+  let reservation
+  try {
+    reservation = reserveRehearsal(paths.outDir, { fileSystem, isAlive: fx.isAlive })
+    step('output directory reserved',
+      `${reservation.file}${reservation.taken === 'stale' ? ' (took over a stale claim)' : ''}`)
+  } catch (error) {
+    err(`REFUSED: ${error?.message ?? error}`)
+    err('Nothing was created, launched, stopped or removed.')
+    return 1
+  }
 
+  let server = null
   let plan
   let child
   let exitCode = 1
@@ -285,30 +380,46 @@ export async function main(argv = process.argv.slice(2)) {
   // updater cache. Cleanup now only ever cleans up after something this run did.
   let launched = false
   try {
+    fileSystem.mkdirSync(paths.workDir, { recursive: true })
+    const written = fx.writeFeed({
+      directory: path.join(paths.workDir, 'feed'),
+      artifact: paths.fixture,
+      version: FIXTURE_VERSION,
+      releaseDate: new Date(now()).toISOString(),
+    })
+    server = await fx.serveFeed(written.directory)
+    evidence.feed = server.url
+    out(`· loopback feed ${server.url} offering ${written.version} `
+      + `(${written.file}, ${written.size} bytes)`)
+
     // ⚠ THE PLAN IS THE GATE. Nothing below launches anything until every
     // refusal in planRehearsal has declined to fire.
     plan = planRehearsal({
-      outDir, exe, fixture, workDir, feedUrl: server.url, packagedInfo, installedRoot,
-      installedRoots: installedRootsFromRegistry(),
+      outDir, exe, fixture, workDir, feedUrl: server.url, packagedInfo, env,
+      installedRoot, installedRoots, fileSystem,
     })
     step('plan accepted', `${plan.version} from ${plan.exe}\n    data root ${plan.dataRoot}`)
 
     const pre = isolationChecks({
-      feed: server.url, installedRoot, isLoopback: isLoopbackFeedUrl, outDir: plan.outDir,
+      feed: server.url, env, installedRoot, run: runPowerShell, fileSystem,
+      isLoopback: isLoopbackFeedUrl, outDir: plan.outDir, adopt,
     })
-    if (!report(pre, { label: 'before launch' })) {
-      throw new Error('preflight isolation checks failed; nothing was launched')
+    // Recorded, not just acted on: the evidence file should say WHICH check
+    // stopped a run, rather than leaving that only in the console output of a
+    // session nobody kept.
+    evidence.preflight = pre
+    if (!report(pre, { label: 'before launch', out, err })) {
+      throw new Error('preflight isolation checks failed; nothing was launched: '
+        + pre.filter(row => !row.ok).map(row => `${row.name} — ${row.detail}`).join(' | '))
     }
-    const baseline = snapshot({ installedRoot })
-    // ⚠ WHAT WAS ALREADY THERE DECIDES WHAT CLEANUP MAY DELETE. A rehearsal
-    // wears the dev identity, so the dev data root and the updater cache may
-    // both belong to somebody's ordinary dev build — and destroying their data
-    // to tidy up after a test would be far worse than leaving residue. This run
-    // removes only what this run created.
+    const baseline = snapshot({ env, installedRoot, run: runPowerShell, fileSystem })
+    // ⚠ WHAT WAS ALREADY THERE DECIDES WHAT CLEANUP MAY DELETE. With --adopt the
+    // operator has said this storage is theirs to reuse; this run still removes
+    // only what it created.
     preexistingDataRoot = baseline.rehearsalDataExists
     preexistingCache = baseline.rehearsalCacheExists
-    fs.writeFileSync(path.join(plan.workDir, 'baseline.json'),
-      JSON.stringify({ at: new Date().toISOString(), snapshot: baseline }, null, 2))
+    fileSystem.writeFileSync(path.join(plan.workDir, 'baseline.json'),
+      JSON.stringify({ at: new Date(now()).toISOString(), snapshot: baseline }, null, 2))
     step('baseline captured', path.join(plan.workDir, 'baseline.json'))
 
     if (dryRun) {
@@ -333,13 +444,13 @@ export async function main(argv = process.argv.slice(2)) {
       // ⚠ THE CLOCK STARTS BEFORE THE LAUNCH, not after, and it is the floor for
       // what counts as this run's evidence. A log entry or receipt older than
       // this belongs to some earlier rehearsal that shared the data root.
-      const startedAt = Date.now()
+      const startedAt = now()
 
       // --background suppresses the main window. The environment carries the feed
       // and the fixture; a build not composed for rehearsal ignores both.
-      child = spawn(plan.exe, ['--background'], {
+      child = spawnProcess(plan.exe, ['--background'], {
         detached: true, stdio: 'ignore', windowsHide: true,
-        env: { ...process.env, ORGTREE_UPDATE_FEED: plan.feedUrl, ORGTREE_UPDATE_FIXTURE: plan.fixture },
+        env: { ...env, ORGTREE_UPDATE_FEED: plan.feedUrl, ORGTREE_UPDATE_FIXTURE: plan.fixture },
       })
       launched = true
       // ⚠ A SPAWN FAILURE ARRIVES ASYNCHRONOUSLY and the surrounding try/catch
@@ -348,36 +459,45 @@ export async function main(argv = process.argv.slice(2)) {
       // waiting for a process that never started.
       let spawnError = null
       child.on('error', (error) => { spawnError = error })
-      child.unref()
+      child.unref?.()
       step('rehearsal launched', `pid ${child.pid}, --background`)
-      console.log(`\n  ⚠ LEAVE THE MACHINE ALONE NOW. The apply needs 60 seconds of no\n`
+      out(`\n  ⚠ LEAVE THE MACHINE ALONE NOW. The apply needs 60 seconds of no\n`
         + `    keyboard or mouse input; the budget is ${Math.round(budgetMs / 1000)}s.\n`)
 
-      // ⚠ FRESH RECEIPTS ONLY. A receipt file is this run's when it was written
-      // after the launch AND its terminal record agrees with the token it
-      // declares. Both halves matter: mtime alone would accept a touched file,
-      // and the token pair alone would accept last week's success.
-      const freshReceipts = () => {
-        if (!fs.existsSync(plan.dataRoot)) return []
-        return fs.readdirSync(plan.dataRoot)
-          .filter(name => name.startsWith('update-fixture-'))
-          .map((name) => {
-            const file = path.join(plan.dataRoot, name)
-            const body = fs.readFileSync(file, 'utf8')
-            return { name, body, at: fs.statSync(file).mtimeMs, token: receiptToken(body) }
-          })
-          .filter(receipt => receipt.token && receipt.at >= startedAt)
+      // ⚠ THE RECEIPT THIS ATTEMPT NAMED, AND ONLY THAT ONE. The app records the
+      // receipt path it handed the fixture, so the file that can settle this
+      // attempt is known before it exists. Freshness plus two agreeing lines
+      // inside a file was not identity: review drove an unpublished
+      // `.txt.partial` with a complete-looking body, and an unrelated recent
+      // receipt, straight through to exit 0.
+      let expectedReceipt = null
+      let rejected = null
+      const judge = () => {
+        if (!expectedReceipt || !fileSystem.existsSync(expectedReceipt)) return null
+        let body
+        let mtimeMs
+        try {
+          body = fileSystem.readFileSync(expectedReceipt, 'utf8')
+          mtimeMs = fileSystem.statSync(expectedReceipt).mtimeMs
+        } catch { return null }
+        const verdict = judgeReceipt({
+          file: expectedReceipt, body, mtimeMs, expectedPath: expectedReceipt,
+          startedAt, unpacked: path.join(plan.outDir, 'win-unpacked'), fixture: plan.fixture,
+        })
+        if (!verdict.ok) { rejected = verdict.reason; return null }
+        return { file: expectedReceipt, body, token: verdict.token }
       }
 
       const seen = new Set()
       let handedOff = false
-      let receipts = []
-      const deadline = Date.now() + budgetMs
-      while (Date.now() < deadline && !(handedOff && receipts.length) && !spawnError) {
-        await new Promise(resolve => setTimeout(resolve, 3000))
-        if (fs.existsSync(plan.updateLog)) {
+      let receipt = null
+      const deadline = now() + budgetMs
+      while (now() < deadline && !receipt && !spawnError) {
+        await sleep(3000)
+        if (fileSystem.existsSync(plan.updateLog)) {
           let entries = []
-          try { entries = JSON.parse(fs.readFileSync(plan.updateLog, 'utf8')) } catch { entries = [] }
+          try { entries = JSON.parse(fileSystem.readFileSync(plan.updateLog, 'utf8')) }
+          catch { entries = [] }
           for (const entry of Array.isArray(entries) ? entries : []) {
             const key = `${entry.stage}:${entry.at ?? ''}`
             if (seen.has(key)) continue
@@ -385,60 +505,65 @@ export async function main(argv = process.argv.slice(2)) {
             // Stale entries are shown, and labelled, rather than hidden: seeing
             // an older rehearsal's history is useful, believing it is not.
             const fresh = isFreshEntry(entry, startedAt)
-            console.log(`    [update-log]${fresh ? '' : ' (stale)'} ${entry.stage} `
-              + `${JSON.stringify(entry.detail ?? '').slice(0, 160)}`)
-            if (fresh && HANDOFF_STAGES.includes(entry.stage)) handedOff = true
+            out(`    [update-log]${fresh ? '' : ' (stale)'} ${entry.stage} `
+              + `${JSON.stringify(entry.detail ?? '').slice(0, 200)}`)
+            if (fresh && HANDOFF_STAGES.includes(entry.stage)) {
+              handedOff = true
+              expectedReceipt = expectedReceipt ?? expectedReceiptFrom(entry.detail)
+            }
           }
         }
-        if (handedOff) receipts = freshReceipts()
+        if (handedOff) receipt = judge()
       }
-      // ⚠ A FAILED LAUNCH IS NEVER A SUCCESS, whatever old evidence is lying
-      // around in a shared data root.
-      const applied = !spawnError && handedOff && receipts.length > 0
+      const applied = !spawnError && handedOff && !!receipt
       evidence.applied = applied
       evidence.handedOff = handedOff
+      evidence.expectedReceipt = expectedReceipt
+      if (rejected) evidence.receiptRejected = rejected
       if (spawnError) evidence.spawnError = String(spawnError?.message ?? spawnError)
       step(applied ? 'THE FIXTURE UPDATE WAS APPLIED' : 'the fixture update was NOT applied',
         applied
           ? `the in-app route reached the fixture and it completed; nothing was installed\n`
-            + `    token ${receipts.map(r => r.token).join(', ')}`
+            + `    receipt ${receipt.file}\n    token ${receipt.token}`
           : spawnError
             ? `the rehearsal build could not be started: ${spawnError.message ?? spawnError}`
           : handedOff
-            // ⚠ A HANDOFF WITHOUT A RECEIPT IS NOT A SUCCESS. The app says it
-            // launched something; the receipt is the fixture saying it ran.
-            ? 'a handoff was recorded but NO completed fixture receipt from this run was '
-              + 'found — the app launched something and nothing confirmed running'
+            // ⚠ A HANDOFF WITHOUT ITS OWN PUBLISHED RECEIPT IS NOT A SUCCESS.
+            // The app says it launched something; the receipt is the fixture
+            // saying it ran, and only the named one speaks for this attempt.
+            ? 'a handoff was recorded but this attempt\'s receipt did not arrive: '
+              + (rejected ?? `nothing at ${expectedReceipt ?? '(no path was named)'}`)
             : `waited ${Math.round(budgetMs / 1000)}s with no fresh handoff — most often this `
               + 'means the machine was in use, so the 60s idle condition never held')
 
       // ---------------------------------------------------------- the evidence
       const capture = {}
-      capture.updateLog = fs.existsSync(plan.updateLog)
-        ? JSON.parse(fs.readFileSync(plan.updateLog, 'utf8')) : null
-      capture.dataRootEntries = fs.existsSync(plan.dataRoot) ? fs.readdirSync(plan.dataRoot) : []
-      capture.receipts = freshReceipts()
-      capture.staleReceiptCount = capture.dataRootEntries
-        .filter(name => name.startsWith('update-fixture-')).length - capture.receipts.length
+      capture.updateLog = fileSystem.existsSync(plan.updateLog)
+        ? JSON.parse(fileSystem.readFileSync(plan.updateLog, 'utf8')) : null
+      capture.dataRootEntries = fileSystem.existsSync(plan.dataRoot)
+        ? fileSystem.readdirSync(plan.dataRoot) : []
+      capture.receipt = receipt ? { name: path.basename(receipt.file), body: receipt.body } : null
+      capture.otherFixtureFiles = capture.dataRootEntries
+        .filter(name => name.startsWith('update-fixture-')
+          && (!receipt || name !== path.basename(receipt.file)))
       // ⚠ A PROGRAMMATIC ENUMERATION, NOT AN OBSERVATION OF THE SCREEN. It says
       // whether a process has a main window title; it cannot see a tray icon, and
       // it must never be reported as "I watched the screen".
-      capture.processes = processesWithPaths()
+      capture.processes = processesWithPaths(runPowerShell)
         .filter(p => /orgtree/i.test(p.ProcessName) || isInside(p.Path, plan.outDir))
         .map(p => ({
           id: p.Id, name: p.ProcessName, mainWindowTitle: p.MainWindowTitle, path: p.Path,
           rehearsal: isRehearsalProcessPath(p.Path, plan.outDir),
         }))
       evidence.capture = capture
-      step('evidence captured', `${capture.receipts.length} fixture receipt(s) from this run`
-        + `${capture.staleReceiptCount > 0 ? ` (${capture.staleReceiptCount} older, ignored)` : ''}, `
+      step('evidence captured',
+        `${receipt ? 'this attempt\'s receipt' : 'NO receipt for this attempt'}`
+        + `${capture.otherFixtureFiles.length
+          ? ` (${capture.otherFixtureFiles.length} other fixture file(s) ignored)` : ''}, `
         + `${(capture.updateLog ?? []).length} update-log entries`)
-      for (const receipt of capture.receipts) {
-        console.log(`\n--- ${receipt.name}\n${receipt.body.trim()}\n---`)
-      }
+      if (receipt) out(`\n--- ${path.basename(receipt.file)}\n${receipt.body.trim()}\n---`)
 
       exitCode = applied ? 0 : 3
-
     }
   } catch (error) {
     step('REFUSED', String(error?.message ?? error))
@@ -449,7 +574,12 @@ export async function main(argv = process.argv.slice(2)) {
     // `outDir` here was the hole: a plan refused for naming Program Files still
     // reached Stop-Process with Program Files.
     if (launched && plan) {
-      const stopped = stopRehearsalProcesses(plan.outDir)
+      const stopped = []
+      for (const proc of processesWithPaths(runPowerShell)) {
+        if (!isRehearsalProcessPath(proc.Path, plan.outDir)) continue
+        stopped.push({ id: proc.Id, name: proc.ProcessName, path: proc.Path })
+        stopProcess(proc.Id)
+      }
       evidence.stopped = stopped
       step('rehearsal processes stopped',
         stopped.length
@@ -461,8 +591,10 @@ export async function main(argv = process.argv.slice(2)) {
         'this run launched nothing, so there is nothing of its own to stop — and it '
         + 'does not get to stop anything it did not start')
     }
-    await server.close()
-    step('feed server closed', 'the loopback listener is gone')
+    if (server) {
+      await server.close()
+      step('feed server closed', 'the loopback listener is gone')
+    }
 
     if (!launched) {
       step('nothing was removed',
@@ -472,7 +604,7 @@ export async function main(argv = process.argv.slice(2)) {
       // these existed beforehand; anything that did belongs to somebody's
       // ordinary dev build, not to this test.
       const targets = []
-      const cache = path.join(process.env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE)
+      const cache = path.join(env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE)
       if (preexistingCache) {
         step('the updater cache was left alone',
           `${cache} existed before this run, so it is not this rehearsal's residue`)
@@ -481,17 +613,17 @@ export async function main(argv = process.argv.slice(2)) {
       }
       if (preexistingDataRoot) {
         step('the dev data root was left alone',
-          `${rehearsalDataRoot()} existed before this run, so it is somebody's dev build `
+          `${rehearsalDataRoot(env)} existed before this run, so it is somebody's dev build `
           + 'data and not this rehearsal\'s residue')
       } else {
-        targets.push(rehearsalDataRoot())
+        targets.push(rehearsalDataRoot(env))
       }
       const removed = []
       for (const target of targets) {
         try {
-          const safe = assertRemovable(target)
-          if (fs.existsSync(safe)) {
-            fs.rmSync(safe, { recursive: true, force: true })
+          const safe = assertRemovable(target, { env })
+          if (fileSystem.existsSync(safe)) {
+            fileSystem.rmSync(safe, { recursive: true, force: true })
             removed.push(safe)
           }
         } catch (error) { step('cleanup refused', String(error?.message ?? error)) }
@@ -502,19 +634,19 @@ export async function main(argv = process.argv.slice(2)) {
       step('residue kept', '--keep was given; the rehearsal data root and updater cache remain')
     }
 
-    // The comparison runs whatever happened above, because "it failed" is
-    // exactly when you most want to know the installed release is untouched.
-    // It only reads, so it is safe on every path.
+    if (reservation) releaseRehearsal(reservation.file, { fileSystem })
+
     // ⚠ AND A COMPARISON THAT DID NOT HAPPEN IS NOT A PASS. Both the failing
     // and the missing case force a non-zero exit: an exit code of 0 from this
     // tool means the installed release was checked and found unchanged, never
     // that nobody looked.
     try {
       const before = JSON.parse(
-        fs.readFileSync(path.join(paths.workDir, 'baseline.json'), 'utf8')).snapshot
-      const rows = compareSnapshots(before, snapshot({ installedRoot }))
+        fileSystem.readFileSync(path.join(paths.workDir, 'baseline.json'), 'utf8')).snapshot
+      const rows = compareSnapshots(before,
+        snapshot({ env, installedRoot, run: runPowerShell, fileSystem }))
       evidence.comparison = rows
-      if (!report(rows, { label: 'after' })) exitCode = 1
+      if (!report(rows, { label: 'after', out, err })) exitCode = 1
     } catch (error) {
       step('NO BASELINE COMPARISON — the installed release was NOT verified unchanged',
         String(error?.message ?? error))
@@ -522,8 +654,11 @@ export async function main(argv = process.argv.slice(2)) {
       exitCode = 1
     }
 
-    fs.writeFileSync(path.join(paths.workDir, 'evidence.json'), JSON.stringify(evidence, null, 2))
-    console.log(`\nevidence written to ${path.join(paths.workDir, 'evidence.json')}`)
+    try {
+      fileSystem.writeFileSync(path.join(paths.workDir, 'evidence.json'),
+        JSON.stringify(evidence, null, 2))
+      out(`\nevidence written to ${path.join(paths.workDir, 'evidence.json')}`)
+    } catch (error) { err(`evidence could not be written: ${error?.message ?? error}`) }
   }
   return exitCode
 }
@@ -531,7 +666,8 @@ export async function main(argv = process.argv.slice(2)) {
 function isMain() {
   const entry = process.argv[1]
   if (!entry) return false
-  return path.resolve(entry) === path.resolve(fileURLToPath(import.meta.url))
+  try { return path.resolve(entry) === path.resolve(fileURLToPath(import.meta.url)) }
+  catch { return false }
 }
 
 if (isMain()) process.exit(await main())

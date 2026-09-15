@@ -46,7 +46,15 @@ anything else is refused.
 
 Close any development build running out of the rehearsal folder before you
 start. The rehearsal refuses to run otherwise, because it identifies its own
-processes by that folder and will not adopt ones it did not start.
+processes by that folder and will not adopt ones it did not start. It also
+claims that folder for the duration, so a second rehearsal cannot start against
+it while the first is alive.
+
+It refuses, too, if a dev data folder or updater cache already exists. A
+rehearsal wears the development identity, so that storage may belong to
+somebody's ordinary dev build — and running *on* it is worse than merely
+declining to clean it up. Move it aside, or pass `--adopt` to say deliberately
+that it is yours; with `--adopt` nothing there is ever deleted.
 
 ### ⚠ Then leave the machine alone
 
@@ -73,6 +81,7 @@ The default budget is five minutes. `--budget 600` gives it ten.
 | `--budget <seconds>` | how long to wait for the idle apply (default 300) |
 | `--keep` | leave the rehearsal's data folder and updater cache in place for inspection |
 | `--dry-run` | run every guard, the isolation checks and the baseline, then stop without launching anything |
+| `--adopt` | run even though a dev data folder or updater cache already exists. Nothing there is ever deleted |
 
 Exit codes: `0` the fixture was applied (or the dry run passed) **and** the
 installed release was compared and found unchanged; `3` nothing went wrong but
@@ -84,11 +93,18 @@ missing.
 a comparison that could not be run both force a non-zero exit — an exit code
 from this tool never means "nobody looked".
 
-A run is only reported as applied when both halves are present: a handoff
-recorded **after this run started**, and a fixture receipt written after the
-launch whose terminal `[fixture-complete]` record matches the token it declares.
-A log line alone is the app saying it launched something; the receipt is the
-fixture saying it ran.
+A run is only reported as applied when the receipt **this attempt named** turns
+up. The app mints a token per attempt and records, in its own log, the exact
+receipt path it handed the fixture — so the runner knows which single file could
+settle the attempt before that file exists. That file must then be the published
+receipt (never a `.txt.partial`, which the fixture writes before its error check
+and deletes if the publication fails), written after the launch, with a terminal
+`[fixture-complete]` record matching both the token it declares and the token in
+its own filename, and naming this run's own directories.
+
+A log line alone is the app saying it launched something. The receipt is the
+fixture saying it ran. Neither freshness nor two agreeing lines inside some file
+is identity.
 
 `--dry-run` is the one to reach for when the question is *"is this machine in a
 state where rehearsing would be safe?"* — it answers that in a few seconds
@@ -130,7 +146,9 @@ Everything is written to `dist/rehearsal/evidence.json`.
 | guard | what it refuses |
 |---|---|
 | `assertRehearsalPaths` | every destination, **before the first byte is written** — the packaged output, the executable, the artifact and the `--work` directory |
-| `assertRehearsalTarget` | packaging into, launching out of, **or wrapping around** Program Files, `%LOCALAPPDATA%\Programs\Orgtree`, or any location the uninstall registry reports. Junctions are resolved first, so an alias cannot launder a protected path |
+| `assertDestinationSafe` | one policy for every mutable destination — output, work, feed, evidence, artifact: overlap in **either direction** with any installation **or the production data folder**, compared on real paths so a junction cannot launder an alias |
+| `assertRehearsalTarget` | packaging into, launching out of, or wrapping around Program Files, `%LOCALAPPDATA%\Programs\Orgtree`, the production data folder, or any location the uninstall registry reports |
+| `reserveRehearsal` | a second rehearsal starting against the same output folder while the first is alive |
 | `assertFixtureProvenance` | serving anything but the fixture this repository built — the bytes are hashed and checked against the provenance the build wrote, and against `build/update-fixture.nsi` as it stands now |
 | `assertRehearsalComposition` | a package whose **bundle** lacks the compiled fixture capability, whatever `build-info.json` says; or whose packaged feed config would share the release's updater cache or name a non-loopback URL |
 | `assertNotElevated` | an administrator shell — and **an elevation probe that cannot answer**, which is treated as refusal rather than as "not elevated" |

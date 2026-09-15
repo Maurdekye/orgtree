@@ -131,7 +131,7 @@ test('§4 ⚠ THE LAUNCH GUARD REFUSES EVERY PRODUCTION SHAPE', () => {
   refuses(() => assertRehearsalTarget({
     exe: 'C:\\Program Files\\Orgtree\\win-unpacked\\Orgtree Dev.exe',
     outDir: 'C:\\Program Files\\Orgtree', env: ENV, installedRoot: INSTALLED,
-  }), /overlaps the installed location/)
+  }), /overlaps the protected location/)
 
   // The per-user install location electron-builder's NSIS target uses.
   refuses(() => assertRehearsalTarget({
@@ -267,7 +267,7 @@ test('§12 ⚠ THE PLAN IS THE GATE, AND IT REFUSES EVERY UNSAFE COMBINATION', (
   // INSTALLATION — serving a real installer over the private feed would turn a
   // rehearsal into an actual install.
   refuses(() => planRehearsal({ ...good, fixture: path.join(INSTALLED, 'Orgtree.exe') }),
-    /refusing to offer/)
+    /as the update artifact/)
 
   const plan = planRehearsal(good)
   assert.equal(plan.exe, path.resolve(EXE))
@@ -297,7 +297,7 @@ test('§14 ⚠ THE BASELINE COMPARISON NOTICES THE THINGS IT EXISTS TO NOTICE', 
   const before = {
     installedBuildInfo: { sha256: 'aaa', text: '{"channel":"release"}' },
     installedExe: { sha256: 'bbb', size: 100 },
-    installedTree: { count: 1200, sha256: 'ddd' },
+    installedTree: { complete: true, present: true, count: 1200, sha256: 'ddd', problems: [] },
     uninstall: ['{guid}|Orgtree 2.1.5-RC3|2.1.5-RC3|C:\\Program Files\\Orgtree'],
     productionDataExists: true, rehearsalDataExists: false,
   }
@@ -447,7 +447,7 @@ test('§21 ⚠ THE OUTPUT DIRECTORY MAY NOT CONTAIN AN INSTALLATION EITHER', () 
   // descendants, which would then include the installation.
   refuses(() => assertRehearsalTarget({
     exe: 'C:\\win-unpacked\\Orgtree Dev.exe', outDir: 'C:\\', env: ENV, installedRoot: INSTALLED,
-  }), /overlaps the installed location/)
+  }), /overlaps the protected location/)
   assert.equal(overlaps('C:\\', INSTALLED), true, 'containing counts as overlapping')
   assert.equal(overlaps(INSTALLED, 'C:\\'), true, 'and so does being contained')
   assert.equal(overlaps('D:\\elsewhere', INSTALLED), false)
@@ -470,14 +470,14 @@ test('§22 ⚠ A DISCOVERED INSTALL ROOT IS ADDED TO THE KNOWN ONES, NOT SUBSTIT
     exe: 'D:\\CustomInstalled\\Orgtree\\win-unpacked\\Orgtree Dev.exe',
     outDir: 'D:\\CustomInstalled\\Orgtree', env: ENV,
     installedRoot: 'D:\\CustomInstalled\\Orgtree',
-  }), /overlaps the installed location/)
+  }), /overlaps the protected location/)
   // …and it stays refused when it is merely one of several registry entries,
   // rather than the single root chosen for the baseline.
   refuses(() => assertRehearsalTarget({
     exe: 'D:\\CustomInstalled\\Orgtree\\win-unpacked\\Orgtree Dev.exe',
     outDir: 'D:\\CustomInstalled\\Orgtree', env: ENV, installedRoot: INSTALLED,
     installedRoots: ['D:\\CustomInstalled\\Orgtree'],
-  }), /overlaps the installed location/)
+  }), /overlaps the protected location/)
 })
 
 test('§23 ⚠ THE WORKING DIRECTORY IS JUDGED TOO — IT IS WRITTEN TO', () => {
@@ -485,14 +485,14 @@ test('§23 ⚠ THE WORKING DIRECTORY IS JUDGED TOO — IT IS WRITTEN TO', () => 
   // with a copy of the artifact in it, before the plan refused anything else.
   const good = { outDir: OUT, exe: EXE, fixture: FIXTURE, env: ENV, installedRoot: INSTALLED }
   refuses(() => assertRehearsalPaths({ ...good, workDir: path.join(INSTALLED, 'work') }),
-    /overlaps an installed location/)
+    /protected location/)
   refuses(() => assertRehearsalPaths({ ...good, workDir: INSTALLED }),
-    /overlaps an installed location/)
+    /protected location/)
   refuses(() => assertRehearsalPaths({ ...good, workDir: productionDataRoot(ENV) }),
-    /overlaps the production data root/)
+    /protected location/)
   refuses(() => assertRehearsalPaths({
     ...good, workDir: path.join(productionDataRoot(ENV), 'rehearsal'),
-  }), /overlaps the production data root/)
+  }), /protected location/)
 
   const paths = assertRehearsalPaths({ ...good, workDir: 'E:\\checkout\\dist\\rehearsal' })
   assert.equal(paths.workDir, path.resolve('E:\\checkout\\dist\\rehearsal'))
@@ -687,12 +687,12 @@ test('§29 ⚠ THE COMPARISON CHECKS THE WHOLE INSTALLATION, AND SAYS WHAT IT CH
     installedTree: before, uninstall: [], productionDataExists: true }
   const rows = compareSnapshots(base, base)
   assert.ok(rows.every(r => r.ok))
-  assert.ok(rows.some(r => /no file anywhere under the installation/.test(r.name)),
+  assert.ok(rows.some(r => /no file under the installation/.test(r.name)),
     'the whole-tree row must exist')
   assert.ok(!rows.some(r => /BYTE-FOR-BYTE UNTOUCHED/.test(r.name)),
     'the row that claimed more than it checked must be gone')
   const treeRow = compareSnapshots(base, { ...base, installedTree: added })
-    .find(r => /no file anywhere/.test(r.name))
+    .find(r => /no file under the installation/.test(r.name))
   assert.equal(treeRow.ok, false)
   fs.rmSync(home, { recursive: true, force: true })
 })
@@ -769,28 +769,23 @@ test('§32 ⚠ THE RUNNER DOES NOT RETURN FROM INSIDE ITS OWN try, SO finally CA
     'the missing-comparison branch must actually set a failing exit code')
 })
 
-test('§33 ⚠ CLEANUP AND TERMINATION ONLY EVER RUN AFTER A LAUNCH', () => {
-  // Measured twice: a refused --out still reached Stop-Process with that same
-  // rejected directory, and a dry run stopped a pre-existing process and
-  // deleted a pre-existing updater cache.
-  const source = fs.readFileSync('tools/run-rehearsal.mjs', 'utf8').replace(/\r\n/g, '\n')
-  const finallyAt = source.indexOf('\n  } finally {\n')
-  assert.ok(finallyAt > 0, 'the runner must have a finally block')
-  const cleanup = source.slice(finallyAt)
-  assert.match(cleanup, /if \(launched && plan\) \{\s*\n\s*const stopped = stopRehearsalProcesses\(plan\.outDir\)/,
-    'termination must be gated on an actual launch and use the VALIDATED directory')
-  assert.ok(!/stopRehearsalProcesses\(plan\?\.outDir \?\? outDir\)/.test(source),
+test('§33 the unvalidated cleanup fallback is gone from the source', () => {
+  // ⚠ THE BEHAVIOUR IS TESTED PROPERLY ELSEWHERE, and deliberately so.
+  // tests/update-rehearsal-main.test.mjs §9, §15 and §17 run the real main()
+  // and assert on the processes it actually stopped and the directories it
+  // actually removed. Source-shape matching was what let two rounds of defects
+  // through, so what is left here is only the one thing a behavioural test
+  // cannot state: that the specific expression measured reaching Program Files
+  // no longer exists anywhere in the file.
+  const source = fs.readFileSync('tools/run-rehearsal.mjs', 'utf8')
+  assert.ok(!/plan\?\.outDir \?\? outDir/.test(source),
     'the unvalidated fallback that was measured reaching Program Files must be gone')
-  assert.match(cleanup, /if \(!launched\) \{\s*\n\s*step\('nothing was removed'/,
-    'deletion must be gated on an actual launch')
-  assert.match(cleanup, /preexistingCache/,
-    'the updater cache must be preserved when it existed before the run')
 })
 
 test('§34 ⚠ AN ASYNCHRONOUS SPAWN FAILURE IS HANDLED, NOT LEFT TO CRASH', () => {
   const source = fs.readFileSync('tools/run-rehearsal.mjs', 'utf8')
   assert.match(source, /child\.on\('error'/,
     'a detached spawn reports failure asynchronously; the surrounding try cannot see it')
-  assert.match(source, /!spawnError && handedOff && receipts\.length > 0/,
+  assert.match(source, /!spawnError && handedOff && !!receipt/,
     'and a failed launch can never be reported as applied')
 })

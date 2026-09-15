@@ -716,9 +716,17 @@ else {
             { from: app.getVersion(), to: version })
         }
         if (decision.kind === 'active') {
+          // ⚠ THE RECEIPT PATH IS NAMED HERE, and it is what binds a receipt to
+          // THIS attempt. The path carries a per-attempt token, so an observer
+          // reading this log knows exactly which file would prove this handoff
+          // completed — rather than having to trust a filename it found lying in
+          // the data directory. Only a build composed for rehearsal reaches this
+          // line at all; a released build never does.
           updateLog.record('update-fixture-handoff',
             `handing off to the update fixture at [${decision.installer}] instead of the `
-            + 'downloaded installer; this is a rehearsal and did not install anything',
+            + `downloaded installer; its receipt for this attempt is `
+            + `[${preparedFixture.handoff?.receipt ?? 'unknown'}]; `
+            + 'this is a rehearsal and did not install anything',
             { from: app.getVersion(), to: version })
         }
         // ⚠ `attempt`, NOT `handoff`. A REFUSED rehearsal must DECLINE, never
