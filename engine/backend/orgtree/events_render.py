@@ -217,14 +217,11 @@ def _r_participant(ev: _R) -> str:
 @renderer("decision.attention_dismissed")
 def _r_attention(ev: _R) -> str:
     o = _obj(ev)
-    # ⚠ QUOTED WHOLE. The contract bounds the reason on the way in (500), so
-    # the old `[:200]` could only ever cut the very sentence the agent is
-    # being told not to re-raise — leaving it unable to tell which part of it
-    # the user actually rejected.
-    return (f"[DOCKET · {o['slug']}] The user DISMISSED your attention flag "
-            f"(\"{str(ev['reason'])}\") — the item is now BLOCKED. Do not "
-            f"re-raise the same reason without material new information; "
-            f"{ev['pending_questions']} question(s) on the item are still pending.")
+    # This notice is deliberately limited to the user's observation and lack
+    # of comment; it must not be interpreted as feedback on the work.
+    return (f"[DOCKET · {o['slug']}] The user saw your attention flag and "
+            "chose to say nothing. This is not approval, rejection, or "
+            "substantive feedback.")
 
 
 @renderer("status.report")

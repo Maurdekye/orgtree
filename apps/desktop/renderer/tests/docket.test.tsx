@@ -534,8 +534,13 @@ uiTest('§11 dismiss manual attention button calls endpoint with set_rev and upd
   assert.ok(row.classList.contains('attention'), 'row starts with attention class')
   assert.match(row.querySelector('.l2')?.textContent ?? '', /Needs attention/)
 
-  const dismissBtn = el.querySelector('.mailrow .docket-dismiss') as HTMLButtonElement
-  assert.ok(dismissBtn, 'dismiss button on row')
+  await inAct(() => row.click())
+  await flush()
+  const dismissBtn = el.querySelector('.docket-attention-box .docket-dismiss') as HTMLButtonElement
+  assert.ok(dismissBtn, 'dismiss button beside attention block')
+  assert.equal(dismissBtn.textContent?.trim(), 'Dismiss with no comment')
+  assert.equal(el.querySelector('.mailrow .docket-dismiss'), null, 'no dismiss button on row')
+  assert.equal(el.querySelector('.docket-pane-head .docket-dismiss'), null, 'no dismiss button in header')
   await inAct(() => dismissBtn.click())
   await flush()
 
@@ -605,8 +610,10 @@ uiTest('§11b question+manual attention item stays in attention state after manu
   assert.ok(row.classList.contains('attention'))
   assert.match(row.querySelector('.l2')?.textContent ?? '', /Needs attention/)
 
-  const dismissBtn = el.querySelector('.mailrow .docket-dismiss') as HTMLButtonElement
-  assert.ok(dismissBtn, 'dismiss button on row')
+  await inAct(() => row.click())
+  await flush()
+  const dismissBtn = el.querySelector('.docket-attention-box .docket-dismiss') as HTMLButtonElement
+  assert.ok(dismissBtn, 'dismiss button beside attention block')
   await inAct(() => dismissBtn.click())
   await flush()
 
@@ -1496,7 +1503,9 @@ uiTest('§30 a long agent name truncates instead of running under the Dismiss bu
   assert.ok(!name.classList.contains('docket-actor'),
     'the truncating element must not itself be the flex container')
   assert.equal(name.textContent, 'an-extremely-long-agent-identifier-that-will-not-fit')
-  assert.ok(r.querySelector('.docket-dismiss'), 'and the Dismiss button is still rendered')
+  await inAct(() => r.click())
+  await flush()
+  assert.ok(el.querySelector('.docket-attention-box .docket-dismiss'), 'the dismiss button is rendered beside attention')
 })
 
 uiTest('the compact owner keeps its identity but is not a navigation control', async (mount) => {
