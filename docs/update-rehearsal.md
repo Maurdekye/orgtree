@@ -38,6 +38,16 @@ node tools/run-rehearsal.mjs            # the rehearsal
 The fixture needs NSIS. `tools/build-update-fixture.mjs` looks for the copy
 electron-builder caches; set `ORGTREE_MAKENSIS` if yours is elsewhere.
 
+That first command also writes a small `…provenance.json` beside the fixture,
+recording what was built and what it was built from. The rehearsal **requires**
+it: an executable's location says nothing about what it is, and a real
+installer handed to `--fixture` would really install. Pointing `--fixture` at
+anything else is refused.
+
+Close any development build running out of the rehearsal folder before you
+start. The rehearsal refuses to run otherwise, because it identifies its own
+processes by that folder and will not adopt ones it did not start.
+
 ### ⚠ Then leave the machine alone
 
 The apply is the application's **own automatic path**, and that path requires:
@@ -64,9 +74,21 @@ The default budget is five minutes. `--budget 600` gives it ten.
 | `--keep` | leave the rehearsal's data folder and updater cache in place for inspection |
 | `--dry-run` | run every guard, the isolation checks and the baseline, then stop without launching anything |
 
-Exit codes: `0` the fixture was applied (or the dry run passed), `3` nothing
-went wrong but the apply never fired within the budget, `1` something was
-refused or a check failed, `2` the build or the fixture is missing.
+Exit codes: `0` the fixture was applied (or the dry run passed) **and** the
+installed release was compared and found unchanged; `3` nothing went wrong but
+the apply never fired within the budget; `1` something was refused, a check
+failed, or the comparison could not be made; `2` the build or the fixture is
+missing.
+
+`0` always means the installation was checked. A comparison that fails **and**
+a comparison that could not be run both force a non-zero exit — an exit code
+from this tool never means "nobody looked".
+
+A run is only reported as applied when both halves are present: a handoff
+recorded **after this run started**, and a fixture receipt written after the
+launch whose terminal `[fixture-complete]` record matches the token it declares.
+A log line alone is the app saying it launched something; the receipt is the
+fixture saying it ran.
 
 `--dry-run` is the one to reach for when the question is *"is this machine in a
 state where rehearsing would be safe?"* — it answers that in a few seconds
@@ -107,13 +129,26 @@ Everything is written to `dist/rehearsal/evidence.json`.
 
 | guard | what it refuses |
 |---|---|
-| `planRehearsal` | any feed that is not loopback; a build that is not dev-identity and fixture-composed; launching anything outside the packaged directory; offering an artifact that came from an installation |
-| `assertRehearsalTarget` | packaging into, or launching out of, Program Files, `%LOCALAPPDATA%\Programs\Orgtree`, or wherever the release is actually installed |
-| `isRehearsalProcessPath` | stopping any process that is not running out of the rehearsal directory — the real Orgtree shares its product name, so matching by name would kill it |
-| `assertRemovable` | deleting anything but the rehearsal's own data folder and updater cache |
-| `assertNotElevated` | running at all from an administrator shell |
-| `isolationChecks` | starting when the *installed* build is itself fixture-capable, or when a dev uninstall entry already exists |
+| `assertRehearsalPaths` | every destination, **before the first byte is written** — the packaged output, the executable, the artifact and the `--work` directory |
+| `assertRehearsalTarget` | packaging into, launching out of, **or wrapping around** Program Files, `%LOCALAPPDATA%\Programs\Orgtree`, or any location the uninstall registry reports. Junctions are resolved first, so an alias cannot launder a protected path |
+| `assertFixtureProvenance` | serving anything but the fixture this repository built — the bytes are hashed and checked against the provenance the build wrote, and against `build/update-fixture.nsi` as it stands now |
+| `assertRehearsalComposition` | a package whose **bundle** lacks the compiled fixture capability, whatever `build-info.json` says; or whose packaged feed config would share the release's updater cache or name a non-loopback URL |
+| `assertNotElevated` | an administrator shell — and **an elevation probe that cannot answer**, which is treated as refusal rather than as "not elevated" |
+| `isolationChecks` | starting when the *installed* build is itself fixture-capable, when a dev uninstall entry already exists, or when **anything is already running out of the rehearsal directory** |
+| `isRehearsalProcessPath` | stopping any process not running out of the rehearsal directory — the real Orgtree shares its product name, so matching by name would kill it |
+| `assertRemovable` | deleting anything but the rehearsal's own data folder and updater cache — and even those only when **this run created them** |
 | `serveFeed` | binding anything but loopback |
+
+Two rules about ownership are worth stating plainly, because they are what
+stop cleanup doing harm:
+
+- **Nothing is stopped or deleted unless this run actually launched something.**
+  A refusal and a `--dry-run` both leave the machine exactly as they found it.
+- **This run only owns what it created.** The pre-flight refuses to start if
+  anything is already running from the rehearsal directory, which is what makes
+  "every process in that directory is mine" true rather than hopeful. The dev
+  data folder and updater cache are left alone if they existed beforehand —
+  they may be somebody's ordinary dev build.
 
 Two further rules are structural rather than checks:
 

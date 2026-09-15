@@ -20,6 +20,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
 /** The installed release's data root, and the separate one a rehearsal uses.
@@ -61,10 +62,51 @@ export function isInside(child, parent) {
   return c.startsWith(p.endsWith(path.sep) ? p : p + path.sep)
 }
 
+/** ⚠ RESOLVE REPARSE POINTS BEFORE COMPARING PATHS. A junction or symlink means
+ *  two different spellings reach the same directory, and a lexical comparison
+ *  sees two unrelated strings — so `E:\alias\Orgtree` pointing at the real
+ *  installation would pass every containment check above.
+ *
+ *  Only the longest EXISTING ancestor can be resolved (the leaf usually does
+ *  not exist yet), so the un-created tail is appended back on. A path that
+ *  cannot be resolved at all is returned as given: this hardens comparison, it
+ *  is not itself a gate. */
+export function realPath(target, fileSystem = fs) {
+  let current = path.resolve(String(target ?? ''))
+  const tail = []
+  for (;;) {
+    try { return path.join(fileSystem.realpathSync.native(current), ...tail) } catch { /* climb */ }
+    const parent = path.dirname(current)
+    if (parent === current) return path.resolve(String(target ?? ''))
+    tail.unshift(path.basename(current))
+    current = parent
+  }
+}
+
+/** ⚠ EITHER DIRECTION IS AN OVERLAP. `C:\` does not sit inside
+ *  `C:\Program Files\Orgtree`, but naming it as the rehearsal output puts the
+ *  installation underneath what cleanup scans — so containment is checked both
+ *  ways, on real (reparse-resolved) paths. */
+export function overlaps(a, b, fileSystem = fs) {
+  const left = realPath(a, fileSystem)
+  const right = realPath(b, fileSystem)
+  if (!left || !right) return false
+  return left.toLowerCase() === right.toLowerCase()
+    || isInside(left, right) || isInside(right, left)
+}
+
 /** Every directory a real Orgtree installation could live in. A rehearsal
- *  executable found under any of them is refused whatever it is called. */
-export function productionInstallRoots(env = process.env, installedRoot = null) {
-  const roots = [installedRoot ?? DEFAULT_INSTALLED_ROOT]
+ *  executable found under any of them is refused whatever it is called.
+ *
+ *  ⚠ THE DISCOVERED ROOT IS ADDED TO THE KNOWN ONES, NEVER SUBSTITUTED FOR
+ *  THEM. Passing installedRoot used to REPLACE the default, so pointing this
+ *  tooling at one installation quietly dropped every other from protection —
+ *  and ORGTREE_INSTALLED_ROOT became a way to disable the guard rather than to
+ *  extend it. `extra` carries every location the registry reported. */
+export function productionInstallRoots(env = process.env, installedRoot = null, extra = []) {
+  const roots = [DEFAULT_INSTALLED_ROOT]
+  if (installedRoot) roots.push(installedRoot)
+  for (const more of extra) if (more) roots.push(more)
   for (const key of ['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432']) {
     if (env[key]) roots.push(path.join(env[key], 'Orgtree'))
   }
@@ -77,23 +119,31 @@ export function productionInstallRoots(env = process.env, installedRoot = null) 
  *  packaged itself, inside the output directory it was given. Everything else —
  *  the installed release above all — is refused before anything is spawned.
  *  Throws with the reason; returns the resolved executable when it is safe. */
-export function assertRehearsalTarget({ exe, outDir, env = process.env, installedRoot = null }) {
+export function assertRehearsalTarget({
+  exe, outDir, env = process.env, installedRoot = null, installedRoots = [],
+  fileSystem = fs,
+}) {
   if (!exe) throw new Error('no rehearsal executable was named')
   if (!outDir) throw new Error('no rehearsal output directory was named')
   const resolvedExe = path.resolve(String(exe))
   const resolvedOut = path.resolve(String(outDir))
 
-  for (const root of productionInstallRoots(env, installedRoot)) {
-    if (isInside(resolvedOut, root) || resolvedOut === root) {
-      throw new Error(`the rehearsal output directory [${resolvedOut}] is inside the `
-        + `installed location [${root}]; a rehearsal must never package into an installation`)
+  for (const root of productionInstallRoots(env, installedRoot, installedRoots)) {
+    // ⚠ OVERLAP IN EITHER DIRECTION. An output directory that CONTAINS an
+    // installation is as bad as one inside it: cleanup scans its descendants.
+    if (overlaps(resolvedOut, root, fileSystem)) {
+      throw new Error(`the rehearsal output directory [${resolvedOut}] overlaps the `
+        + `installed location [${root}]; a rehearsal must never package into, or around, `
+        + 'an installation')
     }
-    if (isInside(resolvedExe, root)) {
+    if (overlaps(resolvedExe, root, fileSystem)) {
       throw new Error(`refusing to launch [${resolvedExe}]: it is inside the installed `
         + `location [${root}]. A rehearsal launches only the build it packaged itself`)
     }
   }
-  if (!isInside(resolvedExe, resolvedOut)) {
+  // Compared on real paths, so a junction cannot make the executable look like
+  // it lives somewhere it does not.
+  if (!isInside(realPath(resolvedExe, fileSystem), realPath(resolvedOut, fileSystem))) {
     throw new Error(`refusing to launch [${resolvedExe}]: it is not inside the rehearsal `
       + `output directory [${resolvedOut}]`)
   }
@@ -123,29 +173,141 @@ export function assertRehearsalPackage(info) {
   return info
 }
 
+export const FIXTURE_BUILD_MARKER = 'ORGTREE-UPDATE-FIXTURE-BUILD' + ':enabled'
+
+/** ⚠ WHAT WAS COMPILED, NOT WHAT THE JSON CLAIMS. build-info.json is an
+ *  editable text file sitting next to the app: two lines in an editor turn any
+ *  packaged build into one this tooling believes is a dev-identity rehearsal
+ *  build. The properties that actually matter are in the bundle and in the
+ *  packaged feed configuration, so those are what get read.
+ *
+ *  Checks, against the unpacked directory: the disclosure (above), the
+ *  substitution marker compiled into app.asar, and an app-update.yml that names
+ *  a loopback URL and the rehearsal's own updater cache — so this build cannot
+ *  share the installed release's cache even before setFeedURL runs. */
+export function assertRehearsalComposition(unpacked, fileSystem = fs) {
+  const resources = path.join(unpacked, 'resources')
+  const infoPath = path.join(resources, 'build-info.json')
+  if (!fileSystem.existsSync(infoPath)) {
+    throw new Error(`no packaged build-info.json at ${infoPath}`)
+  }
+  const info = assertRehearsalPackage(JSON.parse(fileSystem.readFileSync(infoPath, 'utf8')))
+
+  const asar = path.join(resources, 'app.asar')
+  if (!fileSystem.existsSync(asar)) throw new Error(`no packaged bundle at ${asar}`)
+  if (!fileSystem.readFileSync(asar, 'latin1').includes(FIXTURE_BUILD_MARKER)) {
+    throw new Error('the packaged bundle does NOT carry the compiled update-fixture '
+      + 'capability, whatever build-info.json says: this build cannot substitute, so it '
+      + 'would hand off to a REAL installer. Repackage with tools/package-rehearsal.mjs')
+  }
+
+  const feedConfig = path.join(resources, 'app-update.yml')
+  if (!fileSystem.existsSync(feedConfig)) {
+    throw new Error(`no packaged app-update.yml at ${feedConfig}; a dev-channel build `
+      + 'cannot download an update without one (measured), so the rehearsal would fail '
+      + 'after finding the offer')
+  }
+  const feed = fileSystem.readFileSync(feedConfig, 'utf8')
+  const cache = feed.match(/^updaterCacheDirName:\s*(\S+)\s*$/m)?.[1]
+  if (cache !== REHEARSAL_UPDATER_CACHE) {
+    throw new Error(`the packaged app-update.yml names updater cache [${cache}], not `
+      + `[${REHEARSAL_UPDATER_CACHE}]; a rehearsal must not share the release's updater cache`)
+  }
+  const url = feed.match(/^url:\s*(\S+)\s*$/m)?.[1]
+  const host = (() => { try { return new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return null } })()
+  if (!host || !['localhost', '127.0.0.1', '::1'].includes(host)) {
+    throw new Error(`the packaged app-update.yml names feed url [${url}], which is not `
+      + 'loopback; even the value setFeedURL is about to replace must be unable to reach '
+      + 'off this machine')
+  }
+  return info
+}
+
+/** ⚠ THE ARTIFACT'S IDENTITY, NOT ITS ADDRESS. Review measured that a plain
+ *  downloaded installer passed every check and would then be launched by the
+ *  app at handoff — performing the real installation a rehearsal promises
+ *  cannot happen. Location said nothing about what the bytes were.
+ *
+ *  tools/build-update-fixture.mjs writes a provenance sidecar; this requires it
+ *  to exist, to match the bytes about to be served, and to have been built from
+ *  the build/update-fixture.nsi that is in this repository right now.
+ *
+ *  It prevents the WRONG FILE being chosen. It is not a defence against a
+ *  forged sidecar, and it is not offered as one. */
+export function assertFixtureProvenance(artifact, { repoRoot = process.cwd(), fileSystem = fs } = {}) {
+  const exe = path.resolve(artifact)
+  const sidecar = exe.replace(/\.exe$/i, '') + '.provenance.json'
+  if (!fileSystem.existsSync(sidecar)) {
+    throw new Error(`refusing to serve [${exe}] as the update artifact: no provenance beside `
+      + `it at ${path.basename(sidecar)}. Only the fixture built by `
+      + 'tools/build-update-fixture.mjs may be offered as an update — a location is not an '
+      + 'identity, and an ordinary installer put here would really install')
+  }
+  let recorded
+  try { recorded = JSON.parse(fileSystem.readFileSync(sidecar, 'utf8')) }
+  catch (error) { throw new Error(`the provenance beside [${exe}] is unreadable: ${error.message}`) }
+
+  const actual = crypto.createHash('sha256').update(fileSystem.readFileSync(exe)).digest('hex')
+  if (recorded.sha256 !== actual) {
+    throw new Error(`refusing to serve [${exe}]: its sha256 is ${actual.slice(0, 16)}… but the `
+      + `provenance beside it records ${String(recorded.sha256).slice(0, 16)}…. These are not `
+      + 'the bytes this repository built')
+  }
+  const source = path.resolve(repoRoot, recorded.source ?? 'build/update-fixture.nsi')
+  if (!fileSystem.existsSync(source)) {
+    throw new Error(`the fixture provenance names source [${recorded.source}], which is not `
+      + 'in this repository')
+  }
+  const sourceSha = crypto.createHash('sha256')
+    .update(fileSystem.readFileSync(source)).digest('hex')
+  if (recorded.sourceSha256 !== sourceSha) {
+    throw new Error(`the fixture was built from a different ${recorded.source} than the one in `
+      + 'this repository; rebuild it with tools/build-update-fixture.mjs')
+  }
+  return { ...recorded, sha256: actual }
+}
+
 // --------------------------------------------------------------- elevation
 
 /** A rehearsal needs no privileges at all: it unpacks a directory, serves
  *  loopback and runs one executable. Running elevated would let a mistake reach
  *  Program Files or HKLM, so it is refused rather than merely discouraged. */
+/** ⚠ ONLY A POSITIVELY PARSED ANSWER COUNTS. Treating every non-'true' reply as
+ *  'false' meant empty output, a truncated reply or a probe that never ran all
+ *  read as "not elevated" — which is the answer that lets the run proceed.
+ *  Anything that is not exactly True or False is unknown, and unknown is
+ *  refused by assertNotElevated. */
 export function isElevated(run = defaultPowerShell) {
+  let out
   try {
-    const out = run('[bool](([Security.Principal.WindowsPrincipal]'
+    out = run('[bool](([Security.Principal.WindowsPrincipal]'
       + '[Security.Principal.WindowsIdentity]::GetCurrent())'
       + '.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))')
-    return out.trim().toLowerCase() === 'true'
   } catch {
-    // Unknown is not the same as no. Say so; the caller decides.
     return null
   }
+  const answer = String(out ?? '').trim().toLowerCase()
+  if (answer === 'true') return true
+  if (answer === 'false') return false
+  return null
 }
 
+/** ⚠ UNKNOWN IS REFUSED, NOT WAVED THROUGH. This used to return null on a
+ *  failed probe and let the run continue, which is a guard that disappears
+ *  exactly when it cannot see — and this tooling already depends on PowerShell
+ *  for the registry, so a probe that will not run is a broken machine rather
+ *  than an awkward edge case. Fail closed. */
 export function assertNotElevated(run = defaultPowerShell) {
   const elevated = isElevated(run)
   if (elevated === true) {
     throw new Error('refusing to rehearse from an elevated shell: nothing here needs '
       + 'administrator rights, and elevation is what would let a mistake reach the '
       + 'installed release')
+  }
+  if (elevated === null) {
+    throw new Error('could not determine whether this shell is elevated, so the rehearsal '
+      + 'is refused: a guard that passes when it cannot see is not a guard. Fix the '
+      + 'PowerShell probe, or say explicitly that this shell is not elevated, and retry')
   }
   return elevated
 }
@@ -196,48 +358,129 @@ export function resolveInstalledRoot({ env = process.env, entries = null, run = 
   return path.resolve(release?.InstallLocation ?? DEFAULT_INSTALLED_ROOT)
 }
 
-export function snapshot({ env = process.env, installedRoot = null, run = defaultPowerShell } = {}) {
+/** ⚠ EVERY LOCATION THE REGISTRY KNOWS ABOUT, not just the one chosen as "the"
+ *  installation. resolveInstalledRoot picks a single root to take a baseline
+ *  of; protection has to cover all of them, or a second installation on the
+ *  machine is fair game for a rehearsal that only learned about the first. */
+export function installedRootsFromRegistry({ entries = null, run = defaultPowerShell } = {}) {
+  let found = entries
+  if (!found) {
+    try { found = orgtreeUninstallEntries(run) } catch { found = [] }
+  }
+  return [...new Set(found
+    .map(e => e.InstallLocation)
+    .filter(Boolean)
+    .map(location => path.resolve(String(location))))]
+}
+
+/** Every Orgtree-ish process with a readable image path. Enumerated by PATH
+ *  rather than by name, because the engine and its helpers run out of the same
+ *  directory under names like python.exe — and a rehearsal that only looks for
+ *  '*Orgtree*' leaves its own engine running after cleanup. */
+export function processesWithPaths(run = defaultPowerShell) {
+  const out = run('Get-Process -ErrorAction SilentlyContinue '
+    + '| Where-Object { $_.Path } '
+    + '| Select-Object Id, ProcessName, MainWindowTitle, Path | ConvertTo-Json -Compress').trim()
+  const parsed = out ? JSON.parse(out) : []
+  return (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean)
+}
+
+/** ⚠ THE WHOLE INSTALLATION, NOT TWO FILES. The comparison used to hash
+ *  Orgtree.exe and build-info.json and then announce that the installed release
+ *  was "byte-for-byte untouched" — which said nothing about app.asar, the
+ *  bundled engine runtime, or anything else an errant installer would rewrite.
+ *  This walks the tree and records every file's relative path, size and
+ *  modification time, so an addition, a removal or a rewrite anywhere under the
+ *  installation shows up as a difference.
+ *
+ *  Size and mtime rather than a hash of every file: the runtime alone is tens
+ *  of thousands of files, and a full hash would make the baseline too slow to
+ *  take. The two files that decide identity are still hashed, and the claim
+ *  made about the rest is exactly the one this measures. */
+export function installedManifest(root, fileSystem = fs) {
+  const files = []
+  const walk = (directory, prefix) => {
+    let entries
+    try { entries = fileSystem.readdirSync(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name)
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory()) { walk(full, relative); continue }
+      try {
+        const stat = fileSystem.statSync(full)
+        files.push(`${relative}|${stat.size}|${Math.round(stat.mtimeMs)}`)
+      } catch { files.push(`${relative}|unreadable`) }
+    }
+  }
+  if (fileSystem.existsSync(root)) walk(root, '')
+  files.sort()
+  return {
+    count: files.length,
+    sha256: crypto.createHash('sha256').update(files.join('\n')).digest('hex'),
+  }
+}
+
+export function snapshot({
+  env = process.env, installedRoot = null, run = defaultPowerShell, fileSystem = fs,
+} = {}) {
   const root = installedRoot ?? resolveInstalledRoot({ env, run })
   const buildInfo = path.join(root, 'resources', 'build-info.json')
   const exe = path.join(root, 'Orgtree.exe')
   return {
     installedRoot: root,
-    installedBuildInfo: fs.existsSync(buildInfo)
-      ? { sha256: sha256(buildInfo), text: fs.readFileSync(buildInfo, 'utf8') }
+    installedBuildInfo: fileSystem.existsSync(buildInfo)
+      ? { sha256: sha256(buildInfo), text: fileSystem.readFileSync(buildInfo, 'utf8') }
       : null,
-    installedExe: fs.existsSync(exe)
-      ? { sha256: sha256(exe), size: fs.statSync(exe).size }
+    installedExe: fileSystem.existsSync(exe)
+      ? { sha256: sha256(exe), size: fileSystem.statSync(exe).size }
       : null,
+    installedTree: installedManifest(root, fileSystem),
     uninstall: uninstallKeys(orgtreeUninstallEntries(run)),
-    productionDataExists: fs.existsSync(productionDataRoot(env)),
-    rehearsalDataExists: fs.existsSync(rehearsalDataRoot(env)),
+    productionDataExists: fileSystem.existsSync(productionDataRoot(env)),
+    rehearsalDataExists: fileSystem.existsSync(rehearsalDataRoot(env)),
+    rehearsalCacheExists: fileSystem.existsSync(
+      path.join(env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE)),
   }
 }
 
 /** Pure: the after-the-fact comparison, so it can be tested without a machine
  *  that has Orgtree installed. Returns the same {name, ok, detail} rows the
- *  pre-flight checks use. */
+ *  pre-flight checks use.
+ *
+ *  ⚠ EVERY ROW SAYS EXACTLY WHAT IT MEASURED. The names used to claim more than
+ *  the checks performed, which is the kind of overstatement that turns a
+ *  verification into a reassurance. */
 export function compareSnapshots(before, after) {
   const rows = []
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  const identityOk = eq(before.installedBuildInfo, after.installedBuildInfo)
+    && eq(before.installedExe, after.installedExe)
   rows.push({
-    name: 'THE INSTALLED RELEASE IS BYTE-FOR-BYTE UNTOUCHED',
-    ok: eq(before.installedBuildInfo, after.installedBuildInfo)
-      && eq(before.installedExe, after.installedExe),
-    detail: eq(before.installedBuildInfo, after.installedBuildInfo)
-      && eq(before.installedExe, after.installedExe)
+    name: 'the installed Orgtree.exe and build-info.json are byte-for-byte unchanged (sha256)',
+    ok: identityOk,
+    detail: identityOk
       ? `build-info sha256 ${after.installedBuildInfo?.sha256?.slice(0, 16) ?? '(absent)'}… unchanged`
       : 'the installed build-info.json or Orgtree.exe CHANGED',
   })
+  const treeOk = eq(before.installedTree, after.installedTree)
   rows.push({
-    name: 'NO UNINSTALL ENTRY WAS ADDED OR CHANGED',
+    name: 'no file anywhere under the installation was added, removed, resized or rewritten',
+    ok: treeOk,
+    detail: treeOk
+      ? `${after.installedTree?.count ?? 0} files, path/size/mtime digest `
+        + `${after.installedTree?.sha256?.slice(0, 16) ?? '(absent)'}… unchanged`
+      : `the installed tree CHANGED: ${before.installedTree?.count ?? 0} files → `
+        + `${after.installedTree?.count ?? 0} files`,
+  })
+  rows.push({
+    name: 'no uninstall entry was added, removed or changed (key, name, version, location)',
     ok: eq(before.uninstall, after.uninstall),
     detail: eq(before.uninstall, after.uninstall)
       ? `${after.uninstall.length} entries, unchanged`
       : `before: ${before.uninstall.join(' ; ')}\n       after:  ${after.uninstall.join(' ; ')}`,
   })
   rows.push({
-    name: 'the production data root was not created or destroyed',
+    name: 'the production data root still exists exactly as it did (existence only)',
     ok: before.productionDataExists === after.productionDataExists,
     detail: `exists ${before.productionDataExists} → ${after.productionDataExists}`,
   })
@@ -254,7 +497,7 @@ export function compareSnapshots(before, after) {
  *  injected so this file does not restate the definition a third time. */
 export function isolationChecks({
   feed = null, env = process.env, installedRoot = null, run = defaultPowerShell,
-  isLoopback = () => true, fileSystem = fs,
+  isLoopback = () => true, fileSystem = fs, outDir = null,
 } = {}) {
   const rows = []
   const check = (name, fn) => {
@@ -321,9 +564,27 @@ export function isolationChecks({
     return feed
   })
 
-  check('this shell is not elevated', () => {
-    const elevated = assertNotElevated(run)
-    return elevated === null ? 'could not be determined; treated as not elevated' : 'not elevated'
+  check('this shell is POSITIVELY known not to be elevated', () => {
+    assertNotElevated(run)
+    return 'not elevated'
+  })
+
+  // ⚠ OWNERSHIP IS ESTABLISHED BEFORE THE RUN, NOT GUESSED AFTER IT. Cleanup
+  // identifies its own processes by the directory they run from, which is only
+  // sound if NOTHING was already running from there when the run began. That
+  // is a precondition this can check, so it does, rather than leaving cleanup
+  // to assume it.
+  check('nothing is already running out of the rehearsal directory', () => {
+    if (!outDir) return 'no output directory named yet'
+    const running = processesWithPaths(run)
+      .filter(proc => isInside(proc.Path, outDir))
+    if (running.length) {
+      throw new Error('processes are ALREADY running out of '
+        + `[${outDir}]: ${running.map(p => `${p.ProcessName} (${p.Id})`).join(', ')}. `
+        + 'Close them first — this run identifies its own processes by that directory, '
+        + 'and it will not adopt or terminate ones it did not start')
+    }
+    return `${outDir} has no running processes`
   })
 
   return rows
@@ -345,8 +606,10 @@ export function report(rows, { label = '' } = {}) {
 function isMain() {
   const entry = process.argv[1]
   if (!entry) return false
-  return path.resolve(entry) === path.resolve(new URL(import.meta.url).pathname
-    .replace(/^\/([A-Za-z]:)/, '$1'))
+  // fileURLToPath, not URL.pathname: a path with a space arrives percent-encoded
+  // and would never match, which on Windows is most paths.
+  try { return path.resolve(entry) === path.resolve(fileURLToPath(import.meta.url)) }
+  catch { return false }
 }
 
 if (isMain()) {

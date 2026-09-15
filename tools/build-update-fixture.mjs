@@ -11,6 +11,7 @@
 // release preflight separately refuses any main bundle composed to hand off to
 // one (tools/preflight-lib.mjs, assertNoUpdateFixture).
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -38,4 +39,35 @@ if (result.status !== 0) {
   throw new Error(`makensis failed (${result.status}):\n${result.stdout ?? ''}${result.stderr ?? ''}`)
 }
 if (!fs.existsSync(out)) throw new Error(`makensis reported success but produced no ${out}`)
+
+// ⚠ PROVENANCE, SO THE REHEARSAL CAN TELL THIS FROM ANY OTHER .exe.
+// Review's finding: a rehearsal that only checks WHERE the artifact sits will
+// happily serve C:\Downloads\RealSetup.exe as "the harmless fixture" and then
+// let the app launch it — performing the exact installation the rehearsal
+// promises cannot happen. A location is not an identity.
+//
+// This records what was built and what it was built FROM. tools/run-rehearsal.mjs
+// refuses to serve bytes whose sha256 does not match, or whose recorded source
+// no longer matches build/update-fixture.nsi in this repository.
+//
+// It stops the wrong file being chosen. It is NOT a defence against someone
+// deliberately forging a sidecar for their own development tool, and it is not
+// written here as though it were.
+const source = 'build/update-fixture.nsi'
+const provenance = out.replace(/\.exe$/i, '') + '.provenance.json'
+fs.writeFileSync(provenance, JSON.stringify({
+  artifact: path.basename(out),
+  sha256: sha256(out),
+  size: fs.statSync(out).size,
+  source,
+  sourceSha256: sha256(source),
+  builtBy: 'tools/build-update-fixture.mjs',
+  builtAt: new Date().toISOString(),
+}, null, 2) + '\n')
+
+function sha256(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+}
+
 console.log(`Built ${out} (${fs.statSync(out).size} bytes). It installs nothing.`)
+console.log(`Provenance written to ${provenance}.`)

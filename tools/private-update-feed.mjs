@@ -20,6 +20,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export function sha512Base64(file) {
   return crypto.createHash('sha512').update(fs.readFileSync(file)).digest('base64')
@@ -109,8 +110,21 @@ export function serveFeed(directory, { host = '127.0.0.1', port = 0 } = {}) {
 }
 
 // ---------------------------------------------------------------------- CLI
-if (import.meta.url === `file://${process.argv[1]?.replaceAll('\\', '/')}`
-  || import.meta.url.endsWith(path.basename(process.argv[1] ?? ''))) {
+//
+// ⚠ THIS MUST ONLY FIRE WHEN THIS FILE IS THE ENTRY POINT. The previous test
+// fell back to `import.meta.url.endsWith(path.basename(process.argv[1] ?? ''))`,
+// and `endsWith('')` is true — so `node -e "import('./tools/private-update-feed.mjs')"`,
+// which has no argv[1], ran the CLI and exited 1 on a missing --artifact. Any
+// program importing this for its exports inherited that. Compare resolved
+// paths, and nothing else.
+function isMain() {
+  const entry = process.argv[1]
+  if (!entry) return false
+  try { return path.resolve(entry) === path.resolve(fileURLToPath(import.meta.url)) }
+  catch { return false }
+}
+
+if (isMain()) {
   const argv = process.argv.slice(2)
   const value = (name, fallback) => {
     const index = argv.indexOf(name)

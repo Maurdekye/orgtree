@@ -25,8 +25,9 @@ import { createRequire } from 'node:module'
 import { devBuildInfo, devPackagingConfig, DEV_APP_ID } from './dev-build.mjs'
 import { assertRuntimeLayout } from './runtime-layout.mjs'
 import {
-  assertRehearsalPackage, assertRehearsalTarget, DEFAULT_REHEARSAL_OUT,
-  REHEARSAL_UPDATER_CACHE,
+  assertNotElevated, assertRehearsalComposition, assertRehearsalTarget,
+  DEFAULT_REHEARSAL_OUT, installedRootsFromRegistry, REHEARSAL_UPDATER_CACHE,
+  resolveInstalledRoot,
 } from './rehearsal-isolation.mjs'
 
 const require_ = createRequire(import.meta.url)
@@ -37,10 +38,21 @@ const outDir = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : DEFAUL
 //    line; pointed at Program Files it would write a fixture-capable build over
 //    the installed release. The same guard the runner uses to decide what it may
 //    launch decides what this may write.
+//
+//    ⚠ AND THE INSTALLATIONS ARE DISCOVERED, NOT ASSUMED. Calling this without
+//    the discovered root meant only the DEFAULT C:\Program Files\Orgtree was
+//    protected: review measured D:\CustomInstalled\Orgtree being accepted as an
+//    output directory, so the documented protection of a custom installation
+//    was not actually in force here.
 assertRehearsalTarget({
   exe: path.join(path.resolve(outDir), 'win-unpacked', 'Orgtree Dev.exe'),
   outDir: path.resolve(outDir),
+  installedRoot: resolveInstalledRoot(),
+  installedRoots: installedRootsFromRegistry(),
 })
+// Nothing here needs administrator rights either, and packaging WRITES — so the
+// no-elevation rule applies to this entry point exactly as it does to the runner.
+assertNotElevated()
 
 // 1. The bundle, COMPOSED WITH THE FIXTURE. Without this the packaged app has no
 //    substitution compiled in and the rehearsal cannot happen at all.
@@ -93,14 +105,6 @@ const unpacked = path.join(outDir, 'win-unpacked')
 const exe = path.join(unpacked, 'Orgtree Dev.exe')
 if (!fs.existsSync(exe)) throw new Error(`packaging produced no ${exe}`)
 
-// ⚠ PROVE WHAT WAS PACKAGED, rather than trusting the config. These are the
-// properties the isolation argument rests on.
-const packagedInfo = assertRehearsalPackage(JSON.parse(
-  fs.readFileSync(path.join(unpacked, 'resources', 'build-info.json'), 'utf8')))
-const bundle = fs.readFileSync(path.join(unpacked, 'resources', 'app.asar'), 'latin1')
-if (!bundle.includes('ORGTREE-UPDATE-FIXTURE-BUILD' + ':enabled')) {
-  throw new Error('the packaged bundle does not carry the enabled fixture marker')
-}
 // ⚠ A DEV BUILD SHIPS NO app-update.yml, AND THE DOWNLOAD STAGE STILL NEEDS ONE.
 // Measured, not assumed: the first rehearsal reached 'Found version 9.9.9-fixture'
 // and then failed with ENOENT on resources/app-update.yml. setFeedURL overrides
@@ -122,6 +126,12 @@ fs.writeFileSync(feedStub, [
   '',
 ].join('\n'))
 console.log('wrote a loopback app-update.yml placeholder; setFeedURL replaces it at runtime')
+
+// ⚠ PROVE WHAT WAS PACKAGED, rather than trusting the config — and prove it
+// AFTER the placeholder is written, since the composition check reads it. This
+// is the same function the runner uses before it launches anything, so the
+// packager cannot certify a build the runner would reject.
+const packagedInfo = assertRehearsalComposition(unpacked)
 
 console.log(JSON.stringify({
   exe, version: packagedInfo.version, channel: packagedInfo.channel,
