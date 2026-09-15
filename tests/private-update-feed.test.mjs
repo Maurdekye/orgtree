@@ -255,10 +255,18 @@ test('§11 ⚠ AN ABSOLUTE EXTERNAL ARTIFACT URL IS REFUSED — the first measur
   const escapes = enabled.manifestEscapes(resolved.map(entry => entry.url))
   assert.deepEqual(escapes, ['https://public.invalid/real-setup.exe'])
 
-  // And the transport refuses it even if something tried anyway.
-  assert.throws(() => executor.createRequest({ hostname: 'public.invalid', path: '/real-setup.exe' }, () => {}),
-    /not the isolated loopback feed/)
+  // And the transport refuses it even if something tried anyway — by returning
+  // a request that FAILS, not by throwing: see §18 for why that distinction is
+  // the difference between a guard and a crash.
+  const refused = executor.createRequest({ hostname: 'public.invalid', path: '/real-setup.exe' }, () => {})
   assert.deepEqual(blocked, ['public.invalid'])
+  await new Promise((resolve, reject) => {
+    refused.on('error', (error) => {
+      try { assert.match(String(error), /not the isolated loopback feed/); resolve() }
+      catch (failure) { reject(failure) }
+    })
+    refused.end()
+  })
 })
 
 test('§12 ⚠ A LOOPBACK FEED THAT REDIRECTS OFF-MACHINE IS REFUSED — the second escape', async () => {
@@ -296,8 +304,8 @@ test('§13 the confinement covers EVERY kind of URL, not a list of the ones we t
   const attempts = [], blocked = []
   const executor = confinedExecutor(attempts, blocked)
   for (const host of ['public.invalid', 'example.test', '10.0.0.1', '127.0.0.2', 'localhost.evil.test']) {
-    assert.throws(() => executor.createRequest({ hostname: host, path: '/anything' }, () => {}),
-      /not the isolated loopback feed/, `${host} must be refused`)
+    const refused = executor.createRequest({ hostname: host, path: '/anything' }, () => {})
+    assert.equal(typeof refused.end, 'function', `${host} must yield a failing request, not a throw`)
   }
   assert.deepEqual(blocked,
     ['public.invalid', 'example.test', '10.0.0.1', '127.0.0.2', 'localhost.evil.test'])
@@ -324,4 +332,140 @@ test('§15 ⚠ PRODUCTION IS UNTOUCHED — the confinement is installed on one b
     'the only call must sit inside the private-feed branch')
   assert.match(index.slice(branchAt, branchAt + 3000), /exposes no HTTP executor to confine/,
     'a rehearsal that cannot be confined must refuse rather than run unconfined')
+})
+
+// ---------------- REDIRECTS ON AN EXISTING REQUEST, AND HOW THE GUARD FAILS
+//
+// ⚠ TWO MEASURED DEFECTS IN THE FIRST CONFINEMENT, both found by driving the real
+// client rather than reading it:
+//
+//   R1 createRequest SEES ONLY THE FIRST HOP. DifferentialDownloader attaches
+//      `request.on('redirect', …)` and calls `request.followRedirect()` on the
+//      SAME request, so the guard counted one loopback creation and zero blocks
+//      while the client followed an external URL.
+//   R2 THROWING WAS WORSE THAN NOT GUARDING. The client calls createRequest from
+//      inside asynchronous handlers, so the throw surfaced as an uncaughtException
+//      rather than failing the download. A guard that takes the process down is
+//      not a guard.
+
+test('§16 ⚠ R1: A REDIRECT FOLLOWED ON AN EXISTING REQUEST IS REFUSED', async () => {
+  const { EventEmitter } = await import('node:events')
+  const blocked = []
+  const followed = []
+  // The shape the real DifferentialDownloader drives, per review's probe: the
+  // request emits 'redirect' and the consumer calls followRedirect() on it.
+  const executor = enabled.confineExecutorToLoopback({
+    createRequest() {
+      const request = new EventEmitter()
+      request.followRedirect = () => { followed.push('followed') }
+      request.end = () => {}
+      return request
+    },
+  }, (host) => blocked.push(host))
+
+  const request = executor.createRequest({ hostname: '127.0.0.1', path: '/payload' }, () => {})
+  const errors = []
+  request.on('error', (error) => errors.push(error))
+  // The consumer's own handler runs after ours, so the target is already known.
+  request.on('redirect', () => { request.followRedirect() })
+  request.emit('redirect', 302, 'GET', 'https://public.invalid/payload')
+
+  assert.deepEqual(followed, [], 'the external redirect must NOT be followed')
+  assert.deepEqual(blocked, ['public.invalid'], 'and the attempt must be recorded')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(errors.length, 1, 'the request must fail through its error contract')
+  assert.match(String(errors[0]), /not the isolated loopback feed/)
+})
+
+test('§17 a redirect that stays on loopback is followed normally', async () => {
+  const { EventEmitter } = await import('node:events')
+  const blocked = [], followed = []
+  const executor = enabled.confineExecutorToLoopback({
+    createRequest() {
+      const request = new EventEmitter()
+      request.followRedirect = (...args) => { followed.push(args.length) }
+      return request
+    },
+  }, (host) => blocked.push(host))
+  const request = executor.createRequest({ hostname: '127.0.0.1' }, () => {})
+  request.on('error', () => { throw new Error('a loopback redirect must not fail') })
+  request.on('redirect', () => { request.followRedirect() })
+  request.emit('redirect', 302, 'GET', 'http://127.0.0.1:9/elsewhere')
+  assert.deepEqual(blocked, [])
+  assert.equal(followed.length, 1, 'the loopback redirect must be followed')
+  await new Promise(resolve => setImmediate(resolve))
+})
+
+test('§18 ⚠ R2: A BLOCKED REQUEST FAILS THROUGH THE ERROR CONTRACT, NEVER BY THROWING', async () => {
+  const blocked = []
+  const executor = enabled.confineExecutorToLoopback({
+    createRequest() { throw new Error('the real transport must never be reached') },
+  }, (host) => blocked.push(host))
+
+  // Creating it must NOT throw — that was the defect: createRequest is called
+  // from asynchronous handlers, so a throw became an uncaughtException.
+  let request
+  assert.doesNotThrow(() => {
+    request = executor.createRequest({ hostname: 'public.invalid', path: '/x' }, () => {})
+  }, 'creating a blocked request must not throw')
+  assert.deepEqual(blocked, ['public.invalid'])
+
+  const errors = []
+  request.on('error', (error) => errors.push(error))
+  assert.equal(request.write(), true, 'the stub must accept the ordinary request calls')
+  request.end()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(errors.length, 1)
+  assert.match(String(errors[0]), /not the isolated loopback feed/)
+  assert.equal(errors[0].name, 'PrivateFeedEscape')
+  assert.equal(errors[0].host, 'public.invalid')
+})
+
+test('§19 the real executor still fails a redirecting feed as a REJECTION, not a crash', async () => {
+  // The end-to-end shape of R2 with the real NodeHttpExecutor: a loopback URL
+  // that 302s off-machine must reject the caller's promise. Before the fix this
+  // surfaced as an uncaughtException.
+  const { NodeHttpExecutor } = require_('builder-util/out/nodeHttpExecutor.js')
+  const { CancellationToken } = require_('builder-util-runtime')
+  const http = await import('node:http')
+  const redirect = http.createServer((_request, response) => {
+    response.writeHead(302, { Location: 'https://public.invalid/latest.yml' }).end()
+  })
+  await new Promise(resolve => redirect.listen(0, '127.0.0.1', resolve))
+  const blocked = []
+  const uncaught = []
+  const onUncaught = (error) => uncaught.push(error)
+  process.on('uncaughtException', onUncaught)
+  try {
+    const executor = enabled.confineExecutorToLoopback(new NodeHttpExecutor(),
+      (host) => blocked.push(host))
+    const url = new URL(`http://127.0.0.1:${redirect.address().port}/`)
+    await assert.rejects(
+      executor.downloadToBuffer(url, { cancellationToken: new CancellationToken() }),
+      /not the isolated loopback feed/,
+      'the redirecting feed must REJECT rather than crash the process')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(uncaught, [], 'nothing may reach the uncaughtException handler')
+    assert.deepEqual(blocked, ['public.invalid'])
+  } finally {
+    process.removeListener('uncaughtException', onUncaught)
+    await new Promise(resolve => redirect.close(resolve))
+  }
+})
+
+test('§20 the rehearsal disables the download paths whose redirects cannot be confined', () => {
+  // Electron follows redirects internally on the differential and multiple-range
+  // paths, with no hook the confinement can reach. A guard that silently misses a
+  // path is worse than no guard, so the path is removed for a rehearsal build.
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  const branchAt = index.indexOf("if (updateFeed.kind === 'private') {")
+  const branch = index.slice(branchAt, branchAt + 3000)
+  assert.match(branch, /disableDifferentialDownload = true/,
+    'a rehearsal build must disable differential downloads')
+  // And a released build must keep them.
+  // Count ASSIGNMENTS, not mentions: the type cast names it too.
+  const calls = index.split('.disableDifferentialDownload = true').length - 1
+  assert.equal(calls, 1, 'differential downloads must be disabled in exactly one place')
+  assert.ok(index.indexOf('disableDifferentialDownload') > branchAt,
+    'and that place must be inside the private-feed branch')
 })

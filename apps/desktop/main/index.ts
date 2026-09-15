@@ -1291,6 +1291,17 @@ else {
           // uses: every request it makes, of every kind, and every redirect it
           // follows, is created through this executor. Nothing a feed says can
           // route around it. Production never reaches this branch.
+          // ⚠ DIFFERENTIAL AND MULTIPLE-RANGE DOWNLOADS ARE TURNED OFF FOR A
+          // REHEARSAL, and this is not tidiness. Those paths follow redirects
+          // that Electron handles INTERNALLY, with no hook the confinement can
+          // reach — review measured DifferentialDownloader following an external
+          // URL on an already-created request while the guard saw one loopback
+          // creation and zero blocks. A guard that silently misses a path is
+          // worse than no guard, so the path is removed rather than trusted.
+          // A released build is unaffected: it never reaches this branch and
+          // keeps differential downloads.
+          ;(autoUpdater as unknown as { disableDifferentialDownload?: boolean })
+            .disableDifferentialDownload = true
           const executor = (autoUpdater as unknown as { httpExecutor?: unknown }).httpExecutor
           if (executor && typeof (executor as { createRequest?: unknown }).createRequest === 'function') {
             confineExecutorToLoopback(executor as Parameters<typeof confineExecutorToLoopback>[0],

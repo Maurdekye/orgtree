@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 /** THE HARMLESS DUAL-ENTRY UPDATE FIXTURE.
  *
  *  Both supported upgrade entry points — the in-app Update button's self-update
@@ -469,6 +470,67 @@ export class PrivateFeedEscape extends Error {
   }
 }
 
+/** A request that will never connect. Returned instead of throwing, because
+ *  review measured the throw escaping as an UNCAUGHT EXCEPTION: the client calls
+ *  createRequest from inside asynchronous handlers — NodeHttpExecutor's
+ *  downloadToBuffer redirect path and Electron's addRedirectHandlers both invoke
+ *  it outside any promise — so throwing there crashes past the caller rather than
+ *  failing the download. A guard that takes the process down is not a guard.
+ *
+ *  It fails through the client's OWN contract instead: handlers are attached,
+ *  `end()` is called, and the error arrives on the next tick as an ordinary
+ *  request error, which every caller already knows how to handle. */
+class BlockedRequest extends EventEmitter {
+  private readonly escape: PrivateFeedEscape
+  constructor(escape: PrivateFeedEscape) { super(); this.escape = escape }
+  end(): this { process.nextTick(() => { this.emit('error', this.escape) }); return this }
+  write(): boolean { return true }
+  abort(): void {}
+  destroy(): void {}
+  setHeader(): void {}
+  getHeader(): undefined { return undefined }
+  removeHeader(): void {}
+  followRedirect(): void {}
+}
+
+/** ⚠ A REDIRECT CAN BE FOLLOWED ON AN EXISTING REQUEST, WHICH createRequest NEVER
+ *  SEES. Review measured it against the real DifferentialDownloader: it attaches
+ *  `request.on('redirect', …)` and calls `request.followRedirect()` on the SAME
+ *  request object, so the guard counted one creation for 127.0.0.1 and zero
+ *  blocks while the client followed an external URL. Guarding only creation is
+ *  guarding only the first hop.
+ *
+ *  So the returned request is wrapped too. Our 'redirect' listener is attached
+ *  FIRST, so the target is known before the consumer's own handler runs and
+ *  decides to follow, and followRedirect refuses a target that is not loopback —
+ *  failing the request through the same error contract rather than throwing.
+ *
+ *  ⚠ THIS DOES NOT COVER REDIRECTS ELECTRON FOLLOWS INTERNALLY, which is why the
+ *  differential and multiple-range download paths are DISABLED for a rehearsal
+ *  build rather than trusted to this. A guard that silently misses a path is
+ *  worse than no guard, so the path is removed instead. */
+function confineRedirects<R>(request: R, onBlocked?: (host: string) => void): R {
+  const emitter = request as unknown as {
+    on?: (event: string, listener: (...args: unknown[]) => void) => unknown
+    emit?: (event: string, ...args: unknown[]) => unknown
+    followRedirect?: (...args: unknown[]) => unknown
+  }
+  if (typeof emitter?.on !== 'function' || typeof emitter.followRedirect !== 'function') return request
+  let target = ''
+  emitter.on('redirect', (...args: unknown[]) => { target = String(args[2] ?? '') })
+  const follow = emitter.followRedirect.bind(request)
+  emitter.followRedirect = (...args: unknown[]) => {
+    let host = target
+    try { host = new URL(target).hostname } catch { /* keep the raw value for the message */ }
+    if (isLoopbackHost(host)) return follow(...args)
+    onBlocked?.(host || target)
+    const escape = new PrivateFeedEscape(host || target)
+    process.nextTick(() => { try { emitter.emit?.('error', escape) } catch { /* nothing listening */ } })
+    return undefined
+  }
+  return request
+}
+
 /** Wrap an executor so no request can leave loopback. Returns the same object:
  *  the client keeps whatever executor it was built with, minus the ability to
  *  leave. `onBlocked` is called before throwing so the attempt is recorded — a
@@ -480,9 +542,9 @@ export function confineExecutorToLoopback<T extends ConfinableExecutor>(
     const host = String(options?.hostname ?? options?.host ?? '')
     if (!isLoopbackHost(host)) {
       onBlocked?.(host)
-      throw new PrivateFeedEscape(host)
+      return new BlockedRequest(new PrivateFeedEscape(host))
     }
-    return original(options, callback)
+    return confineRedirects(original(options, callback), onBlocked)
   }
   return executor
 }
