@@ -287,6 +287,49 @@ const installRoot = path.join(temp, 'fixture install root')
 fs.mkdirSync(path.join(installRoot, 'resources', 'engine'), { recursive: true })
 fs.symlinkSync(runtimeSource, path.join(installRoot, 'resources', 'engine', 'runtime'), 'junction')
 
+// THIS HARNESS MUST NOT OPEN A WINDOW, AND SAYING SO IN A COMMENT WAS NOT
+// ENOUGH. It used to dispatch console-subsystem powershell.exe from its raw
+// plugin probe, so every run flashed a console — the exact class of event this
+// whole ticket exists to remove — and the only thing standing between that and
+// an agent running it in a headless context was a comment 330 lines in, which
+// is where it stayed unread. The subsystem is a fact in the PE header, so read
+// it and assert it: a target that regresses to a console image now fails the
+// test instead of opening something.
+//
+// Subsystem lives at offset 0x44 of the optional header in BOTH PE32 and PE32+,
+// so this needs no bitness branch. 2 = WINDOWS_GUI, 3 = WINDOWS_CUI.
+const PE_SUBSYSTEM_GUI = 2
+function peSubsystem(exe) {
+  const fd = fs.openSync(exe, 'r')
+  try {
+    const dos = Buffer.alloc(0x40)
+    assert.equal(fs.readSync(fd, dos, 0, 0x40, 0), 0x40, `${exe} is too small to be a PE image`)
+    assert.equal(dos.toString('latin1', 0, 2), 'MZ', `${exe} has no MZ header`)
+    const peOffset = dos.readUInt32LE(0x3c)
+    const optional = Buffer.alloc(0x48)
+    const signature = Buffer.alloc(4)
+    fs.readSync(fd, signature, 0, 4, peOffset)
+    assert.equal(signature.toString('latin1'), 'PE\0\0', `${exe} has no PE signature`)
+    // 4 bytes of signature + a 20-byte COFF header precede the optional header.
+    assert.equal(fs.readSync(fd, optional, 0, 0x48, peOffset + 24), 0x48,
+      `${exe} has a truncated optional header`)
+    return optional.readUInt16LE(0x44)
+  } finally { fs.closeSync(fd) }
+}
+function assertWindowlessTarget(exe) {
+  const subsystem = peSubsystem(exe)
+  assert.equal(subsystem, PE_SUBSYSTEM_GUI,
+    `${exe} is PE subsystem ${subsystem}, not GUI (${PE_SUBSYSTEM_GUI}); `
+    + 'ShellExecute allocates a console for a console-subsystem image, and this '
+    + 'harness is required to stay windowless')
+  return exe
+}
+
+// The raw probe dispatches the SAME host production dispatches — the fixture's
+// own pythonw.exe — rather than a console-subsystem stand-in.
+const probeHost = assertWindowlessTarget(
+  path.join(installRoot, 'resources', 'engine', 'runtime', 'pythonw.exe'))
+
 function dispatchFixture(finishMacro, executable, resultMarker, launchTarget) {
   return `Unicode true
 !include LogicLib.nsh
@@ -329,16 +372,20 @@ Section
   # Raw plugin contract, no stubs: the same call shape production uses. This
   # records what the DLL actually answers so the routing below is checked
   # against evidence rather than against an assumed convention.
-  # ⚠ This raw probe deliberately still dispatches powershell.exe. It exists to
-  # record what the DLL itself answers, and keeping the historical target keeps
-  # that reading comparable with the 2.1.4-RC4 evidence. It is NOT production's
-  # call shape any more — production dispatches the application's own
-  # pythonw.exe, because powershell.exe is console-subsystem and ShellExecute
-  # therefore allocates a console for it. Expect this ONE probe to flash a
-  # console while this harness runs; that is the harness, not a regression of
-  # the fix, and it is why this harness may not be run where a visible window is
-  # forbidden.
-  \${StdUtils.ExecShellAsUser} $rawToken "$SYSDIR\\WindowsPowerShell\\v1.0\\powershell.exe" "open" "-NoProfile -NonInteractive -WindowStyle Hidden -Command exit"
+  # ⚠ THE TARGET IS THE FIXTURE'S OWN pythonw.exe, AND THAT IS LOAD-BEARING.
+  # This probe used to dispatch powershell.exe to keep its reading comparable
+  # with the 2.1.4-RC4 evidence, and it flashed a console on every run:
+  # ShellExecute allocates one for a console-subsystem image, which is the very
+  # incident this work exists for. That comparability argument does not survive
+  # contact with what is actually being measured — the token ExecShellAsUser
+  # answers is a property of the DISPATCH, not of the target's subsystem — so
+  # the historical target bought nothing and cost a visible window. This now
+  # dispatches the same GUI-subsystem host production dispatches, which is also
+  # the one .onInit already guarantees exists. The "-c pass" argument starts a
+  # runtime that immediately exits. The subsystem is read out of the PE header before this
+  # fixture is compiled (see assertWindowlessTarget), so a target that regresses
+  # to a console image is a test FAILURE rather than another flash.
+  \${StdUtils.ExecShellAsUser} $rawToken "${probeHost.replaceAll('\\', '\\\\')}" "open" "-c pass"
   Call orgtreePrepareUpgradeRelaunch
   StrCpy $OrgUpgradeExe "${launchTarget}"
   Call orgtreeDispatchUpgradeRelaunch
@@ -391,10 +438,28 @@ console.log(`PASS real StdUtils dispatch: token ${rawToken}, scheduled once, sin
 // the same real-DLL path. The dispatch itself still succeeds — the helper
 // launches — while the installer reports failure and never marks the
 // relaunch scheduled. That mismatch is exactly the "(error ok)" field report.
-const legacyDispatch = finish.replace(
-  /\$\{if\} \$1 == "ok"\r?\n\s*\$\{orif\} \$1 == "fallback"/,
-  '${if} $1 == 0')
+//
+// ⚠ ANCHOR THE TRANSFORM TO THE DISPATCH FUNCTION, NOT TO THE FIRST MATCH.
+// `customFinishPage` holds more than one `$1 == "ok"` token test: f444d2e added
+// `Function orgtreeFinishPageRun` AHEAD of `orgtreeDispatchUpgradeRelaunch` and
+// routes the same token the same way. A bare non-global `.replace()` therefore
+// rewrote the Finish page's Run action — which this fixture never calls — and
+// left the routing under test fixed, so the control silently stopped
+// controlling while still passing the "did the transform change anything" guard
+// below. Slicing to the dispatch function first, and requiring exactly one
+// rewrite inside it, makes the next function inserted above it fail loudly
+// instead of quietly retargeting this control.
+const dispatchFnStart = finish.indexOf('Function orgtreeDispatchUpgradeRelaunch')
+assert.ok(dispatchFnStart > 0, 'customFinishPage must define orgtreeDispatchUpgradeRelaunch')
+const tokenTest = /\$\{if\} \$1 == "ok"\r?\n\s*\$\{orif\} \$1 == "fallback"/g
+const beforeDispatchFn = finish.slice(0, dispatchFnStart)
+const fromDispatchFn = finish.slice(dispatchFnStart)
+assert.equal((fromDispatchFn.match(tokenTest) ?? []).length, 1,
+  'the dispatch function must hold exactly one token test for this control to rewrite')
+const legacyDispatch = beforeDispatchFn + fromDispatchFn.replace(tokenTest, '${if} $1 == 0')
 assert.notEqual(legacyDispatch, finish, 'legacy dispatch control transform must change the routing')
+assert.equal(legacyDispatch.slice(0, dispatchFnStart), beforeDispatchFn,
+  'the control must not modify anything ahead of the dispatch function')
 const [legacyToken, legacyDispatchPrepared, legacyScheduled, legacyReady] =
   await runDispatchFixture('legacy-dispatch-fixture', legacyDispatch)
 assert.equal(legacyDispatchPrepared, '1', 'legacy control failed helper preparation')
