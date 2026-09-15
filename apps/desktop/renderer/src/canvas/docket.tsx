@@ -1994,6 +1994,41 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   )
 }
 
+/** Every ticket-detail section uses the same disclosure contract.  The state
+ * is deliberately local to the mounted pane: polling keeps a reader's
+ * posture, while DocketPane's slug key resets it when a different ticket is
+ * selected, matching the existing docket category-fold convention. */
+function DocketSection({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId()
+  const [collapsed, setCollapsed] = useState(false)
+  return (
+    <section className={(title === 'DESCRIPTION' || title === 'BLOCKED BECAUSE'
+      || title.startsWith('BLOCKED BECAUSE') || title === 'WAITING FOR'
+      || title.startsWith('ENDED WITHOUT COMPLETING'))
+      ? 'docket-desc' : 'docket-detail-section'}
+      aria-labelledby={`${id}-heading`}>
+      <div className="docket-detail-section-head">
+        <h4 id={`${id}-heading`} className={'docket-detail-section-title dim'
+          + ((title === 'DESCRIPTION' || title === 'WAITING FOR'
+            || title.startsWith('BLOCKED BECAUSE')
+            || title.startsWith('ENDED WITHOUT COMPLETING')
+            || title === 'ATTACHMENTS')
+            ? ' docket-list-heading' : '')}>{title}</h4>
+        <button type="button" className="docket-detail-toggle"
+          aria-expanded={!collapsed} aria-controls={`${id}-body`}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
+          title={`${collapsed ? 'expand' : 'collapse'} ${title}`}
+          onClick={() => setCollapsed(v => !v)}>
+          <span aria-hidden="true">{collapsed ? '\u25b6' : '\u25bc'}</span>
+        </button>
+      </div>
+      <div id={`${id}-body`} hidden={collapsed} className="docket-detail-section-body">
+        {children}
+      </div>
+    </section>
+  )
+}
+
 function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   refWorld, onOpenRef }: {
   heading: string
@@ -2010,7 +2045,8 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   mark: 'done' | 'next'
 }) {
   return (
-    <div className="docket-list">
+    <DocketSection title={heading}>
+      <div className="docket-list">
       <div className="docket-list-heading dim">{heading}</div>
       {items.length === 0
         ? <div className="dim docket-list-empty">None</div>
@@ -2022,7 +2058,8 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
               </li>
             ))}
           </ul>}
-    </div>
+      </div>
+    </DocketSection>
   )
 }
 
@@ -2033,8 +2070,8 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
 function DocketAcceptance({ item }: { item: WorkItem }) {
   if (!item.acceptance?.length) return null
   return (
-    <div className="docket-acceptance">
-      <div className="docket-list-heading dim">ACCEPTANCE CONDITIONS</div>
+    <DocketSection title="ACCEPTANCE CONDITIONS">
+      <div className="docket-acceptance">
       <ol className="docket-acceptance-list">
         {item.acceptance.map((a, i) => {
           const c = a.checked
@@ -2057,7 +2094,8 @@ function DocketAcceptance({ item }: { item: WorkItem }) {
           </li>
         })}
       </ol>
-    </div>
+      </div>
+    </DocketSection>
   )
 }
 
@@ -2072,8 +2110,8 @@ function DocketReviewState({ item }: { item: WorkItem }) {
   const evidence = verdict?.evidence ?? packet?.evidence ?? []
   const note = verdict?.note ?? packet?.note
   return (
-    <div className="docket-review-box">
-      <div className="docket-list-heading dim">INTEGRATION REVIEW</div>
+    <DocketSection title="INTEGRATION REVIEW">
+      <div className="docket-review-box">
       {verdict && (
         <div className="docket-review-verdict">
           <span className={'docket-status status-' + verdict.decision}>
@@ -2091,7 +2129,8 @@ function DocketReviewState({ item }: { item: WorkItem }) {
           {evidence.map((ev, i) => <li key={i}><code>{ev.ref}</code>{ev.note ? ` · ${ev.note}` : ''}</li>)}
         </ul>
       )}
-    </div>
+      </div>
+    </DocketSection>
   )
 }
 
@@ -2121,7 +2160,8 @@ function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
   if (!receipts.length && !artifacts.length && !findings.length) return null
   const open = item.findings_summary?.open ?? []
   return (
-    <div className="docket-verification">
+    <DocketSection title="VERIFICATION">
+      <div className="docket-verification">
       {findings.length > 0 && (
         <>
           <div className="docket-list-heading dim">
@@ -2231,7 +2271,8 @@ function DocketVerification({ slug, item }: { slug: string; item: WorkItem }) {
           </div>
         </>
       )}
-    </div>
+      </div>
+    </DocketSection>
   )
 }
 
@@ -2267,8 +2308,8 @@ function DocketAttachments({ slug, item, toast, refresh }: {
     // NOT `.docket-list`: that class means "one of the two progress lists"
     // to tests and styles alike (§6 counts exactly two); this section keeps
     // the same margins via its own rule
-    <div className="docket-attachments">
-      <div className="docket-list-heading dim">ATTACHMENTS</div>
+    <DocketSection title="ATTACHMENTS">
+      <div className="docket-attachments">
       {atts.length > 0 && (
         <div className="attach-row">
           {atts.map((a) => {
@@ -2300,7 +2341,8 @@ function DocketAttachments({ slug, item, toast, refresh }: {
           [...(e.target.files ?? [])].forEach(add)
           e.target.value = ''
         }} />
-    </div>
+      </div>
+    </DocketSection>
   )
 }
 
@@ -2440,8 +2482,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
           It is the one prose field on this pane that is FULL MARKDOWN and
           may be arbitrarily long, so it gets its own component: the rest of
           the pane's prose is short, single-paragraph and stays `RefProse`. */}
-      <div className="docket-desc">
-        <div className="docket-list-heading dim">DESCRIPTION</div>
+      <DocketSection title="DESCRIPTION">
         {item.objective
           ? <DocketDescription text={item.objective} slug={slug}
               world={refWorld} onOpen={onOpenRef}
@@ -2450,22 +2491,21 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
               no description — this item predates the rule that every item
               states its problem and proposed solution
             </div>}
-      </div>
+      </DocketSection>
       {/* STATE INFORMATION (user 2026-09-05). Blocked and dropped each owe an
           explanation, so the pane shows the one that belongs to the state the
           item is actually in. Older blocked items may carry none: say that
           rather than render an empty box. Reasons for states the item has
           left are not shown — the backend clears them. */}
       {stateInfo && (
-        <div className="docket-desc">
-          <div className="docket-list-heading dim">{stateInfo.heading}</div>
+        <DocketSection title={stateInfo.heading}>
           {stateInfo.text
             ? <div className="docket-desc-body">{stateInfo.text}</div>
             : <div className="dim docket-list-empty">
                 not recorded — this item entered {item.status} before the rule
                 that the state says why
               </div>}
-        </div>
+        </DocketSection>
       )}
       <DocketReviewState item={item} />
       <DocketList heading="DONE SO FAR" items={item.done_so_far} mark="done"
@@ -2480,18 +2520,20 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
       <DocketAttachments slug={slug} item={item} toast={toast}
         refresh={refresh} />
       {manualAttn && (
-        <div className="docket-attention-box">
-          <div className="docket-question-head">
+        <DocketSection title="MANUAL ATTENTION">
+          <div className="docket-attention-box">
+            <div className="docket-question-head">
             Manual attention from{' '}
             <ActorName actor={manualAttn.by} facts={facts}
               onFocusAgent={onFocusAgent} close={close} />
-          </div>
+            </div>
           {/* the reason is written as several lines; a plain <div> ran them together */}
           <div className="docket-attention-body">
             <RefProse text={manualAttn.reason} world={refWorld}
               onOpen={onOpenRef} index={refIndex} onPick={onGoToItem} />
           </div>
-        </div>
+          </div>
+        </DocketSection>
       )}
       {item.questions.map((q) => {
         const ask = asksById.get(q.ask_id)
@@ -2503,14 +2545,15 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         // just this item's tab.
         const otherTabs = ask?.tabs && ask.tabs.length > (q.tabs?.length ?? 0)
         return (
-          <div key={q.ask_id} className="docket-question-box">
-            <div className="docket-question-head">
+          <DocketSection key={q.ask_id} title={`QUESTION FROM ${q.node}`}>
+            <div className="docket-question-box">
+              <div className="docket-question-head">
               Question from{' '}
               <button className="cc-name cc-name-jump" title={`focus ${q.node}'s desk`}
                 onClick={() => { close(); onFocusAgent?.(q.node) }}>
                 {q.node}
               </button>
-            </div>
+              </div>
             {otherTabs && (
               <div className="dim docket-question-note">
                 this batch also covers other items — answering it resolves every tab at once
@@ -2519,11 +2562,12 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
             {ask
               ? <AskCard ask={ask} slug={slug} toast={toast} />
               : <div className="dim">this question is no longer open</div>}
-          </div>
+            </div>
+          </DocketSection>
         )
       })}
       {assignee || recipients.length > 0 || replyTo ? (
-        <>
+        <DocketSection title="REPLY">
           <div className="dim docket-reply-label">
             {showRecipientPicker ? (
               <div className="docket-reply-picker">
@@ -2605,11 +2649,13 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
                 })
                 .finally(() => setReplyBusy(false))
             }} />
-        </>
+        </DocketSection>
       ) : (
+        <DocketSection title="REPLY">
         <div className="dim docket-reply-label">
           nobody is assigned to this item — there is nobody to reply to
         </div>
+        </DocketSection>
       )}
     </>
   )
