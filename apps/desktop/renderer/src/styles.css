@@ -3814,9 +3814,9 @@ main.solo { width: 100%; }
 .docket-dismiss:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .docket-pane-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .docket-pane-head b { font-size: 13.5px; min-width: 0; overflow-wrap: break-word; }
-.docket-pane-head .docket-dismiss { flex-shrink: 0; }
 .docket-pane-sub { font-size: 12px; margin: 2px 0 10px; }
 .docket-pane-sub-attn { color: var(--agent-accent-text, var(--accent)); }
+.docket-attention-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .docket-list { margin: 0 0 12px; }
 .docket-list-heading {
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
@@ -4133,7 +4133,6 @@ span.ref-chip.ref-chip {
 .docket-desc-toggle.docket-desc-toggle:focus-visible {
   outline: 1px solid var(--accent); outline-offset: 1px;
 }
-.docket-modal .mailrow .docket-dismiss { margin-left: auto; flex-shrink: 0; }
 .docket-modal button.cc-name, .mailer-head button.cc-name {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;
 }

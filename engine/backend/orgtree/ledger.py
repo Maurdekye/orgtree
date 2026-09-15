@@ -14962,8 +14962,9 @@ class Org:
                         {"set_rev": int(cur["set_rev"]), "from": frm})
         self._log("work_dismiss", USER, {"item": wid,
                                          "set_rev": int(cur["set_rev"])}, [])
-        notify = self._work_actor_node(it.get("last_updater")) \
-            or self._work_actor_node(it.get("owner"))
+        # The explicit no-comment notice belongs to the assigned agent, not
+        # the person who most recently edited the item.
+        notify = self._work_actor_node(it.get("owner"))
         return {"dismissed": wid, "rev": it["rev"], "status": "blocked",
                 "pending_questions": len(self._work_questions(wid)),
                 "notify": notify if notify in self.nodes else None,

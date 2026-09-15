@@ -1884,10 +1884,6 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
         onSelect: () => { void copyToClipboard(row, ref).then((ok) =>
           toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable'])) } })
     }
-    if (canDismiss) {
-      entries.push('sep', { label: 'Dismiss attention flag', onSelect: () => onDismiss(item),
-        title: 'clear this manually-raised flag' })
-    }
     return entries
   }
   return (
@@ -1982,12 +1978,6 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
             <ActorName actor={item.reviewer} facts={facts}
               onFocusAgent={onFocusAgent} close={close} />
           </span>
-        )}
-        {canDismiss && (
-          <button className="badge docket-dismiss" title="clear this manually-raised flag"
-            onClick={(e) => { e.stopPropagation(); onDismiss(item) }}>
-            Dismiss
-          </button>
         )}
       </div>
     </div>
@@ -2385,11 +2375,6 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         <b>{item.title || '(untitled)'}</b>
         <span className="spacer" />
         
-        {canDismiss && (
-          <button className="badge docket-dismiss" onClick={() => onDismiss(item)}>
-            Dismiss
-          </button>
-        )}
       </div>
       <div className={'dim docket-pane-sub' + (attention ? ' docket-pane-sub-attn' : '')}>
         <span className={'docket-status status-' + item.status + (attention ? ' attention' : '')}
@@ -2481,10 +2466,18 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         refresh={refresh} />
       {manualAttn && (
         <div className="docket-attention-box">
-          <div className="docket-question-head">
-            Manual attention from{' '}
-            <ActorName actor={manualAttn.by} facts={facts}
-              onFocusAgent={onFocusAgent} close={close} />
+          <div className="docket-question-head docket-attention-head">
+            <span>Manual attention from{' '}
+              <ActorName actor={manualAttn.by} facts={facts}
+                onFocusAgent={onFocusAgent} close={close} />
+            </span>
+            {canDismiss && (
+              <button type="button" className="badge docket-dismiss"
+                title="clear this manually-raised flag"
+                onClick={() => onDismiss(item)}>
+                Dismiss with no comment
+              </button>
+            )}
           </div>
           {/* the reason is written as several lines; a plain <div> ran them together */}
           <div className="docket-attention-body">
