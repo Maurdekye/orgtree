@@ -825,6 +825,10 @@ button.badge.audience-fold.alert {
   top: -26px;
   left: 50%;
   transform: translateX(-50%);
+  /* The collapsed hire arrow remains above the retired-list annotation (z 2),
+     but the revealed name must paint over that arrow.  Keep this elevation on
+     the revealed group only so the resting tier token's depth is unchanged. */
+  z-index: 4;
 }
 .sq.mini:hover .sq-far-scaler,
 .sq.mini:focus-within .sq-far-scaler,
@@ -3106,6 +3110,11 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
    menu is open. It closes on leaving the card or crossing to another edge
    (cards.tsx: expandedHireEdge), and the card drops again with it. */
 .sq.mini:hover:has(> .hsof.is-expanded) { z-index: 6; }
+/* The compact arrow is between the retired-list desk annotation (z 2) and the
+   far-zoom hover name (z 4). Once clicked, its menu intentionally takes the
+   top of this local stack (z 5). Ordinary hire strips keep their existing z 3
+   layer and therefore retain their unrelated canvas relationships. */
+.sq.mini > .hsof.hire-compact.is-expanded { z-index: 5; }
 /* F-03 coworker chips: vertical columns riding the card's edges — same hover
    gate and counter-scaling as the bottom row, anchored 1px inside the border
    for the same contiguous-hover reason */

@@ -5,6 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { refreshTrayUpdateMenu } from '../apps/desktop/main/updater'
+import { refreshTrayEngineMenu } from '../apps/desktop/main/engine'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
@@ -26,7 +27,35 @@ app.whenReady().then(async () => {
   assert.match(statusItem.label, /ready to install/)
   assert.equal(updateMenu.getMenuItemById('update-install')!.visible, true)
   assert.equal(updateMenu.getMenuItemById('update-install')!.enabled, true)
-  assert.equal(updateMenu.getMenuItemById('update-check')!.enabled, false)
+  // A PREPARED UPDATE NO LONGER DISABLES CHECKING (user 2026-09-11, updater.ts
+  // `trayUpdateState`): being able to replace it with a newer release is the
+  // point. This probe still asserted the old rule and so aborted before
+  // anything below it ever ran.
+  assert.equal(updateMenu.getMenuItemById('update-check')!.enabled, true)
+
+  // The engine row, through REAL Electron menu items - `visible` on a native
+  // MenuItem is the property the whole "hidden while the engine runs" ruling
+  // rests on, and a hand-written double cannot prove Electron accepts it.
+  const engineMenu = Menu.buildFromTemplate([
+    { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false },
+    { label: 'Quit Orgtree' },
+  ])
+  const restartItem = engineMenu.getMenuItemById('engine-restart')!
+  refreshTrayEngineMenu(engineMenu, { state: 'ready' }, false, false)
+  assert.equal(restartItem.visible, false, 'a running engine hides the restart row')
+  refreshTrayEngineMenu(engineMenu, { state: 'stopped', message: 'Engine exited.' }, false, false)
+  assert.equal(restartItem.visible, true, 'a stopped engine shows the restart row')
+  assert.equal(restartItem.enabled, true)
+  assert.equal(restartItem.label, 'Restart engine')
+  refreshTrayEngineMenu(engineMenu, { state: 'starting' }, true, false)
+  assert.equal(engineMenu.getMenuItemById('engine-restart'), restartItem, 'the row is refreshed in place')
+  assert.equal(restartItem.visible, true, 'a restart in flight keeps its row on screen')
+  assert.equal(restartItem.enabled, false, 'a restart in flight cannot be clicked again')
+  assert.match(restartItem.label, /Restarting engine/)
+  // A failed restart lands here, and must still offer the user a retry.
+  refreshTrayEngineMenu(engineMenu, { state: 'unavailable', message: 'port in use' }, false, false)
+  assert.equal(restartItem.visible, true)
+  assert.equal(restartItem.enabled, true)
 
   outsider = http.createServer((req, res) => { foreign.push(req.headers['x-orgtree-desktop-token'] as string | undefined); res.setHeader('Access-Control-Allow-Origin', '*'); res.end('outside') })
   await new Promise<void>(resolve => outsider.listen(0, '127.0.0.1', resolve))
@@ -170,7 +199,7 @@ app.whenReady().then(async () => {
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.ok(openedExternal.includes(foreignOrigin + '/same-tab'), 'same-tab external navigation launches through the controlled browser callback')
   assert.equal(await main.webContents.executeJavaScript('location.origin'), origin, 'external navigation is prevented in the app window')
-  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowRouted: true, externalNavigationRouted: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true }))
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowRouted: true, externalNavigationRouted: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true, engineRestartRow: true }))
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   server.close(); outsider.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

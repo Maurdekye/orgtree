@@ -9,11 +9,15 @@
 // Run: cd frontend && node tests/run.mjs farhire
 
 import { inAct, mountView } from './harness'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { NodeSquare } from '../src/canvas/cards'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
+
+declare const __SRC_DIR__: string
 
 const noop = () => {}
 const op = () => Promise.resolve({} as OpResult)
@@ -134,3 +138,16 @@ test('a no-harness row is never replaced with a needless compact arrow',
     assert.equal(view.el.querySelectorAll('.hs-none').length, 4,
       'the accounts-route one-shot row remains visible on every placement edge')
   })
+
+test('compact bottom arrow has independent hover-name and retired-list layers', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css,
+    /\.sq\.mini:hover \.sq-far-tier,[\s\S]*?z-index:\s*4/s,
+    'the revealed far-zoom name group is above the unclicked arrow')
+  assert.match(css,
+    /\.sq\.mini > \.hsof\.hire-compact\.is-expanded\s*\{[^}]*z-index:\s*5/s,
+    'the clicked compact arrow/menu rises above the hover name')
+  assert.match(css,
+    /\.hsof\s*\{[^}]*transition:[^}]*z-index:\s*3/s,
+    'the unclicked compact arrow retains the existing z 3 layer over retired z 2')
+})

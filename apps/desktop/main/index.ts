@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
@@ -99,6 +99,11 @@ else {
     : process.argv.includes('--background') ? 'started in the background by startup registration'
     : 'started directly')
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
+  /** The options the engine was started with, mirrored out of the boot block
+   *  so the tray's restart entry can hand the SAME ones back to the engine.
+   *  Undefined until boot has composed them, and the entry stays disabled
+   *  until then - there is nothing to restart before the first start. */
+  let engineRestartOptions: EngineOptions | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
@@ -263,12 +268,41 @@ else {
       automatic.enabled = canInstallUnattended()
     }
   }
+  /** Whether anything else is already taking the engine down or the app with
+   *  it. A restart offered during a quit, an update install or an installer
+   *  upgrade would fight the very shutdown those paths are performing. */
+  const engineRestartBlocked = () => !engineRestartOptions || quitting || updateApplying || installerUpgradeShutdown
+  const refreshTrayEngine = () => {
+    if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress, engineRestartBlocked())
+  }
+  /** THE ONE WAY A RESTART IS STARTED, and it starts no process of its own:
+   *  `Engine.restart` stops, proves the stop, and goes back through the same
+   *  `start()` the application boots with.
+   *
+   *  Nothing here reports success. The engine's own 'status' event rebuilds
+   *  the tray when the engine says it is ready, so the icon, the tooltip and
+   *  this row follow the engine rather than the click. Only FAILURE is
+   *  announced, by the same dialog convention a failed update install uses -
+   *  a restart that silently did nothing would leave the user unable to tell
+   *  which of the two happened, and the next thing they do depends on it. */
+  const restartEngine = async () => {
+    const options = engineRestartOptions
+    if (!options || engineRestartBlocked() || engine.restartInProgress) return
+    const attempt = engine.restart(options)
+    refreshTrayEngine()   // in flight from here: the row says so and stops accepting clicks
+    try { await attempt }
+    catch (error) {
+      await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not restart its engine.',
+        detail: error instanceof Error ? error.message : 'Unknown restart error' })
+    }
+    finally { rebuildTray() }
+  }
   const rebuildTray = () => {
     const image = runtimeIcon()
     tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
-    if (trayMenuOpen) { refreshTrayUpdates(); return }
+    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
     // Without update support (dev-channel install, unpackaged development)
@@ -296,11 +330,17 @@ else {
           checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
       ] },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
-      { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
+      { type: 'separator' },
+      // Hidden while the engine runs (user ruling 2026-09-15), so this group
+      // is ordinarily just Quit and the menu keeps the shape it has today.
+      { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false,
+        click: () => { void restartEngine() } },
+      { label: 'Quit Orgtree', click: () => app.quit() },
     ])
     trayMenu.on('menu-will-show', () => { trayMenuOpen = true })
     trayMenu.on('menu-will-close', () => { trayMenuOpen = false })
     refreshTrayUpdates()
+    refreshTrayEngine()
     tray.setContextMenu(trayMenu)
   }
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
@@ -1169,6 +1209,9 @@ else {
         dataRoot: process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data'),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
+      // The tray's restart entry restarts THIS engine, with the runtime,
+      // data root and UI directory it was started with - never a set of its own.
+      engineRestartOptions = engineOptions
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
       if (!await engine.attach(engineOptions)) {
