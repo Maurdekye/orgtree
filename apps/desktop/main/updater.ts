@@ -571,6 +571,12 @@ export interface HandoffResult {
    *  assigns $INSTDIR, measured against the real parser. Kept so a log from a
    *  future incident still says which form was sent. */
   directoryQuotedByNode?: boolean
+  /** ⚠ THIS HANDOFF WENT TO A FIXTURE, not to the downloaded installer, and
+   *  this names which one. Present ONLY on a build packaged to permit a
+   *  substitution (update-fixture.ts), and its whole job is to keep a rehearsal
+   *  from reading afterwards as a real update. An update log that cannot tell
+   *  the two apart is worse than one that records neither. */
+  fixture?: string
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
@@ -584,7 +590,46 @@ export interface InstallableUpdater {
   install(silent: boolean, runAfter: boolean): boolean
 }
 
-export function installDownloadedUpdate(updater: InstallableUpdater, directory: string): HandoffResult {
+/** The argument vector the NSIS handoff uses, in the order it uses it. Named
+ *  here so the FIXTURE route is handed exactly what the real route is handed:
+ *  a fixture reached with different arguments would compare two different
+ *  things and quietly answer the wrong question. `/D=` stays LAST, which NSIS
+ *  requires — see installDirectoryIsSafeForNsis for what Windows does to it on
+ *  the way. Measured on two real machines: `--updated`, `/S`, `--force-run`,
+ *  `/D=<directory>`. */
+export function updateHandoffArgs(directory: string): string[] {
+  return ['--updated', '/S', '--force-run', `/D=${directory}`]
+}
+
+/** Substitutes a harmless fixture for the downloaded installer. See
+ *  update-fixture.ts for when a build is allowed to have one. `spawn` is
+ *  injected so this seam is drivable without starting anything. */
+export interface FixtureHandoff {
+  installer: string
+  spawn: (file: string, args: string[]) => { pid?: number }
+}
+
+export function installDownloadedUpdate(
+  updater: InstallableUpdater, directory: string, fixture?: FixtureHandoff): HandoffResult {
+  // ⚠ THE FIXTURE ROUTE DOES NOT GO THROUGH electron-updater, AND IT SAYS SO IN
+  // THE RESULT. The library spawns the file IT downloaded; there is no hook to
+  // point that at something else, so a substitution has to own the spawn. What
+  // is preserved is everything the comparison is about — the same argument
+  // vector, the same detached shape, the same destination — and what is NOT
+  // preserved is the library's own bookkeeping, which is why `fixture` is
+  // reported: a fixture handoff must never be readable afterwards as a real
+  // one. Contaminating the durable record with an indistinguishable rehearsal
+  // is the one way this mechanism could make the incident evidence worse
+  // instead of better.
+  if (fixture) {
+    const child = fixture.spawn(fixture.installer, updateHandoffArgs(directory))
+    return {
+      accepted: typeof child.pid === 'number',
+      directory,
+      fixture: fixture.installer,
+      ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryQuotedByNode: true }),
+    }
+  }
   // KEPT AS IT WAS, DELIBERATELY. A version of this rerouted whitespace-bearing
   // directories — omitting /D= so NSIS resolved its own registered location,
   // and refusing the silent handoff when the registry could not confirm it. The
