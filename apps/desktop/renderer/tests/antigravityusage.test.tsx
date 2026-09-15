@@ -112,7 +112,7 @@ test('UsageBars displays authoritative tier for Gemini account when available', 
   assert.match(text, /25%/)
 })
 
-test('UsageBars displays tier unavailable when Gemini tier is missing', async (t) => {
+test('UsageBars omits tier line when Gemini tier is missing', async (t) => {
   const agy: AccountUsage = {
     account: 'antigravity', provider: 'Antigravity', label: 'agy@example.test',
     available: true, limits: [
@@ -124,9 +124,46 @@ test('UsageBars displays tier unavailable when Gemini tier is missing', async (t
   const view = await mountView(<UsageBars u={agy} />, el => el)
   t.after(async () => { await view.unmount() })
   const text = view.el.textContent ?? ''
-  assert.match(text, /Antigravity tier unavailable/)
+  assert.doesNotMatch(text, /tier unavailable/)
   assert.match(text, /Gemini Models · Weekly/)
-  assert.doesNotMatch(text, /Standard|Advanced|Pro|Consumer/)
+  assert.match(text, /25%/)
+  assert.doesNotMatch(text, /Standard|Advanced|Pro|Consumer|Plus|Ultra/)
+})
+
+test('Google plan rows require canonical metadata across available, unavailable and unsupported usage', async () => {
+  for (const state of [
+    { available: true },
+    { available: false, error: 'fixture usage error' },
+    { available: false, unsupported: true, error: 'fixture unsupported' },
+  ]) {
+    for (const tier of [undefined, '', 'unknown', 'unavailable', 'none', 'Consumer', 'personal',
+                        'Pro', 'Antigravity Pro', 'Google AI Plus', 'Google AI Pro', 'Google AI Ultra']) {
+      const view = await mountView(<UsageBars u={{
+        account: 'google-secondary', provider: 'google', label: 'fixture@example.test',
+        ...state, tier, limits: [],
+      }} />, el => el)
+      try {
+        const lines = [...view.el.querySelectorAll('.dim')].map(el => el.textContent)
+        const expected = tier?.startsWith('Google AI ') ? [tier] : []
+        assert.deepEqual(lines.filter(line => line !== 'no limits reported' && line !== state.error), expected)
+        assert.doesNotMatch(view.el.textContent ?? '', /tier unavailable/)
+        if (state.error) assert.ok(view.el.textContent?.includes(state.error))
+      } finally { await view.unmount() }
+    }
+  }
+})
+
+test('non-Google unavailable and unsupported rows retain their original error-only rendering', async () => {
+  for (const provider of ['Claude', 'Codex']) {
+    for (const unsupported of [false, true]) {
+      const view = await mountView(<UsageBars u={{
+        account: 'primary', provider, label: 'fixture@example.test',
+        available: false, unsupported, plan: 'max', error: 'fixture error', limits: [],
+      }} />, el => el)
+      try { assert.equal(view.el.textContent, 'fixture error') }
+      finally { await view.unmount() }
+    }
+  }
 })
 
 test('multiple Gemini accounts can show different tiers without cross-account attribution', async (t) => {
@@ -177,7 +214,7 @@ test('non-Gemini provider rows remain unchanged', async (t) => {
   assert.doesNotMatch(v3.el.textContent ?? '', /tier unavailable/)
 })
 
-test('UsageBars and modal reproduce image-115 resolution with tier unavailable and intact quota buckets', async (t) => {
+test('UsageBars and modal reproduce image-115 and image-116 resolution with tier line omitted and intact quota buckets', async (t) => {
   const agy: AccountUsage = {
     account: 'antigravity', provider: 'Antigravity', label: 'ncolaprete@gmail.com',
     available: true, limits: [
@@ -202,7 +239,7 @@ test('UsageBars and modal reproduce image-115 resolution with tier unavailable a
   const viewBars = await mountView(<UsageBars u={agy} />, el => el)
   t.after(async () => { await viewBars.unmount() })
   const barText = viewBars.el.textContent ?? ''
-  assert.match(barText, /Antigravity tier unavailable/)
+  assert.doesNotMatch(barText, /tier unavailable/)
   assert.doesNotMatch(barText, /Consumer/)
   assert.match(barText, /Gemini Models · Weekly/)
   assert.match(barText, /26%/)
@@ -214,7 +251,7 @@ test('UsageBars and modal reproduce image-115 resolution with tier unavailable a
     const viewModal = await mountView(<UsageModal close={() => {}} />, el => el)
     await inAct(async () => { await flush(8) })
     const modalText = viewModal.el.textContent ?? ''
-    assert.match(modalText, /Antigravity tier unavailable/)
+    assert.doesNotMatch(modalText, /tier unavailable/)
     assert.doesNotMatch(modalText, /Consumer/)
     assert.match(modalText, /ncolaprete@gmail\.com/)
     assert.match(modalText, /Gemini Models · Weekly/)

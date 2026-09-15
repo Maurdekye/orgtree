@@ -3,7 +3,7 @@
 Verifies:
 1. Gemini usage displays the authoritative account tier on the correct account row when available.
 2. Multiple Gemini accounts can show different tiers without cross-account attribution.
-3. Missing or unresolved tier metadata is shown as unknown/unavailable rather than guessed.
+3. Missing or unresolved tier metadata is omitted rather than guessed.
 4. Existing usage windows, percentages, resets, freshness labels, and provider rows remain unchanged.
 5. No credential or billing secrets reach the renderer or API payload.
 """
@@ -23,6 +23,14 @@ os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 
 from orgtree import accountusage, antigravity_limits, providers, registry, store  # noqa: E402
+
+
+def setUpModule():
+    # This suite is fixture-only. Missing mocks must never reach a locally
+    # installed CLI; tests of command responses override this guard explicitly.
+    guard = mock.patch('subprocess.run', side_effect=OSError('live CLI disabled in tier tests'))
+    guard.start()
+    unittest.addModuleCleanup(guard.stop)
 
 
 def _base_usage_result(*, turns: int = 0, total_tokens: int = 0) -> dict:
@@ -359,12 +367,12 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
     Covers:
     - Status probe preferred when supported with structured JSON output.
     - Status probe ignored and rejected if ungrounded/billed (num_turns > 0).
-    - Structured log extraction of authMethod (consumer -> Consumer, enterprise -> Enterprise).
+    - Authentication classifications are never subscription plans.
     - Structured log extraction of SetUserTier and keyring userTier.
-    - Image-115 reproduction: ncolaprete@gmail.com with authMethod=consumer resolves Consumer tier
+    - Image-115/116 reproduction: authMethod=consumer omits the tier
       while preserving all 4 quota windows.
     - Cross-account attribution isolation for probe log entries.
-    - Unavailable retained when every supported structured source genuinely lacks tier.
+    - No tier emitted when supported structured sources lack a plan.
     - Secret and billing identifier exclusion from probe log lines.
     """
 
@@ -462,9 +470,9 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
         self.assertEqual(email_p, "user@example.test")
         self.assertIsNone(tier_p)
 
-    def test_image_115_reproduction_retains_tier_unavailable_with_all_quota_windows(self):
-        """Reproduction of uploads/image-115.png: ncolaprete@gmail.com with authMethod=consumer
-        retains tier unavailable presentation while preserving all 4 quota windows.
+    def test_image_115_and_116_reproduction_omits_tier_with_all_quota_windows(self):
+        """Reproduction of uploads/image-115.png and uploads/image-116.png:
+        ncolaprete@gmail.com with authMethod=consumer omits tier while preserving all 4 quota windows.
         """
         image_115_usage = {
             "conversation_id": "",
@@ -598,8 +606,8 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
         email, tier = providers._extract_antigravity_log_tier(foreign_log, "user@example.test")
         self.assertIsNone(tier)
 
-    def test_tier_unavailable_when_all_structured_sources_lack_tier(self):
-        """Retains unavailable presentation when no supported structured source reports tier."""
+    def test_tier_omitted_when_all_structured_sources_lack_tier(self):
+        """No tier is emitted when no supported structured source reports one."""
         usage_res = _base_usage_result()
         ambient_status = {
             "installed": True,
@@ -724,7 +732,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
             "email": "user@example.test", "version": "1.3.0",
         }
 
-        # Step 1: on v1, /status is unsupported; fallback to tier unavailable
+        # Step 1: on v1, /status is unsupported; tier is omitted
         with mock.patch.object(providers, "antigravity_status", return_value=status_v1), \
              mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
              mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res), \
