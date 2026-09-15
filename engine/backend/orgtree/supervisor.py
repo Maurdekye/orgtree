@@ -4236,7 +4236,7 @@ def clean_env() -> dict[str, str]:
     # and whether the HOST is reachable off loopback is not the agent's
     # business — strip it here rather than let it ride into every turn.
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
-    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
+    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
         env.pop(secret, None)
     # §9.5 (redteam finding 2026-08-05, measured): a HOST-level Anthropic key
     # silently switched EVERY keyless org — kiosks included — off the
@@ -4314,7 +4314,7 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
         ks = str(k)
         if ks.startswith(("ANTHROPIC_", "ORGTREE_AGENT_PARENT_", "ORGTREE_AGENT_LEGACY_")) or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
                 "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN",
-                "ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
+                "ORGTREE_V2_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
             continue
         out[ks] = str(v)
     return out
