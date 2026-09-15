@@ -19,7 +19,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
-import { buildPermitsUpdateFixture, prepareUpdateFixture, UPDATE_FIXTURE_ENV } from './update-fixture'
+import { buildPermitsUpdateFixture, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -42,7 +42,15 @@ app.setAppUserModelId(identity.appUserModelId)
 // Updates exist only for the packaged release channel: a dev-channel install
 // ships no feed, and everything update-shaped gates on this rather than on
 // app.isPackaged so it can never probe the release's install scope either.
-const updatesSupported = identity.updatesSupported
+// ⚠ A REHEARSAL BUILD WITHOUT AN ISOLATED PRIVATE FEED HAS NO UPDATER AT ALL.
+// The fixture only substitutes at the HANDOFF, which is the end of a flow that
+// begins with a feed saying a newer version exists — so a fixture-composed
+// build needs a feed before its in-app entry is reachable. Falling back to the
+// packaged feed would point that build at the PUBLIC release feed and let a
+// private rehearsal download a real update, so the fallback is refusal: no
+// private feed, no checking, and the build behaves like an ordinary dev build.
+const updateFeed = privateFeedDecision({ requested: process.env[UPDATE_FEED_ENV] })
+const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused'
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 const installerUpgradeRequested = hasInstallerUpgradeRequest(process.argv)
@@ -1267,6 +1275,17 @@ else {
       // leaves a window in which a download completes with no listener attached
       // and an attempt runs before it is known whether a hold applies.
       if (updatesSupported) {
+        // THE PRIVATE FEED REPLACES THE PACKAGED ONE, and only a build composed
+        // for rehearsal can reach this at all: on a released build the decision
+        // is 'default' or 'ignored' and this branch never runs, so the packaged
+        // release feed is what a real installation keeps using.
+        if (updateFeed.kind === 'private') {
+          autoUpdater.setFeedURL({ provider: 'generic', url: updateFeed.url })
+          updateLog.record('update-feed-private',
+            `checking an isolated loopback feed at [${updateFeed.url}] instead of the `
+            + 'packaged release feed; this build is composed for rehearsal',
+            { from: app.getVersion(), to: app.getVersion() })
+        }
         autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.allowPrerelease = true
         // ⚠ THE OFFER MUST BE JUDGED BEFORE ANYTHING IS DELETED. Left on,

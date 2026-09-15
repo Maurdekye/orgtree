@@ -340,3 +340,85 @@ export function prepareUpdateFixture(deps: PrepareFixtureDeps): PreparedFixture 
 
   return { decision, handoff, attempt: handoff, completed, spawnError: () => spawnError }
 }
+
+// ------------------------------------------------------------- the private feed
+//
+// A rehearsal build needs an update to be OFFERED before its in-app entry can be
+// reached at all — the fixture only substitutes at the handoff, which is the end
+// of a flow that starts with a feed saying a newer version exists. This is that
+// feed, and the whole design goal is ISOLATION: a build composed for rehearsal
+// must never talk to the public release feed, because doing so would let a
+// private test download a real update.
+//
+// ⚠ SAME ROUTING DISCIPLINE AS THE FIXTURE: COMPILED MODE FIRST. A production
+// build keeps its packaged feed no matter what the environment says; a stray
+// value is logged and ignored, never honoured and never turned into a refusal
+// that would stop real updates.
+//
+// ⚠ AND A REHEARSAL BUILD WITH NO PRIVATE FEED HAS NO UPDATER AT ALL. That is
+// the isolation guarantee, and it is deliberately the strict direction: falling
+// back to the packaged feed would point a fixture-composed build straight at the
+// public release feed, which is exactly the thing this must never do. No feed,
+// no checking — the build behaves like an ordinary dev build.
+
+export const UPDATE_FEED_ENV = 'ORGTREE_UPDATE_FEED'
+
+export type FeedDecision =
+  /** Use the packaged feed. Production, and nothing asked otherwise. */
+  | { kind: 'default' }
+  /** Production, and a value was set anyway: the packaged feed is used and the
+   *  fact is recorded. */
+  | { kind: 'ignored', reason: string }
+  /** A rehearsal build with an isolated loopback feed. */
+  | { kind: 'private', url: string }
+  /** A rehearsal build that must NOT check for updates: either no private feed
+   *  was named, or the one named is not isolated. */
+  | { kind: 'refused', reason: string }
+
+/** ⚠ LOOPBACK ONLY, AND THIS IS THE ISOLATION GUARANTEE MADE CHECKABLE.
+ *  "Private" is otherwise a claim about intent; requiring the host to be a
+ *  loopback literal makes it a property of the value that a test can assert and
+ *  that cannot be satisfied by a public URL with a reassuring name. */
+export function isLoopbackFeedUrl(value: string): boolean {
+  let url: URL
+  try { url = new URL(value) } catch { return false }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+export interface FeedInputs {
+  requested?: string
+  /** Defaults to this build's own composition; injected only for tests. */
+  permitted?: boolean
+}
+
+export function privateFeedDecision({ requested, permitted }: FeedInputs): FeedDecision {
+  const named = (requested ?? '').trim()
+  if (!(permitted ?? buildPermitsUpdateFixture())) {
+    if (!named) return { kind: 'default' }
+    return {
+      kind: 'ignored',
+      reason: `${UPDATE_FEED_ENV} named [${named}] and was IGNORED: this build was not `
+        + 'composed for update-fixture rehearsal, so it keeps its packaged release '
+        + 'feed and updates normally.',
+    }
+  }
+  if (!named) {
+    return {
+      kind: 'refused',
+      reason: `this build was composed for update-fixture rehearsal but ${UPDATE_FEED_ENV} `
+        + 'named no private feed. It will NOT check for updates: falling back to the '
+        + 'packaged release feed would point a rehearsal build at the public feed.',
+    }
+  }
+  if (!isLoopbackFeedUrl(named)) {
+    return {
+      kind: 'refused',
+      reason: `${UPDATE_FEED_ENV} named [${named}], which is not an isolated loopback `
+        + 'feed (http/https on localhost, 127.0.0.1 or ::1). It will NOT check for '
+        + 'updates rather than reach a feed outside this machine.',
+    }
+  }
+  return { kind: 'private', url: named }
+}

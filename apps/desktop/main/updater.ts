@@ -42,6 +42,11 @@ export type UpdateStage =
    *  stray variable changing nothing must still be READABLE as having changed
    *  nothing; it is not a refusal, because the real update proceeded. */
   | 'update-fixture-ignored'
+  /** This build is checking an ISOLATED LOOPBACK feed rather than the packaged
+   *  release feed. Only a build composed for rehearsal can record this, and a
+   *  log that did not say so would let a private rehearsal be mistaken for a
+   *  real update check afterwards. */
+  | 'update-feed-private'
   /** The fixture RAN AND FINISHED. Distinct from 'installer-running' because
    *  nothing was installed, and distinct from 'installer-never-started'
    *  because it did run — a fixture that completes faster than one poll
