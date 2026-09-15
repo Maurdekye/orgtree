@@ -1,7 +1,6 @@
 """Bounded operator attention projection across organizations; no providers."""
 import hashlib
 from . import store
-from .notification_state import question_items
 
 # Terminal outcomes are actionable even when they were not authored as urgent
 # mail.  Keep this classification structural: changing the rendered prose
@@ -47,10 +46,12 @@ def notices(limit=200, offset=0):
                 'Message from '+str(mail.get('from') or org.d.get('name')),
                 (mail.get('urgent_reason') if mail.get('urgent') else None) or mail.get('body') or mail.get('text') or 'Open the message in Orgtree.',
                 mail.get('from'), source_id=mail.get('id'))
-        attached = question_items(org.d)
         for item in org.d.get('work_items') or []:
             attention = item.get('manual_attention')
-            if attention or item.get('slug') in attached:
+            # An open attached question already has its own question notice.
+            # Keep the ticket-level notice for independent/manual attention,
+            # including when both causes are present.
+            if attention:
                 owner = item.get('owner') or {}
                 epoch = item.get('notification_attention_epoch', (attention or {}).get('set_rev') or 1)
                 add(org,'work:'+str(item.get('slug'))+':'+str(epoch),
