@@ -2698,6 +2698,76 @@ button.cc-name:hover {
   border-radius: 8px; padding: 0 5px;
 }
 .mailer-read { flex: 1; min-width: 0; overflow-y: auto; padding: 10px 14px; }
+
+/* ------------------------------------------- the list as an overlay panel
+   A narrow modal has no room for a list beside a reading pane, so below the
+   threshold `CollapsibleMailer` measures on the `.mailer` box itself (these
+   surfaces pin, resize and pop out, so a viewport media query would be
+   answering a different question) the list leaves the layout and becomes an
+   overlay opened from the rail at the top-left — the canvas org drawer's
+   idiom, scoped to one modal instead of the screen.
+
+   ⚠ `display: contents` IS THE WHOLE TRICK. Wide, the wrapper is not a box at
+   all: `.mailer-list` stays the flex item it has always been, so every rule
+   written against it — the docket's 52%, the gallery's third, the mobile
+   sheet — still lands exactly where it did. The list element is therefore
+   never re-parented and never unmounted, which is what carries its scroll
+   position, its selection and how far it has paged through the collapse. */
+.mailer-listwrap { display: contents; }
+.mailer.narrow-list {
+  position: relative;
+  /* the rail's width, published so the panel and the veil can start where it
+     ends instead of three hand-copied numbers drifting apart */
+  --listrail: 34px;
+}
+.mailer.narrow-list > .mailer-listwrap {
+  display: block; position: absolute; top: 0; bottom: 0; z-index: 3;
+  left: var(--listrail);
+  width: min(300px, calc(100% - var(--listrail) - 40px));
+  background: var(--bg); border-right: 1px solid var(--line-soft);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .5);
+  /* parked behind the rail, shadow and all; `.mailer`'s own `overflow:
+     hidden` clips what is left.
+     ⚠ AN ANIMATION ON THE OPEN STATE, NOT A TRANSITION on the element — the
+     canvas drawer's own idiom, and here it is also the only thing that works:
+     the wrapper enters this rule from `display: contents`, where it had no
+     box at all, and a transition declared across that change leaves Chromium
+     rendering the identity transform instead of this one (measured, not
+     guessed — the panel simply sat on top of the reading pane). */
+  transform: translateX(calc(-100% - var(--listrail) - 2px));
+  outline: none;
+}
+.mailer.narrow-list.narrow-list-open > .mailer-listwrap {
+  transform: none; animation: mailerlistslide .18s ease-out;
+}
+@keyframes mailerlistslide {
+  from { transform: translateX(calc(-100% - var(--listrail) - 2px)); }
+}
+/* the list fills the panel it is now in, whatever width its own rules asked
+   for while it was a column */
+.mailer.narrow-list > .mailer-listwrap > .mailer-list {
+  width: 100%; max-width: none; min-width: 0; height: 100%;
+  border-right: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mailer.narrow-list.narrow-list-open > .mailer-listwrap { animation: none; }
+}
+/* THE CONTROL. A rail rather than a floating button: it holds its own column,
+   so it can never sit on top of what the reading pane is showing, and the
+   panel slides out beside it rather than under it. */
+.mailer-listrail {
+  flex: none; width: var(--listrail);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 6px 0; gap: 6px;
+  border-right: 1px solid var(--line-soft); background: var(--panel-2);
+  position: relative; z-index: 5;
+}
+.mailer-listtoggle { font-size: 15px; padding: 3px 5px; line-height: 1; }
+.mailer-listtoggle.on { background: var(--panel); color: var(--ink-strong); }
+.mailer-listveil {
+  position: absolute; top: 0; bottom: 0; right: 0; left: var(--listrail);
+  z-index: 2; background: rgba(0, 0, 0, .45);
+}
 .mailer-head {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
   font-family: var(--mono); font-size: 11px; color: var(--ink);
