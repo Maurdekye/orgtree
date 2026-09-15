@@ -3403,6 +3403,73 @@
       ],
       "additionalProperties": false
     },
+    "LifecycleSubtreePromoted": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.subtree_promoted"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/NodeRef"
+        },
+        "promoted": {
+          "type": "string"
+        },
+        "demoted": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "new_parent",
+            "peer",
+            "former_parent",
+            "caller_child",
+            "target_child",
+            "promoted",
+            "demoted"
+          ]
+        },
+        "by": {
+          "type": "string"
+        },
+        "reports_to_after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subtree": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "promoted",
+        "demoted",
+        "role",
+        "by",
+        "reports_to_after",
+        "subtree"
+      ],
+      "additionalProperties": false
+    },
     "LifecycleMoved": {
       "type": "object",
       "properties": {
@@ -5420,6 +5487,9 @@
         },
         {
           "$ref": "#/$defs/LifecycleSeatSwapped"
+        },
+        {
+          "$ref": "#/$defs/LifecycleSubtreePromoted"
         },
         {
           "$ref": "#/$defs/LifecycleMoved"
@@ -8606,6 +8676,73 @@
       ],
       "additionalProperties": false
     },
+    "PublicLifecycleSubtreePromoted": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.subtree_promoted"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicNodeRef"
+        },
+        "promoted": {
+          "type": "string"
+        },
+        "demoted": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "new_parent",
+            "peer",
+            "former_parent",
+            "caller_child",
+            "target_child",
+            "promoted",
+            "demoted"
+          ]
+        },
+        "by": {
+          "type": "string"
+        },
+        "reports_to_after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subtree": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "promoted",
+        "demoted",
+        "role",
+        "by",
+        "reports_to_after",
+        "subtree"
+      ],
+      "additionalProperties": false
+    },
     "PublicLifecycleMoved": {
       "type": "object",
       "properties": {
@@ -10496,6 +10633,9 @@
         },
         {
           "$ref": "#/$defs/PublicLifecycleSeatSwapped"
+        },
+        {
+          "$ref": "#/$defs/PublicLifecycleSubtreePromoted"
         },
         {
           "$ref": "#/$defs/PublicLifecycleMoved"

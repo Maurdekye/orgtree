@@ -348,6 +348,13 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         nested=F("bool", B, True), by=F("str", B, True, "not named in every variant"),
         reports_to_after=F("str?", B, True), grant_after=F("str?", B, True),
         audience_note=F("str?", B, True)),
+    "lifecycle.subtree_promoted": leaf(
+        "lifecycle", "NodeRef",
+        promoted=F("str", B, True, _VARIANT), demoted=F("str", B, True, _VARIANT),
+        role=F("L[new_parent|peer|former_parent|caller_child|target_child"
+               "|promoted|demoted]", B, True),
+        by=F("str", B, True), reports_to_after=F("str?", B, True),
+        subtree=F("int", B, True)),
     "lifecycle.moved": leaf("lifecycle", "NodeRef", node=F("str", B, True, _YOU),
                             from_parent=F("str?", B, True, _VARIANT), to_parent=F("str?", B, True, _VARIANT),
                             role=F("L[old_parent|old_peer|new_parent|new_peer|self]", B, True),
