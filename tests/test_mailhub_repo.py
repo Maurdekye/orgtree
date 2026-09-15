@@ -80,8 +80,14 @@ def _submodule_clean_and_pinned() -> None:
 
 
 def _no_second_tracked_copy() -> None:
+    # the two files that legitimately CONTAIN the fingerprints: this checker
+    # (it holds the pattern strings) and the runtime suite (it plants the
+    # superseded V2 schema as MIGRATION-INPUT fixture data)
+    knows_the_pattern = {"tests/test_mailhub_repo.py",
+                         "tests/test_mailhub_runtime.py"}
     tracked = [p for p in git("ls-files").splitlines()
-               if p.endswith(".py") and not p.startswith("engine/mailhub")]
+               if p.endswith(".py") and not p.startswith("engine/mailhub")
+               and p not in knows_the_pattern]
     assert tracked, "git ls-files returned nothing — run inside the repo"
     offenders: list[str] = []
     for path in tracked:
