@@ -105,8 +105,8 @@ test('NewOrg renders "+ New organization" button and AdvancedOrgModal tabs use S
   const tabBtns = [...view.el.querySelectorAll('.adv-tab')].map((b) => b.textContent)
   assert.ok(tabBtns.includes('General'), 'General tab exists')
   assert.ok(!tabBtns.includes('general'), 'lowercase general tab absent')
-  assert.ok(tabBtns.includes('Mailserver'), 'Mailserver tab exists')
-  assert.ok(!tabBtns.includes('mailserver'), 'lowercase mailserver tab absent')
+  assert.ok(tabBtns.includes('Mail hub'), 'Mail hub tab exists')
+  assert.ok(!tabBtns.includes('mail hub'), 'lowercase mail hub tab absent')
 
   await view.unmount()
 })

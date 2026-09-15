@@ -574,6 +574,58 @@ def sec_hygiene() -> None:
 
 
 # ===================================================================== §6
+def sec_bundled_hub_sync() -> None:
+    """The ONE integration seam this repo adds to the V1 client (itemized in
+    the mail-hub ticket): the engine hosts the local hub and names its real
+    address in ORGTREE_LOCAL_HUB_ADDRESS. A doc whose implicit local entry
+    points elsewhere — a dynamic-port V2 install, an edited port — is
+    rewritten to the engine's address, and V1's own address-mismatch
+    reconciliation then resets that hub's per-address state (registration
+    re-earned, dedupe ring dropped: the ratified bounded-duplicate trade)."""
+    print("\n§8  the bundled-hub seam (engine-hosted local hub)")
+
+    def _local_entry_follows_the_engine():
+        slug = make_org()
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            hubs = [h for h in (o.d.get("net_hubs") or [])]
+            assert any(h.get("id") == "local" for h in hubs), \
+                "fixture: the org must have an implicit local entry"
+            for h in hubs:
+                if h.get("id") == "local":
+                    h["address"] = "http://127.0.0.1:59999"   # a dead port
+            o.d["net_state"] = {"local": {
+                "registered_at": "2026-09-01T00:00:00Z",
+                "address": "http://127.0.0.1:59999",
+                "seen_ids": ["stale-1"]}}
+            store.save_org(o)
+        os.environ["ORGTREE_LOCAL_HUB_ADDRESS"] = "http://127.0.0.1:7411"
+        try:
+            net._participants()
+            d = store.load_org(slug).d
+            local = next(h for h in d["net_hubs"] if h.get("id") == "local")
+            assert local["address"] == "http://127.0.0.1:7411", local
+            # the state cell described the OLD address; V1's reconciliation
+            # must have dropped it so registration is re-earned at the new one
+            assert "local" not in (d.get("net_state") or {}), d.get("net_state")
+        finally:
+            os.environ.pop("ORGTREE_LOCAL_HUB_ADDRESS", None)
+    check("a stale local-entry address is rewritten to the engine's, and "
+          "that hub's per-address state resets", _local_entry_follows_the_engine)
+
+    def _default_address_honors_the_engine():
+        # an EXPLICIT defaults.json address still wins (user config outranks
+        # the engine); clear it so this measures the seam itself
+        write_defaults(net_hub_address="")
+        os.environ["ORGTREE_LOCAL_HUB_ADDRESS"] = "http://127.0.0.1:7412"
+        try:
+            assert net._default_address() == "http://127.0.0.1:7412"
+        finally:
+            os.environ.pop("ORGTREE_LOCAL_HUB_ADDRESS", None)
+    check("_default_address prefers the engine's bundled-hub address over "
+          "the built-in default", _default_address_honors_the_engine)
+
+
 def sec_username() -> None:
     print("\n§6  username sanitization — the address keeps three parts")
 
@@ -630,6 +682,7 @@ def main() -> int:
     sec_defaults()
     sec_hygiene()
     sec_username()
+    sec_bundled_hub_sync()
 
     print()
     if GAPS:

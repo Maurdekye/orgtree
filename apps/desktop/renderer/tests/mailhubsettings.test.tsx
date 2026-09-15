@@ -3,14 +3,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { AccountsPanel } from '../src/canvas/accounts'
-import { ConnectHub } from '../src/canvas/connections'
+import { AddHub } from '../src/canvas/connections'
 import type { AccountsPayload, ProvidersPayload } from '../src/types'
 
 const g = globalThis as unknown as Record<string, unknown>
 const HUB_CONFIG = {
-  version: 1, enabled: true, bind_host: '127.0.0.1', port: 7370,
-  advertise_host: 'mail.example', tls_configured: false,
-  status: { ready: true, port: 7370, address: 'http://mail.example:7370', public: false },
+  version: 2, port: 7370, bind: '127.0.0.1', name: 'desk', retention_days: null,
+  org_retention_days: 45, public_listener: false, public_listener_port: 7371,
+  status: { running: true, healthy: true, address: 'http://127.0.0.1:7370', exposed: false, hub_name: 'desk', orgs: 1, queued: 0 },
 }
 const ACCOUNTS: AccountsPayload = { version: 2, primary: { id: 'primary', signed_in: true, email: 'me@example.test' }, keys: [], assignments: {} } as unknown as AccountsPayload
 const PROVIDERS: ProvidersPayload = { providers: [] }
@@ -48,23 +48,33 @@ test('Mail hub settings are compact and contain no authentication controls', asy
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('address-only connection submits one field and preserves validation and errors', async () => {
-  const sent: unknown[] = []
-  g.fetch = async (_input: unknown, init?: RequestInit) => {
-    sent.push(JSON.parse(String(init?.body)))
-    return new Response('hub unavailable', { status: 502 })
+test('adding a hub is one address field; the reachability test reports without gating', async () => {
+  const probes: string[] = []
+  g.fetch = async (input: unknown) => {
+    probes.push(String(input))
+    return new Response(JSON.stringify({ ok: true, name: 'office' }), { headers: { 'Content-Type': 'application/json' } })
   }
+  const patches: unknown[] = []
   function Fixture() {
     const [address, setAddress] = useState('https://hub.example')
-    return <ConnectHub slug="org" address={address} setAddress={setAddress} toast={() => {}} />
+    return <AddHub slug="org" address={address} setAddress={setAddress} toast={() => {}}
+      current={[{ id: 'r1', address: 'http://old.example:7370', enabled: true }]} busy={false}
+      apply={async patch => { patches.push(patch); return true }} />
   }
   const view = await mountView(<Fixture />, el => el)
   try {
-    const input = view.el.querySelector<HTMLInputElement>('input[required]')!
     assert.equal(view.el.querySelectorAll('form input').length, 1)
-    await type(input, 'https://hub.example')
+    await inAct(async () => {
+      const buttons = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+      buttons.find(b => b.textContent === 'Test')!.click(); await flush(8)
+    })
+    assert.ok(probes.some(u => String(u).includes('/api/net/probe?address=')))
+    assert.match(view.el.querySelector('[role="status"]')!.textContent!, /Reachable — office/)
     await inAct(async () => { view.el.querySelector<HTMLButtonElement>('button[type="submit"]')!.click(); await flush(8) })
-    assert.deepEqual(sent, [{ address: 'https://hub.example' }])
-    assert.match(view.el.querySelector('[role="alert"]')!.textContent!, /502|hub unavailable/)
+    // the existing list rides along untouched; the new entry is appended
+    assert.deepEqual(patches, [{ net_hubs: [
+      { id: 'r1', address: 'http://old.example:7370', enabled: true },
+      { address: 'https://hub.example', enabled: true },
+    ] }])
   } finally { await view.unmount(); delete g.fetch }
 })
