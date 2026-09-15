@@ -55,9 +55,9 @@ def snapshot(org, nid, args, *, max_bytes):
             resolved = os.path.realpath(target)
             if not os.path.normcase(resolved).startswith(os.path.normcase(os.path.realpath(scratch)).rstrip('\\/') + os.sep):
                 raise LedgerError('delivery destination escapes the agent scratch folder')
-            if row and row[1]:
-                sent = json.loads(row[1])
-                if not target.is_file() or _hash(target) != sent['sha256']:
+            if row and row[1] is not None:
+                sent = _receipt(row[1], identity=identity, name=safe, path='outbox/' + relative)
+                if not target.is_file() or target.stat().st_size != sent['bytes'] or _hash(target) != sent['sha256']:
                     raise LedgerError('delivered snapshot is missing or changed; inspect it and use a new delivery_id to send again')
                 return sent
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +79,25 @@ def snapshot(org, nid, args, *, max_bytes):
             with db:
                 db.execute('UPDATE deliveries SET result=? WHERE id=?', (json.dumps(sent), identity))
             return sent
+
+
+def _receipt(raw, *, identity, name, path):
+    """Refuse damaged saved replies instead of replaying unverified card data."""
+    try:
+        sent = json.loads(raw)
+    except (ValueError, TypeError):
+        sent = None
+    if (not isinstance(sent, dict)
+            or set(sent) != {'name', 'path', 'bytes', 'delivery_id', 'sha256'}
+            or sent['name'] != name or sent['path'] != path
+            or sent['delivery_id'] != identity
+            or type(sent['bytes']) is not int or sent['bytes'] <= 0
+            or not isinstance(sent['sha256'], str)
+            or not re.fullmatch(r'[0-9a-f]{64}', sent['sha256'])):
+        raise LedgerError('saved delivery receipt is invalid; no file was resent. '
+                          'Inspect the existing outbox snapshot and repair the receipt, '
+                          'or use a new delivery_id only if a new delivery is intended')
+    return sent
 
 
 def _hash(path):

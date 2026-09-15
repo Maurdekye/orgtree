@@ -140,6 +140,44 @@ class SendFileSeatTests(unittest.TestCase):
         self.assertEqual(refusal.status_code, 422)
         self.assertIn('missing or changed', refusal.text)
 
+    def test_corrupt_receipt_is_actionable_and_never_recopies(self):
+        from contextlib import closing
+        import json
+        import sqlite3
+        from orgtree import filedelivery
+        args = {'path': 'sample.txt', 'delivery_id': 'corrupt-receipt-delivery'}
+        first = self.call(args=args)
+        self.assertEqual(first.status_code, 200, first.text)
+        sent = first.json()['sent']
+        target = self.source.parent / sent['path']
+        original_bytes = target.read_bytes()
+        # NULL is the intentional unfinished state, but JSON null, empty text,
+        # wrong shapes and card fields inconsistent with this request are not.
+        invalid = ['{broken', '', 'null', '[]', '{}', '"text"']
+        for field, value in [('bytes', True), ('bytes', -1), ('bytes', '16'),
+                             ('sha256', None), ('sha256', 'invalid'),
+                             ('name', 'other.txt'), ('path', '../private.txt'),
+                             ('delivery_id', 'other'), ('extra', 'unexpected')]:
+            invalid.append(json.dumps({**sent, field: value}))
+        with closing(sqlite3.connect(Path(store.DATA_ROOT) / 'file-deliveries.db')) as db:
+            for raw in invalid:
+                with self.subTest(receipt=raw):
+                    db.execute('UPDATE deliveries SET result=? WHERE id=?', (raw, sent['delivery_id']))
+                    db.commit()
+                    with patch.object(filedelivery.shutil, 'copyfileobj', side_effect=AssertionError('recopy')):
+                        refused = self.call(args=args)
+                    self.assertEqual(refused.status_code, 422, refused.text)
+                    self.assertIn('saved delivery receipt is invalid', refused.text)
+                    self.assertIn('no file was resent', refused.text)
+                    self.assertNotIn('sent', refused.json())
+                    self.assertEqual(target.read_bytes(), original_bytes)
+                    self.assertEqual(db.execute('SELECT result FROM deliveries WHERE id=?',
+                                               (sent['delivery_id'],)).fetchone()[0], raw)
+            db.execute('UPDATE deliveries SET result=? WHERE id=?', (json.dumps(sent), sent['delivery_id']))
+            db.commit()
+        self.assertEqual(self.call(args=args).json(), first.json())
+        self.assertEqual(len(list((self.source.parent / 'outbox').glob('delivery-*/*'))), 1)
+
     def test_one_card_on_replayed_response_and_card_after_lost_response(self):
         from orgtree import filedelivery
         response = self.call(args={'path': 'sample.txt', 'delivery_id': 'one-visible-download'})
