@@ -25,6 +25,37 @@ def tearDownModule():
     _temp.cleanup()
 
 class NotificationsTests(unittest.TestCase):
+    def test_question_only_attention_emits_question_notice(self):
+        org = fixture_org('question-attention')
+        org.d['asks'] = [{'id': 'q1', 'node': 'agent', 'status': 'open',
+                          'questions': [{'question': 'Which?',
+                                         'work_item': 'choose'}]}]
+        org.d['work_items'] = [{'slug': 'choose', 'title': 'Choose',
+                                'owner': {'node': 'agent'}}]
+        store.save_org(org)
+
+        rows = [r for r in desktop_notifications.notices(limit=1000)['notices']
+                if r['org'] == 'question-attention']
+        self.assertEqual([r['kind'] for r in rows], ['question'])
+        self.assertEqual(rows[0]['source_id'], 'q1')
+
+    def test_question_and_manual_attention_emit_distinct_notices(self):
+        org = fixture_org('question-and-manual-attention')
+        org.d['asks'] = [{'id': 'q1', 'node': 'agent', 'status': 'open',
+                          'questions': [{'question': 'Which?',
+                                         'work_item': 'choose'}]}]
+        org.d['work_items'] = [{'slug': 'choose', 'title': 'Choose',
+                                'owner': {'node': 'agent'},
+                                'manual_attention': {'set_rev': 1,
+                                                     'reason': 'Review this'}}]
+        store.save_org(org)
+
+        rows = [r for r in desktop_notifications.notices(limit=1000)['notices']
+                if r['org'] == 'question-and-manual-attention']
+        self.assertEqual([r['kind'] for r in rows], ['question', 'work-attention'])
+        self.assertEqual(next(r for r in rows if r['kind'] == 'work-attention')['body'],
+                         'Review this')
+
     def test_cross_org_projection_dismissal_and_gate(self):
         first=fixture_org('one'); second=fixture_org('two')
         first.d['asks']=[{'id':'q1','node':'agent','status':'open','questions':[{'question':'answer me'}]}]
@@ -138,7 +169,7 @@ class NotificationsTests(unittest.TestCase):
         store.save_org(org)
         item['manual_attention'] = None
         store.save_org(org)
-        self.assertEqual(work()[0]['id'], initial, 'attached question keeps effective attention set')
+        self.assertEqual(work(), [], 'question-only attention has no ticket-level notice')
         org.d['asks'][0]['status'] = 'withdrawn'
         store.save_org(org)
         self.assertEqual(work(), [])
