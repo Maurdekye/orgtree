@@ -171,6 +171,15 @@ export function updateFixtureBuildMark(): string | null {
 export const UPDATE_FIXTURE_RECEIPT_ENV = 'ORGTREE_UPDATE_FIXTURE_RECEIPT'
 export const UPDATE_FIXTURE_TOKEN_ENV = 'ORGTREE_UPDATE_FIXTURE_TOKEN'
 /** The line the fixture echoes its token back on. */
+/** ⚠ THE TERMINAL RECORD, and it must be the LAST thing the fixture writes.
+ *  An earlier shape echoed the token in the middle of the receipt and checked
+ *  for it with a substring match, so a write TRUNCATED AFTER THE TOKEN still
+ *  read as a completed run. No attacker is needed for that — the fixture's own
+ *  partial output is enough. The fixture now assembles the whole receipt, ends
+ *  it with this line, and publishes it by RENAME, so a reader sees either the
+ *  complete record or no file at all. */
+export const UPDATE_FIXTURE_COMPLETE_LINE = '[fixture-complete] '
+/** Retained for the receipt's readable body; NOT what completion is judged on. */
 export const UPDATE_FIXTURE_TOKEN_LINE = '[fixture-token] '
 
 export interface FixtureIo {
@@ -205,6 +214,13 @@ export interface PrepareFixtureDeps {
 
 export interface PreparedFixture {
   decision: FixtureDecision
+  /** WHAT TO PASS TO installDownloadedUpdate, and the reason it exists as its
+   *  own field: `undefined` and `refused` are DIFFERENT. Undefined means no
+   *  fixture was requested, so the ordinary handoff runs and production
+   *  behaviour is untouched. Refused means one WAS requested and cannot be
+   *  used, and the handoff must be declined rather than quietly performing a
+   *  real installation — which is exactly what an earlier revision did. */
+  attempt?: FixtureAttemptLike
   /** Absent unless the decision is active. */
   handoff?: FixtureHandoffLike
   /** Did the fixture RUN AND FINISH? Content-checked, not existence-checked. */
@@ -215,6 +231,8 @@ export interface PreparedFixture {
 
 /** Structurally the updater's FixtureHandoff; declared here to keep this module
  *  free of a cycle back into updater.ts. */
+export type FixtureAttemptLike = FixtureHandoffLike | { refused: string }
+
 export interface FixtureHandoffLike {
   installer: string
   receipt: string
@@ -240,8 +258,10 @@ export function prepareUpdateFixture(deps: PrepareFixtureDeps): PreparedFixture 
         kind: 'refused',
         reason: `the update fixture receipt path [${deps.receiptPath}] already exists `
           + 'before this attempt started, so a completed run could not be told from a '
-          + 'stale one; the ordinary installer handoff was used unchanged',
+          + 'stale one; the handoff was DECLINED rather than performing a real update',
       },
+      attempt: { refused: `the update fixture receipt path [${deps.receiptPath}] already `
+        + 'existed before this attempt started' },
       completed: () => false,
       spawnError: () => spawnError,
     }
@@ -253,21 +273,33 @@ export function prepareUpdateFixture(deps: PrepareFixtureDeps): PreparedFixture 
       // A DIRECTORY EXISTS TOO. So does an empty file, and so does a partial
       // write. Existence was never evidence that the fixture finished.
       if (!deps.io.statSync(deps.receiptPath).isFile()) return false
+      // AN EXACT TERMINAL LINE, not a substring anywhere in the file. The
+      // fixture publishes atomically, so a readable receipt is a complete one;
+      // requiring the terminal line as its own line means a truncated or
+      // concatenated body cannot satisfy it even if a publish ever were not
+      // atomic.
+      const wanted = UPDATE_FIXTURE_COMPLETE_LINE + deps.token
       return deps.io.readFileSync(deps.receiptPath, 'utf8')
-        .includes(UPDATE_FIXTURE_TOKEN_LINE + deps.token)
+        .split(/\r?\n/).some((line) => line === wanted)
     } catch { return false }
   }
 
   if (decision.kind !== 'active') {
-    return { decision, completed: () => false, spawnError: () => spawnError }
+    return {
+      decision,
+      // 'off' carries no attempt, so the ordinary handoff runs untouched.
+      // 'refused' carries one, so the handoff is declined instead of falling
+      // through to a real installation.
+      ...(decision.kind === 'refused' ? { attempt: { refused: decision.reason } } : {}),
+      completed: () => false,
+      spawnError: () => spawnError,
+    }
   }
 
-  return {
-    decision,
-    handoff: {
-      installer: decision.installer,
-      receipt: deps.receiptPath,
-      spawn: (file, args) => {
+  const handoff: FixtureHandoffLike = {
+    installer: decision.installer,
+    receipt: deps.receiptPath,
+    spawn: (file, args) => {
         const child = deps.spawn(file, args, {
           env: {
             [UPDATE_FIXTURE_RECEIPT_ENV]: deps.receiptPath,
@@ -282,8 +314,7 @@ export function prepareUpdateFixture(deps: PrepareFixtureDeps): PreparedFixture 
         try { child.on('error', (error) => { spawnError ??= error }) } catch { /* not an emitter */ }
         return child
       },
-    },
-    completed,
-    spawnError: () => spawnError,
   }
+
+  return { decision, handoff, attempt: handoff, completed, spawnError: () => spawnError }
 }

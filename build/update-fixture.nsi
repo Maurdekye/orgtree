@@ -49,6 +49,7 @@ Var Receipt
 Var Raw
 Var LingerMs
 Var Token
+Var Partial
 
 ; The receipt goes beside this executable, the way the real installer's own log
 ; chooses its location ($EXEDIR). ORGTREE_UPDATE_FIXTURE_RECEIPT overrides that
@@ -92,7 +93,15 @@ Section
   ${If} $LingerMs != ""
     Sleep $LingerMs
   ${EndIf}
-  FileOpen $9 "$Receipt" w
+  ; ⚠ WRITTEN TO A PARTIAL FILE AND PUBLISHED BY RENAME. A receipt truncated
+  ; after its token used to read as a completed run, and no attacker was needed
+  ; for that - the fixture's own partial output was enough. A reader now sees
+  ; either the whole record or no file at all, and the terminal line below is
+  ; written LAST so even a non-atomic publish could not satisfy the check.
+  StrCpy $Partial "$Receipt.partial"
+  Delete "$Partial"
+  ClearErrors
+  FileOpen $9 "$Partial" w
   FileWrite $9 "[fixture] orgtree update fixture ran; nothing was installed$\r$\n"
   FileWrite $9 "[fixture-cmdline] $Raw$\r$\n"
   FileWrite $9 "[fixture-instdir] $INSTDIR$\r$\n"
@@ -103,6 +112,23 @@ Section
   ${Else}
     FileWrite $9 "[fixture-silent] no$\r$\n"
   ${EndIf}
+  ; The terminal record, LAST. Everything above is the readable body.
+  FileWrite $9 "[fixture-complete] $Token$\r$\n"
   FileClose $9
+  ; ⚠ ANY FAILED WRITE MEANS NO RECEIPT AT ALL. Publishing a partial record
+  ; would be publishing a false completion, so the partial file is discarded
+  ; and this run reports failure by leaving nothing behind.
+  ${If} ${Errors}
+    Delete "$Partial"
+    SetErrorLevel 1
+    Return
+  ${EndIf}
+  Delete "$Receipt"
+  Rename "$Partial" "$Receipt"
+  ${If} ${Errors}
+    Delete "$Partial"
+    SetErrorLevel 1
+    Return
+  ${EndIf}
   SetErrorLevel 0
 SectionEnd

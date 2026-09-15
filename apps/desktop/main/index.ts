@@ -705,9 +705,15 @@ else {
             + 'downloaded installer; this is a rehearsal and did not install anything',
             { from: app.getVersion(), to: version })
         }
+        // ⚠ `attempt`, NOT `handoff`. A REFUSED rehearsal must DECLINE, never
+        // fall through to a real installation: someone who set the fixture
+        // variable is saying 'do not really update', and answering a missing
+        // fixture by installing for real is the worst outcome this code can
+        // produce. `attempt` is undefined only when nothing was requested, which
+        // is the case that keeps ordinary production behaviour untouched.
         return installDownloadedUpdate(
           autoUpdater as unknown as InstallableUpdater, installDirectory(),
-          preparedFixture.handoff)
+          preparedFixture.attempt)
       },
       record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
       layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS, engineConfirmMs: UPDATE_ENGINE_CONFIRM_MS,

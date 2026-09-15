@@ -150,7 +150,7 @@ assert.equal(tokenRun.status, 0, 'the fixture must exit 0 when told where to wri
 assert.ok(fs.existsSync(tokenReceipt),
   'the fixture must write to the path it was TOLD, not beside itself')
 const told = fs.readFileSync(tokenReceipt, 'utf8')
-assert.ok(told.includes('[fixture-token] ' + token),
+assert.ok(told.includes('[fixture-complete] ' + token),
   'the fixture must echo the attempt token so a stale receipt cannot satisfy the proof')
 // And nothing was written beside the executable for this run.
 assert.ok(!fs.existsSync(path.join(path.dirname(exe), 'orgtree-update-fixture-receipt.txt')),
@@ -161,6 +161,17 @@ console.log('PASS the real artifact writes where it is told and echoes the attem
 // the token exists for, checked against the real file rather than a fixture.
 assert.ok(!told.includes('[fixture-token] some-other-attempt'))
 console.log('PASS a receipt carries exactly one attempt token')
+
+// ⚠ THE TERMINAL RECORD IS LAST, AND THE PUBLISH LEAVES NO PARTIAL BEHIND.
+// A receipt truncated after its token used to read as a completed run, so the
+// completion marker is now the final line and the file is published by rename.
+// Both halves are measured on the real artifact rather than argued.
+const toldLines = told.split(/\r?\n/).filter(Boolean)
+assert.equal(toldLines[toldLines.length - 1], '[fixture-complete] ' + token,
+  'the completion record must be the LAST line of the receipt')
+assert.ok(!fs.existsSync(tokenReceipt + '.partial'),
+  'a published receipt must leave no partial file behind')
+console.log('PASS the completion record is last and no partial file survives')
 
 fs.rmSync(temp, { recursive: true, force: true })
 console.log('Update-fixture artifact used no registry writes, elevation, installation or visible window.')

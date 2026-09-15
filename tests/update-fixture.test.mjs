@@ -247,8 +247,8 @@ test('§15 ⚠ THE LIVE HANDOFF IS WIRED TO IT — not just exported and unused'
     'index.ts must import the composed preparation')
   assert.match(index, /requested: process\.env\[UPDATE_FIXTURE_ENV\]/,
     'the live handoff must consult the environment')
-  assert.match(index, /preparedFixture\.handoff\)/,
-    'the live handoff must pass the prepared fixture to installDownloadedUpdate')
+  assert.match(index, /preparedFixture\.attempt\)/,
+    'the live handoff must pass the prepared ATTEMPT, so a refusal declines')
   assert.match(index, /updateLog\.record\('update-fixture-refused'/,
     'a refusal must be recorded, not ignored')
   assert.match(index, /updateLog\.record\('update-fixture-handoff'/,
@@ -391,7 +391,7 @@ test('§24 ⚠ THE PROOF WATCHES WHAT WAS LAUNCHED, not the downloaded installer
 // function, and this drives that function rather than reading source.
 
 const { prepareUpdateFixture, UPDATE_FIXTURE_RECEIPT_ENV, UPDATE_FIXTURE_TOKEN_ENV,
-  UPDATE_FIXTURE_TOKEN_LINE } = enabled.module
+  UPDATE_FIXTURE_TOKEN_LINE, UPDATE_FIXTURE_COMPLETE_LINE } = enabled.module
 
 const RECEIPT = 'C:\\private-data\\update-fixture-abc123.txt'
 const TOKEN = 'abc123'
@@ -419,13 +419,20 @@ function harness({ files = new Map(), childPid = 123, writesReceipt = true } = {
       const told = options?.env?.[UPDATE_FIXTURE_RECEIPT_ENV]
       const token = options?.env?.[UPDATE_FIXTURE_TOKEN_ENV]
       const target = told ?? 'C:\\fixtures\\orgtree-update-fixture-receipt.txt'
-      files.set(target, '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + (token ?? '') + '\r\n')
+      files.set(target, complete(token ?? ''))
     }
     emitError = (error) => listeners.forEach(l => l(error))
     return { pid: childPid, on: (_event, listener) => listeners.push(listener) }
   }
   return { files, spawns, io, spawn, fail: (e) => emitError(e) }
 }
+
+/** A COMPLETE receipt, as the real fixture publishes one: readable body first,
+ *  terminal record last. */
+const complete = (token) =>
+  '[fixture] ran' + CRLF + UPDATE_FIXTURE_TOKEN_LINE + token + CRLF
+  + UPDATE_FIXTURE_COMPLETE_LINE + token + CRLF
+const CRLF = String.fromCharCode(13, 10)
 
 const prepared = (h, over = {}) => prepareUpdateFixture({
   requested: FIXTURE, receiptPath: RECEIPT, token: TOKEN,
@@ -465,18 +472,26 @@ test('§27 ⚠ A STALE RECEIPT CANNOT FABRICATE SUCCESS — it refuses instead o
   const p = prepared(h)
   assert.equal(p.decision.kind, 'refused', 'a pre-existing receipt path must refuse the substitution')
   assert.match(p.decision.reason, /already exists/)
-  assert.match(p.decision.reason, /ordinary installer handoff was used unchanged/)
+  assert.match(p.decision.reason, /DECLINED rather than performing a real update/)
   assert.equal(p.handoff, undefined, 'nothing may be handed off')
+  assert.deepEqual(Object.keys(p.attempt), ['refused'],
+    'it must carry a REFUSAL, so the caller declines rather than installing for real')
   assert.equal(p.completed(), false)
   assert.equal(h.spawns.length, 0, 'and nothing may be spawned')
 })
 
-test('§28 ⚠ EXISTENCE IS NOT COMPLETION: empty, partial, wrong-token and directory all fail', () => {
+test('§28 ⚠ EXISTENCE IS NOT COMPLETION, AND NEITHER IS A TOKEN MID-FILE', () => {
+  // The token used to be echoed in the MIDDLE of the receipt and matched with a
+  // substring search, so a write truncated AFTER the token still read as a
+  // completed run — the fixture's own partial output was enough, no attacker
+  // required. Completion is now an exact TERMINAL line, and the fixture
+  // publishes by rename so a partial file is never visible at all.
   for (const [label, contents] of [
     ['empty', ''],
-    ['partial', '[fixture] ran\r\n'],
-    ['wrong token', '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + 'some-other-attempt\r\n'],
-    ['token line absent', '[fixture] ran\r\n[fixture-instdir] C:\\App\r\n'],
+    ['body only', '[fixture] ran' + CRLF],
+    ['truncated right after the token', '[fixture] ran' + CRLF + UPDATE_FIXTURE_TOKEN_LINE + TOKEN + CRLF],
+    ['terminal line for another attempt', '[fixture] ran' + CRLF + UPDATE_FIXTURE_COMPLETE_LINE + 'other' + CRLF],
+    ['terminal token embedded in a longer line', '[fixture] ran' + CRLF + UPDATE_FIXTURE_COMPLETE_LINE + TOKEN + ' and then some' + CRLF],
     ['a directory', null],
   ]) {
     const h = harness({ writesReceipt: false })
@@ -484,10 +499,10 @@ test('§28 ⚠ EXISTENCE IS NOT COMPLETION: empty, partial, wrong-token and dire
     h.files.set(RECEIPT, contents)
     assert.equal(p.completed(), false, label + ' must not read as completion')
   }
-  // …and the real thing does.
+  // …and a complete receipt does.
   const good = harness({ writesReceipt: false })
   const p = prepared(good)
-  good.files.set(RECEIPT, '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + TOKEN + '\r\n')
+  good.files.set(RECEIPT, complete(TOKEN))
   assert.equal(p.completed(), true)
 })
 
@@ -567,4 +582,82 @@ test('§32 index.ts uses the composed preparation rather than assembling it inli
   assert.match(index, /fixtureCompleted: \(\) => preparedFixture\?\.completed\(\) === true/)
   assert.doesNotMatch(index, /fs\.rmSync\(fixtureReceipt/,
     'the delete-then-trust shape must be gone')
+})
+
+// --------------------------------- a refused rehearsal must NEVER install for real
+
+test('§33 ⚠ A REFUSED FIXTURE DECLINES THE HANDOFF — it does not install for real', () => {
+  // THE WORST OUTCOME THIS CODE CAN PRODUCE. Someone who set the fixture
+  // variable is saying "do not really update". An earlier revision answered a
+  // missing fixture or an unusable receipt path by passing `undefined` to
+  // installDownloadedUpdate, which is the ORDINARY path — so a rehearsal that
+  // could not happen ran a real installation instead. A reviewer measured one
+  // real install call for each of those two cases.
+  for (const [label, attempt] of [
+    ['missing fixture', { refused: 'ORGTREE_UPDATE_FIXTURE named [X], which does not exist' }],
+    ['receipt collision', { refused: 'the update fixture receipt path already existed' }],
+  ]) {
+    let installs = 0
+    const updater = { install: () => { installs++; return true } }
+    const result = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree', attempt)
+    assert.equal(installs, 0, label + ' must never reach the real installer')
+    assert.equal(updater.installDirectory, undefined,
+      label + ' must not even set the library up to install')
+    assert.equal(result.accepted, false,
+      'a declined handoff is what restores the app and tells the user')
+    assert.match(result.fixtureRefused, /.+/, 'the refusal reason must survive into the result')
+    assert.equal(result.fixture, undefined, 'nothing was handed off')
+  }
+})
+
+test('§34 the preparation routes each decision to the right attempt', () => {
+  // off → no attempt at all, so production behaviour is untouched.
+  const off = prepareUpdateFixture({
+    requested: undefined, receiptPath: RECEIPT, token: TOKEN,
+    io: harness().io, spawn: () => ({ pid: 1, on: () => {} }), permitted: true,
+  })
+  assert.equal(off.decision.kind, 'off')
+  assert.equal(off.attempt, undefined, 'nothing requested means the ordinary handoff runs')
+
+  // refused → an attempt that declines.
+  const h = harness()
+  h.files.delete(FIXTURE)
+  const refused = prepareUpdateFixture({
+    requested: FIXTURE, receiptPath: RECEIPT, token: TOKEN,
+    io: h.io, spawn: h.spawn, permitted: true,
+  })
+  assert.equal(refused.decision.kind, 'refused')
+  assert.deepEqual(Object.keys(refused.attempt), ['refused'])
+
+  // active → the handoff itself.
+  const ok = prepared(harness())
+  assert.equal(ok.decision.kind, 'active')
+  assert.equal(ok.attempt, ok.handoff)
+})
+
+test('§35 ⚠ AND THE NO-FIXTURE CASE IS UNTOUCHED — production still installs normally', () => {
+  // The whole point of separating `undefined` from `refused`: an ordinary
+  // installed release, which requests no fixture, must behave exactly as before.
+  const seen = []
+  const updater = { install: (silent, runAfter) => { seen.push({ silent, runAfter }); return true } }
+  const result = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree', undefined)
+  assert.deepEqual(seen, [{ silent: true, runAfter: true }])
+  assert.equal(updater.installDirectory, 'C:\\Program Files\\Orgtree')
+  assert.equal(result.accepted, true)
+  assert.equal(result.fixtureRefused, undefined)
+})
+
+test('§36 a declined rehearsal never reaches the proof as a success', async () => {
+  // Belt and braces: even if a stale receipt existed, a refusal produced no
+  // spawn, so nothing may report completion.
+  const h = harness()
+  h.files.delete(FIXTURE)
+  const p = prepareUpdateFixture({
+    requested: FIXTURE, receiptPath: RECEIPT, token: TOKEN,
+    io: h.io, spawn: h.spawn, permitted: true,
+  })
+  h.files.set(RECEIPT, complete(TOKEN))
+  assert.equal(h.spawns.length, 0, 'a refusal spawns nothing')
+  assert.equal(p.completed(), false,
+    'a refused preparation must not report completion even with a valid-looking receipt')
 })

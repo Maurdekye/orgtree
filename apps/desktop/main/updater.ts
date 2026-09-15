@@ -597,6 +597,9 @@ export interface HandoffResult {
   /** Where that fixture was told to write its receipt, carried through so the
    *  proof can tell a fixture that COMPLETED from one that never ran. */
   fixtureReceipt?: string
+  /** A fixture was requested and could not be used, so the handoff was
+   *  DECLINED rather than falling through to a real installation. */
+  fixtureRefused?: string
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
@@ -635,8 +638,26 @@ export interface FixtureHandoff {
   spawn: (file: string, args: string[]) => { pid?: number }
 }
 
+/** A fixture substitution that could NOT be performed. Carried explicitly
+ *  because the alternative is the defect a reviewer measured: a refused
+ *  rehearsal fell through to the ordinary path and ran the REAL installer.
+ *
+ *  ⚠ ASKING FOR A REHEARSAL AND GETTING A REAL UPDATE IS THE WORST OUTCOME
+ *  THIS CODE CAN PRODUCE. Someone who set the fixture variable is explicitly
+ *  saying "do not really update"; if the fixture is missing or its receipt path
+ *  is unusable, the honest answer is to decline the handoff, not to install for
+ *  real instead. A decline is already a shape this system handles: the app is
+ *  restored and the user is told, exactly as when electron-updater declines.
+ *
+ *  This is NOT the no-fixture case. When nothing was requested there is no
+ *  attempt at all and the ordinary handoff runs untouched, which is what keeps
+ *  production behaviour unchanged. */
+export interface RefusedFixture { refused: string }
+
+export type FixtureAttempt = FixtureHandoff | RefusedFixture
+
 export function installDownloadedUpdate(
-  updater: InstallableUpdater, directory: string, fixture?: FixtureHandoff): HandoffResult {
+  updater: InstallableUpdater, directory: string, fixture?: FixtureAttempt): HandoffResult {
   // ⚠ THE FIXTURE ROUTE DOES NOT GO THROUGH electron-updater, AND IT SAYS SO IN
   // THE RESULT. The library spawns the file IT downloaded; there is no hook to
   // point that at something else, so a substitution has to own the spawn. What
@@ -647,6 +668,12 @@ export function installDownloadedUpdate(
   // one. Contaminating the durable record with an indistinguishable rehearsal
   // is the one way this mechanism could make the incident evidence worse
   // instead of better.
+  if (fixture && 'refused' in fixture) {
+    // NOTHING IS LAUNCHED AND THE LIBRARY IS NEVER ASKED. The caller sees a
+    // declined handoff and restores the app, which is the same safe shape a
+    // refusal from electron-updater takes.
+    return { accepted: false, directory, fixtureRefused: fixture.refused }
+  }
   if (fixture) {
     const child = fixture.spawn(fixture.installer, updateHandoffArgs(directory))
     return {
