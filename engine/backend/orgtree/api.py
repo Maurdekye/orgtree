@@ -5795,12 +5795,39 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
+                # Keep the assignee that owned the ticket before the immediate
+                # update.  Once _staff_call hands the item to the new seat,
+                # item['owner'] no longer identifies the recipient.  This is
+                # deliberately limited to under-assignee staffing: top-level
+                # fallback has no existing assignee beneath whom the seat was
+                # placed, and request mode leaves the assignment unchanged.
+                previous_assignee = (str(ctx["owner"].get("node") or "")
+                                     if ctx["mode"] == "under_assignee" else "")
                 args = quickstaff.staff_args(org, item, ctx, str(body.tier),
                                              body.effort, body.account)
                 result = _staff_call(org, slug, USER, args, drive, None, [])
                 result["message"] = f"Staffed {result['node']} " + (
                     "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
                     f" on {body.account}" if body.account else "") + "; ticket moved to Open."
+                if previous_assignee:
+                    notice = (f"[QUICK STAFFING · {item['slug']} "
+                              f'\"{str(item.get("title") or "")[:80]}\"]\n'
+                              "The user initiated immediate staffing beneath "
+                              f"you, and {result['node']} is now staffed under "
+                              "you. Selected model: "
+                              f"{body.tier}.")
+                    if body.effort is not None:
+                        notice += f" Selected effort: {body.effort}."
+                    if body.account:
+                        notice += f" Selected account: {body.account}."
+                    # This is part of the same in-memory transaction as the
+                    # successful staffing. Refusals and failures above never
+                    # reach this point, so they cannot emit a false-success
+                    # notice. Do not grant a reply audience for an automatic
+                    # notice.
+                    org.post_mail(USER, previous_assignee, notice, "notice",
+                                  typed=True, grant_reply_audience=False)
+                    result["assignee_notified"] = previous_assignee
             # Receipts commit WITH the request/seat and status. Retries after a
             # lost response or restart cannot create another agent or request.
             item = org._work_find(wid)[0]
