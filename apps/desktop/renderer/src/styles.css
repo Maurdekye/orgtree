@@ -3850,6 +3850,17 @@ main.solo { width: 100%; }
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
 }
+
+/* Ticket detail disclosures: one consistent, keyboard-accessible header for
+   every section, including sections added after the original pane. */
+.docket-detail-section { margin: 0 0 12px; }
+.docket-detail-section-head { display: flex; align-items: center; gap: 6px; }
+.docket-detail-section-head .docket-detail-section-title { flex: 1; margin: 0; }
+.docket-desc .docket-detail-section-head .docket-detail-section-title { flex: 1; margin: 0; }
+.docket-detail-toggle { border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 2px 6px; line-height: 1; }
+.docket-detail-toggle:hover { color: var(--accent); }
+.docket-detail-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+.docket-detail-section-body { min-width: 0; }
 .docket-review-verdict { margin: 4px 0; }
 .docket-review-candidate code, .docket-review-evidence code {
   font-family: var(--mono); overflow-wrap: anywhere;
