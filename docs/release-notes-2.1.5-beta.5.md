@@ -3,9 +3,11 @@
 Everything in 2.1.5-beta.4 is included. This build exists to fix the two things
 you found while testing beta.4.
 
-**This one your beta.4 installation can find on its own.** beta.4 sits on the
-`beta` line, which the updater knows how to follow, so the tray's *Update now*
-should offer it. The one manual install is behind you.
+**Install this one by hand as well.** Not because of the channel problem — that
+is fixed, and beta.4's updater is on the `beta` line and would take beta.5
+correctly. It is because this build is handed to you as a file and is not
+published as a release, and the updater can only find builds that are published.
+Automatic updates start working from the first published build onward.
 
 - **`Staff immediately` no longer offers you models it cannot staff, and no
   longer makes you wait when you open it.** Two separate faults. It judged
