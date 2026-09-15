@@ -71,16 +71,19 @@ const FIXTURE = 'C:\\fixtures\\orgtree-update-fixture.exe'
 test('§1 a build composed WITHOUT the fixture cannot perform a substitution', () => {
   assert.equal(disabled.module.buildPermitsUpdateFixture(), false)
   const decision = disabled.module.updateFixtureDecision({ requested: FIXTURE, exists: present })
-  assert.equal(decision.kind, 'refused')
-  assert.match(decision.reason, /not composed to accept/)
-  assert.match(decision.reason, /ordinary installer handoff was used unchanged/)
-  assert.match(decision.reason, /C:\\fixtures\\orgtree-update-fixture\.exe/)
+  // IGNORED, not refused: a released build must go on installing normally. A
+  // refusal here would let a stray environment variable stop real updates,
+  // which is its own denial-of-service.
+  assert.equal(decision.kind, 'ignored')
+  assert.match(decision.reason, /IGNORED/)
+  assert.match(decision.reason, /ordinary installer handoff ran unchanged/)
+  assert.ok(decision.reason.includes(FIXTURE), 'the reason must name what was ignored')
 })
 
 test('§2 a MISSING define is not capable either — it fails closed, not open', () => {
   assert.equal(noDefine.buildPermitsUpdateFixture(), false)
   assert.equal(
-    noDefine.updateFixtureDecision({ requested: FIXTURE, exists: present }).kind, 'refused')
+    noDefine.updateFixtureDecision({ requested: FIXTURE, exists: present }).kind, 'ignored')
 })
 
 test('§3 a build composed WITH the fixture activates it', () => {
@@ -96,12 +99,17 @@ test('§4 even a capable build refuses a fixture that is not there, and never si
   assert.match(decision.reason, /does not exist/)
 })
 
-test('§5 asking for nothing is off, and off is not a refusal', () => {
+test('§5 an empty selector means OFF in production and REFUSED in a rehearsal build', () => {
+  // The two halves differ here and that is deliberate. A released build with no
+  // selector is an ordinary update. A build composed FOR rehearsal with no
+  // fixture named has nothing to rehearse — and must not answer that by
+  // performing a real update, which is what an earlier revision did.
   for (const requested of [undefined, '', '   ']) {
     assert.deepEqual(
-      enabled.module.updateFixtureDecision({ requested, exists: present }), { kind: 'off' })
-    assert.deepEqual(
       disabled.module.updateFixtureDecision({ requested, exists: present }), { kind: 'off' })
+    const rehearsal = enabled.module.updateFixtureDecision({ requested, exists: present })
+    assert.equal(rehearsal.kind, 'refused')
+    assert.match(rehearsal.reason, /nothing to rehearse/)
   }
 })
 
@@ -110,7 +118,7 @@ test('§5 asking for nothing is off, and off is not a refusal', () => {
 test('§6 ⚠ THE ENVIRONMENT CANNOT TURN IT ON. No value of the variable helps.', () => {
   for (const requested of [FIXTURE, 'true', '1', 'yes', '  anything  ', 'C:\\Windows\\System32\\cmd.exe']) {
     const decision = disabled.module.updateFixtureDecision({ requested, exists: present })
-    assert.equal(decision.kind, 'refused', `env value ${JSON.stringify(requested)} must not activate`)
+    assert.equal(decision.kind, 'ignored', `env value ${JSON.stringify(requested)} must not activate`)
   }
 })
 
@@ -128,7 +136,7 @@ test('§7 ⚠ METADATA BESIDE THE APP CANNOT TURN IT ON — the rejected design,
     // would have needed, and it changes nothing.
     capable: true, buildInfo: { channel: 'release', updateFixture: true },
   })
-  assert.equal(decision.kind, 'refused')
+  assert.equal(decision.kind, 'ignored')
 })
 
 test('§8 ⚠ A DISABLED BUILD DOES NOT CARRY THE ENABLED MARKER — measured, not assumed', () => {
@@ -612,9 +620,10 @@ test('§33 ⚠ A REFUSED FIXTURE DECLINES THE HANDOFF — it does not install fo
 
 test('§34 the preparation routes each decision to the right attempt', () => {
   // off → no attempt at all, so production behaviour is untouched.
+  // PRODUCTION with no selector: the only shape that carries no attempt.
   const off = prepareUpdateFixture({
     requested: undefined, receiptPath: RECEIPT, token: TOKEN,
-    io: harness().io, spawn: () => ({ pid: 1, on: () => {} }), permitted: true,
+    io: harness().io, spawn: () => ({ pid: 1, on: () => {} }), permitted: false,
   })
   assert.equal(off.decision.kind, 'off')
   assert.equal(off.attempt, undefined, 'nothing requested means the ordinary handoff runs')
@@ -660,4 +669,129 @@ test('§36 a declined rehearsal never reaches the proof as a success', async () 
   assert.equal(h.spawns.length, 0, 'a refusal spawns nothing')
   assert.equal(p.completed(), false,
     'a refused preparation must not report completion even with a valid-looking receipt')
+})
+
+// ------------------------------------------- THE FULL COMPILED-MODE MATRIX
+//
+// ⚠ COMPILED MODE IS ROUTED ON FIRST, AND TWO CELLS USED TO BE BACKWARDS.
+// An earlier revision branched on the SELECTOR first: a production build with a
+// stray variable DECLINED its update instead of installing normally, and a
+// private rehearsal build with no selector ran the REAL installer. Both are
+// expressible only if the environment is consulted before the build is, so the
+// order is the fix and this matrix is how it stays fixed.
+//
+// Every row is driven through installDownloadedUpdate and COUNTS REAL INSTALL
+// CALLS, because "what did the decision say" is exactly the question that kept
+// missing these — the question that matters is what the path then did.
+
+const MODE_MATRIX = [
+  // PRODUCTION: always ordinary, whatever the environment says.
+  { mode: 'production', permitted: false, selector: undefined, fixtureExists: false,
+    kind: 'off', installs: 1, label: 'production, no selector' },
+  { mode: 'production', permitted: false, selector: '   ', fixtureExists: false,
+    kind: 'off', installs: 1, label: 'production, blank selector' },
+  { mode: 'production', permitted: false, selector: FIXTURE, fixtureExists: true,
+    kind: 'ignored', installs: 1, label: 'production, stray selector naming a real file' },
+  { mode: 'production', permitted: false, selector: 'C:\\nope.exe', fixtureExists: false,
+    kind: 'ignored', installs: 1, label: 'production, stray selector naming nothing' },
+  { mode: 'production', permitted: false, selector: 'C:\\Windows\\System32\\cmd.exe', fixtureExists: true,
+    kind: 'ignored', installs: 1, label: 'production, hostile selector' },
+
+  // PRIVATE REHEARSAL: only a valid fixture proceeds; everything else declines.
+  { mode: 'private', permitted: true, selector: undefined, fixtureExists: false,
+    kind: 'refused', installs: 0, label: 'private, NO selector — must not install for real' },
+  { mode: 'private', permitted: true, selector: '   ', fixtureExists: false,
+    kind: 'refused', installs: 0, label: 'private, blank selector' },
+  { mode: 'private', permitted: true, selector: FIXTURE, fixtureExists: false,
+    kind: 'refused', installs: 0, label: 'private, selector naming a missing fixture' },
+  { mode: 'private', permitted: true, selector: FIXTURE, fixtureExists: true,
+    kind: 'active', installs: 0, label: 'private, valid fixture' },
+]
+
+for (const row of MODE_MATRIX) {
+  test(`§37 matrix — ${row.label}`, () => {
+    const h = harness()
+    if (!row.fixtureExists) h.files.delete(FIXTURE)
+    const p = prepareUpdateFixture({
+      requested: row.selector, receiptPath: RECEIPT, token: TOKEN,
+      io: h.io, spawn: h.spawn, permitted: row.permitted,
+    })
+    assert.equal(p.decision.kind, row.kind, `${row.label}: decision`)
+
+    let installs = 0
+    const updater = { install: () => { installs++; return true } }
+    const result = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree', p.attempt)
+    assert.equal(installs, row.installs, `${row.label}: REAL install calls`)
+
+    if (row.mode === 'production') {
+      // The defining property of this half: a released build behaves exactly as
+      // it did before any of this existed, whatever is in the environment.
+      assert.equal(result.accepted, true, `${row.label}: production must still install`)
+      assert.equal(updater.installDirectory, 'C:\\Program Files\\Orgtree')
+      assert.equal(result.fixture, undefined)
+      assert.equal(result.fixtureRefused, undefined)
+      assert.equal(h.spawns.length, 0, `${row.label}: production must never launch a fixture`)
+      if (row.kind === 'ignored') {
+        assert.match(p.decision.reason, /IGNORED/)
+        assert.match(p.decision.reason, /ordinary installer handoff ran unchanged/)
+      }
+    } else if (row.kind === 'refused') {
+      assert.equal(result.accepted, false, `${row.label}: a rehearsal that cannot happen must decline`)
+      assert.match(result.fixtureRefused, /DECLINED rather than performing a real update/)
+      assert.equal(updater.installDirectory, undefined,
+        `${row.label}: the library must not even be set up to install`)
+      assert.equal(h.spawns.length, 0)
+    } else {
+      assert.equal(result.accepted, true)
+      assert.equal(result.fixture, FIXTURE)
+      assert.equal(h.spawns.length, 1, `${row.label}: the fixture is what runs`)
+    }
+  })
+}
+
+test('§38 ⚠ NO SELECTOR VALUE CAN MAKE A PRODUCTION BUILD DEVIATE', () => {
+  // The production half stated as one property rather than row by row: whatever
+  // is in the variable, a released build installs normally, launches nothing,
+  // and never declines.
+  for (const selector of [
+    undefined, '', '   ', FIXTURE, 'true', '1',
+    'C:\\Windows\\System32\\cmd.exe', 'C:\\does\\not\\exist.exe',
+    '"C:\\quoted path\\fixture.exe"', '..\\..\\escape.exe',
+  ]) {
+    const h = harness()
+    const p = prepareUpdateFixture({
+      requested: selector, receiptPath: RECEIPT, token: TOKEN,
+      io: h.io, spawn: h.spawn, permitted: false,
+    })
+    let installs = 0
+    const updater = { install: () => { installs++; return true } }
+    const result = installDownloadedUpdate(updater, 'C:\\App', p.attempt)
+    assert.equal(installs, 1, `selector ${JSON.stringify(selector)} must not change production`)
+    assert.equal(result.accepted, true)
+    assert.equal(h.spawns.length, 0)
+    assert.equal(p.attempt, undefined, 'production must never carry an attempt')
+  }
+})
+
+test('§39 ⚠ NO SELECTOR VALUE CAN MAKE A PRIVATE BUILD INSTALL FOR REAL', () => {
+  // And the mirror property. A rehearsal build either rehearses or declines;
+  // there is no input that gets a real installation out of it.
+  for (const [selector, fixtureExists] of [
+    [undefined, false], ['', false], ['   ', false],
+    [FIXTURE, false], ['C:\\nope.exe', false], [FIXTURE, true],
+  ]) {
+    const h = harness()
+    if (!fixtureExists) h.files.delete(FIXTURE)
+    const p = prepareUpdateFixture({
+      requested: selector, receiptPath: RECEIPT, token: TOKEN,
+      io: h.io, spawn: h.spawn, permitted: true,
+    })
+    let installs = 0
+    const result = installDownloadedUpdate({ install: () => { installs++; return true } },
+      'C:\\App', p.attempt)
+    assert.equal(installs, 0,
+      `selector ${JSON.stringify(selector)} must never reach the real installer in a private build`)
+    if (p.decision.kind === 'active') assert.equal(result.accepted, true)
+    else assert.equal(result.accepted, false)
+  }
 })

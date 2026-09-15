@@ -37,6 +37,11 @@ export type UpdateStage =
    *  variable in an operator's environment changes nothing VISIBLY rather than
    *  changing nothing silently. */
   | 'update-fixture-refused'
+  /** A selector was set on a build that is NOT composed for rehearsal, so it
+   *  was ignored and the ordinary handoff ran unchanged. Recorded because a
+   *  stray variable changing nothing must still be READABLE as having changed
+   *  nothing; it is not a refusal, because the real update proceeded. */
+  | 'update-fixture-ignored'
   /** The fixture RAN AND FINISHED. Distinct from 'installer-running' because
    *  nothing was installed, and distinct from 'installer-never-started'
    *  because it did run — a fixture that completes faster than one poll

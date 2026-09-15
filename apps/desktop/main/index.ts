@@ -699,6 +699,14 @@ else {
           updateLog.record('update-fixture-refused', decision.reason,
             { from: app.getVersion(), to: version })
         }
+        // NOT a refusal: the ordinary update went ahead. Recorded so a stray
+        // variable that changed nothing is still readable as having changed
+        // nothing, which is the whole reason a production build ignores it
+        // rather than declining.
+        if (decision.kind === 'ignored') {
+          updateLog.record('update-fixture-ignored', decision.reason,
+            { from: app.getVersion(), to: version })
+        }
         if (decision.kind === 'active') {
           updateLog.record('update-fixture-handoff',
             `handing off to the update fixture at [${decision.installer}] instead of the `

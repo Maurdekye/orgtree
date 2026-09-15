@@ -80,13 +80,17 @@ export function buildPermitsUpdateFixture(): boolean {
 }
 
 export type FixtureDecision =
-  /** No fixture was asked for. The ordinary handoff runs untouched. */
+  /** PRODUCTION, nothing requested. The ordinary handoff runs untouched. */
   | { kind: 'off' }
+  /** PRODUCTION, and a selector was set anyway. The ordinary handoff runs
+   *  UNTOUCHED and the fact is logged. A stray variable in an operator's
+   *  environment must not change what a released build does — not into a
+   *  substitution, and not into a refusal either. */
+  | { kind: 'ignored', reason: string }
   /** Hand off to this executable instead of the downloaded installer. */
   | { kind: 'active', installer: string }
-  /** A fixture was asked for and this build may not have one, or the one it
-   *  named is not there. The ordinary handoff runs untouched and the caller
-   *  records the reason. */
+  /** A PRIVATE rehearsal build that cannot perform the rehearsal it exists for.
+   *  The handoff is DECLINED — never completed for real. */
   | { kind: 'refused', reason: string }
 
 export interface FixtureInputs {
@@ -100,35 +104,53 @@ export interface FixtureInputs {
   exists: (file: string) => boolean
 }
 
+/** ⚠ COMPILED MODE IS ROUTED ON FIRST, AND THE ORDER IS THE WHOLE POINT.
+ *  An earlier revision branched on the SELECTOR first and consulted the build
+ *  second, which got both interesting cells backwards: a production build with a
+ *  stray variable DECLINED its update instead of installing normally, and a
+ *  private rehearsal build with no selector ran the REAL installer. Deciding
+ *  what kind of build this is before looking at any environment value makes both
+ *  impossible to express.
+ *
+ *  PRODUCTION (not composed with the fixture) ALWAYS takes the ordinary handoff.
+ *  Nothing an operator can set may change that — a selector is logged as ignored
+ *  and changes nothing else. This is the half that keeps released behaviour
+ *  identical to what it was before any of this existed.
+ *
+ *  A PRIVATE REHEARSAL BUILD only ever proceeds on a VALID fixture. Anything
+ *  else declines, INCLUDING an empty selector: such a build exists to rehearse,
+ *  so 'no fixture named' means there is nothing to rehearse, not permission to
+ *  perform a real update. */
 export function updateFixtureDecision(
   { requested, permitted, exists }: FixtureInputs): FixtureDecision {
   const named = (requested ?? '').trim()
-  if (!named) return { kind: 'off' }
   if (!(permitted ?? buildPermitsUpdateFixture())) {
+    if (!named) return { kind: 'off' }
+    return {
+      kind: 'ignored',
+      reason: `${UPDATE_FIXTURE_ENV} named [${named}] and was IGNORED: this build was `
+        + 'not composed to accept an update-fixture substitution. The ordinary '
+        + 'installer handoff ran unchanged.',
+    }
+  }
+  if (!named) {
     return {
       kind: 'refused',
-      reason: `${UPDATE_FIXTURE_ENV} named [${named}] but this build was not `
-        + 'composed to accept an update-fixture substitution; the ordinary '
-        + 'installer handoff was used unchanged',
+      reason: `this build was composed for update-fixture rehearsal but ${UPDATE_FIXTURE_ENV} `
+        + 'named no fixture, so there is nothing to rehearse; the handoff was DECLINED '
+        + 'rather than performing a real update',
     }
   }
   if (!exists(named)) {
     return {
       kind: 'refused',
-      reason: `${UPDATE_FIXTURE_ENV} named [${named}], which does not exist; `
-        + 'the ordinary installer handoff was used unchanged',
+      reason: `${UPDATE_FIXTURE_ENV} named [${named}], which does not exist; the handoff `
+        + 'was DECLINED rather than performing a real update',
     }
   }
   return { kind: 'active', installer: named }
 }
 
-/** The marker a fixture-capable build discloses in build-info.json.
- *
- *  ⚠ THIS IS A DISCLOSURE, NOT THE GUARD, and the distinction is the whole
- *  point of the paragraph above. Nothing at runtime consults it: it exists so a
- *  fixture-capable artifact SAYS SO about itself, and so the release preflight
- *  can refuse to package one. Reading it and acting on it at runtime is exactly
- *  the rejected design. */
 export const UPDATE_FIXTURE_DISCLOSURE = 'updateFixture'
 
 /** The marker the bundler substitutes, WITHOUT its state suffix. The release
