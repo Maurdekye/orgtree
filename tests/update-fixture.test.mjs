@@ -1,16 +1,20 @@
 // update-fixture.test.mjs — THE HARMLESS DUAL-ENTRY UPDATE FIXTURE.
 //
-// What this measures is a REFUSAL as much as a capability. The requirement is
-// that a production build must not expose or accept the substitution mechanism,
-// so the interesting cases are the ones where a fixture is asked for and must
-// not happen: that is the case a guard built out of an environment variable
-// alone would get wrong, and it is the case a published build will actually be
-// in if the variable is ever set in an operator's environment.
+// What this measures is a REFUSAL as much as a capability, because the
+// requirement is that a production build must not merely decline to advertise
+// the substitution mechanism — it must be UNABLE to perform it.
 //
-// Nothing is spawned here. The spawn seam is injected, so the in-app handoff's
-// argument vector and its result are driven without starting a process — which
-// is what lets the whole matrix run on a machine where the fixture routes
-// themselves may not be executed.
+// ⚠ TWO WEAKER DESIGNS WERE REJECTED, AND BOTH ARE TESTED AS NEGATIVES HERE
+// rather than merely described in a comment, because a reviewer's probe broke
+// the second one: an environment variable read by shipped code is a mechanism a
+// production build accepts, and a flag in the build-info.json beside the app is
+// mutable data that passed both a naive capability reader AND the real release
+// provenance validator. So the capability is a constant the bundler substitutes,
+// and §5-§8 below exist to prove that neither the environment nor any file
+// beside the app can turn it on.
+//
+// The two bundles in §5-§8 are built by esbuild with different `define` values,
+// which is the real mechanism rather than a stand-in for it.
 //
 // Run: node --test tests/update-fixture.test.mjs
 
@@ -25,139 +29,205 @@ import { createRequire } from 'node:module'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-update-fixture-'))
 const require_ = createRequire(import.meta.url)
 
-const fixtureOut = path.join(root, 'update-fixture.cjs')
-await build({ entryPoints: ['apps/desktop/main/update-fixture.ts'], outfile: fixtureOut, bundle: true, format: 'cjs', platform: 'node' })
-const { readFixtureCapability, updateFixtureDecision, UPDATE_FIXTURE_ENV } = require_(fixtureOut)
+/** The module as a build COMPOSED WITH or WITHOUT the fixture would contain it.
+ *  The define mirrors tools/build.mjs exactly — the whole marker string — so
+ *  this is the real mechanism rather than a stand-in for it. */
+async function composed(permitted) {
+  const outfile = path.join(root, `update-fixture-${permitted}.cjs`)
+  await build({
+    entryPoints: ['apps/desktop/main/update-fixture.ts'], outfile,
+    bundle: true, format: 'cjs', platform: 'node',
+    define: { __ORGTREE_UPDATE_FIXTURE__: JSON.stringify(
+      'ORGTREE-UPDATE-FIXTURE-BUILD:' + (permitted ? 'enabled' : 'disabled')) },
+  })
+  return { module: require_(outfile), outfile }
+}
+/** No define at all — a bundler run that never heard of the flag. */
+async function composedWithoutDefine() {
+  const outfile = path.join(root, 'update-fixture-undefined.cjs')
+  await build({
+    entryPoints: ['apps/desktop/main/update-fixture.ts'], outfile,
+    bundle: true, format: 'cjs', platform: 'node',
+  })
+  return require_(outfile)
+}
+
+const enabled = await composed(true)
+const disabled = await composed(false)
+const noDefine = await composedWithoutDefine()
 
 const updaterOut = path.join(root, 'updater.cjs')
 await build({ entryPoints: ['apps/desktop/main/updater.ts'], outfile: updaterOut, bundle: true, format: 'cjs', platform: 'node' })
 const { installDownloadedUpdate, updateHandoffArgs } = require_(updaterOut)
 
+const preflight = await import('../tools/preflight-lib.mjs')
+
 const present = () => true
 const absent = () => false
+const FIXTURE = 'C:\\fixtures\\orgtree-update-fixture.exe'
 
-// ---------------------------------------------------------------- capability
+// ------------------------------------------------- the capability is the build
 
-test('§1 only an explicit updateFixture:true marker makes a build capable', () => {
-  const io = (text) => ({ readFileSync: () => text })
-  assert.equal(readFixtureCapability('x', io('{"updateFixture":true}')), true)
-
-  // Every other shape is NOT capable. A published build carries none of the
-  // field at all, which is the first case here.
-  for (const text of [
-    '{}',
-    '{"channel":"release"}',
-    '{"updateFixture":false}',
-    '{"updateFixture":"true"}',   // a string is not the marker
-    '{"updateFixture":1}',
-    'null',
-    '[]',
-    'not json at all',
-  ]) {
-    assert.equal(readFixtureCapability('x', io(text)), false, `capable for ${text}`)
-  }
-})
-
-test('§2 an unreadable or missing build-info fails CLOSED', () => {
-  const throwing = { readFileSync: () => { throw new Error('ENOENT') } }
-  assert.equal(readFixtureCapability('missing', throwing), false)
-})
-
-// ------------------------------------------------------------------ decision
-
-test('§3 no request is off, and off is not a refusal', () => {
-  for (const requested of [undefined, '', '   ']) {
-    const decision = updateFixtureDecision({ requested, capable: true, exists: present })
-    assert.deepEqual(decision, { kind: 'off' }, `requested ${JSON.stringify(requested)}`)
-  }
-})
-
-test('§4 ⚠ A PRODUCTION BUILD REFUSES, and says so — the case an env-var guard gets wrong', () => {
-  const decision = updateFixtureDecision({
-    requested: 'C:\\fixtures\\harmless.exe', capable: false, exists: present,
-  })
+test('§1 a build composed WITHOUT the fixture cannot perform a substitution', () => {
+  assert.equal(disabled.module.buildPermitsUpdateFixture(), false)
+  const decision = disabled.module.updateFixtureDecision({ requested: FIXTURE, exists: present })
   assert.equal(decision.kind, 'refused')
-  // The reason has to carry BOTH what was asked for and that the ordinary
-  // handoff still ran; a refusal nobody can read afterwards is one more
-  // indistinguishable hypothesis in the next update incident.
-  assert.match(decision.reason, /C:\\fixtures\\harmless\.exe/)
-  assert.match(decision.reason, new RegExp(UPDATE_FIXTURE_ENV))
-  assert.match(decision.reason, /not packaged to accept/)
+  assert.match(decision.reason, /not composed to accept/)
   assert.match(decision.reason, /ordinary installer handoff was used unchanged/)
+  assert.match(decision.reason, /C:\\fixtures\\orgtree-update-fixture\.exe/)
 })
 
-test('§5 a capable build still refuses a fixture that is not there', () => {
-  const decision = updateFixtureDecision({
-    requested: 'C:\\fixtures\\gone.exe', capable: true, exists: absent,
-  })
+test('§2 a MISSING define is not capable either — it fails closed, not open', () => {
+  assert.equal(noDefine.buildPermitsUpdateFixture(), false)
+  assert.equal(
+    noDefine.updateFixtureDecision({ requested: FIXTURE, exists: present }).kind, 'refused')
+})
+
+test('§3 a build composed WITH the fixture activates it', () => {
+  assert.equal(enabled.module.buildPermitsUpdateFixture(), true)
+  assert.deepEqual(
+    enabled.module.updateFixtureDecision({ requested: `  ${FIXTURE}  `, exists: present }),
+    { kind: 'active', installer: FIXTURE })
+})
+
+test('§4 even a capable build refuses a fixture that is not there, and never silently', () => {
+  const decision = enabled.module.updateFixtureDecision({ requested: FIXTURE, exists: absent })
   assert.equal(decision.kind, 'refused')
   assert.match(decision.reason, /does not exist/)
-  assert.match(decision.reason, /ordinary installer handoff was used unchanged/)
 })
 
-test('§6 a capable build with a real fixture activates it', () => {
-  assert.deepEqual(
-    updateFixtureDecision({ requested: '  C:\\fixtures\\harmless.exe  ', capable: true, exists: present }),
-    { kind: 'active', installer: 'C:\\fixtures\\harmless.exe' })
+test('§5 asking for nothing is off, and off is not a refusal', () => {
+  for (const requested of [undefined, '', '   ']) {
+    assert.deepEqual(
+      enabled.module.updateFixtureDecision({ requested, exists: present }), { kind: 'off' })
+    assert.deepEqual(
+      disabled.module.updateFixtureDecision({ requested, exists: present }), { kind: 'off' })
+  }
 })
 
-// ------------------------------------------------------- the in-app handoff
+// ------------------------------------------------------------ tamper negatives
 
-test('§7 the fixture is handed EXACTLY the real argument vector, /D= last', () => {
-  assert.deepEqual(updateHandoffArgs('C:\\Program Files\\Orgtree'),
-    ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'])
-  // /D= must be last for NSIS, and it must not be pre-quoted by us: Windows
-  // does that on its own for a whitespace-bearing path, which is measured
-  // elsewhere. Asserting the tail explicitly so a reorder cannot pass.
+test('§6 ⚠ THE ENVIRONMENT CANNOT TURN IT ON. No value of the variable helps.', () => {
+  for (const requested of [FIXTURE, 'true', '1', 'yes', '  anything  ', 'C:\\Windows\\System32\\cmd.exe']) {
+    const decision = disabled.module.updateFixtureDecision({ requested, exists: present })
+    assert.equal(decision.kind, 'refused', `env value ${JSON.stringify(requested)} must not activate`)
+  }
+})
+
+test('§7 ⚠ METADATA BESIDE THE APP CANNOT TURN IT ON — the rejected design, as a negative', () => {
+  // The module exposes no reader for the build-info flag at all any more, which
+  // is the structural half of this: there is nothing at runtime to feed. This
+  // asserts that, so a future change that reintroduces a metadata reader has to
+  // delete a test that says why it must not.
+  assert.equal(typeof disabled.module.readFixtureCapability, 'undefined',
+    'no runtime reader of build-info may exist: mutable metadata is not a guard')
+  // And the decision takes no file path, so there is no seam to point at one.
+  const decision = disabled.module.updateFixtureDecision({
+    requested: FIXTURE, exists: present,
+    // Anything extra is ignored: the shape below is what the rejected design
+    // would have needed, and it changes nothing.
+    capable: true, buildInfo: { channel: 'release', updateFixture: true },
+  })
+  assert.equal(decision.kind, 'refused')
+})
+
+test('§8 ⚠ A DISABLED BUILD DOES NOT CARRY THE ENABLED MARKER — measured, not assumed', () => {
+  // THIS TEST ALREADY EARNED ITS KEEP. The first version of this mechanism used
+  // a BOOLEAN define and relied on esbuild eliminating the dead branch; this
+  // test failed, because esbuild kept the eliminated branch's literal and the
+  // disabled bundle carried the marker exactly as often as the enabled one. The
+  // preflight's bundle scan would then have refused every build. The design was
+  // changed to substitute the whole marker string, which needs no elimination.
+  // The claim is about the BUNDLER, so it stays measured against real output.
+  const ENABLED = enabled.module.UPDATE_FIXTURE_MARKER + enabled.module.UPDATE_FIXTURE_ENABLED_SUFFIX
+  assert.equal(ENABLED, 'ORGTREE-UPDATE-FIXTURE-BUILD:enabled')
+  assert.equal(enabled.module.updateFixtureBuildMark(), ENABLED)
+  assert.equal(disabled.module.updateFixtureBuildMark(), 'ORGTREE-UPDATE-FIXTURE-BUILD:disabled')
+  assert.equal(noDefine.updateFixtureBuildMark(), null)
+
+  const enabledText = fs.readFileSync(enabled.outfile, 'utf8')
+  const disabledText = fs.readFileSync(disabled.outfile, 'utf8')
+  assert.ok(enabledText.includes(ENABLED), 'the enabled bundle must carry the enabled marker')
+  assert.ok(!disabledText.includes(ENABLED),
+    'the disabled bundle must NOT carry the enabled marker — the source must never '
+    + 'contain it as a contiguous literal, or the preflight scan false-positives')
+})
+
+// ------------------------------------------------- published artifact rejection
+
+test('§9 ⚠ RELEASE PACKAGING REFUSES A FIXTURE BUILD, by disclosure AND by bundle', () => {
+  const bundleWith = path.join(root, 'bundle-with.cjs')
+  const bundleWithout = path.join(root, 'bundle-without.cjs')
+  // The enabled marker as a real bundle would carry it, and the DISABLED marker
+  // in the clean one — a scan that matched the bare prefix would refuse both,
+  // so the clean case here is a control on the scan itself.
+  fs.writeFileSync(bundleWith, `const x = "ORGTREE-UPDATE-FIXTURE-BUILD:enabled"\n`)
+  fs.writeFileSync(bundleWithout, `const x = "ORGTREE-UPDATE-FIXTURE-BUILD:disabled"\n`)
+
+  // Clean build: accepted.
+  preflight.assertNoUpdateFixture({ channel: 'release' }, bundleWithout)
+
+  // Disclosed: refused.
+  assert.throws(() => preflight.assertNoUpdateFixture({ channel: 'release', updateFixture: true }, bundleWithout),
+    /discloses the update/)
+
+  // ⚠ DISCLOSURE DELETED BUT THE BUNDLE STILL CAPABLE: refused anyway. This is
+  // the case that makes the check worth having — the JSON field is the easy
+  // thing to remove, and the bundle is what actually runs.
+  assert.throws(() => preflight.assertNoUpdateFixture({ channel: 'release' }, bundleWith),
+    /compiled into it/)
+
+  // Even `updateFixture: false` is refused: a release build does not write the
+  // field at all, so its presence in any form means a fixture build.
+  assert.throws(() => preflight.assertNoUpdateFixture({ channel: 'release', updateFixture: false }, bundleWithout),
+    /discloses the update/)
+})
+
+// -------------------------------------------------------------- the handoff
+
+test('§10 the fixture is handed EXACTLY the real argument vector, /D= last', () => {
   const args = updateHandoffArgs('C:\\Program Files\\Orgtree')
+  assert.deepEqual(args, ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'])
   assert.ok(args[args.length - 1].startsWith('/D='), 'the /D= argument must be last')
   assert.equal(args.filter(a => a.startsWith('/D=')).length, 1)
 })
 
-test('§8 an active fixture takes the handoff, and the result SAYS it was a fixture', () => {
+test('§11 an active fixture takes the handoff, and the result SAYS it was a fixture', () => {
   const calls = []
   const updater = {
     install: () => { throw new Error('the library must not be asked to install for a fixture handoff') },
   }
   const result = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree', {
-    installer: 'C:\\fixtures\\harmless.exe',
+    installer: FIXTURE,
     spawn: (file, args) => { calls.push({ file, args }); return { pid: 4242 } },
   })
   assert.deepEqual(calls, [{
-    file: 'C:\\fixtures\\harmless.exe',
+    file: FIXTURE,
     args: ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'],
   }])
   assert.equal(result.accepted, true)
-  assert.equal(result.fixture, 'C:\\fixtures\\harmless.exe')
-  assert.equal(result.directory, 'C:\\Program Files\\Orgtree')
-  // The whitespace diagnostic is still reported on the fixture route, so the
-  // two routes' records stay comparable field for field.
+  assert.equal(result.fixture, FIXTURE)
   assert.equal(result.directoryQuotedByNode, true)
 })
 
-test('§9 a fixture that does not start is NOT accepted', () => {
+test('§12 a fixture that does not start is NOT accepted', () => {
   const result = installDownloadedUpdate({ install: () => true }, 'C:\\Orgtree', {
-    installer: 'C:\\fixtures\\harmless.exe',
-    spawn: () => ({}),          // no pid: the process object was never created
+    installer: FIXTURE, spawn: () => ({}),
   })
   assert.equal(result.accepted, false)
-  assert.equal(result.fixture, 'C:\\fixtures\\harmless.exe')
 })
 
-test('§10 ⚠ THE ORDINARY HANDOFF IS UNTOUCHED when no fixture is supplied', () => {
+test('§13 ⚠ THE ORDINARY HANDOFF IS UNTOUCHED when no fixture is supplied', () => {
   const seen = []
-  const updater = {
-    install: (silent, runAfter) => { seen.push({ silent, runAfter }); return true },
-  }
+  const updater = { install: (silent, runAfter) => { seen.push({ silent, runAfter }); return true } }
   const result = installDownloadedUpdate(updater, 'C:\\Program Files\\Orgtree')
   assert.deepEqual(seen, [{ silent: true, runAfter: true }])
   assert.equal(updater.installDirectory, 'C:\\Program Files\\Orgtree')
   assert.equal(result.accepted, true)
-  // No fixture field at all, so a real update can never be read as a rehearsal.
   assert.equal('fixture' in result, false)
 })
 
-test('§11 a declined ordinary handoff still clears the library latch', () => {
+test('§14 a declined ordinary handoff still clears the library latch', () => {
   const updater = { install: () => false, quitAndInstallCalled: true }
   const result = installDownloadedUpdate(updater, 'C:\\Orgtree')
   assert.equal(result.accepted, false)
@@ -165,20 +235,36 @@ test('§11 a declined ordinary handoff still clears the library latch', () => {
   assert.equal('fixture' in result, false)
 })
 
-// ------------------------------------------------------------- the two routes
+// ------------------------------------------------------- reachable from the app
 
-test('§12 both entry points target ONE contract: the same binary, the same arguments', () => {
-  // The manual route is the fixture executable launched by hand, so the
-  // contract it targets is the file itself plus the arguments an installer
-  // receives. The in-app route must therefore hand off to that same file with
-  // that same vector — which is what §7 and §8 pin. This asserts the property
-  // the requirement is actually about: the two routes cannot drift apart
-  // without one of those failing.
-  const manualRouteBinary = 'C:\\fixtures\\harmless.exe'
-  const result = installDownloadedUpdate({ install: () => true }, 'C:\\Program Files\\Orgtree', {
-    installer: manualRouteBinary,
-    spawn: () => ({ pid: 7 }),
-  })
-  assert.equal(result.fixture, manualRouteBinary,
-    'the in-app route must hand off to the same binary the manual route launches')
+test('§15 ⚠ THE LIVE HANDOFF IS WIRED TO IT — not just exported and unused', () => {
+  // A reviewer found the previous revision of this work unreachable: the policy
+  // existed, the seam existed, and index.ts still called the ordinary
+  // two-argument form, so nothing outside tests could ever reach it. This reads
+  // the real call site so that cannot recur silently.
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.match(index, /import \{ updateFixtureDecision, UPDATE_FIXTURE_ENV \} from '\.\/update-fixture'/,
+    'index.ts must import the decision')
+  assert.match(index, /updateFixtureDecision\(\{[\s\S]*?requested: process\.env\[UPDATE_FIXTURE_ENV\]/,
+    'the live handoff must consult the environment through the decision')
+  assert.match(index, /decision\.kind === 'active'[\s\S]*?installer: decision\.installer/,
+    'the live handoff must pass the fixture through to installDownloadedUpdate')
+  assert.match(index, /updateLog\.record\('update-fixture-refused'/,
+    'a refusal must be recorded, not ignored')
+  assert.match(index, /updateLog\.record\('update-fixture-handoff'/,
+    'a fixture handoff must be recorded so it never reads as a real update')
+  // And the ordinary two-argument call must be gone from the handoff.
+  assert.doesNotMatch(index, /handOff: \(\) => installDownloadedUpdate\([^)]*installDirectory\(\)\),/,
+    'the ordinary two-argument handoff must no longer be the live call')
+})
+
+test('§16 the build enablement exists and defaults OFF', () => {
+  const buildScript = fs.readFileSync('tools/build.mjs', 'utf8')
+  assert.match(buildScript, /__ORGTREE_UPDATE_FIXTURE__/, 'the bundler must substitute the constant')
+  assert.match(buildScript, /--update-fixture/, 'there must be an explicit build-time opt-in')
+  // The default is the absence of the flag, so an ordinary `npm run build`
+  // produces a build that cannot substitute.
+  assert.match(buildScript, /process\.argv\.includes\('--update-fixture'\)/)
+  assert.match(buildScript, /updateFixture \? \{ updateFixture: true \} : \{\}/,
+    'the disclosure is written only for a fixture build')
 })

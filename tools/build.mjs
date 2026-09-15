@@ -5,8 +5,31 @@ import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
+// THE UPDATE FIXTURE IS A PROPERTY OF THE BUILD, NOT OF ITS METADATA.
+// `--update-fixture` (or ORGTREE_BUILD_UPDATE_FIXTURE=1) compiles the harmless
+// dual-entry update fixture's substitution INTO the main bundle; every other
+// build compiles the ':disabled' marker in and cannot perform a substitution
+// however its environment or the files beside it are edited. See
+// update-fixture.ts for why
+// a build-info flag was rejected as the guard: a reviewer's probe showed
+// release-channel metadata carrying the flag passes both the capability reader
+// and the real release provenance validator, which makes "we never write it" a
+// default rather than an exclusion. Editing the bundle instead is caught by the
+// sha256 of dist/main/index.cjs recorded below.
+const updateFixture = process.argv.includes('--update-fixture')
+  || process.env.ORGTREE_BUILD_UPDATE_FIXTURE === '1'
+if (updateFixture) {
+  console.log('⚠ building WITH the update-fixture substitution compiled in. '
+    + 'This build must not be published: the release preflight refuses it.')
+}
 await bundle({ entryPoints: ['apps/desktop/main/index.ts'], outfile: 'dist/main/index.cjs',
-  bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
+  bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true,
+  // The WHOLE marker string, not a boolean: see update-fixture.ts. A boolean
+  // left the preflight's bundle scan depending on dead-code elimination, and the
+  // test that measured that FAILED — esbuild kept the eliminated branch's
+  // literal. Substituting the marker itself needs no elimination.
+  define: { __ORGTREE_UPDATE_FIXTURE__: JSON.stringify(
+    'ORGTREE-UPDATE-FIXTURE-BUILD:' + (updateFixture ? 'enabled' : 'disabled')) } })
 await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/preload/index.cjs',
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
 // Absolute, not relative: the backend serves this SAME index.html for every
@@ -37,5 +60,11 @@ const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/i
 // this file with channel 'dev' and a commit-stamped version before packing.
 // Rebuilding always resets it, so a development stamp cannot leak forward into
 // a release package — and the release preflight refuses it if one ever does.
+// `updateFixture` here is a DISCLOSURE, never the guard — the guard is the
+// constant compiled into index.cjs above. It is written so a fixture-capable
+// artifact says so about itself and so the release preflight can refuse to
+// package one; nothing at runtime reads it.
 fs.writeFileSync('dist/build-info.json', JSON.stringify({ version: JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
-  channel: 'release', commit, dirty, builtAt: new Date().toISOString(), sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')
+  channel: 'release', commit, dirty, builtAt: new Date().toISOString(),
+  ...(updateFixture ? { updateFixture: true } : {}),
+  sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')

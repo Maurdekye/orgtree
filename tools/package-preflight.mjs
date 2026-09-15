@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
+import { assertNoUpdateFixture, assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
 import { assertRuntimeLayout } from './runtime-layout.mjs'
 
 assertPackageInputsPresent()
@@ -11,6 +11,11 @@ assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
 console.log('Standalone engine/runtime/UI inputs present; runtime package layout verified')
 
 const info = JSON.parse(fs.readFileSync('dist/build-info.json', 'utf8'))
+// Before provenance, because this one is about what the artifact CAN DO rather
+// than about whether it matches its source: a fixture build with perfectly
+// clean provenance is still one that must never be published.
+assertNoUpdateFixture(info)
+console.log('No update-fixture substitution is compiled into this build')
 assertReleaseProvenance(info,
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }))

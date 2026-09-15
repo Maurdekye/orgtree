@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
@@ -19,6 +19,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
+import { updateFixtureDecision, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -662,7 +663,44 @@ else {
       // through install() rather than quitAndInstall() also means the library
       // does not emit 'before-quit-for-update' - nothing here listens for it,
       // and owning the quit is what lets a failed spawn be caught at all.
-      handOff: () => installDownloadedUpdate(autoUpdater as unknown as InstallableUpdater, installDirectory()),
+      handOff: () => {
+        // THE FIXTURE SUBSTITUTION IS DECIDED HERE, AT THE REAL HANDOFF, so the
+        // in-app route and the manual route reach the same binary through the
+        // same argument vector. On a published build the decision is 'off' or
+        // 'refused' and cannot be anything else — the capability is compiled in
+        // or out (update-fixture.ts), not read from the environment or from any
+        // file beside the app.
+        const decision = updateFixtureDecision({
+          requested: process.env[UPDATE_FIXTURE_ENV],
+          exists: (file) => fs.existsSync(file),
+        })
+        // A REFUSAL IS RECORDED. A stray variable in an operator's environment
+        // must change nothing, and must not change nothing INVISIBLY, or the
+        // next person reading this log has one more hypothesis to eliminate.
+        if (decision.kind === 'refused') {
+          updateLog.record('update-fixture-refused', decision.reason,
+            { from: app.getVersion(), to: version })
+        }
+        if (decision.kind === 'active') {
+          updateLog.record('update-fixture-handoff',
+            `handing off to the update fixture at [${decision.installer}] instead of the `
+            + 'downloaded installer; this is a rehearsal and did not install anything',
+            { from: app.getVersion(), to: version })
+        }
+        return installDownloadedUpdate(
+          autoUpdater as unknown as InstallableUpdater, installDirectory(),
+          decision.kind === 'active'
+            ? {
+              installer: decision.installer,
+              // Detached and stdio-ignored, the shape electron-updater uses for
+              // the real installer: the point of the fixture is that process
+              // ancestry and survival can be compared, so a differently
+              // parented child would answer a different question.
+              spawn: (file, args) => spawnProcess(file, args,
+                { detached: true, stdio: 'ignore', windowsHide: true }),
+            }
+            : undefined)
+      },
       record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
       layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS, engineConfirmMs: UPDATE_ENGINE_CONFIRM_MS,
     })

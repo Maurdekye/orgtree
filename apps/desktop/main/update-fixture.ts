@@ -1,5 +1,3 @@
-import fs from 'node:fs'
-
 /** THE HARMLESS DUAL-ENTRY UPDATE FIXTURE.
  *
  *  Both supported upgrade entry points — the in-app Update button's self-update
@@ -8,49 +6,77 @@ import fs from 'node:fs'
  *  visibility, durable phase logs, shutdown behaviour and relaunch behaviour can
  *  be compared directly instead of argued about.
  *
- *  THE MANUAL ROUTE NEEDS NOTHING FROM THIS MODULE, and that is the point of
- *  the contract rather than an omission: the fixture is an ordinary
- *  installer-shaped executable, so running it by hand IS the manual route, on
- *  the same binary the in-app route hands off to. Only the in-app route needs a
- *  substitution, and this decides whether it may have one.
+ *  THE MANUAL ROUTE NEEDS NOTHING FROM THIS MODULE, and that is the contract
+ *  rather than an omission: the fixture is an ordinary installer-shaped
+ *  executable, so running it by hand IS the manual route, on the same binary the
+ *  in-app route hands off to. Only the in-app route needs a substitution, and
+ *  this decides whether this build may perform one.
  *
- *  ⚠ WHY THE SWITCH IS PACKAGING METADATA AND NOT AN ENVIRONMENT VARIABLE.
- *  The requirement is that a production build must not EXPOSE or ACCEPT the
- *  substitution mechanism. An environment variable read by shipped code is a
- *  mechanism a production build accepts — the guard would be the variable's
- *  value, set by whoever is running the app, and not the build itself. So the
- *  CAPABILITY lives in the build-info.json that packaging writes beside the
- *  app, in the same place and shape the release/dev channel already lives, and
- *  the published packaging path never writes it. The environment variable then
- *  only chooses WHICH fixture to use on a build that was already built to
- *  permit one; on a published build it decides nothing at all.
+ *  ⚠ THE CAPABILITY IS BUILD COMPOSITION, NOT METADATA AND NOT AN ENVIRONMENT
+ *  VARIABLE. Two weaker designs were tried and both are rejected here, because
+ *  the requirement is that a production build must not merely decline to
+ *  advertise this mechanism — it must be UNABLE to perform it.
  *
- *  ⚠ AND IT FAILS CLOSED, in the same direction readBuildChannel fails. A
- *  missing file, unreadable JSON, or an absent or non-`true` field is NOT
- *  capable. Failing the other way would turn a corrupt metadata file into a
- *  build that accepts a substituted installer, which is the single outcome this
- *  must never produce.
+ *    - An environment variable read by shipped code is a mechanism a production
+ *      build ACCEPTS. The guard would be a value supplied by whoever runs the
+ *      app, which is not a property of the build at all.
+ *    - A flag in the build-info.json packaging writes beside the app is barely
+ *      better, and it was measured rather than argued: a reviewer's probe fed
+ *      `channel: release` plus `updateFixture: true` to both the capability
+ *      reader and the real release provenance validator, AND BOTH ACCEPTED.
+ *      That file is ordinary mutable data sitting next to the executable, so
+ *      "we simply never write the flag" is not an exclusion — it is a default,
+ *      and anyone with a text editor can change a default.
+ *
+ *  So the capability is a constant the bundler substitutes at build time.
+ *  A published build has `false` compiled into dist/main/index.cjs, and no edit
+ *  to any file beside the application can change that. Editing the bundle
+ *  itself is not a way around it either: build-info.json carries a sha256 of
+ *  dist/main/index.cjs, so a modified bundle fails the provenance check that
+ *  already exists.
+ *
+ *  ⚠ AND IT FAILS CLOSED AT EVERY LAYER. If the define is missing entirely —
+ *  an esbuild run that did not set it, a test bundling this module directly —
+ *  the capability is false. The enabled state is reachable only by asking for
+ *  it explicitly at build time.
  *
  *  ⚠ A REFUSAL IS NOT SILENCE. When a build that may not substitute is asked to,
- *  the decision says so and carries the reason, because the caller records it.
- *  A stray variable in an operator's environment must never change what an
- *  installed release does AND must never do so invisibly — "it was ignored" has
- *  to be readable afterwards, or the next person debugging an update has one
- *  more indistinguishable hypothesis. */
+ *  the decision carries the reason and the caller records it. A stray variable
+ *  in an operator's environment must never change what an installed release
+ *  does AND must never do so invisibly: "it was ignored" has to be readable
+ *  afterwards, or the next person debugging an update has one more
+ *  indistinguishable hypothesis. */
 
-/** Names the fixture executable to hand off to. Read only on a build whose
- *  packaging metadata already permits a substitution. */
+/** Substituted by tools/build.mjs with the WHOLE marker string, either
+ *  `ORGTREE-UPDATE-FIXTURE-BUILD:enabled` or `…:disabled`. Declared rather than
+ *  imported because it does not exist as a value anywhere — esbuild replaces
+ *  the identifier.
+ *
+ *  ⚠ A STRING, NOT A BOOLEAN, AND THAT IS DELIBERATE. A boolean define left the
+ *  preflight's bundle scan depending on dead-code elimination, and the test that
+ *  measured it FAILED: esbuild kept the eliminated branch's literal, so the
+ *  disabled bundle carried the sentinel too and the scan would have refused
+ *  every build. Substituting the marker itself needs no elimination — the value
+ *  is simply present in the output — so the scan reads a fact rather than a
+ *  bundler optimisation.
+ *
+ *  The comparison below is deliberately written against the ':enabled' SUFFIX,
+ *  never the whole marker, so this source file never contains the enabled
+ *  marker as a contiguous literal. If it did, a disabled bundle would carry it
+ *  as the comparison operand and the scan would be back to false positives. */
+declare const __ORGTREE_UPDATE_FIXTURE__: string
+
+/** Names the fixture executable to hand off to. Read ONLY by a build whose
+ *  composition already permits a substitution; on any other build this variable
+ *  decides nothing, and the attempt is recorded rather than ignored. */
 export const UPDATE_FIXTURE_ENV = 'ORGTREE_UPDATE_FIXTURE'
 
-/** Whether THIS BUILD was packaged to permit an update-fixture substitution.
- *  Published artifacts never carry the field, so they are never capable. */
-export function readFixtureCapability(
-  file: string, io: Pick<typeof fs, 'readFileSync'> = fs): boolean {
-  try {
-    const parsed: unknown = JSON.parse(io.readFileSync(file, 'utf8'))
-    return parsed !== null && typeof parsed === 'object'
-      && (parsed as Record<string, unknown>).updateFixture === true
-  } catch { return false }
+/** Whether THIS BUILD was composed to permit an update-fixture substitution.
+ *  The `typeof` guard is what makes a missing define mean `false` instead of a
+ *  ReferenceError that some caller might swallow into a truthy default. */
+export function buildPermitsUpdateFixture(): boolean {
+  return typeof __ORGTREE_UPDATE_FIXTURE__ === 'string'
+    && __ORGTREE_UPDATE_FIXTURE__.endsWith(':enabled')
 }
 
 export type FixtureDecision =
@@ -66,21 +92,23 @@ export type FixtureDecision =
 export interface FixtureInputs {
   /** The raw environment value, if any. */
   requested?: string
-  /** readFixtureCapability against this build's own metadata. */
-  capable: boolean
+  /** Defaults to this build's own composition. Injected only so the decision
+   *  can be driven from both sides in one test process; production callers pass
+   *  nothing and get the compiled answer. */
+  permitted?: boolean
   /** Injected so the decision stays pure and testable. */
   exists: (file: string) => boolean
 }
 
 export function updateFixtureDecision(
-  { requested, capable, exists }: FixtureInputs): FixtureDecision {
+  { requested, permitted, exists }: FixtureInputs): FixtureDecision {
   const named = (requested ?? '').trim()
   if (!named) return { kind: 'off' }
-  if (!capable) {
+  if (!(permitted ?? buildPermitsUpdateFixture())) {
     return {
       kind: 'refused',
       reason: `${UPDATE_FIXTURE_ENV} named [${named}] but this build was not `
-        + 'packaged to accept an update-fixture substitution; the ordinary '
+        + 'composed to accept an update-fixture substitution; the ordinary '
         + 'installer handoff was used unchanged',
     }
   }
@@ -92,4 +120,34 @@ export function updateFixtureDecision(
     }
   }
   return { kind: 'active', installer: named }
+}
+
+/** The marker a fixture-capable build discloses in build-info.json.
+ *
+ *  ⚠ THIS IS A DISCLOSURE, NOT THE GUARD, and the distinction is the whole
+ *  point of the paragraph above. Nothing at runtime consults it: it exists so a
+ *  fixture-capable artifact SAYS SO about itself, and so the release preflight
+ *  can refuse to package one. Reading it and acting on it at runtime is exactly
+ *  the rejected design. */
+export const UPDATE_FIXTURE_DISCLOSURE = 'updateFixture'
+
+/** The marker the bundler substitutes, WITHOUT its state suffix. The release
+ *  preflight scans dist/main/index.cjs for this plus ':enabled', so it refuses a
+ *  fixture-capable artifact by reading the thing that actually runs rather than
+ *  a field beside it. The disclosure above can be deleted from a JSON file; this
+ *  cannot be deleted without editing the bundle, whose sha256 build-info.json
+ *  records and the provenance check verifies.
+ *
+ *  Kept as two pieces here for the same reason the comparison uses the suffix:
+ *  this file must never contain the enabled marker as one contiguous literal,
+ *  or every disabled bundle would carry it and the scan would refuse
+ *  everything. The 'a disabled build does not carry the enabled marker' test
+ *  measures that against real output rather than trusting this note. */
+export const UPDATE_FIXTURE_MARKER = 'ORGTREE-UPDATE-FIXTURE-BUILD'
+export const UPDATE_FIXTURE_ENABLED_SUFFIX = ':enabled'
+
+/** What the bundler actually substituted, for diagnostics. Null only when no
+ *  define was applied at all. */
+export function updateFixtureBuildMark(): string | null {
+  return typeof __ORGTREE_UPDATE_FIXTURE__ === 'string' ? __ORGTREE_UPDATE_FIXTURE__ : null
 }

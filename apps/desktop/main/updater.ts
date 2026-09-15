@@ -25,6 +25,18 @@ export type UpdateStage =
   | 'engine-shutdown' | 'engine-shutdown-timeout'
   | 'handoff'                  /* electron-updater accepted the install request */
   | 'handoff-refused'          /* it declined, and will therefore never quit the app */
+  /** ⚠ THIS HANDOFF WENT TO THE HARMLESS FIXTURE, not to a downloaded
+   *  installer. Recorded so a rehearsal can never be read afterwards as a real
+   *  update: a log that cannot tell the two apart would make the next update
+   *  incident harder to diagnose, not easier, which is the opposite of why the
+   *  fixture exists. Only a build composed with the fixture can emit this. */
+  | 'update-fixture-handoff'
+  /** A fixture substitution was ASKED FOR and did not happen — this build was
+   *  not composed to accept one, or the named executable is not there. The
+   *  ordinary handoff ran unchanged. Recorded rather than ignored so a stray
+   *  variable in an operator's environment changes nothing VISIBLY rather than
+   *  changing nothing silently. */
+  | 'update-fixture-refused'
   /** An installer process was OBSERVED RUNNING. This is the only stage that
    *  says an update is really under way: 'handoff' means a pid came back, which
    *  a process that died instantly also produces. Nothing may quit the app on
