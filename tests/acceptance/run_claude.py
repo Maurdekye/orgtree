@@ -48,7 +48,7 @@ forbidden = (Path.home() / "orgtree").resolve()
 assert forbidden not in DATA.parents and DATA != forbidden
 token = secrets.token_hex(32)
 env = dict(os.environ)
-for key in ("ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT", "ORGTREE_AGENT_TOKEN", "ORGTREE_V2_HUB_TOKEN"):
+for key in ("ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT", "ORGTREE_AGENT_TOKEN"):
     env.pop(key, None)
 env.update(ORGTREE_DATA=str(DATA), ORGTREE_V2_TOKEN=token,
            ORGTREE_V2_UI_DIR=str(ROOT / "dist" / "renderer"),

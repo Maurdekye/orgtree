@@ -235,8 +235,21 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
             idle = not any(s.get("busy") or s.get("waiting") or s.get("queue")
                            for s in states)
         import_active = desktop_import_jobs.active()
+        # the tray's right-click menu shows the mail hub's running status
+        # (user requirement 2026-09-15); this poll already feeds the tray,
+        # so the summary rides it instead of a second poll
+        mailhub: dict[str, Any] | None = None
+        if _HUB_RUNTIME is not None:
+            hub_state = _HUB_RUNTIME.status()
+            mailhub = {"running": hub_state["status"]["running"],
+                       "healthy": hub_state["status"]["healthy"],
+                       "port": hub_state["port"],
+                       "exposed": hub_state["status"]["exposed"],
+                       **({"error": hub_state["error"]}
+                          if hub_state.get("error") else {})}
         return {"activeAgents": active, "totalAgents": total, "idle": idle and not import_active and not startup.recovery.pending and startup.recovery.error is None,
                 "importActive": import_active,
+                "mailhub": mailhub,
                 "maintenance": desktop_maintenance.pending(),
                 "maintenance_outcome": desktop_maintenance.status()}
 
@@ -376,18 +389,17 @@ def main() -> None:
     # network because it built the app.
     from orgtree import staffcache
     staffcache.warm("engine start")
-    # The v2 loopback hub is a sibling service, not an alternate API. Start it
+    # The bundled mail hub is the pinned orgtree-mailhub submodule run as its
+    # own child process (the same entrypoint the Docker image runs). Start it
     # only after the explicit root has been validated and the real API loaded;
     # shutdown is idempotent and always runs even when uvicorn exits early.
-    from engine.hub_runtime import HubRuntime
-    hub = HubRuntime(data)
+    # A hub that cannot start (port taken, failed data migration) is reported
+    # on the hosting surface — it must not stop the engine from booting.
+    from engine.mailhub_runtime import MailhubRuntime
+    hub = MailhubRuntime(data)
     _HUB_RUNTIME = hub
-    hub_ready = hub.start()
+    hub.start()
     progress.report("hub-started")
-    # The copied production net client starts in the API startup hook. Give it
-    # the embedded hub's dynamic address without rewriting remote configuration.
-    # HubReadiness carries the owner token on the hardened hub contract;
-    # getattr keeps this launcher importable while that sibling commit lands.
     import uvicorn  # noqa: PLC0415
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
                                            access_log=False))
@@ -401,7 +413,7 @@ def main() -> None:
         print(json.dumps({"type": "ready", "protocol": 1, "port": port,
                           "pid": os.getpid(), "dataRootId": data_root_id(data),
                           "guardianPid": guardian_pid,
-                          "hubPort": hub_ready.port},
+                          "hubPort": hub.config["port"]},
                          separators=(",", ":")), flush=True)
         while not task.done():
             if stopping["value"]:

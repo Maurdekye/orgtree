@@ -6,8 +6,8 @@ Two halves:
 - TRANSPORT (Phase C): the spool sender + multiplexed long-poll daemon.
 
 Identity model (docs/mailserver-spec.md §3, all user-ruled):
-  suffix      = generated locally for collision avoidance; the persisted
-                address is not proof of ownership at a shared-trust hub.
+  secret      = secrets.token_hex(16)        minted BY the org at creation
+  fingerprint = sha256(secret)               the hub stores only this
   slug        = f"{org}.{username}.{fingerprint[:6]}"   minted ONCE, persisted,
                 never recomputed — the address survives moves and renames.
 
@@ -22,10 +22,12 @@ DELIVERED FIRST (deliver_org_inbox = net_wake auto), recorded seen, then
 ACKED — a crash between steps duplicates, never loses. Receipts are
 best-effort and never block correspondence.
 
-⚠ Routing identity hygiene: organization addresses appear only where routing
-requires them. Kiosk orgs mint NO identity at all: they are sealed from the
-outside world, and an identity that does not exist cannot leak (stronger than
-filtering rosters).
+⚠ Secret hygiene: the secret lives in the org doc (`net_identity`) and is
+returned by exactly one loopback-admin endpoint (`GET /api/orgs/{slug}/net`).
+It must never enter a tree payload, an agent's context, a log line, or a URL —
+on the wire it rides headers only. Kiosk orgs mint NO identity at all: they are
+sealed from the outside world, and an identity that does not exist cannot leak
+(stronger than filtering rosters).
 
 ⚠ Lock discipline: DOC_LOCK is never held across an HTTP call. The daemon
 threads take it only to read/mutate docs, in the same order as everyone else.
@@ -101,7 +103,7 @@ def mint_identity(org: "Org") -> dict[str, Any] | None:
     ident = org.d.get("net_identity")
     if isinstance(ident, dict) and ident.get("secret"):
         return ident
-    secret = secrets.token_hex(16)               # local suffix entropy for a stable address
+    secret = secrets.token_hex(16)               # the repo's credential pattern
     fp = hashlib.sha256(secret.encode()).hexdigest()
     ident = {
         "secret": secret,
@@ -152,7 +154,6 @@ _status: dict[tuple[str, str], dict[str, Any]] = {}
 _status_lock = threading.Lock()
 _rosters: dict[str, list[dict[str, Any]]] = {}
 _hub_names: dict[str, str] = {}
-_hub_headers_by_address: dict[str, dict[str, str]] = {}
 # read receipts queued by _confirm_delivered (supervisor) until the sender
 # thread flushes them; restart loses at most a pending "read" — the far end
 # self-heals to "delivered", which is honest
@@ -353,14 +354,8 @@ def probe_peer(target: str) -> bool:
     found = False
     for addr in addrs:
         try:
-            with _status_lock:
-                headers = _hub_headers_by_address.get(addr)
-            if not headers:
-                # No configured routing address is available for this hub.
-                continue
             with _client() as c:
-                r = c.get(f"{addr}/api/roster",
-                          headers=headers)
+                r = c.get(f"{addr}/api/roster")
             if r.status_code != 200:
                 continue
             body = cast("dict[str, Any]", r.json() or {})
@@ -444,35 +439,32 @@ def _participants() -> dict[str, dict[str, Any]]:
                     store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 continue
-        ident = org.d.get("net_identity") or {}
-        legacy_fields = {"peer_token", "peer_slug"}
-        if any(legacy_fields.intersection(h) for h in (org.d.get("net_hubs") or []) if isinstance(h, dict)):
+        # BUNDLED-HUB ADDRESS SYNC (orgtree-mailhub integration, itemized):
+        # the engine owns the local hub's port, so a doc whose implicit
+        # local entry points elsewhere (an old dynamic-port install, a
+        # changed port) would dial a dead address forever. Rewrite it to
+        # the engine's address; the per-hub state reconciliation below then
+        # resets that cell for the changed address on its own (registration
+        # re-earned, ring dropped — the ratified bounded-duplicate trade).
+        local_addr = os.environ.get(
+            "ORGTREE_LOCAL_HUB_ADDRESS", "").strip().rstrip("/")
+        if local_addr and any(
+                str(h.get("id")) == LOCAL_HUB_ID
+                and str(h.get("address") or "").rstrip("/") != local_addr
+                for h in (org.d.get("net_hubs") or [])):
             try:
                 with store.DOC_LOCK:
                     org = store.load_org(slug)
-                    for hub in org.d.get("net_hubs") or []:
-                        if isinstance(hub, dict):
-                            for field in legacy_fields:
-                                hub.pop(field, None)
+                    for h in org.d.get("net_hubs") or []:
+                        if str(h.get("id")) == LOCAL_HUB_ID:
+                            h["address"] = local_addr
                     store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 continue
+        ident = org.d.get("net_identity") or {}
         hubs = [dict(h) for h in (org.d.get("net_hubs") or [])
                 if h.get("enabled") and h.get("address")]
-        # Existing documents may still contain the V1 default (7370). During
-        # V2 startup route only the implicit local entry to the embedded
-        # dynamic hub; remote entries remain user-configured. State-address
-        # reconciliation below then forces registration at this endpoint.
-        integrated = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip()
-        if integrated:
-            for h in hubs:
-                if str(h.get("id")) == LOCAL_HUB_ID:
-                    h["address"] = integrated.rstrip("/")
-        with _status_lock:
-            for h in hubs:
-                _hub_headers_by_address[str(h["address"])] = _hub_headers(h, [(
-                    str(ident.get("slug") or ""), str(ident.get("secret") or ""))])
-        if not ident.get("slug"):
+        if not ident.get("secret"):
             continue
         # RECONCILE per-hub state with the hub list (redteam second wave —
         # "per-hub state outlives the hub it describes"): a net_state cell
@@ -589,12 +581,6 @@ def _default_address() -> str:
     # defaults.json is api-owned; read it directly to avoid an import cycle
     import json
     from . import store
-    # The V2 launcher owns an embedded loopback hub on a dynamic port. Keep
-    # this override scoped to that launcher; ordinary V1 installs continue to
-    # use their persisted/default hub address.
-    integrated = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").strip()
-    if integrated:
-        return integrated.rstrip("/")
     try:
         d = json.load(open(os.path.join(store.DATA_ROOT, "defaults.json"),
                            encoding="utf-8"))
@@ -605,6 +591,14 @@ def _default_address() -> str:
                 return explicit
     except (OSError, ValueError):
         pass
+    # THE BUNDLED-HUB SEAM (orgtree-mailhub integration, itemized): the
+    # engine that hosts the local hub knows its real port and names it here
+    # (MailhubRuntime sets the variable once the hub answers /healthz). It
+    # outranks the temp floor below deliberately — a test rig's engine sets
+    # it to the rig's OWN hub, which is precisely where fixtures belong.
+    integrated = os.environ.get("ORGTREE_LOCAL_HUB_ADDRESS", "").strip()
+    if integrated:
+        return integrated.rstrip("/")
     # No explicit address. The default is the operator's real hub
     # UNLESS this data root is a throwaway one under the OS temp
     # directory - see _under_os_temp for why that is the floor and
@@ -614,47 +608,19 @@ def _default_address() -> str:
             else DEFAULT_HUB_ADDRESS)
 
 
-def _local_tls_mounts() -> dict[str, Any]:
-    import ssl
-    import httpx
-    from urllib.parse import urlsplit
-    address = os.environ.get("ORGTREE_V2_HUB_ADDRESS", "").rstrip("/")
-    ca = os.environ.get("ORGTREE_V2_HUB_CA_FILE", "")
-    parsed = urlsplit(address)
-    if ca and parsed.scheme == "https" and parsed.hostname in {"127.0.0.1", "::1"}:
-        context = ssl.create_default_context(cafile=ca)
-        context.check_hostname = False  # exact owner loopback origin only; chain verification stays on
-        return {address: httpx.HTTPTransport(verify=context)}
-    return {}
-
-
 def _client() -> Any:
     import httpx
-    return httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), mounts=_local_tls_mounts())
+    return httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0))
 
 
 def _poll_client() -> Any:
     import httpx
     return httpx.Client(timeout=httpx.Timeout(POLL_WAIT_S + 10.0,
-                                              connect=5.0), mounts=_local_tls_mounts())
+                                              connect=5.0))
 
 
-def _address_header(pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """Name participants for routing without presenting credentials."""
-    return {"X-Org-Address": " ".join(slug for slug, _ in pairs if slug)}
-
-
-def _hub_headers(hub: dict[str, Any],
-                 pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """Build routing headers for a shared-trust hub."""
-    return _address_header(pairs)
-
-
-def _group_headers(parts: dict[str, dict[str, Any]],
-                   members: dict[str, str],
-                   pairs: list[tuple[str, str]]) -> dict[str, str]:
-    """Headers for one multiplexed address, including every routing address."""
-    return _address_header(pairs)
+def _auth_header(pairs: list[tuple[str, str]]) -> dict[str, str]:
+    return {"X-Org-Auth": " ".join(f"{s}:{sec}" for s, sec in pairs)}
 
 
 def _record_hub_name(addr: str, name: Any, parts: dict[str, dict[str, Any]],
@@ -742,8 +708,8 @@ def _register_pending(parts: dict[str, dict[str, Any]]) -> None:
                                      "org_name": p["name"],
                                      "username": _sanitize_user(
                                          getpass.getuser())},
-                               headers=_hub_headers(
-                                   h, [(p["net_slug"], p["secret"])]))
+                               headers=_auth_header(
+                                   [(p["net_slug"], p["secret"])]))
                 if r.status_code != 200:
                     _set_status(slug, hid, False,
                                 f"register: HTTP {r.status_code}")
@@ -833,7 +799,7 @@ def unregister_org(doc: dict[str, Any], *, timeout: float = 4.0,
             with httpx.Client(timeout=httpx.Timeout(timeout,
                                                     connect=timeout)) as c:
                 r = c.post(f"{addr}/api/unregister", json={},
-                           headers=_hub_headers(h, [(net_slug, secret)]))
+                           headers=_auth_header([(net_slug, secret)]))
             if r.status_code == 200:
                 done.append(addr)
             elif r.status_code == 401:
@@ -903,8 +869,8 @@ def _drain_spools(parts: dict[str, dict[str, Any]]) -> None:
                                          "sent_at": e.get("at"),
                                          "from": p["net_slug"],
                                          "attachments": att_ids},
-                                   headers=_hub_headers(
-                                       h, [(p["net_slug"], p["secret"])]))
+                                   headers=_auth_header(
+                                       [(p["net_slug"], p["secret"])]))
                 except Exception as ex:                          # noqa: BLE001
                     _fail(addr)
                     _set_status(slug, hid, False, type(ex).__name__)
@@ -974,12 +940,10 @@ def _ship_attachments(slug: str, hub_id: str, addr: str,
             paths.remove(path)
             continue
         with _client() as c:
-            hub = next((h for h in cast("list[dict[str, Any]]", p["hubs"])
-                        if str(h.get("id")) == str(hub_id)), {})
             r = c.post(f"{addr}/api/attachments",
                        params={"name": os.path.basename(path)},
                        content=data,
-                       headers=_hub_headers(hub, [(p["net_slug"], p["secret"])]))
+                       headers=_auth_header([(p["net_slug"], p["secret"])]))
         if r.status_code != 200:
             raise RuntimeError(f"attachment upload HTTP {r.status_code}")
         att_ids.append(str(cast("dict[str, Any]", r.json())["id"]))
@@ -1184,8 +1148,7 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
                     try:
                         with _client() as c:
                             r = c.get(f"{addr}/api/attachments/{a['id']}",
-                                      headers=_hub_headers(
-                                          next((h for h in p["hubs"] if str(h["id"]) == str(hub_id)), {}),
+                                      headers=_auth_header(
                                           [(p["net_slug"], p["secret"])]))
                         if r.status_code != 200:
                             raise RuntimeError(f"HTTP {r.status_code}")
@@ -1282,14 +1245,14 @@ def _flush_receipts(parts: dict[str, dict[str, Any]]) -> None:
         p = parts.get(slug)
         if not p:
             continue
-        hub = next((h for h in p["hubs"] if str(h["id"]) == hid), None)
-        addr = str(hub["address"]) if hub else None
+        addr = next((str(h["address"]) for h in p["hubs"]
+                     if str(h["id"]) == hid), None)
         if not addr:
             continue
         try:
             with _client() as c:
                 c.post(f"{addr}/api/receipts", json={"receipts": recs},
-                       headers=_hub_headers(hub or {}, [(p["net_slug"], p["secret"])]))
+                       headers=_auth_header([(p["net_slug"], p["secret"])]))
             # the recipient's own out-rows don't change here; sender-side
             # states arrive via the poll's receipts
         except Exception:                                        # noqa: BLE001
@@ -1360,7 +1323,7 @@ def _poll_pass(parts: dict[str, dict[str, Any]]) -> bool:
             with _poll_client() as c:
                 r = c.post(f"{addr}/api/poll",
                            params={"wait": POLL_WAIT_S},
-                           headers=_group_headers(parts, members, pairs))
+                           headers=_auth_header(pairs))
         except Exception as e:                                   # noqa: BLE001
             _fail(addr)
             for s, hid in members.items():
@@ -1397,9 +1360,7 @@ def _poll_pass(parts: dict[str, dict[str, Any]]) -> bool:
                 try:
                     with _client() as c:
                         c.post(f"{addr}/api/ack", json={"ids": ack},
-                               headers=_hub_headers(
-                                   next((h for h in parts[s]["hubs"]
-                                         if str(h["id"]) == str(hid)), {}),
+                               headers=_auth_header(
                                    [(parts[s]["net_slug"],
                                      parts[s]["secret"])]))
                 except Exception:                                # noqa: BLE001

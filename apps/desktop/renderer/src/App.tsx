@@ -420,6 +420,10 @@ export default function App() {
   const settingsOpen = useScopedOpen(slug)
   const showSettings = settingsOpen.open
   const setShowSettings = settingsOpen.set
+  // the header hub chip deep-links into Connections (failure → diagnostics
+  // in one click); cleared when the panel closes so a plain gear-open lands
+  // on the default tab again
+  const [settingsInitialTab, setSettingsInitialTab] = useState<OrgSettingsTab | undefined>(undefined)
   // the recovery browser: 'largest' = forced triage mode (the alert's path);
   // 'last' = whatever mode was used last (the header chip's path)
   const [showInbox, setShowInbox] = useState(false)
@@ -1120,20 +1124,35 @@ export default function App() {
                     </span>
                   )
                 })()}
-                {(() => {   // Only external connections get header tokens.
-                  // The embedded hub has the stable id "local" (net.LOCAL_HUB_ID).
+                {(() => {   // Every enabled, non-hidden hub gets a header
+                  // token — the LOCAL hub included once it has answered
+                  // (the V1 rule: the implicit local entry stays invisible
+                  // only until the hub has actually been seen). Clicking
+                  // the chip opens Connections: a failure's diagnostics
+                  // are one click from the failure.
                   const hubs = (tree.net?.hubs ?? [])
-                    .filter((h) => h.id !== 'local' && h.enabled && !h.hidden)
+                    .filter((h) => h.enabled && !h.hidden)
                   if (!hubs.length) return null
                   const up = hubs.filter((h) => h.connected).length
                   const queued = hubs.reduce((a, h) => a + h.queued, 0)
                   const label = hubs.length === 1
-                    ? (hubs[0]?.name || 'hub') : `${up}/${hubs.length} hubs`
+                    ? (hubs[0]?.name
+                      || (hubs[0]?.id === 'local' ? 'local hub' : 'hub'))
+                    : `${up}/${hubs.length} hubs`
+                  const openConnections = () => {
+                    setSettingsInitialTab('mailserver')
+                    if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)
+                  }
                   return (
-                    <span className={'chip' + (up === 0 ? ' bad' : '')}
+                    <span role="button" tabIndex={0}
+                      className={'chip' + (up === 0 ? ' bad' : '')}
+                      style={{ cursor: 'pointer' }}
+                      onClick={openConnections}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openConnections() } }}
                       title={hubs.map((h) =>
                         `${h.name || h.address}: ${h.connected ? 'connected'
-                          : h.error || 'connecting…'}`).join(' · ')}>
+                          : h.error || 'connecting…'}`).join(' · ')
+                        + ' — click to open Connections'}>
                       <LanIcon fontSize="inherit" /> {label}
                       {up === 0 ? ': offline' : ''}
                       {queued > 0 ? ` · ${queued} queued` : ''}
@@ -1286,8 +1305,8 @@ export default function App() {
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}
               {showSettings && (
-                <SettingsPanel tree={tree} toast={toast}
-                  close={() => { setShowSettings(false); refreshTree(slug) }} />
+                <SettingsPanel tree={tree} toast={toast} initialTab={settingsInitialTab}
+                  close={() => { setShowSettings(false); setSettingsInitialTab(undefined); refreshTree(slug) }} />
               )}
               {showInbox && (
                 <InboxPanel slug={slug} tree={tree} toast={toast}
@@ -1933,13 +1952,13 @@ export function NewOrg({ onCreate }: {
                 <DirList dirs={dirs} onChange={setDirs} />
               </>
             ) },
-            { label: 'Mailserver', content: (
+            { label: 'Mail hub', content: (
               <>
                 <label className="row kiosk-sbx"
                   title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
                   <input type="checkbox" checked={netAuto}
                     onChange={(e) => setNetAuto(e.target.checked)} />
-                  connect to the mailserver on this computer
+                  connect to this computer's mail hub
                 </label>
                 {<div className="dim hub-hint">
                   {hubSeen == null ? 'checking for a local hub…'
@@ -1949,7 +1968,7 @@ export function NewOrg({ onCreate }: {
                 </div>}
                 {(
                   <>
-                    <div className="field-label adv-sep">remote mailservers</div>
+                    <div className="field-label adv-sep">remote mail hubs</div>
                     {netHubs.map((h, i) => (
                       <div className="row" key={i}>
                         <input style={{ flex: 1 }} placeholder="http://host:7370"
@@ -1961,7 +1980,7 @@ export function NewOrg({ onCreate }: {
                       </div>
                     ))}
                     <button type="button" onClick={() => setNetHubs((l) => [...l, ''])}>
-                      + add a remote mailserver address</button>
+                      + add a remote mail hub address</button>
                     <div className="dim hub-hint">names are discovered on
                       connect — only the address is typed</div>
                   </>
@@ -2613,10 +2632,13 @@ type OrgSettingsTab =
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
 // about THIS component's shape (one modal, one save, tabs not a nested
 // modal), so the test has to be able to mount it directly
-export function SettingsPanel({ tree, toast, close }: {
+export function SettingsPanel({ tree, toast, close, initialTab }: {
   tree: TreePayload
   toast: ToastFn
   close: () => void
+  /** open directly on a tab (the header hub chip's failure→diagnostics
+   *  path); later changes while the panel is open switch the tab too */
+  initialTab?: OrgSettingsTab
 }) {
   // P3 — every field below used to be its own useState SEEDED FROM `tree`.
   // useState(x) snapshots x once at mount and never looks again, so this panel
@@ -2646,7 +2668,8 @@ export function SettingsPanel({ tree, toast, close }: {
   // "Basic" first — one surface, one Escape, one save button, and no
   // modal-over-a-modal. (AdvancedOrgModal itself stays for the create form,
   // which opens it from an inline form rather than from another modal.)
-  const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>('basic')
+  const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? 'basic')
+  useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])  // eslint-disable-line react-hooks/exhaustive-deps
   // the strip is built from live org shape: a kiosk has no autonomy, an org
   // with no mail identity has no mailserver tab. Same conditionals the
   // advanced modal's tab array used — moved out here so the tab strip and

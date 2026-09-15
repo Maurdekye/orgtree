@@ -102,9 +102,14 @@ Agent requests still go to the providers you configure. Local storage does not m
 
 The app uses **Electron, React and TypeScript**, with a separately bundled **Python engine**. Windows development and packaging use Node.js and Python with pip; the release tooling provisions an app-local Python runtime.
 
-From a checkout on Windows:
+From a checkout on Windows (clone with `--recurse-submodules`, or run the
+`git submodule` step below — the mail hub lives in the pinned
+[orgtree-mailhub](https://github.com/Maurdekye/orgtree-mailhub) submodule at
+`engine/mailhub`, and a checkout without it cannot host mail or pass
+packaging preflight):
 
 ```powershell
+git submodule update --init
 npm ci
 npm run runtime:provision
 npm run typecheck

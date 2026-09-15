@@ -53,7 +53,21 @@ import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
-export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; maintenance?: MaintenanceRequest }
+/** The bundled mail hub's live state, as /api/desktop/status reports it —
+ *  feeds the tray's right-click status line (user requirement 2026-09-15). */
+export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
+export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; mailhub?: MailhubStats; maintenance?: MaintenanceRequest }
+
+/** Tolerant parse: a malformed hub summary drops the FIELD, never the whole
+ *  stats payload — the agent counts still matter when the hub is broken. */
+export function mailhubStats(value: unknown): MailhubStats | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (typeof raw.running !== 'boolean' || typeof raw.healthy !== 'boolean'
+    || !Number.isInteger(raw.port) || typeof raw.exposed !== 'boolean') return undefined
+  return { running: raw.running, healthy: raw.healthy, port: raw.port as number, exposed: raw.exposed,
+    ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}) }
+}
 
 /** One fresh managed child, or an authenticated attachment to the boot
  *  host's engine. Never discovers or attaches by a bare .port file: attaching
@@ -518,7 +532,9 @@ export class Engine extends EventEmitter {
       const value = await r.json() as RuntimeStats
       if (!Number.isInteger(value.activeAgents) || !Number.isInteger(value.totalAgents) || value.activeAgents < 0 || value.totalAgents < value.activeAgents || typeof value.idle !== 'boolean' || (value.idle && value.activeAgents > 0)) return null
       const maintenance = maintenanceRequest(value.maintenance)
-      return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle, ...(maintenance ? { maintenance } : {}) }
+      const mailhub = mailhubStats((value as unknown as Record<string, unknown>).mailhub)
+      return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle,
+        ...(mailhub ? { mailhub } : {}), ...(maintenance ? { maintenance } : {}) }
     } catch { return null }
   }
 

@@ -318,8 +318,21 @@ else {
         click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
     ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    // The mail hub's running status, on the right-click menu (user
+    // requirement 2026-09-15). One honest line from the last stats poll:
+    // running (with its port, and whether it is exposed beyond this
+    // computer), stopped, or the start error the hosting panel shows.
+    const hub = stats?.mailhub
+    const hubLabel = !hub ? 'Mail hub: status unavailable'
+      : hub.error ? 'Mail hub: not running - see App settings > Mail hub'
+        : hub.running && hub.healthy
+          ? `Mail hub: running - port ${hub.port}${hub.exposed ? ' (network)' : ''}`
+          : hub.running ? `Mail hub: starting on port ${hub.port}...`
+            : 'Mail hub: stopped'
     trayMenu = Menu.buildFromTemplate([
       ...updateRows,
+      { type: 'separator' },
+      { id: 'mailhub-status', label: hubLabel, enabled: false },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },

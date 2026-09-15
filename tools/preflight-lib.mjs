@@ -42,6 +42,30 @@ export function assertNoUpdateFixture(info, bundle = 'dist/main/index.cjs', io =
   }
 }
 
+/** The pinned orgtree-mailhub submodule must be PRESENT, CLEAN, and exactly
+ *  what the build recorded — packaging must never fetch, guess, or silently
+ *  ship a different hub than the reviewed pin (mail-hub ticket). `status`
+ *  is `git submodule status -- engine/mailhub` output; `head` is the
+ *  submodule checkout's actual HEAD. */
+export function assertMailhubSubmodule(info, status, head, io = fs) {
+  for (const probe of ['engine/mailhub/mailhub/app.py', 'engine/mailhub/mailhub/serve.py', 'engine/mailhub/hubtool.py']) {
+    if (!io.existsSync(probe)) {
+      throw new Error('Packaging refuses an absent or uninitialized orgtree-mailhub submodule ('
+        + probe + ' is missing). Run: git submodule update --init')
+    }
+  }
+  const marker = String(status)[0]
+  if (marker !== ' ') {
+    throw new Error('Packaging refuses the orgtree-mailhub submodule in state "' + marker
+      + '": " " (clean, at the recorded pin) is required. "-" = uninitialized, "+" = checked out '
+      + 'at a DIFFERENT commit than the pin — adopting a new hub revision is its own reviewed commit')
+  }
+  if (!info.mailhubCommit || info.mailhubCommit !== head) {
+    throw new Error('Packaging requires build-info to record the exact orgtree-mailhub revision it '
+      + 'packaged (recorded: ' + info.mailhubCommit + ', checkout: ' + head + '). Rebuild with `npm run build`')
+  }
+}
+
 export function assertReleaseProvenance(info, head, porcelain, io = fs) {
   if (info.channel !== 'release') throw new Error('Release packaging refuses build channel "' + info.channel + '": rebuild with `npm run build` before packaging a release')
   if (!info.commit || info.dirty !== false || info.commit !== head || porcelain.trim()) {

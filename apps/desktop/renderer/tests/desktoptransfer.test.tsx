@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { useState } from 'react'
 import { ImportSettings } from '../src/canvas/importsettings'
-import { ConnectHub } from '../src/canvas/connections'
+import { AddHub } from '../src/canvas/connections'
 import { HostHub } from '../src/canvas/hosthub'
 import { downloadDocument, responseFilename } from '../src/canvas/download'
 import { terminalImportServer } from './importjobfixture'
@@ -93,21 +93,41 @@ test('copy import requires preview, selected organizations and duplicate-work ac
   } finally { await v.unmount(); globalThis.fetch = original }
 })
 
-test('connect sends the hub address without credential fields', async () => {
+test('adding a hub sends one address field; the test never gates; failure preserves the value', async () => {
   localStorage.clear()
   const original = globalThis.fetch
-  const sent: unknown[] = []
-  globalThis.fetch = async (_url, init) => { sent.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }) }
+  const probes: string[] = []
+  globalThis.fetch = async (url) => {
+    probes.push(String(url))
+    return new Response(JSON.stringify({ ok: false }), { headers: { 'Content-Type': 'application/json' } })
+  }
+  const patches: unknown[] = []
+  let accept = true
   function Fixture() {
     const [address, setAddress] = useState('https://mail.example')
-    return <ConnectHub slug="org" address={address} setAddress={setAddress} toast={() => {}} />
+    return <AddHub slug="org" address={address} setAddress={setAddress} toast={() => {}}
+      current={[]} busy={false}
+      apply={async patch => { patches.push(patch); return accept }} />
   }
   const v = await mountView(<Fixture />, el => el)
   try {
     const inputs = v.el.querySelectorAll<HTMLInputElement>('form input')
-    assert.equal(inputs.length, 1)
-    await click(v.el, 'Connect')
-    assert.deepEqual(sent, [{ address: 'https://mail.example' }])
+    assert.equal(inputs.length, 1, 'the address is the ONLY field — no credentials, no tokens')
+    // the reachability test is advisory: an unreachable hub is still addable
+    await click(v.el, 'Test')
+    await inAct(async () => { await flush(4) })
+    assert.ok(probes.some(u => u.includes('/api/net/probe?address=https%3A%2F%2Fmail.example')))
+    assert.match(v.el.querySelector('[role="status"]')!.textContent!, /Not answering right now.*still add/s)
+    await click(v.el, 'Add')
+    await inAct(async () => { await flush(4) })
+    assert.deepEqual(patches, [{ net_hubs: [{ address: 'https://mail.example', enabled: true }] }])
+    assert.equal(v.el.querySelector<HTMLInputElement>('form input')!.value, '', 'accepted → field cleared')
+    // a refused save preserves the entered value for correction
+    accept = false
+    await type(v.el.querySelector<HTMLInputElement>('form input')!, 'https://second.example')
+    await click(v.el, 'Add')
+    await inAct(async () => { await flush(4) })
+    assert.equal(v.el.querySelector<HTMLInputElement>('form input')!.value, 'https://second.example')
     assert.equal(localStorage.length, 0)
   } finally { await v.unmount(); globalThis.fetch = original }
 })
@@ -182,49 +202,56 @@ test('partial import shows committed copies, recovery and per-org warnings, and 
 })
 
 
-test('mail hosting saves explicit network and TLS paths, shows runtime status and retains errors for correction', async () => {
+test('mail hosting speaks the hub\'s own model, warns on exposure, and retains errors for correction', async () => {
   localStorage.clear()
   const original = globalThis.fetch
   const writes: any[] = []
   let fail = false
-  const config = { version: 1, enabled: false, bind_host: '127.0.0.1', port: 0, advertise_host: '', tls_configured: false,
-    status: { ready: false, port: 0, address: '', public: false } }
+  const config = { version: 2, port: 7370, bind: '127.0.0.1', name: '', retention_days: null,
+    org_retention_days: 45, public_listener: false, public_listener_port: 7371,
+    status: { running: true, healthy: true, address: 'http://127.0.0.1:7370', exposed: false, hub_name: 'desk', orgs: 2, queued: 0 } }
   globalThis.fetch = async (url, init) => {
     assert.equal(String(url), '/api/desktop/hub')
     if (init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)); writes.push(body)
       if (fail) return new Response('Port already in use', { status: 409 })
-      return new Response(JSON.stringify({ ...body, tls_configured: true, status: { ready: true, port: 8443,
-        address: 'https://mail.example:8443', public: true }, tls_keyfile: 'must-not-retain-key-path' }))
+      return new Response(JSON.stringify({ ...config, ...body,
+        status: { running: true, healthy: true, address: `http://127.0.0.1:${body.port}`, exposed: body.bind === '0.0.0.0' } }))
     }
     return new Response(JSON.stringify(config))
   }
   const v = await mountView(<HostHub />, el => el)
   try {
     await inAct(async () => { await flush(8) })
+    assert.match(v.el.textContent!, /Running at http:\/\/127\.0\.0\.1:7370/)
+    assert.match(v.el.textContent!, /2 registered/)
+    // no TLS controls exist: the hub does not terminate TLS (reverse proxy
+    // guidance lives in the exposure warning instead)
+    assert.equal(v.el.querySelector('[aria-label*="TLS"]'), null)
+    assert.doesNotMatch(v.el.textContent!, /Enable mail hub/)
     await inAct(() => {
-      v.el.querySelector<HTMLInputElement>('[aria-label="Enable mail hub"]')!.click()
-      const select = v.el.querySelector<HTMLSelectElement>('select')!
+      const select = v.el.querySelector<HTMLSelectElement>('[aria-label="Mail hub listen interface"]')!
       select.value = '0.0.0.0'; select.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save hosting settings')!
-    assert.equal(save.disabled, true, 'public hosting cannot be submitted without configured TLS paths')
-    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '8443')
-    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Advertised mail hub host"]')!, 'mail.example')
-    await type(v.el.querySelector<HTMLInputElement>('[aria-label="TLS certificate file"]')!, 'C:\\tls\\certificate.pem')
-    await type(v.el.querySelector<HTMLInputElement>('[aria-label="TLS private key file"]')!, 'C:\\tls\\key.pem')
-    assert.equal(save.disabled, false)
+    assert.match(v.el.textContent!, /read ALL mail/, 'exposure states its scope before it happens')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub name"]')!, 'office desk')
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '7380')
+    await inAct(() => {
+      const keep = v.el.querySelector<HTMLSelectElement>('[aria-label="Mail retention"]')!
+      keep.value = 'days'; keep.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await type(v.el.querySelector<HTMLInputElement>('[aria-label="Days to keep mail"]')!, '45')
+    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Serve the relay-only public listener"]')!.click() })
     await click(v.el, 'Save hosting settings')
-    assert.deepEqual(writes[0], { version: 1, enabled: true, bind_host: '0.0.0.0', port: 8443,
-      advertise_host: 'mail.example', tls_certfile: 'C:\\tls\\certificate.pem', tls_keyfile: 'C:\\tls\\key.pem' })
-    assert.match(v.el.textContent!, /Running at https:\/\/mail.example:8443/)
-    assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="TLS private key file"]')!.value, '')
+    assert.deepEqual(writes[0], { version: 2, port: 7380, bind: '0.0.0.0',
+      name: 'office desk', retention_days: 45, public_listener: true })
+    assert.match(v.el.textContent!, /Running at http:\/\/127\.0\.0\.1:7380/)
     assert.equal(localStorage.length, 0)
-    assert.doesNotMatch(v.el.textContent!, /must-not-retain/)
     fail = true
     await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '9000')
     await click(v.el, 'Save hosting settings')
     assert.match(v.el.querySelector('[role="alert"]')!.textContent!, /409|Port already in use/)
-    assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!.value, '9000')
+    assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!.value, '9000',
+      'a refused save preserves the entered value for correction')
   } finally { await v.unmount(); globalThis.fetch = original }
 })

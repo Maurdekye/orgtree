@@ -1614,7 +1614,10 @@ def net_probe(request: Request, address: str = "") -> dict[str, Any]:
 
 @app.get("/api/orgs/{slug}/net")
 def org_net(slug: str, request: Request) -> dict[str, Any]:
-    """Return routing identity and address-only hub connections for settings."""
+    """F-06: the org's network identity — the ONE place the secret is
+    returned (loopback admin listener only, like the kiosk token). The
+    settings panel's reveal/export reads this; the public gateway never
+    reaches it. Kiosks have no identity by design."""
     if _public_slug(request):
         raise HTTPException(404, "not found")
     try:
@@ -1639,7 +1642,9 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
                 org.d["net_hubs"] = net.hub_entries(
                     bool(org.d.get("net_autoconnect", True)), [], addr)
             store.save_org(org)
-    legacy_connection_fields = {"peer_token", "peer_slug"}
+    # V2-era docs may carry retired pairing fields — scrub once on reveal
+    # (migration hygiene; the V1 shape has no per-hub credentials at all)
+    legacy_connection_fields = {"peer_token", "peer_slug", "token"}
     if any(legacy_connection_fields.intersection(h) for h in (org.d.get("net_hubs") or [])
            if isinstance(h, dict)):
         with store.DOC_LOCK:
@@ -1649,66 +1654,9 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
                     for field in legacy_connection_fields:
                         hub.pop(field, None)
             store.save_org(org)
-    return {"identity": {k: v for k, v in (org.d.get("net_identity") or {}).items()
-                         if k != "secret"},
-            "hubs": [{k: v for k, v in h.items() if k not in {"token", "peer_token", "peer_slug"}}
-                     for h in org.d.get("net_hubs") or []],
+    return {"identity": org.d.get("net_identity"),
+            "hubs": org.d.get("net_hubs") or [],
             "autoconnect": bool(org.d.get("net_autoconnect", True))}
-
-
-class NetConnection(Body):
-    address: str
-
-
-def _pairing_org(slug: str, request: Request) -> Any:
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
-    try:
-        org = store.load_org(slug)
-    except LedgerError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    if org.d.get("kiosk") is not None:
-        raise HTTPException(403, "kiosk orgs cannot use peer connections")
-    ident = org.d.get("net_identity") or {}
-    if not ident.get("slug"):
-        raise HTTPException(422, "org has no network identity")
-    return org
-
-
-@app.post("/api/orgs/{slug}/net/pair")
-def connect_net_hub(slug: str, body: NetConnection,
-                    request: Request) -> dict[str, Any]:
-    """Connect an organization to a reachable hub by address alone."""
-    org = _pairing_org(slug, request)
-    address = net.normalize_hub_address(body.address)
-    if not address or not urlsplit(address).scheme in {"http", "https"}:
-        raise HTTPException(422, "address must be an HTTP(S) hub URL")
-    ident = org.d["net_identity"]
-    parsed = urlsplit(address)
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise HTTPException(422, "hub address must not contain credentials, query or fragment")
-    if parsed.scheme != "https" and parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
-        raise HTTPException(422, "remote hub connections require HTTPS; HTTP is allowed only on loopback")
-    from engine.hub import HubClient
-    try:
-        client = HubClient(store.DATA_ROOT, address, str(ident["slug"]))
-        client.register(org_name=str(org.d.get("name") or slug))
-    except Exception as exc:
-        raise HTTPException(502, "hub is unavailable") from exc
-    with store.DOC_LOCK:
-        current = store.load_org(slug)
-        hubs = cast("list[dict[str, Any]]", current.d.setdefault("net_hubs", []))
-        existing = next((h for h in hubs if str(h.get("address")) == address), None)
-        if existing is None:
-            existing = {"id": uuid.uuid4().hex[:8], "address": address, "enabled": True}
-            hubs.append(existing)
-        existing.update({"address": address, "enabled": True})
-        existing.pop("peer_token", None)
-        existing.pop("peer_slug", None)
-        current.d["net_hubs"] = hubs
-        store.save_org(current)
-    return {"id": str(existing["id"]), "address": address,
-            "enabled": True, "connected": True}
 
 
 _tree_slow_warned: set[str] = set()
