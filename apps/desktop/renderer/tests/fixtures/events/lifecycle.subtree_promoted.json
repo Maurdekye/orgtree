@@ -1,0 +1,48 @@
+{
+  "variant": "lifecycle.subtree_promoted",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.subtree_promoted",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.subtree_promoted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.subtree_promoted·object.org",
+      "id": "lifecycle.subtree_promoted·object.id",
+      "name": "lifecycle.subtree_promoted·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "promoted": "lifecycle.subtree_promoted·promoted",
+    "demoted": "lifecycle.subtree_promoted·demoted",
+    "role": "promoted",
+    "by": "lifecycle.subtree_promoted·by",
+    "reports_to_after": "lifecycle.subtree_promoted·rta",
+    "subtree": 2
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.subtree_promoted",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.subtree_promoted·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.subtree_promoted·object.id",
+      "name": "lifecycle.subtree_promoted·object.name",
+      "generation": 3
+    },
+    "promoted": "lifecycle.subtree_promoted·promoted",
+    "demoted": "lifecycle.subtree_promoted·demoted",
+    "role": "promoted",
+    "by": "lifecycle.subtree_promoted·by",
+    "reports_to_after": "lifecycle.subtree_promoted·rta",
+    "subtree": 2
+  },
+  "body": "\"lifecycle.subtree_promoted·by\" promoted you into \"lifecycle.subtree_promoted·demoted\"'s place: you now report to \"lifecycle.subtree_promoted·rta\" and KEEP YOUR OWN TEAM. It brought its own team (2 node(s)) with it. \"lifecycle.subtree_promoted·demoted\" now reports to you, keeping the rest of its own reports. Your identity, session, charter and mailbox are unchanged. YOUR TEAM CHARTER IS YOURS TO WRITE: a promotion does not hand you the one \"lifecycle.subtree_promoted·demoted\" was binding its team with, so if the seat you have taken needs a standing instruction, set it yourself with orgtree_retool on your own id."
+}

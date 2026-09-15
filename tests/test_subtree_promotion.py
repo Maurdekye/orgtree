@@ -405,11 +405,45 @@ class SeatScopeRulingTests(PromotionBase):
         self.assertEqual(tgt["permission_mode"], "bypassPermissions")
         self.assertTrue(tgt["tools"]["bash"])
         self.assertTrue(tgt["tools"]["edit"])
-        self.assertEqual(o.node("tgt").get("team_charter"),
-                         "the caller's standing instruction")
         # and it is disclosed rather than arriving in silence
         self.assertTrue(any("GRANTS IT" in w for w in out["warnings"]))
-        self.assertTrue(any("team charter" in w for w in out["warnings"]))
+
+    def test_team_charter_is_the_one_thing_that_does_not_move(self):
+        """User ruling 2026-09-15, second pass: "leave it untouched, dont
+        change".  A charter is a single value, and the target brings its own
+        team up with it — inheriting the caller's would overwrite the standing
+        instruction for a team that never changed hands."""
+        self._widen_caller()
+        o = self.org
+        out = o.subjugate("boss", "boss", "tgt")
+        self.assertEqual(o.node("tgt").get("team_charter"),
+                         "the target's own standing instruction")
+        self.assertEqual(o.node("boss").get("team_charter"),
+                         "the caller's standing instruction")
+        # both parties are TOLD, rather than left to discover it
+        self.assertTrue(any("keeps its own team charter" in w
+                            for w in out["warnings"]),
+                        "the caller was not told the charter did not transfer")
+        self.assertTrue(any("orgtree_retool" in w for w in out["warnings"]))
+
+    def test_the_promoted_agent_is_told_its_charter_is_its_own_to_write(self):
+        o = self.org
+        self._widen_caller()
+        o.subjugate("boss", "boss", "tgt")
+        texts = [str(e.get("text") or "")
+                 for e in o.d.get("notices", {}).get("tgt", [])
+                 if (e.get("ev") or {}).get("role") == "promoted"]
+        self.assertTrue(texts, "the promoted agent got no promotion notice")
+        self.assertTrue(any("TEAM CHARTER IS YOURS TO WRITE" in t
+                            for t in texts))
+        self.assertTrue(any("orgtree_retool" in t for t in texts))
+
+    def test_a_target_with_no_charter_of_its_own_gains_none(self):
+        """The caller's charter must not leak in through the empty case."""
+        o = self.org
+        o.set_scope(USER, "boss", team_charter="the caller's instruction")
+        o.subjugate("boss", "boss", "tgt")
+        self.assertIsNone(o.node("tgt").get("team_charter"))
 
     def test_caller_retains_all_of_its_own(self):
         self._widen_caller()
