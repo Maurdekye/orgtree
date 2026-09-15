@@ -19,7 +19,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
-import { buildPermitsUpdateFixture, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
+import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
@@ -1281,6 +1281,31 @@ else {
         // release feed is what a real installation keeps using.
         if (updateFeed.kind === 'private') {
           autoUpdater.setFeedURL({ provider: 'generic', url: updateFeed.url })
+          // ⚠ ADMITTING THE FEED URL IS NOT ISOLATION. Review measured two
+          // escapes past a URL check with the real client: a manifest may name
+          // an ABSOLUTE artifact URL on any host, and a loopback manifest may
+          // answer 302 toward one — and the executor follows redirects. Both
+          // defeat a check on the string that was admitted.
+          //
+          // So the confinement is at the transport boundary the client actually
+          // uses: every request it makes, of every kind, and every redirect it
+          // follows, is created through this executor. Nothing a feed says can
+          // route around it. Production never reaches this branch.
+          const executor = (autoUpdater as unknown as { httpExecutor?: unknown }).httpExecutor
+          if (executor && typeof (executor as { createRequest?: unknown }).createRequest === 'function') {
+            confineExecutorToLoopback(executor as Parameters<typeof confineExecutorToLoopback>[0],
+              (host) => updateLog.record('update-feed-escape-blocked',
+                `the update client tried to reach [${host}] while confined to the isolated `
+                + 'loopback feed; the request was blocked before any external connection',
+                { from: app.getVersion(), to: app.getVersion() }))
+          } else {
+            // ⚠ NO EXECUTOR MEANS NO CONFINEMENT, AND THAT MUST NOT BE SILENT.
+            // A rehearsal that cannot be confined is one that might leave the
+            // machine, so it does not run: this is the same refusal shape the
+            // feed decision uses, applied to the enforcement rather than the URL.
+            throw new Error('the update client exposes no HTTP executor to confine, so an '
+              + 'isolated rehearsal cannot be guaranteed; refusing to check for updates')
+          }
           updateLog.record('update-feed-private',
             `checking an isolated loopback feed at [${updateFeed.url}] instead of the `
             + 'packaged release feed; this build is composed for rehearsal',

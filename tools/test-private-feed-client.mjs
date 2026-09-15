@@ -50,13 +50,14 @@ const server = await serveFeed(written.directory)
 try {
   console.log(`feed served at ${server.url} (loopback only)`)
 
-  // ⚠ THE FULL PROVIDER CANNOT BE CONSTRUCTED OUTSIDE ELECTRON, and stubbing it
-  // would leave exactly the half we care about unexercised. GenericProvider is
-  // built with an ElectronHttpExecutor, which reaches for electron's `net`; a
-  // stubbed executor would mean testing our own stub's opinion of the manifest
-  // rather than the client's. So this drives the client's OWN PARSER against the
-  // manifest this repo generates — the same function the provider calls — and
-  // then verifies the bytes the parsed manifest points at.
+  // ⚠ CORRECTION, RECORDED RATHER THAN QUIETLY EDITED: an earlier version of
+  // this file claimed the real GenericProvider could not be constructed outside
+  // Electron. That was WRONG, and review disproved it by building one with
+  // builder-util's NodeHttpExecutor and reading this very feed headlessly.
+  // tests/private-update-feed.test.mjs now drives the real provider and executor,
+  // including the redirect path, which is where the isolation escapes were found.
+  // What remains here is the cheaper check: the client's own manifest parser
+  // against the manifest this repo generates, plus the served bytes.
   const { parseUpdateInfo } = require_('electron-updater/out/providers/Provider.js')
   const yml = await fetch(server.url + 'latest.yml').then(r => r.text())
   const info = parseUpdateInfo(yml, 'latest.yml', server.url + 'latest.yml')

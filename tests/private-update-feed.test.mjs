@@ -173,3 +173,155 @@ test('§9 the app-side wiring reads the decision and only ever redirects on priv
   assert.match(index, /updateLog\.record\('update-feed-private'/,
     'a private feed must be recorded so a rehearsal is never mistaken for a real check')
 })
+
+// ------------------------------------- CONFINEMENT, DRIVEN THROUGH THE REAL CLIENT
+//
+// ⚠ EVERYTHING BELOW EXISTS BECAUSE CHECKING THE FEED URL WAS NOT ISOLATION, and
+// review proved it with the real GenericProvider and a real HTTP executor rather
+// than by argument. Admitting `http://127.0.0.1:…/` says where the MANIFEST is
+// fetched from and nothing about where the client goes next:
+//
+//   - the manifest's `files[].url` may be ABSOLUTE, so a loopback feed can hand
+//     back `https://public.invalid/real-setup.exe` and resolveFiles returns it;
+//   - a loopback manifest may answer HTTP 302 toward an external host, and the
+//     executor follows redirects.
+//
+// A URL allow-list would have to anticipate each kind of URL separately and
+// would still miss the redirect, so the confinement is at the transport boundary
+// every request passes through. These tests drive that boundary with the real
+// provider, not with parseUpdateInfo — the earlier revision tested the parser
+// and the parser was never where the escape was.
+
+const { GenericProvider } = require_('electron-updater/out/providers/GenericProvider.js')
+const { NodeHttpExecutor } = require_('builder-util/out/nodeHttpExecutor.js')
+const http = await import('node:http')
+
+/** The REAL executor, confined by the SHIPPED function — not a test double of
+ *  either. `attempts` records every host the client tried, so a blocked escape
+ *  is visible as an attempt that was refused rather than as an absence. */
+function confinedExecutor(attempts, blocked) {
+  const executor = new NodeHttpExecutor()
+  const original = executor.createRequest.bind(executor)
+  executor.createRequest = (options, callback) => {
+    attempts.push(String(options?.hostname ?? options?.host ?? ''))
+    return original(options, callback)
+  }
+  return enabled.confineExecutorToLoopback(executor, (host) => blocked.push(host))
+}
+
+const providerFor = (url, executor) => new GenericProvider(
+  { provider: 'generic', url },
+  { channel: null, isAddNoCacheQuery: false },
+  { platform: 'win32', executor })
+
+test('§10 the real provider reads the generated manifest over loopback', async () => {
+  const artifact = path.join(root, 'confined-fixture.exe')
+  fs.writeFileSync(artifact, Buffer.from('inert bytes; never executed'))
+  const directory = path.join(root, 'feed-confined')
+  const written = feed.writeFeed({
+    directory, artifact, version: '9.9.9-fixture', releaseDate: '2026-09-15T00:00:00.000Z',
+  })
+  const server = await feed.serveFeed(directory)
+  const attempts = [], blocked = []
+  try {
+    const client = providerFor(server.url, confinedExecutor(attempts, blocked))
+    const info = await client.getLatestVersion()
+    assert.equal(info.version, '9.9.9-fixture')
+    const resolved = client.resolveFiles(info)
+    assert.equal(resolved[0].url.origin, new URL(server.url).origin)
+    assert.equal(blocked.length, 0, 'a well-formed loopback feed must not be blocked')
+    assert.ok(attempts.every(h => h === '127.0.0.1'), `only loopback was contacted: ${attempts}`)
+    void written
+  } finally { await server.close() }
+})
+
+test('§11 ⚠ AN ABSOLUTE EXTERNAL ARTIFACT URL IS REFUSED — the first measured escape', async () => {
+  // resolveFiles happily returns the external URL: that is the library's
+  // behaviour and this does not change it. What must be true is that the URL is
+  // never REACHED, and that we can say so before downloading rather than after.
+  const escapedInfo = {
+    version: '9.9.9-fixture',
+    files: [{ url: 'https://public.invalid/real-setup.exe', sha512: 'x', size: 1 }],
+    path: 'real-setup.exe', sha512: 'x', releaseDate: '2026-09-15T00:00:00.000Z',
+  }
+  const attempts = [], blocked = []
+  const executor = confinedExecutor(attempts, blocked)
+  const client = providerFor('http://127.0.0.1:1/', executor)
+  const resolved = client.resolveFiles(escapedInfo)
+  assert.equal(resolved[0].url.href, 'https://public.invalid/real-setup.exe',
+    'the library still resolves it — the escape is real, not hypothetical')
+
+  // The shipped manifest check names it before any request is made.
+  const escapes = enabled.manifestEscapes(resolved.map(entry => entry.url))
+  assert.deepEqual(escapes, ['https://public.invalid/real-setup.exe'])
+
+  // And the transport refuses it even if something tried anyway.
+  assert.throws(() => executor.createRequest({ hostname: 'public.invalid', path: '/real-setup.exe' }, () => {}),
+    /not the isolated loopback feed/)
+  assert.deepEqual(blocked, ['public.invalid'])
+})
+
+test('§12 ⚠ A LOOPBACK FEED THAT REDIRECTS OFF-MACHINE IS REFUSED — the second escape', async () => {
+  // The initial URL passes every string check: it IS loopback. The escape is
+  // what the server answers, which no admission check on the URL can see.
+  const redirect = http.createServer((_request, response) => {
+    response.writeHead(302, { Location: 'https://public.invalid/latest.yml' }).end()
+  })
+  await new Promise(resolve => redirect.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${redirect.address().port}/`
+  const attempts = [], blocked = []
+  try {
+    assert.equal(enabled.privateFeedDecision({ requested: url }).kind, 'private',
+      'the redirecting feed is admitted by the URL check — that is the point')
+    const client = providerFor(url, confinedExecutor(attempts, blocked))
+    await assert.rejects(client.getLatestVersion(), /not the isolated loopback feed/,
+      'the redirect must be stopped at the transport boundary')
+    assert.deepEqual(blocked, ['public.invalid'],
+      'the escape must be named, not merely prevented')
+    // ⚠ AND NO EXTERNAL REQUEST EVER REACHED THE TRANSPORT. The recorder sits
+    // INSIDE the guard, so a host that appears in `attempts` is one the real
+    // executor was actually asked to dial. `public.invalid` is absent from it
+    // and present in `blocked`: the client tried, and was stopped before the
+    // request existed. That ordering is the assertion, not an accident of it.
+    assert.ok(attempts.length > 0, 'the loopback manifest request itself was made')
+    assert.deepEqual([...new Set(attempts)], ['127.0.0.1'],
+      `only loopback reached the transport, got ${[...new Set(attempts)]}`)
+  } finally { await new Promise(resolve => redirect.close(resolve)) }
+})
+
+test('§13 the confinement covers EVERY kind of URL, not a list of the ones we thought of', () => {
+  // Manifest, artifact, package, blockmap and any future shape all reach the
+  // network the same way, which is why the boundary was chosen over an
+  // allow-list. This asserts the predicate directly for each.
+  const attempts = [], blocked = []
+  const executor = confinedExecutor(attempts, blocked)
+  for (const host of ['public.invalid', 'example.test', '10.0.0.1', '127.0.0.2', 'localhost.evil.test']) {
+    assert.throws(() => executor.createRequest({ hostname: host, path: '/anything' }, () => {}),
+      /not the isolated loopback feed/, `${host} must be refused`)
+  }
+  assert.deepEqual(blocked,
+    ['public.invalid', 'example.test', '10.0.0.1', '127.0.0.2', 'localhost.evil.test'])
+})
+
+test('§14 manifestEscapes names every offender and passes a clean manifest', () => {
+  assert.deepEqual(enabled.manifestEscapes([
+    'http://127.0.0.1:1/a.exe', 'http://localhost/b.exe', 'https://[::1]/c.exe',
+  ]), [])
+  assert.deepEqual(enabled.manifestEscapes([
+    'http://127.0.0.1:1/a.exe', 'https://public.invalid/b.exe', 'not a url', 'http://10.0.0.1/d',
+  ]), ['https://public.invalid/b.exe', 'not a url', 'http://10.0.0.1/d'])
+})
+
+test('§15 ⚠ PRODUCTION IS UNTOUCHED — the confinement is installed on one branch only', () => {
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  // Exactly ONE call site, and it is inside the private-feed branch. A second
+  // one anywhere would mean a released build's networking had been altered.
+  const calls = index.split('confineExecutorToLoopback(').length - 1
+  assert.equal(calls, 1, `confineExecutorToLoopback must be called exactly once, found ${calls}`)
+  const branchAt = index.indexOf("if (updateFeed.kind === 'private') {")
+  const callAt = index.indexOf('confineExecutorToLoopback(', branchAt)
+  assert.ok(branchAt > 0 && callAt > branchAt && callAt - branchAt < 2000,
+    'the only call must sit inside the private-feed branch')
+  assert.match(index.slice(branchAt, branchAt + 3000), /exposes no HTTP executor to confine/,
+    'a rehearsal that cannot be confined must refuse rather than run unconfined')
+})

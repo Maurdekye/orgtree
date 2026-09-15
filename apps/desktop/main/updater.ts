@@ -47,6 +47,11 @@ export type UpdateStage =
    *  log that did not say so would let a private rehearsal be mistaken for a
    *  real update check afterwards. */
   | 'update-feed-private'
+  /** The confined update client tried to reach a host outside the isolated
+   *  loopback feed and was stopped before any external connection. Recorded
+   *  because a blocked escape nobody can read afterwards is a silent
+   *  near-miss, and because it is the signal that a feed is misbehaving. */
+  | 'update-feed-escape-blocked'
   /** The fixture RAN AND FINISHED. Distinct from 'installer-running' because
    *  nothing was installed, and distinct from 'installer-never-started'
    *  because it did run — a fixture that completes faster than one poll

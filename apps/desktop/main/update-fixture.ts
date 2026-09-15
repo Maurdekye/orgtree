@@ -383,8 +383,10 @@ export function isLoopbackFeedUrl(value: string): boolean {
   let url: URL
   try { url = new URL(value) } catch { return false }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  // ⚠ ONE definition of "loopback", shared with the transport guard below. Two
+  // copies would be two things to keep in step, and the admission check and the
+  // enforcement disagreeing is exactly how the first version of this leaked.
+  return isLoopbackHost(url.hostname)
 }
 
 export interface FeedInputs {
@@ -421,4 +423,80 @@ export function privateFeedDecision({ requested, permitted }: FeedInputs): FeedD
     }
   }
   return { kind: 'private', url: named }
+}
+
+/** ⚠ CHECKING THE FEED URL IS NOT ISOLATION, AND REVIEW PROVED IT WITH THE REAL
+ *  CLIENT. Admitting `http://127.0.0.1:…/` says where the MANIFEST is fetched
+ *  from and nothing about where the client goes next. Two escapes were measured
+ *  against the real GenericProvider and a real HTTP executor:
+ *
+ *    - the manifest's own `files[].url` may be ABSOLUTE, so a loopback feed can
+ *      hand back `https://public.invalid/real-setup.exe` and resolveFiles will
+ *      return exactly that;
+ *    - a loopback `/latest.yml` may answer HTTP 302 pointing at an external
+ *      host, and the executor follows redirects.
+ *
+ *  Both defeat a check on the initial URL, and neither is exotic — the first is
+ *  ordinary manifest content and the second is ordinary HTTP.
+ *
+ *  ⚠ SO THE ENFORCEMENT IS AT THE TRANSPORT BOUNDARY, NOT ON THE STRING. Every
+ *  request the client makes — manifest, artifact, package, blockmap, and every
+ *  redirect it follows — is created through its executor, so a check there sees
+ *  all of them and cannot be routed around by anything a feed says. A URL
+ *  allow-list would have to anticipate each kind of URL separately and would
+ *  still miss the redirect.
+ *
+ *  ⚠ AND IT IS INSTALLED ONLY ON A REHEARSAL BUILD. Production never reaches
+ *  this code, so a released build's networking is untouched. */
+export function isLoopbackHost(hostname: string | undefined | null): boolean {
+  const host = String(hostname ?? '').toLowerCase().replace(/^\[|\]$/g, '')
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+export interface ConfinableExecutor {
+  createRequest: (options: { hostname?: string, host?: string, [key: string]: unknown },
+    callback: unknown) => unknown
+}
+
+export class PrivateFeedEscape extends Error {
+  readonly host: string
+  constructor(host: string) {
+    super(`the update client tried to reach [${host}], which is not the isolated `
+      + 'loopback feed this rehearsal build is confined to; the request was blocked '
+      + 'before any external connection was made')
+    this.name = 'PrivateFeedEscape'
+    this.host = host
+  }
+}
+
+/** Wrap an executor so no request can leave loopback. Returns the same object:
+ *  the client keeps whatever executor it was built with, minus the ability to
+ *  leave. `onBlocked` is called before throwing so the attempt is recorded — a
+ *  blocked escape that nobody can read afterwards is a silent near-miss. */
+export function confineExecutorToLoopback<T extends ConfinableExecutor>(
+  executor: T, onBlocked?: (host: string) => void): T {
+  const original = executor.createRequest.bind(executor)
+  executor.createRequest = (options, callback) => {
+    const host = String(options?.hostname ?? options?.host ?? '')
+    if (!isLoopbackHost(host)) {
+      onBlocked?.(host)
+      throw new PrivateFeedEscape(host)
+    }
+    return original(options, callback)
+  }
+  return executor
+}
+
+/** Defence in depth, and a better error than a transport throw: reject a
+ *  manifest whose resolved artifact URLs leave loopback, before anything is
+ *  downloaded. The transport guard would stop it anyway; this says WHY. */
+export function manifestEscapes(urls: Iterable<string | { href?: string, hostname?: string }>): string[] {
+  const bad: string[] = []
+  for (const entry of urls) {
+    const href = typeof entry === 'string' ? entry : entry?.href ?? ''
+    let host = typeof entry === 'string' ? '' : entry?.hostname ?? ''
+    if (!host) { try { host = new URL(href).hostname } catch { bad.push(href); continue } }
+    if (!isLoopbackHost(host)) bad.push(href || host)
+  }
+  return bad
 }
