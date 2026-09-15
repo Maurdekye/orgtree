@@ -29,7 +29,9 @@ export const PUBLIC_VERIFICATION_SCHEMA = 'orgtree.windows-public-verification/v
 export const CANONICAL_ASSET_NAMES = version => [
   'build-info.json',
   'engine-hashes.json',
-  'latest.yml',
+  // ⚠ NAMED AFTER THE CHANNEL, because that is the filename the updater asks
+  // for: `beta.yml` for a beta build, `latest.yml` for a stable one.
+  channelFileName(version),
   `Orgtree-Setup-${version}.exe`,
   `Orgtree-Setup-${version}.exe.blockmap`,
   'packaged-hashes.json',
@@ -61,8 +63,12 @@ explicit publication phase; it creates the tag/release and verifies every
 public asset after downloading it back. Installation and restart are never
 performed by this command.
 
-<version> must be a final MAJOR.MINOR.PATCH version or a release candidate
-with the exact MAJOR.MINOR.PATCH-RCn form, such as 2.1.3-RC1.`
+<version> must be a final MAJOR.MINOR.PATCH version or a prerelease with the
+exact MAJOR.MINOR.PATCH-beta.N form, such as 2.1.5-beta.4.
+
+An -RCn label is REFUSED. The updater reads the prerelease label as a channel
+name, so a build labelled RC3 sits on a channel whose only member is itself and
+can never move onto a newer release. Use -beta.N.`
 
 export function resolveNpmInvocation() {
   if (process.platform !== 'win32') return { command: 'npm', args: [] }
@@ -192,9 +198,69 @@ export function hashFile(file, algorithm = 'sha256') {
   return crypto.createHash(algorithm).update(fs.readFileSync(file)).digest(algorithm === 'sha512' ? 'base64' : 'hex')
 }
 
+/** ⚠ A PRERELEASE IS LABELLED `beta.N`, AND `RC<n>` IS DELIBERATELY REFUSED.
+ *
+ *  The updater reads the first dot-separated component of the prerelease label
+ *  as a CHANNEL NAME and will only accept a release on a matching channel.
+ *  `2.1.5-RC3` therefore sits on a channel called "RC3" whose only member is
+ *  itself: measured, such a build is offered its own version, finds it is not
+ *  newer, and never updates again. The library recognises exactly two channel
+ *  names as a prerelease LINE that also moves up to stable — `alpha` and
+ *  `beta` — so a `2.1.5-beta.4` build receives newer betas and takes stable
+ *  2.1.5 when it appears.
+ *
+ *  Accepting an `RC` label here would let the stranding be re-published, which
+ *  is why this refuses it rather than merely preferring beta. */
 export function validReleaseVersion(version) {
-  return typeof version === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-RC([1-9]\d*))?$/.test(version)
+  return typeof version === 'string'
+    && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:alpha|beta)\.(0|[1-9]\d*))?$/.test(version)
 }
+
+/** The prerelease channel a version is on, or null for a stable release. The
+ *  same rule electron-builder uses to name its update manifest and
+ *  electron-updater uses to decide what a build may accept. */
+export function releaseChannelOf(version) {
+  const label = /^\d+\.\d+\.\d+-(.+)$/.exec(String(version ?? '').trim())?.[1]
+  return label ? label.split('.')[0] : null
+}
+
+export function isPrereleaseVersion(version) {
+  return releaseChannelOf(version) !== null
+}
+
+/** ⚠ THE UPDATE MANIFEST IS NAMED AFTER THE CHANNEL, and the updater asks for
+ *  exactly this filename. A beta build requests `beta.yml`; a stable build
+ *  requests `latest.yml`. Publishing only `latest.yml` in a beta release would
+ *  make every check 404 before falling back, so the manifest is published under
+ *  the name that will be asked for.
+ *
+ *  electron-builder writes it as `latest.yml` whatever the version, because the
+ *  release build runs with `--publish never` and so resolves no channel — which
+ *  is why staging renames it rather than expecting the right name to appear. */
+export function channelFileName(version) {
+  const channel = releaseChannelOf(version)
+  return channel === null ? 'latest.yml' : `${channel}.yml`
+}
+
+/** The publication flags for a version, as gh expects them. Kept as data rather
+ *  than inline strings so the tests can assert on the decision itself.
+ *
+ *  ⚠ The updater asks GitHub for the latest NON-prerelease release, so anything
+ *  published as a normal `--latest` release is a candidate for every installed
+ *  stable build. This tooling published EVERY release that way, prereleases
+ *  included — so a stable installation would have been offered 2.1.5-beta.4 the
+ *  moment it appeared. A prerelease is published as a GitHub prerelease and is
+ *  not marked latest: still public and downloadable, simply not the release
+ *  that `releases/latest` hands out. */
+export function releaseVisibility(version) {
+  const prerelease = isPrereleaseVersion(version)
+  return {
+    prerelease,
+    latest: !prerelease,
+    flags: [`--prerelease=${prerelease}`, `--latest=${!prerelease}`],
+  }
+}
+
 
 export function parseReleaseArgs(argv) {
   const parsed = { version: null, publish: false, help: false }
@@ -549,7 +615,11 @@ export function stageCanonicalAssets({ root, releaseDir, version, engineHashes, 
   const sourceMap = new Map([
     ['build-info.json', path.join(resources, 'build-info.json')],
     ['engine-hashes.json', path.join(releaseDir, 'engine-hashes.json')],
-    ['latest.yml', path.join(releaseDir, 'latest.yml')],
+    // ⚠ electron-builder always writes `latest.yml` here, whatever the
+    // version, because the release build runs with `--publish never` and so
+    // resolves no channel. It is STAGED under the name the updater will ask
+    // for — `beta.yml` for a beta release.
+    [channelFileName(version), path.join(releaseDir, 'latest.yml')],
     [installerAssetName(version), sourceInstaller],
     [`${installerAssetName(version)}.blockmap`, sourceBlockmap],
     ['packaged-hashes.json', path.join(releaseDir, 'packaged-hashes.json')],
@@ -569,7 +639,7 @@ export function stageCanonicalAssets({ root, releaseDir, version, engineHashes, 
     sameBytes(fs.readFileSync(destination), fs.readFileSync(source), name)
   }
   const installerBytes = fs.readFileSync(path.join(uploadDir, installerAssetName(version)))
-  validateLatestYml(fs.readFileSync(path.join(uploadDir, 'latest.yml'), 'utf8'), {
+  validateLatestYml(fs.readFileSync(path.join(uploadDir, channelFileName(version)), 'utf8'), {
     version,
     installerName: installerAssetName(version),
     installerBytes,
@@ -612,7 +682,7 @@ export function verifyLocalCandidate({ root, manifest, uploadDir, resources, eng
     assertRecordMatches(root, record)
   }
   const installerBytes = fs.readFileSync(path.join(uploadDir, installerAssetName(manifest.version)))
-  validateLatestYml(fs.readFileSync(path.join(uploadDir, 'latest.yml'), 'utf8'), {
+  validateLatestYml(fs.readFileSync(path.join(uploadDir, channelFileName(manifest.version)), 'utf8'), {
     version: manifest.version,
     installerName: installerAssetName(manifest.version),
     installerBytes,
@@ -648,7 +718,11 @@ export function verifyLocalCandidate({ root, manifest, uploadDir, resources, eng
   }
   const actualEngine = readJson(path.join(uploadDir, 'engine-hashes.json'), 'engine-hashes.json')
   if (JSON.stringify(actualEngine) !== JSON.stringify(engineHashes)) fail('engine-hashes.json does not match the source checkout')
-  return { buildInfo, packaged, latest: parseLatestYml(fs.readFileSync(path.join(uploadDir, 'latest.yml'), 'utf8')) }
+  return {
+    buildInfo, packaged,
+    latest: parseLatestYml(
+      fs.readFileSync(path.join(uploadDir, channelFileName(manifest.version)), 'utf8')),
+  }
 }
 
 function githubConfig(packageJson) {
@@ -787,7 +861,16 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
   const release = await fetchJson(fetchImpl, githubApiUrl(owner, repo, `releases/tags/${encodeURIComponent(tag)}`), retry)
   if (release.tag_name !== tag) fail(`Public release tag is ${release.tag_name}, expected ${tag}`)
   if (release.name !== `Orgtree ${manifest.version}`) fail(`Public release title is ${release.name}, expected Orgtree ${manifest.version}`)
-  if (release.draft === true || release.prerelease === true) fail('Public release is still draft or prerelease')
+  if (release.draft === true) fail('Public release is still a draft')
+  // ⚠ THE PRERELEASE FLAG MUST MATCH THE VERSION, IN BOTH DIRECTIONS. A
+  // release candidate published as a normal release would be handed to stable
+  // installations; a stable release published as a prerelease would be handed
+  // to nobody at all.
+  const visibility = releaseVisibility(manifest.version)
+  if (!!release.prerelease !== visibility.prerelease) {
+    fail(`Public release prerelease flag is ${!!release.prerelease}, expected `
+      + `${visibility.prerelease} for ${manifest.version}`)
+  }
   const records = new Map(manifest.artifacts.map(record => [record.name, record]))
   const expectedNames = CANONICAL_ASSET_NAMES(manifest.version)
   if (records.size !== expectedNames.length || [...records.keys()].sort().join('\n') !== [...expectedNames].sort().join('\n')) {
@@ -809,7 +892,7 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
     }
     downloaded[asset.name] = { url: result.url, size: result.bytes.length, sha256: sha256Bytes(result.bytes), sha512: sha512Bytes(result.bytes) }
     if (asset.name === installerAssetName(manifest.version)) installerBytes = result.bytes
-    if (asset.name === 'latest.yml') latestBytes = result.bytes
+    if (asset.name === channelFileName(manifest.version)) latestBytes = result.bytes
     if (asset.name === 'build-info.json') {
       const info = JSON.parse(result.bytes.toString('utf8'))
       if (info.version !== manifest.version || info.commit !== manifest.commit || info.channel !== 'release' || info.dirty !== false) {
@@ -825,9 +908,25 @@ export async function verifyPublicRelease({ manifest, owner, repo, tag = manifes
     installerBytes,
   })
 
+  // ⚠ WHAT `releases/latest` RETURNS IS WHAT EVERY STABLE INSTALL IS OFFERED,
+  // so it is checked either way round. For a stable release it must BE this
+  // release. For a release candidate it must NOT be — and it must not be a
+  // prerelease either, because that would mean GitHub had no stable release to
+  // hand out and something has gone wrong with an earlier publication.
   const latestRelease = await fetchJson(fetchImpl, githubApiUrl(owner, repo, 'releases/latest'), retry)
-  if (latestRelease.tag_name !== tag || latestRelease.draft === true || latestRelease.prerelease === true) {
-    fail(`Public Latest release is ${latestRelease.tag_name || 'unknown'}, not ${tag}`)
+  if (visibility.latest) {
+    if (latestRelease.tag_name !== tag || latestRelease.draft === true || latestRelease.prerelease === true) {
+      fail(`Public Latest release is ${latestRelease.tag_name || 'unknown'}, not ${tag}`)
+    }
+  } else {
+    if (latestRelease.tag_name === tag) {
+      fail(`Release candidate ${tag} is GitHub's Latest release; it would be offered to `
+        + 'stable installations')
+    }
+    if (latestRelease.prerelease === true) {
+      fail(`GitHub's Latest release ${latestRelease.tag_name || 'unknown'} is itself a `
+        + 'prerelease; stable installations would be offered a release candidate')
+    }
   }
   const tagTarget = await resolvePublicTagCommit(fetchImpl, owner, repo, tag, retry)
   if (tagTarget.sha !== manifest.commit) fail(`Public tag ${tag} targets ${tagTarget.sha}, expected ${manifest.commit}`)
@@ -945,7 +1044,11 @@ export async function publishRelease({ root, manifest, notes, repository, upload
       '--notes-file', notes.file,
       ...assetPaths,
     ])
-    runExternal('gh', ['release', 'edit', manifest.tag, '--repo', `${owner}/${repo}`, '--draft=false', '--prerelease=false', '--latest=true'])
+    // ⚠ A RELEASE CANDIDATE IS PUBLISHED AS A PRERELEASE AND IS NOT MARKED
+    // LATEST. Hard-coding --prerelease=false --latest=true here is what would
+    // hand an RC to every stable installation.
+    runExternal('gh', ['release', 'edit', manifest.tag, '--repo', `${owner}/${repo}`,
+      '--draft=false', ...releaseVisibility(manifest.version).flags])
   } catch (error) {
     if (localTagCreated && !tagPushed) {
       try {

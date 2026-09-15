@@ -354,19 +354,29 @@ test('safe candidate plan never includes tag, push, or GitHub publication', () =
   assert.deepEqual(publishPlan.publication.tag, ['git', 'tag', 'v2.1.2'])
 })
 
-test('release candidates use the exact RCn convention in arguments and asset names', () => {
-  const version = '2.1.3-RC1'
+test('prereleases use the exact beta.N convention in arguments and asset names', () => {
+  // ⚠ THIS USED TO ASSERT THE RCn CONVENTION, and the convention changed for a
+  // measured reason rather than a stylistic one: the updater reads a
+  // prerelease label as a CHANNEL NAME, so a build labelled RC1 sits on a
+  // channel whose only member is itself and can never move onto a newer
+  // release. tests/update-channel.test.mjs drives the real updater through
+  // both outcomes. An RC label is now refused outright so the stranding cannot
+  // be re-published.
+  const version = '2.1.3-beta.1'
   assert.equal(validReleaseVersion(version), true)
-  assert.equal(validReleaseVersion('2.1.3-RC2'), true)
+  assert.equal(validReleaseVersion('2.1.3-beta.2'), true)
+  assert.equal(validReleaseVersion('2.1.3-alpha.1'), true)
   assert.equal(validReleaseVersion('2.1.3'), true)
-  assert.equal(validReleaseVersion('2.1.3-RC0'), false)
-  assert.equal(validReleaseVersion('2.1.3-RC01'), false)
-  assert.equal(validReleaseVersion('2.1.3-rc1'), false)
+  assert.equal(validReleaseVersion('2.1.3-RC1'), false, 'the label that stranded 2.1.5-RC3')
+  assert.equal(validReleaseVersion('2.1.3-beta'), false, 'beta.N, not a bare label')
+  assert.equal(validReleaseVersion('2.1.3-beta.01'), false)
+  assert.equal(validReleaseVersion('2.1.3-BETA.1'), false)
   assert.deepEqual(parseReleaseArgs([version]), { version, publish: false, help: false })
-  assert.throws(() => parseReleaseArgs(['2.1.3-rc1']), /release candidate/)
-  assert.equal(installerSourceName(version), 'Orgtree Setup 2.1.3-RC1.exe')
-  assert.equal(installerAssetName(version), 'Orgtree-Setup-2.1.3-RC1.exe')
-  assert.deepEqual(releasePlan(version, { publish: true }).publication.tag, ['git', 'tag', 'v2.1.3-RC1'])
+  assert.throws(() => parseReleaseArgs(['2.1.3-RC1']), /release candidate/)
+  assert.equal(installerSourceName(version), 'Orgtree Setup 2.1.3-beta.1.exe')
+  assert.equal(installerAssetName(version), 'Orgtree-Setup-2.1.3-beta.1.exe')
+  assert.deepEqual(releasePlan(version, { publish: true }).publication.tag,
+    ['git', 'tag', 'v2.1.3-beta.1'])
 })
 
 test('the release build invokes npm through a Windows-safe Node CLI boundary', () => {

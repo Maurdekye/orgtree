@@ -10,6 +10,48 @@ export const DEV_APP_ID = 'com.maurdekye.orgtree.dev'
 
 export type BuildChannel = 'release' | 'dev'
 
+/** ⚠ THE PRERELEASE LABEL IS A CHANNEL NAME, NOT DECORATION, and getting it
+ *  wrong is what stranded 2.1.5-RC3.
+ *
+ *  electron-updater's GitHub provider derives a channel from the FIRST
+ *  dot-separated component of the version's prerelease label, and will only
+ *  accept a release whose own label matches. `2.1.5-RC3` has the single
+ *  component `RC3`, so its channel is literally "RC3" — and the only release
+ *  that ever matches "RC3" is 2.1.5-RC3 itself. Measured: such a build is
+ *  offered ITSELF, finds that is not newer, and never updates again. It could
+ *  see neither 2.1.5-RC4 (channel "RC4") nor stable 2.1.5 (no channel).
+ *
+ *  The library treats exactly two channel names as a prerelease LINE that also
+ *  moves up to stable: `alpha` and `beta`. A build labelled `2.1.5-beta.4`
+ *  therefore receives newer betas AND takes stable 2.1.5 when it appears. Any
+ *  other label — `RC3`, and equally a tidy-looking `rc.4` — is a private
+ *  channel that can only ever see its own line. */
+export const PRERELEASE_CHANNELS = ['alpha', 'beta'] as const
+
+/** The channel a version belongs to: its first prerelease component, or null
+ *  for a stable release. This is the same rule electron-builder uses to name
+ *  the update manifest it publishes, which is why both sides agree. */
+export function updateChannelOf(version: string): string | null {
+  const label = /^\d+\.\d+\.\d+-(.+)$/.exec(String(version ?? '').trim())?.[1]
+  return label ? label.split('.')[0] : null
+}
+
+/** ⚠ WHETHER AN INSTALLED BUILD ACCEPTS A PRERELEASE — exported, rather than
+ *  written as a literal at the call site, because it decides which release
+ *  every installation is offered and a test can only drive the real updater
+ *  with it if it can import it.
+ *
+ *  A prerelease build tracks its own line and can move up to stable. A stable
+ *  build takes stable releases only, and is never offered a prerelease.
+ *
+ *  This mirrors electron-updater's own constructor default deliberately rather
+ *  than relying on it: the previous code overrode it to `true` for EVERY build,
+ *  which is what would have offered a release candidate to stable
+ *  installations. Saying it out loud is what stops that returning. */
+export function allowPrereleaseUpdates(version: string): boolean {
+  return updateChannelOf(version) !== null
+}
+
 /** The packaged build's channel, read from the build-info.json that packaging
  *  places beside the app (resources/build-info.json). Published artifacts
  *  predate the field, so only an explicit 'dev' is the development channel —

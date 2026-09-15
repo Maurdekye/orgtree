@@ -9,7 +9,7 @@ import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUD
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
-import { desktopIdentity, readBuildChannel } from './build-channel'
+import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
 import { detectHarnesses } from './harnesses'
@@ -1346,7 +1346,21 @@ else {
             { from: app.getVersion(), to: app.getVersion() })
         }
         autoUpdater.autoInstallOnAppQuit = false
-        autoUpdater.allowPrerelease = true
+        // ⚠ DERIVED FROM THIS BUILD'S OWN VERSION. The previous unconditional
+        // `= true` broke this in both directions at once.
+        //
+        // A prerelease build (2.1.5-beta.4) tracks its own line and can move up
+        // to stable. A stable build takes stable releases only and is never
+        // offered a prerelease — which `= true` overrode for EVERY
+        // installation, so a stable install would have been handed a release
+        // candidate the moment one was published.
+        //
+        // See build-channel.ts for why the LABEL itself matters: the provider
+        // reads it as a channel name, and only `alpha` and `beta` name a line
+        // that also reaches stable. A 2.1.5-RC3 build sits on a channel called
+        // "RC3" whose only member is itself, which is exactly how an installed
+        // release candidate became stranded on its own version.
+        autoUpdater.allowPrerelease = allowPrereleaseUpdates(app.getVersion())
         // ⚠ THE OFFER MUST BE JUDGED BEFORE ANYTHING IS DELETED. Left on,
         // electron-updater starts downloading inside doCheckForUpdates itself,
         // and its first act is to empty its pending directory whenever the
