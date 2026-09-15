@@ -97,7 +97,7 @@ test('a real Antigravity near-limit bucket drives the shared header glow', () =>
 test('UsageBars displays authoritative tier for Gemini account when available', async (t) => {
   const agy: AccountUsage = {
     account: 'antigravity', provider: 'Antigravity', label: 'agy@example.test',
-    available: true, tier: 'Standard', limits: [
+    available: true, tier: 'Google AI Pro', limits: [
       { kind: 'weekly_scoped', group: 'gemini-weekly', percent: 25,
         severity: 'normal', resets_at: null, is_active: false, model: 'Gemini Models',
         label: 'Gemini Models · Weekly' },
@@ -106,7 +106,8 @@ test('UsageBars displays authoritative tier for Gemini account when available', 
   const view = await mountView(<UsageBars u={agy} />, el => el)
   t.after(async () => { await view.unmount() })
   const text = view.el.textContent ?? ''
-  assert.match(text, /Antigravity Standard/)
+  assert.match(text, /Google AI Pro/)
+  assert.doesNotMatch(text, /Antigravity Google AI Pro/)
   assert.match(text, /Gemini Models · Weekly/)
   assert.match(text, /25%/)
 })
@@ -125,27 +126,27 @@ test('UsageBars displays tier unavailable when Gemini tier is missing', async (t
   const text = view.el.textContent ?? ''
   assert.match(text, /Antigravity tier unavailable/)
   assert.match(text, /Gemini Models · Weekly/)
-  assert.doesNotMatch(text, /Standard|Advanced|Pro/)
+  assert.doesNotMatch(text, /Standard|Advanced|Pro|Consumer/)
 })
 
 test('multiple Gemini accounts can show different tiers without cross-account attribution', async (t) => {
   const amb: AccountUsage = {
     account: 'antigravity', provider: 'Antigravity', label: 'amb@example.test',
-    available: true, tier: 'Advanced', limits: [],
+    available: true, tier: 'Google AI Pro', limits: [],
   }
   const sec: AccountUsage = {
     account: 'google-secondary', provider: 'google', label: 'sec@example.test',
-    available: true, tier: 'Standard', limits: [],
+    available: true, tier: 'Google AI Plus', limits: [],
   }
   const viewAmb = await mountView(<UsageBars u={amb} />, el => el)
   t.after(async () => { await viewAmb.unmount() })
-  assert.match(viewAmb.el.textContent ?? '', /Antigravity Advanced/)
-  assert.doesNotMatch(viewAmb.el.textContent ?? '', /Standard/)
+  assert.match(viewAmb.el.textContent ?? '', /Google AI Pro/)
+  assert.doesNotMatch(viewAmb.el.textContent ?? '', /Google AI Plus/)
 
   const viewSec = await mountView(<UsageBars u={sec} />, el => el)
   t.after(async () => { await viewSec.unmount() })
-  assert.match(viewSec.el.textContent ?? '', /Antigravity Standard/)
-  assert.doesNotMatch(viewSec.el.textContent ?? '', /Advanced/)
+  assert.match(viewSec.el.textContent ?? '', /Google AI Plus/)
+  assert.doesNotMatch(viewSec.el.textContent ?? '', /Google AI Pro/)
 })
 
 test('non-Gemini provider rows remain unchanged', async (t) => {
@@ -176,10 +177,10 @@ test('non-Gemini provider rows remain unchanged', async (t) => {
   assert.doesNotMatch(v3.el.textContent ?? '', /tier unavailable/)
 })
 
-test('UsageBars and modal reproduce image-115 resolution with Consumer tier and intact quota buckets', async (t) => {
+test('UsageBars and modal reproduce image-115 resolution with tier unavailable and intact quota buckets', async (t) => {
   const agy: AccountUsage = {
     account: 'antigravity', provider: 'Antigravity', label: 'ncolaprete@gmail.com',
-    available: true, tier: 'Consumer', limits: [
+    available: true, limits: [
       { kind: 'weekly_scoped', group: 'gemini-weekly', percent: 25.8,
         severity: 'normal', resets_at: '2026-09-19T19:40:25Z',
         is_active: false, model: 'Gemini Models',
@@ -201,8 +202,8 @@ test('UsageBars and modal reproduce image-115 resolution with Consumer tier and 
   const viewBars = await mountView(<UsageBars u={agy} />, el => el)
   t.after(async () => { await viewBars.unmount() })
   const barText = viewBars.el.textContent ?? ''
-  assert.match(barText, /Antigravity Consumer/)
-  assert.doesNotMatch(barText, /tier unavailable/)
+  assert.match(barText, /Antigravity tier unavailable/)
+  assert.doesNotMatch(barText, /Consumer/)
   assert.match(barText, /Gemini Models · Weekly/)
   assert.match(barText, /26%/)
   assert.match(barText, /Gemini Models · Five Hour/)
@@ -213,13 +214,27 @@ test('UsageBars and modal reproduce image-115 resolution with Consumer tier and 
     const viewModal = await mountView(<UsageModal close={() => {}} />, el => el)
     await inAct(async () => { await flush(8) })
     const modalText = viewModal.el.textContent ?? ''
-    assert.match(modalText, /Antigravity Consumer/)
+    assert.match(modalText, /Antigravity tier unavailable/)
+    assert.doesNotMatch(modalText, /Consumer/)
     assert.match(modalText, /ncolaprete@gmail\.com/)
-    assert.doesNotMatch(modalText, /tier unavailable/)
     assert.match(modalText, /Gemini Models · Weekly/)
     assert.match(modalText, /Claude and GPT models · Five Hour/)
   } finally {
     restore()
+  }
+})
+
+test('official Google AI paid plan names render directly without Antigravity prefix', async (t) => {
+  for (const plan of ['Google AI Plus', 'Google AI Pro', 'Google AI Ultra']) {
+    const u: AccountUsage = {
+      account: 'antigravity', provider: 'Antigravity', label: 'user@example.test',
+      available: true, tier: plan, limits: [],
+    }
+    const view = await mountView(<UsageBars u={u} />, el => el)
+    t.after(async () => { await view.unmount() })
+    const text = view.el.textContent ?? ''
+    assert.match(text, new RegExp(plan))
+    assert.doesNotMatch(text, new RegExp(`Antigravity ${plan}`))
   }
 })
 

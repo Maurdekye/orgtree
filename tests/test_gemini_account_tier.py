@@ -102,26 +102,60 @@ class TierSanitizationTests(unittest.TestCase):
         self.assertIsNone(antigravity_limits._sanitize_tier({"name": "Standard"}))
         self.assertIsNone(antigravity_limits._sanitize_tier("A" * 65))
 
+    def test_canonical_google_ai_plan_official_and_unapproved(self):
+        # Official Google AI paid plans
+        self.assertEqual(providers.canonical_google_ai_plan("Google AI Plus"), "Google AI Plus")
+        self.assertEqual(providers.canonical_google_ai_plan("Google AI Pro"), "Google AI Pro")
+        self.assertEqual(providers.canonical_google_ai_plan("Google AI Ultra"), "Google AI Ultra")
+        self.assertEqual(providers.canonical_google_ai_plan("g1_plus_tier"), "Google AI Plus")
+        self.assertEqual(providers.canonical_google_ai_plan("G1_PRO_TIER"), "Google AI Pro")
+        self.assertEqual(providers.canonical_google_ai_plan("g1_ultra_tier"), "Google AI Ultra")
+        self.assertEqual(providers.canonical_google_ai_plan("Google One AI Premium"), "Google AI Pro")
+        self.assertEqual(providers.canonical_google_ai_plan("Google One Pro"), "Google AI Pro")
+        self.assertEqual(providers.canonical_google_ai_plan("google-ai-pro"), "Google AI Pro")
+        self.assertEqual(providers.canonical_google_ai_plan("Antigravity Google AI Pro"), "Google AI Pro")
+
+        # Unapproved or non-paid plans strictly return None
+        self.assertIsNone(providers.canonical_google_ai_plan("consumer"))
+        self.assertIsNone(providers.canonical_google_ai_plan("personal"))
+        self.assertIsNone(providers.canonical_google_ai_plan("Standard"))
+        self.assertIsNone(providers.canonical_google_ai_plan("cs_standard_tier"))
+        self.assertIsNone(providers.canonical_google_ai_plan("free_tier"))
+        self.assertIsNone(providers.canonical_google_ai_plan("enterprise"))
+        self.assertIsNone(providers.canonical_google_ai_plan("gcp"))
+        self.assertIsNone(providers.canonical_google_ai_plan("ya29.secret_token"))
+        self.assertIsNone(providers.canonical_google_ai_plan("sub_1MvXYZ2eZvKYlo2C"))
+        self.assertIsNone(providers.canonical_google_ai_plan("C:\\Users\\admin\\secret.json"))
+
 
 class NormalizeTierTests(unittest.TestCase):
     """Normalize extracts authoritative tier metadata without altering existing windows."""
 
     def test_tier_in_command_data_is_extracted(self):
         res = _base_usage_result()
-        res["command"]["data"]["tier"] = "Standard"
+        res["command"]["data"]["tier"] = "Google AI Pro"
         board = antigravity_limits._normalize(res, 1000.0)
-        self.assertEqual(board["tier"], "Standard")
-        self.assertEqual(board["plan"], "Standard")
+        self.assertEqual(board["tier"], "Google AI Pro")
+        self.assertEqual(board["plan"], "Google AI Pro")
         self.assertTrue(board["available"])
         self.assertEqual(len(board["limits"]), 1)
         self.assertEqual(board["limits"][0]["percent"], 25.0)
 
     def test_tier_in_result_is_extracted(self):
         res = _base_usage_result()
-        res["tier"] = "Advanced"
+        res["tier"] = "Google AI Plus"
         board = antigravity_limits._normalize(res, 1000.0)
-        self.assertEqual(board["tier"], "Advanced")
-        self.assertEqual(board["plan"], "Advanced")
+        self.assertEqual(board["tier"], "Google AI Plus")
+        self.assertEqual(board["plan"], "Google AI Plus")
+
+    def test_unapproved_tier_in_command_data_is_omitted(self):
+        for unapproved in ("Standard", "Consumer", "Free", "cs_standard_tier", "personal", "enterprise"):
+            res = _base_usage_result()
+            res["command"]["data"]["tier"] = unapproved
+            board = antigravity_limits._normalize(res, 1000.0)
+            self.assertNotIn("tier", board)
+            self.assertNotIn("plan", board)
+            self.assertTrue(board["available"])
 
     def test_missing_tier_is_omitted_without_guessing(self):
         res = _base_usage_result()
@@ -142,13 +176,22 @@ class NormalizeTierTests(unittest.TestCase):
 class AccountFunctionTierTests(unittest.TestCase):
     """_account() sanitizes data tier/plan and never leaks raw unsafe values."""
 
-    def test_safe_tier_in_data_is_preserved(self):
+    def test_safe_official_tier_in_data_is_preserved(self):
         acct = antigravity_limits._account(
-            {"available": True, "tier": "Standard", "limits": []},
+            {"available": True, "tier": "Google AI Pro", "limits": []},
             {"email": "user@example.test", "connected": True, "installed": True},
         )
-        self.assertEqual(acct["tier"], "Standard")
-        self.assertEqual(acct["plan"], "Standard")
+        self.assertEqual(acct["tier"], "Google AI Pro")
+        self.assertEqual(acct["plan"], "Google AI Pro")
+
+    def test_consumer_and_unapproved_tier_in_data_omitted(self):
+        for unapproved in ("Consumer", "personal", "Standard", "cs_standard_tier", "free_tier"):
+            acct = antigravity_limits._account(
+                {"available": True, "tier": unapproved, "limits": []},
+                {"email": "user@example.test", "connected": True, "installed": True},
+            )
+            self.assertNotIn("tier", acct)
+            self.assertNotIn("plan", acct)
 
     def test_unsafe_data_tier_and_plan_are_sanitized_and_omitted(self):
         acct = antigravity_limits._account(
@@ -185,18 +228,24 @@ class ProfileTierTests(unittest.TestCase):
 
     def test_reads_tier_from_settings_json(self):
         settings = Path(self.dir) / "settings.json"
-        settings.write_text(json.dumps({"tier": "Standard"}), encoding="utf-8")
-        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Standard")
+        settings.write_text(json.dumps({"tier": "Google AI Pro"}), encoding="utf-8")
+        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Google AI Pro")
 
     def test_reads_plan_from_credentials_json(self):
         creds = Path(self.dir) / ".credentials.json"
-        creds.write_text(json.dumps({"subscriptionType": "Advanced"}), encoding="utf-8")
-        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Advanced")
+        creds.write_text(json.dumps({"subscriptionType": "Google AI Plus"}), encoding="utf-8")
+        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Google AI Plus")
 
     def test_reads_nested_account_tier(self):
         acct = Path(self.dir) / "account.json"
         acct.write_text(json.dumps({"google": {"tier": "Google One AI Premium"}}), encoding="utf-8")
-        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Google One AI Premium")
+        self.assertEqual(antigravity_limits.profile_tier(self.dir), "Google AI Pro")
+
+    def test_unapproved_or_consumer_tier_in_profile_returns_none(self):
+        for unapproved in ("Consumer", "personal", "Standard", "cs_standard_tier", "free_tier"):
+            settings = Path(self.dir) / "settings.json"
+            settings.write_text(json.dumps({"tier": unapproved}), encoding="utf-8")
+            self.assertIsNone(antigravity_limits.profile_tier(self.dir))
 
     def test_missing_or_bad_files_return_none(self):
         self.assertIsNone(antigravity_limits.profile_tier(self.dir))
@@ -220,14 +269,14 @@ class MultiAccountAttributionTests(unittest.TestCase):
             "path": "agy-test",
             "email": "primary@example.test",
             "version": "1.2.0",
-            "tier": "Advanced",
+            "tier": "Google AI Pro",
         }
         res = _base_usage_result()
-        res["command"]["data"]["tier"] = "Advanced"
+        res["command"]["data"]["tier"] = "Google AI Pro"
 
         # Secondary row has its own distinct tier
         (Path(self.sec_prof) / "settings.json").write_text(
-            json.dumps({"tier": "Standard"}), encoding="utf-8")
+            json.dumps({"tier": "Google AI Plus"}), encoding="utf-8")
         sec_row = {
             "id": "google-secondary",
             "provider": "google",
@@ -252,13 +301,13 @@ class MultiAccountAttributionTests(unittest.TestCase):
             amb_view = accountusage.view(amb_row, allow_fetch=True)
             sec_view = accountusage.view(sec_row, allow_fetch=False)
 
-        # Ambient view reflects authoritative ambient tier "Advanced"
-        self.assertEqual(amb_view["tier"], "Advanced")
-        self.assertEqual(amb_view["plan"], "Advanced")
+        # Ambient view reflects authoritative ambient tier "Google AI Pro"
+        self.assertEqual(amb_view["tier"], "Google AI Pro")
+        self.assertEqual(amb_view["plan"], "Google AI Pro")
 
-        # Secondary view reflects its OWN authoritative tier "Standard"
-        self.assertEqual(sec_view["tier"], "Standard")
-        self.assertEqual(sec_view["plan"], "Standard")
+        # Secondary view reflects its OWN authoritative tier "Google AI Plus"
+        self.assertEqual(sec_view["tier"], "Google AI Plus")
+        self.assertEqual(sec_view["plan"], "Google AI Plus")
         # No cross attribution!
         self.assertNotEqual(amb_view["tier"], sec_view["tier"])
 
@@ -269,10 +318,10 @@ class MultiAccountAttributionTests(unittest.TestCase):
             "path": "agy-test",
             "email": "primary@example.test",
             "version": "1.2.0",
-            "tier": "Advanced",
+            "tier": "Google AI Pro",
         }
         res = _base_usage_result()
-        res["command"]["data"]["tier"] = "Advanced"
+        res["command"]["data"]["tier"] = "Google AI Pro"
 
         # Secondary has NO tier anywhere
         sec_row = {
@@ -298,8 +347,8 @@ class MultiAccountAttributionTests(unittest.TestCase):
             amb_view = accountusage.view(amb_row, allow_fetch=True)
             sec_view = accountusage.view(sec_row, allow_fetch=False)
 
-        self.assertEqual(amb_view["tier"], "Advanced")
-        # Secondary MUST NOT inherit "Advanced"
+        self.assertEqual(amb_view["tier"], "Google AI Pro")
+        # Secondary MUST NOT inherit "Google AI Pro"
         self.assertNotIn("tier", sec_view)
         self.assertNotIn("plan", sec_view)
 
@@ -334,11 +383,11 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
                       "cache_read_tokens": 0, "total_tokens": 0},
             "command": {
                 "name": "status",
-                "data": {"tier": "Gemini Advanced", "plan": "Gemini Advanced"},
+                "data": {"tier": "Google AI Pro", "plan": "Google AI Pro"},
             },
         }
         usage_res = _base_usage_result()
-        usage_res["command"]["data"]["tier"] = "Standard"
+        usage_res["command"]["data"]["tier"] = "Google AI Plus"
 
         ambient_status = {
             "installed": True,
@@ -346,7 +395,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
             "path": "agy.exe",
             "email": "user@example.test",
             "version": "1.2.2",
-            "tier": "Standard",
+            "tier": "Google AI Plus",
         }
 
         with mock.patch.object(providers, "antigravity_status", return_value=ambient_status), \
@@ -354,8 +403,8 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
              mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res):
             board = antigravity_limits.fetch(force=True)
 
-        self.assertEqual(board["tier"], "Gemini Advanced")
-        self.assertEqual(board["plan"], "Gemini Advanced")
+        self.assertEqual(board["tier"], "Google AI Pro")
+        self.assertEqual(board["plan"], "Google AI Pro")
         self.assertTrue(board["available"])
         self.assertEqual(len(board["limits"]), 1)
 
@@ -381,6 +430,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
         log_content = (
             "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: "
             "email=user@example.test, authMethod=consumer, quotaProject=\n"
+            '[AuthProvider] SetUserTier called with userTier: "G1_PRO_TIER", tierDisplayName: "Google AI Pro"\n'
         )
         (Path(self.probe_dir) / "usage-probe.log").write_text(log_content, encoding="utf-8")
 
@@ -391,12 +441,30 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
             board = antigravity_limits.fetch(force=True)
 
         # Billed status was ignored; structured probe log fallback was used
-        self.assertEqual(board["tier"], "Consumer")
-        self.assertEqual(board["plan"], "Consumer")
+        self.assertEqual(board["tier"], "Google AI Pro")
+        self.assertEqual(board["plan"], "Google AI Pro")
 
-    def test_image_115_reproduction_consumer_tier_with_all_quota_windows(self):
+    def test_auth_method_consumer_and_personal_yield_no_plan_label(self):
+        """authMethod=consumer and authMethod=personal yield no plan label."""
+        log_consumer = (
+            "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: "
+            "email=user@example.test, authMethod=consumer, quotaProject=\n"
+        )
+        email, tier = providers._extract_antigravity_log_tier(log_consumer, "user@example.test")
+        self.assertEqual(email, "user@example.test")
+        self.assertIsNone(tier)
+
+        log_personal = (
+            "I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: "
+            "email=user@example.test, authMethod=personal, quotaProject=\n"
+        )
+        email_p, tier_p = providers._extract_antigravity_log_tier(log_personal, "user@example.test")
+        self.assertEqual(email_p, "user@example.test")
+        self.assertIsNone(tier_p)
+
+    def test_image_115_reproduction_retains_tier_unavailable_with_all_quota_windows(self):
         """Reproduction of uploads/image-115.png: ncolaprete@gmail.com with authMethod=consumer
-        resolves Antigravity Consumer and preserves all 4 quota windows.
+        retains tier unavailable presentation while preserving all 4 quota windows.
         """
         image_115_usage = {
             "conversation_id": "",
@@ -471,8 +539,8 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
              mock.patch.object(antigravity_limits, "_run_usage", return_value=image_115_usage):
             board = antigravity_limits.fetch(force=True)
 
-        self.assertEqual(board["tier"], "Consumer")
-        self.assertEqual(board["plan"], "Consumer")
+        self.assertNotIn("tier", board)
+        self.assertNotIn("plan", board)
         self.assertEqual(board["label"], "ncolaprete@gmail.com")
         self.assertEqual(board["account"], "antigravity")
         self.assertTrue(board["available"])
@@ -487,21 +555,39 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
         self.assertEqual(board["limits"][3]["percent"], 0.0)
 
     def test_user_tier_and_tier_display_name_in_probe_log(self):
-        """SetUserTier and keyring userTier in probe logs take precedence over generic authMethod."""
+        """SetUserTier and keyring userTier map strictly to official Google AI paid plans."""
+        # G1_PRO_TIER / Google One AI Premium -> Google AI Pro
         log_with_display = (
             'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
             '[AuthProvider] SetUserTier called with userTier: "G1_PRO_TIER", tierDisplayName: "Google One AI Premium"\n'
         )
         email, tier = providers._extract_antigravity_log_tier(log_with_display, "user@example.test")
         self.assertEqual(email, "user@example.test")
-        self.assertEqual(tier, "Google One AI Premium")
+        self.assertEqual(tier, "Google AI Pro")
 
+        # G1_PLUS_TIER -> Google AI Plus
+        log_plus = (
+            'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
+            'Restored saved token from keyring: authMethod=consumer projectID="" region="" userTier="G1_PLUS_TIER" wifProvider=""\n'
+        )
+        _, tier_plus = providers._extract_antigravity_log_tier(log_plus, "user@example.test")
+        self.assertEqual(tier_plus, "Google AI Plus")
+
+        # G1_ULTRA_TIER -> Google AI Ultra
+        log_ultra = (
+            'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
+            'Restored saved token from keyring: authMethod=consumer projectID="" region="" userTier="G1_ULTRA_TIER" wifProvider=""\n'
+        )
+        _, tier_ultra = providers._extract_antigravity_log_tier(log_ultra, "user@example.test")
+        self.assertEqual(tier_ultra, "Google AI Ultra")
+
+        # CS_STANDARD_TIER -> None
         log_with_enum = (
             'I0914 23:14:17.918219 1 server_oauth.go:192] applyAuthResult: email=user@example.test, authMethod=consumer, quotaProject=\n'
             'Restored saved token from keyring: authMethod=consumer projectID="" region="" userTier="CS_STANDARD_TIER" wifProvider=""\n'
         )
         email2, tier2 = providers._extract_antigravity_log_tier(log_with_enum, "user@example.test")
-        self.assertEqual(tier2, "Standard")
+        self.assertIsNone(tier2)
 
     def test_probe_log_cross_account_isolation(self):
         """Probe log for a different email must not be attributed to the current account."""
@@ -625,7 +711,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
             "num_turns": 0,
             "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
                       "cache_read_tokens": 0, "total_tokens": 0},
-            "command": {"name": "status", "data": {"tier": "Gemini Advanced"}},
+            "command": {"name": "status", "data": {"tier": "Google AI Pro"}},
         }
         usage_res = _base_usage_result()
 
@@ -646,7 +732,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
             b1 = antigravity_limits.fetch(force=True)
             self.assertNotIn("tier", b1)
 
-        # Step 2: on v2 (same exe, new version), /help advertises status, /status returns Gemini Advanced
+        # Step 2: on v2 (same exe, new version), /help advertises status, /status returns Google AI Pro
         with mock.patch.object(providers, "antigravity_status", return_value=status_v2), \
              mock.patch.object(providers, "antigravity_probe_dir", return_value=self.probe_dir), \
              mock.patch.object(antigravity_limits, "_run_usage", return_value=usage_res), \
@@ -654,7 +740,7 @@ class InstalledAntigravityTierCorrectionTests(unittest.TestCase):
              mock.patch("subprocess.run", return_value=mock.Mock(returncode=0, stdout=json.dumps(help_supported), stderr="")), \
              mock.patch.object(antigravity_limits, "_run_status", return_value=status_payload):
             b2 = antigravity_limits.fetch(force=True)
-            self.assertEqual(b2["tier"], "Gemini Advanced")
+            self.assertEqual(b2["tier"], "Google AI Pro")
 
 
 if __name__ == "__main__":

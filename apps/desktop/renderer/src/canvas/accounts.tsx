@@ -161,7 +161,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   const tierLine = isGemini
     ? (isUnresolvedTier
         ? `${geminiProvider} tier unavailable`
-        : ((tier.toLowerCase().startsWith('gemini') || tier.toLowerCase().startsWith('antigravity') || tier.toLowerCase().startsWith(geminiProvider.toLowerCase()))
+        : ((tier.toLowerCase().startsWith('gemini') || tier.toLowerCase().startsWith('antigravity') || tier.toLowerCase().startsWith('google') || tier.toLowerCase().startsWith(geminiProvider.toLowerCase()))
             ? tier
             : `${geminiProvider} ${tier}`))
     : null

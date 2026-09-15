@@ -970,29 +970,35 @@ _ANTIGRAVITY_KEYRING_USER_TIER_RE: Final = re.compile(
     r"Restored saved token from keyring:.*userTier=\"([^\"]+)\"",
     re.IGNORECASE)
 
-_ANTIGRAVITY_USER_TIER_DISPLAY: Final = {
-    "free_tier": "Free",
-    "g1_pro_tier": "Google One Pro",
-    "g1_ultra_tier": "Google One Ultra",
-    "g1_ultra_lite_tier": "Google One Ultra Lite",
-    "g1_plus_tier": "Google One Plus",
-    "cs_standard_tier": "Standard",
-    "aida_tier": "Standard",
-    "agy_business_paygo_tier": "Business Pay-As-You-Go",
-    "enterprise_agent_tier": "Enterprise",
-    "gcp_enterprise_tier": "GCP Enterprise",
-    "gcp_ge_paygo_tier": "GCP Pay-As-You-Go",
-    "gcp_ge_plus_tier": "GCP Plus",
-    "gcp_ge_standard_tier": "GCP Standard",
-}
+_OFFICIAL_GOOGLE_AI_PLANS: Final[dict[str, str]] = {
+    # Plus
+    "google ai plus": "Google AI Plus",
+    "google_ai_plus": "Google AI Plus",
+    "google-ai-plus": "Google AI Plus",
+    "google one plus": "Google AI Plus",
+    "g1_plus_tier": "Google AI Plus",
+    "g1-plus-tier": "Google AI Plus",
+    "plus": "Google AI Plus",
 
-_ANTIGRAVITY_AUTH_METHOD_TIERS: Final = {
-    "consumer": "Consumer",
-    "personal": "Consumer",
-    "enterprise": "Enterprise",
-    "gcp": "GCP",
-    "workforce": "Workforce",
-    "adc": "ADC",
+    # Pro
+    "google ai pro": "Google AI Pro",
+    "google_ai_pro": "Google AI Pro",
+    "google-ai-pro": "Google AI Pro",
+    "google one pro": "Google AI Pro",
+    "google one ai premium": "Google AI Pro",
+    "g1_pro_tier": "Google AI Pro",
+    "g1-pro-tier": "Google AI Pro",
+    "pro": "Google AI Pro",
+
+    # Ultra
+    "google ai ultra": "Google AI Ultra",
+    "google_ai_ultra": "Google AI Ultra",
+    "google-ai-ultra": "Google AI Ultra",
+    "google one ultra": "Google AI Ultra",
+    "google one ai ultra": "Google AI Ultra",
+    "g1_ultra_tier": "Google AI Ultra",
+    "g1-ultra-tier": "Google AI Ultra",
+    "ultra": "Google AI Ultra",
 }
 
 _RE_SAFE_TIER: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\s._\-+]{0,63}$")
@@ -1030,6 +1036,27 @@ def _sanitize_tier(val: object) -> str | None:
     return cleaned
 
 
+def canonical_google_ai_plan(val: object) -> str | None:
+    """Map authoritative tier/plan string to an official Google AI paid plan.
+
+    Only Google's official paid plans ('Google AI Plus', 'Google AI Pro',
+    'Google AI Ultra') are recognized. All other values (free, standard,
+    consumer, personal, enterprise, unknown, etc.) return None, causing
+    the product to retain the unavailable/unknown presentation.
+    """
+    if not isinstance(val, str):
+        return None
+    cleaned = _sanitize_tier(val)
+    if not cleaned:
+        return None
+    normalized = cleaned.strip().lower()
+    if normalized.startswith("antigravity "):
+        normalized = normalized[len("antigravity "):].strip()
+    elif normalized.startswith("gemini "):
+        normalized = normalized[len("gemini "):].strip()
+    return _OFFICIAL_GOOGLE_AI_PLANS.get(normalized)
+
+
 def _extract_antigravity_log_tier(
     log_text: str, expected_email: str | None = None
 ) -> tuple[str | None, str | None]:
@@ -1048,25 +1075,21 @@ def _extract_antigravity_log_tier(
     if m_tier:
         raw_user_tier, raw_disp = m_tier.group(1), m_tier.group(2)
         if raw_disp:
-            tier = _sanitize_tier(raw_disp)
+            tier = canonical_google_ai_plan(raw_disp)
         if not tier and raw_user_tier:
-            tier = _ANTIGRAVITY_USER_TIER_DISPLAY.get(raw_user_tier.lower()) or _sanitize_tier(raw_user_tier)
+            tier = canonical_google_ai_plan(raw_user_tier)
 
     if not tier:
         m_keyring = _ANTIGRAVITY_KEYRING_USER_TIER_RE.search(log_text)
         if m_keyring:
             raw_user_tier = m_keyring.group(1)
-            tier = _ANTIGRAVITY_USER_TIER_DISPLAY.get(raw_user_tier.lower()) or _sanitize_tier(raw_user_tier)
+            tier = canonical_google_ai_plan(raw_user_tier)
 
     m_auth = _ANTIGRAVITY_AUTH_RESULT_RE.search(log_text)
     if m_auth:
-        auth_email, auth_method = m_auth.group(1), m_auth.group(2).lower()
+        auth_email = m_auth.group(1)
         if not found_email:
             found_email = auth_email
-        target_email = expected_email or found_email
-        if target_email and target_email.lower() == auth_email.lower():
-            if not tier:
-                tier = _ANTIGRAVITY_AUTH_METHOD_TIERS.get(auth_method)
 
     target_email = expected_email or found_email
     if expected_email and found_email and expected_email.lower() != found_email.lower():

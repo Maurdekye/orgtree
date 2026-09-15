@@ -182,6 +182,9 @@ def _sanitize_tier(val: object) -> str | None:
     return cleaned
 
 
+canonical_google_ai_plan = providers.canonical_google_ai_plan
+
+
 def _extract_tier(result: dict[str, Any], data: dict[str, Any]) -> str | None:
     """Extract and sanitize tier metadata from CLI usage response."""
     for source in (data, result):
@@ -189,7 +192,7 @@ def _extract_tier(result: dict[str, Any], data: dict[str, Any]) -> str | None:
             continue
         for key in ("tier", "plan", "account_tier", "user_tier",
                     "subscriptionType", "subscription_tier"):
-            cleaned = _sanitize_tier(source.get(key))
+            cleaned = canonical_google_ai_plan(source.get(key))
             if cleaned:
                 return cleaned
     return None
@@ -215,7 +218,7 @@ def profile_tier(profile_dir: str | None) -> str | None:
         doc = cast("dict[str, Any]", doc_any)
         for key in ("tier", "plan", "account_tier", "user_tier",
                     "subscriptionType", "subscription_tier"):
-            cleaned = _sanitize_tier(doc.get(key))
+            cleaned = canonical_google_ai_plan(doc.get(key))
             if cleaned:
                 return cleaned
         for sub in ("oauth", "claudeAiOauth", "google", "account", "profile"):
@@ -223,7 +226,7 @@ def profile_tier(profile_dir: str | None) -> str | None:
             if isinstance(sub_val, dict):
                 for key in ("tier", "plan", "account_tier", "user_tier",
                             "subscriptionType", "subscription_tier"):
-                    cleaned = _sanitize_tier(cast("dict[str, Any]", sub_val).get(key))
+                    cleaned = canonical_google_ai_plan(cast("dict[str, Any]", sub_val).get(key))
                     if cleaned:
                         return cleaned
     return None
@@ -232,14 +235,14 @@ def profile_tier(profile_dir: str | None) -> str | None:
 def resolve_row_tier(row: dict[str, Any]) -> str | None:
     """Safely resolve an authoritative tier for one registry row without cross-attribution."""
     for key in ("tier", "plan", "account_tier", "user_tier"):
-        cleaned = _sanitize_tier(row.get(key))
+        cleaned = canonical_google_ai_plan(row.get(key))
         if cleaned:
             return cleaned
     for sub in ("identity", "credential", "marks"):
         sub_val = row.get(sub)
         if isinstance(sub_val, dict):
             for key in ("tier", "plan", "account_tier", "user_tier", "subscriptionType"):
-                cleaned = _sanitize_tier(cast("dict[str, Any]", sub_val).get(key))
+                cleaned = canonical_google_ai_plan(cast("dict[str, Any]", sub_val).get(key))
                 if cleaned:
                     return cleaned
     cred_any = row.get("credential")
@@ -540,10 +543,10 @@ def _run_status(exe: str, version: str | None = None) -> dict[str, Any] | None:
 
 
 def _account(data: dict[str, Any], status: dict[str, Any]) -> dict[str, Any]:
-    tier = _sanitize_tier(data.get("tier")) or _sanitize_tier(data.get("plan"))
+    tier = canonical_google_ai_plan(data.get("tier")) or canonical_google_ai_plan(data.get("plan"))
     if not tier:
         for key in ("tier", "plan", "account_tier", "user_tier", "subscriptionType"):
-            cleaned = _sanitize_tier(status.get(key))
+            cleaned = canonical_google_ai_plan(status.get(key))
             if cleaned:
                 tier = cleaned
                 break
