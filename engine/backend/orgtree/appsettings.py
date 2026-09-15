@@ -167,6 +167,10 @@ def set_apikey_fallback_enabled(provider: str, enabled: bool) -> None:
         doc["apikey_fallback"] = prefs
         doc["version"] = VERSION
         _save(doc)
+    # this switch decides whether a provider lane can be hired on at all, so
+    # the warm staffing snapshot is now wrong about which models are offered
+    from . import registry
+    registry.availability_changed("apikey_fallback preference changed")
 
 
 def set_subscription_inference_enabled(provider: str, enabled: bool) -> None:
@@ -183,6 +187,10 @@ def set_subscription_inference_enabled(provider: str, enabled: bool) -> None:
         doc["subscription_inference"] = prefs
         doc["version"] = VERSION
         _save(doc)
+    # this switch decides whether a provider lane can be hired on at all, so
+    # the warm staffing snapshot is now wrong about which models are offered
+    from . import registry
+    registry.availability_changed("subscription_inference preference changed")
 
 
 def working_checkups_enabled() -> bool:

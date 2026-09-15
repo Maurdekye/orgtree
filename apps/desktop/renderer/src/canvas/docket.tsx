@@ -52,6 +52,7 @@ import { RefProse, refToken } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
+import { prefetchQuickStaff } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
@@ -1833,6 +1834,12 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   // does not invent them.
   const menu = useContextMenu()
   const [staffFeedback, setStaffFeedback] = useState('')
+  // Quick staff is offered for a backlogged, unarchived ticket in a real org —
+  // the same condition the backend enforces, so a row that cannot be staffed
+  // neither shows the entry nor prefetches for it.
+  const staffable = !!org && !item.archived && item.status === 'backlogged'
+  const warmStaffing = () =>
+    prefetchQuickStaff<QuickStaffPreview>(quickStaffPath(org!, item.slug))
   const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
@@ -1878,13 +1885,20 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // title, so nothing is lost and the row stays one line of name.
     <div data-copy-ticket-title={item.title} className={cls} title={item.title} onClick={onClick}
       onDoubleClick={copySlug} ref={rowRef}
+      // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement
+      // 2026-09-15). Hovering or focusing a row precedes the right-click that
+      // opens its menu, so by the time the menu exists the request is already
+      // in flight or already answered — and `prefetchQuickStaff` hands back the
+      // one promise rather than starting a second. The expensive half
+      // (providers, catalog, accounts) was loaded once when the org loaded.
+      onPointerEnter={() => { if (staffable) void warmStaffing() }}
+      onFocus={() => { if (staffable) void warmStaffing() }}
       onContextMenu={(e) => {
-        const staffable = !!org && !item.archived && item.status === 'backlogged'
         const opening = menu.open(e, () => [...rowMenu(e), ...(staffable ? [
           { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} },
         ] : [])])
         if (opening === undefined || !staffable) return
-        void req<QuickStaffPreview>(quickStaffPath(org!, item.slug)).then(preview => {
+        void warmStaffing().then(preview => {
           menu.append(quickStaffEntry(org!, item.slug, preview, message => {
             setStaffFeedback(message); toast?.([message])
           }), opening)

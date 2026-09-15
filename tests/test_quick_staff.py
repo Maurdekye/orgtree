@@ -11,7 +11,7 @@ os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="quick-staff-tests")
 from engine.launch import load_app
 app, *_ = load_app()
 from fastapi.testclient import TestClient
-from orgtree import api, appsettings, ledger, quickstaff, store
+from orgtree import api, appsettings, ledger, quickstaff, staffcache, store
 
 HEADERS = {"X-Orgtree-Desktop-Token": "quick-staff-tests"}
 
@@ -48,7 +48,26 @@ class QuickStaffTests(unittest.TestCase):
             {"id": "openai", "hire_enabled": True, "tiers": [{"tier": "luna", "seat": .2}]}]}
         p = patch.object(api, "_providers_payload", return_value=self.offered)
         p.start(); self.addCleanup(p.stop)
+        self.neutralize_staff_cache()
         appsettings.set_quick_staff_behavior("request")
+
+    def neutralize_staff_cache(self):
+        """Compute availability on every read, as this code did before the warm
+        cache existed.
+
+        ⚠ WHY, AND WHAT IT DOES NOT HIDE. These cases are about what the rules
+        DECIDE — which tiers are offered, which accounts, what a commit
+        re-checks — and every one of them works by patching the world (the
+        provider document, the catalog, an account board) between calls. A cache
+        that legitimately holds the previous answer would make each case assert
+        against the world of the case before it. The CACHE's own behaviour —
+        that it is warmed before anything opens, shared, deduplicated and
+        invalidated — is not weakened by this: it is measured in
+        tests/test_staffing_options.py, against the real module."""
+        p = patch.object(staffcache, "read",
+                         side_effect=lambda **kwargs: staffcache._compute())
+        p.start(); self.addCleanup(p.stop)
+        staffcache.reset_for_tests(); self.addCleanup(staffcache.reset_for_tests)
 
     def preview(self):
         r = self.client.get(self.path, headers=HEADERS)
@@ -186,25 +205,30 @@ class QuickStaffTests(unittest.TestCase):
         self.assertNotIn("quick_staff_receipts", self.loaded()._work_find(self.item)[0])
         self.assertEqual(self.send(body).status_code, 200)
 
-    def test_provider_failure_is_visible_and_revalidated(self):
+    def test_provider_failure_omits_the_model_and_is_still_revalidated(self):
+        # ⚠ OMITTED, NOT GREYED (user ruling 2026-09-15). This used to assert
+        # the row was present carrying `reason`; a disabled row is still an
+        # offer, so there is nothing left to show.
         appsettings.set_quick_staff_behavior("top_level")
         with patch.object(api, "provider_hire_gate", side_effect=ledger.LedgerError("Sign in to the provider")):
-            p = self.preview()
-            self.assertIn("Sign in", p["models"][0]["reason"])
+            self.assertEqual(self.preview()["models"], [])
             self.assertEqual(self.send(self.selection("haiku")).status_code, 422)
+        # CONTROL: with the gate open the same organization offers both models,
+        # so the empty list above is the gate and not an empty fixture.
+        self.assertEqual([m["tier"] for m in quickstaff.preview(self.org, self.item)["models"]],
+                         ["haiku", "luna"])
 
-    def test_credit_and_permission_failures_are_visible_in_the_preview(self):
+    def test_credit_and_permission_failures_omit_the_model_from_the_preview(self):
         appsettings.set_quick_staff_behavior("top_level")
         self.org.d["max_top_grant"] = 1
         store.save_org(self.org)
-        p = self.preview()
-        self.assertTrue(all(m["reason"] for m in p["models"]))
+        self.assertEqual(self.preview()["models"], [])
         self.assertEqual(self.send(self.selection("haiku")).status_code, 422)
         self.org.d["max_top_grant"] = 1000
         self.org.d["max_depth"] = 1
         store.save_org(self.org); appsettings.set_quick_staff_behavior("under_assignee")
-        p = self.preview()
-        self.assertIn("depth", p["models"][0]["reason"])
+        # the depth ceiling is a refusal no account can rescue, so the row goes
+        self.assertEqual(self.preview()["models"], [])
         self.assertEqual(len(self.loaded().nodes), 1)
 
     def test_late_assignment_or_mail_failure_rolls_back_every_change(self):
@@ -250,17 +274,27 @@ class QuickStaffTests(unittest.TestCase):
 
     def test_request_does_not_consult_actor_hire_gates(self):
         # Each failing instrument fires in Direct, while Request must not
-        # consult it. Nonempty rows and a real POST rule out an empty-menu fix.
-        for target, name in [(api, "provider_hire_gate"),
-                             (ledger.Org, "_check_tier_ceiling"),
-                             (quickstaff, "account_reason"), (ledger.Org, "hire")]:
+        # consult it. A real POST and a populated Request list rule out an
+        # empty-menu fix.
+        #
+        # WHAT DIRECT DOES WITH THE REFUSAL SPLIT IN TWO (2026-09-15). The three
+        # MACHINE gates remove the row: nothing can staff that tier. An ACCOUNT
+        # refusal leaves the row standing and only closes its one-click, because
+        # another account can still run it. That split is the whole of the
+        # model-list defect, so it is asserted here rather than lumped together.
+        for target, name, direct in [
+                (api, "provider_hire_gate", []),
+                (ledger.Org, "_check_tier_ceiling", []),
+                (quickstaff, "account_reason", ["haiku", "luna"]),
+                (ledger.Org, "hire", [])]:
             with self.subTest(gate=name):
                 store.save_org(self.org)
                 appsettings.set_quick_staff_behavior("top_level")
                 with patch.object(target, name, side_effect=ledger.LedgerError(name)) as gate:
-                    direct = quickstaff.preview(self.org, self.item)
-                    self.assertEqual([m["tier"] for m in direct["models"]], ["haiku", "luna"])
-                    self.assertTrue(all(m["reason"] for m in direct["models"]))
+                    rows = quickstaff.preview(self.org, self.item)["models"]
+                    self.assertEqual([m["tier"] for m in rows], direct)
+                    self.assertTrue(all(m["reason"] is None for m in rows))
+                    self.assertTrue(all(m["default_ok"] is False for m in rows))
                     self.assertGreater(gate.call_count, 0)
                     gate.reset_mock()
                     appsettings.set_quick_staff_behavior("request")
@@ -343,32 +377,42 @@ class QuickStaffTests(unittest.TestCase):
             self.assertEqual(self.send(body | {"tier": "or-gone"}).status_code, 422)
             self.assertEqual(self.loaded().d, before)
 
-    def test_direct_previews_keep_pre_fix_rows_order_and_disabled_states(self):
-        # This literal baseline is also executed against unmodified main in
-        # the review controls; no request filters may leak into Direct.
+    def test_direct_previews_omit_unstaffable_rows_and_keep_the_rest_in_order(self):
+        """THE MODEL-LIST DEFECT, both halves of it.
+
+        A MACHINE refusal (this provider cannot be hired from) takes the row
+        away entirely — it can be staffed on nothing. An ACCOUNT refusal does
+        NOT: the tier stays, because another account can run it, and only the
+        tier's own one-click is closed. Before 2026-09-15 both produced the same
+        greyed row, which is why every Claude tier read as unavailable when one
+        Claude account filled up.
+        """
         self.org.d["tiers"]["or-history"] = 4
         store.save_org(self.org)
         def machine_gate(org, tier):
             if tier == "or-history":
                 raise ledger.LedgerError("provider unavailable")
-        def account_gate(org, tier):
+        def account_gate(org, tier, snap=None):
             return "default account limit" if tier == "haiku" else None
-        expected = [
-            {"tier": "haiku", "seat": 1, "reason": "default account limit", "efforts": []},
-            {"tier": "luna", "seat": .2, "reason": None, "efforts": ["low", "high"]},
-            {"tier": "or-history", "seat": 4, "reason": "provider unavailable", "efforts": []}]
-        with patch.object(api, "provider_hire_gate", side_effect=machine_gate), \
-             patch.object(quickstaff, "account_reason", side_effect=account_gate):
+        with patch.object(api, "provider_hire_gate", side_effect=machine_gate),              patch.object(quickstaff, "account_reason", side_effect=account_gate):
             for mode in ("top_level", "under_assignee"):
                 appsettings.set_quick_staff_behavior(mode)
-                self.assertEqual(quickstaff.preview(self.org, self.item)["models"], expected)
+                models = quickstaff.preview(self.org, self.item)["models"]
+                self.assertEqual([m["tier"] for m in models], ["haiku", "luna"])
+                self.assertEqual([m["seat"] for m in models], [1, .2])
+                self.assertTrue(all(m["reason"] is None for m in models))
+                self.assertEqual([m["default_ok"] for m in models], [False, True])
+                # the tier that is only reachable through an account still HAS
+                # an account to reach it by, or offering it would be a lie
+                self.assertTrue(models[0]["accounts"])
             # Configured Request with a retired owner actually hires at top
             # level; it must retain the Direct baseline, not request rules.
             appsettings.set_quick_staff_behavior("request")
             self.org.nodes[self.owner]["state"] = "archived"
             store.save_org(self.org)
             self.assertTrue(self.preview()["fallback"])
-            self.assertEqual(quickstaff.preview(self.org, self.item)["models"], expected)
+            self.assertEqual([m["tier"] for m in quickstaff.preview(self.org, self.item)["models"]],
+                             ["haiku", "luna"])
 
     def test_request_endpoint_still_requires_desktop_authority(self):
         body = self.selection("haiku")
@@ -377,7 +421,14 @@ class QuickStaffTests(unittest.TestCase):
         self.assertEqual(self.loaded().d, before)
 
 
-    def test_request_discovery_and_efforts_are_outside_document_lock(self):
+    def test_availability_discovery_never_runs_under_the_document_lock(self):
+        """The property that had to survive the rewrite.
+
+        Discovery moved OUT of these routes and into `staffcache`, which is read
+        BEFORE the lock is taken — so this now checks the thing it always meant:
+        nothing that touches the network or spawns a CLI ever runs while the
+        global document lock is held.
+        """
         self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
             "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
         observed = []
@@ -391,7 +442,7 @@ class QuickStaffTests(unittest.TestCase):
                 probe("positive-held-lock", None)
         with patch.object(api, "_providers_payload", side_effect=lambda: probe("providers", self.offered)), \
              patch.object(quickstaff.openrouter, "refresh_catalog", side_effect=lambda: probe("catalog", [{"id": "vendor/live"}])), \
-             patch.object(quickstaff, "supported_efforts", side_effect=lambda tier: probe("efforts", ["low", "high"])):
+             patch.object(staffcache, "_supported_efforts", side_effect=lambda tier: probe("efforts", ["low", "high"])):
             preview = self.preview()
             body = {k: preview[k] for k in ("mode", "configured_mode", "owner")} | {
                 "tier": "or-live", "effort": "high", "request_id": str(uuid.uuid4())}
@@ -403,35 +454,52 @@ class QuickStaffTests(unittest.TestCase):
         with patch.object(api, "_providers_payload", side_effect=AssertionError("replay did discovery")):
             self.assertTrue(self.send(body).json()["replayed"])
 
-    def test_request_rechecks_context_after_unlocked_discovery(self):
-        for endpoint in ("preview", "select"):
-            for change in ("owner", "mode", "backlog", "kiosk"):
-                with self.subTest(endpoint=endpoint, change=change):
-                    store.save_org(self.org)
-                    appsettings.set_quick_staff_behavior("request")
-                    body = self.selection("haiku")
-                    changed = {}
-                    def discovery():
-                        self.assertFalse(store.DOC_LOCK._is_owned())
-                        with store.DOC_LOCK:
-                            current = self.loaded()
-                            if change == "owner":
-                                current.nodes[self.owner]["state"] = "archived"
-                            elif change == "mode":
-                                appsettings.set_quick_staff_behavior("top_level")
-                            elif change == "backlog":
-                                current._work_find(self.item)[0]["status"] = "open"
-                            else:
-                                current.d["kiosk"] = {"auto_raise": False, "max_scope": {"tools": current.node(self.owner)["scope"]["tools"]}}
-                            store.save_org(current)
-                            changed.update(copy.deepcopy(self.loaded().d))
-                        return self.offered
-                    with patch.object(api, "_providers_payload", side_effect=discovery):
-                        reply = (self.client.get(self.path, headers=HEADERS) if endpoint == "preview"
-                                 else self.send(body))
-                    self.assertEqual(reply.status_code, 422, reply.text)
-                    self.assertTrue(changed)
-                    self.assertEqual(self.loaded().d, changed)
+    def test_the_discovery_gap_is_closed_and_the_selection_check_still_holds(self):
+        """A DEFENCE REPLACED BY REMOVING WHAT IT DEFENDED AGAINST.
+
+        These routes used to take the document lock, drop it to run discovery,
+        retake it, and then refuse if the ticket had moved in between — a whole
+        recheck that existed because of that gap. Discovery now happens BEFORE
+        the lock, from the warm snapshot, and the org is read exactly once, so
+        the gap is gone: a change landing while availability is refreshed is
+        simply SEEN, and a preview no longer answers "the staffing context
+        changed" to a user whose network was slow.
+
+        What still refuses is the thing that should: a SELECTION composed
+        against one menu and submitted after the mode, the assignee or the
+        ticket's own status moved underneath it.
+        """
+        for change, preview_ok, select_ok in (("owner", True, False),
+                                              ("mode", True, False),
+                                              ("backlog", False, False),
+                                              ("kiosk", True, True)):
+            with self.subTest(change=change):
+                store.save_org(self.org)
+                appsettings.set_quick_staff_behavior("request")
+                body = self.selection("haiku")
+                def discovery():
+                    self.assertFalse(store.DOC_LOCK._is_owned())
+                    with store.DOC_LOCK:
+                        current = self.loaded()
+                        if change == "owner":
+                            current.nodes[self.owner]["state"] = "archived"
+                        elif change == "mode":
+                            appsettings.set_quick_staff_behavior("top_level")
+                        elif change == "backlog":
+                            current._work_find(self.item)[0]["status"] = "open"
+                        else:
+                            current.d["kiosk"] = {"auto_raise": False,
+                                "max_scope": {"tools": current.node(self.owner)["scope"]["tools"]}}
+                        store.save_org(current)
+                    return self.offered
+                with patch.object(api, "_providers_payload", side_effect=discovery):
+                    reply = self.client.get(self.path, headers=HEADERS)
+                    # the preview reports the CURRENT world rather than refusing
+                    self.assertEqual(reply.status_code, 200 if preview_ok else 422, reply.text)
+                    select = self.send(body)
+                self.assertEqual(select.status_code, 200 if select_ok else 422, select.text)
+                self.assertEqual(len(self.loaded().nodes), 1)
+                store.save_org(self.org)
 
     def test_kiosk_request_omits_org_barred_providers_without_catalog_io(self):
         self.offered["providers"].extend([
@@ -462,51 +530,93 @@ class QuickStaffTests(unittest.TestCase):
 
 
 class QuickStaffEligibilityTests(unittest.TestCase):
+    """The per-account capacity rules.
+
+    ⚠ THEY MOVED MODULE, NOT MEANING (2026-09-15). The accounting these cases
+    pin — Fable spending its own scoped weekly window as well as the standard
+    one, Luna drawing on the reserve pool before the plan pool, a bound account
+    answering from its own telemetry — is the user's, and it is unchanged. It
+    now lives in `staffcache.account_block` so it can be asked about ANY
+    account instead of only the organization's default, which is the whole of
+    the model-list defect; `quickstaff.account_reason` is the same question
+    asked about the default one. These cases therefore build a snapshot
+    directly and assert on the answer, which also keeps them off the network.
+    """
     def setUp(self):
         self.org = ledger.Org.create("eligibility")
         self.org.d["default_account"] = None
+
+    def snapshot(self, *, claude=None, openai=None, google=None, accounts=()):
+        return {"at": 0.0, "providers": {"providers": []}, "catalog": None,
+                "efforts": {}, "errors": [], "stale": False,
+                "accounts": [{"row": r, "board": b} for r, b in accounts],
+                "ambient": {"claude": claude, "openai": openai, "google": google}}
 
     def test_claude_scoped_limit_only_blocks_fable_but_all_limit_blocks_both(self):
         board = {"available": True, "limits": [
             {"kind": "weekly_all", "percent": 50},
             {"kind": "weekly_scoped", "percent": 100, "model": "fable"}]}
-        with patch.object(quickstaff.limits, "snapshot", return_value=board):
-            self.assertIsNone(quickstaff.account_reason(self.org, "haiku"))
-            self.assertIn("100%", quickstaff.account_reason(self.org, "fable"))
-            board["limits"][0]["percent"] = 100
-            self.assertIn("100%", quickstaff.account_reason(self.org, "haiku"))
+        snap = self.snapshot(claude=board)
+        self.assertIsNone(quickstaff.account_reason(self.org, "haiku", snap))
+        self.assertIn("100%", quickstaff.account_reason(self.org, "fable", snap))
+        board["limits"][0]["percent"] = 100
+        self.assertIn("100%", quickstaff.account_reason(self.org, "haiku", snap))
 
     def test_luna_checks_reserve_or_plan_according_to_the_persisted_preference(self):
         board = {"available": True, "limits": [
             {"kind": "weekly_all", "percent": 100},
-            {"kind": "weekly_scoped", "percent": 0, "model": quickstaff.codex_route.RESERVE_MODEL}]}
-        with patch.object(quickstaff.codex_limits, "snapshot", return_value=board):
-            with patch.object(quickstaff, "app_prefer_reserve_default", return_value=True):
-                self.assertIsNone(quickstaff.account_reason(self.org, "luna"))
-                self.assertIn("100%", quickstaff.account_reason(self.org, "astra"))
-                board["limits"][1]["percent"] = 100
-                self.assertIn("100%", quickstaff.account_reason(self.org, "luna"))
-            board["limits"][1]["percent"] = 0
-            with patch.object(quickstaff, "app_prefer_reserve_default", return_value=False):
-                self.assertIn("100%", quickstaff.account_reason(self.org, "luna"))
+            {"kind": "weekly_scoped", "percent": 0,
+             "model": staffcache.codex_route.RESERVE_MODEL}]}
+        snap = self.snapshot(openai=board)
+        with patch.object(staffcache, "app_prefer_reserve_default", return_value=True):
+            self.assertIsNone(quickstaff.account_reason(self.org, "luna", snap))
+            self.assertIn("100%", quickstaff.account_reason(self.org, "astra", snap))
+            board["limits"][1]["percent"] = 100
+            self.assertIn("100%", quickstaff.account_reason(self.org, "luna", snap))
+        board["limits"][1]["percent"] = 0
+        with patch.object(staffcache, "app_prefer_reserve_default", return_value=False):
+            self.assertIn("100%", quickstaff.account_reason(self.org, "luna", snap))
 
     def test_bound_account_eligibility_uses_its_own_telemetry(self):
         self.org.d["default_account"] = "specific-account"
         row = {"id": "specific-account", "provider": "claude", "auth": "authenticated",
                "credential": {"kind": "managed", "path": "unused"}}
-        with patch.object(quickstaff.registry, "validate_selection", return_value=row), \
-             patch.object(quickstaff.registry, "active_mark", return_value=None), \
-             patch.object(quickstaff.accountusage, "view", return_value={"available": True,
-                 "limits": [{"kind": "weekly_all", "percent": 100}]}):
-            self.assertIn("100%", quickstaff.account_reason(self.org, "haiku"))
+        board = {"available": True, "limits": [{"kind": "weekly_all", "percent": 100}]}
+        # the AMBIENT board is wide open, so a pass here would mean the wrong
+        # account was consulted rather than that the rule is lenient
+        snap = self.snapshot(claude={"available": True, "limits": []},
+                             accounts=[(row, board)])
+        with patch.object(staffcache.registry, "validate_selection", return_value=row),              patch.object(staffcache.registry, "active_mark", return_value=None):
+            self.assertIn("100%", quickstaff.account_reason(self.org, "haiku", snap))
+
+    def test_an_unreadable_board_is_unknown_and_never_read_as_exhausted(self):
+        """CONTROL for every case above: absence of evidence is not evidence of
+        a full window, and the cases that DO report 100% are reporting a reading
+        rather than a default."""
+        for board in (None, {}, {"available": False}, {"available": True, "stale": True}):
+            with self.subTest(board=board):
+                self.assertIsNone(quickstaff.account_reason(
+                    self.org, "haiku", self.snapshot(claude=board)))
 
     def test_supported_efforts_follow_model_inventory_and_provider_mapping(self):
-        model = quickstaff.providers.CODEX_MODELS["luna"]
-        with patch.object(quickstaff.providers, "codex_model_inventory", return_value={"efforts": {model: ["low", "high"]}}):
-            self.assertEqual(quickstaff.supported_efforts("luna"), ["low", "high"])
-        with patch.object(quickstaff.providers, "codex_model_inventory", return_value={"efforts": {model: ["medium"]}}):
-            self.assertEqual(quickstaff.supported_efforts("luna"), ["medium"])
-        self.assertNotIn("xhigh", quickstaff.supported_efforts("flash"))
+        model = staffcache.providers.CODEX_MODELS["luna"]
+        with patch.object(staffcache.providers, "codex_model_inventory",
+                          return_value={"efforts": {model: ["low", "high"]}}):
+            self.assertEqual(staffcache._supported_efforts("luna"), ["low", "high"])
+        with patch.object(staffcache.providers, "codex_model_inventory",
+                          return_value={"efforts": {model: ["medium"]}}):
+            self.assertEqual(staffcache._supported_efforts("luna"), ["medium"])
+        self.assertNotIn("xhigh", staffcache._supported_efforts("flash"))
+
+    def test_quickstaff_reads_efforts_from_the_snapshot_and_probes_nothing(self):
+        """The contract is unchanged; WHERE the probe happens is the fix. A
+        Codex inventory read can spawn the CLI, so it must not be reachable
+        from a menu build."""
+        snap = self.snapshot() | {"efforts": {"luna": ["low", "medium"]}}
+        with patch.object(staffcache.providers, "codex_model_inventory",
+                          side_effect=AssertionError("probed on a menu build")):
+            self.assertEqual(quickstaff.supported_efforts("luna", snap), ["low", "medium"])
+            self.assertEqual(quickstaff.supported_efforts("haiku", snap), [])
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ import { ModalOverPins, PinFrame } from './modalpin'
 import { SetBlock, SetGroup, SetRow } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
+import { peekStaffingOptions } from './staffingoptions'
 import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
@@ -765,8 +766,15 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <PreferReserveRow checked={preferReserve} onChange={changePreferReserve} />
         )}
         <div className="field-label">account</div>
+        {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
+            staffing availability that was warmed when the org loaded — this
+            selector starts no load of its own. `peek` and not an await: if the
+            answer is not in yet the full list is shown and the hire refuses on
+            its own terms, which is the honest fallback. */}
         <AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount}
           host={hostIdentity}
+          eligible={peekStaffingOptions(tree.slug)?.tiers
+            .find(t => t.tier === draft.tier)?.accounts.map(a => a.value)}
           onChange={(value) => {
             setAcct(value)
             setAcctTouched(true)

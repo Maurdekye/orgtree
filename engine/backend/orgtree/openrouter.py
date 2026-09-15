@@ -259,6 +259,12 @@ def _save_state(doc: dict[str, Any]) -> None:
                   json.dumps(doc, indent=2).encode("utf-8"))
     with _LOCK:
         _state_cache["doc"] = None
+    # Favorites ARE the OpenRouter hire surface, so adding or dropping one
+    # changes what every staffing chooser may offer. Hooked at the single
+    # writer rather than at `add_favorite`/`remove_favorite`/the key routes
+    # separately, for the reason `registry.availability_changed` states.
+    from . import registry            # late: registry imports nothing of ours
+    registry.availability_changed("openrouter state written")
 
 
 def _key() -> str:

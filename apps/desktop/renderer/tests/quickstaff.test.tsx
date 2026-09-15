@@ -167,13 +167,65 @@ test('duplicates are suppressed and failed retries retain the operation identity
   assert.equal(sent[0]!.request_id, sent[1]!.request_id)
 })
 
-test('unavailable models explain their reason and never expose selectable efforts', () => {
-  const p = preview(); p.models[0]!.reason = 'Not enough credits'; p.models[0]!.efforts = []
-  const entry = quickStaffEntry('org', 'disabled', p, () => {})
+test('a model with no eligible account is absent, not a disabled row', () => {
+  // The backend stopped sending unstaffable models at all (user ruling
+  // 2026-09-15), because a disabled row is still an offer. This asserts the
+  // renderer has no path left that can draw one.
+  const p = preview()
+  p.models = [{ tier: 'haiku', seat: 1, efforts: ['low'], accounts: [], default_ok: true }]
+  const entry = quickStaffEntry('org', 'omitted', p, () => {})
+  const rows = entry.children as MenuItem[]
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]!.disabled, undefined)
+  // CONTROL: the ONE disabled row the menu may still draw is the empty state,
+  // and it says which of the two empties it is.
+  const none = quickStaffEntry('org', 'none', { ...preview(), models: [] }, () => {})
+  assert.equal((none.children![0] as MenuItem).disabled, true)
+  assert.equal((none.children![0] as MenuItem).label, 'No models available')
+  const broken = quickStaffEntry('org', 'broken', { ...preview(), models: [],
+    availability: { at: 0, stale: false, errors: ['OpenRouter catalog unavailable'] } }, () => {})
+  assert.equal((broken.children![0] as MenuItem).label, 'Staffing options could not be loaded')
+  assert.match((broken.children![0] as MenuItem).title!, /OpenRouter/)
+})
+
+test('a tier whose default account cannot run it stays offered through its accounts', async t => {
+  // THE MODEL-LIST DEFECT ITSELF. The tier is reachable — another account can
+  // run it — so it must not vanish; only its own one-click closes.
+  const sent = captureFetch(t)
+  const p = preview('top_level')
+  p.models = [{ tier: 'haiku', seat: 1, efforts: ['low', 'high'], default_ok: false,
+    accounts: [
+      { value: 'claude/primary', id: 'default', provider: 'claude', ambient: true, email: 'host@x.y' },
+      { value: 'claude-4', id: 'claude-4', provider: 'claude', ambient: false, email: 'a@b.c' }] }]
+  const entry = quickStaffEntry('org', 'accounts', p, () => {})
   const model = entry.children![0] as MenuItem
-  assert.equal(model.disabled, true)
-  assert.equal(model.title, 'Not enough credits')
-  assert.equal(model.children, undefined)
+  assert.equal(model.label, 'haiku')
+  assert.equal(model.actionDisabled, true)
+  assert.deepEqual((model.children as MenuItem[]).map(c => c.label),
+                   ['default \u00b7 host@x.y', 'claude-4 \u00b7 a@b.c'])
+  const account = model.children![1] as MenuItem
+  account.onSelect(); await flush()
+  assert.equal(sent.at(-1)!.account, 'claude-4')
+  assert.equal(sent.at(-1)!.tier, 'haiku')
+  assert.equal('effort' in sent.at(-1)!, false)
+  // and the effort sits UNDER the account, so every leaf is a whole selection
+  ;(account.children![1] as MenuItem).onSelect(); await flush()
+  assert.deepEqual({ tier: sent.at(-1)!.tier, account: sent.at(-1)!.account, effort: sent.at(-1)!.effort },
+                   { tier: 'haiku', account: 'claude-4', effort: 'high' })
+})
+
+test('one eligible account that the tier would take anyway adds no account layer', async t => {
+  // CONTROL for the layer above: it appears where there is a CHOICE, and the
+  // ordinary one-account machine keeps exactly the menu it had before.
+  const sent = captureFetch(t)
+  const p = preview('top_level')
+  p.models = [{ tier: 'haiku', seat: 1, efforts: ['low', 'high'], default_ok: true,
+    accounts: [{ value: 'claude/primary', id: 'default', provider: 'claude', ambient: true, email: null }] }]
+  const model = quickStaffEntry('org', 'single', p, () => {}).children![0] as MenuItem
+  assert.equal(model.actionDisabled, false)
+  assert.deepEqual((model.children as MenuItem[]).map(c => c.label), ['low', 'high'])
+  ;(model.children![0] as MenuItem).onSelect(); await flush()
+  assert.equal('account' in sent.at(-1)!, false)
 })
 
 test('setting restores and writes all three modes through application preferences', async t => {
@@ -238,7 +290,10 @@ test('real docket rows load Staff only for backlog and submit the previewed sele
 })
 
 
-test('request offers render selectable exact tokens while Direct still renders its disabled rows', async t => {
+test('every rendered row is selectable, in Request and in Direct alike', async t => {
+  // ⚠ REWRITTEN FOR THE OMISSION RULE (2026-09-15). This used to assert that
+  // Direct DREW its unstaffable rows greyed out; the payload no longer carries
+  // them, so what is checked now is that nothing reaching the menu is dead.
   const sent = captureFetch(t)
   const request = preview()
   request.models = [
@@ -247,9 +302,8 @@ test('request offers render selectable exact tokens while Direct still renders i
   ]
   const direct = preview('top_level')
   direct.models = [
-    { ...request.models[0]!, reason: 'Default account limit', efforts: [] },
-    { ...request.models[1]!, reason: 'Not enough credits' },
-    { tier: 'or-vendor-history', seat: 2, reason: 'Provider unavailable', efforts: [] },
+    { tier: 'haiku', seat: 1, efforts: ['low', 'high'], accounts: [], default_ok: true },
+    { tier: 'or-vendor-live', seat: 2, efforts: [], accounts: [], default_ok: true },
   ]
   for (const [id, data] of [['request', request], ['direct', direct]] as const) {
     const menu = quickStaffEntry('regression', id, data, () => {})
@@ -257,16 +311,14 @@ test('request offers render selectable exact tokens while Direct still renders i
     try {
       await open(); await key(named('Staff…'), 'ArrowRight')
       assert.ok(named('haiku')); assert.ok(named('or-vendor-live'))
-      if (id === 'request') {
-        assert.equal(named('or-vendor-history'), undefined)
-        assert.equal(document.querySelectorAll('[role="menuitem"][aria-disabled="true"]').length, 0)
-        await inAct(() => { named('or-vendor-live').click() }); await flush()
-        assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
-      } else {
-        assert.ok(named('or-vendor-history'))
-        assert.equal(named('haiku').getAttribute('aria-disabled'), 'true')
-        assert.equal(named('or-vendor-live').getAttribute('aria-disabled'), 'true')
-      }
+      // the tier the backend withheld is nowhere, in either mode
+      assert.equal(named('or-vendor-history'), undefined)
+      // the MODEL rows specifically: the Staff… root is legitimately
+      // non-actionable in Direct, and always was
+      assert.deepEqual(['haiku', 'or-vendor-live'].map(n => named(n).getAttribute('aria-disabled')),
+                       [null, null])
+      await inAct(() => { named('or-vendor-live').click() }); await flush()
+      assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
     } finally { await view.unmount() }
   }
 })

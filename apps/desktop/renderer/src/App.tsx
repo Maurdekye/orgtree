@@ -47,6 +47,7 @@ import { AskCard } from './canvas/asks'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
+import { invalidateStaffingOptions, prefetchStaffingOptions } from './canvas/staffingoptions'
 import { StandingMarks } from './accountusage'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
@@ -792,6 +793,18 @@ export default function App() {
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
   useEffect(() => { resetConvos() }, [slug])
+  // ⚠ STAFFING AVAILABILITY LOADS HERE, WHEN THE ORG DOES (user requirement
+  // 2026-09-15). Every staffing surface — the ticket context menus, the hire
+  // modal's model/account/effort selects — reads this one answer, and none of
+  // them may be the thing that starts it loading. Fired and not awaited: it
+  // must not delay the org opening, and a failure leaves the surfaces to show
+  // their own recoverable state rather than breaking the app. The previous org's
+  // copy is dropped so a switch cannot render one org's availability for another.
+  useEffect(() => {
+    if (!slug) return
+    invalidateStaffingOptions()
+    void prefetchStaffingOptions(slug).catch(() => {})
+  }, [slug])
   useEffect(() => { if (desktop()) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug])
   useEffect(() => {
     if (!slug) return

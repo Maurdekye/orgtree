@@ -94,7 +94,8 @@ from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
-               providers, restart_wake, sandbox, store, subproxy, supervisor, warmpool)
+               providers, quickstaff, restart_wake, sandbox, staffcache, store,
+               subproxy, supervisor, warmpool)
 from . import statepreview
 from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
@@ -3985,7 +3986,16 @@ async def providers_info(force: bool = False,
     providers and reporting a successful login as failed."""
     from fastapi.concurrency import run_in_threadpool
 
-    return await run_in_threadpool(_providers_payload, force, force_provider)
+    payload = await run_in_threadpool(_providers_payload, force, force_provider)
+    if force:
+        # ⚠ HOOKED ON THE ROUTE, NOT INSIDE `_providers_payload`. A forced read
+        # is the login flow's post-spawn verification — the one moment provider
+        # sign-in state is known to have moved, and nothing else observes that
+        # transition. Putting it in the payload function instead made the warm
+        # cache's OWN read invalidate the cache it was filling, so one forced
+        # login check ran discovery twice.
+        registry.availability_changed("provider sign-in state re-read")
+    return payload
 
 
 class ProviderPreference(Body):
@@ -4000,7 +4010,11 @@ async def provider_preference(
 
     There is deliberately no org slug: this choice controls future admissions
     in every org installed under the same ORGTREE_DATA root.
+
+    It also changes which models any staffing surface may offer, so the warm
+    availability snapshot is told (see `registry.availability_changed`).
     """
+    registry.availability_changed("provider admission preference changed")
     if provider_id not in appsettings.PROVIDERS:
         raise HTTPException(404, f"unknown provider {provider_id!r}")
     from fastapi.concurrency import run_in_threadpool
@@ -5568,29 +5582,66 @@ class QuickStaffSelection(Body):
     owner: dict[str, Any]
     tier: str | None = None
     effort: str | None = None
+    # WHICH signed-in account runs the seat (user requirement 2026-09-15). The
+    # ledger's `hire` has validated this field for as long as the registry has
+    # existed; quick staff is the surface that never offered it. Omitted, the
+    # hire makes its own ordinary default choice, exactly as before.
+    account: str | None = None
+
+
+@app.get("/api/orgs/{slug}/staffing-options")
+def staffing_options(slug: str) -> dict[str, Any]:
+    """THE warm staffing-availability document every chooser reads.
+
+    ⚠ THIS ROUTE EXISTS TO BE CALLED BEFORE ANYTHING IS OPENED (user
+    requirement 2026-09-15). The renderer requests it while the org loads, so
+    by the time a context menu, a hire modal or a model/account/effort selector
+    is opened the answer is already in hand and the surface initiates no first
+    request of its own. It is deliberately ITEM-INDEPENDENT: what it reports is
+    the machine's availability, which is what every one of those surfaces was
+    separately discovering for itself.
+    """
+    # Outside any document lock, deliberately: a cold read computes and a warm
+    # one returns at once, and neither must ever happen with DOC_LOCK held.
+    snap = staffcache.read()
+    try:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            return quickstaff.availability(org, snap)
+    except LedgerError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.post("/api/orgs/{slug}/staffing-options/refresh")
+def staffing_options_refresh(slug: str) -> dict[str, Any]:
+    """The recoverable state's retry. Drops nothing and blocks nothing — it
+    marks the snapshot stale and warms behind the caller, so a surface that
+    showed "could not load" gets a real answer without the user waiting on a
+    spinner that owns the menu."""
+    staffcache.invalidate("manual retry")
+    # ⚠ AND WARM, which ordinary invalidation deliberately does not: this one is
+    # a person pressing retry, so the work is wanted now rather than whenever
+    # something next reads. Still not awaited — the answer arrives in the state
+    # this returns, or in the read that follows it.
+    staffcache.warm("manual retry")
+    return staffcache.state()
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}/quick-staff")
 def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
-    from . import quickstaff
+    # ⚠ READ THE SNAPSHOT BEFORE TAKING THE LOCK, and note what disappeared with
+    # it: this route used to take DOC_LOCK, drop it to do provider/catalog
+    # discovery, retake it, and then compare the staffing context across the gap
+    # because the ticket could have moved while it waited. With the discovery
+    # already done there is no gap to defend — one lock, no I/O inside it, and
+    # no "The staffing context changed" refusal for a menu that simply opened
+    # while the network was slow.
+    snap = staffcache.read()
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
-            _, before = quickstaff.context(org, wid)
-            kiosk = bool(org.d.get("kiosk"))
-            if before["mode"] != "request":
-                return quickstaff.preview(org, wid)
-        # Provider/catalog/effort discovery can perform I/O. Never hold the
-        # global document lock while waiting; compare the context before use.
-        offers = quickstaff.request_models(kiosk=kiosk)
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            _work_identity_ready(org, slug)
-            _, current = quickstaff.context(org, wid)
-            if current != before or bool(org.d.get("kiosk")) != kiosk:
-                raise LedgerError("The staffing context changed. Reopen the ticket menu.")
-            return quickstaff.preview(org, wid, request_offers=offers)
+            return quickstaff.preview(org, wid, snap=snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -5682,23 +5733,12 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
         # ticket was left at Open, the request sat unread, and nothing told the
         # user. Checked here it is a plain 422 against an untouched ticket.
         supervisor.check_ping_reason(QUICK_STAFF_PING_REASON)
-        offers = None
-        kiosk = None
-        if body.mode == "request" and body.tier:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                _work_identity_ready(org, slug)
-                item = org._work_find(wid)[0]
-                previous = (item.get("quick_staff_receipts") or {}).get(request_id)
-                if previous:
-                    if previous["selection"] != selection:
-                        raise LedgerError("That staffing request id already belongs to a different selection.")
-                    return {**previous["result"], "replayed": True}
-                _, before = quickstaff.context(org, wid)
-                if any(selection[k] != before[k] for k in ("mode", "configured_mode", "owner")):
-                    raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu.")
-                kiosk = bool(org.d.get("kiosk"))
-            offers = quickstaff.request_models(kiosk=kiosk)
+        # ⚠ THE COMMIT WILL NOT ACCEPT A STALE SNAPSHOT. A menu may be BUILT
+        # from one — that is what makes it open instantly — but the door that
+        # actually creates a seat re-reads within `COMMIT_MAX_AGE` and refuses
+        # anything marked stale, so the worst a menu rendered a moment before an
+        # account was disabled can do is get the click refused with a reason.
+        snap = staffcache.read(max_age=staffcache.COMMIT_MAX_AGE, allow_stale=False)
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
@@ -5716,12 +5756,20 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 raise LedgerError("Select a model before choosing an effort.")
             if ctx["mode"] != "request" and not body.tier:
                 raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
-            if kiosk is not None and bool(org.d.get("kiosk")) != kiosk:
-                raise LedgerError("The staffing context changed. Reopen the ticket menu.")
+            if body.account and not body.tier:
+                raise LedgerError("Select a model before choosing an account.")
+            if body.account and ctx["mode"] == "request":
+                # Request staffing hands the choice to the assignee, which hires
+                # on its own authority. Naming an account here would look like a
+                # binding and bind nothing.
+                raise LedgerError("Request staffing cannot pin an account — the "
+                                  "assignee makes that choice when it hires.")
             if body.tier:
-                chosen = quickstaff.check_choice(org, item, ctx, body.tier, request_offers=offers)
+                chosen = quickstaff.check_choice(org, item, ctx, body.tier,
+                                                 account=body.account, snap=snap)
                 if body.effort is not None:
-                    efforts = chosen["efforts"] if chosen is not None else quickstaff.supported_efforts(body.tier)
+                    efforts = (chosen["efforts"] if chosen is not None
+                               else quickstaff.supported_efforts(body.tier, snap))
                     if body.effort not in efforts:
                         raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
             if ctx["mode"] == "request":
@@ -5747,10 +5795,12 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
-                args = quickstaff.staff_args(org, item, ctx, str(body.tier), body.effort)
+                args = quickstaff.staff_args(org, item, ctx, str(body.tier),
+                                             body.effort, body.account)
                 result = _staff_call(org, slug, USER, args, drive, None, [])
                 result["message"] = f"Staffed {result['node']} " + (
-                    "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + "; ticket moved to Open."
+                    "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
+                    f" on {body.account}" if body.account else "") + "; ticket moved to Open."
             # Receipts commit WITH the request/seat and status. Retries after a
             # lost response or restart cannot create another agent or request.
             item = org._work_find(wid)[0]

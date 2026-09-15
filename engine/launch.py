@@ -366,6 +366,16 @@ def main() -> None:
     from orgtree import startup
     startup.progress = progress.report
     progress.report("api-loaded")
+    # ⚠ BEGIN LOADING STAFFING AVAILABILITY NOW (user requirement 2026-09-15),
+    # so no staffing surface is ever the thing that starts the first load. It
+    # runs on its own daemon thread and is not awaited: startup must not wait on
+    # provider discovery or the OpenRouter catalog, and a machine that is
+    # offline at boot must still reach `ready` at the same moment it does today.
+    # Placed in `main` and NOT in `load_app` deliberately — `load_app` is what
+    # the test suites import, and a test process has no business reaching the
+    # network because it built the app.
+    from orgtree import staffcache
+    staffcache.warm("engine start")
     # The v2 loopback hub is a sibling service, not an alternate API. Start it
     # only after the explicit root has been validated and the real API loaded;
     # shutdown is idempotent and always runs even when uvicorn exits early.

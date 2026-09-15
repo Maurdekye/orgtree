@@ -152,6 +152,28 @@ def save(doc: dict[str, Any]) -> None:
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+    availability_changed("account registry written")
+
+
+def availability_changed(reason: str) -> None:
+    """Tell the warm staffing cache that what it holds may be wrong now.
+
+    ⚠ HOOKED AT `save`, NOT AT THE ROUTES, on purpose. Adding an account,
+    removing one, a sign-in landing, a limit mark being stamped, the fallback
+    order changing and the enable toggle are six different callers and every one
+    of them ends here. A hook per route is a hook somebody forgets, and the
+    symptom of forgetting is a staffing menu that keeps offering an account the
+    user just deleted.
+
+    Imported late and swallowed deliberately: the registry is the lower layer
+    and must not gain a hard dependency on a cache, and a cache that cannot be
+    notified is a stale menu, never a failed account write.
+    """
+    try:
+        from . import staffcache
+        staffcache.invalidate(reason)
+    except Exception:                                             # noqa: BLE001
+        pass
 
 
 # ------------------------------------------------------------------- accounts
