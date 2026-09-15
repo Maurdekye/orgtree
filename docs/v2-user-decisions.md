@@ -251,6 +251,14 @@ perform directly, and leaving them agent-only is the intended design — not a
 gap. (The inverse of an agent's swap/subjugate is another swap/subjugate; an
 operator who needs to undo one does it with ordinary `move`s.)
 
+> **Superseded in part, 15 September 2026.** `subjugate` is no longer a seat
+> swap — it is an atomic SUBTREE PROMOTION (see the entry for that date), so
+> it is no longer its own inverse: promoting a descendant and then promoting
+> it back does not restore the original shape, because each promotion carries
+> a whole team with it. Undoing one is still done with ordinary `move`s. The
+> ruling this paragraph records — that all three topology verbs stay
+> agent-only, with no operator door — is unchanged.
+
 **Insert-superior is consolidated onto one implementation.** Inserting a
 parent was reachable two ways — the operator's hire-with-`above` (which
 reimplemented the splice as hire-beside + reorder + move) and the agent
@@ -336,3 +344,54 @@ org may run on subscription logins at the user's own expiry risk.
 **The Autonomy tab stays.** Its V1 API-key rows left with the path, but the
 usage-limit-freezes group (account-fallback default, auto-resume, bulk resume)
 is independent and current, so the tab was kept rather than removed.
+
+## 2026-09-15 — self-subjugate is a subtree promotion, not a seat swap
+
+`orgtree_self_subjugate` used to swap two seats. That tore the chosen agent
+away from the organization it had built: the two parties exchanged teams, so
+the promoted agent inherited the caller's reports and lost its own. The user
+ruled that is not the hierarchy the operation should produce.
+
+**It is now an atomic subtree promotion.** The chosen live descendant rises
+into the caller's former place under the caller's former superior, CARRYING
+ITS OWN TEAM — its existing reports at every depth come up with it, and it is
+never handed the caller's reports as a replacement set. The caller becomes its
+direct report, keeping whatever is left of its own subtree once the target's
+branch has been lifted out. Unrelated branches and the intermediate ancestor
+chain are left structurally intact. The top-level agent may still hand its own
+seat over this way; ordinary top-level reseating remains user-only.
+
+**What redistributes between the two positions.** The user's ruling, verbatim:
+"T inherits all of A's positional grants, A retains as much as pragmatic
+(besides grant)", clarified as "besides credit grant, i mean". So the promoted
+target inherits the caller's folders, tool switches, org visibility, permission
+mode and team charter, and the caller retains every one of its own. This is a
+RAISE, not a trade — nothing is taken from anybody.
+
+That is the only rule that clamps nobody, and the reason is the containment
+invariant. Capability sets are ⊆ downward (№30 + D-021 + D-102) and are
+re-derived after every move. The target's sets were already inside the
+caller's, because the target was below it. After the promotion the target sits
+ABOVE the caller, so it must hold at least what the caller holds — otherwise
+the caller, AND ITS ENTIRE RETAINED TEAM (agents that never moved), would be
+clamped down to the target's old narrow scope. Lifting the target satisfies the
+invariant and leaves every existing holder untouched. Both swap-shaped
+alternatives strip the caller's retained team, which is what drove the
+question to the user rather than being settled in code.
+
+**The credit grant is excluded**, and there was nothing for a policy to do with
+it: the §4.5 credit path already re-seats funding mechanically and
+budget-neutrally — the release leg drops the target's cost out of the caller's
+chain, the acquire leg lands the caller's cost onto the target — so every
+node's `free` comes out of a promotion exactly as it went in.
+
+**The separate general `swap` is UNCHANGED** and keeps exactly its old
+meaning: a pure relabeling of two positions in which each agent takes over the
+other's team. The two verbs now mean deliberately different things, and that
+difference is pinned by tests.
+
+Identity is untouched throughout: the verb re-parents, it never re-creates.
+Both agents keep their node id, session, charter, mailbox, history, watchdogs
+and docket ownership. Authorization is recomputed from the new ancestry, so
+the caller's command of the promoted branch ends at once and no stale downward
+access survives.
