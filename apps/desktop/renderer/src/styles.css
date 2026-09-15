@@ -830,6 +830,13 @@ button.badge.audience-fold.alert {
      the revealed group only so the resting tier token's depth is unchanged. */
   z-index: 4;
 }
+/* Keep the resting model token clear of the provider rail. The larger token
+   is intentionally limited to the unhovered state: the hover presentation
+   remains the existing centered token and reveal geometry. */
+.sq.mini:not(:hover) .sq-far-tier { left: 10px; }
+.sq.mini:not(:hover) .sq-far-tier .tier {
+  width: 33px; height: 33px; font-size: 13.5px;
+}
 .sq.mini:hover .sq-far-scaler,
 .sq.mini:focus-within .sq-far-scaler,
 .sq.mini:focus-visible .sq-far-scaler {
