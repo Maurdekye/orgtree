@@ -23,6 +23,19 @@ import type {
   ServingAccount, ToolGrant, TreeNode, TreePayload,
 } from '../types'
 
+// DOMPurify exports an already-bound instance in the browser, but exports its
+// factory when this module is evaluated before a DOM exists (as in the
+// renderer test bundle, and in a few preload/import paths). Resolve that
+// distinction at use time so every caller can safely share md().
+const sanitizeMarkdown = (html: string): string => {
+  const candidate = DOMPurify as unknown as {
+    sanitize?: (value: string) => string
+  } & ((window: Window) => { sanitize(value: string): string })
+  return typeof candidate.sanitize === 'function'
+    ? candidate.sanitize(html)
+    : candidate(window).sanitize(html)
+}
+
 // One display alphabet for every provider-backed tier. Keeping the Codex rows
 // out of this shared map made every generic card/header caller fall through to
 // `?` even though the hire sheet had a separate Codex-only map.
@@ -2095,7 +2108,7 @@ export const md = (text: string | null | undefined,
   const key = (agentHtmlResponse ? '1' : '0') + '\u0000' + (imgBase ?? '') + '\u0000' + local
   let hit = _mdCache.get(key)
   if (hit === undefined) {
-    hit = { __html: wrapCodeBlocks(DOMPurify.sanitize(
+    hit = { __html: wrapCodeBlocks(sanitizeMarkdown(
       marked.parse(escapeAngles(local),
         { gfm: true, breaks: true, async: false })), imgBase, agentHtmlResponse) }
     // LRU eviction, not clear-all (perf-redesign 2026-09-12): a long
