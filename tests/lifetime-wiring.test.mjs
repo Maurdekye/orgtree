@@ -32,6 +32,24 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8')
 // how this repo's worktrees are set up — a path join finds nothing there.
 const readDep = (spec) => fs.readFileSync(createRequire(import.meta.url).resolve(spec), 'utf8')
 
+// ⚠ THERE ARE TWO CALL SITES, AND ONLY THE SECOND IS THE REPORT. `indexOf` used
+// to take the first, which is `showUpdateInstallError` — the dialog raised when
+// an install attempt throws while the app is still running. That one has no
+// installer log to fold in and records nothing, so every assertion about the
+// report failed against it from the day d4acbd7 introduced it. The report is the
+// LAST site: it runs once, in the relaunched instance, and it is the only one
+// that writes the records. Anchoring on the call itself rather than on anything
+// the assertions below look for keeps the guard from checking its own premise.
+const REPORT_ANCHOR = 'const failedUpdate = updateFailureToReport('
+function reportSite(main, length) {
+  const last = main.lastIndexOf(REPORT_ANCHOR)
+  assert.ok(last > 0, 'the relaunched instance must ask whether there is a failure to report')
+  assert.notEqual(last, main.indexOf(REPORT_ANCHOR),
+    'both call sites must still exist: if they have collapsed into one, this guard '
+    + 'is anchored on something other than what it was written to pin')
+  return main.slice(last, last + length)
+}
+
 test('OBS-A: the update exit waits for a PROVEN installer, and never quits on silence', () => {
   const main = read('apps/desktop/main/index.ts')
   const updater = read('apps/desktop/main/updater.ts')
@@ -126,11 +144,16 @@ test('OBS-A: the update exit waits for a PROVEN installer, and never quits on si
   // the silent relaunch that was filed against in the first place.
   assert.match(main, /const failedUpdate = updateFailureToReport\(updateLog\.lastAttempt\(\), app\.getVersion\(\)\)/,
     'the relaunched instance must ask whether there is a failure to report')
-  const reportSite = main.slice(main.indexOf('const failedUpdate = updateFailureToReport('))
-  const reportBody = reportSite.slice(0, 1400)
+  const reportBody = reportSite(main, 2000)
   assert.match(reportBody, /updateLog\.record\('failure-report-shown'/,
     'showing it is recorded, which is what bounds the repeats')
-  assert.match(reportBody, /dialog\.showMessageBox/, 'it is actually shown')
+  // ⚠ SHOWN THROUGH THE HELPER, not by calling the dialog here. d4acbd7 wrapped
+  // this dialog in showUpdateFailure so the failure message could carry a manual
+  // download button; the helper is asserted to raise a real dialog just below, so
+  // requiring the raw call at this site would only pin the refactor, not the act.
+  assert.match(reportBody, /showUpdateFailure\(/, 'it is actually shown')
+  assert.match(main.slice(main.indexOf('const showUpdateFailure =')), /^[\s\S]{0,400}dialog\.showMessageBox/,
+    'and showUpdateFailure is a real dialog, not a silent no-op')
   assert.match(reportBody, /\.then\(\(\) => \{ updateLog\.record\('failure-reported'/,
     'and DELIVERY is recorded only when the user dismisses it — recording that '
     + 'up front would mark a message delivered that nobody saw')
@@ -207,10 +230,9 @@ test('the failure report leads to BOTH logs, and folds the installer half into t
 
   // ⚠ INGESTED BEFORE THE MESSAGE IS SHOWN, so the file the message points at
   // already contains both halves when somebody opens it.
-  const reportSite = main.slice(main.indexOf('const failedUpdate = updateFailureToReport('))
-  const reportBody = reportSite.slice(0, 1800)
+  const reportBody = reportSite(main, 2000)
   const ingestIndex = reportBody.indexOf('ingestInstallerLog()')
-  const dialogIndex = reportBody.indexOf('dialog.showMessageBox')
+  const dialogIndex = reportBody.indexOf('showUpdateFailure(')
   assert.ok(ingestIndex > 0 && ingestIndex < dialogIndex,
     'the installer log is copied in BEFORE the dialog is raised')
   assert.match(reportBody, /update-log\.json/, 'the message names the application log')
