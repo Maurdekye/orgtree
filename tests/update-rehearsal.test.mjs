@@ -705,8 +705,11 @@ test('§30 ⚠ OWNERSHIP IS A PRECONDITION, NOT AN ASSUMPTION', () => {
     if (script.includes('IsInRole')) return 'False'
     if (script.includes('Uninstall')) return '[]'
     if (script.includes('Get-Process')) {
-      return JSON.stringify([{ Id: 777, ProcessName: 'Orgtree Dev',
-        Path: path.join(OUT, 'win-unpacked', 'Orgtree Dev.exe') }])
+      // The envelope the real script produces: `ok` and a count, so an empty
+      // list can be told apart from an enumeration that did not run.
+      return JSON.stringify({ ok: true, count: 1,
+        items: [{ Id: 777, ProcessName: 'Orgtree Dev',
+          Path: path.join(OUT, 'win-unpacked', 'Orgtree Dev.exe') }] })
     }
     return ''
   }
@@ -719,11 +722,14 @@ test('§30 ⚠ OWNERSHIP IS A PRECONDITION, NOT AN ASSUMPTION', () => {
   assert.equal(row.ok, false)
   assert.match(row.detail, /ALREADY running/)
 
-  // Nothing there — the check passes and says so.
+  // Nothing there — but only a WELL-FORMED empty observation passes. An
+  // enumeration that produced nothing readable is not an empty machine, and
+  // tests/update-rehearsal-main.test.mjs §44 drives every malformed shape.
   const quiet = isolationChecks({
     env: ENV, installedRoot: INSTALLED, outDir: OUT,
     run: (script) => script.includes('IsInRole') ? 'False'
-      : script.includes('Get-Process') ? '[]' : '[]',
+      : script.includes('Get-Process') ? JSON.stringify({ ok: true, count: 0, items: [] })
+        : '[]',
     fileSystem: { existsSync: () => false, readFileSync: () => '' },
     isLoopback: () => true,
   })

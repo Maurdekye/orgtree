@@ -32,10 +32,10 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { isLoopbackFeedUrl, serveFeed, writeFeed } from './private-update-feed.mjs'
 import {
   assertDestinationSafe, assertFixtureProvenance, assertNotElevated, assertRehearsalComposition,
-  assertStorageSafe, releaseAll,
+  assertStorageSafe, observeProcesses, releaseAll,
   assertRehearsalPackage, assertRehearsalTarget, compareSnapshots, DEFAULT_REHEARSAL_OUT,
   installedRootsFromRegistry, isInside, isolationChecks, isRehearsalProcessPath, overlaps,
-  processesWithPaths, productionDataRoot, realPath, rehearsalDataRoot, releaseRehearsal,
+  productionDataRoot, realPath, rehearsalDataRoot, releaseRehearsal,
   REHEARSAL_UPDATER_CACHE, report, reserveRehearsal, resolveInstalledRoot, snapshot,
 } from './rehearsal-isolation.mjs'
 
@@ -230,21 +230,11 @@ export function assertRemovable(target, { env = process.env } = {}) {
 
 // ------------------------------------------------------------------ helpers
 
-/** ⚠ ENUMERATED BY PATH, NOT BY NAME. Filtering on '*Orgtree*' missed this
- *  run's own engine and its helpers, which run out of the same directory under
- *  names like python.exe — so cleanup left them alive. Everything inside the
- *  output directory is this run's; nothing outside it ever is. */
-function stopRehearsalProcesses(outDir) {
-  const stopped = []
-  for (const proc of processesWithPaths()) {
-    if (!isRehearsalProcessPath(proc.Path, outDir)) continue
-    stopped.push({ id: proc.Id, name: proc.ProcessName, path: proc.Path })
-    spawnSync('powershell', ['-NoProfile', '-Command',
-      `Stop-Process -Id ${Number(proc.Id)} -Force -ErrorAction SilentlyContinue`],
-      { encoding: 'utf8', windowsHide: true })
-  }
-  return stopped
-}
+// ⚠ There is deliberately no stopRehearsalProcesses() helper here any more. The
+// one that used to live at this spot called the real spawnSync directly rather
+// than the injected stopProcess, so it could not be observed by the tests and
+// would have started real work if anything had called it. Termination lives
+// inside main()'s cleanup, where the injected effects reach it.
 
 // --------------------------------------------------------------------- main
 //
@@ -304,11 +294,6 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
   // somebody's ordinary dev build, and running ON it is worse than the earlier
   // bug of merely declining to delete it. With it, nothing there is deleted.
   const adopt = argv.includes('--adopt')
-  // ⚠ RECOVERY IS DELIBERATE, NEVER AUTOMATIC. A claim whose owner is gone is
-  // probably a crashed rehearsal — but "probably" is how two live runs both
-  // acquired in the version review measured. This flag is the operator saying
-  // they have checked.
-  const reclaim = argv.includes('--reclaim')
   // ⚠ --dry-run EXISTS SO THE GUARDS CAN BE EXERCISED WITHOUT THE REHEARSAL.
   // A real run needs a minute of untouched machine, which makes it the wrong
   // thing to reach for when what you want to know is whether this machine is in
@@ -371,7 +356,7 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
   let reservation
   try {
     reservation = reserveRehearsal(paths.outDir, {
-      fileSystem, env, isAlive: fx.isAlive, pid: fx.pid ?? process.pid, reclaim,
+      fileSystem, env, isAlive: fx.isAlive, pid: fx.pid ?? process.pid,
     })
     step('reserved', reservation.claims.map(c => `${c.file} (${c.taken})`).join('\n    '))
   } catch (error) {
@@ -566,12 +551,19 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
       // ⚠ A PROGRAMMATIC ENUMERATION, NOT AN OBSERVATION OF THE SCREEN. It says
       // whether a process has a main window title; it cannot see a tray icon, and
       // it must never be reported as "I watched the screen".
-      capture.processes = processesWithPaths(runPowerShell)
-        .filter(p => /orgtree/i.test(p.ProcessName) || isInside(p.Path, plan.outDir))
-        .map(p => ({
-          id: p.Id, name: p.ProcessName, mainWindowTitle: p.MainWindowTitle, path: p.Path,
-          rehearsal: isRehearsalProcessPath(p.Path, plan.outDir),
-        }))
+      // This is diagnostic capture, so a failed enumeration is RECORDED rather
+      // than thrown — but it is recorded as a failure, never as an empty list.
+      const seenProcesses = observeProcesses(runPowerShell)
+      capture.processesObserved = seenProcesses.ok
+      capture.processesUnobservedReason = seenProcesses.reason
+      capture.processes = seenProcesses.ok
+        ? seenProcesses.processes
+          .filter(p => /orgtree/i.test(p.ProcessName) || isInside(p.Path, plan.outDir))
+          .map(p => ({
+            id: p.Id, name: p.ProcessName, mainWindowTitle: p.MainWindowTitle, path: p.Path,
+            rehearsal: isRehearsalProcessPath(p.Path, plan.outDir),
+          }))
+        : null
       evidence.capture = capture
       step('evidence captured',
         `${receipt ? 'this attempt\'s receipt' : 'NO receipt for this attempt'}`
@@ -596,35 +588,65 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
     // success, with the live process named in evidence.stopped and the run
     // still exiting zero. Every process is now re-enumerated afterwards, and
     // only the ones that actually went are called stopped.
-    if (launched && plan) {
-      const mine = () => processesWithPaths(runPowerShell)
-        .filter(proc => isRehearsalProcessPath(proc.Path, plan.outDir))
-      const before = mine()
-      for (const proc of before) stopProcess(proc.Id)
-      // Give them a moment to exit, then look again rather than assume.
-      let survivors = before.length ? mine() : []
-      for (let attempt = 0; attempt < 5 && survivors.length; attempt += 1) {
-        await sleep(500)
-        survivors = mine()
-      }
-      const surviving = new Set(survivors.map(proc => String(proc.Id)))
-      evidence.stopped = before
-        .filter(proc => !surviving.has(String(proc.Id)))
-        .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
-      evidence.stillRunning = survivors
-        .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
-      step('rehearsal processes stopped',
-        evidence.stopped.length
-          ? evidence.stopped.map(s => `${s.id} (${s.path})`).join(', ')
-          : 'none were running')
-      if (survivors.length) {
-        // ⚠ AND A SURVIVOR FAILS THE RUN. It is still using the storage below,
-        // so nothing may be deleted either.
+    // ⚠ EVERY CLEANUP PHASE IS INDEPENDENTLY GUARDED. Review measured a
+    // throwing stopProcess aborting the whole `finally`: no feed closure, no
+    // comparison, no evidence written, and the claims left behind. A cleanup
+    // step that fails must fail THAT step and nothing else — the evidence and
+    // the installed-release comparison are most valuable exactly when
+    // something has gone wrong.
+    // ⚠ `await fn()` INSIDE the try, not a returned promise: catching around a
+    // promise that is merely returned catches nothing an async body throws,
+    // which would have reintroduced the very bug this exists to fix.
+    const phase = async (name, fn) => {
+      try { return await fn() } catch (error) {
         cleanupFailed = true
-        step('⚠ PROCESSES THIS RUN STARTED ARE STILL RUNNING',
-          `${evidence.stillRunning.map(s => `${s.id} ${s.name} (${s.path})`).join(', ')} — `
-          + 'they did not exit when asked. Nothing has been removed, because they may still '
-          + 'be writing to it. Stop them by hand and re-check before trusting this machine')
+        step(`⚠ CLEANUP STEP FAILED: ${name}`, String(error?.message ?? error))
+        return undefined
+      }
+    }
+
+    if (launched && plan) {
+      await phase('stopping this run\'s processes', async () => {
+        const mine = () => {
+          const observed = observeProcesses(runPowerShell)
+          // ⚠ AN OBSERVATION THAT FAILED IS NOT AN EMPTY MACHINE. Treating it
+          // as one is how a failed stop became "nothing was running".
+          if (!observed.ok) throw new Error(observed.reason)
+          return observed.processes.filter(proc => isRehearsalProcessPath(proc.Path, plan.outDir))
+        }
+        const before = mine()
+        for (const proc of before) stopProcess(proc.Id)
+        // Give them a moment to exit, then LOOK AGAIN rather than assume.
+        let survivors = before.length ? mine() : []
+        for (let attempt = 0; attempt < 5 && survivors.length; attempt += 1) {
+          await sleep(500)
+          survivors = mine()
+        }
+        const surviving = new Set(survivors.map(proc => String(proc.Id)))
+        evidence.stopped = before
+          .filter(proc => !surviving.has(String(proc.Id)))
+          .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
+        evidence.stillRunning = survivors
+          .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
+        step('rehearsal processes stopped',
+          evidence.stopped.length
+            ? evidence.stopped.map(s => `${s.id} (${s.path})`).join(', ')
+            : 'none were running')
+        if (survivors.length) {
+          // ⚠ A SURVIVOR FAILS THE RUN. It is still using the storage below,
+          // so nothing may be deleted either.
+          cleanupFailed = true
+          step('⚠ PROCESSES THIS RUN STARTED ARE STILL RUNNING',
+            `${evidence.stillRunning.map(s => `${s.id} ${s.name} (${s.path})`).join(', ')} — `
+            + 'they did not exit when asked. Nothing has been removed, because they may still '
+            + 'be writing to it. Stop them by hand and re-check before trusting this machine')
+        }
+      })
+      // ⚠ AND IF THE OBSERVATION ITSELF FAILED, NOTHING MAY BE DELETED. The
+      // phase recorded the failure; this is what makes it consequential.
+      if (cleanupFailed) {
+        evidence.stopped = evidence.stopped ?? []
+        evidence.stillRunning = evidence.stillRunning ?? []
       }
     } else {
       evidence.stopped = []
@@ -633,8 +655,10 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
         + 'does not get to stop anything it did not start')
     }
     if (server) {
-      await server.close()
-      step('feed server closed', 'the loopback listener is gone')
+      await phase('closing the loopback feed', async () => {
+        await server.close()
+        step('feed server closed', 'the loopback listener is gone')
+      })
     }
 
     if (!launched) {
@@ -699,7 +723,16 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
     }
 
     // Only this invocation's own claims, verified by pid before each removal.
-    if (reservation) evidence.released = releaseAll(reservation, { fileSystem })
+    if (reservation) {
+      await phase('releasing this run\'s claims', () => {
+        evidence.released = releaseAll(reservation, { fileSystem })
+        if ((evidence.released ?? []).length !== reservation.claims.length) {
+          throw new Error(`released ${(evidence.released ?? []).length} of `
+            + `${reservation.claims.length} claims; the rest are no longer ours or could not `
+            + 'be removed, and a stale claim will block the next run until it is deleted')
+        }
+      })
+    }
 
     // ⚠ AND A COMPARISON THAT DID NOT HAPPEN IS NOT A PASS. Both the failing
     // and the missing case force a non-zero exit: an exit code of 0 from this

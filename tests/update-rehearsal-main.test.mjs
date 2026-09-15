@@ -32,7 +32,8 @@ import { assertRehearsalPaths } from '../tools/run-rehearsal.mjs'
 import {
   assertDestinationSafe, assertStorageSafe, compareSnapshots, installedManifest,
   isolationChecks, overlaps, productionDataRoot, protectedRoots, realPath, releaseAll,
-  releaseRehearsal, RELEASE_UPDATER_CACHE, REHEARSAL_UPDATER_CACHE, reserveRehearsal,
+  observeProcesses, processesWithPaths, releaseRehearsal, RELEASE_UPDATER_CACHE,
+  REHEARSAL_UPDATER_CACHE, reserveRehearsal,
   sharedClaimFile,
 } from '../tools/rehearsal-isolation.mjs'
 
@@ -209,7 +210,12 @@ function effectsFor({
     runPowerShell: (script) => {
       if (script.includes('IsInRole')) return elevated
       if (script.includes('Uninstall')) return JSON.stringify(uninstall)
-      if (script.includes('Get-Process')) return JSON.stringify(processes)
+      // ⚠ THE ENVELOPE THE REAL SCRIPT PRODUCES. A bare array cannot tell an
+      // empty machine apart from a failed enumeration, which is the whole
+      // point of the shape — so the harness has to speak it too.
+      if (script.includes('Get-Process')) {
+        return JSON.stringify({ ok: true, count: processes.length, items: processes })
+      }
       return ''
     },
     writeFeed: ({ directory, artifact }) => {
@@ -460,22 +466,27 @@ test('§14 ⚠ A SECOND CONCURRENT REHEARSAL IS REFUSED BY THE RESERVATION', asy
   assert.deepEqual(live.launches, [], 'and nothing may be launched')
   assert.deepEqual(live.stopped, [])
 
-  // ⚠ A CLAIM WHOSE OWNER IS GONE IS STILL NOT TAKEN AUTOMATICALLY. Silent
-  // takeover is how two live runs both acquired; recovery is now explicit.
+  // ⚠ A CLAIM WHOSE OWNER IS GONE IS NOT TAKEN AT ALL — not automatically and
+  // not by any flag. §40 has the race that closed this door for good.
   const abandoned = {
     seed: seedRepo({ [held]: JSON.stringify({ pid: 999, at: '2026-09-15T11:59:00Z' }) }),
+    isAlive: () => false,
+  }
+  const refused = await runMain(['--budget', '30'], abandoned)
+  assert.equal(refused.code, 1, 'a dead owner refuses; the operator removes the file')
+  assert.deepEqual(refused.launches, [])
+
+  // With the file gone, the ordinary exclusive create arbitrates and the run
+  // proceeds — so this is a real refusal and not a permanently stuck tool.
+  const cleared = await runMain(['--budget', '30'], {
+    seed: seedRepo(),
     isAlive: () => false,
     onTick: ({ tick, fileSystem }) => {
       if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
       if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
     },
-  }
-  const refused = await runMain(['--budget', '30'], abandoned)
-  assert.equal(refused.code, 1, 'a dead owner still refuses without --reclaim')
-  assert.deepEqual(refused.launches, [])
-
-  const reclaimed = await runMain(['--budget', '30', '--reclaim'], abandoned)
-  assert.equal(reclaimed.code, 0, why(reclaimed))
+  })
+  assert.equal(cleared.code, 0, why(cleared))
 })
 
 test('§15 ⚠ A DRY RUN LAUNCHES, STOPS AND REMOVES NOTHING', async () => {
@@ -585,7 +596,8 @@ test('§18 a run that launched stops only processes inside its own output direct
           { Id: 3, ProcessName: 'python',
             Path: path.join(UNPACKED, 'resources', 'engine', 'python.exe') },
         ] : []
-        return JSON.stringify(live.filter(p => !dead.has(p.Id)))
+        const items = live.filter(p => !dead.has(p.Id))
+        return JSON.stringify({ ok: true, count: items.length, items })
       }
       return base.runPowerShell(script)
     },
@@ -879,7 +891,7 @@ test('§31 ⚠ A PARTIALLY WRITTEN CLAIM REFUSES — it is not an abandoned one'
   fs.rmSync(home, { recursive: true, force: true })
 })
 
-test('§32 ⚠ A DEAD OWNER IS NOT TAKEN OVER SILENTLY — recovery is explicit', () => {
+test('§32 ⚠ A DEAD OWNER IS NOT TAKEN OVER AT ALL — see §40 for why', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-stale-claim-'))
   const env = { ...ENV, LOCALAPPDATA: home }
   const outDir = path.join(home, 'out')
@@ -891,13 +903,14 @@ test('§32 ⚠ A DEAD OWNER IS NOT TAKEN OVER SILENTLY — recovery is explicit'
   // A live holder refuses outright.
   assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => true }),
     /holds it/)
-  // A dead holder still refuses without --reclaim.
+  // ⚠ AND SO DOES A DEAD ONE. An earlier version took it over by removing and
+  // re-creating; review measured two recoverers both succeeding, because an
+  // exclusive create cannot defend against a later unconditional delete. The
+  // tool now never deletes a claim it does not own.
   assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false }),
-    /--reclaim/)
-  // With it, recovery succeeds and the new owner is recorded.
-  const taken = reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false, reclaim: true })
-  assert.match(taken.taken, /reclaimed/)
-  assert.equal(JSON.parse(fs.readFileSync(sharedClaimFile(env), 'utf8')).pid, 222)
+    /will not delete a claim it does not own/)
+  assert.equal(JSON.parse(fs.readFileSync(sharedClaimFile(env), 'utf8')).pid, 111,
+    'the original claim is untouched')
   fs.rmSync(home, { recursive: true, force: true })
 })
 
@@ -978,7 +991,10 @@ test('§35 ⚠ A PROCESS THAT WOULD NOT DIE FAILS THE RUN, AND IS NOT CALLED STO
     // Stop-Process is called and does nothing at all.
     stopProcess: () => {},
     runPowerShell: (script) => {
-      if (script.includes('Get-Process')) return JSON.stringify(launched ? [survivor] : [])
+      if (script.includes('Get-Process')) {
+        const items = launched ? [survivor] : []
+        return JSON.stringify({ ok: true, count: items.length, items })
+      }
       return base.runPowerShell(script)
     },
   })
@@ -1084,4 +1100,206 @@ test('§39 ⚠ NO TEST IN THIS FILE TOUCHES THE REAL MACHINE\'S REHEARSAL STORAG
       `a test left ${leak} on this machine — pass an explicit env to anything that `
       + 'resolves storage paths')
   }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE FIFTH ROUND. Two more, both measured through the real main(): a recovery
+// race that an exclusive create cannot defend against, and cleanup effects that
+// aborted the rest of the finally when they threw.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('§40 ⚠ NO CLAIM IS EVER DELETED BY THE TOOL — the recovery race is gone', () => {
+  // The race, exactly as review measured it: A and B both read the same dead
+  // owner. B removes and creates and returns holding a LIVE claim. A then
+  // resumes, and its own unconditional remove deletes B's valid claim before
+  // creating its own. An exclusive create cannot defend against a later
+  // unconditional delete, and re-reading before the delete only narrows the
+  // window — so automatic recovery is gone entirely rather than serialized.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-no-recovery-'))
+  const env = { ...ENV, LOCALAPPDATA: home }
+  const outDir = path.join(home, 'out')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  fs.writeFileSync(sharedClaimFile(env), JSON.stringify({ pid: 999, at: 'crashed' }))
+  const before = fs.readFileSync(sharedClaimFile(env), 'utf8')
+
+  // A dead owner refuses, and names the file to remove by hand.
+  assert.throws(() => reserveRehearsal(outDir, { env, pid: 111, isAlive: () => false }),
+    /will not delete a claim it does not own/)
+  assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false }),
+    new RegExp(sharedClaimFile(env).replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')))
+
+  // ⚠ AND THE CLAIM IS STILL THERE, BYTE FOR BYTE. No caller, however
+  // insistent, gets the tool to remove somebody else's claim.
+  assert.equal(fs.readFileSync(sharedClaimFile(env), 'utf8'), before)
+
+  // Once the operator removes it, the ordinary exclusive create arbitrates —
+  // a single atomic operation, with no delete anywhere near it.
+  fs.rmSync(sharedClaimFile(env))
+  const held = reserveRehearsal(outDir, { env, pid: 333, isAlive: () => false })
+  assert.equal(held.taken, 'fresh+fresh')
+  releaseAll(held)
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+test('§41 ⚠ REAL main(): a crashed claim refuses, and there is no flag that overrides it', async () => {
+  const held = path.join(OUT_DIR, '.rehearsal-run.json')
+  const abandoned = {
+    seed: seedRepo({ [held]: JSON.stringify({ pid: 999, at: 'crashed' }) }),
+    isAlive: () => false,
+  }
+  const refused = await runMain(['--budget', '30'], abandoned)
+  assert.equal(refused.code, 1)
+  assert.deepEqual(refused.launches, [])
+  // Every flag combination the tool accepts: none of them may take it over.
+  for (const extra of [['--adopt'], ['--dry-run'], ['--keep'], ['--adopt', '--dry-run']]) {
+    const still = await runMain(['--budget', '30', ...extra], abandoned)
+    assert.equal(still.code, 1, `[${extra.join(' ')}] must not override the claim`)
+    assert.deepEqual(still.launches, [])
+  }
+})
+
+// --------------------- R2: a throwing cleanup effect must not abort the rest
+
+test('§42 ⚠ REAL main(): A THROWING STOP STILL CLOSES THE FEED, COMPARES AND WRITES EVIDENCE', async () => {
+  // Measured by review: a throwing stopProcess aborted the whole finally — no
+  // feed closure, no comparison, no evidence, claims left behind. The evidence
+  // and the comparison matter MOST when something has gone wrong.
+  const fileSystem = inertFs(seedRepo())
+  let launched = false
+  let feedClosed = false
+  const base = effectsFor({
+    fileSystem,
+    onTick: ({ tick }) => {
+      if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
+      if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
+    },
+  })
+  const code = await main(['--budget', '30'], {
+    ...base,
+    spawnProcess: (...args) => { launched = true; return base.spawnProcess(...args) },
+    stopProcess: () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }) },
+    runPowerShell: (script) => {
+      if (script.includes('Get-Process')) {
+        return JSON.stringify({ ok: true, count: launched ? 1 : 0,
+          items: launched ? [{ Id: 9001, ProcessName: 'Orgtree Dev', Path: REHEARSAL_EXE }] : [] })
+      }
+      return base.runPowerShell(script)
+    },
+    serveFeed: async () => ({
+      url: 'http://127.0.0.1:50000/', port: 50000,
+      close: async () => { feedClosed = true },
+    }),
+  })
+  const evidence = JSON.parse(fileSystem.files.get(path.join(WORK, 'evidence.json').toLowerCase()))
+  assert.equal(code, 4, 'a cleanup that threw is a failed run')
+  assert.equal(feedClosed, true, 'the loopback listener must still be closed')
+  assert.ok(Array.isArray(evidence.comparison), 'the comparison must still have run')
+  assert.ok(evidence.comparison.every(r => r.ok))
+  assert.deepEqual(evidence.removed ?? [], [], 'and nothing deleted after a failed stop')
+  assert.equal(evidence.released.length, 2, 'both claims must still be released')
+  assert.ok(evidence.steps.some(s => /CLEANUP STEP FAILED/.test(s.name)),
+    'the failure is named in the evidence, not swallowed')
+})
+
+test('§43 ⚠ REAL main(): AN UNOBSERVABLE MACHINE IS NOT AN EMPTY ONE', async () => {
+  // Measured by review: a failed stop plus empty observer output still exited
+  // zero, claimed the processes had stopped, and deleted the storage.
+  for (const [label, answer] of [
+    ['no output at all', ''],
+    ['unreadable output', 'not json'],
+    ['an envelope that does not report success', '{"items":[]}'],
+    ['a count that disagrees with the items', '{"ok":true,"count":3,"items":[]}'],
+  ]) {
+    const fileSystem = inertFs(seedRepo())
+    let launched = false
+    const base = effectsFor({
+      fileSystem,
+      onTick: ({ tick }) => {
+        if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
+        if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
+      },
+    })
+    const code = await main(['--budget', '30'], {
+      ...base,
+      spawnProcess: (...args) => { launched = true; return base.spawnProcess(...args) },
+      runPowerShell: (script) => {
+        if (script.includes('Get-Process')) {
+          // Before launch the pre-flight needs a real answer, or the run never
+          // starts and the cleanup path is never reached.
+          return launched ? answer : JSON.stringify({ ok: true, count: 0, items: [] })
+        }
+        return base.runPowerShell(script)
+      },
+    })
+    const evidence = JSON.parse(
+      fileSystem.files.get(path.join(WORK, 'evidence.json').toLowerCase()))
+    assert.equal(code, 4, `[${label}] must fail the run`)
+    assert.deepEqual(evidence.stopped ?? [], [],
+      `[${label}] must not claim anything was stopped`)
+    assert.deepEqual(evidence.removed ?? [], [],
+      `[${label}] must not delete storage it cannot prove is unused`)
+  }
+})
+
+test('§44 ⚠ THE PRE-FLIGHT REFUSES WHEN IT CANNOT SEE WHAT IS RUNNING', () => {
+  // This check is the basis for treating every process in the output directory
+  // as this run's. An enumeration that failed establishes nothing.
+  for (const answer of ['', 'not json', '{"items":[]}', '{"ok":true,"count":2,"items":[]}']) {
+    const rows = isolationChecks({
+      env: ENV, installedRoot: INSTALLED, outDir: OUT_DIR, isLoopback: () => true,
+      fileSystem: { existsSync: () => false, readFileSync: () => '' },
+      run: (script) => {
+        if (script.includes('IsInRole')) return 'False'
+        if (script.includes('Get-Process')) return answer
+        return '[]'
+      },
+    })
+    const row = rows.find(r => /already running/.test(r.name))
+    assert.equal(row.ok, false, `[${answer}] must not pass as "nothing is running"`)
+    assert.match(row.detail, /could not establish what is running/)
+  }
+  // A well-formed empty envelope IS a real observation of nothing.
+  const good = isolationChecks({
+    env: ENV, installedRoot: INSTALLED, outDir: OUT_DIR, isLoopback: () => true,
+    fileSystem: { existsSync: () => false, readFileSync: () => '' },
+    run: (script) => {
+      if (script.includes('IsInRole')) return 'False'
+      if (script.includes('Get-Process')) return JSON.stringify({ ok: true, count: 0, items: [] })
+      return '[]'
+    },
+  })
+  assert.equal(good.find(r => /already running/.test(r.name)).ok, true)
+})
+
+test('§45 observeProcesses tells a failure apart from an empty machine', () => {
+  assert.deepEqual(observeProcesses(() => JSON.stringify({ ok: true, count: 0, items: [] })),
+    { ok: true, reason: null, processes: [] })
+
+  // A single item, which ConvertTo-Json may hand back unwrapped.
+  const one = observeProcesses(() =>
+    JSON.stringify({ ok: true, count: 1, items: { Id: 5, ProcessName: 'x', Path: 'C:\\x' } }))
+  assert.equal(one.ok, true)
+  assert.equal(one.processes.length, 1)
+
+  for (const [label, answer] of [
+    ['empty', ''],
+    ['whitespace', '   '],
+    ['unparseable', '}{'],
+    ['no envelope', '[]'],
+    ['ok false', '{"ok":false,"count":0,"items":[]}'],
+    ['no count', '{"ok":true,"items":[]}'],
+    ['count mismatch', '{"ok":true,"count":2,"items":[{"Id":1}]}'],
+  ]) {
+    const observed = observeProcesses(() => answer)
+    assert.equal(observed.ok, false, `${label} must not be reported as a successful observation`)
+    assert.ok(observed.reason, `${label} must carry a reason`)
+  }
+  const threw = observeProcesses(() => { throw new Error('powershell is gone') })
+  assert.equal(threw.ok, false)
+  assert.match(threw.reason, /enumeration failed/)
+
+  // ⚠ And the convenience wrapper THROWS rather than handing back [] — no
+  // caller may silently receive an empty list from a failed enumeration.
+  assert.throws(() => processesWithPaths(() => ''), /no output at all/)
 })

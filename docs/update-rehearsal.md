@@ -82,7 +82,6 @@ The default budget is five minutes. `--budget 600` gives it ten.
 | `--keep` | leave the rehearsal's data folder and updater cache in place for inspection |
 | `--dry-run` | run every guard, the isolation checks and the baseline, then stop without launching anything |
 | `--adopt` | run even though a dev data folder or updater cache already exists. Nothing there is ever deleted |
-| `--reclaim` | take over a claim left behind by a rehearsal that crashed. Only when its process is provably gone |
 
 Exit codes: `0` the fixture was applied (or the dry run passed), the installed
 release was compared and found unchanged, **and** the machine was left clean;
@@ -175,7 +174,13 @@ Four rules about ownership, because they are what stop cleanup doing harm:
 - **Attempted is not observed.** Asking a process to stop is not the same as
   watching it go. Every process is re-checked afterwards, and a survivor fails
   the run and stops any deletion — removing a folder underneath a process that
-  is still writing to it is worse than leaving it there.
+  is still writing to it is worse than leaving it there. A process listing that
+  *failed* is not a listing showing nothing, either; if the tool cannot see what
+  is running, it says so and refuses rather than assuming the machine is idle.
+- **The tool never deletes a claim it does not own.** If a claim is left behind
+  by a rehearsal that crashed, it says which file to delete and stops. It will
+  not decide for itself that a claim is abandoned: two runs each believing that
+  about the other is exactly how they end up sharing one folder.
 
 Two further rules are structural rather than checks:
 

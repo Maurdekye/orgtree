@@ -502,7 +502,7 @@ export function sharedClaimFile(env = process.env) {
  *    file and racing the exclusive create again, so two recoverers cannot both
  *    win. There is no unguarded overwrite anywhere in this function. */
 function acquireClaim(file, {
-  fileSystem, pid, at, isAlive, reclaim, describe,
+  fileSystem, pid, at, isAlive, describe,
 }) {
   const claim = JSON.stringify({ pid, at, file }, null, 2)
   fileSystem.mkdirSync(path.dirname(file), { recursive: true })
@@ -542,18 +542,25 @@ function acquireClaim(file, {
       + `${existing.at ?? 'at an unrecorded time'}. Two runs sharing this would each stop the `
       + 'other\'s processes and each believe it was cleaning up after itself. Wait for it')
   }
-  if (!reclaim) {
-    throw new Error(`refusing ${describe}: a claim at [${file}] is held by process `
-      + `${existing.pid}, which is no longer running. That is probably a crashed rehearsal — `
-      + 're-run with --reclaim to take it over deliberately')
-  }
-  // Explicit recovery: remove, then RACE THE EXCLUSIVE CREATE AGAIN. Whoever
-  // wins the create owns it; a second recoverer loses and is refused.
-  try { fileSystem.rmSync(file, { force: true }) } catch { /* the create decides */ }
-  if (!tryCreate()) {
-    throw new Error(`refusing ${describe}: another run took [${file}] during recovery`)
-  }
-  return { file, taken: 'reclaimed', pid, previous: existing }
+  // ⚠ NO AUTOMATIC RECOVERY, AND NOT BECAUSE IT WAS HARD TO GET RIGHT.
+  //
+  // The previous attempt removed the stale file and re-raced the exclusive
+  // create. Review measured why that still fails: two recoverers both read the
+  // same dead owner; B removes and creates and returns holding a LIVE claim;
+  // A then resumes and its own unconditional remove deletes B's valid claim
+  // before creating its own. An exclusive create cannot defend against a later
+  // unconditional delete, and re-reading before the delete only narrows the
+  // window — it is the same check-then-act that produced the bug above it.
+  //
+  // So the tool never deletes a claim it does not own. Recovery is the
+  // operator removing one file, after which the exclusive create — a single
+  // atomic operation — is the only arbiter left. A feature that cannot be made
+  // safe is worth less than the guarantee it costs.
+  throw new Error(`refusing ${describe}: a claim at [${file}] is held by process `
+    + `${existing.pid}, which is no longer running — probably a rehearsal that crashed. `
+    + 'This tool will not delete a claim it does not own, because deleting one it only '
+    + 'BELIEVES is abandoned is how two runs end up holding the same storage. Check that no '
+    + `rehearsal is running, delete [${file}] yourself, and start again`)
 }
 
 /** ⚠ EVERY SHARED MUTABLE RESOURCE, CLAIMED BEFORE ANY OF THEM IS CHECKED OR
@@ -562,7 +569,7 @@ function acquireClaim(file, {
  *  released if a later one refuses. */
 export function reserveRehearsal(outDir, {
   fileSystem = fs, pid = process.pid, at = null, isAlive = defaultIsAlive,
-  env = process.env, reclaim = false,
+  env = process.env,
 } = {}) {
   const stamp = at ?? new Date().toISOString()
   const wanted = [
@@ -574,7 +581,7 @@ export function reserveRehearsal(outDir, {
   const held = []
   try {
     for (const { file, describe } of wanted) {
-      held.push(acquireClaim(file, { fileSystem, pid, at: stamp, isAlive, reclaim, describe }))
+      held.push(acquireClaim(file, { fileSystem, pid, at: stamp, isAlive, describe }))
     }
   } catch (error) {
     for (const claim of held) releaseRehearsal(claim, { fileSystem, pid })
@@ -611,12 +618,59 @@ function defaultIsAlive(pid) {
  *  rather than by name, because the engine and its helpers run out of the same
  *  directory under names like python.exe — and a rehearsal that only looks for
  *  '*Orgtree*' leaves its own engine running after cleanup. */
+/** ⚠ AN OBSERVATION THAT FAILED IS NOT AN OBSERVATION OF NOTHING.
+ *
+ *  This used to return a bare array, and an empty one meant both "nothing is
+ *  running" and "the enumeration produced no usable output". Review measured
+ *  the consequence: a failed stop plus empty observer output still exited zero,
+ *  claimed the processes had stopped, and deleted the storage they were using.
+ *
+ *  The script therefore reports a POSITIVE envelope — `ok` and a count — so an
+ *  empty list can be told apart from a command that did not run. Anything that
+ *  is not a well-formed envelope is `ok: false`, with the reason kept. */
+export function observeProcesses(run = defaultPowerShell) {
+  let out
+  try {
+    out = run('$items = @(Get-Process -ErrorAction SilentlyContinue '
+      + '| Where-Object { $_.Path } '
+      + '| Select-Object Id, ProcessName, MainWindowTitle, Path); '
+      + 'ConvertTo-Json -Compress -Depth 4 -InputObject '
+      + '@{ ok = $true; count = $items.Count; items = $items }')
+  } catch (error) {
+    return { ok: false, reason: `the process enumeration failed: `
+      + `${error?.code ?? error?.message ?? error}`, processes: [] }
+  }
+  const text = String(out ?? '').trim()
+  if (!text) {
+    return { ok: false, reason: 'the process enumeration produced no output at all', processes: [] }
+  }
+  let parsed
+  try { parsed = JSON.parse(text) } catch (error) {
+    return { ok: false, reason: `the process enumeration produced unreadable output `
+      + `(${error?.message ?? error})`, processes: [] }
+  }
+  if (!parsed || parsed.ok !== true || typeof parsed.count !== 'number') {
+    return { ok: false, reason: 'the process enumeration did not report success', processes: [] }
+  }
+  // ConvertTo-Json unwraps a single-element array; normalize rather than trust.
+  const items = parsed.items === null || parsed.items === undefined
+    ? []
+    : (Array.isArray(parsed.items) ? parsed.items : [parsed.items])
+  if (items.length !== parsed.count) {
+    return { ok: false, processes: items,
+      reason: `the process enumeration reported ${parsed.count} entries but produced `
+        + `${items.length}; it is incomplete` }
+  }
+  return { ok: true, reason: null, processes: items.filter(Boolean) }
+}
+
+/** The bare list, for callers that have already established the observation
+ *  succeeded. Throws rather than pretending an unreadable machine is an empty
+ *  one — no caller may silently receive [] from a failed enumeration. */
 export function processesWithPaths(run = defaultPowerShell) {
-  const out = run('Get-Process -ErrorAction SilentlyContinue '
-    + '| Where-Object { $_.Path } '
-    + '| Select-Object Id, ProcessName, MainWindowTitle, Path | ConvertTo-Json -Compress').trim()
-  const parsed = out ? JSON.parse(out) : []
-  return (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean)
+  const observed = observeProcesses(run)
+  if (!observed.ok) throw new Error(observed.reason)
+  return observed.processes
 }
 
 /** ⚠ THE WHOLE INSTALLATION, NOT TWO FILES. The comparison used to hash
@@ -871,8 +925,16 @@ export function isolationChecks({
   // to assume it.
   check('nothing is already running out of the rehearsal directory', () => {
     if (!outDir) return 'no output directory named yet'
-    const running = processesWithPaths(run)
-      .filter(proc => isInside(proc.Path, outDir))
+    const observed = observeProcesses(run)
+    // ⚠ NOT BEING ABLE TO LOOK IS NOT THE SAME AS SEEING NOTHING. This check
+    // exists to establish a precondition; an enumeration that failed
+    // establishes nothing.
+    if (!observed.ok) {
+      throw new Error(`could not establish what is running: ${observed.reason}. `
+        + 'This check is the basis for treating every process in the output directory as '
+        + 'this run\'s, so it cannot be waved through')
+    }
+    const running = observed.processes.filter(proc => isInside(proc.Path, outDir))
     if (running.length) {
       throw new Error('processes are ALREADY running out of '
         + `[${outDir}]: ${running.map(p => `${p.ProcessName} (${p.Id})`).join(', ')}. `
