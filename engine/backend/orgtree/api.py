@@ -9339,7 +9339,7 @@ async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]
         from fastapi.concurrency import run_in_threadpool
 
         def managed():
-            caller = _agent_identity(body, request)
+            caller = _agent_identity(body, request, durable=True)
             return toolwait.invoke(body, caller, lambda: agent_call(body, request))
         return await run_in_threadpool(managed)
     if body.tool == 'orgtree_read_transcript':
@@ -9348,22 +9348,16 @@ async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]
     return await run_in_threadpool(agent_call, body, request)
 
 
-def _agent_identity(body: AgentCall, request: Request) -> dict[str, Any]:
+def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False) -> dict[str, Any]:
     """Authenticate before creating a managed operation, then again at execution."""
     # a sandboxed container's secret pins it to its OWN org — a compromised
     # sandbox cannot act as another org's agents
     identity = getattr(request.state, "agent_identity", None)
     if identity is not None:
+        if not isinstance(identity, (tuple, list)) or len(identity) != 3:
+            raise HTTPException(403, "unsupported authenticated agent context; reconnect this session")
         if (body.org, body.node) != tuple(identity[:2]):
             raise HTTPException(403, "agent credential identity mismatch")
-        with store.DOC_LOCK:
-            try:
-                caller = store.load_org(body.org).node(body.node)
-                valid = caller.get("state") == "live" and int(caller.get("generation", 0)) == identity[2]
-            except LedgerError:
-                valid = False
-        if not valid:
-            raise HTTPException(403, "agent credential is stale")
     bridge_slug = getattr(request.state, "bridge_slug", None)
     if bridge_slug and body.org != bridge_slug:
         raise HTTPException(403, "bridge secret is scoped to its own org")
@@ -9371,14 +9365,33 @@ def _agent_identity(body: AgentCall, request: Request) -> dict[str, Any]:
         return {}
     with store.DOC_LOCK:
         try:
-            return dict(store.load_org(body.org).node(body.node))
+            org = store.load_org(body.org)
+            caller = org.node(body.node)
         except LedgerError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise HTTPException(403, "authenticated seat is missing; reconnect through a live seat") from exc
+        if caller.get("state") != "live" or caller.get("successor"):
+            raise HTTPException(403, "authenticated seat is archived or replaced; reconnect through its live successor")
+        if identity is not None and int(caller.get("generation", 0)) != identity[2]:
+            raise HTTPException(403, "agent credential is stale: session generation changed; reconnect this session")
+        if durable and not caller.get("seat_id"):
+            # Legacy hires predate seat_id. Authenticate and validate the live
+            # record FIRST, then mint once under the same lock and persist
+            # before a managed worker can execute. Never reconstruct it from
+            # request args or a provider session id (both can change/recur).
+            caller["seat_id"] = str(uuid.uuid4())
+            store.save_org(org)
+        return dict(caller)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Execute one authenticated tool through the existing authority/admission gates."""
-    _agent_identity(body, request)
+    if body.tool == 'orgtree_send_file_once':
+        # Internal transport verb: old backends must refuse BEFORE a copy,
+        # rather than silently ignore delivery_id and claim retry safety.
+        if not body.args.get('delivery_id'):
+            raise HTTPException(422, 'retryable file delivery requires delivery_id')
+        body = body.model_copy(update={'tool': 'orgtree_send_file'})
+    _agent_identity(body, request, durable=body.tool == 'orgtree_send_file')
     # ⚠ BEFORE EVERY GATE BELOW, because unwrapping only substitutes the call
     # this request was always making: after it, `body.tool` is the real verb
     # and every authority, capability and policy check below sees THAT.
@@ -11217,9 +11230,14 @@ def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
     raw = _no_nul(str(a.get("path") or "")).strip()
     if not raw:
         raise LedgerError("path is required — the file to deliver")
-    final, size = _outbox_snapshot(org, nid, raw, max_bytes=max_bytes)
-    sent = {"name": os.path.basename(final), "path": f"outbox/{final}",
-            "bytes": size}
+    if a.get('delivery_id'):
+        from . import filedelivery
+        sent = filedelivery.snapshot(org, nid, a, max_bytes=max_bytes)
+        final = sent['name']
+    else:
+        final, size = _outbox_snapshot(org, nid, raw, max_bytes=max_bytes)
+        sent = {"name": os.path.basename(final), "path": f"outbox/{final}",
+                "bytes": size}
     note = " ".join(str(a.get("note") or "").split())[:300]
     if note:
         sent["note"] = note

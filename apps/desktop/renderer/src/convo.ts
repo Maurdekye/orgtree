@@ -24,7 +24,7 @@ import { BASE, getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
-import { assistantIds, isAssistantSnapshot, mergeAssistantRows } from './assistantMessages'
+import { assistantIds, isAssistantSnapshot, mergeAssistantRows, uniqueFileCards } from './assistantMessages'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useSyncExternalStore } from 'react'
 
@@ -583,7 +583,7 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload 
     messages.splice(index < 0 ? messages.length : index, 0, row)
   }
   const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, BASE ? 'public' : 'operator')]))
-  return { ...c, messages, pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
+  return { ...c, messages: uniqueFileCards(messages), pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
 }
 
 // -------------------------------------------------------------------- fetch

@@ -952,7 +952,7 @@ export interface ToolChip {
   truncated?: boolean
   error?: string
   images?: number
-  file?: MailAttachment & { note?: string }   // orgtree_send_file download card
+  file?: MailAttachment & { note?: string; delivery_id?: string }   // orgtree_send_file download card
   presentation?: { id: string; title: string; format?: 'markdown' | 'html' }
   mail?: { id: string; to: string }
   /** a successful `orgtree_work` MUTATION names the item it acted on, so the

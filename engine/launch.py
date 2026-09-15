@@ -182,7 +182,11 @@ class TokenGate:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 4401})
                 return
-            body = b'{"detail":"invalid desktop token"}'
+            agent_token = headers.get(b"x-orgtree-agent-token", b"")
+            detail = ("agent credential is invalid or expired; reconnect the agent session"
+                      if agent_token else "invalid desktop token" if supplied else
+                      "missing authentication; provide a desktop or live agent credential")
+            body = json.dumps({"detail": detail}).encode()
             await send({"type": "http.response.start", "status": 401,
                         "headers": [(b"content-type", b"application/json"),
                                     (b"content-length", str(len(body)).encode())]})

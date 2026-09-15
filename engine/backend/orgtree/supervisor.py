@@ -3136,8 +3136,9 @@ def read_chat(org: Org, nid: str, last: int | None = None, *,
               hold_back: bool = True) -> dict[str, Any]:
     """Read application history from its durable, lazily imported row store."""
     from .chat_window import read_window
-    return read_window(org, nid, want=last if last and last > 0 else 1_000_000,
-                       hold_back=hold_back)
+    from .filedelivery import unique_cards
+    return unique_cards(read_window(org, nid, want=last if last and last > 0 else 1_000_000,
+                                   hold_back=hold_back))
 
 
 def _read_chat_legacy(org: Org, nid: str, last: int | None = None, *,

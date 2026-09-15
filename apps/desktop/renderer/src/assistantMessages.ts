@@ -1,5 +1,19 @@
 import type { ChatMessage } from './types'
 
+/** Retries on different history pages still describe one delivery. Never
+ * mutate cached source rows: the original card may leave the current window. */
+export function uniqueFileCards(rows: readonly ChatMessage[]): ChatMessage[] {
+  const seen = new Set<string>()
+  return rows.map(row => ({ ...row, tools: row.tools?.map(tool => {
+    if (!tool) return tool
+    const id = tool.file?.delivery_id
+    if (!id) return tool
+    if (seen.has(id)) return { ...tool, file: undefined }
+    seen.add(id)
+    return tool
+  }) }))
+}
+
 export function assistantIds(row: ChatMessage): string[] {
   return [...new Set([row.assistant_id, ...(Array.isArray(row.assistant_ids) ? row.assistant_ids : [])]
     .filter((id): id is string => typeof id === 'string' && !!id))]

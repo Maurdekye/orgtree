@@ -2177,6 +2177,8 @@ TOOLS: list[dict[str, Any]] = [
                         "properties": {
                             "path": {"type": "string",
                                      "description": "the file to deliver"},
+                            "delivery_id": {"type": "string",
+                                            "description": "Optional retry identity: reuse the same ID for the same file delivery after a lost response; use a new ID for a new delivery."},
                             "note": {"type": "string",
                                      "description": "one-line caption shown "
                                                     "on the download card"}},
@@ -2334,9 +2336,13 @@ def _desktop_relaunch_catalogue(
     return out
 
 
+# File delivery retains its actual response: the transcript turns `sent` into
+# a download card. A generic ten-second running/result-mail response loses that
+# card. Its own durable retry ID covers a lost HTTP answer without replaying
+# copies; the filesystem work still runs off the event loop.
 MANAGED_WAIT_TOOLS = frozenset({'orgtree_staff', 'orgtree_hire', 'orgtree_rehire',
                               'orgtree_retire', 'orgtree_dissolve', 'orgtree_cheap_compact',
-                              'orgtree_watchdog', 'orgtree_send_file'})
+                              'orgtree_watchdog'})
 
 
 def available_tools() -> list[dict[str, Any]]:
@@ -2521,6 +2527,17 @@ def call_api(tool: str, args: dict[str, Any]) -> str:
     # The receipt verbs are never themselves keyed: a lookup is a QUESTION,
     # and wrapping it would make asking whether something applied an
     # operation with its own key.
+    if tool == 'orgtree_send_file':
+        import uuid
+        args = dict(args)
+        args.setdefault('delivery_id', uuid.uuid4().hex)
+        # A distinct transport verb is refused by older backends, before any
+        # copy; an unknown optional argument would otherwise be ignored.
+        answer = _post({'org': ORG, 'node': NODE, 'tool': 'orgtree_send_file_once', 'args': args})
+        if answer[0] in ('lost', 'unsent'):
+            return json.dumps({'error': answer[1], 'delivery_id': args['delivery_id'],
+                               'status': 'Retry this same file with this delivery_id; do not create a new delivery for a lost response.'})
+        return _finish_plain(answer)
     plain = {"org": ORG, "node": NODE, "tool": tool, "args": args}
     if tool in opreceipts.VERBS or not opreceipts.receipted(tool, args):
         # Nothing to protect, so nothing to preflight: a receipt verb is a
