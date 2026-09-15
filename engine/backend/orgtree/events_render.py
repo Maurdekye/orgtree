@@ -741,7 +741,11 @@ def _r_subtree_promoted(ev: _R) -> str:
         return (f'{who} promoted you into "{a}"\'s place: you now report to '
                 f'{disp_s} and KEEP YOUR OWN TEAM.{team} "{a}" now reports to '
                 f'you, keeping the rest of its own reports. Your identity, '
-                f'session, charter and mailbox are unchanged.')
+                f'session, charter and mailbox are unchanged. YOUR TEAM '
+                f'CHARTER IS YOURS TO WRITE: a promotion does not hand you '
+                f'the one "{a}" was binding its team with, so if the seat you '
+                f'have taken needs a standing instruction, set it yourself '
+                f'with orgtree_retool on your own id.')
     return (f'You stepped down: "{t}" now holds your former place under '
             f'{disp_s}, with its own team, and you report to it. You keep the '
             f'rest of your own reports, and your identity, session, charter '

@@ -364,9 +364,21 @@ seat over this way; ordinary top-level reseating remains user-only.
 **What redistributes between the two positions.** The user's ruling, verbatim:
 "T inherits all of A's positional grants, A retains as much as pragmatic
 (besides grant)", clarified as "besides credit grant, i mean". So the promoted
-target inherits the caller's folders, tool switches, org visibility, permission
-mode and team charter, and the caller retains every one of its own. This is a
-RAISE, not a trade — nothing is taken from anybody.
+target inherits the caller's folders, tool switches, org visibility and
+permission mode, and the caller retains every one of its own. This is a RAISE,
+not a trade — nothing is taken from anybody.
+
+**The team charter does NOT transfer** (follow-up ruling the same day: "leave
+it untouched, dont change; make sure the new leader is aware that they should
+update their team charter manually / the old leader should set the new ones
+tesm charter before performing the subjugation"). A charter is a single value,
+so inheriting one would have OVERWRITTEN the standing instruction the target
+had been binding its own team with — and this verb brings that team up with
+the target, so the overwrite would have landed on a team that never changed
+hands. Both agents keep their own, and the operation says so to both: the
+caller gets a warning naming `orgtree_retool` and recommending the charter be
+set BEFORE the promotion, and the target's own notification tells it outright
+that its team charter is now its to write.
 
 That is the only rule that clamps nobody, and the reason is the containment
 invariant. Capability sets are ⊆ downward (№30 + D-021 + D-102) and are

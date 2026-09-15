@@ -282,15 +282,27 @@ PM_LEVELS: Final = ("plan", "default", "acceptEdits", "bypassPermissions")
 #: grant, i mean".
 #:
 #: So the promoted target INHERITS the caller's positional grants — folders,
-#: tool switches, org visibility, permission mode and team charter — and the
-#: demoted caller RETAINS every one of its own. This is a raise, not a trade:
-#: nothing is taken from anybody. It is also the only rule under which no
-#: agent anywhere is clamped down by the move, because capability sets are ⊆
-#: downward (№30 + D-021 + D-102) and the target's were already ⊆ the
-#: caller's — so lifting the target to the caller's level lets the caller and
-#: its whole retained team keep exactly what they held.
+#: tool switches, org visibility and permission mode — and the demoted caller
+#: RETAINS every one of its own. This is a raise, not a trade: nothing is
+#: taken from anybody. It is also the only rule under which no agent anywhere
+#: is clamped down by the move, because capability sets are ⊆ downward (№30 +
+#: D-021 + D-102) and the target's were already ⊆ the caller's — so lifting
+#: the target to the caller's level lets the caller and its whole retained
+#: team keep exactly what they held.
 #:
-#: The CREDIT GRANT is excluded by that same ruling, and there was nothing for
+#: The TEAM CHARTER is excluded, by a follow-up ruling the same day. A charter
+#: is a single value, so "inherit" would have meant OVERWRITING the standing
+#: instruction the target had been binding its own team with — and under this
+#: verb the target brings that team up with it, so the overwrite would have
+#: landed on a team that never changed hands. The user's words: "leave it
+#: untouched, dont change; make sure the new leader is aware that they should
+#: update their team charter manually / the old leader should set the new
+#: ones tesm charter before performing the subjugation". Both agents keep
+#: their own, and the operation SAYS SO to both of them rather than leaving
+#: the new leader to discover it — see `_promotion_seat_policy` and the
+#: `promoted` rendering of `lifecycle.subtree_promoted`.
+#:
+#: The CREDIT GRANT is excluded by the first ruling, and there was nothing for
 #: a policy to do with it anyway: the §4.5 credit path inside `_move` re-seats
 #: funding mechanically and budget-neutrally, so every node's `free` comes out
 #: of the promotion exactly as it went in.
@@ -5185,6 +5197,17 @@ class Org:
         so lifting the target to the caller's level both satisfies the
         invariant and leaves every existing holder untouched.
 
+        THE TEAM CHARTER IS THE ONE THING THAT DOES NOT MOVE (user ruling
+        2026-09-15, second pass: "leave it untouched, dont change"). Both
+        agents keep their own. A charter is a single value, so inheriting one
+        would have meant OVERWRITING the standing instruction the target had
+        been binding its own team with — and this verb brings that team up
+        WITH the target, so the overwrite would have landed on a team that
+        never changed hands. Instead the operation tells both parties, in the
+        same breath, that the new leader's team charter is now its own to
+        write: the caller gets the warning below, and the target's own
+        `lifecycle.subtree_promoted` notification says it outright.
+
         `ui_order` rides the seat, so the org chart does not reshuffle around
         a promotion. The credit grant is not touched here at all — `_move`
         re-seats funding on its own, budget-neutrally.
@@ -5197,20 +5220,17 @@ class Org:
             if key in sa:
                 st[key] = copy.deepcopy(sa[key])
         warnings: list[str] = []
-        # The team charter is a positional grant too — it is the standing
-        # instruction to the team at that position, and the target is taking
-        # that position over. The caller keeps its own for the team it
-        # retains, so this replaces only the target's.
-        tc_a = n_a.get("team_charter")
-        tc_t = n_t.get("team_charter")
-        if tc_a is not None:
-            n_t["team_charter"] = tc_a
-            if tc_t is not None and tc_t != tc_a:
-                warnings.append(
-                    f'"{target}" took the promoted seat\'s team charter; the '
-                    f"one it had been binding its own team with no longer "
-                    f"applies — re-state it with orgtree_retool if that team "
-                    f"still needs it.")
+        # ⚠ Said to the CALLER even when the target already has one, because
+        # the charter it has is the one it wrote for the team it is bringing
+        # up — not for the position it is taking over. The cheapest moment to
+        # set the new leader's charter is BEFORE the promotion, so the advice
+        # names that explicitly rather than only offering the repair.
+        warnings.append(
+            f'"{target}" keeps its own team charter — a promotion does not '
+            f"hand over the one you were binding your team with. If the seat "
+            f"it is taking needs a standing instruction, set it with "
+            f"orgtree_retool (ideally BEFORE the promotion); otherwise "
+            f'"{target}" writes its own.')
         if gains:
             warnings.append(
                 f'"{target}" took the promoted seat\'s scope, which GRANTS IT '
