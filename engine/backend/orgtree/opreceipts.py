@@ -304,7 +304,10 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_audience": ("granted", "revoked", "routed"),
     "orgtree_move": ("moved",),
     "orgtree_swap": ("swapped",),
-    "orgtree_self_subjugate": ("parent",),
+    # D-232: the promotion's own result keys. The old entry named "parent",
+    # which the swap-shaped result never actually carried — the coverage
+    # check had nothing to bind to.
+    "orgtree_self_subjugate": ("promoted", "demoted", "parent", "after"),
     "orgtree_withdraw_ask": ("withdrawn",),
     "orgtree_cheap_compact": ("node", "old_session"),
     "orgtree_interrupt": ("interrupted",),

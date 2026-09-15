@@ -97,6 +97,9 @@ FIXTURES["lifecycle.model_switched"]["fields"].update(
 FIXTURES["lifecycle.seat_swapped"]["fields"].update(
     role="a", nested=False, reports_to_after="lifecycle.seat_swapped·rta",
     grant_after="7", audience_note=" You keep a standing audience with \"b\".")
+FIXTURES["lifecycle.subtree_promoted"]["fields"].update(
+    role="promoted", subtree=2,
+    reports_to_after="lifecycle.subtree_promoted·rta")
 FIXTURES["lifecycle.moved"]["fields"].update(role="old_parent")
 FIXTURES["lifecycle.inserted"]["fields"].update(role="self", grant_new="9", committed="4",
                                                 grant_target="4")

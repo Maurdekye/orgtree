@@ -711,6 +711,43 @@ def _r_swapped(ev: _R) -> str:
             f'your identity, charter and mailbox are unchanged.{aud}')
 
 
+@renderer("lifecycle.subtree_promoted")
+def _r_subtree_promoted(ev: _R) -> str:
+    t, a, role, by = ev["promoted"], ev["demoted"], ev["role"], str(ev["by"])
+    who = _who_cap(by)
+    disp = ev.get("reports_to_after")
+    disp_s = f'"{disp}"' if disp else "the top level"
+    n = int(ev.get("subtree") or 0)
+    team = (f" It brought its own team ({n} node(s)) with it."
+            if n else " It has no reports of its own yet.")
+    if role == "new_parent":
+        return (f'"{a}" stepped down: "{t}" now holds its place and reports to '
+                f'you, keeping its own team.{team} "{a}" now reports to "{t}".')
+    if role == "peer":
+        return (f'"{t}" was promoted into "{a}"\'s place beside you, keeping '
+                f'its own team. "{a}" now reports to "{t}".')
+    if role == "former_parent":
+        return (f'Your report "{t}" was promoted out of your team, up to '
+                f'{disp_s}, and took its own suborganization with it.')
+    if role == "caller_child":
+        return (f'"{t}" was promoted above your superior "{a}". You still '
+                f'report to "{a}", with your own team, grant and scope '
+                f'unchanged — "{a}" now reports to "{t}".')
+    if role == "target_child":
+        return (f'Your superior "{t}" was promoted to {disp_s} and you moved '
+                f'up with it — you still report to "{t}", with your own team, '
+                f'grant and scope unchanged.')
+    if role == "promoted":
+        return (f'{who} promoted you into "{a}"\'s place: you now report to '
+                f'{disp_s} and KEEP YOUR OWN TEAM.{team} "{a}" now reports to '
+                f'you, keeping the rest of its own reports. Your identity, '
+                f'session, charter and mailbox are unchanged.')
+    return (f'You stepped down: "{t}" now holds your former place under '
+            f'{disp_s}, with its own team, and you report to it. You keep the '
+            f'rest of your own reports, and your identity, session, charter '
+            f'and mailbox are unchanged.')
+
+
 @renderer("lifecycle.moved")
 def _r_moved(ev: _R) -> str:
     who = _who(str(ev["by"]))

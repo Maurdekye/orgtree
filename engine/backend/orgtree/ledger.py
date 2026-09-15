@@ -276,6 +276,27 @@ TOOL_KEYS: Final = ("bash", "web", "edit", "subagents")   # the built-in tool sw
 # existing three keep their order and nothing stored re-ranks.
 PM_LEVELS: Final = ("plan", "default", "acceptEdits", "bypassPermissions")
 
+#: D-232 SEAT-SCOPED FIELDS ON A SUBTREE PROMOTION. User ruling 2026-09-15,
+#: verbatim: "T inherits all of A's positional grants, A retains as much as
+#: pragmatic (besides grant)", clarified in the next breath as "besides credit
+#: grant, i mean".
+#:
+#: So the promoted target INHERITS the caller's positional grants — folders,
+#: tool switches, org visibility, permission mode and team charter — and the
+#: demoted caller RETAINS every one of its own. This is a raise, not a trade:
+#: nothing is taken from anybody. It is also the only rule under which no
+#: agent anywhere is clamped down by the move, because capability sets are ⊆
+#: downward (№30 + D-021 + D-102) and the target's were already ⊆ the
+#: caller's — so lifting the target to the caller's level lets the caller and
+#: its whole retained team keep exactly what they held.
+#:
+#: The CREDIT GRANT is excluded by that same ruling, and there was nothing for
+#: a policy to do with it anyway: the §4.5 credit path inside `_move` re-seats
+#: funding mechanically and budget-neutrally, so every node's `free` comes out
+#: of the promotion exactly as it went in.
+_PROMOTION_SEAT_FIELDS: Final = ("add_dirs", "tools", "org_visibility",
+                                 "permission_mode")
+
 #: ⚠ CHARTERS ARE NOT LENGTH-LIMITED. User ruling 2026-09-04, verbatim:
 #: "uncap it." There is no maximum, no refusal and no truncation — a charter
 #: is stored exactly as written, however long.
@@ -4960,31 +4981,242 @@ class Org:
 
     # ------------------------------------------- seat exchange & move batches
     def subjugate(self, actor: str, nid: str, target: str) -> dict[str, Any]:
-        """D-224 ①: the SELF-SUBJUGATION verb — `nid` exchanges seats with a
-        live descendant `target` (swap_seats' semantics, plus the contract
-        that the pair is commander-and-subordinate). The flagship workflow:
-        hire a replacement, subjugate to it, hand over, then self-retire
-        beneath it under the normal leaf-only rule (№26)."""
+        """D-232 (user spec 2026-09-15): the SELF-SUBJUGATION verb is a SUBTREE
+        PROMOTION, not a seat swap. `target` — a live descendant of `nid` —
+        rises into `nid`'s former place CARRYING ITS OWN TEAM, and `nid` drops
+        in beneath it as a direct report, keeping whatever is left of its own
+        subtree once the target's branch has been detached.
+
+        This REPLACES the old swap semantics, under which the two agents
+        exchanged teams and the target was severed from the organization it
+        had built. The general pairwise `swap_seats` is untouched and still
+        means exactly what it always meant.
+
+        The flagship workflow is unchanged in shape: hire a replacement,
+        self-subjugate to it, hand over, then self-retire beneath it under
+        the normal leaf-only rule (№26)."""
+        out = self.promote_subtree(actor, nid, target, _op="subjugate")
+        if actor == nid:
+            out["next_step"] = (
+                f'You now report to "{target}". For a hand-over retirement: '
+                f"transfer any loose ends, then orgtree_retire yourself — "
+                f"self-retire requires you to be a leaf (№26).")
+        return out
+
+    def promote_subtree(self, actor: str, nid: str, target: str,
+                        _op: str = "promote_subtree") -> dict[str, Any]:
+        """D-232: promote `target` (with its whole subtree) into `nid`'s seat
+        and demote `nid` beneath it.
+
+        ┌ BEFORE ──────────────┐        ┌ AFTER ───────────────┐
+        │ P                    │        │ P                    │
+        │ └ A (nid)            │        │ └ T (target)         │
+        │   ├ X                │   ⇒    │   ├ t1  t2  (kept)   │
+        │   └ M                │        │   └ A (nid)          │
+        │     └ T (target)     │        │       ├ X            │
+        │       ├ t1  └ t2     │        │       └ M            │
+        └──────────────────────┘        └──────────────────────┘
+
+        WHY IT IS EXACTLY TWO RE-PARENTS, IN THIS ORDER. Detaching T upward
+        first makes it a sibling of A; only then does A descend under it.
+        Each half is an ordinary §4.5 move whose own intermediate state is a
+        well-formed tree — T's subtree travels with T, A's remainder travels
+        with A, every parent pointer resolves, no node is duplicated or lost,
+        and no cycle is constructible because T has already left A's subtree
+        before A is sent into T's. Doing it the other way round (A down
+        first) would close a real cycle for the length of one statement, and
+        a corrupt tree that is repaired a microsecond later is still a
+        corrupt tree that a crash can make permanent.
+
+        ATOMICITY (§2b) IS PROVEN, NOT ASSERTED, AND IN TWO LAYERS. Every
+        refusal this verb can produce — authority, liveness, descendancy,
+        lineage bearers, the top-level rule, the depth and children caps,
+        D-014's top-grant cap, the credit-chain consistency check — is raised
+        before the first parent pointer is written. Behind that, the whole
+        mutation runs under a deep snapshot of `self.d`: if any leg raises
+        anyway, the snapshot is rebound and the caller is told plainly that
+        nothing was applied. Nothing between the two legs can yield to
+        another reader — the ledger mutates synchronously under the store
+        lock — so the interior state is not observable even in principle.
+
+        IDENTITY IS UNTOUCHED. This verb re-parents; it never re-creates. Both
+        agents keep their own node id, session, charter, mailbox, history,
+        watchdogs, external handles and docket ownership, because none of
+        those live on the seat. Authorization is recomputed from the new
+        ancestry by `is_ancestor` on every check (§7.1), so `nid` loses
+        command of the target's branch the instant the pointers move, and
+        `_sweep_audiences` retires every standing grant the old shape had
+        justified.
+        """
+        # ---------------------------------------------------------- validate
+        # Nothing below this banner mutates until the snapshot is taken.
         self._require_authority(actor, nid, allow_self=True)
         if target == nid:
-            raise LedgerError("subjugation needs a second party — name one "
+            raise LedgerError("a promotion needs a second party — name one "
                               "of the seat's live subordinates as the target")
         self.node(target)
         if target not in self.descendants(nid):
             raise LedgerError(
                 f'"{target}" is not a live descendant of "{nid}" — '
-                f"subjugation reaches only into that seat's own subtree; for "
+                f"promotion reaches only into that seat's own subtree; for "
                 f"two unrelated agents use the pairwise swap (D-224)")
-        out = self.swap_seats(actor, nid, target, _op="subjugate",
-                              _self_subjugation=actor == nid)
-        if actor == nid:
-            new_sup = self.node(nid)["parent"]
-            disp = f'"{new_sup}"' if new_sup else "the top level"
-            out["next_step"] = (
-                f"You now report to {disp}. For a hand-over retirement: "
-                f"transfer any loose ends, then orgtree_retire yourself — "
-                f"self-retire requires you to be a leaf (№26).")
-        return out
+        self._require_live(nid)
+        self._require_live(target)
+        n_a, n_t = self.node(nid), self.node(target)
+        p_a = n_a["parent"]
+
+        # §8.5: a lineage stack shares its successor's slot, so it is dragged
+        # along by any reseating. Both parties must be free of one, for the
+        # same reason `swap_seats` demands it.
+        for who_ in (nid, target):
+            succ = self.nodes[who_].get("successor")
+            if succ and succ in self.nodes:
+                raise LedgerError(
+                    f'{who_} is a lineage bearer of "{succ}" — the stack '
+                    f'shares its successor\'s slot (§8.5) and holds no seat '
+                    f'of its own to promote')
+            live_b = [k for k in self.lineage_stack(who_)
+                      if self.nodes[k]["state"] != "archived"]
+            if live_b:
+                raise LedgerError(
+                    f"{who_} has live lineage bearer(s) {live_b} under "
+                    f"consultation — retire them first; a stack follows its "
+                    f"owner through the promotion (§8.5)")
+
+        # The caller may hand over its OWN top seat to its live descendant
+        # (user ruling 2026-09-05, carried forward): that is a voluntary
+        # stand-down, not a raise, because the agent doing it ends up BELOW
+        # where it started. Any other route to the top level is user-only
+        # (§7.4). The marker is derived here from the actor, never read from
+        # API arguments, so nothing external can request it.
+        voluntary = actor == nid
+        if p_a is None and actor_kind(actor) not in ("user", "system") \
+                and not voluntary:
+            raise LedgerError(
+                "only the user reseats the top level (§7.4) — ask the user "
+                "to perform this promotion, or have the top-level agent "
+                "itself hand the seat over")
+        if p_a is None:
+            # D-014: the promotion may not seat an over-cap grant at top level
+            self._check_top_grant(n_t["grant"], "this promotion")
+        elif self.nodes[p_a]["state"] == "archived":
+            raise LedgerError(
+                f'"{target}" would report to "{p_a}", which is archived — a '
+                f"live agent may not hang under an archived one")
+
+        before = {nid: p_a, target: n_t["parent"]}
+        kept_by_target = self.descendants(target, live_only=False)
+        warnings: list[str] = []
+
+        # ------------------------------------------------------------ mutate
+        # ⚠ THE SNAPSHOT IS TAKEN BEFORE THE FIRST WRITE OF ANY KIND, and the
+        # seat redistribution counts as one. Taking it after would leave a
+        # refused promotion holding a silently re-scoped pair — a partial
+        # mutation of precisely the sort this verb promises cannot happen.
+        snap = copy.deepcopy(self.d)
+        try:
+            # Seat-scoped capacity is settled BEFORE the moves, so that the
+            # containment sweeps inside `_move` see the intended end state
+            # rather than clamping against a scope about to change anyway.
+            warnings += self._promotion_seat_policy(nid, target)
+            # leg 1 — the target and its whole subtree rise to the caller's
+            # former slot; leg 2 — the caller and its remainder descend.
+            warnings += self._move("promote", actor, target, p_a,
+                                   _authorized=True, _quiet=True)["warnings"]
+            warnings += self._move("demote", actor, nid, target,
+                                   _authorized=True, _quiet=True)["warnings"]
+        except LedgerError as e:
+            self.d = snap      # `nodes` is a property over d — rebound too
+            raise LedgerError(
+                f'promotion refused: {e} — nothing was applied; "{nid}" and '
+                f'"{target}" are exactly where they were')
+
+        # ------------------------------------------------------------ notify
+        kids_a = [k for k in self.children(nid) if k != target]
+        peers = self._peers_of(p_a, target)
+        p_t_old = before[target]
+
+        def _pr(role: str, node: str) -> dict[str, Any]:
+            return _mint("lifecycle.subtree_promoted", actor_of(actor),
+                         self.node_ref(node), promoted=target, demoted=nid,
+                         role=role, by=actor, reports_to_after=p_a,
+                         subtree=len(kept_by_target))
+        self._notify_ev([p for p in [p_a] if p != actor], _pr("new_parent", target))
+        self._notify_ev([p for p in peers if p != actor and p != nid],
+                        _pr("peer", target))
+        if p_t_old is not None and p_t_old != nid:
+            self._notify_ev([p for p in [p_t_old] if p != actor],
+                            _pr("former_parent", target))
+        self._notify_ev([k for k in kids_a if k != actor], _pr("caller_child", nid))
+        self._notify_ev([k for k in self.children(target)
+                         if k != actor and k != nid], _pr("target_child", target))
+        self._notify_ev([p for p in [target] if p != actor], _pr("promoted", target))
+        self._notify_ev([p for p in [nid] if p != actor], _pr("demoted", nid))
+        self._log(_op, actor,
+                  {"promoted": target, "demoted": nid,
+                   "promoted_from": p_t_old, "promoted_to": p_a,
+                   "demoted_to": target,
+                   "subtree": len(kept_by_target)}, warnings)
+        return {
+            "promoted": target, "demoted": nid,
+            "parent": p_a or "top level",
+            "before": {k: (v or "top level") for k, v in before.items()},
+            "after": {target: p_a or "top level", nid: target},
+            "subtree_kept": len(kept_by_target),
+            "retained_by_caller": len(self.descendants(nid, live_only=False)),
+            "warnings": warnings,
+        }
+
+    def _promotion_seat_policy(self, nid: str, target: str) -> list[str]:
+        """D-232: the promoted target INHERITS the caller's positional grants;
+        the demoted caller RETAINS all of its own (user ruling 2026-09-15 —
+        see `_PROMOTION_SEAT_FIELDS` for the wording and the reasoning).
+
+        This is a RAISE, not a trade. `_scope_raises` is the same disclosure
+        every other scope-moving verb owes: a seat deliberately hired narrow
+        can come back from a promotion holding `bypassPermissions` and the
+        caller's folders, and arriving in silence is how nobody notices.
+
+        Why a raise is the only rule that costs nobody anything: capability
+        sets are ⊆ downward and `_sweep_dirs` re-derives that after every
+        move, so the promoted agent must end up holding at least what the
+        demoted one holds or the demoted one — AND ITS ENTIRE RETAINED TEAM —
+        is clamped down to fit. The target's sets were already ⊆ the caller's,
+        so lifting the target to the caller's level both satisfies the
+        invariant and leaves every existing holder untouched.
+
+        `ui_order` rides the seat, so the org chart does not reshuffle around
+        a promotion. The credit grant is not touched here at all — `_move`
+        re-seats funding on its own, budget-neutrally.
+        """
+        n_a, n_t = self.node(nid), self.node(target)
+        sa, st = n_a["scope"], n_t["scope"]
+        n_a["ui_order"], n_t["ui_order"] = n_t["ui_order"], n_a["ui_order"]
+        gains = self._scope_raises(st, sa)
+        for key in _PROMOTION_SEAT_FIELDS:
+            if key in sa:
+                st[key] = copy.deepcopy(sa[key])
+        warnings: list[str] = []
+        # The team charter is a positional grant too — it is the standing
+        # instruction to the team at that position, and the target is taking
+        # that position over. The caller keeps its own for the team it
+        # retains, so this replaces only the target's.
+        tc_a = n_a.get("team_charter")
+        tc_t = n_t.get("team_charter")
+        if tc_a is not None:
+            n_t["team_charter"] = tc_a
+            if tc_t is not None and tc_t != tc_a:
+                warnings.append(
+                    f'"{target}" took the promoted seat\'s team charter; the '
+                    f"one it had been binding its own team with no longer "
+                    f"applies — re-state it with orgtree_retool if that team "
+                    f"still needs it.")
+        if gains:
+            warnings.append(
+                f'"{target}" took the promoted seat\'s scope, which GRANTS IT '
+                + "; ".join(gains)
+                + " — retool it if that is more than you meant to give.")
+        return warnings
 
     def swap_seats(self, actor: str, a: str, b: str,
                    _op: str = "swap_seats", *,
@@ -5562,15 +5794,35 @@ class Org:
                 "warnings": warnings}
 
     def _move(self, op: str, actor: str, nid: str,
-              new_parent: str | None) -> dict[str, Any]:
+              new_parent: str | None, *,
+              _authorized: bool = False,
+              _quiet: bool = False) -> dict[str, Any]:
         """§4.5 LCA credit path. Release P_old→L and acquire L→P_new cancel hop by hop,
-        so every node's free is unchanged — budget-neutral, cannot fail on credits."""
-        self._require_authority(actor, nid)
+        so every node's free is unchanged — budget-neutral, cannot fail on credits.
+
+        ⚠ `_authorized` skips the three §7.1 AUTHORITY checks and NOTHING else.
+        It exists for `promote_subtree`, whose whole point is a step the
+        downward-only rule cannot express on its own: an agent ceding its own
+        seat hands its descendant a slot ABOVE itself, so it is briefly acting
+        on its own parent's level and on itself. That caller states the full
+        authority contract in one place before it calls here, and every
+        STRUCTURAL invariant below — the cycle guard, the depth and children
+        caps, the §8.5 lineage-stack rules, the archived-destination rule and
+        the credit pre-checks — still runs unconditionally. A private keyword
+        is never read from API arguments, so no caller can ask for it.
+
+        `_quiet` suppresses this method's own notifications and log row so a
+        composite verb can emit ONE coherent event family instead of narrating
+        each internal leg. The mutation is identical either way.
+        """
+        if not _authorized:
+            self._require_authority(actor, nid)
         n = self.node(nid)
         p_old = n["parent"]
         if new_parent is not None:
             self._require_live(new_parent)
-            self._require_authority(actor, new_parent, allow_self=True)
+            if not _authorized:
+                self._require_authority(actor, new_parent, allow_self=True)
             # ⚠ The guard must cover EVERY node this move reparents, and that is
             # not just `nid`'s subtree: the loop near the end of this method
             # reparents the whole LINEAGE STACK to `new_parent` too (§8.5, the
@@ -5589,7 +5841,7 @@ class Org:
                 forbidden |= set(self.descendants(m, live_only=False))
             if new_parent in forbidden:
                 raise LedgerError("target is inside the moved subtree — cycle (§4.5)")
-        if p_old is not None:
+        if p_old is not None and not _authorized:
             self._require_authority(actor, p_old, allow_self=True)
 
         # №34 runaway insurance binds REORGANIZATION too (user ruling
@@ -5696,6 +5948,11 @@ class Org:
             return _mint("lifecycle.moved", actor_of(actor), self.node_ref(nid), node=nid,
                          from_parent=p_old, to_parent=new_parent, role=role, by=actor,
                          tail=(tail or None))
+        if _quiet:
+            # the composite verb narrates the whole transformation itself; a
+            # per-leg "you were moved" would describe an interior step that
+            # was never the committed result
+            return {"warnings": warnings}
         self._notify_ev([p for p in [p_old] if p != actor], _mv("old_parent"))
         self._notify_ev([p for p in prior_peers if p != actor], _mv("old_peer"))
         self._notify_ev([p for p in [new_parent] if p != actor], _mv("new_parent"))
@@ -7630,7 +7887,7 @@ class Org:
     #: from a rename to the node standing under that name now
     _NAME_BINDING_OPS: frozenset[str] = frozenset((
         "hire", "rename", "delete", "insert_parent",
-        "swap_seats", "subjugate",           # a seat swap moves agents between
+        "swap_seats",                        # a seat swap moves agents between
                                              # node keys (swap_seats logs `_op`)
         "recover_lost_generation", "drop_phantom_generation",
     ))
@@ -7642,6 +7899,10 @@ class Org:
         # a node, so the names stay bound to the same records. A retire with
         # live reports becomes one, so this is the ordinary path, not an edge.
         "dissolve",
+        # D-232: `subjugate` USED to be a seat swap and belonged above. A
+        # subtree promotion only re-parents — every node keeps its own key,
+        # exactly as `move`/`move_batch` do — so it keeps names bound.
+        "subjugate", "promote_subtree",
         "retire", "rehire", "reseed", "unrecoverable", "move_batch",
         "reallocate", "set_scope", "switch_model", "switch_queued",
         "switch_queue_cancelled", "switch_queue_dropped", "unstick",
