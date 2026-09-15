@@ -23,6 +23,19 @@ function Fixture({ entries }: { entries: MenuEntry[] }) {
 }
 const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
 const named = (name: string) => buttons().find(b => b.textContent?.replace(' ▸', '') === name)!
+/** the rows in the panel that opens DIRECTLY BENEATH one named row. A
+ *  document-wide query cannot answer the depth question — every open panel's
+ *  rows are in the same document — and depth is the whole point of the order. */
+const rowsUnder = (name: string): string[] => {
+  const panel = named(name).closest('.ctxmenu-branch')!.querySelector('.ctxmenu-submenu')!
+  return [...panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .filter(b => b.closest('[role="menu"]') === panel)
+    .map(b => b.textContent!.replace(' ▸', ''))
+}
+async function hover(name: string) {
+  await inAct(() => { named(name).dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
+  await flush(2)
+}
 async function key(el: Element, value: string) {
   await inAct(() => { el.dispatchEvent(new W.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })) })
   await flush(2)
@@ -188,30 +201,77 @@ test('a model with no eligible account is absent, not a disabled row', () => {
   assert.match((broken.children![0] as MenuItem).title!, /OpenRouter/)
 })
 
-test('a tier whose default account cannot run it stays offered through its accounts', async t => {
-  // THE MODEL-LIST DEFECT ITSELF. The tier is reachable — another account can
-  // run it — so it must not vanish; only its own one-click closes.
-  const sent = captureFetch(t)
+/** a tier the ambient account cannot run, with two eligible accounts and two
+ *  efforts — the only shape in which all three layers are real choices. */
+const twoAccountPreview = (): QuickStaffPreview => {
   const p = preview('top_level')
   p.models = [{ tier: 'haiku', seat: 1, efforts: ['low', 'high'], default_ok: false,
     accounts: [
       { value: 'claude/primary', id: 'default', provider: 'claude', ambient: true, email: 'host@x.y' },
       { value: 'claude-4', id: 'claude-4', provider: 'claude', ambient: false, email: 'a@b.c' }] }]
-  const entry = quickStaffEntry('org', 'accounts', p, () => {})
+  return p
+}
+
+test('a tier whose default account cannot run it stays offered through effort then account', async t => {
+  // THE MODEL-LIST DEFECT ITSELF. The tier is reachable — another account can
+  // run it — so it must not vanish; only its own one-click closes.
+  const sent = captureFetch(t)
+  const entry = quickStaffEntry('org', 'accounts', twoAccountPreview(), () => {})
   const model = entry.children![0] as MenuItem
   assert.equal(model.label, 'haiku')
   assert.equal(model.actionDisabled, true)
-  assert.deepEqual((model.children as MenuItem[]).map(c => c.label),
+  // ⚠ THE ORDER (user ruling 2026-09-15): effort is the layer under the model
+  // and the account is chosen LAST. No account label exists at this depth.
+  assert.deepEqual((model.children as MenuItem[]).map(c => c.label), ['low', 'high'])
+  const effort = model.children![1] as MenuItem
+  // an effort taken without naming an account would mean the ambient one, and
+  // that is exactly the account which cannot run this tier
+  assert.equal(effort.actionDisabled, true)
+  assert.deepEqual((effort.children as MenuItem[]).map(c => c.label),
                    ['default \u00b7 host@x.y', 'claude-4 \u00b7 a@b.c'])
-  const account = model.children![1] as MenuItem
-  account.onSelect(); await flush()
-  assert.equal(sent.at(-1)!.account, 'claude-4')
-  assert.equal(sent.at(-1)!.tier, 'haiku')
+  // every account leaf is a WHOLE selection — tier, effort and account together
+  ;(effort.children![1] as MenuItem).onSelect(); await flush()
+  assert.deepEqual({ tier: sent.at(-1)!.tier, effort: sent.at(-1)!.effort, account: sent.at(-1)!.account },
+                   { tier: 'haiku', effort: 'high', account: 'claude-4' })
+})
+
+test('a tier with accounts but no effort to choose keeps its accounts directly beneath it', async t => {
+  // CONTROL for moving the layer last: with no effort layer to sit under, the
+  // account choice must still be REACHABLE rather than quietly deleted.
+  const sent = captureFetch(t)
+  const p = preview('top_level')
+  p.models = [{ tier: 'codex-mini', seat: 1, efforts: [], default_ok: false,
+    accounts: [
+      { value: 'openai/primary', id: 'default', provider: 'openai', ambient: true, email: null },
+      { value: 'openai-1', id: 'openai-1', provider: 'openai', ambient: false, email: null }] }]
+  const model = quickStaffEntry('org', 'noeffort', p, () => {}).children![0] as MenuItem
+  assert.deepEqual((model.children as MenuItem[]).map(c => c.label), ['default', 'openai-1'])
+  ;(model.children![1] as MenuItem).onSelect(); await flush()
+  assert.equal(sent.at(-1)!.account, 'openai-1')
   assert.equal('effort' in sent.at(-1)!, false)
-  // and the effort sits UNDER the account, so every leaf is a whole selection
-  ;(account.children![1] as MenuItem).onSelect(); await flush()
-  assert.deepEqual({ tier: sent.at(-1)!.tier, account: sent.at(-1)!.account, effort: sent.at(-1)!.effort },
-                   { tier: 'haiku', account: 'claude-4', effort: 'high' })
+})
+
+test('the real context menu offers model then effort then account, never account under the model', async t => {
+  // Driven through the RENDERED menu rather than the entry tree: hover the
+  // model, hover the effort, click the account, read what the network was given.
+  const sent = captureFetch(t)
+  const v = await mountView(<Fixture entries={[quickStaffEntry('org', 'order', twoAccountPreview(), () => {})]} />, h => h)
+  t.after(() => v.unmount())
+  await open()
+  await hover('Staff\u2026')
+  await hover('haiku')
+  // the model opens the EFFORT choices...
+  assert.deepEqual(rowsUnder('haiku'), ['low', 'high'])
+  // ...and no account is on screen yet, at any depth
+  assert.equal(buttons().some(b => /host@x\.y|claude-4/.test(b.textContent ?? '')), false)
+  await hover('high')
+  // the chosen effort opens the ELIGIBLE accounts, in the order given
+  assert.deepEqual(rowsUnder('high'), ['default \u00b7 host@x.y', 'claude-4 \u00b7 a@b.c'])
+  await inAct(() => { named('claude-4 \u00b7 a@b.c').click() }); await flush()
+  assert.equal(sent.length, 1)
+  assert.deepEqual({ tier: sent[0]!.tier, effort: sent[0]!.effort, account: sent[0]!.account, mode: sent[0]!.mode },
+                   { tier: 'haiku', effort: 'high', account: 'claude-4', mode: 'top_level' })
+  assert.equal(document.querySelector('.ctxmenu'), null)
 })
 
 test('one eligible account that the tier would take anyway adds no account layer', async t => {

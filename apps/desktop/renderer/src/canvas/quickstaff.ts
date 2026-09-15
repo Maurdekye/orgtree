@@ -58,25 +58,42 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
     } catch (e) { feedback(e instanceof Error ? e.message : String(e)) }
     finally { op.pending = false }
   }
-  const efforts = (m: QuickStaffModel, account?: string): MenuItem[] =>
-    m.efforts.map(e => ({ label: e, onSelect: () => { void select(m.tier, e, account) } }))
+  // An account layer appears only where there is a real choice to make: one
+  // eligible account that the tier row would take anyway is not a choice, and
+  // an OpenRouter lane has no account at all.
+  const choosableAccounts = (m: QuickStaffModel): StaffingAccount[] => {
+    const accounts = m.accounts ?? []
+    return accounts.length && !(accounts.length === 1 && m.default_ok !== false) ? accounts : []
+  }
+  const accountRows = (m: QuickStaffModel, effort?: string): MenuItem[] =>
+    choosableAccounts(m).map(a => ({
+      label: accountLabel(a),
+      title: `staff on ${a.value}`,
+      onSelect: () => { void select(m.tier, effort, a.value) },
+    }))
   // ⚠ NO DISABLED ROWS (user ruling 2026-09-15). The old menu rendered every
   // tier in the organization and greyed out the ones that could not be staffed
   // — the list in image-118.png. A disabled row is still an offer, so the
   // backend omits them and there is nothing here to grey out.
   const models: MenuItem[] = preview.models.map(m => {
-    const accounts = m.accounts ?? []
-    // tier ▸ ACCOUNT ▸ effort. An account layer appears only where there is a
-    // real choice to make: one eligible account that the tier row would take
-    // anyway is not a choice, and an OpenRouter lane has no account at all.
-    const children: MenuItem[] = accounts.length && !(accounts.length === 1 && m.default_ok !== false)
-      ? accounts.map(a => ({
-          label: accountLabel(a),
-          title: `staff on ${a.value}`,
-          onSelect: () => { void select(m.tier, undefined, a.value) },
-          ...(m.efforts.length ? { children: efforts(m, a.value) } : {}),
-        }))
-      : efforts(m)
+    // tier ▸ EFFORT ▸ account (user ruling 2026-09-15): the account is the last
+    // thing chosen, never the layer directly under the model. Where a tier has
+    // no effort to choose at all the accounts sit under it directly, because
+    // dropping them would remove the choice rather than move it.
+    const children: MenuItem[] = m.efforts.length
+      ? m.efforts.map(e => {
+          const accounts = accountRows(m, e)
+          return {
+            label: e,
+            // Same rule as the tier row below: an effort taken without naming an
+            // account means the account a plain hire would pick, so it closes
+            // exactly when that account cannot run the tier.
+            actionDisabled: m.default_ok === false,
+            onSelect: () => { void select(m.tier, e) },
+            ...(accounts.length ? { children: accounts } : {}),
+          }
+        })
+      : accountRows(m)
     return {
       label: m.tier,
       title: `${m.seat} credits for the seat`,
