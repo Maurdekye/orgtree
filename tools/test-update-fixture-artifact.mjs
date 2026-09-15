@@ -125,5 +125,42 @@ assert.ok(!fs.existsSync(destination),
   'the fixture must not create its destination directory')
 console.log('PASS nothing was installed: the destination was never created')
 
+
+// ---- the REAL executable honours the receipt-and-token contract -------------
+//
+// ⚠ THIS IS THE HALF A SIMULATION CANNOT COVER. The composition's unit tests
+// drive a simulated child that writes wherever it is told; this proves the
+// SHIPPED artifact actually reads ORGTREE_UPDATE_FIXTURE_RECEIPT and echoes
+// ORGTREE_UPDATE_FIXTURE_TOKEN back. The defect being guarded is precise: an
+// earlier revision computed a receipt path, watched it, and never passed it to
+// the child, so the fixture wrote beside itself and every rehearsal read as a
+// failed update.
+const tokenReceipt = path.join(temp, 'told', 'attempt-receipt.txt')
+fs.mkdirSync(path.dirname(tokenReceipt), { recursive: true })
+const token = 'attempt-' + process.pid + '-' + Date.now()
+const tokenRun = spawnSync(exe, updateHandoffArgs(path.join(temp, 'Dest With Space')), {
+  encoding: 'utf8', windowsHide: true, timeout: 60000,
+  env: {
+    ...process.env,
+    ORGTREE_UPDATE_FIXTURE_RECEIPT: tokenReceipt,
+    ORGTREE_UPDATE_FIXTURE_TOKEN: token,
+  },
+})
+assert.equal(tokenRun.status, 0, 'the fixture must exit 0 when told where to write')
+assert.ok(fs.existsSync(tokenReceipt),
+  'the fixture must write to the path it was TOLD, not beside itself')
+const told = fs.readFileSync(tokenReceipt, 'utf8')
+assert.ok(told.includes('[fixture-token] ' + token),
+  'the fixture must echo the attempt token so a stale receipt cannot satisfy the proof')
+// And nothing was written beside the executable for this run.
+assert.ok(!fs.existsSync(path.join(path.dirname(exe), 'orgtree-update-fixture-receipt.txt')),
+  'being told a path must stop it defaulting to one beside itself')
+console.log('PASS the real artifact writes where it is told and echoes the attempt token')
+
+// The receipt of a DIFFERENT attempt must not satisfy this one — the property
+// the token exists for, checked against the real file rather than a fixture.
+assert.ok(!told.includes('[fixture-token] some-other-attempt'))
+console.log('PASS a receipt carries exactly one attempt token')
+
 fs.rmSync(temp, { recursive: true, force: true })
 console.log('Update-fixture artifact used no registry writes, elevation, installation or visible window.')

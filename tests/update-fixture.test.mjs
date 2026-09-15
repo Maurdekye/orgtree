@@ -238,26 +238,24 @@ test('§14 a declined ordinary handoff still clears the library latch', () => {
 // ------------------------------------------------------- reachable from the app
 
 test('§15 ⚠ THE LIVE HANDOFF IS WIRED TO IT — not just exported and unused', () => {
-  // A reviewer found the previous revision of this work unreachable: the policy
-  // existed, the seam existed, and index.ts still called the ordinary
-  // two-argument form, so nothing outside tests could ever reach it. This reads
-  // the real call site so that cannot recur silently.
+  // A reviewer found an earlier revision unreachable: the policy existed, the
+  // seam existed, and index.ts still called the ordinary two-argument form, so
+  // nothing outside tests could reach it. This reads the real call site; the
+  // BEHAVIOUR of the composition is driven in §25-§32.
   const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-  assert.match(index, /import \{[^}]*\bupdateFixtureDecision\b[^}]*\} from '\.\/update-fixture'/,
-    'index.ts must import the decision')
-  assert.match(index, /updateFixtureDecision\(\{[\s\S]*?requested: process\.env\[UPDATE_FIXTURE_ENV\]/,
-    'the live handoff must consult the environment through the decision')
-  assert.match(index, /decision\.kind === 'active'[\s\S]*?installer: decision\.installer/,
-    'the live handoff must pass the fixture through to installDownloadedUpdate')
+  assert.match(index, /import \{[^}]*\bprepareUpdateFixture\b[^}]*\} from '\.\/update-fixture'/,
+    'index.ts must import the composed preparation')
+  assert.match(index, /requested: process\.env\[UPDATE_FIXTURE_ENV\]/,
+    'the live handoff must consult the environment')
+  assert.match(index, /preparedFixture\.handoff\)/,
+    'the live handoff must pass the prepared fixture to installDownloadedUpdate')
   assert.match(index, /updateLog\.record\('update-fixture-refused'/,
     'a refusal must be recorded, not ignored')
   assert.match(index, /updateLog\.record\('update-fixture-handoff'/,
     'a fixture handoff must be recorded so it never reads as a real update')
-  // And the ordinary two-argument call must be gone from the handoff.
   assert.doesNotMatch(index, /handOff: \(\) => installDownloadedUpdate\([^)]*installDirectory\(\)\),/,
     'the ordinary two-argument handoff must no longer be the live call')
 })
-
 test('§16 the build enablement exists and defaults OFF', () => {
   const buildScript = fs.readFileSync('tools/build.mjs', 'utf8')
   assert.match(buildScript, /__ORGTREE_UPDATE_FIXTURE__/, 'the bundler must substitute the constant')
@@ -374,17 +372,199 @@ test('§23 a reported spawn failure ends the wait BEFORE the receipt is consulte
 })
 
 test('§24 ⚠ THE PROOF WATCHES WHAT WAS LAUNCHED, not the downloaded installer', () => {
-  // The reviewer measured the previous revision selecting
-  // autoUpdater.installerPath after launching the fixture, so the watched name
-  // was a process that was never started and the wait failed at its bound while
-  // the fixture was alive. This reads the real call site.
+  // The reviewer measured an earlier revision selecting autoUpdater.installerPath
+  // after launching the fixture, so the watched name was a process that was never
+  // started and the wait failed at its bound while the fixture was alive.
   const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   assert.match(index, /const handedOffFixture = outcome\.handoff\.fixture/)
-  assert.match(index, /const installerImage = handedOffFixture\s*\r?\n\s*\? path\.basename\(handedOffFixture\)\.toLowerCase\(\)\s*\r?\n\s*: installerImageName\(\)/,
+  assert.match(index, /const installerImage = handedOffFixture/,
     'the watched image must come from what was launched')
-  assert.match(index, /fixtureCompleted: \(\) => \{ try \{ return fs\.existsSync\(fixtureReceiptPath\)/,
-    'the proof must be able to see the fixture receipt')
-  assert.match(index, /receipt: fixtureReceipt/, 'the app must tell the fixture where to write it')
-  assert.match(index, /fs\.rmSync\(fixtureReceipt, \{ force: true \}\)/,
-    'a stale receipt must not be read as this run')
+  assert.match(index, /path\.basename\(handedOffFixture\)\.toLowerCase\(\)/)
+})
+// -------------------------------------------- the COMPOSITION, driven end to end
+//
+// ⚠ EVERY DEFECT IN THIS SECTION PASSED A UNIT TEST OF ITS PARTS. A reviewer
+// extracted the real handoff callback and drove it, and found three: the receipt
+// path was computed and never given to the child, a stale receipt plus a failed
+// delete fabricated success, and the spawned child had no error listener so an
+// asynchronous ENOENT threw instead of being reported. The composition is now a
+// function, and this drives that function rather than reading source.
+
+const { prepareUpdateFixture, UPDATE_FIXTURE_RECEIPT_ENV, UPDATE_FIXTURE_TOKEN_ENV,
+  UPDATE_FIXTURE_TOKEN_LINE } = enabled.module
+
+const RECEIPT = 'C:\\private-data\\update-fixture-abc123.txt'
+const TOKEN = 'abc123'
+
+/** A filesystem and a child process, simulated exactly enough to drive the
+ *  composition. `files` maps a path to its contents; a value of null is a
+ *  DIRECTORY, which exists but is not a file. */
+function harness({ files = new Map(), childPid = 123, writesReceipt = true } = {}) {
+  // The fixture executable has to EXIST, or the decision refuses before any
+  // of this is reached — which is itself covered by §4.
+  files.set(FIXTURE, 'MZ')
+  const spawns = []
+  let emitError = () => {}
+  const io = {
+    existsSync: (p) => files.has(p),
+    statSync: (p) => ({ isFile: () => files.get(p) !== null }),
+    readFileSync: (p) => files.get(p) ?? '',
+  }
+  const spawn = (file, args, options) => {
+    spawns.push({ file, args, options })
+    const listeners = []
+    // The real executable writes where it was TOLD to. If it was told nothing,
+    // it writes beside itself — which is precisely the drift that broke this.
+    if (writesReceipt) {
+      const told = options?.env?.[UPDATE_FIXTURE_RECEIPT_ENV]
+      const token = options?.env?.[UPDATE_FIXTURE_TOKEN_ENV]
+      const target = told ?? 'C:\\fixtures\\orgtree-update-fixture-receipt.txt'
+      files.set(target, '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + (token ?? '') + '\r\n')
+    }
+    emitError = (error) => listeners.forEach(l => l(error))
+    return { pid: childPid, on: (_event, listener) => listeners.push(listener) }
+  }
+  return { files, spawns, io, spawn, fail: (e) => emitError(e) }
+}
+
+const prepared = (h, over = {}) => prepareUpdateFixture({
+  requested: FIXTURE, receiptPath: RECEIPT, token: TOKEN,
+  io: h.io, spawn: h.spawn, permitted: true, ...over,
+})
+
+test('§25 ⚠ THE CHILD IS TOLD WHERE TO WRITE — the defect that made the receipt useless', () => {
+  const h = harness()
+  const p = prepared(h)
+  assert.equal(p.decision.kind, 'active')
+  p.handoff.spawn(p.handoff.installer, updateHandoffArgs('C:\\App'))
+  assert.equal(h.spawns.length, 1)
+  const env = h.spawns[0].options?.env
+  assert.ok(env, 'the spawn must receive an environment at all')
+  assert.equal(env[UPDATE_FIXTURE_RECEIPT_ENV], RECEIPT,
+    'the fixture must be told the same path the proof watches')
+  assert.equal(env[UPDATE_FIXTURE_TOKEN_ENV], TOKEN)
+  // And with that, the completion check now actually sees it.
+  assert.equal(p.completed(), true)
+})
+
+test('§26 a fixture told nothing writes elsewhere, and completion stays FALSE', () => {
+  // The old shape, reproduced: the child is given no environment, so it writes
+  // beside itself and the proof watching userData sees nothing. Asserted from
+  // the failing side so the guarantee in §25 is a real one.
+  const h = harness()
+  const p = prepared(h, { spawn: (file, args) => h.spawn(file, args, undefined) })
+  p.handoff.spawn(p.handoff.installer, updateHandoffArgs('C:\\App'))
+  assert.equal(h.files.has(RECEIPT), false)
+  assert.equal(p.completed(), false)
+})
+
+test('§27 ⚠ A STALE RECEIPT CANNOT FABRICATE SUCCESS — it refuses instead of deleting', () => {
+  // The old shape deleted a fixed path and swallowed the failure, so an
+  // undeletable receipt from an earlier attempt read as this attempt finishing.
+  const h = harness({ files: new Map([[RECEIPT, 'left over from an earlier attempt']]) })
+  const p = prepared(h)
+  assert.equal(p.decision.kind, 'refused', 'a pre-existing receipt path must refuse the substitution')
+  assert.match(p.decision.reason, /already exists/)
+  assert.match(p.decision.reason, /ordinary installer handoff was used unchanged/)
+  assert.equal(p.handoff, undefined, 'nothing may be handed off')
+  assert.equal(p.completed(), false)
+  assert.equal(h.spawns.length, 0, 'and nothing may be spawned')
+})
+
+test('§28 ⚠ EXISTENCE IS NOT COMPLETION: empty, partial, wrong-token and directory all fail', () => {
+  for (const [label, contents] of [
+    ['empty', ''],
+    ['partial', '[fixture] ran\r\n'],
+    ['wrong token', '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + 'some-other-attempt\r\n'],
+    ['token line absent', '[fixture] ran\r\n[fixture-instdir] C:\\App\r\n'],
+    ['a directory', null],
+  ]) {
+    const h = harness({ writesReceipt: false })
+    const p = prepared(h)
+    h.files.set(RECEIPT, contents)
+    assert.equal(p.completed(), false, label + ' must not read as completion')
+  }
+  // …and the real thing does.
+  const good = harness({ writesReceipt: false })
+  const p = prepared(good)
+  good.files.set(RECEIPT, '[fixture] ran\r\n' + UPDATE_FIXTURE_TOKEN_LINE + TOKEN + '\r\n')
+  assert.equal(p.completed(), true)
+})
+
+test('§29 ⚠ AN ASYNCHRONOUS SPAWN ERROR IS CAPTURED, not thrown', () => {
+  // A ChildProcess with no 'error' listener THROWS when Node reports a failed
+  // exec, and the updater's own error slot carries only electron-updater's
+  // errors, so a missing fixture used to surface as an uncaught exception and
+  // never as a verdict.
+  const h = harness()
+  const p = prepared(h)
+  p.handoff.spawn(p.handoff.installer, updateHandoffArgs('C:\\App'))
+  assert.equal(p.spawnError(), undefined, 'nothing has gone wrong yet')
+  assert.doesNotThrow(() => h.fail(new Error('spawn ENOENT')),
+    'an error event must not throw out of the composition')
+  assert.match(String(p.spawnError()), /ENOENT/)
+})
+
+test('§30 a captured spawn error ends the proof, and outranks a valid receipt', async () => {
+  const h = harness()
+  const p = prepared(h)
+  p.handoff.spawn(p.handoff.installer, updateHandoffArgs('C:\\App'))
+  h.fail(new Error('spawn ENOENT'))
+  // The receipt EXISTS and is valid here — the simulated child wrote it — so
+  // this also proves a reported failure outranks a receipt rather than racing it.
+  assert.equal(p.completed(), true)
+  const stages = []
+  let clock = 0
+  const verdict = await awaitInstallerProof({
+    sample: async () => ({ installerRunning: false, elevatorRunning: false, readable: true }),
+    now: () => clock,
+    sleep: async (ms) => { clock += ms },
+    record: (stage, detail) => stages.push({ stage, detail }),
+    reportedError: () => p.spawnError(),
+    fixtureCompleted: () => p.completed(),
+  })
+  assert.equal(verdict.verdict, 'failed')
+  assert.ok(stages.some(s => s.stage === 'installer-never-started'))
+  assert.ok(!stages.some(s => s.stage === 'update-fixture-completed'))
+})
+
+test('§31 the whole composition, happy path: spawn → receipt → proof says completed', async () => {
+  const h = harness()
+  const p = prepared(h)
+  const result = installDownloadedUpdate(
+    { install: () => { throw new Error('the library must not install for a fixture handoff') } },
+    'C:\\Program Files\\Orgtree', p.handoff)
+  assert.equal(result.accepted, true)
+  assert.equal(result.fixture, FIXTURE)
+  assert.equal(result.fixtureReceipt, RECEIPT)
+  assert.deepEqual(h.spawns[0].args, ['--updated', '/S', '--force-run', '/D=C:\\Program Files\\Orgtree'])
+
+  const stages = []
+  let clock = 0
+  const verdict = await awaitInstallerProof({
+    sample: async () => ({ installerRunning: false, elevatorRunning: false, readable: true }),
+    now: () => clock,
+    sleep: async (ms) => { clock += ms },
+    record: (stage, detail) => stages.push({ stage, detail }),
+    reportedError: () => p.spawnError(),
+    fixtureCompleted: () => p.completed(),
+  })
+  assert.equal(verdict.verdict, 'started')
+  assert.ok(stages.some(s => s.stage === 'update-fixture-completed'))
+  assert.ok(!stages.some(s => s.stage === 'installer-running'))
+})
+
+test('§32 index.ts uses the composed preparation rather than assembling it inline', () => {
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.match(index, /preparedFixture = prepareUpdateFixture\(\{/)
+  assert.match(index, /receiptPath: path\.join\(app\.getPath\('userData'\), `update-fixture-\$\{fixtureToken\}\.txt`\)/,
+    'the receipt path must be unique per attempt')
+  assert.match(index, /const fixtureToken = randomUUID\(\)/)
+  assert.match(index, /env: \{ \.\.\.process\.env, \.\.\.options\.env \}/,
+    'the child must actually receive the environment the preparation built')
+  assert.match(index, /reportedError: \(\) => preparedFixture\?\.spawnError\(\) \?\? takeInstallError\(\)/,
+    "the fixture's own spawn failure must end the wait")
+  assert.match(index, /fixtureCompleted: \(\) => preparedFixture\?\.completed\(\) === true/)
+  assert.doesNotMatch(index, /fs\.rmSync\(fixtureReceipt/,
+    'the delete-then-trust shape must be gone')
 })

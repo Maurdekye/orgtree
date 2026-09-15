@@ -19,7 +19,8 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
-import { buildPermitsUpdateFixture, updateFixtureDecision, UPDATE_FIXTURE_ENV } from './update-fixture'
+import { buildPermitsUpdateFixture, prepareUpdateFixture, UPDATE_FIXTURE_ENV } from './update-fixture'
+import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -645,6 +646,10 @@ else {
     // Every step from here is bounded and recorded by prepareAndHandOff, which
     // is driven end to end in tests precisely because this is the window that
     // wedged: app.quit() is already refused, so nothing else can rescue it.
+    // Held across the handoff so the proof below can ask the SAME preparation
+    // whether its fixture finished, and whether its child reported an error.
+    let preparedFixture: PreparedFixture | undefined
+    const fixtureToken = randomUUID()
     const outcome = await prepareAndHandOff({
       armWatchdog: () => {
         updateExitWatchdog = setTimeout(() => {
@@ -664,24 +669,32 @@ else {
       // does not emit 'before-quit-for-update' - nothing here listens for it,
       // and owning the quit is what lets a failed spawn be caught at all.
       handOff: () => {
-        // THE FIXTURE SUBSTITUTION IS DECIDED HERE, AT THE REAL HANDOFF, so the
-        // in-app route and the manual route reach the same binary through the
-        // same argument vector. On a published build the decision is 'off' or
-        // 'refused' and cannot be anything else — the capability is compiled in
-        // or out (update-fixture.ts), not read from the environment or from any
-        // file beside the app.
-        const decision = updateFixtureDecision({
+        // THE COMPOSITION LIVES IN prepareUpdateFixture, NOT HERE. An earlier
+        // revision assembled it inline and a reviewer's extraction of this very
+        // callback found three defects that unit tests of the pieces all
+        // passed through: the receipt path was never given to the child, a
+        // stale receipt plus a failed delete fabricated success, and the child
+        // had no error listener so an async ENOENT threw. Keeping this thin is
+        // what makes the composition testable.
+        preparedFixture = prepareUpdateFixture({
           requested: process.env[UPDATE_FIXTURE_ENV],
-          exists: (file) => fs.existsSync(file),
+          // UNIQUE PER ATTEMPT, so a receipt from an earlier attempt cannot be
+          // read as this one's and nothing has to be deleted to make that true.
+          receiptPath: path.join(app.getPath('userData'), `update-fixture-${fixtureToken}.txt`),
+          token: fixtureToken,
+          io: fs,
+          spawn: (file, args, options) => spawnProcess(file, args, {
+            // Detached and stdio-ignored, the shape electron-updater uses for
+            // the real installer: the point of the fixture is that process
+            // ancestry and survival can be compared, so a differently parented
+            // child would answer a different question.
+            detached: true, stdio: 'ignore', windowsHide: true,
+            env: { ...process.env, ...options.env },
+          }),
         })
-        // THE APP CHOOSES THE RECEIPT PATH, not the fixture, so the proof
-        // below knows exactly where to look. A fixture left to pick its own
-        // location beside itself would be readable only by guessing.
-        const fixtureReceipt = path.join(app.getPath('userData'), 'update-fixture-receipt.txt')
-        try { fs.rmSync(fixtureReceipt, { force: true }) } catch { /* a stale receipt must not read as this run's */ }
+        const decision = preparedFixture.decision
         // A REFUSAL IS RECORDED. A stray variable in an operator's environment
-        // must change nothing, and must not change nothing INVISIBLY, or the
-        // next person reading this log has one more hypothesis to eliminate.
+        // must change nothing, and must not change nothing INVISIBLY.
         if (decision.kind === 'refused') {
           updateLog.record('update-fixture-refused', decision.reason,
             { from: app.getVersion(), to: version })
@@ -694,18 +707,7 @@ else {
         }
         return installDownloadedUpdate(
           autoUpdater as unknown as InstallableUpdater, installDirectory(),
-          decision.kind === 'active'
-            ? {
-              installer: decision.installer,
-              receipt: fixtureReceipt,
-              // Detached and stdio-ignored, the shape electron-updater uses for
-              // the real installer: the point of the fixture is that process
-              // ancestry and survival can be compared, so a differently
-              // parented child would answer a different question.
-              spawn: (file, args) => spawnProcess(file, args,
-                { detached: true, stdio: 'ignore', windowsHide: true }),
-            }
-            : undefined)
+          preparedFixture.handoff)
       },
       record: (stage, detail) => { updateLog.record(stage, detail, { from: app.getVersion(), to: version }) },
       layoutMs: UPDATE_LAYOUT_MS, engineMs: UPDATE_ENGINE_STOP_MS, engineConfirmMs: UPDATE_ENGINE_CONFIRM_MS,
@@ -769,7 +771,6 @@ else {
     // reported installer-never-started while the fixture was alive. The
     // handoff says what it launched; that is what gets watched.
     const handedOffFixture = outcome.handoff.fixture
-    const fixtureReceiptPath = outcome.handoff.fixtureReceipt
     const installerImage = handedOffFixture
       ? path.basename(handedOffFixture).toLowerCase()
       : installerImageName()
@@ -787,11 +788,16 @@ else {
       // the one failure electron-updater CAN tell us about, folded in so the
       // wait ends on it rather than running out a bound for something already
       // known not to be coming
-      reportedError: () => takeInstallError(),
+      // THE FIXTURE'S OWN SPAWN FAILURE MUST END THE WAIT TOO. takeInstallError
+      // carries only electron-updater's errors, so a fixture that could not be
+      // executed reported nothing here and the wait ran out its bound.
+      reportedError: () => preparedFixture?.spawnError() ?? takeInstallError(),
       // Only a fixture handoff supplies this, so a real installer that dies
-      // instantly still fails exactly as before.
-      ...(fixtureReceiptPath
-        ? { fixtureCompleted: () => { try { return fs.existsSync(fixtureReceiptPath) } catch { return false } } }
+      // instantly still fails exactly as before. The completion check is
+      // content-validated against this attempt's token inside the
+      // preparation, never a bare existsSync.
+      ...(preparedFixture?.handoff
+        ? { fixtureCompleted: () => preparedFixture?.completed() === true }
         : {}),
     })
     if (proof.verdict === 'unknown') {

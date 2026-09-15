@@ -48,6 +48,7 @@ ShowInstDetails nevershow
 Var Receipt
 Var Raw
 Var LingerMs
+Var Token
 
 ; The receipt goes beside this executable, the way the real installer's own log
 ; chooses its location ($EXEDIR). ORGTREE_UPDATE_FIXTURE_RECEIPT overrides that
@@ -60,6 +61,11 @@ Var LingerMs
 ; a fixture that lies about the exact field the 2.1.3 -> 2.1.4 incident turned on.
 Function .onInit
   ReadEnvStr $Receipt "ORGTREE_UPDATE_FIXTURE_RECEIPT"
+  ; The caller stamps this attempt with a token and requires it back in the
+  ; receipt. Existence alone was never evidence the fixture finished - an
+  ; empty file, a directory, or a receipt left by an earlier attempt all
+  ; exist - so echoing the token is what makes the receipt mean THIS run.
+  ReadEnvStr $Token "ORGTREE_UPDATE_FIXTURE_TOKEN"
   ${If} $Receipt == ""
     StrCpy $Receipt "$EXEDIR\orgtree-update-fixture-receipt.txt"
   ${EndIf}
@@ -91,6 +97,7 @@ Section
   FileWrite $9 "[fixture-cmdline] $Raw$\r$\n"
   FileWrite $9 "[fixture-instdir] $INSTDIR$\r$\n"
   FileWrite $9 "[fixture-exedir] $EXEDIR$\r$\n"
+  FileWrite $9 "[fixture-token] $Token$\r$\n"
   ${If} ${Silent}
     FileWrite $9 "[fixture-silent] yes$\r$\n"
   ${Else}

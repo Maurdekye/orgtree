@@ -151,3 +151,139 @@ export const UPDATE_FIXTURE_ENABLED_SUFFIX = ':enabled'
 export function updateFixtureBuildMark(): string | null {
   return typeof __ORGTREE_UPDATE_FIXTURE__ === 'string' ? __ORGTREE_UPDATE_FIXTURE__ : null
 }
+
+// ---------------------------------------------------------------- composition
+//
+// ⚠ THIS FUNCTION EXISTS BECAUSE THE COMPOSITION WAS WHERE THE BUGS WERE.
+// An earlier revision assembled the handoff inline in index.ts and tested the
+// pieces separately, each of which passed. A reviewer extracted the real
+// callback and drove it, and found three defects that no test of a piece could
+// have caught: the receipt path was computed and never given to the child, a
+// stale receipt plus a failed delete fabricated success, and the spawned child
+// had no error listener so an asynchronous ENOENT threw instead of being
+// reported. Composing it here makes the composition itself the thing under
+// test.
+
+/** The environment the fixture reads. Named here, and passed by the spawn below,
+ *  so the path the proof watches and the path the fixture writes cannot drift:
+ *  that drift WAS the defect — the app checked its own data directory while the
+ *  fixture, told nothing, wrote beside itself. */
+export const UPDATE_FIXTURE_RECEIPT_ENV = 'ORGTREE_UPDATE_FIXTURE_RECEIPT'
+export const UPDATE_FIXTURE_TOKEN_ENV = 'ORGTREE_UPDATE_FIXTURE_TOKEN'
+/** The line the fixture echoes its token back on. */
+export const UPDATE_FIXTURE_TOKEN_LINE = '[fixture-token] '
+
+export interface FixtureIo {
+  existsSync: (target: string) => boolean
+  statSync: (target: string) => { isFile: () => boolean }
+  readFileSync: (target: string, encoding: 'utf8') => string
+}
+
+export interface FixtureChild {
+  pid?: number
+  on: (event: 'error', listener: (error: unknown) => void) => unknown
+}
+
+export interface PrepareFixtureDeps {
+  /** The raw environment value naming a fixture, if any. */
+  requested?: string
+  /** UNIQUE TO THIS ATTEMPT. A receipt from an earlier attempt must not be
+   *  readable as this one's, and the previous design tried to achieve that by
+   *  deleting a fixed path — which fabricated success whenever the delete
+   *  failed. A per-attempt name removes the collision instead of cleaning up
+   *  after it. */
+  receiptPath: string
+  /** Echoed by the fixture into its receipt and required on the way back, so a
+   *  receipt that exists for any other reason cannot satisfy the proof. */
+  token: string
+  io: FixtureIo
+  spawn: (file: string, args: string[],
+    options: { env: Record<string, string | undefined> }) => FixtureChild
+  /** Defaults to this build's composition; injected only for tests. */
+  permitted?: boolean
+}
+
+export interface PreparedFixture {
+  decision: FixtureDecision
+  /** Absent unless the decision is active. */
+  handoff?: FixtureHandoffLike
+  /** Did the fixture RUN AND FINISH? Content-checked, not existence-checked. */
+  completed: () => boolean
+  /** An asynchronous spawn failure the child reported, if any. */
+  spawnError: () => unknown | undefined
+}
+
+/** Structurally the updater's FixtureHandoff; declared here to keep this module
+ *  free of a cycle back into updater.ts. */
+export interface FixtureHandoffLike {
+  installer: string
+  receipt: string
+  spawn: (file: string, args: string[]) => { pid?: number }
+}
+
+export function prepareUpdateFixture(deps: PrepareFixtureDeps): PreparedFixture {
+  const decision = updateFixtureDecision({
+    requested: deps.requested,
+    permitted: deps.permitted,
+    exists: (file) => deps.io.existsSync(file),
+  })
+  let spawnError: unknown | undefined
+
+  // ⚠ A RECEIPT PATH THAT ALREADY EXISTS IS REFUSED, NOT CLEANED UP. Deleting it
+  // is what the previous revision did, and a delete that failed was swallowed
+  // into a false 'completed'. Refusing costs one rehearsal and cannot invent a
+  // success; the path carries a per-attempt token, so this should never happen
+  // and its happening means something is wrong.
+  if (decision.kind === 'active' && deps.io.existsSync(deps.receiptPath)) {
+    return {
+      decision: {
+        kind: 'refused',
+        reason: `the update fixture receipt path [${deps.receiptPath}] already exists `
+          + 'before this attempt started, so a completed run could not be told from a '
+          + 'stale one; the ordinary installer handoff was used unchanged',
+      },
+      completed: () => false,
+      spawnError: () => spawnError,
+    }
+  }
+
+  const completed = () => {
+    try {
+      if (!deps.io.existsSync(deps.receiptPath)) return false
+      // A DIRECTORY EXISTS TOO. So does an empty file, and so does a partial
+      // write. Existence was never evidence that the fixture finished.
+      if (!deps.io.statSync(deps.receiptPath).isFile()) return false
+      return deps.io.readFileSync(deps.receiptPath, 'utf8')
+        .includes(UPDATE_FIXTURE_TOKEN_LINE + deps.token)
+    } catch { return false }
+  }
+
+  if (decision.kind !== 'active') {
+    return { decision, completed: () => false, spawnError: () => spawnError }
+  }
+
+  return {
+    decision,
+    handoff: {
+      installer: decision.installer,
+      receipt: deps.receiptPath,
+      spawn: (file, args) => {
+        const child = deps.spawn(file, args, {
+          env: {
+            [UPDATE_FIXTURE_RECEIPT_ENV]: deps.receiptPath,
+            [UPDATE_FIXTURE_TOKEN_ENV]: deps.token,
+          },
+        })
+        // ⚠ AN UNHANDLED 'error' ON A ChildProcess THROWS. Node reports a failed
+        // exec asynchronously, so a missing fixture arrived as an uncaught
+        // exception rather than as a verdict, and the updater's own error slot
+        // never sees it because that only carries electron-updater's errors.
+        // Captured here and surfaced through spawnError().
+        try { child.on('error', (error) => { spawnError ??= error }) } catch { /* not an emitter */ }
+        return child
+      },
+    },
+    completed,
+    spawnError: () => spawnError,
+  }
+}
