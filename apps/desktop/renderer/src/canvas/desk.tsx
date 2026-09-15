@@ -2350,18 +2350,34 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // that gets re-keyed mid-stream and remounts therefore keeps its folds.
   // canvas/foldstate.tsx carries the whole argument.
   //
-  // Pruned against what this render actually drew, so a message that has
+  // Pruned against what the PAYLOAD still carries, so a message that has
   // genuinely left the transcript leaves nothing behind. Skipped while the
   // transcript is empty: a first load and a failed poll both look like "no
   // rows", and neither is the operator collapsing anything.
+  //
+  // ⚠ CENSUSED FROM THE RAW LISTS, THE SAME ONES `indexReplySources` READS.
+  // It used to walk the deduplicated `viewMessages`/`viewLive` and the
+  // `askAnswerRow`-filtered `pendMail` — the rows this desk DRAWS as its own
+  // transcript. But a row that is deduplicated away, or suppressed as a
+  // pending bubble because the question panel represents it, is still
+  // QUOTABLE: `indexReplySources` is handed the raw lists, and a reply-source
+  // quote renders a real fold (canvas/replysource.tsx). So the two disagreed
+  // about which keys exist, and a fold caught in that disagreement was the
+  // infinite render loop in foldstate.tsx's header. The census is a sweep of
+  // what the payload still holds, not a list of what this desk drew, and
+  // keeping a key one poll too long costs nothing — sweeping one that is still
+  // on screen cost the operator their desk.
   // what the growAnchor gate compares against — see growAnchor's note. Set
   // during render so the layout effect, which runs after it, reads THIS
   // render's oldest row while the anchor still holds the one it was taken at.
   oldestKeyRef.current = oldestRowKey(viewMessages)
-  const liveFoldKeys = foldKeysOf(viewMessages, viewLive, pendMail, pending)
+  const liveFoldKeys = foldKeysOf(chat?.messages ?? [], live_feed, rawPendMail, pending)
   const pruneFolds = folds.prune
   useEffect(() => {
-    if (viewMessages.length || viewLive.length || pendMail.length || pending.length) pruneFolds(liveFoldKeys)
+    // the same lists the census is taken from, or the guard and the sweep
+    // would be answering different questions
+    if ((chat?.messages.length ?? 0) || live_feed.length || rawPendMail.length
+      || pending.length) pruneFolds(liveFoldKeys)
   })
   // ── THE RIGHT-CLICKED EVENT STAYS LIT ──────────────────────────────────
   // No dependency list on purpose: this runs after EVERY render, because a
