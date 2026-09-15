@@ -82,8 +82,11 @@ def snapshot(org, nid, args, *, max_bytes):
 
 
 def _hash(path):
+    digest = hashlib.sha256()
     with open(path, 'rb') as handle:
-        return hashlib.file_digest(handle, 'sha256').hexdigest()
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def unique_cards(payload):
