@@ -27,7 +27,18 @@ test('the update controller is wired end to end: contracts, preload, main proces
   }
   // the install directory is still the RUNNING install's own directory
   assert.match(main, /const installDirectory = \(\) => path\.dirname\(process\.execPath\)/)
-  assert.match(main, /installDownloadedUpdate\(autoUpdater as unknown as InstallableUpdater, installDirectory\(\)\)/)
+  // ⚠ THIS CALL GAINED A THIRD ARGUMENT when the update fixture landed, and the
+  // assertion below had been failing on main ever since. The first two
+  // arguments are what it has always pinned and they are unchanged; matching on
+  // whitespace-normalized source keeps it from breaking again the next time the
+  // line is simply wrapped differently.
+  const flat = main.replace(/\s+/g, ' ')
+  assert.match(flat, /installDownloadedUpdate\( autoUpdater as unknown as InstallableUpdater, installDirectory\(\), preparedFixture\.attempt\)/)
+  // ⚠ AND THE FIXTURE ARGUMENT IS `attempt`, NEVER `handoff`. A refused
+  // rehearsal must DECLINE; answering a missing fixture by installing for real
+  // is the worst outcome this path can produce, and passing `handoff` here is
+  // exactly how that would happen.
+  assert.doesNotMatch(flat, /installDownloadedUpdate\([^;]*preparedFixture\.handoff/)
   assert.match(main, /new UpdateController\(/)
   // the availability answer must come from electron-updater's own events, not a
   // hand-rolled version-string comparison (an older/disallowed release could
@@ -41,8 +52,18 @@ test('the update controller is wired end to end: contracts, preload, main proces
   assert.match(main, /run: \(\) => updatesSupported \? checkForUpdatesViaEvents\(autoUpdater\) : Promise\.resolve\(\{ hasUpdate: false \}\)/)
   assert.match(main, /if \(process\.platform !== 'win32' \|\| !updatesSupported\) return resolve\(\)/,
     'a build without update support must never probe the uninstall registry scope')
-  assert.match(main, /\r?\n      if \(updatesSupported\) \{\r?\n        autoUpdater\.autoInstallOnAppQuit = false/,
+  // ⚠ SAME STORY: the private-feed branch now sits between the guard and this
+  // assignment, so pinning them as ADJACENT lines broke on main. What the
+  // assertion is actually about is containment — the assignment lives inside
+  // the updatesSupported block — so that is what it checks now, and it checks
+  // there is only one of them so the gated one cannot be a decoy.
+  const supportedAt = main.indexOf('\n      if (updatesSupported) {')
+  assert.ok(supportedAt > 0, 'updater start-up must be gated on updatesSupported')
+  const supportedBlock = main.slice(supportedAt, main.indexOf('\n      }', supportedAt + 1))
+  assert.match(supportedBlock, /autoUpdater\.autoInstallOnAppQuit = false/,
     'the electron-updater listeners exist only where updates are supported')
+  assert.equal(main.split('autoUpdater.autoInstallOnAppQuit = false').length - 1, 1,
+    'and there is exactly one such assignment, so the gated one is the only one')
   assert.doesNotMatch(main, /app\.isPackaged \? checkForUpdatesViaEvents/,
     'no update path may gate on app.isPackaged alone any more')
   assert.match(main, /handle\('desktop:update-status', \(\) => updater\.current\(\)\)/)

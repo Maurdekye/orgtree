@@ -25,6 +25,24 @@ export function sha512Base64(file) {
   return crypto.createHash('sha512').update(fs.readFileSync(file)).digest('base64')
 }
 
+/** ⚠ THE SAME DEFINITION OF "LOOPBACK" THE APP ENFORCES, restated here because
+ *  the tooling runs outside the bundle and cannot import the TypeScript.
+ *  tests/update-rehearsal.test.mjs drives BOTH this copy and the compiled
+ *  apps/desktop/main/update-fixture.ts one over a shared table of cases and
+ *  fails if they ever disagree — a tool that would happily serve or accept a
+ *  feed the app rejects, or vice versa, is how an isolation guarantee rots. */
+export function isLoopbackHost(hostname) {
+  const host = String(hostname ?? '').toLowerCase().replace(/^\[|\]$/g, '')
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+}
+
+export function isLoopbackFeedUrl(value) {
+  let url
+  try { url = new URL(value) } catch { return false }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  return isLoopbackHost(url.hostname)
+}
+
 /** electron-updater's generic provider reads this shape. `path` is resolved
  *  against the feed URL, so a bare filename keeps the feed self-contained. */
 export function latestYml({ version, file, sha512, size, releaseDate }) {
@@ -55,8 +73,17 @@ export function writeFeed({ directory, artifact, version, releaseDate }) {
   return { directory, file, sha512, size, version, yml }
 }
 
-/** Serve the feed on loopback. Resolves with the bound port and a close(). */
+/** Serve the feed on loopback. Resolves with the bound port and a close().
+ *
+ *  ⚠ A NON-LOOPBACK HOST IS REFUSED RATHER THAN BOUND. The default was already
+ *  127.0.0.1, but a default is a convention and this is meant to be a
+ *  guarantee: binding 0.0.0.0 would put a directory full of update artifacts on
+ *  the local network, which is the one thing a PRIVATE feed must never do. */
 export function serveFeed(directory, { host = '127.0.0.1', port = 0 } = {}) {
+  if (!isLoopbackHost(host)) {
+    return Promise.reject(new Error(
+      `refusing to serve a private update feed on [${host}]: loopback only`))
+  }
   const server = http.createServer((request, response) => {
     // No traversal: only files that are direct children of the feed directory.
     const name = path.basename(decodeURIComponent((request.url ?? '/').split('?')[0]))
