@@ -52,7 +52,7 @@ import { RefProse, refToken } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
-import { prefetchQuickStaff } from './staffingoptions'
+import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
@@ -1838,8 +1838,19 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   // the same condition the backend enforces, so a row that cannot be staffed
   // neither shows the entry nor prefetches for it.
   const staffable = !!org && !item.archived && item.status === 'backlogged'
+  const staffPath = org ? quickStaffPath(org, item.slug) : ''
   const warmStaffing = () =>
-    prefetchQuickStaff<QuickStaffPreview>(quickStaffPath(org!, item.slug))
+    prefetchQuickStaff<QuickStaffPreview>(staffPath)
+  // ⚠ THE WARM-UP STARTS WHEN THE ROW IS DRAWN, NOT WHEN IT IS TOUCHED (user
+  // ruling 2026-09-15, measured on beta.5). Hover was already strictly before
+  // the right-click, but not by enough: the answer took long enough to build
+  // that a normal right-click still arrived while it was in flight, and the
+  // menu opened on "Loading current staffing choices…". Drawing the docket is
+  // part of the organization loading, so by the time anything is opened the
+  // row's answer is in hand. The queue is serialised — see `queueStaffingWarm`.
+  useEffect(() => {
+    if (staffable) queueStaffingWarm(staffPath)
+  }, [staffable, staffPath])
   const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
@@ -1894,14 +1905,25 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
       onPointerEnter={() => { if (staffable) void warmStaffing() }}
       onFocus={() => { if (staffable) void warmStaffing() }}
       onContextMenu={(e) => {
+        const announce = (message: string) => {
+          setStaffFeedback(message); toast?.([message])
+        }
+        // ⚠ ALREADY IN HAND ⇒ DRAWN WITH THE REST OF THE MENU, in the same
+        // synchronous pass, initiating nothing. There is no placeholder to
+        // replace and no promise to wait on, which is the difference the user
+        // measured: a menu that appears complete versus one that appears
+        // loading. An aged answer is still drawn — a refresh is the hover's
+        // job, and the staffing door re-checks before it creates anything.
+        const held = staffable ? peekQuickStaff<QuickStaffPreview>(staffPath) : undefined
         const opening = menu.open(e, () => [...rowMenu(e), ...(staffable ? [
-          { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} },
+          held ? quickStaffEntry(org!, item.slug, held, announce)
+            : { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} },
         ] : [])])
-        if (opening === undefined || !staffable) return
+        if (opening === undefined || !staffable || held) return
+        // Nothing held yet (the warm-up has not landed, or it failed): fall
+        // back to the awaited path, which is what the placeholder above says.
         void warmStaffing().then(preview => {
-          menu.append(quickStaffEntry(org!, item.slug, preview, message => {
-            setStaffFeedback(message); toast?.([message])
-          }), opening)
+          menu.append(quickStaffEntry(org!, item.slug, preview, announce), opening)
         }).catch((error: Error) => menu.append({ label: 'Staff…', disabled: true,
           title: error.message, description: error.message, onSelect: () => {} }, opening))
       }}

@@ -3301,6 +3301,24 @@ def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
     return _bounded_read(slug, body)
 
 
+def eager_sections(d: dict[str, Any]) -> dict[str, Any]:
+    """Every section of an org document EXCEPT the append-only logs, read
+    without materialising a single one of them.
+
+    ⚠ `dict.keys` / `dict.__getitem__` ARE THE POINT, and calling `d.keys()`
+    here would defeat the whole function: `LazyDoc` overrides the whole-document
+    walks (`keys`, `items`, `values`, `__iter__`) to materialise everything
+    first, which is exactly the cost this exists to avoid. Reaching past the
+    override reads what is actually resident, and the filter then drops any log
+    section that happened to be resident already.
+
+    The values are the LIVE objects, not copies — this is a view for a caller
+    that is about to serialise it, never one that is about to mutate it.
+    """
+    return {k: dict.__getitem__(d, k) for k in dict.keys(d)
+            if k not in LAZY_SECTIONS}
+
+
 def log_append(d: dict[str, Any], sect: str, row: Any) -> None:
     """Append one row to an append-only log section of an org document.
 

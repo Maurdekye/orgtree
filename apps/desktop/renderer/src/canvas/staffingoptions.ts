@@ -128,6 +128,48 @@ export function prefetchQuickStaff<T>(path: string): Promise<T> {
   return load<T>(path)
 }
 
+/** One ticket's already-held staffing context, however old, or undefined.
+ *
+ *  ⚠ THE MENU READS THIS AND NEVER AWAITS (user ruling 2026-09-15, measured on
+ *  beta.5: `Staff…` still showed "Loading current staffing choices…" when it
+ *  opened). Held-and-aged beats awaited-and-current here for the same reason
+ *  the backend's own cache says a warm read never blocks: a refresh runs behind
+ *  the reader, and the staffing DOOR re-checks its own snapshot before it
+ *  creates anything, so the worst an aged menu can do is offer a click that is
+ *  then refused with a reason. */
+export function peekQuickStaff<T>(path: string): T | undefined {
+  return held.get(path)?.value as T | undefined
+}
+
+/** ⚠ HOW MANY WARM-UPS RUN AT ONCE. One, deliberately. Each of these is a
+ *  request the backend answers under its document lock, so firing a docket's
+ *  worth of them together would make the app's other calls queue behind the
+ *  whole batch — trading a slow menu for a slow everything. Serialised, the
+ *  work is invisible and the rows come ready in the order they were drawn. */
+const WARM_AT_ONCE = 1
+const pendingWarm: string[] = []
+let warming = 0
+
+/** Warm ONE ticket's staffing context in the background, from the row's own
+ *  mount — that is, as part of the docket appearing, strictly before any
+ *  hover and long before any right-click.
+ *
+ *  Nothing is queued twice: a path that has been asked for at all (in flight,
+ *  answered, or failed) is already held, and rows re-render constantly. */
+export function queueStaffingWarm(path: string): void {
+  if (held.has(path) || pendingWarm.includes(path)) return
+  pendingWarm.push(path)
+  pumpWarm()
+}
+
+function pumpWarm(): void {
+  while (warming < WARM_AT_ONCE && pendingWarm.length) {
+    const path = pendingWarm.shift()!
+    warming += 1
+    load(path).catch(() => {}).finally(() => { warming -= 1; pumpWarm() })
+  }
+}
+
 /** Ask the backend to refresh, then re-read: the recoverable state's retry. It
  *  never blocks a menu, because the backend marks its snapshot stale and warms
  *  behind the call instead of holding it open. */
@@ -170,5 +212,5 @@ export function requestCount(path: string): number {
 }
 
 export function resetStaffingOptionsForTests(): void {
-  held.clear(); requests.clear()
+  held.clear(); requests.clear(); pendingWarm.length = 0; warming = 0
 }

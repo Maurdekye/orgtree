@@ -277,12 +277,18 @@ test('real docket rows load Staff only for backlog and submit the previewed sele
   await flush(); await advance(200, 16); await flush()
   const row = (slug: string) => [...document.querySelectorAll('.docket-row')]
     .find(x => x.querySelector('.docket-rowname')?.textContent === slug)!
+  // ⚠ THE WARM-UP ALREADY HAPPENED (2026-09-15, the beta.5 correction). Drawing
+  // the docket warms each staffable row, so by now there is exactly one GET and
+  // it belongs to the backlog row — which is also how the non-staffable row is
+  // measured: `active` drew at the same moment and asked for nothing.
+  assert.deepEqual(requests.map(r => r.url.split('/work-items/')[1]),
+                   ['backlog/quick-staff'])
   await inAct(() => { row('active').dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) }); await flush()
   assert.equal(named('Staff…'), undefined)
-  assert.equal(requests.length, 0)
+  assert.equal(requests.length, 1)
   await inAct(() => { row('backlog').dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) }); await flush()
   assert.ok(named('Staff…'))
-  assert.equal(requests.length, 1)
+  assert.equal(requests.length, 1, 'opening the menu must start no request of its own')
   await inAct(() => { named('Staff…').click() }); await flush()
   assert.equal(requests.length, 2)
   assert.equal(requests[1]!.body!.mode, 'request')
