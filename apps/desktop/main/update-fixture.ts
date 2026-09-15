@@ -544,6 +544,20 @@ export function confineExecutorToLoopback<T extends ConfinableExecutor>(
       onBlocked?.(host)
       return new BlockedRequest(new PrivateFeedEscape(host))
     }
+    // ⚠ A REQUEST THAT DOES NOT SET A REDIRECT MODE IS FOLLOWED AUTOMATICALLY
+    // BY ELECTRON, and an automatic follow emits no event and calls no
+    // followRedirect — so the wrapper below never sees it. Review measured
+    // exactly that: the differential package path builds its options through
+    // createRequestOptions(), which leaves `redirect` unset.
+    //
+    // The executor's own main path sets 'manual' and handles redirects itself,
+    // which followRedirect confinement covers. So only the UNSET case is filled
+    // in, and it is filled with 'error' rather than 'manual': a path that never
+    // asked to handle redirects has no handler to hand them to, and failing is
+    // the safe direction where hanging is not.
+    if (options && (options as { redirect?: unknown }).redirect === undefined) {
+      ;(options as { redirect?: string }).redirect = 'error'
+    }
     return confineRedirects(original(options, callback), onBlocked)
   }
   return executor

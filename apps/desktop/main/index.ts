@@ -1302,6 +1302,21 @@ else {
           // keeps differential downloads.
           ;(autoUpdater as unknown as { disableDifferentialDownload?: boolean })
             .disableDifferentialDownload = true
+          // ⚠ AND WEB INSTALLERS ARE REFUSED OUTRIGHT, because disabling
+          // differential downloads does NOT cover them. Review measured that
+          // NsisUpdater still calls differentialDownloadWebPackage for a web
+          // package even with disableDifferentialDownload true — that function
+          // never consults the flag — and its byte reads build request options
+          // that leave redirect mode unset, so Electron follows redirects
+          // automatically with no event to intercept.
+          //
+          // With this set, the library throws ERR_UPDATER_WEB_INSTALLER_DISABLED
+          // BEFORE any download begins, which is the narrow rejection the
+          // reviewer asked for: a rehearsal has no business fetching a web
+          // installer, and refusing the offer is stronger than policing its
+          // downloads. A released build never reaches this branch.
+          ;(autoUpdater as unknown as { disableWebInstaller?: boolean })
+            .disableWebInstaller = true
           const executor = (autoUpdater as unknown as { httpExecutor?: unknown }).httpExecutor
           if (executor && typeof (executor as { createRequest?: unknown }).createRequest === 'function') {
             confineExecutorToLoopback(executor as Parameters<typeof confineExecutorToLoopback>[0],

@@ -328,9 +328,13 @@ test('§15 ⚠ PRODUCTION IS UNTOUCHED — the confinement is installed on one b
   assert.equal(calls, 1, `confineExecutorToLoopback must be called exactly once, found ${calls}`)
   const branchAt = index.indexOf("if (updateFeed.kind === 'private') {")
   const callAt = index.indexOf('confineExecutorToLoopback(', branchAt)
-  assert.ok(branchAt > 0 && callAt > branchAt && callAt - branchAt < 2000,
+  // The branch has grown as each escape was closed, so this bounds the call by
+  // the branch's own END rather than by a guessed character count.
+  const branchEnd = index.indexOf('autoUpdater.autoInstallOnAppQuit', branchAt)
+  assert.ok(branchAt > 0 && branchEnd > branchAt, 'the branch must be locatable')
+  assert.ok(callAt > branchAt && callAt < branchEnd,
     'the only call must sit inside the private-feed branch')
-  assert.match(index.slice(branchAt, branchAt + 3000), /exposes no HTTP executor to confine/,
+  assert.match(index.slice(branchAt, branchEnd), /exposes no HTTP executor to confine/,
     'a rehearsal that cannot be confined must refuse rather than run unconfined')
 })
 
@@ -468,4 +472,89 @@ test('§20 the rehearsal disables the download paths whose redirects cannot be c
   assert.equal(calls, 1, 'differential downloads must be disabled in exactly one place')
   assert.ok(index.indexOf('disableDifferentialDownload') > branchAt,
     'and that place must be inside the private-feed branch')
+})
+
+// ------------------- AUTOMATIC REDIRECTS, AND THE WEB-INSTALLER PATH THAT USES THEM
+//
+// ⚠ DISABLING DIFFERENTIAL DOWNLOADS DID NOT COVER WEB INSTALLERS. Review
+// measured that NsisUpdater still calls differentialDownloadWebPackage for a web
+// package even with disableDifferentialDownload true — that function never
+// consults the flag — and its byte reads build request options through
+// createRequestOptions(), which leaves `redirect` UNSET. Electron then follows
+// redirects automatically: no 'redirect' event, no followRedirect call, nothing
+// for the wrapper to see.
+//
+// Two fixes, because one of them is general and the other is specific:
+//   - an unset redirect mode is filled in, so no path can be auto-followed;
+//   - web installers are refused outright, so the offer never reaches a download.
+
+test('§21 ⚠ AN UNSET REDIRECT MODE IS FILLED IN — automatic following is impossible', () => {
+  const seen = []
+  const executor = enabled.confineExecutorToLoopback({
+    createRequest(options) { seen.push({ ...options }); return { on() {}, end() {} } },
+  }, () => {})
+
+  // The case review found: options built without a redirect mode.
+  executor.createRequest({ hostname: '127.0.0.1', path: '/package', headers: {} }, () => {})
+  assert.equal(seen[0].redirect, 'error',
+    'a request that never asked to handle redirects must not be auto-followed')
+
+  // …and a path that DOES handle them itself is left exactly as it was, because
+  // followRedirect confinement already covers it and overriding would break the
+  // executor's own redirect handling.
+  executor.createRequest({ hostname: '127.0.0.1', path: '/manual', redirect: 'manual' }, () => {})
+  assert.equal(seen[1].redirect, 'manual', "an explicit 'manual' must be preserved")
+  executor.createRequest({ hostname: '127.0.0.1', path: '/follow', redirect: 'follow' }, () => {})
+  assert.equal(seen[2].redirect, 'follow',
+    'an explicit choice is the caller\'s; only the UNSET case is filled in')
+})
+
+test('§22 the fill-in happens before the real transport is reached, not after', () => {
+  // If it were applied after delegation the underlying request would already
+  // have been created with the unsafe default.
+  let observedAtCreation
+  const executor = enabled.confineExecutorToLoopback({
+    createRequest(options) { observedAtCreation = options.redirect; return { on() {}, end() {} } },
+  }, () => {})
+  executor.createRequest({ hostname: '127.0.0.1', headers: {} }, () => {})
+  assert.equal(observedAtCreation, 'error')
+})
+
+test('§23 ⚠ WEB INSTALLERS ARE REFUSED BEFORE ANY DOWNLOAD, by the library\'s own gate', () => {
+  // The shipped NsisUpdater throws ERR_UPDATER_WEB_INSTALLER_DISABLED before it
+  // downloads anything when this flag is set — asserted against the real
+  // installed library so this is not a claim about a version we imagined.
+  const source = fs.readFileSync(
+    'node_modules/electron-updater/out/NsisUpdater.js', 'utf8')
+  assert.match(source, /isWebInstaller && downloadUpdateOptions\.disableWebInstaller/,
+    'the library must still gate web installers on this flag')
+  assert.match(source, /ERR_UPDATER_WEB_INSTALLER_DISABLED/)
+  // And the gate is reached BEFORE differentialDownloadWebPackage, which is the
+  // function review found ignoring disableDifferentialDownload.
+  assert.ok(source.indexOf('ERR_UPDATER_WEB_INSTALLER_DISABLED')
+    < source.indexOf('differentialDownloadWebPackage(downloadUpdateOptions'),
+    'the refusal must precede the web differential download it is protecting against')
+
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  const branchAt = index.indexOf("if (updateFeed.kind === 'private') {")
+  const branchEnd23 = index.indexOf('autoUpdater.autoInstallOnAppQuit', branchAt)
+  assert.match(index.slice(branchAt, branchEnd23), /\.disableWebInstaller = true/,
+    'a rehearsal build must refuse web installers')
+  const assignments = index.split('.disableWebInstaller = true').length - 1
+  assert.equal(assignments, 1, 'exactly one assignment')
+  assert.ok(index.indexOf('.disableWebInstaller = true') > branchAt,
+    'and it must be inside the private-feed branch, so production is unaffected')
+})
+
+test('§24 ⚠ PRODUCTION KEEPS WEB INSTALLERS AND DIFFERENTIAL DOWNLOADS', () => {
+  // Both switches exist to make a REHEARSAL safe. A released build must be
+  // unchanged, or this work would have altered how real users receive updates.
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  const branchAt = index.indexOf("if (updateFeed.kind === 'private') {")
+  const before = index.slice(0, branchAt)
+  // The import names confineExecutorToLoopback before the branch, which is
+  // fine — what must not appear is a USE of it, or either switch being set.
+  assert.doesNotMatch(before, /\.disableWebInstaller = true/)
+  assert.doesNotMatch(before, /\.disableDifferentialDownload = true/)
+  assert.doesNotMatch(before, /confineExecutorToLoopback\(/)
 })
