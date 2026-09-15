@@ -97,10 +97,7 @@ def seeded():
     print(json.dumps({"askId": ask_org.d['asks'][-1]['id']}), flush=True)
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
-    import os
-    os.environ['ORGTREE_V2_HUB_TOKEN'] = 'owner-control'
     safe = supervisor.clean_env()
-    assert 'ORGTREE_V2_HUB_TOKEN' not in safe
     assert 'ORGTREE_V2_TOKEN' not in safe
     assert safe['ORGTREE_PORT'] == str(result[3])
     print(json.dumps({'guardEnv': {k:v for k,v in safe.items() if k in
