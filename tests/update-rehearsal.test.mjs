@@ -705,9 +705,11 @@ test('§30 ⚠ OWNERSHIP IS A PRECONDITION, NOT AN ASSUMPTION', () => {
     if (script.includes('IsInRole')) return 'False'
     if (script.includes('Uninstall')) return '[]'
     if (script.includes('Get-Process')) {
-      // The envelope the real script produces: `ok` and a count, so an empty
-      // list can be told apart from an enumeration that did not run.
-      return JSON.stringify({ ok: true, count: 1,
+      // The envelope the real script produces: a MEASURED `ok`, and the total
+      // alongside the readable-path count — so an empty list can be told apart
+      // both from an enumeration that did not run and from one whose entries
+      // were dropped for having no readable image path.
+      return JSON.stringify({ ok: true, total: 1, withPath: 1,
         items: [{ Id: 777, ProcessName: 'Orgtree Dev',
           Path: path.join(OUT, 'win-unpacked', 'Orgtree Dev.exe') }] })
     }
@@ -728,7 +730,7 @@ test('§30 ⚠ OWNERSHIP IS A PRECONDITION, NOT AN ASSUMPTION', () => {
   const quiet = isolationChecks({
     env: ENV, installedRoot: INSTALLED, outDir: OUT,
     run: (script) => script.includes('IsInRole') ? 'False'
-      : script.includes('Get-Process') ? JSON.stringify({ ok: true, count: 0, items: [] })
+      : script.includes('Get-Process') ? JSON.stringify({ ok: true, total: 0, withPath: 0, items: [] })
         : '[]',
     fileSystem: { existsSync: () => false, readFileSync: () => '' },
     isLoopback: () => true,

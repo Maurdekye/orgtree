@@ -628,40 +628,136 @@ function defaultIsAlive(pid) {
  *  The script therefore reports a POSITIVE envelope — `ok` and a count — so an
  *  empty list can be told apart from a command that did not run. Anything that
  *  is not a well-formed envelope is `ok: false`, with the reason kept. */
+// PowerShell needs statement separators: joining these lines with a space
+// produces one unparseable line, which the envelope then correctly reports
+// as a failed observation rather than as an empty machine.
+const NEWLINE = '\n'
+
+export const OBSERVE_PROCESSES_SCRIPT = [
+  // ⚠ `ok` IS MEASURED, NOT ASSERTED. The first version of this script wrote
+  // `ok = $true` as a literal, so the envelope reported success no matter what
+  // happened — including when -ErrorAction SilentlyContinue had swallowed a
+  // real failure. -ErrorVariable captures what SilentlyContinue hides.
+  '$err = @()',
+  '$all = @(Get-Process -ErrorAction SilentlyContinue -ErrorVariable +err)',
+  // ⚠ AND THE COUNT IS TAKEN BEFORE THE FILTER, NOT AFTER. Counting the
+  // filtered list made the envelope self-consistent and still wrong: a live
+  // process whose Path cannot be read was dropped and the count agreed with
+  // the drop, so it vanished without trace.
+  '$withPath = @($all | Where-Object { $_.Path })',
+  'ConvertTo-Json -Compress -Depth 4 -InputObject @{',
+  '  ok = ($err.Count -eq 0);',
+  '  errors = @($err | ForEach-Object { $_.ToString() });',
+  '  total = $all.Count;',
+  '  withPath = $withPath.Count;',
+  '  items = @($withPath | Select-Object Id, ProcessName, MainWindowTitle, Path)',
+  '}',
+].join(NEWLINE)
+
+/** ⚠ AN OBSERVATION THAT FAILED IS NOT AN OBSERVATION OF NOTHING.
+ *
+ *  Returns {ok, reason, processes, total, withPath}. `ok` means the
+ *  enumeration RAN without error — it does not mean every process was
+ *  legible, which on Windows it never is: of 345 processes on the machine this
+ *  was written on, 192 had a readable Path and 153 (services, protected
+ *  processes, other users') did not. `total` and `withPath` are both reported
+ *  so a caller can see the size of what it cannot see. */
 export function observeProcesses(run = defaultPowerShell) {
   let out
   try {
-    out = run('$items = @(Get-Process -ErrorAction SilentlyContinue '
-      + '| Where-Object { $_.Path } '
-      + '| Select-Object Id, ProcessName, MainWindowTitle, Path); '
-      + 'ConvertTo-Json -Compress -Depth 4 -InputObject '
-      + '@{ ok = $true; count = $items.Count; items = $items }')
+    out = run(OBSERVE_PROCESSES_SCRIPT)
   } catch (error) {
-    return { ok: false, reason: `the process enumeration failed: `
-      + `${error?.code ?? error?.message ?? error}`, processes: [] }
+    return { ok: false, processes: [], total: null, withPath: null,
+      reason: `the process enumeration failed: ${error?.code ?? error?.message ?? error}` }
   }
   const text = String(out ?? '').trim()
-  if (!text) {
-    return { ok: false, reason: 'the process enumeration produced no output at all', processes: [] }
-  }
+  const no = (reason) => ({ ok: false, reason, processes: [], total: null, withPath: null })
+  if (!text) return no('the process enumeration produced no output at all')
   let parsed
   try { parsed = JSON.parse(text) } catch (error) {
-    return { ok: false, reason: `the process enumeration produced unreadable output `
-      + `(${error?.message ?? error})`, processes: [] }
+    return no(`the process enumeration produced unreadable output (${error?.message ?? error})`)
   }
-  if (!parsed || parsed.ok !== true || typeof parsed.count !== 'number') {
-    return { ok: false, reason: 'the process enumeration did not report success', processes: [] }
+  if (!parsed || typeof parsed !== 'object') return no('the process enumeration produced no envelope')
+  if (parsed.ok !== true) {
+    const errors = Array.isArray(parsed.errors) ? parsed.errors : []
+    return no('the process enumeration reported errors: '
+      + (errors.join('; ') || 'no detail was recorded'))
+  }
+  if (typeof parsed.total !== 'number' || typeof parsed.withPath !== 'number') {
+    return no('the process enumeration did not report its counts')
   }
   // ConvertTo-Json unwraps a single-element array; normalize rather than trust.
   const items = parsed.items === null || parsed.items === undefined
     ? []
     : (Array.isArray(parsed.items) ? parsed.items : [parsed.items])
-  if (items.length !== parsed.count) {
-    return { ok: false, processes: items,
-      reason: `the process enumeration reported ${parsed.count} entries but produced `
-        + `${items.length}; it is incomplete` }
+  if (items.length !== parsed.withPath) {
+    return no(`the process enumeration reported ${parsed.withPath} readable entries but `
+      + `produced ${items.length}; it is incomplete`)
   }
-  return { ok: true, reason: null, processes: items.filter(Boolean) }
+  return {
+    ok: true, reason: null, processes: items.filter(Boolean),
+    total: parsed.total, withPath: parsed.withPath,
+  }
+}
+
+export function pidStateScript(ids) {
+  return [
+    `$ids = @(${ids.map(id => Number(id)).join(',') || ''})`,
+    '$states = @()',
+    'foreach ($id in $ids) {',
+    '  try { $null = Get-Process -Id $id -ErrorAction Stop; $states += @{ id = $id; state = "alive" } }',
+    '  catch {',
+    // ObjectNotFound is the ONLY error that means "it is gone". Anything else —
+    // access denied, a failing shell — is UNKNOWN, and unknown is not gone.
+    '    if ($_.CategoryInfo.Category -eq "ObjectNotFound") { $states += @{ id = $id; state = "gone" } }',
+    '    else { $states += @{ id = $id; state = "unknown"; reason = $_.Exception.Message } }',
+    '  }',
+    '}',
+    'ConvertTo-Json -Compress -Depth 4 -InputObject @{ queried = $ids.Count; states = @($states) }',
+  ].join(NEWLINE)
+}
+
+/** ⚠ SURVIVAL IS DECIDED BY PID, NOT BY PATH.
+ *
+ *  Once the processes to stop are known, asking "is pid N still there" needs no
+ *  Path at all — which matters because Path is exactly the field Windows will
+ *  not give you for a protected process. Every queried pid comes back alive,
+ *  gone or UNKNOWN, and unknown is never treated as gone: a process we cannot
+ *  ask about is one we cannot claim to have stopped. */
+export function observePids(ids, run = defaultPowerShell) {
+  const wanted = [...new Set(ids.map(id => Number(id)).filter(Number.isFinite))]
+  if (!wanted.length) return { ok: true, reason: null, alive: [], gone: [], unknown: [] }
+  let out
+  try { out = run(pidStateScript(wanted)) } catch (error) {
+    return { ok: false, alive: [], gone: [], unknown: wanted,
+      reason: `could not ask whether those processes are still running: `
+        + `${error?.code ?? error?.message ?? error}` }
+  }
+  const no = (reason) => ({ ok: false, reason, alive: [], gone: [], unknown: wanted })
+  const text = String(out ?? '').trim()
+  if (!text) return no('the process state query produced no output at all')
+  let parsed
+  try { parsed = JSON.parse(text) } catch (error) {
+    return no(`the process state query produced unreadable output (${error?.message ?? error})`)
+  }
+  const states = parsed?.states === null || parsed?.states === undefined
+    ? []
+    : (Array.isArray(parsed.states) ? parsed.states : [parsed.states])
+  if (parsed?.queried !== wanted.length || states.length !== wanted.length) {
+    return no(`the process state query answered for ${states.length} of ${wanted.length} `
+      + 'processes; it is incomplete')
+  }
+  const bucket = { alive: [], gone: [], unknown: [] }
+  for (const state of states) {
+    const id = Number(state?.id)
+    if (!Number.isFinite(id) || !wanted.includes(id)) {
+      return no('the process state query answered about a process that was not asked for')
+    }
+    if (state.state === 'alive') bucket.alive.push(id)
+    else if (state.state === 'gone') bucket.gone.push(id)
+    else bucket.unknown.push(id)
+  }
+  return { ok: true, reason: null, ...bucket }
 }
 
 /** The bare list, for callers that have already established the observation

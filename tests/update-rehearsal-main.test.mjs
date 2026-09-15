@@ -60,6 +60,31 @@ const LAUNCH_AT = Date.parse('2026-09-15T12:00:00Z')
 
 const refuses = (fn, pattern) => assert.throws(fn, pattern)
 
+/** ⚠ THE TWO ENVELOPES THE REAL POWERSHELL SCRIPTS PRODUCE, in one place.
+ *
+ *  Finding processes needs the image path; confirming one is gone does NOT,
+ *  and must not, because Windows withholds Path for a large fraction of
+ *  processes. They are therefore two different scripts with two different
+ *  shapes, and a stub that answers the pid question with an enumeration
+ *  envelope makes every survival check "unknown" — which would let these tests
+ *  pass for entirely the wrong reason. */
+function processAnswer(script, processes) {
+  if (script.includes('Get-Process -Id')) {
+    const ids = [...script.matchAll(/\$ids = @\(([^)]*)\)/g)]
+      .flatMap(m => m[1].split(',').map(Number).filter(Number.isFinite))
+    return JSON.stringify({
+      queried: ids.length,
+      states: ids.map(id => ({
+        id, state: processes.some(p => Number(p.Id) === id) ? 'alive' : 'gone',
+      })),
+    })
+  }
+  const withPath = processes.filter(p => p.Path)
+  return JSON.stringify({
+    ok: true, total: processes.length, withPath: withPath.length, items: withPath,
+  })
+}
+
 /** An in-memory filesystem with just enough of node:fs for main(). Directories
  *  are implicit; every write and removal is recorded so a test can assert on
  *  what was actually touched rather than on what the code looks like. */
@@ -213,9 +238,12 @@ function effectsFor({
       // ⚠ THE ENVELOPE THE REAL SCRIPT PRODUCES. A bare array cannot tell an
       // empty machine apart from a failed enumeration, which is the whole
       // point of the shape — so the harness has to speak it too.
-      if (script.includes('Get-Process')) {
-        return JSON.stringify({ ok: true, count: processes.length, items: processes })
-      }
+      //
+      // ⚠ AND THE PID QUERY IS A DIFFERENT SCRIPT. Both mention Get-Process, so
+      // the more specific one is matched FIRST; answering a pid question with
+      // an enumeration envelope would make every survival check "unknown" and
+      // the tests would pass for the wrong reason.
+      if (script.includes('Get-Process')) return processAnswer(script, processes)
       return ''
     },
     writeFeed: ({ directory, artifact }) => {
@@ -596,8 +624,7 @@ test('§18 a run that launched stops only processes inside its own output direct
           { Id: 3, ProcessName: 'python',
             Path: path.join(UNPACKED, 'resources', 'engine', 'python.exe') },
         ] : []
-        const items = live.filter(p => !dead.has(p.Id))
-        return JSON.stringify({ ok: true, count: items.length, items })
+        return processAnswer(script, live.filter(p => !dead.has(p.Id)))
       }
       return base.runPowerShell(script)
     },
@@ -992,8 +1019,7 @@ test('§35 ⚠ A PROCESS THAT WOULD NOT DIE FAILS THE RUN, AND IS NOT CALLED STO
     stopProcess: () => {},
     runPowerShell: (script) => {
       if (script.includes('Get-Process')) {
-        const items = launched ? [survivor] : []
-        return JSON.stringify({ ok: true, count: items.length, items })
+        return processAnswer(script, launched ? [survivor] : [])
       }
       return base.runPowerShell(script)
     },
@@ -1181,8 +1207,8 @@ test('§42 ⚠ REAL main(): A THROWING STOP STILL CLOSES THE FEED, COMPARES AND 
     stopProcess: () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }) },
     runPowerShell: (script) => {
       if (script.includes('Get-Process')) {
-        return JSON.stringify({ ok: true, count: launched ? 1 : 0,
-          items: launched ? [{ Id: 9001, ProcessName: 'Orgtree Dev', Path: REHEARSAL_EXE }] : [] })
+        return processAnswer(script,
+          launched ? [{ Id: 9001, ProcessName: 'Orgtree Dev', Path: REHEARSAL_EXE }] : [])
       }
       return base.runPowerShell(script)
     },
@@ -1209,7 +1235,8 @@ test('§43 ⚠ REAL main(): AN UNOBSERVABLE MACHINE IS NOT AN EMPTY ONE', async 
     ['no output at all', ''],
     ['unreadable output', 'not json'],
     ['an envelope that does not report success', '{"items":[]}'],
-    ['a count that disagrees with the items', '{"ok":true,"count":3,"items":[]}'],
+    ['a suppressed enumeration failure', '{"ok":false,"errors":["denied"],"total":0,"withPath":0,"items":[]}'],
+    ['counts that disagree with the items', '{"ok":true,"total":3,"withPath":3,"items":[]}'],
   ]) {
     const fileSystem = inertFs(seedRepo())
     let launched = false
@@ -1227,7 +1254,7 @@ test('§43 ⚠ REAL main(): AN UNOBSERVABLE MACHINE IS NOT AN EMPTY ONE', async 
         if (script.includes('Get-Process')) {
           // Before launch the pre-flight needs a real answer, or the run never
           // starts and the cleanup path is never reached.
-          return launched ? answer : JSON.stringify({ ok: true, count: 0, items: [] })
+          return launched ? answer : processAnswer(script, [])
         }
         return base.runPowerShell(script)
       },
@@ -1245,7 +1272,9 @@ test('§43 ⚠ REAL main(): AN UNOBSERVABLE MACHINE IS NOT AN EMPTY ONE', async 
 test('§44 ⚠ THE PRE-FLIGHT REFUSES WHEN IT CANNOT SEE WHAT IS RUNNING', () => {
   // This check is the basis for treating every process in the output directory
   // as this run's. An enumeration that failed establishes nothing.
-  for (const answer of ['', 'not json', '{"items":[]}', '{"ok":true,"count":2,"items":[]}']) {
+  for (const answer of ['', 'not json', '{"items":[]}',
+    '{"ok":false,"errors":["denied"],"total":0,"withPath":0,"items":[]}',
+    '{"ok":true,"total":2,"withPath":2,"items":[]}']) {
     const rows = isolationChecks({
       env: ENV, installedRoot: INSTALLED, outDir: OUT_DIR, isLoopback: () => true,
       fileSystem: { existsSync: () => false, readFileSync: () => '' },
@@ -1265,7 +1294,7 @@ test('§44 ⚠ THE PRE-FLIGHT REFUSES WHEN IT CANNOT SEE WHAT IS RUNNING', () =>
     fileSystem: { existsSync: () => false, readFileSync: () => '' },
     run: (script) => {
       if (script.includes('IsInRole')) return 'False'
-      if (script.includes('Get-Process')) return JSON.stringify({ ok: true, count: 0, items: [] })
+      if (script.includes('Get-Process')) return processAnswer(script, [])
       return '[]'
     },
   })
@@ -1273,23 +1302,33 @@ test('§44 ⚠ THE PRE-FLIGHT REFUSES WHEN IT CANNOT SEE WHAT IS RUNNING', () =>
 })
 
 test('§45 observeProcesses tells a failure apart from an empty machine', () => {
-  assert.deepEqual(observeProcesses(() => JSON.stringify({ ok: true, count: 0, items: [] })),
-    { ok: true, reason: null, processes: [] })
+  assert.deepEqual(
+    observeProcesses(() => JSON.stringify({ ok: true, total: 0, withPath: 0, items: [] })),
+    { ok: true, reason: null, processes: [], total: 0, withPath: 0 })
 
   // A single item, which ConvertTo-Json may hand back unwrapped.
-  const one = observeProcesses(() =>
-    JSON.stringify({ ok: true, count: 1, items: { Id: 5, ProcessName: 'x', Path: 'C:\\x' } }))
+  const one = observeProcesses(() => JSON.stringify(
+    { ok: true, total: 1, withPath: 1, items: { Id: 5, ProcessName: 'x', Path: 'C:\\x' } }))
   assert.equal(one.ok, true)
   assert.equal(one.processes.length, 1)
+
+  // ⚠ AND THE COUNTS ARE REPORTED SEPARATELY, so a caller can see the size of
+  // what it cannot see. A live process whose Path is unreadable is dropped from
+  // `items` by the filter; counting after the filter hid that entirely.
+  const hidden = observeProcesses(() =>
+    JSON.stringify({ ok: true, total: 5, withPath: 1, items: [{ Id: 5, Path: 'C:\\x' }] }))
+  assert.equal(hidden.ok, true)
+  assert.equal(hidden.total, 5)
+  assert.equal(hidden.withPath, 1, 'four processes were invisible to this observation')
 
   for (const [label, answer] of [
     ['empty', ''],
     ['whitespace', '   '],
     ['unparseable', '}{'],
     ['no envelope', '[]'],
-    ['ok false', '{"ok":false,"count":0,"items":[]}'],
-    ['no count', '{"ok":true,"items":[]}'],
-    ['count mismatch', '{"ok":true,"count":2,"items":[{"Id":1}]}'],
+    ['ok false — a suppressed failure', '{"ok":false,"errors":["denied"],"total":0,"withPath":0,"items":[]}'],
+    ['no counts', '{"ok":true,"items":[]}'],
+    ['count mismatch', '{"ok":true,"total":2,"withPath":2,"items":[{"Id":1}]}'],
   ]) {
     const observed = observeProcesses(() => answer)
     assert.equal(observed.ok, false, `${label} must not be reported as a successful observation`)

@@ -32,7 +32,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { isLoopbackFeedUrl, serveFeed, writeFeed } from './private-update-feed.mjs'
 import {
   assertDestinationSafe, assertFixtureProvenance, assertNotElevated, assertRehearsalComposition,
-  assertStorageSafe, observeProcesses, releaseAll,
+  assertStorageSafe, observeProcesses, observePids, releaseAll,
   assertRehearsalPackage, assertRehearsalTarget, compareSnapshots, DEFAULT_REHEARSAL_OUT,
   installedRootsFromRegistry, isInside, isolationChecks, isRehearsalProcessPath, overlaps,
   productionDataRoot, realPath, rehearsalDataRoot, releaseRehearsal,
@@ -607,39 +607,50 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
 
     if (launched && plan) {
       await phase('stopping this run\'s processes', async () => {
-        const mine = () => {
-          const observed = observeProcesses(runPowerShell)
-          // ⚠ AN OBSERVATION THAT FAILED IS NOT AN EMPTY MACHINE. Treating it
-          // as one is how a failed stop became "nothing was running".
-          if (!observed.ok) throw new Error(observed.reason)
-          return observed.processes.filter(proc => isRehearsalProcessPath(proc.Path, plan.outDir))
-        }
-        const before = mine()
-        for (const proc of before) stopProcess(proc.Id)
-        // Give them a moment to exit, then LOOK AGAIN rather than assume.
-        let survivors = before.length ? mine() : []
-        for (let attempt = 0; attempt < 5 && survivors.length; attempt += 1) {
+        // FINDING THEM needs the image path — that is how membership of the
+        // output directory is decided. An observation that failed is not an
+        // empty machine, so it throws rather than returning nothing.
+        const observed = observeProcesses(runPowerShell)
+        if (!observed.ok) throw new Error(observed.reason)
+        const before = observed.processes
+          .filter(proc => isRehearsalProcessPath(proc.Path, plan.outDir))
+          .map(proc => ({ id: Number(proc.Id), name: proc.ProcessName, path: proc.Path }))
+
+        for (const proc of before) stopProcess(proc.id)
+
+        // ⚠ BUT CONFIRMING THEY ARE GONE IS DONE BY PID, NOT BY PATH. Review
+        // measured why: a live process whose Path becomes unreadable drops out
+        // of a path-filtered list and looks like it exited. Windows withholds
+        // Path routinely — 359 processes on this machine, 204 with a readable
+        // one — so "it vanished from the list" is far too weak a basis for
+        // "it is dead". Asking about a pid needs no Path at all, and answers
+        // alive, gone, or UNKNOWN. Unknown is never treated as gone.
+        const ids = before.map(proc => proc.id)
+        let state = { ok: true, alive: ids, gone: [], unknown: [], reason: null }
+        for (let attempt = 0; attempt < 6 && ids.length; attempt += 1) {
+          state = observePids(ids, runPowerShell)
+          if (state.ok && !state.alive.length && !state.unknown.length) break
           await sleep(500)
-          survivors = mine()
         }
-        const surviving = new Set(survivors.map(proc => String(proc.Id)))
-        evidence.stopped = before
-          .filter(proc => !surviving.has(String(proc.Id)))
-          .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
-        evidence.stillRunning = survivors
-          .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
+        const unresolved = state.ok ? [...state.alive, ...state.unknown] : ids
+        const unresolvedSet = new Set(unresolved)
+        evidence.stopped = before.filter(proc => !unresolvedSet.has(proc.id))
+        evidence.stillRunning = before.filter(proc => unresolvedSet.has(proc.id))
+          .map(proc => ({ ...proc,
+            state: !state.ok ? 'unknown' : state.alive.includes(proc.id) ? 'alive' : 'unknown' }))
         step('rehearsal processes stopped',
           evidence.stopped.length
             ? evidence.stopped.map(s => `${s.id} (${s.path})`).join(', ')
             : 'none were running')
-        if (survivors.length) {
-          // ⚠ A SURVIVOR FAILS THE RUN. It is still using the storage below,
-          // so nothing may be deleted either.
+        if (unresolved.length) {
+          // ⚠ A SURVIVOR — OR A PROCESS WE CANNOT ASK ABOUT — FAILS THE RUN. It
+          // may still be using the storage below, so nothing may be deleted.
           cleanupFailed = true
-          step('⚠ PROCESSES THIS RUN STARTED ARE STILL RUNNING',
-            `${evidence.stillRunning.map(s => `${s.id} ${s.name} (${s.path})`).join(', ')} — `
-            + 'they did not exit when asked. Nothing has been removed, because they may still '
-            + 'be writing to it. Stop them by hand and re-check before trusting this machine')
+          step('⚠ PROCESSES THIS RUN STARTED ARE STILL RUNNING, OR CANNOT BE CHECKED',
+            `${evidence.stillRunning.map(s => `${s.id} ${s.name} [${s.state}]`).join(', ')}`
+            + `${state.ok ? '' : ` — ${state.reason}`} . Nothing has been removed, because they `
+            + 'may still be writing to it. Stop them by hand and re-check before trusting '
+            + 'this machine')
         }
       })
       // ⚠ AND IF THE OBSERVATION ITSELF FAILED, NOTHING MAY BE DELETED. The
