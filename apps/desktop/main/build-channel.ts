@@ -40,14 +40,37 @@ export interface DesktopIdentity {
 /** One place deciding who this process is. A packaged dev-channel build is a
  *  THIRD identity, distinct from both the installed release and unpackaged
  *  development: its own data directory ('Orgtree v2 Dev'), its own shell
- *  identity, and no updater. Unpackaged keeps today's values exactly. */
-export function desktopIdentity(packaged: boolean, channel: BuildChannel): DesktopIdentity {
+ *  identity, and normally no updater. Unpackaged keeps today's values exactly.
+ *
+ *  ⚠ `updateFixtureComposed` EXISTS TO CLOSE A COMPOSITION GAP, and the gap was
+ *  found by review rather than reasoned about in advance. The harmless update
+ *  fixture is meant to let the IN-APP upgrade entry be rehearsed privately, but
+ *  every identity that could run it was excluded: unpackaged and packaged-dev
+ *  builds have no updater at all, the only identity with one is packaged
+ *  release, and release packaging correctly refuses a build composed with the
+ *  fixture. The mechanism was therefore unreachable a second time, one level up
+ *  from the first.
+ *
+ *  So a build composed WITH the fixture keeps the DEV identity in every other
+ *  respect — its own appId and uninstall key, its own data directory, its own
+ *  shell identity — and gains only the updater wiring. It cannot impersonate
+ *  the installed release, cannot share its data, and cannot probe its install
+ *  scope, which is what the dev identity was protecting in the first place.
+ *  What it gains is the ability to reach its own Update path and hand off to
+ *  the fixture instead of to a downloaded installer.
+ *
+ *  ⚠ THIS DOES NOT BY ITSELF PRODUCE AN UPDATE OFFER. Enabling the wiring makes
+ *  the entry EXIST; something still has to answer "an update is available"
+ *  before the button appears, and that remains the open feed question. This
+ *  closes the composition half of it and no more. */
+export function desktopIdentity(
+  packaged: boolean, channel: BuildChannel, updateFixtureComposed = false): DesktopIdentity {
   const dev = packaged && channel === 'dev'
   return {
     appId: dev ? DEV_APP_ID : RELEASE_APP_ID,
     name: dev ? 'Orgtree v2 Dev' : 'Orgtree v2',
     appUserModelId: packaged && !dev ? RELEASE_APP_ID : DEV_APP_ID,
     displayName: dev ? 'Orgtree Dev' : 'Orgtree',
-    updatesSupported: packaged && !dev,
+    updatesSupported: packaged && (!dev || updateFixtureComposed),
   }
 }

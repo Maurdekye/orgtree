@@ -47,6 +47,7 @@ ShowInstDetails nevershow
 
 Var Receipt
 Var Raw
+Var LingerMs
 
 ; The receipt goes beside this executable, the way the real installer's own log
 ; chooses its location ($EXEDIR). ORGTREE_UPDATE_FIXTURE_RECEIPT overrides that
@@ -74,6 +75,17 @@ FunctionEnd
 ; created. That is the whole safety argument for pointing a real update attempt
 ; at this binary.
 Section
+  ; ⚠ AN OBSERVABLE LIFETIME, BECAUSE THE PROOF SAMPLES A PROCESS TABLE.
+  ; A fixture that returns instantly is never caught running, which reads
+  ; exactly like an installer that died on launch. The receipt tells those
+  ; apart after the fact, and this lets the OTHER half be rehearsed too: with
+  ; ORGTREE_UPDATE_FIXTURE_LINGER_MS set, the fixture is alive long enough to
+  ; be seen, which is the path a real installer takes. Default 0 keeps the
+  ; fast completion as the default case.
+  ReadEnvStr $LingerMs "ORGTREE_UPDATE_FIXTURE_LINGER_MS"
+  ${If} $LingerMs != ""
+    Sleep $LingerMs
+  ${EndIf}
   FileOpen $9 "$Receipt" w
   FileWrite $9 "[fixture] orgtree update fixture ran; nothing was installed$\r$\n"
   FileWrite $9 "[fixture-cmdline] $Raw$\r$\n"

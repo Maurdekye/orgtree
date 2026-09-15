@@ -243,7 +243,7 @@ test('§15 ⚠ THE LIVE HANDOFF IS WIRED TO IT — not just exported and unused'
   // two-argument form, so nothing outside tests could ever reach it. This reads
   // the real call site so that cannot recur silently.
   const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-  assert.match(index, /import \{ updateFixtureDecision, UPDATE_FIXTURE_ENV \} from '\.\/update-fixture'/,
+  assert.match(index, /import \{[^}]*\bupdateFixtureDecision\b[^}]*\} from '\.\/update-fixture'/,
     'index.ts must import the decision')
   assert.match(index, /updateFixtureDecision\(\{[\s\S]*?requested: process\.env\[UPDATE_FIXTURE_ENV\]/,
     'the live handoff must consult the environment through the decision')
@@ -267,4 +267,124 @@ test('§16 the build enablement exists and defaults OFF', () => {
   assert.match(buildScript, /process\.argv\.includes\('--update-fixture'\)/)
   assert.match(buildScript, /updateFixture \? \{ updateFixture: true \} : \{\}/,
     'the disclosure is written only for a fixture build')
+})
+
+// ------------------------------------------------- the composition gap (review)
+
+const channelOut = path.join(root, 'build-channel.cjs')
+await build({ entryPoints: ['apps/desktop/main/build-channel.ts'], outfile: channelOut, bundle: true, format: 'cjs', platform: 'node' })
+const { desktopIdentity, DEV_APP_ID, RELEASE_APP_ID } = require_(channelOut)
+
+test('§17 ⚠ WITHOUT THE FIXTURE, NO IDENTITY COULD RUN IT — the gap review found', () => {
+  // Every identity that might have hosted an in-app rehearsal was excluded:
+  // unpackaged and packaged-dev have no updater, and the only identity that
+  // does is packaged release, which release packaging refuses to build with the
+  // fixture (§9). The mechanism was unreachable one level above the wiring.
+  assert.equal(desktopIdentity(false, 'release').updatesSupported, false, 'unpackaged has no updater')
+  assert.equal(desktopIdentity(true, 'dev').updatesSupported, false, 'packaged dev has no updater')
+  assert.equal(desktopIdentity(true, 'release').updatesSupported, true, 'only packaged release does')
+})
+
+test('§18 a fixture-composed dev build gains the updater and NOTHING else', () => {
+  const plain = desktopIdentity(true, 'dev')
+  const fixture = desktopIdentity(true, 'dev', true)
+  assert.equal(fixture.updatesSupported, true, 'the in-app entry must exist in this composition')
+  // ⚠ AND IT MUST STILL BE THE DEV IDENTITY IN EVERY OTHER RESPECT. Its own
+  // appId (so its own uninstall key), its own name (so its own data directory
+  // and single-instance lock), its own shell identity. Sharing any one of those
+  // is what would let it collide with or impersonate the installed release,
+  // which is the thing the dev identity exists to prevent.
+  assert.equal(fixture.appId, plain.appId)
+  assert.equal(fixture.appId, DEV_APP_ID)
+  assert.notEqual(fixture.appId, RELEASE_APP_ID)
+  assert.equal(fixture.name, plain.name)
+  assert.equal(fixture.appUserModelId, plain.appUserModelId)
+  assert.equal(fixture.displayName, plain.displayName)
+})
+
+test('§19 the flag cannot promote a build that is not packaged', () => {
+  assert.equal(desktopIdentity(false, 'dev', true).updatesSupported, false)
+  assert.equal(desktopIdentity(false, 'release', true).updatesSupported, false)
+})
+
+// ------------------------------------------- a completed fixture is not a failure
+
+const { awaitInstallerProof } = require_(updaterOut)
+
+/** The proof, driven with the process table always empty — nothing ever runs.
+ *  That is the reading a fixture which finished too fast produces, and it is
+ *  also the reading an installer that died on launch produces. */
+async function proveWithNothingRunning({ fixtureCompleted } = {}) {
+  const stages = []
+  let clock = 0
+  return {
+    verdict: await awaitInstallerProof({
+      sample: async () => ({ installerRunning: false, elevatorRunning: false, readable: true }),
+      now: () => clock,
+      sleep: async (ms) => { clock += ms },
+      record: (stage, detail) => stages.push({ stage, detail }),
+      ...(fixtureCompleted ? { fixtureCompleted } : {}),
+    }),
+    stages,
+  }
+}
+
+test('§20 ⚠ A REAL INSTALLER THAT NEVER APPEARS STILL FAILS — the defect this wait exists for', async () => {
+  const { verdict, stages } = await proveWithNothingRunning()
+  assert.equal(verdict.verdict, 'failed')
+  assert.ok(stages.some(s => s.stage === 'installer-never-started'))
+  assert.ok(!stages.some(s => s.stage === 'update-fixture-completed'))
+})
+
+test('§21 a fixture that COMPLETED is a success, not installer-never-started', async () => {
+  const { verdict, stages } = await proveWithNothingRunning({ fixtureCompleted: () => true })
+  assert.equal(verdict.verdict, 'started')
+  assert.match(verdict.detail, /completed and wrote its receipt/)
+  assert.match(verdict.detail, /nothing was installed/)
+  assert.ok(stages.some(s => s.stage === 'update-fixture-completed'),
+    'the log must say a fixture completed, never that an installer ran')
+  assert.ok(!stages.some(s => s.stage === 'installer-running'),
+    'a fixture must never be recorded as a running installer')
+  assert.ok(!stages.some(s => s.stage === 'installer-never-started'))
+})
+
+test('§22 a fixture that never ran still FAILS — the receipt is the discriminator', async () => {
+  const { verdict, stages } = await proveWithNothingRunning({ fixtureCompleted: () => false })
+  assert.equal(verdict.verdict, 'failed')
+  assert.ok(stages.some(s => s.stage === 'installer-never-started'))
+})
+
+test('§23 a reported spawn failure ends the wait BEFORE the receipt is consulted', async () => {
+  // A fixture whose spawn failed cannot have completed, and a stale receipt
+  // must not be able to rescue it.
+  const stages = []
+  let clock = 0
+  let asked = 0
+  const verdict = await awaitInstallerProof({
+    sample: async () => ({ installerRunning: false, elevatorRunning: false, readable: true }),
+    now: () => clock,
+    sleep: async (ms) => { clock += ms },
+    record: (stage, detail) => stages.push({ stage, detail }),
+    reportedError: () => 'ENOENT: the fixture could not be started',
+    fixtureCompleted: () => { asked++; return true },
+  })
+  assert.equal(verdict.verdict, 'failed')
+  assert.equal(asked, 0, 'a reported spawn failure must not consult the receipt at all')
+  assert.ok(stages.some(s => s.stage === 'installer-never-started'))
+})
+
+test('§24 ⚠ THE PROOF WATCHES WHAT WAS LAUNCHED, not the downloaded installer', () => {
+  // The reviewer measured the previous revision selecting
+  // autoUpdater.installerPath after launching the fixture, so the watched name
+  // was a process that was never started and the wait failed at its bound while
+  // the fixture was alive. This reads the real call site.
+  const index = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  assert.match(index, /const handedOffFixture = outcome\.handoff\.fixture/)
+  assert.match(index, /const installerImage = handedOffFixture\s*\r?\n\s*\? path\.basename\(handedOffFixture\)\.toLowerCase\(\)\s*\r?\n\s*: installerImageName\(\)/,
+    'the watched image must come from what was launched')
+  assert.match(index, /fixtureCompleted: \(\) => \{ try \{ return fs\.existsSync\(fixtureReceiptPath\)/,
+    'the proof must be able to see the fixture receipt')
+  assert.match(index, /receipt: fixtureReceipt/, 'the app must tell the fixture where to write it')
+  assert.match(index, /fs\.rmSync\(fixtureReceipt, \{ force: true \}\)/,
+    'a stale receipt must not be read as this run')
 })

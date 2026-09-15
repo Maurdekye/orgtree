@@ -19,7 +19,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
-import { updateFixtureDecision, UPDATE_FIXTURE_ENV } from './update-fixture'
+import { buildPermitsUpdateFixture, updateFixtureDecision, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { DesktopEvent } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
@@ -34,7 +34,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 // (and so its own userData/data directory and single-instance lock) and its
 // own shell identity: it runs side by side with an installed release and can
 // touch none of its state.
-const identity = desktopIdentity(app.isPackaged, app.isPackaged ? readBuildChannel(path.join(process.resourcesPath, 'build-info.json')) : 'release')
+const identity = desktopIdentity(app.isPackaged, app.isPackaged ? readBuildChannel(path.join(process.resourcesPath, 'build-info.json')) : 'release', buildPermitsUpdateFixture())
 const appId = identity.appId
 app.setName(identity.name)
 app.setAppUserModelId(identity.appUserModelId)
@@ -674,6 +674,11 @@ else {
           requested: process.env[UPDATE_FIXTURE_ENV],
           exists: (file) => fs.existsSync(file),
         })
+        // THE APP CHOOSES THE RECEIPT PATH, not the fixture, so the proof
+        // below knows exactly where to look. A fixture left to pick its own
+        // location beside itself would be readable only by guessing.
+        const fixtureReceipt = path.join(app.getPath('userData'), 'update-fixture-receipt.txt')
+        try { fs.rmSync(fixtureReceipt, { force: true }) } catch { /* a stale receipt must not read as this run's */ }
         // A REFUSAL IS RECORDED. A stray variable in an operator's environment
         // must change nothing, and must not change nothing INVISIBLY, or the
         // next person reading this log has one more hypothesis to eliminate.
@@ -692,6 +697,7 @@ else {
           decision.kind === 'active'
             ? {
               installer: decision.installer,
+              receipt: fixtureReceipt,
               // Detached and stdio-ignored, the shape electron-updater uses for
               // the real installer: the point of the fixture is that process
               // ancestry and survival can be compared, so a differently
@@ -757,7 +763,16 @@ else {
       }
       app.quit()
     }
-    const installerImage = installerImageName()
+    // ⚠ WATCH THE IMAGE THAT WAS ACTUALLY LAUNCHED. The proof used to take
+    // electron-updater's downloaded installer name unconditionally, so after
+    // a fixture handoff it watched a process that was never started and
+    // reported installer-never-started while the fixture was alive. The
+    // handoff says what it launched; that is what gets watched.
+    const handedOffFixture = outcome.handoff.fixture
+    const fixtureReceiptPath = outcome.handoff.fixtureReceipt
+    const installerImage = handedOffFixture
+      ? path.basename(handedOffFixture).toLowerCase()
+      : installerImageName()
     if (!installerImage) {
       updateLog.record('installer-proof-unavailable',
         'electron-updater did not expose the installer path, so its process could not be identified', { from: app.getVersion(), to: version })
@@ -773,6 +788,11 @@ else {
       // wait ends on it rather than running out a bound for something already
       // known not to be coming
       reportedError: () => takeInstallError(),
+      // Only a fixture handoff supplies this, so a real installer that dies
+      // instantly still fails exactly as before.
+      ...(fixtureReceiptPath
+        ? { fixtureCompleted: () => { try { return fs.existsSync(fixtureReceiptPath) } catch { return false } } }
+        : {}),
     })
     if (proof.verdict === 'unknown') {
       // The process table could never be read, so we did not observe an absent

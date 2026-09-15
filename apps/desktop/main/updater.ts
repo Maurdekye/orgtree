@@ -37,6 +37,11 @@ export type UpdateStage =
    *  variable in an operator's environment changes nothing VISIBLY rather than
    *  changing nothing silently. */
   | 'update-fixture-refused'
+  /** The fixture RAN AND FINISHED. Distinct from 'installer-running' because
+   *  nothing was installed, and distinct from 'installer-never-started'
+   *  because it did run — a fixture that completes faster than one poll
+   *  produces the same process-table reading as one that died on launch. */
+  | 'update-fixture-completed'
   /** An installer process was OBSERVED RUNNING. This is the only stage that
    *  says an update is really under way: 'handoff' means a pid came back, which
    *  a process that died instantly also produces. Nothing may quit the app on
@@ -589,6 +594,9 @@ export interface HandoffResult {
    *  from reading afterwards as a real update. An update log that cannot tell
    *  the two apart is worse than one that records neither. */
   fixture?: string
+  /** Where that fixture was told to write its receipt, carried through so the
+   *  proof can tell a fixture that COMPLETED from one that never ran. */
+  fixtureReceipt?: string
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
@@ -618,6 +626,12 @@ export function updateHandoffArgs(directory: string): string[] {
  *  injected so this seam is drivable without starting anything. */
 export interface FixtureHandoff {
   installer: string
+  /** Where the caller told the fixture to write its receipt. THE PROOF NEEDS
+   *  THIS, which is why it belongs to the handoff rather than to the spawn: a
+   *  fixture that completes faster than the process table is sampled looks
+   *  exactly like one that died instantly, and only the receipt tells those
+   *  two apart. See awaitInstallerProof's fixtureCompleted seam. */
+  receipt: string
   spawn: (file: string, args: string[]) => { pid?: number }
 }
 
@@ -639,6 +653,7 @@ export function installDownloadedUpdate(
       accepted: typeof child.pid === 'number',
       directory,
       fixture: fixture.installer,
+      fixtureReceipt: fixture.receipt,
       ...(installDirectoryIsSafeForNsis(directory) ? {} : { directoryQuotedByNode: true }),
     }
   }
@@ -836,6 +851,19 @@ export interface InstallerProofSeams {
    *  the one failure the library CAN tell us about, and waiting out a bound
    *  after it would be waiting for something already known not to be coming. */
   reportedError?: () => unknown | undefined
+  /** ⚠ A COMPLETED FIXTURE IS NOT A DEAD INSTALLER, and without this seam the
+   *  two are the same observation. The harmless update fixture can finish
+   *  before the process table is ever sampled: nothing is running, nothing was
+   *  ever seen running, and the ordinary verdict for that is
+   *  'installer-never-started' — correct for a real installer that died
+   *  instantly, and exactly wrong for a rehearsal that succeeded. The fixture
+   *  writes a receipt when it completes, so this answers 'did it finish?' at
+   *  the one moment the answer changes the verdict.
+   *
+   *  Only a fixture handoff supplies it. A real installer never does, so the
+   *  ordinary path cannot be softened by it — a downloaded installer that dies
+   *  instantly still fails, which is the defect this whole wait exists for. */
+  fixtureCompleted?: () => boolean
   bounds?: { appearMs: number; pollMs: number; minReadableLooks?: number; unreadableMs?: number }
 }
 
@@ -874,6 +902,14 @@ export async function awaitInstallerProof(seams: InstallerProofSeams): Promise<I
       return step.result
     }
     if (step.result.verdict === 'failed') {
+      // Ask the fixture whether it FINISHED before calling this a failure.
+      // Ordering matters: the step already concluded nothing is running, and
+      // for a fixture that is the expected end state rather than the failure.
+      if (seams.fixtureCompleted?.()) {
+        const detail = 'the update fixture completed and wrote its receipt; nothing was installed'
+        seams.record('update-fixture-completed', detail)
+        return { verdict: 'started', detail }
+      }
       seams.record('installer-never-started', step.result.detail)
       return step.result
     }
