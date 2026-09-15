@@ -39,6 +39,11 @@ export const DEFAULT_REHEARSAL_OUT = 'release-rehearsal'
  *  cache or a cleanup that removes the wrong directory. */
 export const REHEARSAL_UPDATER_CACHE = 'orgtree-rehearsal-updater'
 
+/** The RELEASE build's updater cache, read from the installed app-update.yml.
+ *  Protected like any other production location: a rehearsal writing there
+ *  could hand the installed release a package it never asked for. */
+export const RELEASE_UPDATER_CACHE = 'orgtree-updater'
+
 export function productionDataRoot(env = process.env) {
   return path.join(env.APPDATA ?? '', PRODUCTION_DATA_NAME)
 }
@@ -140,10 +145,43 @@ export function productionInstallRoots(env = process.env, installedRoot = null, 
  *  files into the user's own data without needing any privilege at all. There
  *  is no reason for these to be two different lists. */
 export function protectedRoots(env = process.env, installedRoot = null, extra = []) {
-  return [...new Set([
+  const roots = [
     ...productionInstallRoots(env, installedRoot, extra),
     path.resolve(productionDataRoot(env)),
-  ])]
+  ]
+  // The installed release's own updater cache: a rehearsal writing there could
+  // stage a package the real application would later find and offer.
+  if (env.LOCALAPPDATA) roots.push(path.resolve(path.join(env.LOCALAPPDATA, RELEASE_UPDATER_CACHE)))
+  return [...new Set(roots)]
+}
+
+/** ⚠ THE STORAGE THE REHEARSAL WILL WRITE TO, JUDGED LIKE EVERYTHING ELSE.
+ *
+ *  These were the destinations the common policy did not cover: the dev data
+ *  root was compared only against production DATA, and the updater cache was
+ *  checked for existence and never for location at all. Review measured both —
+ *  a cache resolving into the production data root, and a dev data root
+ *  resolving into the installed release — launching and returning zero under
+ *  --adopt.
+ *
+ *  ⚠ ADOPTION IS ABOUT OWNERSHIP, NEVER ABOUT ISOLATION. `--adopt` says "this
+ *  existing rehearsal storage is mine to reuse". It cannot say "and it may be a
+ *  junction into Program Files". This check therefore runs whatever adoption
+ *  says, and before anything is launched — the app and the updater write to
+ *  these directories while the run is in progress, so preserving them at
+ *  cleanup time is far too late. */
+export function assertStorageSafe({
+  env = process.env, installedRoot = null, installedRoots = [], fileSystem = fs,
+} = {}) {
+  const where = { env, installedRoot, installedRoots, fileSystem }
+  const dataRoot = rehearsalDataRoot(env)
+  return {
+    dataRoot: assertDestinationSafe('rehearsal data root', dataRoot, where),
+    engineLock: assertDestinationSafe('rehearsal engine lock',
+      path.join(dataRoot, '.desktop-engine.lock'), where),
+    updaterCache: assertDestinationSafe('rehearsal updater cache',
+      path.join(env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE), where),
+  }
 }
 
 /** ⚠ ONE POLICY FOR EVERY MUTABLE DESTINATION. Whatever the rehearsal will
@@ -438,33 +476,131 @@ export const RESERVATION_FILE = '.rehearsal-run.json'
  *  is no window between checking and claiming. A reservation whose owning
  *  process is gone is stale and may be taken over; one whose owner is alive is
  *  refused. */
-export function reserveRehearsal(outDir, {
-  fileSystem = fs, pid = process.pid, at = null, isAlive = defaultIsAlive,
-} = {}) {
-  const file = path.join(outDir, RESERVATION_FILE)
-  const claim = JSON.stringify({ pid, at: at ?? new Date().toISOString() }, null, 2)
-  fileSystem.mkdirSync(outDir, { recursive: true })
-  try {
-    fileSystem.writeFileSync(file, claim, { flag: 'wx' })
-    return { file, taken: 'fresh' }
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error
-  }
-  let existing = null
-  try { existing = JSON.parse(fileSystem.readFileSync(file, 'utf8')) } catch { /* unreadable */ }
-  if (existing?.pid && isAlive(existing.pid)) {
-    throw new Error(`another rehearsal is already using [${outDir}]: process ${existing.pid}, `
-      + `started ${existing.at ?? 'at an unrecorded time'}. Two runs sharing an output `
-      + 'directory would each stop the other\'s app and each think it was cleaning up '
-      + `after itself. Wait for it, or remove ${RESERVATION_FILE} if you know it is dead`)
-  }
-  // The owner is gone: the claim is stale and this run takes it over.
-  fileSystem.writeFileSync(file, claim)
-  return { file, taken: 'stale', previous: existing }
+/** The shared storage claim. The dev data root and the updater cache are used
+ *  by EVERY rehearsal on this machine regardless of where it packaged its
+ *  build, so a claim scoped to the output directory does not protect them:
+ *  review measured two runs with different --out and --work both launching and
+ *  then sharing one dev data root. This claim lives beside that storage rather
+ *  than inside it, because it has to exist before the storage does. */
+export function sharedClaimFile(env = process.env) {
+  return path.join(env.LOCALAPPDATA ?? '', `${REHEARSAL_UPDATER_CACHE}.claim.json`)
 }
 
-export function releaseRehearsal(file, { fileSystem = fs } = {}) {
-  try { fileSystem.rmSync(file, { force: true }) } catch { /* best effort */ }
+/** ⚠ ACQUIRE ONE CLAIM, EXCLUSIVELY, OR REFUSE.
+ *
+ *  The exclusive create is the ONLY arbiter. Review measured the hole in the
+ *  previous version: exclusive-create and write-the-JSON are two filesystem
+ *  events, so interleaving a second acquisition between them found an EMPTY
+ *  file, could not parse it, called it stale and overwrote it — and both runs
+ *  proceeded, both alive. So:
+ *
+ *  - an unreadable, empty or partially written claim REFUSES. Unknown is not
+ *    dead, and this is exactly where that distinction bites;
+ *  - a claim whose owner is alive REFUSES;
+ *  - a claim whose owner is provably gone still refuses, unless recovery is
+ *    explicitly asked for — and recovery is then done by REMOVING the stale
+ *    file and racing the exclusive create again, so two recoverers cannot both
+ *    win. There is no unguarded overwrite anywhere in this function. */
+function acquireClaim(file, {
+  fileSystem, pid, at, isAlive, reclaim, describe,
+}) {
+  const claim = JSON.stringify({ pid, at, file }, null, 2)
+  fileSystem.mkdirSync(path.dirname(file), { recursive: true })
+  const tryCreate = () => {
+    try {
+      fileSystem.writeFileSync(file, claim, { flag: 'wx' })
+      return true
+    } catch (error) {
+      if (error?.code === 'EEXIST') return false
+      throw error
+    }
+  }
+  if (tryCreate()) return { file, taken: 'fresh', pid }
+
+  let existing = null
+  let unreadable = null
+  try {
+    const text = fileSystem.readFileSync(file, 'utf8')
+    existing = JSON.parse(text)
+    if (!existing || typeof existing.pid !== 'number') unreadable = 'it names no process'
+  } catch (error) {
+    unreadable = error?.code === 'ENOENT'
+      // It vanished between the failed create and the read: somebody is moving,
+      // so this is a live race and not an abandoned claim.
+      ? 'it disappeared while being read — another run is acquiring it right now'
+      : `it could not be read (${error?.code ?? error?.message ?? error})`
+  }
+
+  if (unreadable) {
+    throw new Error(`refusing ${describe}: the existing claim at [${file}] cannot be trusted — `
+      + `${unreadable}. A claim that is merely unreadable is NOT an abandoned one; treating it `
+      + 'as abandoned is how two live runs both acquire. Remove it by hand if you are certain '
+      + 'no rehearsal is running')
+  }
+  if (isAlive(existing.pid)) {
+    throw new Error(`refusing ${describe}: process ${existing.pid} holds it, started `
+      + `${existing.at ?? 'at an unrecorded time'}. Two runs sharing this would each stop the `
+      + 'other\'s processes and each believe it was cleaning up after itself. Wait for it')
+  }
+  if (!reclaim) {
+    throw new Error(`refusing ${describe}: a claim at [${file}] is held by process `
+      + `${existing.pid}, which is no longer running. That is probably a crashed rehearsal — `
+      + 're-run with --reclaim to take it over deliberately')
+  }
+  // Explicit recovery: remove, then RACE THE EXCLUSIVE CREATE AGAIN. Whoever
+  // wins the create owns it; a second recoverer loses and is refused.
+  try { fileSystem.rmSync(file, { force: true }) } catch { /* the create decides */ }
+  if (!tryCreate()) {
+    throw new Error(`refusing ${describe}: another run took [${file}] during recovery`)
+  }
+  return { file, taken: 'reclaimed', pid, previous: existing }
+}
+
+/** ⚠ EVERY SHARED MUTABLE RESOURCE, CLAIMED BEFORE ANY OF THEM IS CHECKED OR
+ *  USED — the output directory AND the machine-wide dev storage. Acquired in a
+ *  fixed order so two runs cannot deadlock, and every claim already taken is
+ *  released if a later one refuses. */
+export function reserveRehearsal(outDir, {
+  fileSystem = fs, pid = process.pid, at = null, isAlive = defaultIsAlive,
+  env = process.env, reclaim = false,
+} = {}) {
+  const stamp = at ?? new Date().toISOString()
+  const wanted = [
+    { file: sharedClaimFile(env),
+      describe: 'to run: the machine\'s rehearsal storage is claimed' },
+    { file: path.join(outDir, RESERVATION_FILE),
+      describe: `to use [${outDir}]` },
+  ]
+  const held = []
+  try {
+    for (const { file, describe } of wanted) {
+      held.push(acquireClaim(file, { fileSystem, pid, at: stamp, isAlive, reclaim, describe }))
+    }
+  } catch (error) {
+    for (const claim of held) releaseRehearsal(claim, { fileSystem, pid })
+    throw error
+  }
+  return { claims: held, pid, taken: held.map(c => c.taken).join('+') }
+}
+
+/** ⚠ RELEASE ONLY WHAT THIS INVOCATION HOLDS. Removing by filename alone would
+ *  let a run that lost a race, or one whose claim was reclaimed underneath it,
+ *  delete somebody else's live claim on the way out. */
+export function releaseRehearsal(claim, { fileSystem = fs, pid = process.pid } = {}) {
+  const file = typeof claim === 'string' ? claim : claim?.file
+  if (!file) return false
+  try {
+    const existing = JSON.parse(fileSystem.readFileSync(file, 'utf8'))
+    if (existing?.pid !== pid) return false
+  } catch { return false }
+  try { fileSystem.rmSync(file, { force: true }); return true } catch { return false }
+}
+
+export function releaseAll(reservation, { fileSystem = fs } = {}) {
+  if (!reservation) return []
+  return (reservation.claims ?? [])
+    .filter(claim => releaseRehearsal(claim, { fileSystem, pid: reservation.pid }))
+    .map(claim => claim.file)
 }
 
 function defaultIsAlive(pid) {

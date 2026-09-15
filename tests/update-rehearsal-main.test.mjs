@@ -30,9 +30,10 @@ import { spawnSync } from 'node:child_process'
 import { main, expectedReceiptFrom, FIXTURE_VERSION } from '../tools/run-rehearsal.mjs'
 import { assertRehearsalPaths } from '../tools/run-rehearsal.mjs'
 import {
-  assertDestinationSafe, compareSnapshots, installedManifest, isolationChecks, overlaps,
-  productionDataRoot, protectedRoots, realPath, releaseRehearsal, REHEARSAL_UPDATER_CACHE,
-  reserveRehearsal,
+  assertDestinationSafe, assertStorageSafe, compareSnapshots, installedManifest,
+  isolationChecks, overlaps, productionDataRoot, protectedRoots, realPath, releaseAll,
+  releaseRehearsal, RELEASE_UPDATER_CACHE, REHEARSAL_UPDATER_CACHE, reserveRehearsal,
+  sharedClaimFile,
 } from '../tools/rehearsal-isolation.mjs'
 
 const ENV = {
@@ -242,11 +243,14 @@ const why = (result) => JSON.stringify(result.evidence?.steps ?? 'no evidence', 
 
 /** Removals other than this run's own reservation file, which it creates and
  *  releases as a matter of course. Everything else deleted is a real effect. */
-const RESERVATION = path.join(OUT_DIR, '.rehearsal-run.json').toLowerCase()
+const CLAIMS = [
+  path.join(OUT_DIR, '.rehearsal-run.json').toLowerCase(),
+  sharedClaimFile(ENV).toLowerCase(),
+]
 const residue = (result) =>
-  result.removals.filter(r => r.toLowerCase() !== RESERVATION)
+  result.removals.filter(r => !CLAIMS.includes(r.toLowerCase()))
 const releasedReservation = (result) =>
-  result.removals.some(r => r.toLowerCase() === RESERVATION)
+  CLAIMS.every(claim => result.removals.some(r => r.toLowerCase() === claim))
 
 // ---------------------------------------------------------------- the happy path
 
@@ -456,16 +460,22 @@ test('§14 ⚠ A SECOND CONCURRENT REHEARSAL IS REFUSED BY THE RESERVATION', asy
   assert.deepEqual(live.launches, [], 'and nothing may be launched')
   assert.deepEqual(live.stopped, [])
 
-  // A claim whose owner is gone is stale, and this run takes it over.
-  const stale = await runMain(['--budget', '30'], {
+  // ⚠ A CLAIM WHOSE OWNER IS GONE IS STILL NOT TAKEN AUTOMATICALLY. Silent
+  // takeover is how two live runs both acquired; recovery is now explicit.
+  const abandoned = {
     seed: seedRepo({ [held]: JSON.stringify({ pid: 999, at: '2026-09-15T11:59:00Z' }) }),
     isAlive: () => false,
     onTick: ({ tick, fileSystem }) => {
       if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
       if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
     },
-  })
-  assert.equal(stale.code, 0, why(stale))
+  }
+  const refused = await runMain(['--budget', '30'], abandoned)
+  assert.equal(refused.code, 1, 'a dead owner still refuses without --reclaim')
+  assert.deepEqual(refused.launches, [])
+
+  const reclaimed = await runMain(['--budget', '30', '--reclaim'], abandoned)
+  assert.equal(reclaimed.code, 0, why(reclaimed))
 })
 
 test('§15 ⚠ A DRY RUN LAUNCHES, STOPS AND REMOVES NOTHING', async () => {
@@ -550,6 +560,7 @@ test('§18 a run that launched stops only processes inside its own output direct
   assert.deepEqual(result.stopped, [], 'nothing is stopped when nothing was launched')
 
   let launched = false
+  const dead = new Set()
   const fileSystem = inertFs(seedRepo())
   const stopped = []
   const launches = []
@@ -563,14 +574,18 @@ test('§18 a run that launched stops only processes inside its own output direct
   const code = await main(['--budget', '30'], {
     ...base,
     spawnProcess: (...args) => { launched = true; return base.spawnProcess(...args) },
+    // A stop that actually works — the process stops appearing afterwards,
+    // which is what the runner now re-checks rather than assumes.
+    stopProcess: (id) => { stopped.push(id); dead.add(id) },
     runPowerShell: (script) => {
       if (script.includes('Get-Process')) {
-        return JSON.stringify(launched ? [
+        const live = launched ? [
           { Id: 1, ProcessName: 'Orgtree', Path: path.join(INSTALLED, 'Orgtree.exe') },
           { Id: 2, ProcessName: 'Orgtree Dev', Path: REHEARSAL_EXE },
           { Id: 3, ProcessName: 'python',
             Path: path.join(UNPACKED, 'resources', 'engine', 'python.exe') },
-        ] : [])
+        ] : []
+        return JSON.stringify(live.filter(p => !dead.has(p.Id)))
       }
       return base.runPowerShell(script)
     },
@@ -720,21 +735,22 @@ test('§24 one destination policy, covering production data in both directions',
   'the production data root must be in the protected list at all')
 })
 
-test('§25 the reservation is exclusive, and a stale one is taken over', () => {
+test('§25 a claim is released, and releasing is idempotent', () => {
+  // The exclusivity and recovery contract is §31–§33; this is the plain
+  // acquire-and-release path.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-reserve-'))
-  const fresh = reserveRehearsal(home, { pid: 111, at: 'now', isAlive: () => false })
-  assert.equal(fresh.taken, 'fresh')
-  assert.ok(fs.existsSync(fresh.file))
+  const env = { ...ENV, LOCALAPPDATA: home }
+  const outDir = path.join(home, 'out')
+  fs.mkdirSync(outDir, { recursive: true })
 
-  assert.throws(() => reserveRehearsal(home, { pid: 222, isAlive: () => true }),
-    /another rehearsal is already using/)
+  const held = reserveRehearsal(outDir, { env, pid: 111, at: 'now', isAlive: () => false })
+  assert.equal(held.claims.length, 2, 'the shared storage claim and the output claim')
+  for (const claim of held.claims) assert.ok(fs.existsSync(claim.file))
 
-  const taken = reserveRehearsal(home, { pid: 333, at: 'later', isAlive: () => false })
-  assert.equal(taken.taken, 'stale')
-  assert.equal(JSON.parse(fs.readFileSync(taken.file, 'utf8')).pid, 333)
-
-  releaseRehearsal(taken.file)
-  assert.equal(fs.existsSync(taken.file), false)
+  const released = releaseAll(held)
+  assert.equal(released.length, 2)
+  for (const claim of held.claims) assert.equal(fs.existsSync(claim.file), false)
+  assert.deepEqual(releaseAll(held), [], 'releasing twice removes nothing and throws nothing')
   fs.rmSync(home, { recursive: true, force: true })
 })
 
@@ -752,4 +768,320 @@ test('§26 the app names this attempt\'s receipt in its handoff record', () => {
     expectedReceiptFrom('handing off … its receipt for this attempt is [C:\\d\\r.txt]; …'),
     'C:\\d\\r.txt')
   assert.equal(expectedReceiptFrom('an older handoff with no receipt named'), null)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE FOURTH ROUND. Three more defects measured at the main() boundary — an
+// adopted storage alias into a protected location, a reservation that two live
+// runs could both acquire, and cleanup failure reported as success. Each is
+// driven here the same way it was found: through the real main().
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** An inert filesystem whose realpath resolves a chosen prefix somewhere else —
+ *  a junction, without needing one. Used only to point rehearsal storage at a
+ *  protected location and watch main() refuse. */
+function aliasing(seed, aliases) {
+  const base = inertFs(seed)
+  return {
+    ...base,
+    realpathSync: {
+      native: (p) => {
+        const resolved = path.resolve(String(p))
+        for (const [from, to] of Object.entries(aliases)) {
+          const root = path.resolve(from)
+          if (resolved.toLowerCase() === root.toLowerCase()) return path.resolve(to)
+          if (resolved.toLowerCase().startsWith(root.toLowerCase() + path.sep)) {
+            return path.join(path.resolve(to), resolved.slice(root.length + 1))
+          }
+        }
+        return resolved
+      },
+    },
+  }
+}
+
+// -------------------------------- R1: adoption may not waive isolation
+
+test('§27 ⚠ --adopt CANNOT ADOPT A CACHE THAT RESOLVES INTO PRODUCTION DATA', async () => {
+  // Measured by review: this launched once and returned zero. --adopt says the
+  // existing rehearsal storage is yours to reuse; it cannot say that storage is
+  // allowed to be a junction into the user's own data.
+  const seed = seedRepo({ [path.join(CACHE, 'pending', 'x.exe')]: 'x' })
+  const fileSystem = aliasing(seed, { [CACHE]: productionDataRoot(ENV) })
+  const launches = []
+  const code = await main(['--budget', '30', '--adopt'],
+    effectsFor({ fileSystem, launches }))
+  assert.equal(code, 1, 'an aliased updater cache must refuse')
+  assert.deepEqual(launches, [], 'ZERO launches — the app writes there while it runs')
+})
+
+test('§28 ⚠ --adopt CANNOT ADOPT A DEV DATA ROOT THAT RESOLVES INTO THE INSTALLATION', async () => {
+  const seed = seedRepo({ [path.join(DATA, 'preferences.json')]: '{}' })
+  const fileSystem = aliasing(seed, { [DATA]: INSTALLED })
+  const launches = []
+  const code = await main(['--budget', '30', '--adopt'],
+    effectsFor({ fileSystem, launches }))
+  assert.equal(code, 1, 'an aliased dev data root must refuse')
+  assert.deepEqual(launches, [], 'ZERO launches')
+})
+
+test('§29 the release updater cache is a protected location too', () => {
+  // A rehearsal writing there could stage a package the installed release would
+  // later find and offer.
+  const releaseCache = path.join(ENV.LOCALAPPDATA, RELEASE_UPDATER_CACHE)
+  assert.ok(protectedRoots(ENV, INSTALLED).some(
+    r => r.toLowerCase() === path.resolve(releaseCache).toLowerCase()),
+  'the release updater cache must be protected')
+  refuses(() => assertDestinationSafe('output', releaseCache, { env: ENV, installedRoot: INSTALLED }),
+    /protected location/)
+})
+
+test('§30 the storage check covers data root, engine lock and updater cache', () => {
+  const safe = assertStorageSafe({ env: ENV, installedRoot: INSTALLED })
+  assert.equal(safe.dataRoot, path.resolve(DATA))
+  assert.equal(safe.engineLock, path.resolve(path.join(DATA, '.desktop-engine.lock')))
+  assert.equal(safe.updaterCache, path.resolve(CACHE))
+
+  // …and each one refuses when it resolves somewhere protected. The aliased
+  // directory has to EXIST for a real reparse point to be resolvable, so it is
+  // seeded — an alias to a directory that is not there is not the case.
+  for (const [label, alias, seeded] of [
+    ['data root', { [DATA]: INSTALLED }, path.join(DATA, 'preferences.json')],
+    ['updater cache', { [CACHE]: productionDataRoot(ENV) }, path.join(CACHE, 'pending', 'x')],
+  ]) {
+    const fileSystem = aliasing(seedRepo({ [seeded]: 'x' }), alias)
+    refuses(() => assertStorageSafe({ env: ENV, installedRoot: INSTALLED, fileSystem }),
+      /protected location/, `the ${label} alias must refuse`)
+  }
+})
+
+// ------------------------- R2: the reservation must be exclusive and shared
+
+test('§31 ⚠ A PARTIALLY WRITTEN CLAIM REFUSES — it is not an abandoned one', () => {
+  // Measured by review: exclusive-create and write-the-JSON are two filesystem
+  // events. Interleaving a second acquisition between them found an EMPTY file,
+  // failed to parse it, called it stale and overwrote it — and both runs
+  // proceeded, both alive.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-partial-claim-'))
+  const env = { ...ENV, LOCALAPPDATA: home }
+  const outDir = path.join(home, 'out')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  for (const partial of ['', '   ', '{', '{"at":"no pid"}', 'not json at all']) {
+    fs.writeFileSync(sharedClaimFile(env), partial)
+    assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false }),
+      /cannot be trusted/, `[${partial}] must refuse`)
+    // …and not even --reclaim may take over something it cannot read.
+    assert.throws(
+      () => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false, reclaim: true }),
+      /cannot be trusted/)
+  }
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+test('§32 ⚠ A DEAD OWNER IS NOT TAKEN OVER SILENTLY — recovery is explicit', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-stale-claim-'))
+  const env = { ...ENV, LOCALAPPDATA: home }
+  const outDir = path.join(home, 'out')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const first = reserveRehearsal(outDir, { env, pid: 111, isAlive: () => false })
+  assert.equal(first.taken, 'fresh+fresh', 'both the shared and the output claim')
+
+  // A live holder refuses outright.
+  assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => true }),
+    /holds it/)
+  // A dead holder still refuses without --reclaim.
+  assert.throws(() => reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false }),
+    /--reclaim/)
+  // With it, recovery succeeds and the new owner is recorded.
+  const taken = reserveRehearsal(outDir, { env, pid: 222, isAlive: () => false, reclaim: true })
+  assert.match(taken.taken, /reclaimed/)
+  assert.equal(JSON.parse(fs.readFileSync(sharedClaimFile(env), 'utf8')).pid, 222)
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+test('§33 ⚠ RELEASE ONLY RELEASES THIS INVOCATION\'S OWN CLAIM', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-'))
+  const env = { ...ENV, LOCALAPPDATA: home }
+  const outDir = path.join(home, 'out')
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const mine = reserveRehearsal(outDir, { env, pid: 111, isAlive: () => false })
+  // Somebody else's claim now sits at the same path.
+  fs.writeFileSync(sharedClaimFile(env), JSON.stringify({ pid: 999, at: 'later' }))
+  const released = releaseAll(mine)
+  assert.ok(!released.some(f => f === sharedClaimFile(env)),
+    'a claim that is no longer ours must not be deleted')
+  assert.ok(fs.existsSync(sharedClaimFile(env)), 'the other run\'s claim must survive')
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+test('§34 ⚠ TWO RUNS WITH DIFFERENT --out STILL CONTEND, BECAUSE STORAGE IS SHARED', async () => {
+  // Measured by review: distinct output and work directories both launched,
+  // then shared one dev data root and one updater cache. The reservation
+  // covered the output directory only.
+  const fileSystem = inertFs(seedRepo({
+    // A second packaged build, somewhere else entirely.
+    [path.join(REPO, 'other', 'win-unpacked', 'Orgtree Dev.exe')]: 'MZ rehearsal',
+    [path.join(REPO, 'other', 'win-unpacked', 'resources', 'build-info.json')]: JSON.stringify({
+      channel: 'dev', updateFixture: true, version: '2.1.5-dev.gtest', commit: 'abc1234',
+    }),
+    [path.join(REPO, 'other', 'win-unpacked', 'resources', 'app.asar')]: `bundle ${MARKER} end`,
+    [path.join(REPO, 'other', 'win-unpacked', 'resources', 'app-update.yml')]:
+      `provider: generic\nurl: http://127.0.0.1:1/\nupdaterCacheDirName: ${REHEARSAL_UPDATER_CACHE}\n`,
+  }))
+
+  // The first run holds its claims: model it by leaving them in place, with a
+  // live owner.
+  const firstLaunches = []
+  const first = main(['--budget', '30'], effectsFor({
+    fileSystem, launches: firstLaunches, isAlive: () => true,
+    onTick: ({ tick }) => {
+      if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
+      if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
+    },
+  }))
+  await first
+
+  // While those claims stand and their owner is alive, a second run pointed at
+  // a COMPLETELY DIFFERENT output directory must still be refused — it would
+  // use the same dev data root and updater cache.
+  fileSystem.writeFileSync(sharedClaimFile(ENV), JSON.stringify({ pid: 4242, at: 'now' }))
+  const secondLaunches = []
+  const second = await main(['--budget', '30', '--out', 'other', '--work', 'dist/other-work'],
+    effectsFor({ fileSystem, launches: secondLaunches, isAlive: () => true }))
+  assert.equal(second, 1, 'the shared storage claim must refuse the second run')
+  assert.deepEqual(secondLaunches, [], 'and it must launch nothing')
+})
+
+// ------------------------------ R3: cleanup failure is failure
+
+test('§35 ⚠ A PROCESS THAT WOULD NOT DIE FAILS THE RUN, AND IS NOT CALLED STOPPED', async () => {
+  // Measured by review: a failed Stop-Process still recorded the live process
+  // in evidence.stopped and the run still returned zero.
+  const fileSystem = inertFs(seedRepo())
+  let launched = false
+  const survivor = {
+    Id: 9001, ProcessName: 'Orgtree Dev', Path: REHEARSAL_EXE,
+  }
+  const base = effectsFor({
+    fileSystem,
+    onTick: ({ tick }) => {
+      if (tick === 1) fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
+      if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
+    },
+  })
+  const code = await main(['--budget', '30'], {
+    ...base,
+    spawnProcess: (...args) => { launched = true; return base.spawnProcess(...args) },
+    // Stop-Process is called and does nothing at all.
+    stopProcess: () => {},
+    runPowerShell: (script) => {
+      if (script.includes('Get-Process')) return JSON.stringify(launched ? [survivor] : [])
+      return base.runPowerShell(script)
+    },
+  })
+  const evidence = JSON.parse(fileSystem.files.get(path.join(WORK, 'evidence.json').toLowerCase()))
+  assert.notEqual(code, 0, 'a surviving process must fail the run')
+  assert.equal(code, 4)
+  assert.deepEqual(evidence.stopped, [], 'a live process is NOT a stopped one')
+  assert.equal(evidence.stillRunning.length, 1)
+  assert.equal(evidence.stillRunning[0].id, 9001)
+  assert.deepEqual(evidence.removed, [],
+    'and nothing may be deleted underneath a process that is still running')
+  assert.equal(evidence.applied, true, 'the rehearsal itself still succeeded, and says so')
+})
+
+test('§36 ⚠ RESIDUE THAT CANNOT BE REMOVED FAILS THE RUN AND IS NAMED', async () => {
+  // Measured by review: 'cleanup refused: EACCES' in the steps, exit zero, and
+  // the data root still on disk.
+  const fileSystem = inertFs(seedRepo())
+  const guarded = {
+    ...fileSystem,
+    rmSync: (p) => {
+      if (path.resolve(String(p)).toLowerCase() === DATA.toLowerCase()) {
+        const e = new Error('EACCES'); e.code = 'EACCES'; throw e
+      }
+      return fileSystem.rmSync(p)
+    },
+  }
+  const base = effectsFor({
+    fileSystem: guarded,
+    onTick: ({ tick }) => {
+      if (tick === 1) {
+        guarded.writeFileSync(UPDATE_LOG, handoffLog())
+        guarded.writeFileSync(path.join(CACHE, 'pending', 'x.exe'), 'x')
+      }
+      if (tick === 2) guarded.writeFileSync(RECEIPT, receiptBody())
+    },
+  })
+  const code = await main(['--budget', '30'], base)
+  const evidence = JSON.parse(fileSystem.files.get(path.join(WORK, 'evidence.json').toLowerCase()))
+  assert.equal(code, 4, 'residue left on the machine is a failure')
+  assert.equal(evidence.cleanupFailed, true)
+  assert.equal(evidence.residue.length, 1)
+  assert.equal(evidence.residue[0].path.toLowerCase(), DATA.toLowerCase())
+  assert.match(evidence.residue[0].reason, /EACCES/)
+  // The parts that DID work are still reported, and the comparison still ran.
+  assert.ok(evidence.removed.some(r => r.toLowerCase() === CACHE.toLowerCase()),
+    'the cache still went')
+  assert.ok(Array.isArray(evidence.comparison) && evidence.comparison.every(r => r.ok),
+    'the installed-release comparison must still be finalized')
+})
+
+test('§37 a removal that silently leaves the directory behind is caught', async () => {
+  const fileSystem = inertFs(seedRepo())
+  const pretend = {
+    ...fileSystem,
+    // Removes nothing, throws nothing — the quiet failure mode.
+    rmSync: (p) => { fileSystem.removals.push(path.resolve(String(p))) },
+  }
+  const code = await main(['--budget', '30'], effectsFor({
+    fileSystem: pretend,
+    onTick: ({ tick }) => {
+      if (tick === 1) pretend.writeFileSync(UPDATE_LOG, handoffLog())
+      if (tick === 2) pretend.writeFileSync(RECEIPT, receiptBody())
+    },
+  }))
+  const evidence = JSON.parse(fileSystem.files.get(path.join(WORK, 'evidence.json').toLowerCase()))
+  assert.equal(code, 4)
+  assert.ok(evidence.residue.some(r => /still there after removal/.test(r.reason)))
+})
+
+test('§38 a clean run still exits 0 — the failure paths are not simply always-on', async () => {
+  const result = await runMain(['--budget', '30'], {
+    onTick: ({ tick, fileSystem }) => {
+      if (tick === 1) {
+        fileSystem.writeFileSync(UPDATE_LOG, handoffLog())
+        fileSystem.writeFileSync(path.join(CACHE, 'pending', 'x.exe'), 'x')
+      }
+      if (tick === 2) fileSystem.writeFileSync(RECEIPT, receiptBody())
+    },
+  })
+  assert.equal(result.code, 0, why(result))
+  assert.equal(result.evidence.cleanupFailed, undefined)
+  assert.deepEqual(result.evidence.residue ?? [], [])
+  assert.deepEqual(result.evidence.stillRunning ?? [], [])
+})
+
+test('§39 ⚠ NO TEST IN THIS FILE TOUCHES THE REAL MACHINE\'S REHEARSAL STORAGE', () => {
+  // ⚠ THIS IS NOT HYPOTHETICAL. An earlier version of §25 called
+  // reserveRehearsal without an env, which defaulted to process.env — so a unit
+  // test wrote a real claim file into the operator's own %LOCALAPPDATA% and the
+  // next real rehearsal refused to start because of it. A test suite that
+  // quietly reaches the machine is the same class of bug this whole file exists
+  // to catch, and it was mine.
+  //
+  // Checked by looking at the machine rather than at the source, so it catches
+  // a leak however it happens. It runs last, after everything above.
+  for (const leak of [
+    sharedClaimFile(process.env),
+    path.join(process.env.LOCALAPPDATA ?? '', REHEARSAL_UPDATER_CACHE),
+    path.join(process.env.APPDATA ?? '', 'Orgtree v2 Dev'),
+  ]) {
+    assert.equal(fs.existsSync(leak), false,
+      `a test left ${leak} on this machine — pass an explicit env to anything that `
+      + 'resolves storage paths')
+  }
 })

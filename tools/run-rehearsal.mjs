@@ -32,6 +32,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { isLoopbackFeedUrl, serveFeed, writeFeed } from './private-update-feed.mjs'
 import {
   assertDestinationSafe, assertFixtureProvenance, assertNotElevated, assertRehearsalComposition,
+  assertStorageSafe, releaseAll,
   assertRehearsalPackage, assertRehearsalTarget, compareSnapshots, DEFAULT_REHEARSAL_OUT,
   installedRootsFromRegistry, isInside, isolationChecks, isRehearsalProcessPath, overlaps,
   processesWithPaths, productionDataRoot, realPath, rehearsalDataRoot, releaseRehearsal,
@@ -303,6 +304,11 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
   // somebody's ordinary dev build, and running ON it is worse than the earlier
   // bug of merely declining to delete it. With it, nothing there is deleted.
   const adopt = argv.includes('--adopt')
+  // ⚠ RECOVERY IS DELIBERATE, NEVER AUTOMATIC. A claim whose owner is gone is
+  // probably a crashed rehearsal — but "probably" is how two live runs both
+  // acquired in the version review measured. This flag is the operator saying
+  // they have checked.
+  const reclaim = argv.includes('--reclaim')
   // ⚠ --dry-run EXISTS SO THE GUARDS CAN BE EXERCISED WITHOUT THE REHEARSAL.
   // A real run needs a minute of untouched machine, which makes it the wrong
   // thing to reach for when what you want to know is whether this machine is in
@@ -341,6 +347,13 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
     paths = assertRehearsalPaths({
       outDir, exe, fixture, workDir, env, installedRoot, installedRoots, fileSystem,
     })
+    // ⚠ THE STORAGE IS JUDGED HERE TOO, AND --adopt CANNOT WAIVE IT. Adoption
+    // says existing rehearsal storage is yours to reuse; it cannot say that
+    // storage may be a junction into Program Files or into the production data
+    // directory. Review measured both of those launching and returning zero.
+    const storage = assertStorageSafe({ env, installedRoot, installedRoots, fileSystem })
+    step('the rehearsal storage is outside every protected location',
+      `data root ${storage.dataRoot}\n    updater cache ${storage.updaterCache}`)
     packagedInfo = assertRehearsalComposition(unpacked, fileSystem)
     const provenance = assertFixtureProvenance(paths.fixture, { repoRoot, fileSystem })
     step('the artifact is this repository\'s fixture',
@@ -357,9 +370,10 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
   // processes can see.
   let reservation
   try {
-    reservation = reserveRehearsal(paths.outDir, { fileSystem, isAlive: fx.isAlive })
-    step('output directory reserved',
-      `${reservation.file}${reservation.taken === 'stale' ? ' (took over a stale claim)' : ''}`)
+    reservation = reserveRehearsal(paths.outDir, {
+      fileSystem, env, isAlive: fx.isAlive, pid: fx.pid ?? process.pid, reclaim,
+    })
+    step('reserved', reservation.claims.map(c => `${c.file} (${c.taken})`).join('\n    '))
   } catch (error) {
     err(`REFUSED: ${error?.message ?? error}`)
     err('Nothing was created, launched, stopped or removed.')
@@ -373,6 +387,9 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
   let preexistingDataRoot = true
   let preexistingCache = true
   let dryRunComplete = false
+  // Set by cleanup when a process would not die or residue could not be
+  // removed. Applied to the exit code after the comparison, so both still run.
+  let cleanupFailed = false
   // ⚠ NOTHING DESTRUCTIVE HAPPENS UNLESS A LAUNCH ACTUALLY HAPPENED. Review
   // measured both halves of this: a refused plan still reached Stop-Process
   // with the UNVALIDATED output directory, and --dry-run — which promises it
@@ -573,18 +590,42 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
     // VALIDATED output directory from the plan. Falling back to the raw
     // `outDir` here was the hole: a plan refused for naming Program Files still
     // reached Stop-Process with Program Files.
+    // ⚠ ATTEMPTED TERMINATION IS NOT OBSERVED TERMINATION. Calling
+    // Stop-Process and recording the process as "stopped" is a claim about
+    // what was ASKED FOR. Review measured a failed stop being reported as a
+    // success, with the live process named in evidence.stopped and the run
+    // still exiting zero. Every process is now re-enumerated afterwards, and
+    // only the ones that actually went are called stopped.
     if (launched && plan) {
-      const stopped = []
-      for (const proc of processesWithPaths(runPowerShell)) {
-        if (!isRehearsalProcessPath(proc.Path, plan.outDir)) continue
-        stopped.push({ id: proc.Id, name: proc.ProcessName, path: proc.Path })
-        stopProcess(proc.Id)
+      const mine = () => processesWithPaths(runPowerShell)
+        .filter(proc => isRehearsalProcessPath(proc.Path, plan.outDir))
+      const before = mine()
+      for (const proc of before) stopProcess(proc.Id)
+      // Give them a moment to exit, then look again rather than assume.
+      let survivors = before.length ? mine() : []
+      for (let attempt = 0; attempt < 5 && survivors.length; attempt += 1) {
+        await sleep(500)
+        survivors = mine()
       }
-      evidence.stopped = stopped
+      const surviving = new Set(survivors.map(proc => String(proc.Id)))
+      evidence.stopped = before
+        .filter(proc => !surviving.has(String(proc.Id)))
+        .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
+      evidence.stillRunning = survivors
+        .map(proc => ({ id: proc.Id, name: proc.ProcessName, path: proc.Path }))
       step('rehearsal processes stopped',
-        stopped.length
-          ? stopped.map(s => `${s.id} (${s.path})`).join(', ')
+        evidence.stopped.length
+          ? evidence.stopped.map(s => `${s.id} (${s.path})`).join(', ')
           : 'none were running')
+      if (survivors.length) {
+        // ⚠ AND A SURVIVOR FAILS THE RUN. It is still using the storage below,
+        // so nothing may be deleted either.
+        cleanupFailed = true
+        step('⚠ PROCESSES THIS RUN STARTED ARE STILL RUNNING',
+          `${evidence.stillRunning.map(s => `${s.id} ${s.name} (${s.path})`).join(', ')} — `
+          + 'they did not exit when asked. Nothing has been removed, because they may still '
+          + 'be writing to it. Stop them by hand and re-check before trusting this machine')
+      }
     } else {
       evidence.stopped = []
       step('no process was stopped',
@@ -599,6 +640,10 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
     if (!launched) {
       step('nothing was removed',
         'cleanup removes this run\'s residue; a run that launched nothing produced none')
+    } else if (cleanupFailed) {
+      evidence.removed = []
+      step('nothing was removed — a process this run started is still alive',
+        'deleting storage underneath a running process is worse than leaving residue')
     } else if (!keep) {
       // ⚠ ONLY WHAT THIS RUN CREATED. The baseline recorded whether each of
       // these existed beforehand; anything that did belongs to somebody's
@@ -619,22 +664,42 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
         targets.push(rehearsalDataRoot(env))
       }
       const removed = []
+      const leftBehind = []
       for (const target of targets) {
         try {
           const safe = assertRemovable(target, { env })
+          if (!fileSystem.existsSync(safe)) continue
+          fileSystem.rmSync(safe, { recursive: true, force: true })
+          // ⚠ CONFIRMED, NOT ASSUMED — rmSync with force swallows a good deal,
+          // and a removal that quietly left the directory in place used to
+          // still be counted as removed.
           if (fileSystem.existsSync(safe)) {
-            fileSystem.rmSync(safe, { recursive: true, force: true })
+            leftBehind.push({ path: safe, reason: 'it is still there after removal' })
+          } else {
             removed.push(safe)
           }
-        } catch (error) { step('cleanup refused', String(error?.message ?? error)) }
+        } catch (error) {
+          leftBehind.push({ path: target, reason: String(error?.code ?? error?.message ?? error) })
+        }
       }
       evidence.removed = removed
+      evidence.residue = leftBehind
       step('rehearsal residue removed', removed.length ? removed.join(', ') : 'nothing to remove')
+      if (leftBehind.length) {
+        // ⚠ RESIDUE IS A FAILURE, AND IT IS NAMED. 'cleanup refused: EACCES'
+        // buried in the steps while the run returned zero was review's finding:
+        // the operator reads the exit code, not the log.
+        cleanupFailed = true
+        step('⚠ REHEARSAL RESIDUE REMAINS ON THIS MACHINE',
+          leftBehind.map(r => `${r.path} (${r.reason})`).join('; ')
+          + ' — remove it by hand; the run is reported as failed for this reason alone')
+      }
     } else {
       step('residue kept', '--keep was given; the rehearsal data root and updater cache remain')
     }
 
-    if (reservation) releaseRehearsal(reservation.file, { fileSystem })
+    // Only this invocation's own claims, verified by pid before each removal.
+    if (reservation) evidence.released = releaseAll(reservation, { fileSystem })
 
     // ⚠ AND A COMPARISON THAT DID NOT HAPPEN IS NOT A PASS. Both the failing
     // and the missing case force a non-zero exit: an exit code of 0 from this
@@ -652,6 +717,15 @@ export async function main(argv = process.argv.slice(2), injected = {}) {
         String(error?.message ?? error))
       evidence.comparison = null
       exitCode = 1
+    }
+
+    // ⚠ CLEANUP FAILURE IS RUN FAILURE, applied AFTER the comparison so the
+    // comparison still runs and is still recorded. A surviving process or
+    // residue left on the machine is not something an operator should have to
+    // find by reading the log of a run that told them it succeeded.
+    if (cleanupFailed) {
+      evidence.cleanupFailed = true
+      exitCode = exitCode === 0 ? 4 : exitCode
     }
 
     try {

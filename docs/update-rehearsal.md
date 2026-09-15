@@ -82,12 +82,15 @@ The default budget is five minutes. `--budget 600` gives it ten.
 | `--keep` | leave the rehearsal's data folder and updater cache in place for inspection |
 | `--dry-run` | run every guard, the isolation checks and the baseline, then stop without launching anything |
 | `--adopt` | run even though a dev data folder or updater cache already exists. Nothing there is ever deleted |
+| `--reclaim` | take over a claim left behind by a rehearsal that crashed. Only when its process is provably gone |
 
-Exit codes: `0` the fixture was applied (or the dry run passed) **and** the
-installed release was compared and found unchanged; `3` nothing went wrong but
-the apply never fired within the budget; `1` something was refused, a check
-failed, or the comparison could not be made; `2` the build or the fixture is
-missing.
+Exit codes: `0` the fixture was applied (or the dry run passed), the installed
+release was compared and found unchanged, **and** the machine was left clean;
+`3` nothing went wrong but the apply never fired within the budget; `4` the
+rehearsal itself was fine but cleanup was not — a process would not stop, or
+residue could not be removed, and the run says exactly which; `1` something was
+refused, a check failed, or the comparison could not be made; `2` the build or
+the fixture is missing.
 
 `0` always means the installation was checked. A comparison that fails **and**
 a comparison that could not be run both force a non-zero exit — an exit code
@@ -157,16 +160,22 @@ Everything is written to `dist/rehearsal/evidence.json`.
 | `assertRemovable` | deleting anything but the rehearsal's own data folder and updater cache — and even those only when **this run created them** |
 | `serveFeed` | binding anything but loopback |
 
-Two rules about ownership are worth stating plainly, because they are what
-stop cleanup doing harm:
+Four rules about ownership, because they are what stop cleanup doing harm:
 
 - **Nothing is stopped or deleted unless this run actually launched something.**
   A refusal and a `--dry-run` both leave the machine exactly as they found it.
 - **This run only owns what it created.** The pre-flight refuses to start if
   anything is already running from the rehearsal directory, which is what makes
   "every process in that directory is mine" true rather than hopeful. The dev
-  data folder and updater cache are left alone if they existed beforehand —
-  they may be somebody's ordinary dev build.
+  data folder and updater cache are left alone if they existed beforehand.
+- **Adoption is about ownership, never about isolation.** `--adopt` says the
+  existing rehearsal storage is yours to reuse. It cannot say that storage may
+  be a shortcut into Program Files or into your real data folder — that is
+  refused either way, before anything launches.
+- **Attempted is not observed.** Asking a process to stop is not the same as
+  watching it go. Every process is re-checked afterwards, and a survivor fails
+  the run and stops any deletion — removing a folder underneath a process that
+  is still writing to it is worse than leaving it there.
 
 Two further rules are structural rather than checks:
 
