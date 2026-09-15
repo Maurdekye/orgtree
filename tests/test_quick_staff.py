@@ -34,7 +34,12 @@ class QuickStaffTests(unittest.TestCase):
             ("mail_notify", {"return_value": None}),
         ]:
             p = patch.object(api, target, **kwargs); p.start(); self.addCleanup(p.stop)
-        p = patch.object(api.supervisor, "send_message", return_value={})
+        # the REAL send door answers {"accepted": …}; an empty dict was a
+        # shape it never returns, and the route now reads the answer
+        # (a refused kickoff undoes the request), so the double has to
+        # tell the truth about what a successful admission looks like
+        p = patch.object(api.supervisor, "send_message",
+                         return_value={"accepted": True, "queued": 0})
         self.drive = p.start(); self.addCleanup(p.stop)
         for target, value in [("account_reason", None), ("supported_efforts", ["low", "high"])]:
             p = patch.object(quickstaff, target, return_value=value); p.start(); self.addCleanup(p.stop)

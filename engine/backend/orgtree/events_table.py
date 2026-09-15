@@ -171,6 +171,30 @@ def leaf(family: str, obj: str | None, **fields: dict[str, Any]) -> dict[str, An
 
 _BODY = F("str", B, True)
 _YOU = "addressed as 'you' in the text"
+
+# ⚠ THE SINGLE SOURCE OF TRUTH for `context.drive_mail_pointer.reason`, and the
+# reason it is a tuple rather than a literal spelled inline (user-reported Quick
+# Hire failure, 2026-09-15). The literal below is BUILT from this tuple, and
+# `supervisor.check_ping_reason` validates every `send_message(ping_reason=…)`
+# against the SAME tuple at the sending door. Before that they were two
+# independent lists: `api.quick_staff_select` stated `quick_staff` and
+# `api.node_unstick` stated `unstuck`, neither of which was ever added here, so
+# the nudge composed fine at the call and then killed the RECIPIENT's turn at
+# admission with `bad_literal at reason` — a failure that surfaced on an
+# innocent agent, minutes later, after the docket had already been advanced and
+# the mail already posted. Adding a new reason means adding it HERE; nothing
+# else needs touching, and nothing else may carry its own copy of this list.
+DRIVE_MAIL_POINTER_REASONS: Final[tuple[str, ...]] = (
+    "user_mail", "agent_mail", "notice", "participation", "docket_reply",
+    "ask_answer", "batch", "credit_decision", "audience", "rehire_waited",
+    "reconcile_waited", "freeze_lifted", "remote_released",
+    "unfrozen_by_switch", "external_inbox", "watchdog", "watchdog_quiet",
+    "storage", "failure", "checkup", "reminder",
+    "docket_abandoned_reassignment",
+    # the two the product has always sent and the table never listed
+    "quick_staff", "unstuck",
+)
+
 _STATUS = "L[backlogged|open|in_progress|blocked|waiting|review|deploy_ready|done|superseded|dropped]"   # = Org.WORK_STATUSES
 
 LEAVES: Final[dict[str, dict[str, Any]]] = {
@@ -432,10 +456,7 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     # composition never guesses it from the text or the drained batch.
     "context.drive_mail_pointer": leaf(
         "context_change", "NodeRef", text=F("str", M, False),
-        reason=F("L[user_mail|agent_mail|notice|participation|docket_reply|ask_answer|batch|"
-                 "credit_decision|audience|rehire_waited|reconcile_waited|freeze_lifted|"
-                 "remote_released|unfrozen_by_switch|external_inbox|watchdog|watchdog_quiet|"
-                 "storage|failure|checkup|reminder|docket_abandoned_reassignment]?", M, False)),
+        reason=F("L[" + "|".join(DRIVE_MAIL_POINTER_REASONS) + "]?", M, False)),
     "context.drive_restart_interrupted": leaf("context_change", "BuildRef",
                                               text=F("str", M, False)),
     "context.drive_restart_wake": leaf("context_change", "BuildRef", text=F("str", M, False),

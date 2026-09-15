@@ -41,7 +41,7 @@ from urllib.parse import urlsplit
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
 # stay under TYPE_CHECKING so the runtime import graph is unchanged.
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 # ⚠ BEFORE ANY orgtree MODULE IS IMPORTED, so nothing can print ahead of it.
 #
@@ -5595,13 +5595,93 @@ def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
         raise HTTPException(422, str(e)) from e
 
 
+# The reason Quick Hire's kickoff nudge states, and the text it carries. Named
+# here because `_quick_staff_undo` has to know which send it is compensating
+# for, and because the reason is pre-flighted against the event table BEFORE
+# the ticket moves (see below).
+QUICK_STAFF_PING_REASON: Final = "quick_staff"
+QUICK_STAFF_DRIVE_TEXT: Final = ("(orgtree) The user requested staffing of this "
+                                 "ticket. Handle the mail above.")
+
+
+def _retract_mail(org: Any, nid: str, mid: str) -> bool:
+    """Remove ONE undrained mail entry from a node's box and tombstone it in the
+    archive. Shared by the user's retraction button (`node_mail_retract`) and by
+    Quick Hire's compensating undo, so both leave the same honest record.
+    Returns False when the entry is gone — already drained, already retracted —
+    which is never an error: it means the mail is not strandable any more."""
+    box = (org.d.get("mail") or {}).get(nid) or []
+    kept = [m for m in box if m.get("id") != mid]
+    if len(kept) == len(box):
+        return False
+    org.d["mail"][nid] = kept
+    for m in (org.d.get("mail_log") or {}).get(nid) or []:
+        if m.get("id") == mid:
+            m["retracted"] = True
+    return True
+
+
+def _quick_staff_undo(slug: str, wid: str, request_id: str, nid: str,
+                      undo: dict[str, Any]) -> bool:
+    """Put a staffing REQUEST back the way it was after its kickoff failed.
+
+    ⚠ WHY A COMPENSATION AND NOT A LONGER TRANSACTION. The mail has to EXIST
+    before anything can drive the recipient at it, and driving cannot happen
+    under `store.DOC_LOCK` (the turn worker takes that lock itself). So there
+    is an unavoidable window where the ticket is advanced, the request is
+    posted and the turn has not been admitted. When admission then refuses,
+    the honest end state is the one the user started from: the ticket back at
+    its prior status with its prior progress, the request retracted rather than
+    left sitting unread, and the receipt dropped so a retry is a fresh attempt
+    rather than a replay of a failure.
+
+    ⚠ IT REFUSES TO CLOBBER. The undo only fires when the item is still exactly
+    as this call left it — same `rev`, our receipt still present. Anything else
+    means another writer has moved the item since, and their state wins; the
+    caller still reports the failure, it simply does not rewrite somebody
+    else's docket row."""
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        try:
+            item = org._work_find(wid)[0]
+        except LedgerError:
+            return False
+        receipts = item.get("quick_staff_receipts") or {}
+        if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
+            return False
+        flag = item.get("manual_attention")
+        org.work_update(USER, wid, undo["done"], undo["next"],
+                        status=undo["status"], owner=undo["owner"] or None,
+                        expected_rev=int(undo["rev"]))
+        item = org._work_find(wid)[0]
+        # restore OUR OWN clear verbatim: the forward update dropped a standing
+        # manual flag because every update restates it, and putting the stored
+        # record back is not a fresh raise (no `manual_attention_rev` bump, no
+        # re-ping of a reason the user may have dismissed)
+        item["manual_attention"] = undo["attention"] if flag is None else flag
+        (item.get("quick_staff_receipts") or {}).pop(request_id, None)
+        if undo.get("mail"):
+            _retract_mail(org, nid, str(undo["mail"]))
+        store.save_org(org)
+    return True
+
+
 @app.post("/api/orgs/{slug}/work-items/{wid}/quick-staff")
 def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[str, Any]:
     from . import quickstaff
     drive: list[str] = []
     request_id = str(body.request_id)
     selection = body.model_dump(exclude={"request_id"})
+    undo: dict[str, Any] | None = None
     try:
+        # ⚠ PRE-FLIGHT THE WAKE PAYLOAD BEFORE THE TICKET MOVES (2026-09-15).
+        # This reason used to be stated only at the send, three statements after
+        # the docket had been advanced and the request posted — and the event
+        # table did not list it, so the nudge composed on the RECIPIENT's
+        # turn-start thread and died there with `bad_literal at reason`. The
+        # ticket was left at Open, the request sat unread, and nothing told the
+        # user. Checked here it is a plain 422 against an untouched ticket.
+        supervisor.check_ping_reason(QUICK_STAFF_PING_REASON)
         offers = None
         kiosk = None
         if body.mode == "request" and body.tier:
@@ -5651,11 +5731,19 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                     text += f" Suggested model: {body.tier}."
                 if body.effort is not None:
                     text += f" Suggested effort: {body.effort}."
+                # everything the undo needs, read BEFORE the first mutation
+                undo = {"status": item.get("status"),
+                        "done": list(item.get("done_so_far") or []),
+                        "next": list(item.get("working_on_next") or []),
+                        "owner": str((item.get("owner") or {}).get("node") or ""),
+                        "attention": item.get("manual_attention"),
+                        "node": nid}
                 org.work_update(USER, wid, item.get("done_so_far") or [],
                     item.get("working_on_next") or ["Staff the ticket."], status="open")
                 mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
                 if not mailed.get("deferred"):
                     drive.append(nid)
+                undo["mail"] = mailed.get("id")
                 result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
@@ -5669,13 +5757,57 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
             receipts = item.setdefault("quick_staff_receipts", {})
             receipts[request_id] = {"selection": selection, "result": result}
             store.save_org(org)
+            if undo is not None:
+                # the rev the undo is allowed to rewrite, and nothing else
+                undo["rev"] = int(item.get("rev") or 0)
     except (LedgerError, ValueError) as e:
         raise HTTPException(422, str(e)) from e
     hub_changed(slug)
+    # ⚠ THE KICKOFF IS PART OF THE RESULT, NOT A SIDE EFFECT. This loop used to
+    # discard what the send door answered, so "Staffing requested from X" was
+    # printed whether X's turn started, was refused by a halt, or died. A
+    # request whose kickoff never admitted is undone; an immediate hire is not
+    # (the seat exists and un-hiring it is a different operation), so that case
+    # says plainly that the agent is there and its first turn is not.
+    refused: str | None = None                # nothing was admitted and nothing will be
+    held: str | None = None                   # admitted, but parked behind a halt
     for nid in dict.fromkeys(drive):
         mail_notify(slug, USER, nid)
-        supervisor.send_message(slug, nid, "(orgtree) The user requested staffing of this ticket. Handle the mail above.",
-                                mail_ping=True, sender=USER, ping_reason="quick_staff")
+        try:
+            sent = supervisor.send_message(
+                slug, nid, QUICK_STAFF_DRIVE_TEXT, mail_ping=True, sender=USER,
+                ping_reason=QUICK_STAFF_PING_REASON)
+        except Exception as e:                                    # noqa: BLE001
+            refused = f"{nid} could not be started: {e}"
+        else:
+            if not sent.get("accepted"):
+                refused = (f"{nid} would not accept a turn"
+                           + (f": {sent['error']}" if sent.get("error") else "."))
+            elif sent.get("deferred"):
+                # NOT undone: a halt is lifted, and `halt.admission` has already
+                # retained this carrier durably, so the request really will run.
+                # Say so instead of printing "requested" and leaving the user to
+                # wonder why nothing woke up.
+                held = (f"{nid} is {sent['deferred']} — the request is retained "
+                        f"in its halt queue and starts when it is released, not "
+                        f"now.")
+    if refused and undo is not None:
+        if _quick_staff_undo(slug, wid, request_id, str(undo["node"]), undo):
+            hub_changed(slug)
+            raise HTTPException(422, refused + " The ticket is back where it "
+                                "was and the request was withdrawn — fix that "
+                                "and try again.")
+        raise HTTPException(422, refused + " The ticket has been changed by "
+                            "someone else since, so it was left as it stands.")
+    if refused:
+        # an immediate hire: the seat is real and un-hiring it is a different
+        # operation, so report rather than undo
+        result["kickoff_failed"] = refused
+        result["message"] += (" The agent exists, but its first turn did not "
+                              "start: " + refused)
+    elif held:
+        result["kickoff_held"] = held
+        result["message"] += " " + held
     return result
 
 
@@ -11952,17 +12084,9 @@ async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
             org.node(nid)
         except LedgerError as e:
             raise HTTPException(404, str(e))
-        box = (org.d.get("mail") or {}).get(nid) or []
-        kept = [m for m in box if m.get("id") != mid]
-        if len(kept) == len(box):
+        if not _retract_mail(org, nid, mid):
             raise HTTPException(404, "no such pending mail — it may already "
                                      "have been delivered")
-        org.d["mail"][nid] = kept  # type: ignore[typeddict-item]  # box non-empty ⇒ the key exists
-        # mirror the retraction into the archive so the record stays honest
-        log = (org.d.get("mail_log") or {}).get(nid) or []
-        for m in log:
-            if m.get("id") == mid:
-                m["retracted"] = True
         store.save_org(org)
     await hub.changed(slug)
     return {"retracted": mid}

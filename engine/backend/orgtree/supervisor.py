@@ -44,8 +44,9 @@ from typing import Any, Final, Protocol, cast
 
 from . import halt, maildrain
 from . import (accounts, agentauth, antigravity_limits, appsettings,
-               cachecontinuity, clipin, codex_limits, events, codex_route,
-               deployment, envelope, failfix, handoff, imgblock, lifecycle, limits,
+               cachecontinuity, clipin, codex_limits, codex_route, deployment,
+               envelope, events, events_table, failfix, handoff, imgblock,
+               lifecycle, limits,
                liveness, localtime, net, openrouter, opreceipts, providers, registry,
                sandbox as sbx, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
@@ -9228,9 +9229,43 @@ def _ping_drive(org: Org, nid: str, text: str, reason: str | None
     frontend drops the whole `drive` segment by variant (HUMAN_HIDDEN_VARIANTS)
     — structurally, never by matching the words. The agent's text is untouched:
     `text` on the event is the nudge verbatim, and the envelope still carries it.
-    """
+
+    ⚠ AN UNKNOWN REASON IS DROPPED HERE, NEVER RAISED (2026-09-15). The reason
+    is model-only metadata on a segment the human transcript does not even
+    render; letting it abort the mint aborts THE WHOLE TURN, and the turn that
+    dies belongs to the recipient rather than to whoever stated the bad reason.
+    `check_ping_reason` already refuses one at the sending door, so the only
+    way an unknown reason reaches this line is a carrier that was persisted
+    before it could be checked — `halt.admission` writes `ping_reason` straight
+    into a node's halt queue in the org document, so a build that sent one is
+    still able to hand it to a later build on unhalt. That replay must deliver
+    the mail, not destroy the turn."""
+    if reason is not None and reason not in events_table.DRIVE_MAIL_POINTER_REASONS:
+        print(f"[orgtree] dropping unknown drive ping_reason {reason!r} for "
+              f"{nid}: delivering the pointer without it")
+        reason = None
     return events.mint("context.drive_mail_pointer", _SYSTEM_ACTOR, _node_ref(org, nid),
                        text=text, reason=reason)
+
+
+def check_ping_reason(reason: str | None) -> str | None:
+    """Refuse a `send_message(ping_reason=…)` the event table cannot type.
+
+    THE SENDING DOOR IS WHERE THIS BELONGS. Composition happens on the
+    recipient's turn-start thread, minutes or an unhalt later, so a reason
+    checked only there reports the fault to the wrong agent at the wrong time
+    and takes a turn down with it (the Quick Hire failure of 2026-09-15).
+    Checked here it is a synchronous error at the call, which is what lets a
+    caller such as `quick_staff_select` refuse BEFORE it advances a ticket."""
+    if reason is None:
+        return None
+    if reason not in events_table.DRIVE_MAIL_POINTER_REASONS:
+        raise ValueError(
+            f"unknown drive ping_reason {reason!r} — a mail pointer states one "
+            f"of the context.drive_mail_pointer reasons "
+            f"({'|'.join(events_table.DRIVE_MAIL_POINTER_REASONS)}), or none. "
+            f"Add the new reason to events_table.DRIVE_MAIL_POINTER_REASONS.")
+    return reason
 
 
 def _carrier_owes_mail(carrier: Any) -> bool:
@@ -23693,7 +23728,6 @@ def remote_control_stop(slug: str, nid: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-@halt.admission
 def send_message(slug: str, nid: str, text: str,
                  command: bool = False, wake: bool = True,
                  mail_ping: bool = False,
@@ -23702,6 +23736,26 @@ def send_message(slug: str, nid: str, text: str,
                  sender: str = "",
                  ping_reason: str | None = None,
                  _inventory: NativeInventory | None = None) -> dict[str, Any]:
+    """The send door. `check_ping_reason` runs FIRST and outside halt admission:
+    a reason the event table cannot type must be refused at the call, before
+    anything is written, because `halt.admission` PERSISTS `ping_reason` into
+    the node's halt queue in the org document — after that the bad value
+    outlives the process that stated it and surfaces on a later unhalt, in the
+    recipient's turn. See `check_ping_reason` and `_ping_drive`."""
+    check_ping_reason(ping_reason)
+    return _admit_message(slug, nid, text, command, wake, mail_ping, idle_only,
+                          view, sender, ping_reason, _inventory)
+
+
+@halt.admission
+def _admit_message(slug: str, nid: str, text: str,
+                   command: bool = False, wake: bool = True,
+                   mail_ping: bool = False,
+                   idle_only: bool = False,
+                   view: str | None = None,
+                   sender: str = "",
+                   ping_reason: str | None = None,
+                   _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """Drive a node with a nudge; returns immediately. EVERY substantive message
     — user and agent alike — is MAIL (user ruling: the direct-message channel
     was folded into the mail system): it already sits persisted in the node's
