@@ -4873,9 +4873,15 @@ def node_message(slug: str, nid: str, body: Message,
     warn = list(r.get("warnings") or [])
     if r.get("deferred"):
         # archived recipient (user ruling): the mail waits in its inbox and is
-        # acted on at rehire — nothing to drive now
-        return {"accepted": True, "deferred": True, "queued": 0, **receipt,
-                **({"warnings": warn} if warn else {})}
+        # acted on at rehire — nothing to drive now. The USER is a sender too,
+        # and this branch returned no `delivery` sentence either: the desk's
+        # own "deferred — delivers at rehire" chip is the only cue, and it
+        # promises a rehire nothing schedules.
+        return {"accepted": True, "deferred": True, "queued": 0,
+                "delivery": supervisor.delivery_note(
+                    slug, nid,
+                    {"deferred": r.get("recipient_state") or "not live"}),
+                **receipt, **({"warnings": warn} if warn else {})}
     sent = supervisor.send_message(
         slug, nid,
         "(orgtree) The mail above includes a message from the user, addressed "
@@ -5795,12 +5801,39 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
+                # Keep the assignee that owned the ticket before the immediate
+                # update.  Once _staff_call hands the item to the new seat,
+                # item['owner'] no longer identifies the recipient.  This is
+                # deliberately limited to under-assignee staffing: top-level
+                # fallback has no existing assignee beneath whom the seat was
+                # placed, and request mode leaves the assignment unchanged.
+                previous_assignee = (str(ctx["owner"].get("node") or "")
+                                     if ctx["mode"] == "under_assignee" else "")
                 args = quickstaff.staff_args(org, item, ctx, str(body.tier),
                                              body.effort, body.account)
                 result = _staff_call(org, slug, USER, args, drive, None, [])
                 result["message"] = f"Staffed {result['node']} " + (
                     "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
                     f" on {body.account}" if body.account else "") + "; ticket moved to Open."
+                if previous_assignee:
+                    notice = (f"[QUICK STAFFING · {item['slug']} "
+                              f'\"{str(item.get("title") or "")[:80]}\"]\n'
+                              "The user initiated immediate staffing beneath "
+                              f"you, and {result['node']} is now staffed under "
+                              "you. Selected model: "
+                              f"{body.tier}.")
+                    if body.effort is not None:
+                        notice += f" Selected effort: {body.effort}."
+                    if body.account:
+                        notice += f" Selected account: {body.account}."
+                    # This is part of the same in-memory transaction as the
+                    # successful staffing. Refusals and failures above never
+                    # reach this point, so they cannot emit a false-success
+                    # notice. Do not grant a reply audience for an automatic
+                    # notice.
+                    org.post_mail(USER, previous_assignee, notice, "notice",
+                                  typed=True, grant_reply_audience=False)
+                    result["assignee_notified"] = previous_assignee
             # Receipts commit WITH the request/seat and status. Retries after a
             # lost response or restart cannot create another agent or request.
             item = org._work_find(wid)[0]
@@ -10116,6 +10149,23 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     if delivered != "user_inbox" and not result.get("deferred"):
                         drive.append(delivered)
                         mail_to = delivered
+                    elif delivered != "user_inbox":
+                        # ⭐ THE RETIRED RECIPIENT USED TO GET NO SENTENCE AT
+                        # ALL. `delivery` is written at the drive loop below,
+                        # and this branch deliberately does not drive — so the
+                        # sender read `{"delivered": "x", "deferred": true}`,
+                        # which is the shape a SUCCESSFUL send also wears, and
+                        # the one word telling it apart was a bare `true`. The
+                        # note is composed here instead, from the state
+                        # post_mail recorded, and says the honest thing: the
+                        # mail IS durable, and a rehire is what would produce
+                        # a reader. Nothing is woken — an archived node must
+                        # not be driven, which is why this cannot simply join
+                        # `drive`.
+                        result["delivery"] = supervisor.delivery_note(
+                            body.org, delivered,
+                            {"deferred": result.get("recipient_state")
+                             or "not live"})
             elif body.tool == "orgtree_send_notice":
                 # a NOTICE is mail minus the wake (user spec 2026-08-19):
                 # same §7.2 addressing and mailbox, delivered by the next
@@ -10135,6 +10185,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 mail_notify(body.org, body.node, nto)
                 if not result.get("deferred"):
                     notice_to = nto
+                else:
+                    # same gap as the message branch above, with the weaker
+                    # promise a notice actually carries: a rehire alone never
+                    # delivers one
+                    result["delivery"] = supervisor.delivery_note(
+                        body.org, nto,
+                        {"deferred": result.get("recipient_state")
+                         or "not live"}, kind="notice")
             elif body.tool == "orgtree_request_credits":
                 result = org.request_credits(body.node, a.get("new_limit"),
                                              a.get("reason"))
@@ -10996,7 +11054,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # recipient's running turn" is an ACCEPTANCE, not a read — and how
             # long the recipient has been without an injection point.
             result["delivery"] = supervisor.delivery_note(
-                body.org, notice_to, r)
+                body.org, notice_to, r, kind="notice")
     for _n in noticed_nodes:
         # same wake=False steer as a send_notice: the participation notice
         # reaches a running recipient mid-task and waits for an idle one
@@ -11009,7 +11067,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             ping_reason="participation")
         if isinstance(result, dict):
             result.setdefault("notice_delivery", {})[_n] = \
-                supervisor.delivery_note(body.org, _n, r)
+                supervisor.delivery_note(body.org, _n, r, kind="notice")
     if org_send is not None:
         err = supervisor.interorg_send(body.org, org_send[0], org_send[1])
         if err:

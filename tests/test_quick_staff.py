@@ -120,6 +120,57 @@ class QuickStaffTests(unittest.TestCase):
                     self.assertEqual(item["owner"]["node"], r.json()["node"])
                     self.assertEqual(item["status"], "open")
 
+    def test_under_assignee_immediate_staffing_notifies_previous_assignee(self):
+        appsettings.set_quick_staff_behavior("under_assignee")
+        body = self.selection("haiku", "high") | {"account": "claude/primary"}
+        choice = {"value": "claude/primary", "id": "default", "provider": "claude",
+                  "ambient": True, "email": None}
+        with patch.object(staffcache, "tier_accounts", return_value=[choice]):
+            r = self.send(body)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["assignee_notified"], self.owner)
+        notices = [m for m in self.loaded().d["mail"][self.owner]
+                   if m.get("kind") == "notice" and "QUICK STAFFING" in m.get("body", "")]
+        self.assertEqual(len(notices), 1)
+        text = notices[0]["body"]
+        self.assertIn(self.item, text)
+        self.assertIn("Repair the widget", text)
+        self.assertIn("user initiated immediate staffing", text)
+        self.assertIn("Selected model: haiku", text)
+        self.assertIn("Selected effort: high", text)
+        self.assertIn("Selected account: claude/primary", text)
+
+    def test_under_assignee_notice_omits_unspecified_optional_choices(self):
+        appsettings.set_quick_staff_behavior("under_assignee")
+        r = self.send(self.selection("haiku"))
+        self.assertEqual(r.status_code, 200, r.text)
+        notices = [m for m in self.loaded().d["mail"][self.owner]
+                   if m.get("kind") == "notice" and "QUICK STAFFING" in m.get("body", "")]
+        self.assertEqual(len(notices), 1)
+        text = notices[0]["body"]
+        self.assertIn("Selected model: haiku", text)
+        self.assertNotIn("Selected effort:", text)
+        self.assertNotIn("Selected account:", text)
+
+    def test_under_assignee_refusal_and_failure_are_silent(self):
+        appsettings.set_quick_staff_behavior("under_assignee")
+        body = self.selection("haiku")
+        with patch.object(api, "_staff_call",
+                          side_effect=ledger.LedgerError("Not enough credits")):
+            r = self.send(body)
+        self.assertEqual(r.status_code, 422)
+        current = self.loaded()
+        self.assertFalse([m for m in current.d.get("mail", {}).get(self.owner, [])
+                          if m.get("kind") == "notice"])
+
+        with patch.object(ledger.Org, "work_update",
+                          side_effect=ledger.LedgerError("assignment failed")):
+            r = self.send(self.selection("haiku"))
+        self.assertEqual(r.status_code, 422)
+        current = self.loaded()
+        self.assertFalse([m for m in current.d.get("mail", {}).get(self.owner, [])
+                          if m.get("kind") == "notice"])
+
     def test_immediate_staffing_preserves_progress_or_generates_standard_boundary(self):
         for mode in ("under_assignee", "top_level"):
             for empty in (False, True):

@@ -34,6 +34,7 @@ import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
+import { CollapsibleMailer } from './narrowlist'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { resolveRef } from './reflinks'
@@ -466,7 +467,8 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                     : 'no cards have been presented yet'}
               </DocListEmpty>
             : (
-                <div className="mailer">
+                <CollapsibleMailer collapsible listLabel="document list"
+                  list={
                   <LazyDocList w={w} label="Presented documents">
                     {menu.node}
                     {rows!.map((r) => (
@@ -503,6 +505,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                       </GalleryEntry>
                     ))}
                   </LazyDocList>
+                  }>
                   <div className="mailer-read">
                     {cur
                       ? <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
@@ -513,7 +516,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                       : <div className="dim pad mailer-none">
                           select a document to read it</div>}
                   </div>
-                </div>
+                </CollapsibleMailer>
               )}
         </div>
     </PinFrame>
@@ -640,6 +643,10 @@ export interface AgentGalleryViewProps {
    *  selected. Only the modal wrapper passes it, so it can publish what its
    *  WINDOW is showing; the desk's inline gallery has no window and omits it. */
   onShown?: (id: string | null) => void
+  /** collapse the list into an overlay panel when the surface is narrow. The
+   *  MODAL wrapper sets it; the same view on the agent desk keeps its
+   *  persistent column (see CollapsibleMailer). */
+  collapsible?: boolean
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
@@ -675,7 +682,8 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
-        onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow} />
+        onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow}
+        collapsible />
     </PinFrame>
   )
 }
@@ -686,7 +694,8 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown }: AgentGalleryViewProps) {
+  refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
+  collapsible }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid)
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
@@ -760,7 +769,8 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
         <DocListEmpty w={w} className="desk-presented-empty">
           {w.busy ? 'Loading…' : 'No presented documents.'}</DocListEmpty>
       ) : (
-        <div className="mailer">
+        <CollapsibleMailer collapsible={collapsible} listLabel="document list"
+          list={
           <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}
             {rows.map((r) => (
@@ -791,6 +801,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
               </GalleryEntry>
             ))}
           </LazyDocList>
+          }>
           <div className="mailer-read">
             {cur ? (
               <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
@@ -808,7 +819,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
               <div className="dim pad mailer-none">select a document to read it</div>
             )}
           </div>
-        </div>
+        </CollapsibleMailer>
       )}
     </section>
   )

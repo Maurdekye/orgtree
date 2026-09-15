@@ -2430,7 +2430,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           : r.command ? 'command sent'
             : r.steering ? 'steering in mid-task'
               : r.frozen ? 'frozen — mail waits for ▶ resume'
-                : r.deferred ? 'deferred — delivers at rehire'
+                // ⚠ NOT "delivers at rehire". Nothing schedules a rehire, so
+                // that chip promised a delivery the engine cannot make — the
+                // same over-promise the ledger's own archived-recipient
+                // warning is written to avoid. The mail IS durable; what is
+                // conditional is the reader.
+                : r.deferred ? 'retired — queued, waits for a rehire'
                   : (r.queued ?? 0) > 0 ? `queued (${r.queued} ahead)` : 'delivering')
         if (r.warnings?.length) toast(r.warnings)
         // A command is not correspondence — it never enters pending_mail — so

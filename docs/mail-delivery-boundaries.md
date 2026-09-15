@@ -58,6 +58,51 @@ A one-time upgrade adopts legacy waking mail, so existing stranded messages do
 not need a new send just to create their first demand record. It excludes legacy
 terminal failures and preserves halt/killswitch suspension.
 
+## Unavailable targets: what the sender is told
+
+A send whose target cannot read it has three different outcomes, and the
+sender is told which one it got. They are not interchangeable and the wording
+must never collapse them into one "could not deliver".
+
+**Halted.** The mail is stored in the recipient's mailbox first, so the send is
+accepted and durable; the halt gate then refuses the drive. The sender is told
+the message is queued, that nothing will read it until somebody calls
+`orgtree_unhalt` on that node, and that this is a deferred delivery rather than
+a failed one. A latched org killswitch reads the same way, with the user's
+release named instead of the unhalt.
+
+**Retired.** An archived node still receives mail — it waits in the mailbox and
+a rehire drives it. The sender is told the message is durably stored and is
+delivered *if and when* somebody rehires that node, and that nothing schedules
+a rehire, so an unwanted deferral should be treated as undelivered and sent to
+a live agent instead. The promise stays conditional on purpose: an org whose
+practice is to hire fresh rather than reopen would otherwise accumulate dead
+letters behind a sentence that reads like a scheduled delivery. A notice to the
+same node gets the weaker claim it actually carries — a rehire alone never
+delivers one, because a notice never starts a turn, so it waits for whatever
+turn that node next runs for some other reason.
+
+**Not a target at all.** A name that is no node here and resolves to no outside
+address is refused before anything is stored, and the refusal says so: nothing
+was queued, nobody will ever read it, this is a failed send and not a deferred
+one. An unrecoverable node refuses the same way, because no rehire or unhalt
+makes it readable. Both refusals name only the address the sender supplied and
+enumerate no other members, so a bad name cannot be used to probe the roster.
+Authorization is checked on its own terms and first: a real node the sender may
+not address still refuses as a routing problem (§7.2) and never reveals its
+lifecycle state.
+
+Mail to a live agent is unchanged and stays quiet — it keeps the ordinary
+carrier sentence and gains no warning. Lifecycle transitions that race a send
+are reported from the carrier, not from the stale answer the mailbox write
+returned: a node that retires between the store and the drive reports the
+retirement, and the mail it already holds is still there for the rehire.
+
+`tests/test_unavailable_target_notice.py` covers live, halted, retired,
+invalid, unrecoverable, unauthorized, notice-versus-message wording, both
+lifecycle races, the user's own send, and that the three outcomes stay three
+distinct sentences.
+
 ## Regressions
 
 `tests/test_mail_drain.py` exercises tool-call arrival with no subsequent nudge,

@@ -28,6 +28,7 @@ import { refToken } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { isMobile } from '../mobile'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
+import { CollapsibleMailer } from './narrowlist'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { fmtFull, fmtShort } from '../timefmt'
@@ -130,6 +131,12 @@ export interface MailListProps {
   refOf?: (m: MailRow) => string | null
   /** the surface's toast, for the menu's copy confirmations */
   toast?: ToastFn
+  /** MODAL SURFACES ONLY. A modal can be pinned, resized and popped out down
+   *  to 320px, and at those widths the list beside the reading pane is not a
+   *  list any more — so it collapses into an overlay panel (narrowlist.tsx).
+   *  The agent desk draws the same list at a size it controls itself and
+   *  keeps the persistent column, so this is opt-in rather than automatic. */
+  collapsible?: boolean
 }
 
 const MAIL_WINDOW = 40
@@ -137,7 +144,7 @@ const MAIL_WINDOW = 40
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
   outgoing, onRead, onReply, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast }: MailListProps) {
+  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -465,14 +472,15 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // the window; with no jump, this is the whole of what there is to say.
   if (!all.length && !jumpTo) return <div className="dim pad">no mail yet</div>
   return (
-    <div className="mailer" tabIndex={-1} onKeyDown={onKey} ref={rootRef}>
-      {menu.node}
-      {/* paging is automatic: within a screen of the bottom, the next window
+    <CollapsibleMailer collapsible={collapsible} listLabel="message list"
+      tabIndex={-1} onKeyDown={onKey} rootRef={rootRef}
+      list={
+      /* paging is automatic: within a screen of the bottom, the next window
           is already rendered (user ruling 2026-08-04 — reaching the end of a
           list should not then ask you to press something). `vis` only ever
           grows and is guarded against `shown.length`, so it cannot thrash and
           stops once everything is on screen; the `paging` latch keeps ONE
-          gesture to ONE window (see above). */}
+          gesture to ONE window (see above). */
       <div className="mailer-list"
         onScroll={(e) => {
           const el = e.currentTarget
@@ -608,6 +616,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             {piles.length - vis} earlier
           </div>)}
       </div>
+      }>
+      {menu.node}
       <div {...surface} className={"mailer-read " + surface.className}>
         {cur && (
           <>
@@ -719,7 +729,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           </div>
         )}
       </div>
-    </div>
+    </CollapsibleMailer>
   )
 }
 
@@ -913,10 +923,14 @@ interface InboxViewProps {
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   /** the surface's toast, for the row menu's copy confirmations */
   toast?: ToastFn
+  /** forwarded to MailList: collapse the list into an overlay panel when the
+   *  surface around it is narrow. The MODAL form sets it; the same view on the
+   *  agent desk does not (see MailListProps.collapsible). */
+  collapsible?: boolean
 }
 
 export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
-  tierOf, hasAgent, refs }: InboxViewProps) {
+  tierOf, hasAgent, refs, collapsible }: InboxViewProps) {
   const [folder, setFolder] = useState('inbox')
   // G5: was a fetch keyed on the `pulse` prop, which meant it refreshed on turn
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
@@ -1008,6 +1022,7 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
           ? <div className="dim pad">loading…</div>
           : folder === 'inbox'
             ? <MailList org={slug} pending={pending} delivered={box.delivered}
+                collapsible={collapsible}
                 tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}
                 /* the row's reference: this folder IS the node's received
                    box, so the token is exact (`@mail:org/node/<nid>/<id>`).
@@ -1038,6 +1053,7 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
                hands down the OUTCOME of that question (`askState`) so this
                list does not read an unfinished or failed one as an absence. */
             : <MailList org={slug} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
+                collapsible={collapsible}
                 jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs}
                 askState={jumpAsk}
                 onAskRetry={() => setAskAgain((n) => n + 1)}
@@ -1152,7 +1168,7 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
             The world is untouched; only the handler is wrapped, with one
             argument. */}
         <InboxView slug={slug} nid={node.id} jumpTo={jumpTo} jumpSeq={jumpSeq}
-          tier={node.tier} toast={toast}
+          tier={node.tier} toast={toast} collapsible
           tierOf={tierOf} hasAgent={hasAgent}
           refs={refs && {
             world: refs.world,
@@ -1373,6 +1389,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
             <div className="mailpane">
               {folder === 'inbox'
                 ? <MailList org={slug} pending={inn.filter((r) => r._wait0)}
+                    collapsible
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
@@ -1389,6 +1406,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                        stays eligible.) */
                     sender={(id) => <b>{id}</b>} />
                 : <MailList org={slug} delivered={out} outgoing jumpTo={jumpTo}
+                    collapsible
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's

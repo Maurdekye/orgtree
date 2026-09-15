@@ -2374,6 +2374,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
               ? <MailList pending={[...box.pending, ...askPending]}
+                  collapsible
                   delivered={[...box.delivered, ...askDone]}
                   renderBody={renderAskBody}
                   // FR-21: this was the ONE MailList call site without
@@ -2428,6 +2429,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                  hands down the OUTCOME of that question (`askState`) so this
                  list does not read an unfinished or failed one as an absence. */
               : <MailList delivered={box.sent ?? []} outgoing refs={mailRefs}
+                  collapsible
                   jumpTo={jumpTo} jumpSeq={jumpSeq}
                   askState={jumpAsk}
                   onAskRetry={() => setAskAgain((n) => n + 1)}

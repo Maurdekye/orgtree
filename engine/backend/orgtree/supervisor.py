@@ -28109,7 +28109,8 @@ def _dur(secs: float) -> str:
     return f"{int(secs // 60)}m{int(secs % 60):02d}s"
 
 
-def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
+def delivery_note(slug: str, nid: str, r: Mapping[str, Any],
+                  kind: str = "message") -> str:
     """WHAT ACTUALLY HAPPENED TO A SEND — one sentence, for the sender (D-236).
 
     `send_message` has always returned the carrier it chose (`steering`,
@@ -28123,13 +28124,31 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     A queued carrier is not a process handoff or a read receipt. Managed
     long calls can yield; opaque tools wait for the next supported boundary.
     Neither path interrupts or repeats a tool merely to deliver mail.
+
+    ⭐ AN UNAVAILABLE TARGET HAS THREE DIFFERENT ANSWERS, NOT ONE. Halted,
+    retired and not-a-node fail in ways a sender must act on differently, and
+    collapsing them into one "could not deliver" is the defect this function
+    exists to prevent. Halted and retired are ACCEPTED-BUT-DEFERRED: the mail
+    is already durable in the recipient's mailbox and the note says which
+    single event (an unhalt, a rehire) would produce a reader. Not-a-node is a
+    REFUSAL and never reaches here at all — `post_mail` raises before anything
+    is stored, so there is no carrier to describe.
+
+    `kind` picks the noun and, for a deferred recipient, the promise: a rehire
+    DRIVES boxed mail, and a notice never starts a turn, so the same archived
+    node owes the two senders different answers.
     """
+    noun = "notice" if kind == "notice" else "message"
     if r.get("deferred") == "halted":
-        return (f"NOT delivered: {nid} is halted; mail is preserved unread "
-                "until explicit orgtree_unhalt.")
+        return (f"QUEUED, NOT READ: {nid} is halted. The {noun} is stored "
+                f"durably in {nid}'s mailbox and nothing will read it until "
+                f"somebody calls orgtree_unhalt on {nid} — this is a deferred "
+                f"delivery, not a failed one.")
     if r.get("deferred") == "killswitch":
-        return (f"NOT delivered: {nid}'s org is halted by the killswitch; "
-                "mail is preserved unread until the user releases it.")
+        return (f"QUEUED, NOT READ: {nid}'s org is halted by the killswitch. "
+                f"The {noun} is stored durably in {nid}'s mailbox and nothing "
+                f"will read it until the user releases the latch — this is a "
+                f"deferred delivery, not a failed one.")
     if r.get("frozen"):
         return (f"NOT delivered: {nid} is frozen (usage limit or connection "
                 f"backoff). The mail is safe in its mailbox and is read when "
@@ -28141,8 +28160,26 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
         return (f"NOT delivered: {nid} is under remote control (the user is "
                 f"driving that session). The mail waits in its mailbox.")
     if r.get("deferred"):
-        return (f"NOT delivered: {nid} is {r['deferred']}. The mail waits in "
-                f"its inbox and nothing reads it until somebody rehires it.")
+        # the recipient is not live — `archived` is the retired agent the
+        # ticket calls out. ⚠ THE PROMISE IS CONDITIONAL AND MUST STAY THAT
+        # WAY (the same bound `post_mail`'s warning states): nothing schedules
+        # a rehire, so "queued FOR a possible rehire" is the true claim and
+        # "will be read when it is rehired" is not.
+        state = str(r["deferred"])
+        state = "retired" if state == "archived" else state
+        if noun == "notice":
+            return (f"QUEUED, NOT READ: {nid} is {state}. The notice is "
+                    f"stored durably in {nid}'s mailbox for a possible future "
+                    f"rehire — and a rehire ALONE still will not deliver it, "
+                    f"because a notice never starts a turn, so it waits for "
+                    f"the first turn {nid} runs for some other reason. "
+                    f"Nothing schedules any of that: if no rehire is "
+                    f"intended, treat this as undelivered.")
+        return (f"QUEUED, NOT READ: {nid} is {state}. The message is stored "
+                f"durably in {nid}'s mailbox and is delivered if and when "
+                f"somebody rehires {nid}. Nothing schedules a rehire: if none "
+                f"is intended, treat this as undelivered and send it to a "
+                f"live agent.")
     if r.get("already_delivered"):
         return f"no new delivery — {nid}'s mailbox was already drained; this is not a read receipt."
     if r.get("steering"):
