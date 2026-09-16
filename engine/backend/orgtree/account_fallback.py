@@ -376,6 +376,9 @@ def apply(org: Any, nid: str, plan: dict[str, Any]) -> bool:
             return False
     except (ValueError, RuntimeError, KeyError):
         return False
+    # allow_frozen: this IS the recovery path for a usage-limit freeze, so it
+    # opts past the bare-rebind refusal; resume_frozen pops the freeze in the
+    # same save window right after this returns.
     supervisor.assign_account(org.d["slug"], nid, row["id"], actor="@system",
-                              org=org, via="limit_fallback")
+                              org=org, via="limit_fallback", allow_frozen=True)
     return True

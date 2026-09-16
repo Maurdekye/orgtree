@@ -12933,6 +12933,35 @@ def drive_account_unpark(slug: str, nid: str) -> None:
               f"node is unparked and any later mail drives it")
 
 
+#: The wake for a node whose AUTH/CREDENTIAL freeze a rebind just cleared
+#: (coordinator ruling 2026-09-16). Sent WITHOUT mail_ping so it always starts
+#: a turn: the freeze is gone and the node has real work to resume, and a mail
+#: pointer with an empty mailbox is dropped before the turn ever runs (the
+#: phantom-wake the `drive_unfrozen_by_switch` path still trips on). It states
+#: a fact — the credential was replaced — and NOT that any provider context
+#: carried over: the session/account changed, so the next turn is a fresh
+#: provider cache namespace regardless.
+AUTH_REBIND_THAW_TEXT: Final = (
+    "(orgtree) Your previous credential was rejected (an auth/credential "
+    "freeze). You have been moved to a different account whose credential is "
+    "valid, so that freeze no longer describes anything and has been cleared. "
+    "Your session starts fresh on the new account — do not assume earlier "
+    "provider context carried over. Handle any mail above and continue.")
+
+
+def drive_auth_thaw(slug: str, nid: str) -> None:
+    """Wake a node whose auth/credential freeze a rebind cleared. Same
+    caller/owner split as `drive_account_unpark`: one sender for the operator
+    door and the agent tool, driven after each door's own save because
+    `assign_account` cannot drive under a caller-owned lock. Off-lock; a busy
+    node's carrier just queues. Never raises."""
+    try:
+        send_message(slug, nid, AUTH_REBIND_THAW_TEXT)
+    except Exception:                                        # noqa: BLE001
+        print(f"[orgtree] {slug}/{nid}: auth-thaw wake failed — the node is "
+              f"unfrozen and any later mail drives it")
+
+
 def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
     """Wake every node whose provider freeze a crossing just cleared. Must be
     called OFF DOC_LOCK (send_message loads the org itself). Safe on a busy
@@ -13592,11 +13621,28 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
                    org: Org | None = None, via: str = "manual",
+                   allow_frozen: bool = False,
                    notify_change: bool = True) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
     checked here so no door can pass what the other refuses.
+
+    FROZEN-NODE POLICY (coordinator ruling 2026-09-16, build (a)). The two
+    freeze kinds are told apart EXPLICITLY, never inferred:
+      * A MOVABLE USAGE-LIMIT freeze (`frozen.limit` and NOT an auth kind) is
+        REFUSED for a bare rebind (`allow_frozen` False): moving the binding
+        cannot clear a usage limit and would strand the node frozen on the new
+        account — the supported path is `/continue-on`, which switches AND
+        releases with a live capacity check on the target. The refusal is
+        raised BEFORE any mutation, so the node is left EXACTLY as it was.
+      * An AUTH/CREDENTIAL freeze (`frozen.cause` in ("auth","balance") or
+        `frozen.untrusted`) is the opposite: it describes a DEAD credential, so
+        rebinding to a valid account IS the fix — allowed, and thawed below
+        (cleared in-transaction, woken after the save like the account-park).
+    Recovery paths — `/continue-on` and the automatic account fallback — pass
+    `allow_frozen=True` and own their own release, so neither the refusal nor
+    the auto-thaw ever applies to them.
 
     The result is the full disclosure set (D2d, ruling 19:00Z): target
     account id+label, credential kind, BILLING MODE (subscription vs API
@@ -13636,6 +13682,22 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 "sandboxed orgs are container-managed — accounts do not "
                 "apply (declared exemption, design D2a)")
+        # Frozen-node policy (see docstring). Distinguish the kinds explicitly,
+        # then refuse a bare rebind on a usage-limit freeze BEFORE any mutation
+        # — nothing below has run, so the node is untouched. `_auth_freeze` is
+        # reused by the thaw after the binding write.
+        _fz0 = node.get("frozen")
+        _auth_freeze = isinstance(_fz0, dict) and (
+            _fz0.get("cause") in ("auth", "balance") or bool(_fz0.get("untrusted")))
+        _limit_freeze = (isinstance(_fz0, dict) and bool(_fz0.get("limit"))
+                         and not _auth_freeze)
+        if _limit_freeze and not allow_frozen:
+            raise RuntimeError(
+                f"{nid} is frozen by a usage limit — moving its account here "
+                f"cannot clear that and would leave it frozen on the new "
+                f"account. Use `/continue-on <account>`, which switches AND "
+                f"releases it with a live capacity check on the target, or "
+                f"`orgtree_unstick` to release it in place first.")
         tier = str(node.get("model") or "")
         row = registry.validate_selection(slug, tier, account_id)
         previous = str(node.get("account") or "")
@@ -13690,6 +13752,21 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             node.pop("frozen", None)
             node.pop("parked_run", None)
             unparked = True
+        # AUTH/CREDENTIAL thaw (coordinator ruling 2026-09-16): the freeze named
+        # a dead credential and the rebind replaced it with a valid one, so the
+        # freeze no longer describes anything — clear it in THIS transaction and
+        # wake the node after the save, exactly like the account-park above.
+        # Only on a real change and only for a bare rebind: a recovery path owns
+        # its own release and passes allow_frozen. Recomputed on the current
+        # node (a codex/google session archive above may have re-fetched it).
+        auth_thawed = False
+        _fzn = node.get("frozen")
+        if (isinstance(_fzn, dict) and changed and not allow_frozen
+                and (_fzn.get("cause") in ("auth", "balance")
+                     or bool(_fzn.get("untrusted")))):
+            node.pop("frozen", None)
+            node.pop("parked_run", None)
+            auth_thawed = True
         try:
             next_hash, next_comp = warmpool.identity_snapshot(org, nid)
         except Exception:                                    # noqa: BLE001
@@ -13718,6 +13795,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                if not row["id"] else {}),
             **({"bearer": pred_id} if pred_id else {}),
             **({"unparked": True} if unparked else {}),
+            **({"auth_thawed": True} if auth_thawed else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
         if not _caller_owns_save:
@@ -13734,6 +13812,12 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     # assignment left the node unparked-but-idle (state-review finding 1).
     if unparked and not _caller_owns_save:
         drive_account_unpark(slug, nid)
+    # AUTH/CREDENTIAL thaw wake — same caller/owner split as the unpark above:
+    # the operator door (this call owns the save) drives now; the agent-tool
+    # dispatch (org=, caller owns the save) reads `auth_thawed` from the
+    # disclosure and drives after IT saves.
+    if auth_thawed and not _caller_owns_save:
+        drive_auth_thaw(slug, nid)
     return disclosure
 
 

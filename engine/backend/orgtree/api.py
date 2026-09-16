@@ -7405,7 +7405,8 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
                      f"standing could not be established — nothing was changed")
         try:
             disclosure = supervisor.assign_account(
-                slug, nid, account, actor=USER, via="manual_continue")
+                slug, nid, account, actor=USER, via="manual_continue",
+                allow_frozen=True)
         except (LedgerError, RuntimeError, ValueError, KeyError) as e:
             raise HTTPException(422, f"account switch failed, {nid} left frozen "
                                      f"and unchanged: {e}") from e
@@ -9969,6 +9970,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
+    account_thawed: str | None = None   # a node a rebind just auth-thawed (2026-09-16)
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -10661,6 +10663,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     # after the save below on the flag it returned.
                     if result.get("unparked"):
                         account_unpark = target
+                    if result.get("auth_thawed"):
+                        account_thawed = target
                 except (RuntimeError, ValueError) as e:
                     raise HTTPException(422, str(e))
             elif body.tool == "orgtree_retool":
@@ -10989,6 +10993,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 account_notify = target
                 if disclosure.get("unparked"):      # SH-2, see above
                     account_unpark = target
+                if disclosure.get("auth_thawed"):   # auth-rebind thaw, see above
+                    account_thawed = target
         except LedgerError as e:
             # D-160: everything inside this block is discarded with the
             # unsaved doc, so "refused" normally means "nothing happened".
@@ -11021,6 +11027,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # SH-2: the assignment cleared this node's account park; the doc is
         # saved now, so wake it (ONE sender shared with the operator door)
         supervisor.drive_account_unpark(body.org, account_unpark)
+    if account_thawed is not None:
+        # the rebind cleared this node's auth/credential freeze; the doc is
+        # saved now, so wake it (ONE sender shared with the operator door)
+        supervisor.drive_auth_thaw(body.org, account_thawed)
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [

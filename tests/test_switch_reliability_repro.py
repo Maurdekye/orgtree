@@ -1,124 +1,100 @@
-"""Deliberate reproductions of the switch-reliability symptoms (ticket
+"""Switch-reliability regression guard (ticket
 `make-model-provider-and-account-switching-on-liv`).
 
-The ticket requires each named failure mode be reproduced BEFORE any fix is
-designed. These tests assert the CURRENT (defective) behaviour so they are a
-faithful record of the symptom; the accompanying fix flips the assertion in
-`test_switch_reliability_fix.py`. Kept separate from the fix suite so the two
-never share a fixture that could mask a regression.
+HISTORY. This file first REPRODUCED the org-verified stranded state — a bare
+account rebind on a usage-limit-frozen agent moved the binding to a healthy
+account yet left it frozen, mail-refused, and still naming the abandoned
+account (that reproduction is preserved in git at commit 56ce407). The fix
+(coordinator ruling 2026-09-16, build (a)) makes that half-moved state
+IMPOSSIBLE: a bare rebind on a movable usage-limit freeze is refused and the
+agent is left exactly as it was, so it either recovers cleanly through
+/continue-on or nothing happens.
 
-Symptom under test here: a bare account rebind on a USAGE-LIMIT-FROZEN agent is
-accepted and moves the binding, yet leaves the freeze in place — the agent is
-now on a healthy account and still refuses all mail ("NOT delivered: <nid> is
-frozen"). That is the org-verified stranded half-state: the switch neither
-completed cleanly (the agent cannot run) nor did-not-happen (the binding did
-move). Only `orgtree_unstick` / `/continue-on` releases it.
+This file now guards that property directly (acceptance conditions #2 and #7):
+after a refused bare rebind, the WHOLE observable state — binding, freeze,
+session, mailbox — is byte-identical to before. No stranded half-state is
+observable.
 """
+import copy
 import os
+import sys
 import tempfile
-import time
 import unittest
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+_ROOT = tempfile.mkdtemp(prefix="orgtree-switch-repro-")
+os.environ["ORGTREE_DATA"] = _ROOT
+from engine.backend.orgtree import ledger, registry, store, supervisor  # noqa: E402
+if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):
+    raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
 
-class FrozenRebindStrandsTheAgent(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.root = tempfile.mkdtemp(prefix="orgtree-switch-repro-")
-        os.environ["ORGTREE_DATA"] = cls.root
-        from engine.backend.orgtree import ledger, registry, store, supervisor
-        if not str(store.DATA_ROOT).lower().startswith(cls.root.lower()):
-            raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
-        cls.ledger = ledger
-        cls.registry = registry
-        cls.store = store
-        cls.supervisor = supervisor
 
+class NoStrandedHalfMove(unittest.TestCase):
     def setUp(self):
-        path = self.registry.registry_path()
+        path = registry.registry_path()
         if os.path.exists(path):
             os.unlink(path)
 
     _seq = 0
 
-    def _account(self, label, provider="claude"):
-        FrozenRebindStrandsTheAgent._seq += 1
-        row = self.registry.create_account(
-            provider, label,
+    def _account(self, label):
+        NoStrandedHalfMove._seq += 1
+        row = registry.create_account(
+            "claude", label,
             {"kind": "managed",
-             "path": os.path.join(self.root, f"{provider}-{label}-{self._seq}")})
-        self.registry.set_auth(row["id"], "authenticated")
-        return self.registry.get_account(row["id"])
+             "path": os.path.join(_ROOT, f"claude-{label}-{self._seq}")})
+        registry.set_auth(row["id"], "authenticated")
+        return registry.get_account(row["id"])
 
-    def _frozen_org(self, slug, source_account, tier="opus",
-                    provider="claude", pool="haiku+sonnet+opus"):
-        org = self.ledger.Org.create(slug)
-        org.hire(self.ledger.USER, None, tier, 0, "worker")
-        org.d["auto_resume"] = False
+    def _frozen_org(self, slug, source):
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
         n = org.node("worker")
-        n["account"] = source_account["id"]
-        # a genuine usage-limit freeze: limit=True, NO `cause` — the exact
-        # shape the classifier writes (supervisor.py:19800/19832)
-        n["frozen"] = {
-            "at": "2026-09-14T00:00:00Z", "limit": True,
-            "until_ts": time.time() + 604800, "provider": provider,
-            "account": source_account["id"], "resource_pool": pool,
-            "resume_texts": ["finish the original task"]}
-        st = self.supervisor.state(slug, "worker")
+        n["account"] = source["id"]
+        n["frozen"] = {"at": "2026-09-14T00:00:00Z", "limit": True,
+                       "until_ts": 9999999999.0, "provider": "claude",
+                       "account": source["id"], "resource_pool": "haiku+sonnet+opus",
+                       "resume_texts": ["finish the original task"]}
+        st = supervisor.state(slug, "worker")
         st.update(busy=False, responding=False, queue=[])
-        self.store.save_org(org)
+        store.save_org(org)
         return org
 
-    def test_bare_rebind_moves_binding_but_leaves_agent_frozen(self):
-        source = self._account("source")
-        target = self._account("target")
-        slug = "repro-strand"
+    def test_refused_bare_rebind_leaves_the_agent_byte_identical(self):
+        source, target = self._account("source"), self._account("target")
+        slug = "repro-no-strand"
+        org = self._frozen_org(slug, source)
+        before = copy.deepcopy(org.node("worker"))
+
+        with self.assertRaises(RuntimeError) as ctx:
+            supervisor.assign_account(slug, "worker", target["id"], actor="USER")
+        # the refusal is actionable — it names the supported recovery path
+        self.assertIn("/continue-on", str(ctx.exception))
+
+        # NO half-move: the entire node is exactly as it was — same binding,
+        # same freeze (still naming its own account), same session. There is
+        # no observable in-between state.
+        after = store.load_org(slug).node("worker")
+        self.assertEqual(after, before)
+        self.assertEqual(after["account"], source["id"])
+        self.assertEqual(after["frozen"]["account"], source["id"])
+
+    def test_the_supported_recovery_path_does_move_it(self):
+        # the flip side: what the bare door refuses, the recovery opt-in
+        # (allow_frozen — what /continue-on and auto-fallback pass) performs,
+        # so the agent is never actually stuck on the frozen account.
+        source, target = self._account("source"), self._account("target")
+        slug = "repro-recovery-moves"
         self._frozen_org(slug, source)
-
-        # the binding move is ACCEPTED (assign_account's only refusal is busy)
-        disclosure = self.supervisor.assign_account(
-            slug, "worker", target["id"], actor="USER")
-        self.assertEqual(disclosure["account"], target["id"])
-
-        fresh = self.store.load_org(slug)
-        node = fresh.node("worker")
-        # THE STRANDED STATE: binding moved to the healthy account …
-        self.assertEqual(node["account"], target["id"],
-                         "the rebind did happen — this is not a no-op")
-        # … yet the freeze survives, so the agent is still unusable
-        self.assertIn("frozen", node,
-                      "SYMPTOM: bare rebind left the usage-limit freeze in "
-                      "place — the switch stranded the agent half-moved")
-        self.assertTrue(node["frozen"].get("limit"))
-
-    def test_frozen_agent_still_refuses_all_mail_after_rebind(self):
-        source = self._account("source")
-        target = self._account("target")
-        slug = "repro-mail-refused"
-        self._frozen_org(slug, source)
-        self.supervisor.assign_account(slug, "worker", target["id"], actor="USER")
-
-        # the mail gate inspects only truthiness of `frozen`, so a message
-        # sent right after the rebind is refused exactly as the org saw
-        result = self.supervisor.send_message(slug, "worker", "please continue")
-        self.assertTrue(result.get("frozen"),
-                        "SYMPTOM: mail refused as frozen after a rebind onto a "
-                        "healthy account (org-verified starting evidence)")
-        self.assertEqual(result.get("queued"), 0)
-
-    def test_freeze_still_names_the_abandoned_account(self):
-        # the scheduling layer keys admission on the freeze's OWN account, so a
-        # freeze left in place after a rebind still points at the account the
-        # node no longer uses — the switch left an invalid reference behind.
-        source = self._account("source")
-        target = self._account("target")
-        slug = "repro-stale-ref"
-        self._frozen_org(slug, source)
-        self.supervisor.assign_account(slug, "worker", target["id"], actor="USER")
-        node = self.store.load_org(slug).node("worker")
-        self.assertEqual(node["frozen"]["account"], source["id"],
-                         "SYMPTOM: the surviving freeze still names the "
-                         "abandoned account, so the scheduler acts on a lane "
-                         "the node has left")
+        out = supervisor.assign_account(slug, "worker", target["id"],
+                                        actor="USER", allow_frozen=True)
+        self.assertEqual(out["account"], target["id"])
+        self.assertEqual(store.load_org(slug).node("worker")["account"],
+                         target["id"])
 
 
 if __name__ == "__main__":
