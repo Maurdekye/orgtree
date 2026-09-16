@@ -310,6 +310,26 @@
       "summary": "Fails on untouched main, measured at commit 2d6dce36 across all 176 Python backend modules.",
       "detail": "One of 12 pre-existing failures in the Python backend suite. This suite was outside every baseline until now and no agent had named it, which is why the cost kept being re-derived. Reported, not claimed: I am not fixing any of these. Several are clearly environmental (WinError 32 temp-file locks on Windows); others look like real drift (missing attributes on engine.backend.orgtree.net, ModuleNotFoundError: launch). The full list with errors is in docs/test-baseline.json and readable with: node tools/test-baseline.mjs show --suite python-backend",
       "status": "open"
+    },
+    {
+      "seq": 25,
+      "at": "2026-09-16T22:25:37.060Z",
+      "reported_by": "test-baseline",
+      "claimed": false,
+      "ownership": "not-claimed-by-reporter",
+      "suite": "python-backend",
+      "test_id": "python-backend::tests/test_quick_hire_wake_reason.py::(whole module)",
+      "file": "tests/test_quick_hire_wake_reason.py",
+      "test": "(whole module: assertion_failure)",
+      "error": "AssertionError: 'unstuck' not found in {'ask_answer', 'participation', 'user_mail', 'reminder', 'freeze_lifted', 'checkup', 'audience', 'credit_decision', 'agent_mail', 'docket_reply', 'docket_abandoned_reassignment', 'batch', 'rehire_waited', 'notice', 'quick_staff'}",
+      "baseline_commit": "b86b132ee5cfe661bf8c88ccd9c1c3745d0115c9",
+      "baseline_recorded_at": "2026-09-16T22:19:15.571Z",
+      "observed_at_commit": "b86b132ee5cfe661bf8c88ccd9c1c3745d0115c9",
+      "route_to": "coordinator-opus",
+      "work_item": null,
+      "summary": "Fails on untouched main, measured across all Python backend modules.",
+      "detail": "One of the pre-existing failures in the Python backend suite. Reported, not claimed. Full list: node tools/test-baseline.mjs show",
+      "status": "open"
     }
   ]
 }
