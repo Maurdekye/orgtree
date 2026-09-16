@@ -194,17 +194,24 @@ class StaffProgressOptional(unittest.TestCase):
                                                         ctx.exception)))
         self.assertEqual(self.read(wid)['done_so_far'], ['old done'])
 
-    # ── §4 the standalone rule is untouched ─────────────────────────────
-    def test_s4_standalone_work_update_still_requires_progress(self):
-        wid = self.item(done_so_far=['something'])
+    # ── §4 the standalone rule ──────────────────────────────────────────
+    def test_s4_standalone_work_update_preserves_on_status_only(self):
+        wid = self.item(done_so_far=['something'], working_on_next=['next step'])
 
+        out = self.call('orgtree_work', action='update', slug=wid,
+                        status='in_progress')
+
+        self.assertEqual(out['updated'], wid)
+        self.assertEqual(self.read(wid)['status'], 'in_progress')
+        self.assertEqual(self.read(wid)['done_so_far'], ['something'])
+        self.assertEqual(self.read(wid)['working_on_next'], ['next step'])
+
+        # but an update that changes no state and sends no progress still has to say something
         with self.assertRaises(Exception) as ctx:
-            self.call('orgtree_work', action='update', slug=wid,
-                      status='in_progress')
+            self.call('orgtree_work', action='update', slug=wid)
 
         self.assertIn('nothing the user can read',
                       str(getattr(ctx.exception, 'detail', ctx.exception)))
-        self.assertEqual(self.read(wid)['status'], 'open')
 
     def test_s4b_the_ledger_kwarg_is_unreachable_from_orgtree_work(self):
         """`staffed_to` is not a caller argument. orgtree_work's dispatch names
@@ -214,7 +221,7 @@ class StaffProgressOptional(unittest.TestCase):
 
         with self.assertRaises(Exception) as ctx:
             self.call('orgtree_work', action='update', slug=wid,
-                      status='in_progress', staffed_to='manager')
+                      staffed_to='manager')
 
         self.assertIn('nothing the user can read',
                       str(getattr(ctx.exception, 'detail', ctx.exception)))

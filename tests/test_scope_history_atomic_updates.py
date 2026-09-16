@@ -489,11 +489,67 @@ class KeepAndPatchLists(unittest.TestCase):
         with self.assertRaises(LedgerError):
             upd(org, wid, expected_rev=rev, done_so_far=["x"], keep_done=True)
 
-    def test_keep_and_append_on_the_same_list_are_refused(self):
+    def test_keep_and_append_on_the_same_list_is_accepted(self):
         org, wid, rev = self.seed()
-        with self.assertRaises(LedgerError):
-            upd(org, wid, expected_rev=rev, done_so_far=None,
-                keep_done=True, done_append=["y"])
+        r = upd(org, wid, expected_rev=rev, done_so_far=None,
+                working_on_next=None,
+                keep_done=True, done_append=["three"],
+                keep_next=True, next_append=["later"])
+        self.assertEqual(item(org, wid)["done_so_far"], ["one", "two", "three"])
+        self.assertEqual(item(org, wid)["working_on_next"], ["next", "later"])
+        self.assertEqual(r["done_so_far"], ["one", "two", "three"])
+        self.assertEqual(r["working_on_next"], ["next", "later"])
+
+    def test_status_only_update_preserves_stored_lists_unchanged(self):
+        org, wid, _ = self.seed()
+        before_done = list(item(org, wid)["done_so_far"])
+        before_next = list(item(org, wid)["working_on_next"])
+        r = org.work_update("owner-a", wid, done_so_far=None,
+                            working_on_next=None, status="in_progress")
+        self.assertEqual(item(org, wid)["status"], "in_progress")
+        self.assertEqual(item(org, wid)["done_so_far"], before_done)
+        self.assertEqual(item(org, wid)["working_on_next"], before_next)
+        self.assertEqual(r["done_so_far"], before_done)
+        self.assertEqual(r["working_on_next"], before_next)
+
+    def test_attention_only_update_preserves_stored_lists_unchanged(self):
+        org, wid, _ = self.seed()
+        before_done = list(item(org, wid)["done_so_far"])
+        before_next = list(item(org, wid)["working_on_next"])
+        r = org.work_update("owner-a", wid, done_so_far=None,
+                            working_on_next=None, attention=True,
+                            attention_reason="A concrete decision needed from user")
+        self.assertTrue(item(org, wid)["manual_attention"])
+        self.assertEqual(item(org, wid)["done_so_far"], before_done)
+        self.assertEqual(item(org, wid)["working_on_next"], before_next)
+        self.assertEqual(r["done_so_far"], before_done)
+        self.assertEqual(r["working_on_next"], before_next)
+
+    def test_empty_item_keep_both_stored_lists_is_accepted(self):
+        org, wid = fixture()
+        # Item created with empty progress lists
+        self.assertEqual(item(org, wid)["done_so_far"], [])
+        self.assertEqual(item(org, wid)["working_on_next"], [])
+        rev = item(org, wid)["rev"]
+        r = org.work_update("owner-a", wid, done_so_far=None,
+                            working_on_next=None, keep_done=True,
+                            keep_next=True, expected_rev=rev)
+        self.assertEqual(item(org, wid)["done_so_far"], [])
+        self.assertEqual(item(org, wid)["working_on_next"], [])
+        self.assertEqual(r["done_so_far"], [])
+        self.assertEqual(r["working_on_next"], [])
+
+    def test_empty_item_status_only_update_is_accepted(self):
+        org, wid = fixture()
+        self.assertEqual(item(org, wid)["done_so_far"], [])
+        self.assertEqual(item(org, wid)["working_on_next"], [])
+        r = org.work_update("owner-a", wid, done_so_far=None,
+                            working_on_next=None, status="in_progress")
+        self.assertEqual(item(org, wid)["status"], "in_progress")
+        self.assertEqual(item(org, wid)["done_so_far"], [])
+        self.assertEqual(item(org, wid)["working_on_next"], [])
+        self.assertEqual(r["done_so_far"], [])
+        self.assertEqual(r["working_on_next"], [])
 
     def test_both_empty_is_measured_on_the_materialized_result(self):
         org, wid, rev = self.seed()

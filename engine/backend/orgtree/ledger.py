@@ -13098,10 +13098,6 @@ class Org:
                 f"pass either the whole {name} or a patch of it, not both: "
                 f"{name} states the complete summary outright, while {kept}/"
                 f"{added} build it from the stored one")
-        if keep and append is not None:
-            raise LedgerError(
-                f"{kept} carries the stored {name} forward unchanged and "
-                f"{added} adds to it — pass one or the other")
         if expected_rev is None:
             raise LedgerError(
                 f"{kept if keep else added} needs `expected_rev`: it is a "
@@ -13109,12 +13105,12 @@ class Org:
                 f"revision you read it at and a concurrent write refuses your "
                 f"call instead of interleaving with it. `get` returns `rev`")
         stored = [str(x) for x in (it.get(name) or [])]
-        if keep:
-            return self._work_list_room(stored, name, " already stored")
-        add = self._work_norm_entries(append, name, added)
-        return self._work_list_room(
-            stored + add, name,
-            f" after the append ({len(stored)} stored + {len(add)} appended)")
+        if append is not None:
+            add = self._work_norm_entries(append, name, added)
+            return self._work_list_room(
+                stored + add, name,
+                f" after the append ({len(stored)} stored + {len(add)} appended)")
+        return self._work_list_room(stored, name, " already stored")
 
     @staticmethod
     def _work_attention_repeat_guard(it: WorkItem, reason: str) -> None:
@@ -13378,8 +13374,8 @@ class Org:
         for field in self.WORK_STATE_INFO.values():
             it[field] = None                          # type: ignore[literal-required]
 
-    def work_update(self, actor: str, wid: str, done_so_far: Any,
-                    working_on_next: Any, status: str | None = None,
+    def work_update(self, actor: str, wid: str, done_so_far: Any = None,
+                    working_on_next: Any = None, status: str | None = None,
                     attention: bool | None = None,
                     attention_reason: str | None = None,
                     blocked_reason: str | None = None,
@@ -13490,35 +13486,37 @@ class Org:
         # comes out is the COMPLETE current summary either way, and every rule
         # below is measured on that result rather than on the fragment the
         # caller happened to send.
-        done = self._work_patch_list(it, "done_so_far", done_so_far,
-                                     keep_done, done_append, expected_rev)
-        nxt = self._work_patch_list(it, "working_on_next", working_on_next,
-                                    keep_next, next_append, expected_rev)
-        # ---- STAFFING IS ITSELF THE READABLE CHANGE (W-staffing, user ticket
-        # allow-staffing-without-progress-boilerplate). A one-call staffing was
-        # being refused for not repeating progress it had no reason to restate:
-        # handing the ticket to an agent is already a substantive, user-visible
-        # state change, and the summaries it did not touch are still on the
-        # item. So when the substantive change is the staffing AND the caller
-        # sent no progress argument in any of its forms, the stored lists are
-        # carried forward unchanged rather than cleared.
-        #
-        # ⚠ ONLY WHEN NOTHING AT ALL WAS SENT. A staffing that states even one
-        # of the two is stating the complete summary, exactly as every other
-        # update does, and the omitted half clears as it always has — otherwise
-        # the same arguments would mean one thing on `orgtree_work` and another
-        # on `orgtree_staff`, which is worse than the boilerplate this removes.
+        no_progress = (done_so_far is None and working_on_next is None
+                       and not keep_done and not keep_next
+                       and done_append is None and next_append is None)
+        substantive = bool(
+            staffed_to
+            or status is not None
+            or reopen
+            or attention is not None
+            or attention_amend
+            or attention_reason is not None
+            or blocked_reason is not None
+            or waiting_reason is not None
+            or dropped_reason is not None
+            or title is not None
+            or objective is not None
+            or objective_append is not None
+            or owner is not None
+            or reviewer is not None
+            or review_note is not None
+            or review_evidence is not None
+            or review_candidate is not None
+        )
         staffing_generated: str | None = None
-        if staffed_to and done_so_far is None and working_on_next is None \
-                and not keep_done and not keep_next \
-                and done_append is None and next_append is None:
+        if no_progress and substantive:
             done = self._work_list_room(
                 [str(x) for x in (it.get("done_so_far") or [])],
                 "done_so_far", " already stored")
             nxt = self._work_list_room(
                 [str(x) for x in (it.get("working_on_next") or [])],
                 "working_on_next", " already stored")
-            if not done and not nxt:
+            if staffed_to and not done and not nxt:
                 # nothing stored to preserve either — so WRITE the boundary
                 # rather than refusing it. The item still ends up saying
                 # something a reader can act on: that it was staffed, and to
@@ -13526,7 +13524,13 @@ class Org:
                 staffing_generated = self.STAFFING_BOUNDARY.format(
                     node=str(staffed_to))
                 nxt = [staffing_generated]
-        if not done and not nxt:
+        else:
+            done = self._work_patch_list(it, "done_so_far", done_so_far,
+                                         keep_done, done_append, expected_rev)
+            nxt = self._work_patch_list(it, "working_on_next", working_on_next,
+                                        keep_next, next_append, expected_rev)
+        both_stored_kept = (keep_done and keep_next) or (no_progress and substantive)
+        if not done and not nxt and not both_stored_kept:
             raise LedgerError(
                 "a docket update needs at least one entry in done_so_far or "
                 "working_on_next — both empty says nothing the user can read")
