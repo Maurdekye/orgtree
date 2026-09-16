@@ -12980,14 +12980,37 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
         # shared finally even a programming error in the check must become a
         # recorded drop, never a raise into the turn's bookkeeping
         reason = str(_e)
+        _by = str(_pend.get("by") or "USER")
+        _kept = str(o2.node(nid).get("model"))
         o2.node(nid).pop("pending_switch", None)
-        o2._log("switch_queue_dropped", str(_pend.get("by") or "USER"),
+        o2._log("switch_queue_dropped", _by,
                 {"node": nid, "to": _p_tier, "reason": reason,
                  "queued_at": _pend.get("at")},
                 [f"the queued switch of {nid} to {_p_tier} was DROPPED at "
                  f"the end of its turn: {reason}. It stays on "
-                 f"{o2.node(nid).get('model')}; ask again with the account "
+                 f"{_kept}; ask again with the account "
                  f"choice."])
+        # PARITY with ledger.apply_pending_switch's own drop (ledger.py:4908):
+        # "a queued switch is NEVER silently forgotten." THIS drop reason — the
+        # account no longer validating at the boundary — is the one the multi-
+        # account feature introduced, and it was the ONLY drop path that wrote a
+        # log row but emitted no lifecycle.switch_dropped event, so the
+        # requester and the live superior learned nothing. Same audience as the
+        # ledger: the asker and the live parent, never the node itself. Wrapped
+        # so a bad-event value can never raise into _run_one_turn_recorded's
+        # shared finally (the whole reason the except above is deliberately
+        # broad) — a missing notification must not corrupt the turn's own books.
+        try:
+            from .ledger import _mint as _ev_mint, actor_of as _actor_of
+            _tell = [x for x in {_by, o2.node(nid).get("parent")}
+                     if x and x != nid and x in o2.nodes
+                     and o2.nodes[x].get("state") == "live"]
+            o2._notify_ev(_tell, _ev_mint(
+                "lifecycle.switch_dropped", _actor_of(_by), o2.node_ref(nid),
+                node=nid, target=_p_tier, kept=_kept, reason=reason))
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: switch_dropped event emit failed "
+                  f"(drop still logged)")
         print(f"[orgtree] {slug}/{nid}: queued model switch DROPPED — "
               f"{reason}")
         return True
