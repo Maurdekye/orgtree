@@ -233,6 +233,46 @@ class CodexServerGone(CodexServerError):
     """The app-server process exited while a request was outstanding."""
 
 
+class CodexResumeUnresolved(CodexServerError):
+    """`thread/resume` refused every path we could offer for this thread.
+
+    Raised only after the whole ladder in `CodexTurn._resume_thread` is spent,
+    and it carries what was looked for and where, because the bare server text
+    ("no rollout found for thread id …") names neither the path we asked with
+    nor the rollout store we asked in — which is exactly what a person
+    diagnosing a permanently unwakeable agent needs first.
+    """
+
+
+#: `thread/resume` refusals that are about THE PATH WE HANDED OVER rather than
+#: about the thread itself. Both are the CLI's own text (codex 0.153.4):
+#:
+#:   cannot resume paginated thread <id> with stale path: requested <a>,
+#:   current <b>; omit path and resume by thread id
+#:
+#:   failed to resolve rollout path `<a>`: file does not exist
+#:
+#: The first is the reported `coordinator-astra` failure: the CLI had ADOPTED
+#: the thread into its own rollout store, so the import-staging path Orgtree
+#: kept sending named a file the CLI no longer considered current. Note the
+#: remedy is the server's own, quoted from the message: omit the path.
+#:
+#: The second was reproduced directly against codex.exe (2026-09-16) by moving
+#: a staged rollout and resuming with the old path.
+_RESUME_PATH_REFUSALS: Final = ("stale path", "failed to resolve rollout path")
+
+
+def is_resume_path_refusal(message: str | None) -> bool:
+    """Did the server refuse because of the PATH, rather than the thread?
+
+    Matched on the message rather than the code because the code is a flat
+    -32600 for every one of these (measured), so it does not separate "your
+    path is wrong" from "that thread does not exist" — and retrying the
+    second would be pointless work on every genuine miss.
+    """
+    return any(m in (message or "") for m in _RESUME_PATH_REFUSALS)
+
+
 # ── audit D2: bounded tool workers ───────────────────────────────────────────
 #: how many server requests (tool calls, approvals) may EXECUTE at once per
 #: app-server. The reader thread never executes one; it only admits them.
@@ -1113,6 +1153,10 @@ class CodexTurn:
         self.developer_instructions = developer_instructions
         self.thread_id = thread_id
         self.resume_path = resume_path
+        #: kept only so a resume that cannot be resolved can name the rollout
+        #: store it searched — see `_resume_thread`. The client already has
+        #: its own copy in the child environment.
+        self.codex_home = codex_home
         self.turn_id: str | None = None
         self.agent_text: list[str] = []
         self.token_usage: dict[str, Any] | None = None
@@ -1325,24 +1369,7 @@ class CodexTurn:
             # field is genuinely parsed by resume's schema, and behaviourally
             # a resumed turn that could write outside its cwd stops being able
             # to when resumed at `workspace-write`. codex-cli 0.153.3.
-            res = self.client.request("thread/resume", {
-                "threadId": self.thread_id,
-                **({"path": self.resume_path, "cwd": self.cwd} if self.resume_path else {}),
-                # the ROUTE's model rides the resume too (item 12).
-                # `ThreadResumeParams.model` is in the 0.153.3 schema
-                # ("Configuration overrides for the resumed thread"); the
-                # per-turn override on `turn/start` below is what the
-                # schema documents as applying "for this turn and
-                # subsequent turns". Naming it here as well means the
-                # response's `model` echo (ThreadResumeResponse.model)
-                # describes the thread AS RESUMED rather than as it was
-                # born. ⚠ Whether a real server keeps the conversation
-                # across a model change is UNVERIFIED (no live control has
-                # run); older servers ignore unknown fields (measured).
-                "model": self.model,
-                "sandbox": self.sandbox,
-                "developerInstructions": self.developer_instructions,
-                "dynamicTools": self.dynamic_tools or None})
+            res = self._resume_thread()
             resumed = _thread_id_of(res)
             if resumed:
                 self.thread_id = resumed
@@ -1393,6 +1420,95 @@ class CodexTurn:
                         else str(turn.get("turnId") or "") or None)
         assert self.thread_id is not None
         return self.thread_id
+
+    def _resume_params(self, path: str | None) -> dict[str, Any]:
+        return {
+            "threadId": self.thread_id,
+            **({"path": path, "cwd": self.cwd} if path else {}),
+            # the ROUTE's model rides the resume too (item 12).
+            # `ThreadResumeParams.model` is in the 0.153.3 schema
+            # ("Configuration overrides for the resumed thread"); the
+            # per-turn override on `turn/start` is what the schema
+            # documents as applying "for this turn and subsequent turns".
+            # Naming it here as well means the response's `model` echo
+            # (ThreadResumeResponse.model) describes the thread AS
+            # RESUMED rather than as it was born. ⚠ Whether a real server
+            # keeps the conversation across a model change is UNVERIFIED
+            # (no live control has run); older servers ignore unknown
+            # fields (measured).
+            "model": self.model,
+            "sandbox": self.sandbox,
+            "developerInstructions": self.developer_instructions,
+            "dynamicTools": self.dynamic_tools or None}
+
+    def _resume_thread(self) -> dict[str, Any]:
+        """Resume `self.thread_id`, surviving a rollout that has MOVED since
+        its path was recorded.
+
+        WHY THIS LADDER EXISTS. A Codex agent's rollout path is recorded once,
+        at import, and points into the V1→V2 import staging folder
+        (`desktop_native.native_session_path`). Nothing demotes that record
+        afterwards — `retire_native_binding` only fires on a ledger lineage
+        transition — so Orgtree keeps handing over the staging path forever.
+        When the file is no longer the one the CLI considers current, every
+        single wake fails at resume and the agent becomes permanently
+        unreachable with its conversation sitting intact on disk. That is not
+        hypothetical: it is the 2026-09-16 `coordinator-astra` report.
+
+        THE RUNGS, cheapest first, and each one is answering a DIFFERENT
+        failure the server distinguishes:
+
+        1. the recorded path. Unchanged behaviour, and the overwhelmingly
+           common case — there is no extra request when it works.
+        2. NO path, resuming by thread id alone. This is the server's OWN
+           remedy, quoted out of its refusal: "…; omit path and resume by
+           thread id". It is the right answer when the CLI has ADOPTED the
+           thread into its own rollout store (a "paginated" thread), because
+           then the CLI knows where the rollout really is and our path is
+           merely stale.
+
+        ⚠ RUNG 2 IS NOT A UNIVERSAL FIX, and the ladder must not pretend it
+        is. Measured against codex.exe 0.153.4 (2026-09-16): when a thread
+        exists ONLY as an imported file and the CLI has never adopted it,
+        omitting the path fails with "no rollout found for thread id" — the
+        CLI genuinely has no record of it. The cure for that case is for the
+        file to be found, which is `native_session_path`'s job, not this
+        one's: it re-resolves the session against the import inventory before
+        we ever get here.
+
+        Both rungs are tried ONLY for a refusal that is about the path
+        (`is_resume_path_refusal`). Anything else — a dead process, a
+        timeout, an unknown thread — propagates untouched, because retrying
+        it would be pointless work on every genuine miss.
+        """
+        try:
+            return self.client.request(
+                "thread/resume", self._resume_params(self.resume_path))
+        except CodexRequestError as refusal:
+            if not self.resume_path or not is_resume_path_refusal(refusal.message):
+                raise
+            first = refusal
+        # The server told us the path is the problem. Ask by thread id alone.
+        try:
+            res = self.client.request(
+                "thread/resume", self._resume_params(None))
+        except CodexRequestError as second:
+            raise CodexResumeUnresolved(
+                f"thread/resume could not locate the rollout for thread "
+                f"{self.thread_id}.\n"
+                f"  tried with the recorded path: {self.resume_path}\n"
+                f"    server said: {first.message}\n"
+                f"  tried by thread id with no path\n"
+                f"    server said: {second.message}\n"
+                f"  rollout store searched (CODEX_HOME): "
+                f"{self.codex_home or '<the codex default>'}\n"
+                f"The conversation may still exist at a path Orgtree does not "
+                f"know about; the recorded path is the one to check first."
+            ) from second
+        print(f"[orgtree] codex thread {self.thread_id}: the recorded rollout "
+              f"path was refused ({first.message}); resumed by thread id "
+              f"instead. Recorded path was {self.resume_path}")
+        return res
 
     def close(self) -> None:
         """End the app-server THIS turn created.
