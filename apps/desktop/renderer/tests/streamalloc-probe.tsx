@@ -34,6 +34,17 @@ const NID = 'probe-agent'
 const EVENTS = 250
 /** the renderer's own cap on a live draft (convo.ts `slice(-12000)`) */
 const DRAFT_CAP = 12000
+/** Sampler calibration: 400 × 64 KB = 26 MB of exactly known allocation.
+ *
+ *  ⚠ THE SIZE IS CHOSEN AGAINST THE YOUNG GENERATION, which the runner sets
+ *  to 64 MB. 26 MB fits inside it, so after the runner's collect no scavenge
+ *  need run during the window — which is what makes the used-heap delta an
+ *  EXACT figure for the retained variant rather than an estimate, and so what
+ *  lets this scenario calibrate the precise instrument as well as the sampler.
+ *  An earlier version used 96 MB and could not: it outgrew the window, the
+ *  collections inside it were not counted, and it read 92× low. */
+const SAMPLER_CHUNK = 65536
+const SAMPLER_CHUNKS = 400
 /** a token as the wire actually carries one: tens of bytes, not one char */
 const TOKEN = 'the projection reconciles and the record is written back. '
 
@@ -77,6 +88,26 @@ function transcript(rows: number): ChatMessage[] {
     }
   }
   return out
+}
+
+/** ⚠ A STRING THAT REALLY OCCUPIES ITS OWN LENGTH, which is harder than it
+ *  looks and is worth the care because a calibration fixture that lies is
+ *  worse than none.
+ *
+ *  `String(i).padEnd(65536, 'x')` looks like 64 KB and is not: V8 represents
+ *  it as a rope over the small prefix and ONE shared run of the filler, so
+ *  four hundred of them cost about four hundred kilobytes between them, not
+ *  twenty-six megabytes. Measured in plain node, same engine: `padEnd` 402 KB
+ *  for 400, built-and-flattened 26.85 MB for the same 400.
+ *
+ *  So: grow the string by concatenation and then `slice`, which forces V8 to
+ *  flatten it into one sequential string of its own. The `i` in the head keeps
+ *  every chunk distinct so nothing can be shared between them. */
+const SAMPLER_FILL = 'z'.repeat(1024)
+function bigString(i: number): string {
+  let s = 'y' + i + '-'
+  while (s.length < SAMPLER_CHUNK) s += SAMPLER_FILL
+  return s.slice(0, SAMPLER_CHUNK)
 }
 
 function tree(nodes: number): CanvasNode {
@@ -199,21 +230,32 @@ const heap = (): number =>
 
 class Alloc {
   private last = 0
+  private first = 0
+  private peak = 0
   bytes = 0
   drops = 0
   samples = 0
-  start(): void { this.bytes = 0; this.drops = 0; this.samples = 0; this.last = heap() }
+  start(): void {
+    this.bytes = 0; this.drops = 0; this.samples = 0
+    this.last = this.first = this.peak = heap()
+  }
   /** call after each event, and once more at the end */
   sample(): void {
     const now = heap()
     const d = now - this.last
     if (d > 0) this.bytes += d
     else if (d < 0) this.drops++
+    if (now > this.peak) this.peak = now
     this.last = now
     this.samples++
   }
   report(events: number) {
     return { bytes: this.bytes, drops: this.drops, samples: this.samples,
+      // raw readings, so a scenario whose arithmetic is known can say whether
+      // the instrument moved at all — a sum of deltas that stays flat while a
+      // known allocation is retained means the reading is not live, and no
+      // amount of careful summing fixes that
+      heapStart: this.first, heapPeak: this.peak, heapEnd: this.last,
       perEvent: events ? Math.round(this.bytes / events) : null }
   }
 }
@@ -221,7 +263,8 @@ const alloc = new Alloc()
 
 // -------------------------------------------------------------- scenarios
 const SCENARIOS = [
-  'load-concurrent', 'liveness',
+  'sampler-retained', 'sampler-dropped',
+  'load-concurrent', 'liveness-light', 'liveness',
   'control-strings', 'control-md',
   'store-delta', 'desk-idle', 'desk-bare-delta', 'desk-delta', 'desk-thinking',
   'tree-forecast',
@@ -243,6 +286,10 @@ const api = {
     sink = []
     const host = document.getElementById('root')!
     document.title = 'setup:' + name
+    if (name === 'sampler-retained' || name === 'sampler-dropped') {
+      return { mounted: false, chunks: SAMPLER_CHUNKS,
+        expectBytes: SAMPLER_CHUNKS * SAMPLER_CHUNK }
+    }
     if (name === 'control-strings' || name === 'control-md') {
       // CALIBRATION. `control-strings` allocates a known quantity by the same
       // concat-then-slice shape convo.ts uses, so the profiler's reported
@@ -264,9 +311,10 @@ const api = {
       await frame(); await frame()
       return { mounted: true, nodes: 20 }
     }
-    if (name === 'load-concurrent' || name === 'liveness') {
+    if (name === 'load-concurrent' || name === 'liveness' || name === 'liveness-light') {
       installFetch(transcript(LOAD_ROWS))
-      const ids = Array.from({ length: LOAD_AGENTS }, (_, i) => 'agent-' + i)
+      const ids = Array.from({ length: name === 'liveness-light' ? 1 : LOAD_AGENTS },
+        (_, i) => 'agent-' + i)
       root = createRoot(host)
       root.render(<Desks ids={ids} />)
       await frame(); await frame()
@@ -308,23 +356,42 @@ const api = {
         bytesPerSec: Math.round(alloc.bytes / (ms / 1000)),
         msPerEvent: events ? +(ms / events).toFixed(2) : null }
     }
-    if (name === 'liveness') {
+    if (name === 'liveness' || name === 'liveness-light') {
       // DOES IT STILL LOOK LIVE? Not "did the store update" — did the WORDS
       // reach the screen, and how long after the websocket delivered them.
       //
       // Each token carries a marker. On every painted frame the probe reads
       // the highest marker actually present in the draft's DOM text and
-      // charges the wait to the moment that token was ingested. What comes
-      // back is therefore the latency the eye experiences, including React's
-      // commit and the browser's paint — not a store round trip.
-      const ids = Array.from({ length: LOAD_AGENTS }, (_, i) => 'agent-' + i)
+      // charges the wait to the moment the WIRE WOULD HAVE DELIVERED that
+      // token — its scheduled instant, not the moment the renderer got round
+      // to ingesting it. Charging from ingest would flatter a renderer that is
+      // behind: it would hide the queue and report only the last hop. What
+      // comes back is therefore lag behind the AGENT, which is what the ticket
+      // asks about, and it includes React's commit and the browser's paint.
+      //
+      // `liveness-light` is one desk at an ordinary streaming rate — the
+      // question "does coalescing add visible delay in the normal case".
+      // `liveness` is three saturated desks — "and what happens under the load
+      // that actually kills the renderer".
+      const light = name === 'liveness-light'
+      const agents = light ? 1 : LOAD_AGENTS
+      const rate = light ? 30 : LOAD_RATE
+      const ms = light ? 5000 : LOAD_MS
+      const ids = Array.from({ length: agents }, (_, i) => 'agent-' + i)
       const at = new Map<number, number>()
       const seen: number[] = []
-      let watching = true
+      const commits: number[] = []
       const mark = /#(\d+)#/g
-      const watch = () => {
-        if (!watching) return
+      // ⚠ A MUTATION OBSERVER, NOT requestAnimationFrame. The probe window is
+      // created hidden, and a window with no compositor does not schedule
+      // animation frames at display rate — so rAF here measures the probe's
+      // own throttling, not the renderer's. A DOM mutation is not throttled:
+      // it fires when React COMMITS the new text, which is one paint away from
+      // what the eye sees and is the honest thing to measure from a headless
+      // window. Read as "how far behind the agent the committed DOM is".
+      const obs = new MutationObserver(() => {
         const now = performance.now()
+        commits.push(now)
         for (const el of document.querySelectorAll('.md.draft')) {
           const text = el.textContent ?? ''
           let best = -1, m: RegExpExecArray | null
@@ -333,17 +400,18 @@ const api = {
           const t = at.get(best)
           if (t !== undefined) { seen.push(now - t); at.delete(best) }
         }
-        requestAnimationFrame(watch)
-      }
-      requestAnimationFrame(watch)
-      const gap = 1000 / LOAD_RATE
+      })
+      obs.observe(document.getElementById('root')!,
+        { subtree: true, childList: true, characterData: true })
+      const gap = 1000 / rate
+      const wire = performance.now()
       let n = 0
       const pending: Promise<void>[] = []
-      for (let i = 0; i * gap < LOAD_MS; i++) {
+      for (let i = 0; i * gap < ms; i++) {
         for (const id of ids) {
+          const tag = n++
+          at.set(tag, wire + i * gap)     // when the wire would have delivered it
           pending.push(new Promise<void>((r) => setTimeout(() => {
-            const tag = n++
-            at.set(tag, performance.now())
             ingestStream(SLUG, { node: id, kind: 'delta',
               text: `#${tag}# `, event_id: 'draft-' + id } as never)
             alloc.sample()
@@ -353,14 +421,23 @@ const api = {
       }
       await Promise.all(pending)
       await wait(400)
-      watching = false
+      obs.disconnect()
       const sorted = [...seen].sort((a, b) => a - b)
       const pick = (q: number) => sorted.length
         ? +(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]!).toFixed(1) : null
+      // the longest the screen went without changing at all — a stream that
+      // arrives in visible jumps shows up here, where an average would hide it
+      let worstGap = 0
+      for (let i = 1; i < commits.length; i++) {
+        worstGap = Math.max(worstGap, commits[i]! - commits[i - 1]!)
+      }
       const r = done(n)
-      return { ...r, painted: sorted.length,
-        latencyMedian: pick(0.5), latencyP95: pick(0.95),
-        latencyMax: sorted.length ? +sorted[sorted.length - 1]!.toFixed(1) : null }
+      return { ...r, agents, rate, commits: commits.length,
+        commitsPerSec: +(commits.length / (r.ms / 1000)).toFixed(1),
+        worstGapMs: +worstGap.toFixed(1),
+        measured: sorted.length,
+        lagMedian: pick(0.5), lagP95: pick(0.95),
+        lagMax: sorted.length ? +sorted[sorted.length - 1]!.toFixed(1) : null }
     }
     if (name === 'load-concurrent') {
       // THE HEADLINE MEASUREMENT. Every token is scheduled up front against
@@ -388,6 +465,39 @@ const api = {
         // the renderer's real throughput: if this is far below the offered
         // rate the desk is behind the agent, which is the user-visible half
         deliveredPerSec: Math.round(delivered / (r.ms / 1000)) }
+    }
+    if (name === 'sampler-retained' || name === 'sampler-dropped') {
+      // ⚠ IS THE SAMPLING PROFILER A RATE INSTRUMENT OR A RETENTION ONE?
+      //
+      // The two scenarios allocate the SAME known quantity by the SAME code
+      // path and differ in one thing: whether the result is kept. Both end
+      // with an explicit collection, so anything dropped is genuinely gone
+      // before the profile is read.
+      //
+      //   · a uniformly lossy sampler reports the same total for both;
+      //   · an instrument that reports only what SURVIVED reports the full
+      //     amount for `retained` and near nothing for `dropped`.
+      //
+      // MEASURED, 2026-09-16, and it is the second: 26,446,680 sampled bytes
+      // when the result is kept, 3,452 when it is dropped — a factor of seven
+      // thousand for identical allocation. So `sampledBytes` is a RETENTION
+      // figure and the spread across this probe's scenarios is survival rate,
+      // not sampling error. The same pair validates the precise instrument,
+      // which reported ~34.5 MB for both, as it must.
+      let checksum = 0
+      for (let i = 0; i < SAMPLER_CHUNKS; i++) {
+        const chunk = bigString(i)
+        checksum += chunk.length
+        if (name === 'sampler-retained') sink.push(chunk)
+        // once per chunk, exactly as the streaming scenarios sample once per
+        // event — a coarser cadence lets a collection hide allocation between
+        // samples and reads low for reasons that have nothing to do with the
+        // instrument being wrong
+        await task(); alloc.sample()
+      }
+      ;(window as unknown as { gc?: () => void }).gc?.()
+      return { ...done(SAMPLER_CHUNKS), checksum,
+        retained: name === 'sampler-retained' }
     }
     if (name === 'control-strings') {
       let draft = ''

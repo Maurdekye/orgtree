@@ -343,10 +343,11 @@ export function renameConvo(slug: string, from: string, to: string): void {
   // subscription will arm the same Entry under its canonical key.
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
-  // publish buffered tokens BEFORE the identity moves. It is the same
+  // carry buffered tokens across the move without notifying — it is the same
   // conversation either side of a rename, so the words the agent had already
-  // streamed must survive it rather than be dropped with the old key.
-  flushLive(old)
+  // streamed must survive it, but see `adoptLive` for why publishing them
+  // here is what would lose the whole conversation.
+  adoptLive(old)
   stopClock(old)
   old.inflight = false
   old.requestSerial++
@@ -441,6 +442,25 @@ function flushLive(e: Entry): void {
 function cancelLive(e: Entry): void {
   if (e.liveRaf !== null) { cancelAnimationFrame(e.liveRaf); e.liveRaf = null }
   if (e.liveTimer) { clearTimeout(e.liveTimer); e.liveTimer = null }
+  e.live = null
+}
+
+/** KEEP THE WORDS, DO NOT NOTIFY — for a rename.
+ *
+ *  A rename is the one case where publishing normally is wrong. The Entry is
+ *  about to move to a new key and the views watching the old one remount,
+ *  because their React key follows the node id. `patchEntry` notifies
+ *  synchronously but React re-reads on its own schedule, so a notification
+ *  fired here lands AFTER the move: the view re-runs `useConvo(slug, oldId)`,
+ *  finds the fresh blank Entry that now sits under the old key, and blanks
+ *  itself — the renamed desk loses the conversation it just had (convo §5.2).
+ *  So the buffered text is merged into the snapshot and the notification is
+ *  left to whatever re-renders the view next, which a rename always does. */
+function adoptLive(e: Entry): void {
+  if (e.liveRaf !== null) { cancelAnimationFrame(e.liveRaf); e.liveRaf = null }
+  if (e.liveTimer) { clearTimeout(e.liveTimer); e.liveTimer = null }
+  if (!e.live) return
+  e.s = { ...e.s, ...e.live }
   e.live = null
 }
 

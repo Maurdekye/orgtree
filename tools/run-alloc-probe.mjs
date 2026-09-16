@@ -129,15 +129,39 @@ app.whenReady().then(async () => {
       // A 1024-byte sampling interval is fine-grained; the profiler's own
       // overhead is real but it falls on every scenario equally.
       await dbg.sendCommand('HeapProfiler.startSampling', { samplingInterval: 1024 })
+      // CDP's own view of the same isolate, read either side of the window.
+      // This is the cross-check on the in-page performance.memory reading:
+      // two instruments that disagree about a scenario whose arithmetic is
+      // known mean one of them is not measuring what its name says.
+      const before = await dbg.sendCommand('Runtime.getHeapUsage').catch(() => null)
       const ran = await evalIn('window.__alloc.run(' + JSON.stringify(name) + ')')
+      const after = await dbg.sendCommand('Runtime.getHeapUsage').catch(() => null)
+      if (before && after) {
+        ran.cdpUsedStart = Math.round(before.usedSize)
+        ran.cdpUsedEnd = Math.round(after.usedSize)
+        ran.cdpUsedDelta = Math.round(after.usedSize - before.usedSize)
+      }
       const { profile } = await dbg.sendCommand('HeapProfiler.stopSampling')
       const s = summarize(profile)
-      // "bytes" is the renderer's own precise used-heap accounting and is the
-      // figure to quote. "sampledBytes" is the V8 sampling profiler's estimate
-      // over the same window: it is kept ONLY because "top" — which function
-      // allocated — comes from it, and a calibration scenario in the fixture
-      // shows it under-reports the absolute total by more than an order of
-      // magnitude. Never quote sampledBytes as an allocation rate.
+      // ⚠ "bytes" IS THE FIGURE TO QUOTE. "sampledBytes" IS NOT AN ALLOCATION
+      // RATE AND MUST NEVER BE READ AS ONE.
+      //
+      // The fixture's sampler-retained / sampler-dropped pair settles what
+      // HeapProfiler.getSamplingProfile actually reports. Both allocate the
+      // same 26 MB by the same code path and differ only in whether the result
+      // is kept. Measured here: 26,446,680 sampled when it survives, 3,452
+      // when it does not — a factor of seven thousand for identical
+      // allocation. It reports sampled allocations that are still RETAINED, so
+      // for churning code, which is all the code this ticket is about, it
+      // reports almost nothing.
+      //
+      // The same pair validates "bytes": it reported ~34.5 MB for BOTH
+      // variants, which is what an allocation instrument must do, and CDP's
+      // own retained delta agreed with the survivors (26.3 MB and 76 KB).
+      //
+      // "top" is kept because it is the only attribution available, but it
+      // names what SURVIVED — treat it as a hint, never as a share of cost,
+      // and never compare it between scenarios with different survival rates.
       log('    ran -> ' + JSON.stringify(ran) + ' sampled=' + s.total)
       results.push({ scenario: name, ...ran, sampledBytes: s.total, top: s.top })
       write({ results })

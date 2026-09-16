@@ -38,7 +38,7 @@
 // Run:  cd frontend && node tests/run.mjs turnpend
 
 import {
-  FakeServer, flush, installFetch, mountView, realClock, useFakeClock,
+  FakeServer, advance, flush, installFetch, mountView, realClock, useFakeClock,
 } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -209,6 +209,9 @@ domTest('§2 …and above the streamed draft, which is the first thing a codex '
   // the token stream: what `_flush_draft` pushes over the websocket, and the
   // only assistant output that exists before any durable row does
   ingestStream(SL, { node: ND, kind: 'delta', text: 'answering already', t: Date.now() })
+  // live text publishes once per frame (queueLive in convo.ts) — this test is
+  // about the ORDER the draft appears in, so let it appear first
+  await advance(20)
   await flush()
 
   const r = rows(el)
