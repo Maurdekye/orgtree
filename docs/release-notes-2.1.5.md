@@ -6,8 +6,7 @@ docket, and corrects what the interface claims about accounts and plans.
 ## Upgrading an existing installation
 
 If you are running 2.1.4, the tray's **Update now** will find this release and
-install it. If you are running one of the `2.1.5-RC` candidates, it will not —
-see *A note on the RC candidates* at the end.
+install it.
 
 ## Self-updating
 
@@ -48,8 +47,7 @@ see *A note on the RC candidates* at the end.
 - Prereleases now sit on a release line the updater can leave. A `beta`
   installation receives later betas *and* the stable release; a stable
   installation ignores prereleases entirely instead of being offered a candidate
-  as soon as one is published. The release tooling refuses an `-RC` version
-  outright rather than producing another build that cannot update.
+  as soon as one is published.
 
 ## Staffing from the docket
 
@@ -133,11 +131,3 @@ Tests that disturb the desktop — ones that open consoles, show dialogs, or run
 the real installer toolchain — sit behind two barriers. An ordinary `npm test`
 cannot reach them, and each refuses to run without an explicit opt-in, so
 running the suite can no longer take over the machine.
-
-## A note on the RC candidates
-
-The `2.1.5-RC1`, `RC2` and `RC3` builds were never published as releases, and an
-installation of one cannot reach this release on its own. The updater reads the
-text after the dash as the name of a release line, so an `RC3` build sits on a
-line whose only member is itself. If you are running one, install this release
-by hand once; automatic updates work from then on.
