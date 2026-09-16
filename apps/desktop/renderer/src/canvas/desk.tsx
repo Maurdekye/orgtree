@@ -7,6 +7,7 @@ import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
+import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
@@ -1920,14 +1921,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // scrolled up stays free until they come back down. 40px of slack keeps it
   // from unsticking on a stray pixel.
   const stickRef = useRef(true)
-  const [showJump, setShowJump] = useState(false)
+  const [showJump, setShowJump] = useChangedState(false)
   const nearBottom = () => {
     const el = scroller.current
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
-    setShowJump((s) => (s === !v ? s : !v))   // only re-render on a real flip
+    setShowJump(!v)   // only on a real flip — useChangedState, not an updater
   }
   // ⚠ THE AUTOSCROLL IS HELD WHILE A CONTEXT MENU IS OPEN ON THIS DESK.
   // (user spec 2026-09-12: a menu raised on a transcript event must survive
@@ -2077,7 +2078,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   }, [chat])
   const userSeqs = useMemo(() => new Set(userTurns.map((u) => u.seq)), [userTurns])
   const userRowEls = useRef(new Map<number, HTMLDivElement>())
-  const [pinSeq, setPinSeq] = useState<number | null>(null)
+  const [pinSeq, setPinSeq] = useChangedState<number | null>(null)
   // The chip's text is clamped to three lines and faded where it is cut.
   // Whether it IS cut is a measurement, never a guess: the same label wraps
   // to one line in a wide panel and to five in a narrow one, and a fade over
@@ -2089,7 +2090,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // can never move the box the observer is watching.
   const pinRef = useRef<HTMLButtonElement | null>(null)
   const pinTextRef = useRef<HTMLSpanElement | null>(null)
-  const [pinClip, setPinClip] = useState(false)
+  const [pinClip, setPinClip] = useChangedState(false)
   // rect-based, not offsetTop: the row's offsetParent is not reliably the
   // scroller. Only a row fully above the scrollport can be the target — a
   // reader who scrolled UP past every user turn has them all BELOW, and a
@@ -2111,10 +2112,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         if (u && t && t.getBoundingClientRect().bottom < top) { v = u.seq; break }
       }
     }
-    setPinSeq((s) => (s === v ? s : v))   // only re-render on a real flip
+    // ⚠ AND "ONLY ON A REAL FLIP" IS THE HOOK'S JOB, NOT AN UPDATER'S. This
+    // used to be `setPinSeq((s) => (s === v ? s : v))`, which stops the
+    // RE-RENDER and not the DISPATCH: while the agent is mid-turn there is
+    // always other work pending, React's eager bailout is refused, and a
+    // no-op scheduled from an effect with no dependency list re-runs that
+    // effect, which schedules again — fifty rounds and the desk is gone
+    // (user crash 2026-09-15, React #185). See src/changedstate.ts.
+    setPinSeq(v)
     const t = pinTextRef.current
     const cut = !!t && t.scrollHeight - t.clientHeight > 1
-    setPinClip((c) => (c === cut ? c : cut))
+    setPinClip(cut)
   }
   // ⚠ A RESIZE IS NOT A RENDER. The switchboard lays its panels out with flex
   // (`.eye-panel { flex: 1 }`), so opening or closing ONE tab re-widths every
