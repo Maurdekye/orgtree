@@ -98,6 +98,23 @@ const SUITES = {
       { what: 'tools/test-*.mjs', why: 'Electron/native probes needing a display and a built app' },
     ],
   },
+  'python-backend': {
+    title: 'Python backend suite',
+    description: 'tools/run-python-verification.py over tests/test_*.py — a fresh interpreter and a fresh ORGTREE_DATA per module',
+    command: 'python tools/run-python-verification.py tests/test_*.py',
+    kind: 'python-verification',
+    // MODULE-LEVEL, not test-level. The sanctioned runner reports one verdict
+    // per module because it gives each one its own process and data root; that
+    // isolation is the reason the suite is trustworthy at all, and it is not
+    // worth trading for finer reporting. Recorded as `granularity` so nobody
+    // reads a module verdict as a test verdict.
+    granularity: 'module',
+    files: () => listFiles(path.join(REPO, 'tests'), name => /^test_.*\.py$/.test(name)),
+    excluded: [
+      { what: 'tests/*.py not matching test_*.py', why: 'helpers and probes, not unittest modules' },
+      { what: 'engine tests run any other way', why: 'running them without the runner\'s isolated ORGTREE_DATA produces mass spurious errors — measured: 18 errors in a module that passes cleanly under the runner' },
+    ],
+  },
   renderer: {
     title: 'Renderer suite',
     description: 'apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer',
@@ -350,9 +367,92 @@ async function runSuite(suiteName, options) {
   let targets = options.files ?? suite.files()
   if (options.filter) targets = targets.filter(f => relative(f).includes(options.filter))
   if (!targets.length) throw new Error(`suite ${suiteName} matched no files${options.filter ? ` for filter "${options.filter}"` : ''}`)
-  return suite.kind === 'spawn-ndjson'
-    ? runSpawnedSuite(suiteName, targets, options)
-    : runNodeTestSuite(suiteName, targets, options)
+  if (suite.kind === 'spawn-ndjson') return runSpawnedSuite(suiteName, targets, options)
+  if (suite.kind === 'python-verification') return runPythonSuite(suiteName, targets, options)
+  return runNodeTestSuite(suiteName, targets, options)
+}
+
+/**
+ * Run the Python backend modules through the repository's own verification
+ * runner.
+ *
+ * Reusing it rather than calling unittest directly is not politeness: each
+ * module needs a fresh interpreter and a fresh ORGTREE_DATA, and without that
+ * isolation the results are garbage — a module that passes cleanly under the
+ * runner reports eighteen errors when run bare. A baseline built on the bare
+ * invocation would record twenty spurious failures and teach every reader to
+ * ignore it.
+ */
+async function runPythonSuite(suiteName, targets, { timeout }) {
+  const started = Date.now()
+  const receiptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-baseline-py-'))
+  const receipt = path.join(receiptDir, 'receipt.json')
+  const modules = targets.map(relative)
+
+  const args = [
+    path.join(HERE, 'run-python-verification.py'),
+    '--repo-root', REPO,
+    '--json-output', receipt,
+    ...(timeout ? ['--timeout', String(Math.round(timeout / 1000))] : []),
+    ...modules,
+  ]
+  const spawned = spawnSync('python', args, {
+    cwd: REPO, encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024,
+  })
+
+  if (!fs.existsSync(receipt)) {
+    fs.rmSync(receiptDir, { recursive: true, force: true })
+    throw new Error(
+      `${suiteName}: the runner exited ${spawned.status} and wrote no receipt.\n` +
+      `${(spawned.stderr || spawned.stdout || spawned.error?.message || '').slice(-2000)}`,
+    )
+  }
+  const parsed = JSON.parse(fs.readFileSync(receipt, 'utf8'))
+  fs.rmSync(receiptDir, { recursive: true, force: true })
+
+  const outcomes = (parsed.modules ?? []).map(record => {
+    const file = record.module ?? relative(record.module_path) ?? '(unknown module)'
+    // Module granularity: the "test" name says so rather than pretending to
+    // name a case the runner never reported.
+    const name = `(whole module: ${record.phase})`
+    const passed = record.phase === 'pass'
+    const message = passed ? null : firstLine(lastMeaningfulLine(record.stderr ?? ''))
+    return {
+      id: testId(suiteName, file, '(whole module)'),
+      suite: suiteName,
+      file,
+      test: name,
+      status: record.phase === 'skipped' ? 'skipped' : passed ? 'passed' : 'failed',
+      kind: 'leaf',
+      failure_type: passed ? null : record.phase,
+      // The runner's own tolerate-list key, so a baseline entry can be fed
+      // straight back to it as `--baseline`.
+      failure_id: record.failure_id ?? null,
+      error: message,
+      error_digest: message ? digest(message) : null,
+      duration_ms: Math.round(record.duration_ms ?? 0),
+    }
+  })
+
+  return {
+    suite: suiteName,
+    runner: SUITES[suiteName].command,
+    granularity: 'module',
+    duration_ms: Date.now() - started,
+    files: modules,
+    exit_status: spawned.status,
+    outcomes: outcomes.sort((a, b) => a.id.localeCompare(b.id)),
+  }
+}
+
+/** Python tracebacks end with the line that actually says what went wrong. */
+function lastMeaningfulLine(stderr) {
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^(OK|Ran \d+ tests?|-{5,}|={5,}|FAILED \()/.test(lines[i])) continue
+    return lines[i]
+  }
+  return stderr.slice(0, 200)
 }
 
 /**
@@ -443,6 +543,17 @@ async function runSpawnedSuite(suiteName, targets, { concurrency, timeout }) {
     )
   }
 
+  // ⚠ A RUN THAT DIED IS NOT A RUN THAT PASSED. Besides the runner's own limit,
+  // this suite can be killed from outside: an esbuild child here has reached
+  // 5-9 GB and a host watchdog now kills any esbuild over 5 GB. Whatever the
+  // cause, the tell is the same — files that were asked for produced no
+  // outcome at all. Recording their tests as absent (and therefore, later, as
+  // "fixed" or simply unmeasured) would be a lie in the most expensive
+  // direction, so the whole suite is marked truncated and names the files.
+  const filesWithOutcomes = new Set([...outcomes.values()].map(o => o.file))
+  const silent = selected.filter(f => !filesWithOutcomes.has(f))
+  const died = silent.length > 0
+
   return {
     suite: suiteName,
     runner: SUITES[suiteName].command,
@@ -450,9 +561,13 @@ async function runSpawnedSuite(suiteName, targets, { concurrency, timeout }) {
     files: selected,
     env_overrides: overrides,
     exit_status: spawned.status,
-    truncated: truncated || null,
-    truncation_note: truncated
-      ? 'The runner hit its own run limit and dropped batches. Files that never ran are NOT passing — they are unmeasured. Raise ORGTREE_TEST_RUN_TIMEOUT_MS and record again.'
+    truncated: truncated || died || null,
+    files_that_produced_no_result: silent.length ? silent : null,
+    truncation_note: (truncated || died)
+      ? (truncated
+          ? 'The runner hit its own run limit and dropped batches. '
+          : 'Some files produced no result at all — the run was cut short from outside (an out-of-memory kill, a watchdog, a crash). ')
+        + `${silent.length} file(s) went unmeasured. Unmeasured is NOT passing. Fix the cause, raise ORGTREE_TEST_RUN_TIMEOUT_MS if it was the run limit, and record again.`
       : null,
     outcomes: [...outcomes.values()].sort((a, b) => a.id.localeCompare(b.id)),
   }
@@ -683,6 +798,7 @@ async function cmdRecord(args) {
       title: SUITES[suiteName].title,
       description: SUITES[suiteName].description,
       runner: SUITES[suiteName].command,
+      granularity: SUITES[suiteName].granularity ?? 'test',
       // A partial baseline must say so: without this, a filtered run reads as
       // if the unselected files had passed.
       partial: args.filter ? { filter: args.filter, warning: 'PARTIAL BASELINE — only files matching this filter were run; every other file is unmeasured, not passing.' } : null,
@@ -693,6 +809,7 @@ async function cmdRecord(args) {
       // looks like. Say so in the record, not only on the console.
       truncated: result.truncated ?? null,
       truncation_note: result.truncation_note ?? null,
+      files_that_produced_no_result: result.files_that_produced_no_result ?? null,
       env_overrides: result.env_overrides ?? null,
       counts,
       failing_files: [...new Set(failures.map(f => f.file))].sort(),

@@ -228,12 +228,22 @@ new-docket-item alternatives — is recorded as decision #1 on the docket item
 ## What the baseline does NOT cover
 
 Read this before quoting a clean `compare` as proof of anything. The baseline
-covers two suites:
+covers three suites:
 
-| Suite | What it is | Roughly |
-| --- | --- | --- |
-| `node-root` | `node --test tests/*.test.mjs` — the `npm test` set, 47 modules | ~1 min |
-| `renderer` | `node apps/desktop/renderer/tests/run.mjs` — 233 bundled jsdom suites | ~5 min |
+| Suite | What it is | Reports per | Roughly |
+| --- | --- | --- | --- |
+| `node-root` | `node --test tests/*.test.mjs` — the `npm test` set, 47 modules | test | ~1.5 min |
+| `python-backend` | `tools/run-python-verification.py` over `tests/test_*.py`, 176 modules | **module** | several min |
+| `renderer` | `node apps/desktop/renderer/tests/run.mjs` — 233 bundled jsdom suites | test | ~4-6 min |
+
+**`python-backend` reports per MODULE, not per test**, and `show` says so on the
+suite's own line. The sanctioned runner gives each module a fresh interpreter
+and a fresh `ORGTREE_DATA`, and that isolation is the reason the suite is
+trustworthy at all — it is not worth trading for finer reporting. Do not run
+those tests any other way to check a baseline claim: without the isolated data
+root the results are garbage, and the measurement is not close. One module that
+passes cleanly under the runner reports **eighteen errors** when run bare with
+`python -m unittest`.
 
 Everything else is listed in each suite's `excluded` array and reprinted by
 `show`, so the gap is stated rather than hidden:
@@ -261,6 +271,15 @@ is loaded into every node process in the tree and appends NDJSON to its own file
 per process. `run.mjs` is spawned completely unchanged and keeps every guard it
 has. Bundled `foo.test.mjs` names are mapped back to `apps/desktop/renderer/
 tests/foo.test.tsx` by basename.
+
+**A run that died is not a run that passed.** Besides the runner's own limit,
+this suite gets killed from outside: an esbuild child here has reached 5–9 GB,
+and a host watchdog now kills any esbuild over 5 GB. Whatever the cause, the
+tell is the same — files that were asked for produced no outcome at all. When
+that happens the suite is marked `truncated`, the silent files are listed under
+`files_that_produced_no_result`, and every screen says unmeasured is not
+passing. Recording those files as simply absent would later read as "fixed", or
+as nothing at all, which is the most expensive direction to be wrong in.
 
 **One thing to know about that run limit.** Its default is 300 s and the suite
 measured 274 s of test time on the machine this baseline was first taken on —
