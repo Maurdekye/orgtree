@@ -39,10 +39,11 @@ import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
   ArrowDownIcon, ArrowUpIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
-  DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, PlayIcon,
-  PsychologyIcon,
+  DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
+  NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
 } from '../icons'
+import { isNoticeArmed, setNoticeArmed, toggleNoticeArmed, useNoticeArmed } from '../noticestore'
 import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
@@ -1658,6 +1659,18 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
   const convo = useConvo(slug, node.id)
+  const noticeArmed = useNoticeArmed()
+  useEffect(() => {
+    const win = surfaceDocument?.defaultView ?? window
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault()
+        toggleNoticeArmed()
+      }
+    }
+    win.addEventListener('keydown', onKey)
+    return () => win.removeEventListener('keydown', onKey)
+  }, [surfaceDocument])
   const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
   const processClass = node.state === 'live'
     ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
@@ -2431,6 +2444,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
+    const armedNotice = isNoticeArmed()
+    if (armedNotice) setNoticeArmed(false)
     setReply(null)
     setText('')
     setAttached([])
@@ -2441,11 +2456,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     // payload showing the durable copy retires the ghost by identity, even
     // while this request is still in flight (see PendingGhost.op).
     const op = mintClientOp()
-    const ghostId = addPending(slug, node.id, t, sentReply, attached, op)
-    if (live && !node.halt) markBusy(slug, node.id)
+    const ghostId = addPending(slug, node.id, t, sentReply, attached, op, armedNotice)
+    if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op)
+    sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op, armedNotice)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
         // review C3: name every real outcome — "delivering" as the fallback
@@ -2461,7 +2476,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
                 // warning is written to avoid. The mail IS durable; what is
                 // conditional is the reader.
                 : r.deferred ? 'retired — queued, waits for a rehire'
-                  : (r.queued ?? 0) > 0 ? `queued (${r.queued} ahead)` : 'delivering')
+                  : r.notice ? 'notice delivered — waits for next turn'
+                    : (r.queued ?? 0) > 0 ? `queued (${r.queued} ahead)` : 'delivering')
         if (r.warnings?.length) toast(r.warnings)
         // A command is not correspondence — it never enters pending_mail — so
         // the question for its ghost is only ever "will a transcript row ever
@@ -3454,11 +3470,19 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         midTurn={processActive} composerFocused={composerFocused}
         cheapCompactOn={node.cheap_compact_on}
         cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
-      <div className={'cc-composer' + (canMail ? '' : ' off')}>
+      <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')}>
         <button className="cc-attach" disabled={!canMail}
           title="attach a file — it lands in the agent's uploads/ folder"
           onClick={() => fileRef.current?.click()}>
           <FileIcon fontSize="inherit" /></button>
+        <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
+          type="button"
+          disabled={!canMail}
+          aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
+          title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
+          onClick={() => toggleNoticeArmed()}>
+          {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+        </button>
         <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
           onChange={(e) => {
             [...e.target.files!].forEach(attach)
@@ -3488,6 +3512,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             }
           }}
           onKeyDown={(e) => {
+            if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+              e.preventDefault()
+              toggleNoticeArmed()
+              return
+            }
             // mobile: soft keyboards emit Enter with shiftKey:false and no
             // gesture recovers the newline — send is the button's job there
             if (e.key === 'Enter' && !e.shiftKey && !isMobile) { e.preventDefault(); send() }
@@ -3883,7 +3912,7 @@ export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
 }) {
   return (
     <div data-reply-event={m.event_id} data-reply-quote={m.body}
-      onContextMenu={onContext} className="pending pendrow">
+      onContextMenu={onContext} className={'pending pendrow' + (m.kind === 'notice' ? ' notice-bubble' : '')}>
       <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
@@ -3926,14 +3955,14 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
   return (
     <div data-reply-event="" onContextMenu={onContext}
       className={'pending pendghost' + (p.failed
-        ? ' failed event-surface event-runtime_recovery' : '')}>
+        ? ' failed event-surface event-runtime_recovery' : '') + (p.notice ? ' notice-bubble' : '')}>
       <MailMessage
         row={{
           id: p.mailId ?? null,
           client_op: p.op,
           ghost_id: p.id,
           from: USER,
-          kind: 'message',
+          kind: p.notice ? 'notice' : 'message',
           body: p.text,
           at: new Date(p.at).toISOString(),
           attachments: p.attachments,

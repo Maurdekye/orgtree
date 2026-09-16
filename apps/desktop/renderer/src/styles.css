@@ -1702,6 +1702,12 @@ button.cc-name:hover {
   padding: 7px 9px;
 }
 .cc-composer:focus-within { border-color: var(--accent); }
+.cc-composer.notice-armed {
+  border-style: dotted;
+  border-width: 1.5px;
+  border-color: var(--accent);
+}
+.cc-composer.notice-armed:focus-within { border-color: var(--accent); }
 .cc-composer.off { opacity: .6; }
 .cc-composer textarea {
   flex: 1; min-width: 0;
@@ -1855,6 +1861,12 @@ button.cc-name:hover {
   background: color-mix(in srgb, var(--panel) 72%, var(--input));
   border-left: 3px dashed color-mix(in srgb, var(--dim) 55%, var(--line));
   padding-left: 7px;
+}
+.turn-mail.notice-bubble,
+.msg.user.notice-bubble,
+.notice-bubble {
+  border: 1.5px dotted var(--accent) !important;
+  padding-left: 9px;
 }
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
 .turn-mail-head {
@@ -5294,6 +5306,22 @@ svg.MuiSvgIcon-root {
   display: flex; align-items: center; justify-content: center; font-size: 12px;
 }
 .cc-attach:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
+.cc-notice-toggle {
+  width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
+  background: none; border: 1px solid var(--line); color: var(--dim);
+  display: flex; align-items: center; justify-content: center; font-size: 13px;
+  cursor: pointer;
+}
+.cc-notice-toggle:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
+.cc-notice-toggle.armed {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1.5px dotted var(--accent);
+  color: var(--accent);
+}
+.cc-notice-toggle:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
 
 /* ------------------------------------------------- desk parity (2026-07-31)
    №1/№9/№10: tool chips carry their argument; results and diffs expand in

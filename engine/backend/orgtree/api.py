@@ -4568,6 +4568,11 @@ class Message(Body):
     # request's response, and without matching text. Optional: absent means
     # the legacy graduation rules alone apply.
     client_op: str = ""
+    # Passive notice (user ticket: notice-send toggle) — delivers into the node's
+    # mailbox without waking an idle recipient. If the recipient is running,
+    # it steers mid-task like any notice.
+    notice: bool = False
+
 
 
 def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
@@ -4796,11 +4801,15 @@ def node_message(slug: str, nid: str, body: Message,
                 legacy_rt = ({"id": ref["id"], "from": ref["sender"], "at": ref["at"],
                               "gist": extra["quote"]["gist"]}
                              if target["kind"] == "mail" else None)
-                r = org.post_mail(USER, nid, "", attachments=metas or None,
+            can_notice = bool(body.notice and not (nid == USER or nid.startswith("@")))
+            kind = "notice" if can_notice else "message"
+            if target is not None:
+                r = org.post_mail(USER, nid, "", kind=kind, attachments=metas or None,
                                   reply_to=legacy_rt, missing=missing or None, ev=rev,
                                   client_op=client_op or None)
             else:
-                r = org.post_mail(USER, nid, body.text, attachments=metas or None,
+                r = org.post_mail(USER, nid, body.text, kind=kind,
+                                  attachments=metas or None,
                                   reply_to=reply_meta, missing=missing or None,
                                   typed=True, client_op=client_op or None)
             receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
@@ -4826,10 +4835,32 @@ def node_message(slug: str, nid: str, body: Message,
         # own "deferred — delivers at rehire" chip is the only cue, and it
         # promises a rehire nothing schedules.
         return {"accepted": True, "deferred": True, "queued": 0,
+                "notice": can_notice,
                 "delivery": supervisor.delivery_note(
                     slug, nid,
-                    {"deferred": r.get("recipient_state") or "not live"}),
+                    {"deferred": r.get("recipient_state") or "not live"},
+                    kind=kind),
                 **receipt, **({"warnings": warn} if warn else {})}
+    if can_notice:
+        # A NOTICE is mail minus the wake: steers a running recipient so the
+        # notice arrives mid-task, but an idle one stays idle (wake=False).
+        # It never starts a turn.
+        sent = supervisor.send_message(
+            slug, nid,
+            "(orgtree) A notice arrived in your mail above — informational, "
+            "no reply expected. Note it and continue your current task.",
+            wake=False, mail_ping=True, sender=USER, ping_reason="notice")
+        delivery = supervisor.delivery_note(slug, nid, sent, kind="notice")
+        res: dict[str, Any] = {
+            **sent,
+            "accepted": True,
+            "notice": True,
+            "delivery": delivery,
+            **receipt,
+        }
+        if warn:
+            res["warnings"] = warn + list(res.get("warnings") or [])
+        return res
     sent = supervisor.send_message(
         slug, nid,
         "(orgtree) The mail above includes a message from the user, addressed "

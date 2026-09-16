@@ -109,6 +109,8 @@ export interface PendingGhost {
    *  silently dropped — a message that disappears is worse than one that
    *  hangs, because the user cannot tell whether it went. */
   failed?: boolean
+  /** Notice-send: whether this message was sent as a passive notice */
+  notice?: boolean
 }
 
 /** How long a command ghost is given before an idle server counts as proof
@@ -1093,7 +1095,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   return true
 }
 
-export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string): number {
+export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string, notice?: boolean): number {
   const k = key(slug, nid)
   const e = entry(k)
   // Baseline: everything already ACCOUNTED FOR is not this send. That is the
@@ -1111,6 +1113,7 @@ export function addPending(slug: string, nid: string, text: string, reply?: Repl
       // the submission's own pre-send name — see PendingGhost.op. Optional so
       // legacy callers (and their tests) keep the counting rules unchanged.
       ...(op ? { op } : {}),
+      ...(notice ? { notice: true } : {}),
       queuedSeen: serverCopies(e.s.chat ? { ...e.s.chat, messages: [] } : null, text)
         + e.s.pending.filter(g => g.text === text).length,
       seen: serverCopies(e.s.chat, text)
@@ -1132,10 +1135,11 @@ export function bindPendingMail(slug: string, nid: string, ghostId: number, resp
       || decodeEventRow(response, BASE ? 'public' : 'operator').kind !== 'known') return
   const k = key(slug, nid), e = entry(k), mailId = response.id
   const visible = serverMailIds(e.s.chat).has(mailId)
+  const isNotice = Boolean((response as { notice?: boolean }).notice)
   // the op path may already have retired the ghost off a payload that raced
   // this response — flatMap over a missing id simply binds nothing
   patch(k, { pending: e.s.pending.flatMap(g => g.id !== ghostId ? [g]
-    : visible || (g.op && serverOpIds(e.s.chat).has(g.op)) ? [] : [{ ...g, mailId }]) })
+    : visible || (g.op && serverOpIds(e.s.chat).has(g.op)) ? [] : [{ ...g, mailId, ...(isNotice ? { notice: true } : { notice: false }) }]) })
 }
 
 /** Mark the ghost for THIS send as a command (desk.tsx, on the response).

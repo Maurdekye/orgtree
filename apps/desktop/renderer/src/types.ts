@@ -2106,6 +2106,8 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
    *  'archived'. What makes a deferral explainable without re-reading it. */
   recipient_state?: string
   warnings?: string[]
+  /** passive notice (user ticket: notice-send toggle) — true only when the send actually landed as a notice */
+  notice?: boolean
   [k: string]: unknown
 }
 

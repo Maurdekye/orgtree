@@ -138,8 +138,10 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     </div></div></ReceivedMailBody>)
     : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
       world={world} onOpen={onOpen} actor={actor} imgBase={base} foldKey={keys} />
+  const isNotice = row.kind === 'notice'
+    || (decoded.kind === 'known' && decoded.event.variant === 'ordinary.notice')
   return <section
-        {...surface} className={'turn-mail ' + surface.className + (row.kind === 'notice' ? ' passive' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
+        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive notice-bubble' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
@@ -156,7 +158,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
             <span className="event-row-kind">{row.kind}</span>
           </>}
           {row.relationship && <span>{row.relationship}</span>}
-          {row.kind === 'notice' && <span className="turn-mail-passive">no reply expected</span>}
+          {isNotice && <span className="turn-mail-passive">no reply expected</span>}
           {meta}
         </header>
         {/* show-reply-context-on-sent-user-messages: the row's OWN reply
