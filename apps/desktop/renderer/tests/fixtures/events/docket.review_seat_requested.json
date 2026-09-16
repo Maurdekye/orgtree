@@ -1,0 +1,44 @@
+{
+  "variant": "docket.review_seat_requested",
+  "family": "review",
+  "private": {
+    "v": 1,
+    "variant": "docket.review_seat_requested",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_seat_requested·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.review_seat_requested·object.org",
+      "slug": "docket.review_seat_requested·object.slug",
+      "title": "docket.review_seat_requested·object.title"
+    },
+    "engine_authored": false,
+    "reviewer": "docket.review_seat_requested·reviewer",
+    "requested_by": "docket.review_seat_requested·requested_by",
+    "owner": "docket.review_seat_requested·owner",
+    "grantor": "docket.review_seat_requested·grantor",
+    "note": "docket.review_seat_requested·note"
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.review_seat_requested",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_seat_requested·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.review_seat_requested·object.slug",
+      "title": "docket.review_seat_requested·object.title"
+    },
+    "reviewer": "docket.review_seat_requested·reviewer",
+    "requested_by": "docket.review_seat_requested·requested_by",
+    "owner": "docket.review_seat_requested·owner",
+    "grantor": "docket.review_seat_requested·grantor",
+    "note": "docket.review_seat_requested·note"
+  },
+  "body": "[DOCKET REVIEW SEAT REQUEST · docket.review_seat_requested·object.slug \"docket.review_seat_requested·object.title\"] docket.review_seat_requested·requested_by is asking you to grant docket.review_seat_requested·reviewer the REVIEW SEAT on this docket item. You are being asked because you are the nearest agent who is both above docket.review_seat_requested·reviewer and owner-level on this item — an owner may name only itself, its own subtree or its own superior as reviewer, so a peer reviewer is yours to authorize and nobody else's.\nWhy: docket.review_seat_requested·note\nThe item belongs to docket.review_seat_requested·owner and stays with them: granting the seat lets them NAME docket.review_seat_requested·reviewer as reviewer. It hands over read, evidence, the one review decision and participant-level state control — not the item.\nGrant it with orgtree_work action='review_grant' reviewer=docket.review_seat_requested·reviewer items=['docket.review_seat_requested·object.slug'], or turn it down with action='review_revoke' slug=docket.review_seat_requested·object.slug reviewer=docket.review_seat_requested·reviewer and a `note` saying why.\nRead the item first with orgtree_work get slug=docket.review_seat_requested·object.slug."
+}

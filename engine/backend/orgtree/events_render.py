@@ -176,7 +176,64 @@ def _r_review_requested(ev: _R) -> str:
              + ("; ".join(ev["acceptance"]) or "(none recorded)")
              + "\nWhat the owner says is done: "
              + ("; ".join(ev["done_so_far"]) or "(nothing recorded)")
-             + f"\nRead the complete standalone scope with orgtree_work get slug={_obj(ev)['slug']} before reviewing it.")
+             + f"\nRead the complete standalone scope with orgtree_work get slug={_obj(ev)['slug']} before reviewing it."
+             + (f"\n(This notice comes from the docket itself: "
+                f"{ev['requested_by']} named you but cannot address you "
+                f"directly under the mail rules. Your review decision reaches "
+                f"them either way.)" if ev.get("relayed") else ""))
+
+
+@renderer("docket.review_seat_requested")
+def _r_review_seat_requested(ev: _R) -> str:
+    note = ev.get("note")
+    return (_docket_head("REVIEW SEAT REQUEST", ev)
+            + f"{_user_or(str(ev['requested_by']))} is asking you to grant "
+              f"{ev['reviewer']} the REVIEW SEAT on this docket item. You are "
+              "being asked because you are the nearest agent who is both above "
+              f"{ev['reviewer']} and owner-level on this item — an owner may "
+              "name only itself, its own subtree or its own superior as "
+              "reviewer, so a peer reviewer is yours to authorize and nobody "
+              "else's."
+            + (f"\nWhy: {_note(ev, 'request')}" if note else "")
+            + f"\nThe item belongs to {ev['owner'] or 'its owner'} and stays "
+              "with them: granting the seat lets them NAME "
+              f"{ev['reviewer']} as reviewer. It hands over read, evidence, "
+              "the one review decision and participant-level state control — "
+              "not the item."
+            + f"\nGrant it with orgtree_work action='review_grant' "
+              f"reviewer={ev['reviewer']} items=['{_obj(ev)['slug']}'], or "
+              f"turn it down with action='review_revoke' slug={_obj(ev)['slug']} "
+              f"reviewer={ev['reviewer']} and a `note` saying why."
+            + f"\nRead the item first with orgtree_work get slug={_obj(ev)['slug']}.")
+
+
+@renderer("docket.review_seat_decided")
+def _r_review_seat_decided(ev: _R) -> str:
+    note, who, rid = ev.get("note"), _user_or(str(ev["decided_by"])), ev["reviewer"]
+    slug = _obj(ev)["slug"]
+    if ev["decision"] == "granted":
+        body = (f"{who} GRANTED {rid} the review seat on this item."
+                + ("\nThe item was already at status review, so the seat has "
+                   f"been handed over and {rid} is its reviewer now."
+                   if ev.get("seated") else
+                   "\nYou can now put the item into review naming "
+                   f"{rid} — orgtree_work action='update' slug={slug} "
+                   f"status=review reviewer={rid}.")
+                + f"\nTHE GRANT COVERS ONE REVIEW ROUND (user ruling "
+                  f"2026-09-16). Naming {rid} spends it. If {rid} comes back "
+                  "with `changes` and you want it to look again, ask "
+                  f"{who} for a fresh seat.")
+    elif ev["decision"] == "revoked":
+        body = (f"{who} REVOKED {rid}'s review seat on this item. Naming "
+                f"{rid} as reviewer is refused again until somebody above you "
+                "both grants it afresh. A review round already in flight is "
+                "not cancelled — that verdict is still owed.")
+    else:
+        body = (f"{who} DECLINED the request to give {rid} the review seat on "
+                "this item. Nothing changed; name a reviewer you may already "
+                "name, or ask for a different one.")
+    return (_docket_head("REVIEW SEAT", ev) + body
+            + (f"\nTheir note: {_note(ev, 'decision')}" if note else ""))
 
 
 def _relay_suffix(ev: _R) -> str:

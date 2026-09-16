@@ -7066,9 +7066,18 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             str(a.get("decision") or a.get("verdict") or ""),
             evidence=a.get("evidence"), note=_s("note"),
             next_actor=_s("next_actor"), items=a.get("items"))
+    if act in ("review_request", "review_seat_request"):
+        return org.work_review_request(nid, wid, _s("reviewer") or "",
+                                       note=_s("note"))
     if act in ("review_grant", "review_grants"):
+        # `items` is the batch form; a bare `slug` is the one-item form, which
+        # is what an agent answering a single request actually has in hand.
         return org.work_review_grant(nid, _s("reviewer") or "",
-                                     a.get("items"))
+                                     a.get("items") if a.get("items") is not None
+                                     else [wid], note=_s("note"))
+    if act in ("review_revoke", "review_seat_revoke"):
+        return org.work_review_revoke(nid, wid, _s("reviewer") or "",
+                                      note=_s("note"))
     if act == "participants":
         return org.work_participants(nid, wid, add=_work_list_arg(a, "add"),
                                      remove=_work_list_arg(a, "remove"))

@@ -358,6 +358,11 @@ def mint(variant: str, actor: Mapping[str, Any], object: Mapping[str, Any] | Non
     if variant == "docket.review_requested":
         ev.setdefault("revision", 0)
         ev.setdefault("candidate", None)
+        # The REVIEW SEAT added the relay fallback this names (an owner may now
+        # legally name a granted peer it cannot address under §7.2). Every
+        # request minted before that was sent by the namer itself, so False is
+        # what an older producer and a frozen fixture both faithfully mean.
+        ev.setdefault("relayed", False)
     validate_event(ev)
     return ev
 

@@ -12126,6 +12126,12 @@ class Org:
             "owner": self._work_actor_view(it.get("owner")),
             "reviewer": self._work_actor_view(it.get("reviewer")),
             "participants": list(it.get("participants") or []),
+            # THE REVIEW SEAT. Served to anyone who may read the item, whole:
+            # the standing and revoked grants, and the asks — because the
+            # question this feature exists to answer, "who may review this and
+            # who said so", is unanswerable if the answer is not readable.
+            "review_seats": list(it.get("review_seats") or []),
+            "review_seat_requests": list(it.get("review_seat_requests") or []),
             # who a reply may be addressed to (user 2026-09-06): owner first,
             # then participants, each with a server-derived node state
             "reply_recipients": self._work_reply_recipients(it),
@@ -13448,7 +13454,14 @@ class Org:
                          if kind == "code" else None),
             "accepted": None, "candidate_verdict": None,
             "candidate_verdicts": [], "review_packet": None,
-            "review_packets": [], "history": [], "superseded_by": None,
+            "review_packets": [],
+            # THE REVIEW SEAT (see work_review_request): who a shared superior
+            # has authorized to review this item, and the asks still waiting on
+            # an answer. Both are append-mostly records — a revoked seat and a
+            # declined request keep their rows, marked, because "who was once
+            # allowed to review this" is part of what the docket is for.
+            "review_seats": [], "review_seat_requests": [],
+            "history": [], "superseded_by": None,
             # resolved BEFORE the item is appended, so a bad parent refuses
             # the creation outright instead of leaving a stranded item behind
             "parent": (self._work_parent_check(actor, None, str(parent))
@@ -14682,24 +14695,58 @@ class Org:
         # above you to check your work is the ordinary review in this org, and
         # a rule that refused it would leave the common case unreachable
         # (flagged to Astra as the one place this is wider than "subtree").
+        #
+        # ⚠ AND A PEER THE SHARED SUPERIOR HAS GRANTED THE SEAT TO. That is the
+        # fourth way in and the only one an owner cannot take unilaterally:
+        # `work_review_request` asks, `work_review_grant` answers, and the seat
+        # it writes is what this reads. The authority is unchanged — no agent
+        # conscripts a peer — but the org whose every independent reviewer IS a
+        # peer stops having to name a coordinator who did not do the review.
         previous = self._work_actor_node(it.get("reviewer"))
-        same_review_cycle = (want == previous and any(
+        granted_seat = want in self._work_review_seat_nodes(it)
+        # ⚠ A SEAT THAT IS NO LONGER STANDING MUST BITE, and the only thing it
+        # can collide with is the same-review-cycle exemption below.
+        #
+        # A seat stops standing two ways, and both need this. A superior that
+        # REVOKES a seat after a `changes` verdict would otherwise have revoked
+        # nothing — the peer is still the item's `reviewer` and there is still a
+        # `review_changes` row, so the owner re-names it and the loop carries
+        # on. And under the user's 2026-09-16 ruling a seat is CONSUMED by the
+        # one review round it authorized, so the recheck after `changes` is
+        # precisely the naming that must now be refused until the superior
+        # grants again — the exemption that exists to make that loop free is
+        # the exact thing the ruling denies for a seat-held reviewer.
+        #
+        # An agent that once held a seat and no longer does is back to having no
+        # standing here — unless it has some OTHER standing, which is exactly
+        # what the participant and subtree tests below still decide for it.
+        seat_spent = not granted_seat and self._work_had_review_seat(it, want)
+        same_review_cycle = (want == previous and not seat_spent and any(
             str(h.get("op") or "") == "review_changes"
             for h in (it.get("history") or [])))
         participant_review = want in {str(p) for p in
                                       (it.get("participants") or [])}
+        by_exception = same_review_cycle or participant_review or granted_seat
         if actor != USER and want != actor and not self.is_ancestor(actor, want) \
                 and str(self.node(actor).get("parent") or "") != want \
-                and not ((same_review_cycle or participant_review) and actor ==
+                and not (by_exception and actor ==
                          self._work_actor_node(it.get("owner"))):
             raise LedgerError(
-                f"you may ask yourself, an agent in your subtree, or your own "
-                f"superior to review this — {want!r} is none of those")
-        if same_review_cycle or participant_review:
+                (f"the review seat {want!r} held on {it.get('slug')} was spent "
+                 f"by the round it authorized — a seat covers ONE entry into "
+                 f"review (user ruling 2026-09-16), so a recheck needs a fresh "
+                 f"grant. "
+                 if seat_spent else
+                 f"you may ask yourself, an agent in your subtree, or your own "
+                 f"superior to review this — {want!r} is none of those. ") +
+                f"To name a peer, ask the agent above you both for the review "
+                f"seat: orgtree_work action='review_request' "
+                f"slug={it.get('slug')} reviewer={want}")
+        if by_exception:
             live, reason = self._work_identity_state(it.get("reviewer"))
-            # For a newly named participant the current holder is `want`, not
-            # the previous reviewer reference.
-            if participant_review and want != previous:
+            # For a newly named participant or granted peer the current holder
+            # is `want`, not the previous reviewer reference.
+            if want != previous:
                 live, reason = self._work_identity_state(
                     {"node": want, "generation":
                      self.node(want).get("generation")})
@@ -14750,22 +14797,47 @@ class Org:
         if not want:
             return None
         prev = self._work_actor_node(it.get("reviewer"))
+        # ⚠ ASKED BEFORE THE WRITE, because `_work_seat_is_the_authority` reads
+        # the standing seats and this naming is what spends one.
+        spend_seat = self._work_seat_is_the_authority(actor, it, want)
         it["reviewer"] = cast(WorkActor, self._work_holder(want))
         self._work_hist(it, actor, "reviewer", {"from": prev, "to": it["reviewer"]})
+        if spend_seat:
+            self._work_spend_review_seat(actor, it, want, "named")
         if want == actor:
             return None                 # naming yourself mails nobody
         # typed (family review): docket.review_requested (test_events_producers §D)
         candidate = self._work_candidate_ref(it)
-        self.post_mail(
-            actor, want, "", "request",
-            ev=_mint("docket.review_requested", actor_of(actor), self.work_item_ref(it),
-                     reviewer=want, requested_by=actor,
-                     owner=str(self._work_actor_node(it.get("owner")) or ""),
-                     objective=str(it.get("objective") or ""),
-                     objective_notice=self._work_notice_line(it),
-                     done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
-                     acceptance=[str(x) for x in (it.get("acceptance") or [])],
-                     revision=int(it.get("rev") or 0), candidate=candidate))
+
+        def _ev(relayed: bool) -> dict[str, Any]:
+            # ⚠ a literal per branch: the coverage scan (test_events_ledger §7)
+            # wants every mint( site to name its variant as a string literal
+            return _mint("docket.review_requested", actor_of(
+                            actor if not relayed else USER),
+                         self.work_item_ref(it),
+                         reviewer=want, requested_by=actor,
+                         owner=str(self._work_actor_node(it.get("owner")) or ""),
+                         objective=str(it.get("objective") or ""),
+                         objective_notice=self._work_notice_line(it),
+                         done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
+                         acceptance=[str(x) for x in (it.get("acceptance") or [])],
+                         revision=int(it.get("rev") or 0), candidate=candidate,
+                         relayed=relayed)
+        # ⚠ IT FALLS BACK TO THE DOCKET'S OWN VOICE RATHER THAN RAISING, for
+        # the same reason `_work_tell_owner` does and now for a second one. A
+        # reviewer is named from the NAMER's reach, and the REVIEW SEAT made a
+        # case reachable that never was before: a peer in another branch, whom
+        # the shared superior (or the user) granted the seat to and whom the
+        # owner may legally name but may not, under §7.2, address. Every refusal
+        # this call owes was already settled by `_work_reviewer_check`, and
+        # `reviewer` is already written by the time we get here — so a bounced
+        # notice must not turn a legal naming into a half-applied update. The
+        # notice goes out under the docket's name instead, SAYING SO, and the
+        # sender is never silently misrepresented as the owner.
+        try:
+            self.post_mail(actor, want, "", "request", ev=_ev(False))
+        except LedgerError:
+            self.post_mail(USER, want, "", "request", ev=_ev(True))
         return want
 
     def work_reassign_abandoned(self, now_ts: float | None = None,
@@ -15993,9 +16065,253 @@ class Org:
     # reviewer role really carries is the ANSWER TO "who acts next" — while an
     # item is under review the next action is the reviewer's, and when changes
     # are requested it hands straight back to the owner.
+    # ---- THE REVIEW SEAT. An owner may name only itself, its subtree or its
+    # own superior as reviewer — but in an org whose every INDEPENDENT reviewer
+    # is a PEER, that leaves the one status meaning "an agent is reviewing
+    # this" unreachable for the reviews the org actually runs. Twenty-four
+    # agents met the same refusal and all took the same way round it: name the
+    # shared coordinator, then hand the seat over, which writes a reviewer who
+    # did not review into the record the docket exists to keep true.
+    #
+    # THE FIX IS NOT TO WIDEN WHO AN OWNER MAY NAME UNILATERALLY. It is to give
+    # the owner a way to ASK. `work_review_request` asks the nearest agent that
+    # is both a superior of the intended reviewer and owner-level on the item;
+    # `work_review_grant` is that agent's answer and writes a SEAT; and
+    # `_work_reviewer_check` reads the seat. The peer is never conscripted by
+    # another peer, and no false reviewer is ever written down.
+    #
+    # ⚠ A SEAT COVERS ONE ENTRY INTO REVIEW — user ruling, 2026-09-16, taken
+    # against the alternative of a grant standing for the life of the item. The
+    # naming it authorizes SPENDS it, so the recheck after a `changes` verdict
+    # needs a fresh grant. The ticket this was built from asked for the
+    # opposite (it called the free recheck "the loop working as designed"); the
+    # question put to the user said so in as many words, and C was chosen
+    # knowing it. Every superior sees every round. Do not re-introduce the
+    # carve-out.
+    def _work_review_seats(self, it: WorkItem) -> list[dict[str, Any]]:
+        """The seats CURRENTLY standing on this item — revoked rows are kept,
+        never deleted, so the record still says who once held one."""
+        return [cast("dict[str, Any]", s) for s in (it.get("review_seats") or [])
+                if isinstance(s, dict)
+                and str(cast("dict[str, Any]", s).get("state") or "granted")
+                == "granted"]
+
+    def _work_review_seat_nodes(self, it: WorkItem) -> set[str]:
+        """Just the node ids of the standing seats — what the naming check asks."""
+        return {str(s.get("reviewer") or "") for s in
+                self._work_review_seats(it)} - {""}
+
+    def _work_had_review_seat(self, it: WorkItem, reviewer: str) -> bool:
+        """Has `reviewer` EVER held a seat on this item? A spent or revoked seat
+        keeps its row, and that row is the difference between "never had any
+        standing here" and "had standing, and it is gone"."""
+        return any(isinstance(s, dict)
+                   and str(cast("dict[str, Any]", s).get("reviewer") or "")
+                   == reviewer for s in (it.get("review_seats") or []))
+
+    def _work_seat_is_the_authority(self, actor: str, it: WorkItem,
+                                    want: str) -> bool:
+        """Is a STANDING seat what makes naming `want` legal — i.e. would this
+        naming be refused without it? That, and only that, is what spends a
+        seat: an agent the owner could have named anyway (its own subtree, its
+        own superior, a participant on this item) does not burn somebody's
+        grant by being named through standing it already had.
+
+        ⚠ THE SAME-REVIEW-CYCLE EXEMPTION IS DELIBERATELY NOT COUNTED as other
+        standing. Under the user's 2026-09-16 ruling that exemption no longer
+        reaches a seat-held reviewer at all, so treating it as an alternative
+        authority here would spare the second grant the ruling exists to
+        require."""
+        if want not in self._work_review_seat_nodes(it):
+            return False
+        if actor == USER or want == actor or self.is_ancestor(actor, want) \
+                or str(self.node(actor).get("parent") or "") == want:
+            return False
+        return want not in {str(p) for p in (it.get("participants") or [])}
+
+    def _work_spend_review_seat(self, actor: str, it: WorkItem, want: str,
+                                via: str) -> None:
+        """Consume the standing seat `want` holds: the user's 2026-09-16 ruling
+        is that a grant authorizes exactly ONE entry into review, so the naming
+        it just paid for is the last one it pays for.
+
+        The row is marked, never deleted — "who was allowed to review this, who
+        said so, and what became of it" is the whole point of keeping it."""
+        seat = self._work_review_seat_row(it, want)
+        if seat is None:
+            return
+        seat["state"] = "spent"
+        seat["spent_at"] = now()
+        seat["spent_via"] = via
+        self._work_hist(it, actor, "review_seat_spent",
+                        {"reviewer": want, "via": via})
+
+    def _work_review_seat_requests(self, it: WorkItem) -> list[dict[str, Any]]:
+        return [cast("dict[str, Any]", r) for r in
+                (it.get("review_seat_requests") or []) if isinstance(r, dict)]
+
+    def _work_review_seat_grantor(self, it: WorkItem, reviewer: str) -> str:
+        """WHO MAY GRANT `reviewer` the seat on `it`: the NEAREST agent that is
+        both a superior of the intended reviewer and owner-level on the item.
+
+        Walking up from the reviewer rather than down from the owner is what
+        makes this the SHARED superior — the first node on the reviewer's own
+        chain that already holds owner-level rights here is exactly the agent
+        both sides answer to. `USER` when the org has no such agent (the two
+        sit in unrelated branches), because the user is everyone's superior and
+        the request has to be answerable by somebody."""
+        for cand in self.ancestors(reviewer):
+            if cand == USER:
+                break
+            if cand in self.nodes and self._work_can_manage(cand, it):
+                return cand
+        return USER
+
+    def _work_review_seat_why_not_needed(self, actor: str, it: WorkItem,
+                                         rid: str) -> str | None:
+        """The reason `actor` does NOT need to ask for `rid` — or None when a
+        request is the right move. Refusing a pointless request beats granting
+        a seat that changes nothing and then reads like it did."""
+        if rid in self._work_review_seat_nodes(it):
+            return (f"{rid!r} already holds the review seat on "
+                    f"{it.get('slug')} — name it with status review; an "
+                    f"already-granted reviewer needs no new grant")
+        if actor == USER or rid == actor or self.is_ancestor(actor, rid) \
+                or str(self.node(actor).get("parent") or "") == rid:
+            return (f"you may already name {rid!r} as reviewer — it is "
+                    f"yourself, an agent in your subtree, or your own superior")
+        if rid in {str(p) for p in (it.get("participants") or [])}:
+            return (f"{rid!r} is already a participant on {it.get('slug')}, "
+                    f"and the owner may name a participant as reviewer")
+        return None
+
+    def _work_review_seat_row(self, it: WorkItem, rid: str) -> dict[str, Any] | None:
+        for seat in self._work_review_seats(it):
+            if str(seat.get("reviewer") or "") == rid:
+                return seat
+        return None
+
+    def work_review_request(self, actor: str, wid: str, reviewer: str,
+                            note: str | None = None) -> dict[str, Any]:
+        """THE OWNER ASKS for a peer to be given the review seat on one item.
+
+        This writes a request and mails the shared superior. It grants nothing:
+        until that superior answers with `work_review_grant`, naming the peer
+        is refused exactly as it was before. The point is that the asking is
+        now a first-class act recorded on the item, instead of a coordinator
+        being named as reviewer so that the seat can be handed over afterwards.
+
+        ⚠ THE REQUEST IS RECORDED EVEN IF THE MAIL CANNOT BE SENT. Membership
+        of the org and the §7.2 addressing rules are different questions, and a
+        request that vanished because its notice bounced would be worse than
+        one the caller is told went unnotified — so a refused notice comes back
+        in `notice_refused` and the row stands."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        if not self._work_can_manage(actor, it):
+            raise LedgerError(
+                "asking for a review seat is an owner-level act (owner, "
+                "creator, their superiors, the user)")
+        rid = str(reviewer or "").strip()
+        if not rid:
+            raise LedgerError("a review-seat request names the reviewer you "
+                              "want: pass `reviewer`")
+        self.node(rid)
+        self._require_live(rid)
+        owner = self._work_actor_node(it.get("owner")) or ""
+        if rid == owner:
+            raise LedgerError(
+                "the owner cannot review its own work — ask for somebody else "
+                "(self-review is prohibited)")
+        why_not = self._work_review_seat_why_not_needed(actor, it, rid)
+        if why_not:
+            raise LedgerError(f"no request is needed: {why_not}")
+        grantor = self._work_review_seat_grantor(it, rid)
+        pending = [r for r in self._work_review_seat_requests(it)
+                   if str(r.get("reviewer") or "") == rid
+                   and str(r.get("state") or "") == "pending"]
+        if pending:
+            raise LedgerError(
+                f"a review seat for {rid!r} on {it.get('slug')} has already "
+                f"been asked of {pending[-1].get('to')} and is still pending — "
+                f"withdraw it with action='review_revoke' or wait for the answer")
+        rows = it.setdefault("review_seat_requests", [])
+        row: dict[str, Any] = {
+            "seq": len(cast("list[Any]", rows)) + 1,
+            "reviewer": rid, "requested_by": actor, "owner": owner,
+            "to": grantor, "at": now(), "state": "pending",
+            "note": (_prose(note) if note else None),
+            "decided_by": None, "decided_at": None, "decision_note": None,
+        }
+        cast("list[Any]", rows).append(row)
+        self._work_hist(it, actor, "review_seat_requested",
+                        {"reviewer": rid, "to": grantor,
+                         "note": row["note"]})
+        it["docket_at"] = now()
+        self._log("work_review_request", actor,
+                  {"item": it["slug"], "reviewer": rid, "to": grantor}, [])
+        notified, refused = self._work_review_seat_mail(
+            actor, it, "docket.review_seat_requested", grantor,
+            reviewer=rid, requested_by=actor, owner=owner,
+            grantor=grantor, note=row["note"])
+        return {"requested": it["slug"], "reviewer": rid, "to": grantor,
+                "seq": row["seq"], "rev": it["rev"], "state": "pending",
+                "notified": notified,
+                **({"notice_refused": refused} if refused else {}),
+                "status": (f"{grantor} has been asked to grant {rid} the review "
+                           f"seat; until they do, naming {rid} is still refused")}
+
+    def _work_review_seat_mail(self, actor: str, it: WorkItem, variant: str,
+                               to: str, **fields: Any) -> tuple[str | None,
+                                                                str | None]:
+        """Post one review-seat notice. Returns (notified, refusal reason).
+
+        ⚠ BEST EFFORT BY DESIGN, exactly like `_work_participation_notices`.
+        The seat record is the authority; the mail is how somebody finds out
+        about it in time to act. A grantor the asker cannot address under the
+        mail rules — or the user, who is not a mail node — must not be able to
+        turn a legal request into a refusal."""
+        if not to or to == actor:
+            return None, None
+        try:
+            if variant == "docket.review_seat_requested":
+                ev = _mint("docket.review_seat_requested", actor_of(actor),
+                           self.work_item_ref(it), **fields)
+            else:
+                ev = _mint("docket.review_seat_decided", actor_of(actor),
+                           self.work_item_ref(it), **fields)
+            self.post_mail(actor, to, "", "request", ev=ev)
+        except LedgerError as e:
+            return None, f"{to}: {e}"
+        return to, None
+
     def work_review_grant(self, actor: str, reviewer: str,
-                          items: Any) -> dict[str, Any]:
-        """Atomically give one live reviewer scoped access to review items."""
+                          items: Any, note: str | None = None) -> dict[str, Any]:
+        """THE SHARED SUPERIOR'S ANSWER: grant one live reviewer the review seat
+        on each of these items, atomically.
+
+        ⚠ IT NO LONGER REQUIRES THE ITEM TO BE AT `review`, and that single
+        change is what removes the false line from the record. It used to, and
+        the item could not REACH `review` without a reviewer already named — so
+        the only way to seat a peer was to name a coordinator first, enter
+        review, and hand the seat over. The item genuinely recorded, and mailed,
+        a reviewer who did no reviewing. Now the seat can be granted on work
+        that is still in progress, and the owner enters review naming the agent
+        that actually reviews, first time.
+
+        What each branch does is unchanged in substance:
+        · at `review`, the grant also HANDS THE SEAT OVER immediately — that is
+          the behaviour `orgtree_staff`/`hire`'s `review_items` has always had
+          and the onboarding path still depends on;
+        · anywhere else it AUTHORIZES and writes nothing into `reviewer`,
+          because a reviewer named on work that is not under review is a name
+          with no meaning attached (`_work_name_reviewer`'s own rule).
+
+        Who may be granted is also unchanged: a prior reviewer, an existing
+        participant, or — the peer case — somebody the granting agent is a
+        superior of. An agent with no grant and no other standing still cannot
+        be named."""
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         rid = str(reviewer or "").strip()
@@ -16019,8 +16335,6 @@ class Org:
             it, _ = self._work_get_for(actor, item_name)
             if not self._work_can_manage(actor, it):
                 raise LedgerError(f"review grant for {item_name} is not owner-managed")
-            if self._work_status(it) != "review":
-                raise LedgerError(f"review grant needs {item_name} at status review")
             owner = self._work_actor_node(it.get("owner"))
             if rid == owner:
                 raise LedgerError("the owner cannot review its own work")
@@ -16031,12 +16345,154 @@ class Org:
                 raise LedgerError(f"reviewer {rid!r} is not an existing participant or previous reviewer")
             checked.append((it, prior))
         granted: list[str] = []
+        seated: list[str] = []
+        notices: list[dict[str, str]] = []
         for it, prior in checked:
-            it["reviewer"] = cast(WorkActor, self._work_holder(rid))
-            self._work_hist(it, actor, "review_grant",
-                            {"from": prior, "to": it["reviewer"]})
+            at_review = self._work_status(it) == "review"
+            self._work_record_seat(actor, it, rid, note)
+            if at_review:
+                it["reviewer"] = cast(WorkActor, self._work_holder(rid))
+                self._work_hist(it, actor, "review_grant",
+                                {"from": prior, "to": it["reviewer"]})
+                # The handover IS the entry into review this grant authorized,
+                # so it spends the seat exactly as an owner naming it would
+                # (user ruling 2026-09-16: one round per grant).
+                self._work_spend_review_seat(actor, it, rid, "granted_at_review")
+                seated.append(str(it["slug"]))
             granted.append(str(it["slug"]))
-        return {"reviewer": rid, "granted": granted, "count": len(granted)}
+            owner = self._work_actor_node(it.get("owner")) or ""
+            told, refused = self._work_review_seat_mail(
+                actor, it, "docket.review_seat_decided", owner,
+                reviewer=rid, owner=owner, decided_by=actor,
+                decision="granted", seated=at_review,
+                note=(_prose(note) if note else None))
+            if refused:
+                notices.append({"item": str(it["slug"]), "reason": refused})
+            elif told:
+                notices.append({"item": str(it["slug"]), "notified": told})
+            self._log("work_review_grant", actor,
+                      {"item": it["slug"], "reviewer": rid,
+                       "seated": at_review}, [])
+        return {"reviewer": rid, "granted": granted, "count": len(granted),
+                "seated": seated, "notices": notices,
+                "status": (f"{rid} holds the review seat on {len(granted)} "
+                           f"item(s). A seat covers ONE entry into review "
+                           f"(user ruling 2026-09-16): the owner names {rid} "
+                           f"once, and a recheck after a `changes` verdict "
+                           f"needs a fresh grant from you")}
+
+    def _work_record_seat(self, actor: str, it: WorkItem, rid: str,
+                          note: str | None) -> dict[str, Any]:
+        """Write the standing seat and resolve any request it answers.
+
+        ⚠ RE-GRANTING AN AGENT THAT ALREADY HOLDS A STANDING SEAT IS A NO-OP on
+        the seat itself. It still resolves a pending request and still mails, so
+        a superior answering a duplicate ask is not told nothing happened — but
+        it does not stack two seats one revoke cannot clear."""
+        existing = self._work_review_seat_row(it, rid)
+        answered: int | None = None
+        for req in self._work_review_seat_requests(it):
+            if str(req.get("reviewer") or "") == rid \
+                    and str(req.get("state") or "") == "pending":
+                req["state"] = "granted"
+                req["decided_by"] = actor
+                req["decided_at"] = now()
+                req["decision_note"] = (_prose(note) if note else None)
+                answered = int(req.get("seq") or 0)
+        if existing is not None:
+            if answered is not None:
+                self._work_hist(it, actor, "review_seat_granted",
+                                {"reviewer": rid, "answered_request": answered,
+                                 "already_seated": True})
+            return existing
+        seat: dict[str, Any] = {
+            "reviewer": rid, "holder": self._work_holder(rid),
+            "granted_by": actor, "at": now(), "state": "granted",
+            "note": (_prose(note) if note else None),
+            "answered_request": answered,
+            # A seat ends one of three ways and the row says which: `spent` by
+            # the one review round it authorized (the normal end, user ruling
+            # 2026-09-16), `revoked` by a superior, or still `granted`.
+            "spent_at": None, "spent_via": None,
+            "revoked_by": None, "revoked_at": None, "revoked_reason": None,
+        }
+        cast("list[Any]", it.setdefault("review_seats", [])).append(seat)
+        self._work_hist(it, actor, "review_seat_granted",
+                        {"reviewer": rid, "answered_request": answered,
+                         "already_seated": False})
+        it["docket_at"] = now()
+        return seat
+
+    def work_review_revoke(self, actor: str, wid: str, reviewer: str,
+                           note: str | None = None) -> dict[str, Any]:
+        """TAKE BACK a standing review seat, or withdraw/decline a pending
+        request for one. The same verb for both because they are the same act
+        from the owner's side — "this peer is not going to review this item" —
+        and splitting them would leave a declined request with no way to say so.
+
+        ⚠ IT DOES NOT UNSEAT A REVIEW ALREADY UNDER WAY. If the peer is the
+        item's current `reviewer` the verdict it owes is still its own to give;
+        revoking stops the NEXT naming, and the item is left saying who is
+        actually reviewing it right now. Clearing the field instead would strand
+        an item at `review` with nobody named — the very state this whole
+        feature exists to make impossible."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, _ = self._work_get_for(actor, wid)
+        if not self._work_can_manage(actor, it):
+            raise LedgerError(
+                "revoking a review seat is an owner-level act (owner, creator, "
+                "their superiors, the user)")
+        rid = str(reviewer or "").strip()
+        if not rid:
+            raise LedgerError("a review-seat revoke names the reviewer: pass "
+                              "`reviewer`")
+        reason = _prose(note) if note else None
+        seat = self._work_review_seat_row(it, rid)
+        withdrawn: list[int] = []
+        for req in self._work_review_seat_requests(it):
+            if str(req.get("reviewer") or "") == rid \
+                    and str(req.get("state") or "") == "pending":
+                req["state"] = "withdrawn" if actor == str(
+                    req.get("requested_by") or "") else "declined"
+                req["decided_by"] = actor
+                req["decided_at"] = now()
+                req["decision_note"] = reason
+                withdrawn.append(int(req.get("seq") or 0))
+        if seat is None and not withdrawn:
+            raise LedgerError(
+                f"{rid!r} holds no review seat on {it.get('slug')} and has no "
+                f"pending request for one — there is nothing to revoke")
+        if seat is not None:
+            seat["state"] = "revoked"
+            seat["revoked_by"] = actor
+            seat["revoked_at"] = now()
+            seat["revoked_reason"] = reason
+        still_reviewing = (self._work_status(it) == "review"
+                           and self._work_actor_node(it.get("reviewer")) == rid)
+        self._work_hist(it, actor, "review_seat_revoked",
+                        {"reviewer": rid, "requests": withdrawn,
+                         "reason": reason,
+                         "review_in_flight": still_reviewing})
+        it["docket_at"] = now()
+        self._log("work_review_revoke", actor,
+                  {"item": it["slug"], "reviewer": rid}, [])
+        owner = self._work_actor_node(it.get("owner")) or ""
+        told, refused = self._work_review_seat_mail(
+            actor, it, "docket.review_seat_decided", owner,
+            reviewer=rid, owner=owner, decided_by=actor,
+            decision=("revoked" if seat is not None else "declined"),
+            seated=False, note=reason)
+        return {"revoked": it["slug"], "reviewer": rid, "rev": it["rev"],
+                "seat_revoked": seat is not None, "requests": withdrawn,
+                "notified": told,
+                **({"notice_refused": refused} if refused else {}),
+                "status": (
+                    f"{rid} can no longer be named as reviewer on "
+                    f"{it.get('slug')} without a fresh grant"
+                    + (f"; it is still the named reviewer of the round now in "
+                       f"flight and the verdict it owes remains its own"
+                       if still_reviewing else ""))}
 
     @staticmethod
     def _work_verdict_evidence(raw: Any) -> list[dict[str, Any]]:

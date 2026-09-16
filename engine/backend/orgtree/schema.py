@@ -890,6 +890,18 @@ class WorkItem(TypedDict):
     candidate_verdicts: NotRequired[list[dict[str, Any]]]
     review_packet: NotRequired[dict[str, Any] | None]
     review_packets: NotRequired[list[dict[str, Any]]]
+    #: THE REVIEW SEAT. An owner may name only itself, its subtree or its own
+    #: superior as reviewer; a PEER reaches the seat only when the agent above
+    #: them both grants it, and the grant covers exactly ONE entry into review
+    #: (user ruling 2026-09-16). `review_seats` is that grant — {reviewer,
+    #: holder, granted_by, at, state: granted|spent|revoked, note,
+    #: answered_request, spent_*, revoked_*} — and `review_seat_requests` is
+    #: the owner's ask —
+    #: {seq, reviewer, requested_by, owner, to, at, state:
+    #: pending|granted|declined|withdrawn, note, decided_*}. Both are
+    #: append-mostly: a revoked seat and a declined ask keep their rows.
+    review_seats: NotRequired[list[dict[str, Any]]]
+    review_seat_requests: NotRequired[list[dict[str, Any]]]
     history: list[dict[str, Any]]   # {at, by, field, from, to}; oldest fold into ONE {kind: "folded", ...} row past the cap
     # ---- THE HOLDER ROSTER (W-ISR). Append-only, one row per stretch of
     # ownership, oldest first: {node, generation, born?, from, by}. It exists

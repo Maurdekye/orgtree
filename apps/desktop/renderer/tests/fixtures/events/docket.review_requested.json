@@ -27,7 +27,8 @@
     ],
     "revision": 3,
     "candidate": "docket.review_requested·candidate",
-    "objective_notice": "docket.review_requested·objective_notice"
+    "objective_notice": "docket.review_requested·objective_notice",
+    "relayed": false
   },
   "public": {
     "v": 1,
@@ -54,7 +55,8 @@
     ],
     "revision": 3,
     "candidate": "docket.review_requested·candidate",
-    "objective_notice": "docket.review_requested·objective_notice"
+    "objective_notice": "docket.review_requested·objective_notice",
+    "relayed": false
   },
   "body": "[DOCKET REVIEW REQUEST · docket.review_requested·object.slug \"docket.review_requested·object.title\"] You are named as the REVIEWER of this docket item. THIS IS NOT OWNERSHIP: docket.review_requested·owner keeps the work and the responsibility for delivering it. You hold exactly three things — read it, add `evidence`, and record ONE decision with orgtree_work action='review': `approve` (the check passed — that COMPLETES the item) or `changes` (it goes back to the owner as in_progress, and your note is what they act on). Until you decide, the next action on this item is yours.\nRequested by docket.review_requested·requested_by.\nIssued at item revision 3; candidate docket.review_requested·candidate.\nDescription: docket.review_requested·objective_notice\ndocket.review_requested·objective\nAcceptance conditions: docket.review_requested·acceptance[0]\nWhat the owner says is done: docket.review_requested·done_so_far[0]\nRead the complete standalone scope with orgtree_work get slug=docket.review_requested·object.slug before reviewing it."
 }
