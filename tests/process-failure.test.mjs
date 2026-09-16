@@ -17,7 +17,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-process-failure-'))
 const outfile = path.join(root, 'process-failure.cjs')
 await build({ entryPoints: [path.join(repo, 'apps/desktop/main/process-failure.ts')], outfile, bundle: true, format: 'cjs', platform: 'node' })
 const { attachRendererFailureHandlers, attachChildProcessFailureHandler, describeRendererFailure, describeChildFailure,
-  RecoveryBudget, RECOVERY_LIMIT, RECOVERY_WINDOW_MS, CRASH_REPORTER_OPTIONS, ORDINARY_EXIT_REASONS } = createRequire(import.meta.url)(outfile)
+  RecoveryBudget, RECOVERY_LIMIT, RECOVERY_WINDOW_MS, CRASH_REPORTER_OPTIONS, ORDINARY_EXIT_REASONS,
+  CRASH_REPORT_DISCLOSURE, crashReportDialog, crashReportFolder } = createRequire(import.meta.url)(outfile)
 
 /** A stand-in for webContents that only does what the handler needs: hold the
  *  listeners and let a test fire one. */
@@ -158,9 +159,53 @@ test('RecoveryBudget counts inside a rolling window', () => {
   assert.deepEqual(budget.consider(1300), { recover: true, attempt: 1, limit: 2 }, 'the window rolls forward')
 })
 
+// ⚠ THE WHOLE PRIVACY GUARANTEE RESTS ON ONE BOOLEAN, so it is asserted here
+// rather than left to whoever next edits that object. A dump is a memory
+// snapshot of the user's own working material; a guarantee nobody tests is one
+// careless edit from gone. The live runtime value is asserted too, in
+// tools/test-renderer-crash.mjs, via crashReporter.getUploadToServer().
 test('the crash reporter is configured to keep everything on this machine', () => {
   assert.equal(CRASH_REPORTER_OPTIONS.uploadToServer, false)
   assert.equal('submitURL' in CRASH_REPORTER_OPTIONS, false, 'there is nowhere for a dump to be sent')
+})
+
+test('nothing in the main process can turn uploading back on', () => {
+  const main = read('apps/desktop/main/index.ts')
+  assert.doesNotMatch(main, /setUploadToServer/, 'the no-upload decision is permanent, not switchable at runtime')
+  assert.doesNotMatch(main, /submitURL\s*:/, 'no address is ever configured')
+  // The one place a report can go is a folder the user opens themselves.
+  assert.match(main, /shell\.openPath\(folder\)/)
+  assert.doesNotMatch(main, /uploadCrash|sendCrash|crashReportUpload/)
+})
+
+test('a user can reach their crash reports, and is told what one contains first', () => {
+  const dialog = crashReportDialog('C:\\data\\Crashpad\\reports', 3)
+  assert.match(dialog.message, /3 crash reports/)
+  assert.match(dialog.detail, /memory/i, 'the disclosure says it is a memory snapshot, not a log')
+  assert.match(dialog.detail, /agent names, message text and file paths/)
+  assert.match(dialog.detail, /never sends one anywhere/)
+  assert.match(dialog.detail, /C:\\data\\Crashpad\\reports/, 'and says where they are')
+  assert.deepEqual(dialog.buttons, ['Open folder', 'Close'])
+  assert.equal(dialog.cancelId, 1, 'closing without opening anything is the safe default')
+  assert.ok(dialog.detail.includes(CRASH_REPORT_DISCLOSURE))
+  assert.match(crashReportDialog('C:\\empty', 0).message, /no crash reports/)
+  assert.match(crashReportDialog('C:\\one', 1).message, /1 crash report\b/, 'singular reads as English')
+})
+
+test('the folder offered is the one the dumps are actually in', () => {
+  const join = (a, b) => `${a}\\${b}`
+  assert.equal(crashReportFolder('C:\\dumps', join, p => p === 'C:\\dumps\\reports'), 'C:\\dumps\\reports')
+  assert.equal(crashReportFolder('C:\\dumps', join, () => false), 'C:\\dumps',
+    'before Crashpad has written anything, the parent is offered rather than a path that does not exist')
+})
+
+test('reaching the reports is a deliberate act and never an automatic one', () => {
+  const main = read('apps/desktop/main/index.ts')
+  // It hangs off a tray entry the user clicks, and off nothing else: not the
+  // failure handlers, not the poll, not app start. A hook that ran by itself
+  // is what a later change could point at a network.
+  assert.match(main, /id: 'crash-reports', label: 'Crash reports\.\.\.', click: \(\) => \{ void showCrashReports\(\)/)
+  assert.equal((main.match(/showCrashReports\(\)/g) ?? []).length, 1, 'exactly one caller, and it is the click')
 })
 
 // ------------------------------------------------------------ the wiring

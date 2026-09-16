@@ -27,7 +27,7 @@ import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProv
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
-import { attachChildProcessFailureHandler, attachRendererFailureHandlers, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
+import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import type { ProcessFailureStage } from './process-failure'
 
 // Who this process is — installed release, installed DEV-channel build (see
@@ -133,6 +133,22 @@ else {
   // GPU, utility and zygote processes. Chromium restarts these itself, so
   // there is nothing to recover — but they died in silence too.
   attachChildProcessFailureHandler(app, { record: recordProcessFailure })
+  /** The ONE way a crash report leaves this folder, and it is a person
+   *  pressing a tray entry. Nothing schedules this, nothing calls it from the
+   *  failure handlers, and it makes no network request of any kind: the user
+   *  is shown what a dump contains and then, if they say so, the folder is
+   *  opened in Explorer. Reading the count is a directory listing, done on the
+   *  click rather than on every tray rebuild. */
+  const showCrashReports = async () => {
+    const dumps = app.getPath('crashDumps')
+    let folder = dumps, count = 0
+    try {
+      folder = crashReportFolder(dumps, path.join, target => fs.existsSync(target))
+      count = fs.readdirSync(folder).filter(name => name.endsWith('.dmp')).length
+    } catch { /* no crash reports yet: the dialog says so and offers the folder anyway */ }
+    const { response } = await dialog.showMessageBox({ type: 'info', ...crashReportDialog(folder, count) })
+    if (response === 0) { try { fs.mkdirSync(folder, { recursive: true }) } catch { /* opening it is best-effort */ }; void shell.openPath(folder) }
+  }
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
   /** The options the engine was started with, mirrored out of the boot block
    *  so the tray's restart entry can hand the SAME ones back to the engine.
@@ -378,6 +394,9 @@ else {
           checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
       ] },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
+      // Crash reports are collected locally and never uploaded; this is the
+      // only way to get at one, and it is the user's own deliberate act.
+      { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
       { type: 'separator' },
       // Hidden while the engine runs (user ruling 2026-09-15), so this group
       // is ordinarily just Quit and the menu keeps the shape it has today.

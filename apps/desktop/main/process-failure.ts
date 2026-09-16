@@ -189,3 +189,40 @@ export const CRASH_REPORTER_OPTIONS = {
   compress: false,
   ignoreSystemCrashHandler: false,
 } as const
+
+// ------------------------------------------------------- reaching the dumps
+// ⚠ COLLECTED IS NOT THE SAME AS REACHABLE. A dump nobody can find is a dump
+// nobody can send, and `userData\Crashpad\reports\<uuid>.dmp` is not a path
+// anyone guesses. So there is one deliberate, user-pressed way to get at them
+// — and deliberately no automatic one: nothing here runs on a schedule, on a
+// crash, or on any event at all, so there is no hook a later change could
+// quietly point at a network.
+
+/** Said to the user's face before they hand a dump to anybody, because a
+ *  person sending one deserves to know what it is. Their own working material
+ *  is in there — it is a memory snapshot, not a log. */
+export const CRASH_REPORT_DISCLOSURE =
+  'A crash report is a snapshot of what was in Orgtree\'s memory when it failed, so it can contain agent names, message text and file paths.'
+
+/** Crashpad writes the dumps into a `reports` subdirectory of the crashDumps
+ *  path and its own bookkeeping alongside. Open the one with the dumps in it
+ *  when it exists, and the parent when it does not, so the folder that opens
+ *  is never empty-looking for the wrong reason. */
+export function crashReportFolder(crashDumps: string, join: (a: string, b: string) => string, exists: (path: string) => boolean): string {
+  const reports = join(crashDumps, 'reports')
+  return exists(reports) ? reports : crashDumps
+}
+
+/** What the tray entry puts on screen. Pure, so the sentence a user reads
+ *  before handing over their memory contents is covered by a test rather than
+ *  by whoever last edited the menu. */
+export function crashReportDialog(folder: string, dumps: number): { message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number } {
+  return {
+    message: dumps === 0 ? 'Orgtree has recorded no crash reports on this computer.'
+      : `Orgtree has ${dumps} crash report${dumps === 1 ? '' : 's'} on this computer.`,
+    detail: `${CRASH_REPORT_DISCLOSURE}\n\nOrgtree never sends one anywhere. They stay in this folder until you delete them, and sending one to anybody is something you do yourself.\n\n${folder}`,
+    buttons: ['Open folder', 'Close'],
+    defaultId: 0,
+    cancelId: 1,
+  }
+}

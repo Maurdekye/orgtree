@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { attachRendererFailureHandlers, CRASH_REPORTER_OPTIONS, RecoveryBudget } from '../apps/desktop/main/process-failure'
+import { attachRendererFailureHandlers, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from '../apps/desktop/main/process-failure'
 import type { ProcessFailureStage } from '../apps/desktop/main/process-failure'
 
 const root = path.join(os.tmpdir(), `orgtree-renderer-crash-${process.pid}`)
@@ -156,6 +156,13 @@ app.whenReady().then(async () => {
   const found = walk(dumps).filter(file => file.endsWith('.dmp'))
   console.log(`minidumps written locally: ${found.length} under ${dumps}`)
   assert.ok(found.length >= 1)
+  // The folder the tray entry offers to open is the one Crashpad ACTUALLY put
+  // the dumps in — checked against the real layout rather than against the
+  // 'reports' subdirectory name being remembered correctly.
+  const offered = crashReportFolder(dumps, path.join, target => fs.existsSync(target))
+  assert.equal(fs.readdirSync(offered).filter(name => name.endsWith('.dmp')).length, found.length,
+    `the folder offered to the user holds the dumps: ${offered}`)
+  console.log(`the tray entry would open: ${offered}`)
 
   console.log('renderer crash recovery probe passed')
   app.exit(0)
