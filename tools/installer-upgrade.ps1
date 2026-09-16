@@ -354,10 +354,15 @@ try {
       $readable = $true
       try { $imagePath = [string]$record.ExecutablePath } catch { $readable = $false }
       if ($readable -and (Test-Blank $imagePath)) { $readable = $false }
+      # CIM hands this back as a real DateTime. It is what tells a genuine
+      # parent apart from a reused process id; see Test-RealParent.
+      $created = $null
+      try { if ($null -ne $record.CreationDate) { $created = [datetime]$record.CreationDate } } catch { $created = $null }
       $readings += [pscustomobject]@{
         Id = $identifier; Parent = $parent; Name = $name
         Path = $imagePath; Readable = $readable
         Command = $command; CommandReadable = $commandReadable
+        Created = $created
       }
     }
     return @($readings)
@@ -391,20 +396,91 @@ try {
       $readable = $true
       try { $imagePath = [string]$record.ExecutablePath } catch { $readable = $false }
       if ($readable -and (Test-Blank $imagePath)) { $readable = $false }
+      # WMI reports this as a CIM_DATETIME string rather than a DateTime, so it
+      # goes through the ConvertToDateTime method PowerShell attaches to every
+      # ManagementObject for exactly this. Unreadable stays $null, which
+      # Test-RealParent treats as "cannot rule the parentage out".
+      $created = $null
+      try {
+        $rawCreated = [string]$record.CreationDate
+        if (-not (Test-Blank $rawCreated)) { $created = [datetime]$record.ConvertToDateTime($rawCreated) }
+      } catch { $created = $null }
       $readings += [pscustomobject]@{
         Id = $identifier; Parent = $parent; Name = $name
         Path = $imagePath; Readable = $readable
         Command = $command; CommandReadable = $commandReadable
+        Created = $created
       }
     }
     return @($readings)
   }
 
-  # Every process that is either running from the installation directory or
-  # descended from one that is, as { Id, Label } records. The label is carried
-  # because a failure here has to name what is holding the upgrade, and the id
-  # is carried because the snapshot has to be re-checked by identity later.
-  function Get-InstallTreeMembers {
+  # ---------------------------------------------------------------------------
+  # PARENTAGE IS A CLAIM, NOT A FACT.
+  #
+  # Windows records a process's parent id ONCE, when the process is created, and
+  # never revises it. When that parent exits, its number goes back into the pool
+  # and Windows hands it to something else — and the orphan is left naming an id
+  # that now belongs to a stranger. Nothing in the process table marks the
+  # difference. So a closure over parent ids alone walks out of the installation
+  # and into whatever unrelated orphans happen to be naming an installation
+  # process's number, which is exactly what this helper did on 2026-09-16: two
+  # long-lived orphans from the day before named ids 12264 and 27340, the engine
+  # was holding both by then, and eight Windows processes with no connection to
+  # Orgtree were reported as holding the installation.
+  #
+  # Creation time settles it, and it is not a judgement call: a process cannot be
+  # the child of something that did not exist yet. The candidate parent for an id
+  # is whoever holds it NOW, or — when the pre-close snapshot recorded that id and
+  # the process is gone — whoever held it THEN. Either one being old enough is
+  # enough, because either one could be the real parent.
+  #
+  # UNREADABLE STAYS IN THE TREE. A missing creation time on either side means the
+  # question was not answered, and the only safe unanswered answer is the one this
+  # helper gives everywhere else: assume it is ours. This narrows the tree only
+  # where an exit can be positively established, never where it is merely absent.
+  # ---------------------------------------------------------------------------
+  function Test-ParentPlausible($ParentCreated, $ChildCreated) {
+    if ($null -eq $ParentCreated) { return $true }
+    if ($null -eq $ChildCreated) { return $true }
+    return ($ParentCreated -le $ChildCreated)
+  }
+
+  function Test-RealParent([int] $ParentId, $ChildCreated, $Current, $SeedCreated) {
+    $known = $false
+    if ($Current.ContainsKey($ParentId)) {
+      $known = $true
+      if (Test-ParentPlausible $Current[$ParentId].Created $ChildCreated) { return $true }
+    }
+    if ($SeedCreated.ContainsKey($ParentId)) {
+      $known = $true
+      if (Test-ParentPlausible $SeedCreated[$ParentId] $ChildCreated) { return $true }
+    }
+    # Nothing on record about that id at all, so there are no grounds to rule the
+    # parentage out and it stands.
+    return (-not $known)
+  }
+
+  # Has the id a snapshot member recorded been handed to a DIFFERENT process
+  # since? Only a positive reading may answer yes: the id is in the current
+  # enumeration, both creation times are readable, and whatever holds it now was
+  # created after the snapshot recorded the one that used to. Anything short of
+  # that — the id not visible, either time unreadable, the same creation time —
+  # leaves the member exactly where it was.
+  function Test-IdReused($Member, $Current) {
+    $id = [int]$Member.Id
+    if (-not $Current.ContainsKey($id)) { return $false }
+    $now = $Current[$id]
+    if ($null -eq $now.Created) { return $false }
+    if ($null -eq $Member.Created) { return $false }
+    return ($now.Created -gt $Member.Created)
+  }
+
+  # One parent-capable enumeration of every process on the machine, or a refusal.
+  # Separated from the membership rules below because BOTH halves of
+  # Get-InstallTreeHolders have to reason about the same reading: which processes
+  # are in the tree, and which recorded ids have since changed hands.
+  function Get-InstallTreeReadings {
     $readings = $null
     try {
       $readings = @(Get-TreeReadingsFromCim)
@@ -424,6 +500,25 @@ try {
         throw "The processes running from the installation folder could not be enumerated, so it cannot be confirmed that nothing is using its files. CIM said: $cimFailure. WMI said: $wmiFailure. Retry, or cancel to leave the existing installation untouched."
       }
     }
+    return @($readings)
+  }
+
+  # Every process that is either running from the installation directory or
+  # descended from one that is, as { Id, Label, Created } records. The label is
+  # carried because a failure here has to name what is holding the upgrade, the
+  # id because the snapshot has to be re-checked by identity later, and the
+  # creation time because an id on its own cannot tell that re-check whether it
+  # is still looking at the same process.
+  function Get-InstallTreeMembers($Readings) {
+    $readings = @($Readings)
+
+    # The reading indexed by id, so a recorded parent id can be resolved to the
+    # process that actually holds it.
+    $byId = @{}
+    foreach ($reading in $readings) { $byId[[int]$reading.Id] = $reading }
+    # Creation times for ids the pre-close snapshot recorded, used when such an
+    # id no longer appears in this reading.
+    $seedCreated = @{}
 
     $inTree = @{}
     $held = @()
@@ -445,6 +540,7 @@ try {
         $held += [pscustomobject]@{
           Id = [int]$reading.Id
           Label = ("{0}({1},{2})" -f $label, $reading.Id, $why)
+          Created = $reading.Created
         }
       }
     }
@@ -463,27 +559,32 @@ try {
     # reading, whether or not that process still exists. A seed is ONLY a seed:
     # it is not reported as holding the installation unless this reading
     # actually observed it, which is what keeps "quiet" a positive observation.
-    # An id since REUSED by an unrelated process makes that process's children
-    # look like descendants — a false refusal costing a Retry, which is the same
-    # direction of error the fixed desktop id set already accepts.
+    # A seed also carries the time it was recorded at, so the closure can tell an
+    # id that is still the process the snapshot saw from one Windows has since
+    # handed to somebody else.
     foreach ($member in @($script:TreeSnapshot)) {
       $inTree[[int]$member.Id] = $true
+      $seedCreated[[int]$member.Id] = $member.Created
     }
 
     # Transitive closure over parent ids, from the images observed now and from
-    # those snapshot seeds.
+    # those snapshot seeds — but only across parent ids that could REALLY be the
+    # parent. A recorded parent id outlives the process that earned it, and
+    # Test-RealParent is what stops the walk at an id that has changed hands.
     $added = $true
     while ($added) {
       $added = $false
       foreach ($reading in @($readings)) {
         if ($inTree.ContainsKey([int]$reading.Id)) { continue }
         if (-not $inTree.ContainsKey([int]$reading.Parent)) { continue }
+        if (-not (Test-RealParent ([int]$reading.Parent) $reading.Created $byId $seedCreated)) { continue }
         $inTree[[int]$reading.Id] = $true
         $label = $reading.Name
         if (Test-Blank $label) { $label = '<unnamed>' }
         $held += [pscustomobject]@{
           Id = [int]$reading.Id
           Label = ("{0}({1},descendant)" -f $label, $reading.Id)
+          Created = $reading.Created
         }
         $added = $true
       }
@@ -495,7 +596,7 @@ try {
   # The printable form of the same reading.
   function Get-InstallTreeProcesses {
     $descriptions = @()
-    foreach ($member in @(Get-InstallTreeMembers)) { $descriptions += [string]$member.Label }
+    foreach ($member in @(Get-InstallTreeMembers (@(Get-InstallTreeReadings)))) { $descriptions += [string]$member.Label }
     return @($descriptions)
   }
 
@@ -509,13 +610,19 @@ try {
   #      its external-image child has a dead parent id and no root to be reached
   #      from, so the closure walks straight past it.
   #
-  # Identity alone answers (2), exactly as Test-TargetAlive answers it for the
-  # desktop ids: no path is read, because the reading that might fail must not
-  # be what the wait depends on. An id that has been REUSED by an unrelated
-  # process therefore reads as still alive — a false refusal, which costs a
-  # Retry, rather than a false success, which costs the installation.
+  # Identity answers (2), exactly as Test-TargetAlive answers it for the desktop
+  # ids: liveness is read with no path lookup, because the reading that might
+  # fail must not be what the wait depends on. Identity alone, though, cannot
+  # tell a process that is still there from a process id Windows has already
+  # given to somebody else — so a live id is cleared only when this reading
+  # POSITIVELY shows a different process holding it now (Test-IdReused). An id
+  # that is alive and unaccounted for still reads as holding the installation: a
+  # false refusal costs a Retry, a false success costs the installation.
   function Get-InstallTreeHolders {
-    $current = @(Get-InstallTreeMembers)
+    $readings = @(Get-InstallTreeReadings)
+    $current = @(Get-InstallTreeMembers $readings)
+    $byId = @{}
+    foreach ($reading in $readings) { $byId[[int]$reading.Id] = $reading }
     $seen = @{}
     $held = @()
     foreach ($member in $current) {
@@ -524,9 +631,9 @@ try {
     }
     foreach ($member in @($script:TreeSnapshot)) {
       if ($seen.ContainsKey([int]$member.Id)) { continue }
-      if (Test-TargetAlive ([int]$member.Id)) {
-        $held += ("{0}(pre-close)" -f $member.Label)
-      }
+      if (-not (Test-TargetAlive ([int]$member.Id))) { continue }
+      if (Test-IdReused $member $byId) { continue }
+      $held += ("{0}(pre-close)" -f $member.Label)
     }
     return @($held)
   }
@@ -564,7 +671,7 @@ try {
   # nothing has been asked of the application yet: the user gets a named,
   # retryable refusal and an installation nobody has touched.
   Set-Step 'snapshot-install-tree'
-  $script:TreeSnapshot = @(Get-InstallTreeMembers)
+  $script:TreeSnapshot = @(Get-InstallTreeMembers (@(Get-InstallTreeReadings)))
   if (@($script:TreeSnapshot).Count -eq 0) {
     Write-Log 'install-tree: nothing was running from the installation folder when this run started'
   } else {

@@ -165,9 +165,13 @@ test('both tree readings report a parent, and neither answering fails closed', (
   assert.match(helper, /function Get-TreeReadingsFromWmi/)
   assert.doesNotMatch(withoutComments(helper), /function Get-TreeReadingsFromTable/)
 
-  const members = helper.match(/function Get-InstallTreeMembers[\s\S]*?\r?\n  \}\r?\n/)
-  assert.ok(members, 'Get-InstallTreeMembers not found')
-  assert.match(members[0], /Get-TreeReadingsFromCim[\s\S]*?Get-TreeReadingsFromWmi[\s\S]*?throw /)
+  // The enumeration lives in Get-InstallTreeReadings, separately from the
+  // membership rules, because Get-InstallTreeHolders needs the same reading
+  // twice over: once to decide who is in the tree, and once to decide whether a
+  // process id the snapshot recorded still belongs to the process it recorded.
+  const readings = helper.match(/function Get-InstallTreeReadings[\s\S]*?\r?\n  \}\r?\n/)
+  assert.ok(readings, 'Get-InstallTreeReadings not found')
+  assert.match(readings[0], /Get-TreeReadingsFromCim[\s\S]*?Get-TreeReadingsFromWmi[\s\S]*?throw /)
   assert.match(helper, /could not be enumerated/)
 
   // The closure over parent ids is unconditional now. It used to sit behind a
@@ -683,5 +687,233 @@ test(
     assert.equal(quiet.status, 0, `expected success once quiet, got ${quiet.status}: ${quiet.stdout}${quiet.stderr}`)
     assert.match(quiet.stdout, /already closed/)
     fs.rmSync(outcome.dir, { recursive: true, force: true })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// THE PARENT-ID REUSE REGRESSIONS.
+//
+// 2.1.6-beta.1 FIELD FAILURE. An upgrade was refused naming eight processes
+// with no connection to Orgtree — Microsoft.CmdPal.UI.exe, M365Copilot.exe and
+// six msedgewebview2.exe. Retrying worked, which is what made it read as a
+// phantom.
+//
+// MEASURED, not inferred. Every one of those eight was still running the next
+// day, and the process table says why: CmdPal recorded parent id 12264 and
+// M365Copilot recorded 27340, both processes that had exited the day before,
+// and the six webview hosts are M365Copilot's own children. The failing
+// snapshot lists python.exe(12264,image) and python.exe(27340,image) — the
+// engine was holding both of those numbers by then. Windows writes a parent id
+// once and never revises it, so two day-old orphans were pointing at ids that
+// now belonged to the installation, and the closure walked straight down them.
+// CmdPal was created 2026-09-15 08:05:32, a full day before the python.exe that
+// was supposedly its parent existed.
+//
+// Neither case can be staged by starting real processes, because no test can
+// make Windows hand out a chosen process id. They are staged where the defect
+// actually lives: the enumeration. `runHelper`'s prelude replaces
+// Get-CimInstance in the calling session, so the REAL helper — the real closure,
+// the real snapshot, the real holder logic — runs over a process table written
+// by the test. No hook is added to the helper for this.
+// ---------------------------------------------------------------------------
+
+// The classification these tests are about is the pre-close snapshot line. The
+// refusal message is a weaker instrument for it: a snapshot member that a later
+// reading did not re-observe is only named there if its id is still alive, and
+// whether some unrelated id happens to be alive is a property of the machine the
+// test runs on, not of the helper.
+function snapshotLine(log) {
+  const line = String(log).split(/\r?\n/).find((entry) => entry.includes('install-tree: snapshot of'))
+  assert.ok(line, `the helper logged no install-tree snapshot:\n${log}`)
+  return line
+}
+
+// One fixture process record, shaped exactly as Win32_Process hands one over.
+// `age` is seconds relative to the fixture clock: negative is older.
+function fixtureProcess({ pid, ppid, name, path: image, age }) {
+  return `New-FixtureProcess ${pid} ${ppid} '${name}' '${image}' ${age}`
+}
+
+function cimPrelude(tables) {
+  const emit = (rows) => `@(\n${rows.map((row) => `      ${fixtureProcess(row)}`).join('\n')}\n    )`
+  // Calls 1 and 2 are the pre-close snapshot and the Orgtree.exe detection;
+  // everything after them is Assert-InstallTreeQuiet re-reading the table.
+  const body = tables.length === 1
+    ? `    return ${emit(tables[0])}`
+    : [
+      `    if ($global:fixtureCall -le 2) { return ${emit(tables[0])} }`,
+      `    return ${emit(tables[1])}`,
+    ].join('\n')
+  // GLOBAL, not script-scoped. These functions are invoked from inside the
+  // helper, so `$script:` there resolves to the HELPER's scope — where the
+  // variable does not exist, and under its Set-StrictMode that is a terminating
+  // error the helper reads as "CIM is unavailable" and quietly answers from WMI
+  // instead. The fixture would then never be consulted at all.
+  return [
+    '$global:fixtureClock = (Get-Date).AddHours(-4)',
+    '$global:fixtureCall = 0',
+    'function New-FixtureProcess([int]$Id,[int]$Parent,[string]$Name,[string]$Image,[double]$Age) {',
+    '  return [pscustomobject]@{',
+    '    ProcessId = $Id; ParentProcessId = $Parent; Name = $Name',
+    '    ExecutablePath = $Image; CommandLine = $Image',
+    '    CreationDate = $global:fixtureClock.AddSeconds($Age)',
+    '  }',
+    '}',
+    'function Get-CimInstance {',
+    '  param([string]$ClassName, $Filter, $ErrorAction)',
+    "  if ($ClassName -ne 'Win32_Process') { throw ('unexpected fixture query: ' + $ClassName) }",
+    '  $global:fixtureCall = $global:fixtureCall + 1',
+    body,
+    '}',
+  ].join('\n')
+}
+
+test(
+  'a process that merely inherited an installation process id is not a descendant',
+  { skip: !windows ? 'Windows only' : false },
+  () => {
+    const dir = fixtureInstall()
+    const engine = path.join(dir, 'resources\\engine\\runtime\\python.exe')
+    // The field failure, in miniature. 12264 is the engine now; the orphan
+    // recorded 12264 four hours before the engine existed, and dragged its own
+    // child in behind it. 20000 is a genuine engine child and must survive the
+    // correction, or this would be a fix that simply stops looking.
+    const table = [
+      { pid: 12264, ppid: 800, name: 'python.exe', path: engine, age: 0 },
+      { pid: 20000, ppid: 12264, name: 'node.exe', path: 'C:\\Program Files\\nodejs\\node.exe', age: 5 },
+      { pid: 16440, ppid: 12264, name: 'Microsoft.CmdPal.UI.exe', path: 'C:\\Windows\\CmdPal\\Microsoft.CmdPal.UI.exe', age: -14400 },
+      { pid: 2984, ppid: 16440, name: 'msedgewebview2.exe', path: 'C:\\Program Files\\WebView2\\msedgewebview2.exe', age: -14400 },
+    ]
+    const blocked = runHelper(dir, { prelude: cimPrelude([table]) })
+
+    // The engine is genuinely there, so the upgrade is still refused — this
+    // corrects the classification, it does not stop the check blocking.
+    assert.equal(blocked.status, 2, `expected a refusal, got ${blocked.status}: ${blocked.stdout}${blocked.stderr}`)
+    assert.match(blocked.stderr, /python\.exe\(12264,image\)/)
+
+    // The classification itself is the snapshot line, so that is what is read
+    // here. A real child of the engine, started after it, is still a descendant.
+    const snapshot = snapshotLine(blocked.log)
+    assert.match(snapshot, /python\.exe\(12264,image\)/)
+    assert.match(snapshot, /node\.exe\(20000,descendant\)/)
+
+    // And the two that only ever had a recycled number in common with it are
+    // gone — from the classification, and from what the user is told.
+    assert.doesNotMatch(blocked.log, /Microsoft\.CmdPal\.UI\.exe/)
+    assert.doesNotMatch(blocked.log, /msedgewebview2\.exe/)
+    assert.doesNotMatch(blocked.stderr, /Microsoft\.CmdPal\.UI\.exe/)
+    assert.doesNotMatch(blocked.stderr, /msedgewebview2\.exe/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  },
+)
+
+test(
+  'the reused-id guard rejects an impossible parent, not an unfamiliar name',
+  { skip: !windows ? 'Windows only' : false },
+  () => {
+    // THE NEGATIVE CONTROL for the test above. Identical table, identical
+    // names, identical parent ids — the ONLY change is that the two processes
+    // were created after the engine rather than before it, so 12264 really
+    // could be their parent. They must be classified as descendants and named.
+    // If this stops reproducing, the test above is passing because something
+    // recognised `msedgewebview2.exe`, which would be worthless.
+    const dir = fixtureInstall()
+    const engine = path.join(dir, 'resources\\engine\\runtime\\python.exe')
+    const table = [
+      { pid: 12264, ppid: 800, name: 'python.exe', path: engine, age: 0 },
+      { pid: 20000, ppid: 12264, name: 'node.exe', path: 'C:\\Program Files\\nodejs\\node.exe', age: 5 },
+      { pid: 16440, ppid: 12264, name: 'Microsoft.CmdPal.UI.exe', path: 'C:\\Windows\\CmdPal\\Microsoft.CmdPal.UI.exe', age: 5 },
+      { pid: 2984, ppid: 16440, name: 'msedgewebview2.exe', path: 'C:\\Program Files\\WebView2\\msedgewebview2.exe', age: 6 },
+    ]
+    const blocked = runHelper(dir, { prelude: cimPrelude([table]) })
+
+    assert.equal(blocked.status, 2, `expected a refusal, got ${blocked.status}: ${blocked.stdout}${blocked.stderr}`)
+    const snapshot = snapshotLine(blocked.log)
+    assert.match(snapshot, /Microsoft\.CmdPal\.UI\.exe\(16440,descendant\)/)
+    // Two hops down, so the closure is still transitive through a child whose
+    // own image lives outside the installation.
+    assert.match(snapshot, /msedgewebview2\.exe\(2984,descendant\)/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  },
+)
+
+test(
+  'a snapshotted id handed to a different process stops holding the upgrade',
+  { skip: !windows ? 'Windows only' : false },
+  () => {
+    // The other half of the same defect. The snapshot records a descendant by
+    // id, and the later check asks only whether that id is still alive — which
+    // an id Windows has since handed to something else also answers yes to. The
+    // exit is established POSITIVELY: this reading can see id 5000, and the
+    // process holding it was created three hours after the snapshot recorded
+    // the one that used to, so the recorded process is verifiably gone.
+    const dir = fixtureInstall()
+    const engine = path.join(dir, 'resources\\engine\\runtime\\python.exe')
+    const before = [
+      { pid: 12264, ppid: 800, name: 'python.exe', path: engine, age: 0 },
+      { pid: 5000, ppid: 12264, name: 'uv.exe', path: 'C:\\Users\\someone\\.local\\bin\\uv.exe', age: 1 },
+    ]
+    const after = [
+      { pid: 5000, ppid: 800, name: 'svchost.exe', path: 'C:\\Windows\\System32\\svchost.exe', age: 10800 },
+    ]
+    // The liveness probe is deliberately independent of the enumeration, so it
+    // has to be answered separately: id 5000 IS in use, which is exactly the
+    // answer that used to be mistaken for "the snapshotted process is still
+    // there".
+    const aliveProbe = [
+      'function Get-Process {',
+      '  param([int]$Id, $ErrorAction, [string]$Name)',
+      "  if (-not $PSBoundParameters.ContainsKey('Id')) { throw 'the fixture answers only single-id probes' }",
+      "  if ($Id -eq 5000) { return [pscustomobject]@{ Id = 5000; Name = 'svchost' } }",
+      '  return $null',
+      '}',
+    ].join('\n')
+
+    const quiet = runHelper(dir, { prelude: `${cimPrelude([before, after])}\n${aliveProbe}` })
+    assert.equal(quiet.status, 0, `expected success, got ${quiet.status}: ${quiet.stdout}${quiet.stderr}`)
+    assert.match(quiet.stdout, /already closed/)
+    // The snapshot did record it, so this is the re-check clearing it rather
+    // than the snapshot never having seen it.
+    assert.match(quiet.log, /uv\.exe\(5000,descendant\)/)
+    assert.doesNotMatch(quiet.log, /uv\.exe\(5000,descendant\)\(pre-close\)/)
+    assert.doesNotMatch(quiet.stderr || '', /svchost/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  },
+)
+
+test(
+  'a snapshotted id still held by the same process keeps blocking the upgrade',
+  { skip: !windows ? 'Windows only' : false },
+  () => {
+    // THE NEGATIVE CONTROL for the test above, and the guard that matters most:
+    // the reuse rule must never become a way for a process that is genuinely
+    // still there to be written off. Same shape, same id, same liveness answer
+    // — the only change is that id 5000 still carries the creation time the
+    // snapshot recorded, so nothing has been established about it exiting.
+    const dir = fixtureInstall()
+    const engine = path.join(dir, 'resources\\engine\\runtime\\python.exe')
+    const before = [
+      { pid: 12264, ppid: 800, name: 'python.exe', path: engine, age: 0 },
+      { pid: 5000, ppid: 12264, name: 'uv.exe', path: 'C:\\Users\\someone\\.local\\bin\\uv.exe', age: 1 },
+    ]
+    // The engine has gone, so nothing roots the closure any more and only the
+    // retained snapshot identity can still account for the child.
+    const after = [
+      { pid: 5000, ppid: 12264, name: 'uv.exe', path: 'C:\\Users\\someone\\.local\\bin\\uv.exe', age: 1 },
+    ]
+    const aliveProbe = [
+      'function Get-Process {',
+      '  param([int]$Id, $ErrorAction, [string]$Name)',
+      "  if (-not $PSBoundParameters.ContainsKey('Id')) { throw 'the fixture answers only single-id probes' }",
+      "  if ($Id -eq 5000) { return [pscustomobject]@{ Id = 5000; Name = 'uv' } }",
+      '  return $null',
+      '}',
+    ].join('\n')
+
+    const blocked = runHelper(dir, { prelude: `${cimPrelude([before, after])}\n${aliveProbe}` })
+    assert.equal(blocked.status, 2, `expected a refusal, got ${blocked.status}: ${blocked.stdout}${blocked.stderr}`)
+    assert.match(blocked.stderr, /uv\.exe\(5000,descendant\)\(pre-close\)/)
+    assert.doesNotMatch(blocked.stdout || '', /already closed/)
+    fs.rmSync(dir, { recursive: true, force: true })
   },
 )
