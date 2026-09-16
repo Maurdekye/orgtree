@@ -1,0 +1,244 @@
+# Known failures — the shared test baseline
+
+**The suite is not green on `main`. Some tests fail on an untouched checkout, on
+this machine, for reasons that have nothing to do with your change.** Until you
+know which ones, "the suite is red" tells you nothing, and you cannot honestly
+say your change broke nothing.
+
+The old way of finding out was to stand up a second worktree at the base commit
+and run the whole suite a second time. Eleven agents on the 2.1.6 push described
+doing exactly that, one of them three times in a single session, at roughly
+twenty minutes of wall clock each. This page is the replacement. The answer is
+recorded once, in `docs/test-baseline.json`, and you read it.
+
+---
+
+## What you actually need to do
+
+```text
+# What is already broken? Runs nothing; answers in under a second.
+node tools/test-baseline.mjs show
+
+# Did MY change break anything? Runs the suite ONCE, here, and splits the
+# result against the baseline. Exit 0 means no new failures.
+node tools/test-baseline.mjs compare
+```
+
+`compare` prints four lists and they are the whole point:
+
+| List | Meaning |
+| --- | --- |
+| **NEW FAILURES (yours)** | The test exists in the baseline and was passing there. It fails here. This is a regression and it is yours. |
+| **FAILURES THE BASELINE CANNOT ACQUIT** | The test is not in the baseline at all — usually your branch added or renamed it. The baseline has no opinion, so it is counted against you. |
+| **PRE-EXISTING (not yours)** | Already failing at the baseline commit. Not caused by you. See *Handing one over*, below. |
+| **FIXED since the baseline** | Failing in the baseline, passing here. Say so in your report; it is real work. |
+
+The exit code is 0 if and only if the first two lists are empty. That makes
+`compare` usable as a gate:
+
+```text
+node tools/test-baseline.mjs compare && echo "nothing new is broken"
+```
+
+If you have already run the suite for another reason, do not run it again:
+
+```text
+node tools/test-baseline.mjs run --out my-run.json      # once
+node tools/test-baseline.mjs compare --results my-run.json   # runs nothing
+```
+
+---
+
+## How old is it, and does that matter?
+
+**A baseline that does not say how old it is, is worse than none** — it looks
+authoritative and quietly stops being true. Every command that reads the
+baseline leads with its age and its provenance, and `compare` will not let you
+quote a clean verdict without seeing the drift warnings first:
+
+```text
+baseline: FRESH — recorded 2026-09-16T17:30:00.000Z (0.4 hours ago)
+          at commit 12ffa49c63 (this is HEAD)
+```
+
+Freshness here is **not** measured in commits. It is measured by the git *tree
+hashes* of `tests/`, `engine/`, `apps/`, `packages/`, `tools/` and
+`package.json`. Two different commits whose measured trees are byte-identical
+run the same tests over the same code, so a baseline taken at one is exactly
+valid at the other — and most commits on this repository touch neither. Commit
+distance is reported, but only as a note; the tree comparison is what decides.
+
+The baseline is called `DRIFTED` when anything that could move the result has
+changed — the code under test, the host it was measured on, a dirty tree at
+record time — and `STALE` once it is older than seven days. Each reason is
+printed on its own line. Two flags make that fatal instead of advisory:
+
+```text
+node tools/test-baseline.mjs compare --max-age-days 2
+node tools/test-baseline.mjs compare --require-fresh
+```
+
+**These failures are partly environmental.** The baseline records the host,
+platform, arch, node version and the test concurrency it was measured at, and
+`compare` treats a different hostname as drift. A baseline recorded on another
+machine is a hint, not an acquittal.
+
+---
+
+## Regenerating it
+
+Do this when `show` says `DRIFTED` or `STALE`, on a clean checkout:
+
+```text
+git checkout main && git pull
+node tools/test-baseline.mjs record --by <your-agent-name>
+```
+
+It refuses to run on a dirty tree, because a baseline measured on a dirty tree
+is not a baseline of any commit. `--force` overrides that and records
+`tree_clean: false`, which every reader is then shown.
+
+Two things make regeneration cheap enough to actually do:
+
+- **Human notes survive.** Any `note` you have added to a failure in
+  `docs/test-baseline.json` is carried across to the new recording for every
+  failure that is still failing. Re-recording does not cost you the sentence
+  that explains why a failure is expected.
+- **Flaky tests are separated from stable ones.** After the main run, `record`
+  re-runs *only the files that failed* and marks each failure `stable` or
+  `flaky`. This matters more than it sounds: a test that fails once and passes
+  on the retry, recorded as a known failure, is how a real regression gets
+  waved through. `compare` labels a pre-existing failure `[FLAKY in baseline]`
+  so you know not to trust it either way. Skip the second pass with
+  `--no-confirm` if you are in a hurry; the baseline then records
+  `stability: "unconfirmed"` and says so.
+
+---
+
+## Handing a pre-existing failure over
+
+A pre-existing failure is a real finding that belongs to somebody else's
+ticket. Until now there was no way to write it down that did not read as *I am
+taking this on*: a docket finding has to be attached to an item, and the only
+item you hold is your own, so filing it there puts the failure on your ticket
+and blocks your own completion behind somebody else's bug.
+
+So there is a separate verb, and it is structurally incapable of claiming
+anything:
+
+```text
+node tools/test-baseline.mjs handover \
+  --test "the real trust check accepts an owner-exclusive file" \
+  --to attach-owner \
+  --by my-agent-name \
+  --summary "Fails on untouched main; the ACL ancestry on this machine grants Authenticated Users." \
+  --detail "Fails identically on a pristine 2.1.5 checkout, so it is an environment property of this host."
+```
+
+That does two things:
+
+1. **Records it durably** in `docs/test-handovers.json`, next to the baseline
+   that justifies the claim. The entry carries `claimed: false` and
+   `ownership: "not-claimed-by-reporter"` as structural fields.
+   `handover --claim` is refused outright.
+2. **Prints the message to send**, already worded so the recipient cannot
+   misread it — it opens with *"I am not working on this and I am not taking it
+   on"*, names the baseline commit and the date it was measured, and gives the
+   one-line command to reproduce.
+
+Send that text with **`orgtree_send_notice`**, not `orgtree_message`. A notice
+lands in the recipient's mailbox and is read at the start of its next turn
+without waking it. A failure that was already there is not urgent to you; do not
+interrupt somebody for it.
+
+`handover` only accepts a test the baseline lists as already failing. If it is
+not in the baseline, the tool refuses: as far as the record goes the failure is
+not pre-existing, so either re-record the baseline or treat it as yours. That
+guard is deliberate — without it the ledger becomes a place to disown your own
+regressions.
+
+To see the ledger, and to close an entry out:
+
+```text
+node tools/test-baseline.mjs handovers --open
+node tools/test-baseline.mjs resolve --seq 1 --status accepted --by attach-owner --note "picked up on <ticket>"
+```
+
+Statuses are `open`, `accepted`, `closed`, `declined`. A `declined` entry with a
+note saying "not mine, try X" is a useful outcome, not a failure.
+
+The full argument for this design — and for rejecting the docket-finding and
+new-docket-item alternatives — is recorded as decision #1 on the docket item
+`every-agent-re-derives-which-test-failures-were`.
+
+---
+
+## What the baseline does NOT cover
+
+Read this before quoting a clean `compare` as proof of anything. The baseline
+covers two suites:
+
+| Suite | What it is | Roughly |
+| --- | --- | --- |
+| `node-root` | `node --test tests/*.test.mjs` — the `npm test` set, 47 modules | ~1 min |
+| `renderer` | `node apps/desktop/renderer/tests/run.mjs` — 233 bundled jsdom suites | ~5 min |
+
+Everything else is listed in each suite's `excluded` array and reprinted by
+`show`, so the gap is stated rather than hidden:
+
+- **`tests/disruptive/*.test.mjs`** — a separate `npm run test:disruptive`
+  target, not part of `npm test`.
+- **`tests/*.test.ps1`** — PowerShell boot and installer probes; no node runner
+  executes them.
+- **`tools/test-*.mjs`** — Electron and native probes needing a display and a
+  built application.
+- **renderer probe scripts** (`*_probe.py`, `*-probe.tsx`, `*.probe.ts`) — driven
+  by hand or by a native probe runner, not by `run.mjs`.
+
+### How the renderer suite is captured
+
+Worth knowing, because it looks impossible at first: `run.mjs` spawns node's test
+runner with `stdio: 'inherit'` and the human-readable spec reporter, so it
+reports an exit code and nothing a diff can use. It also owns a Job Object that
+caps memory at 6 GB and the whole run at a wall-clock limit — protections added
+after a single hung test reached 22 GB resident and took the machine down.
+
+Rather than re-implement any of that, the baseline rides along. Node accepts
+`--test-reporter` through `NODE_OPTIONS`, so `tools/test-baseline-reporter.mjs`
+is loaded into every node process in the tree and appends NDJSON to its own file
+per process. `run.mjs` is spawned completely unchanged and keeps every guard it
+has. Bundled `foo.test.mjs` names are mapped back to `apps/desktop/renderer/
+tests/foo.test.tsx` by basename.
+
+**One thing to know about that run limit.** Its default is 300 s and the suite
+measured 274 s of test time on the machine this baseline was first taken on —
+about ten per cent of headroom. When it fires, batches are dropped and the files
+that never ran would be recorded as though they had passed. So `record` raises
+`ORGTREE_TEST_RUN_TIMEOUT_MS` to 900 s for its own run, writes the override into
+the baseline under `env_overrides`, and if the limit fires anyway it marks the
+suite `truncated` with a note saying unmeasured is not passing. Nothing about
+that changes what `npm run test:renderer` does for anyone else.
+
+A `--filter` narrows which files run. A baseline recorded with one is stored as
+`partial` and says so on every screen that shows it, because a filtered run that
+did not say so would read as if the unselected files had passed.
+
+---
+
+## The record itself
+
+- `docs/test-baseline.json` — schema `orgtree.test-baseline/v1`. The commit, the
+  tree hashes, the machine, the timestamp, and every known failure with its
+  file, its test name, its scrubbed error and whether it is stable or flaky.
+- `docs/test-handovers.json` — schema `orgtree.test-handover/v1`. The append-only
+  handover ledger.
+
+A failure's identity is `suite::file::test name`, never its error text — error
+text carries absolute paths, temp directories and randomized fixture names, so
+using it as identity would make every entry a one-time match. Error text *is*
+recorded, scrubbed and hashed, and `compare` flags a pre-existing failure whose
+error has changed since the baseline. That is a hint that something moved
+underneath it, not a verdict.
+
+Both files are committed. Do not gitignore them: the whole value is that the
+next agent gets the answer without running anything.

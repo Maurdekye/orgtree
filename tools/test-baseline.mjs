@@ -220,8 +220,13 @@ function gitProvenance() {
     commit_subject: commit ? git(['log', '-1', '--format=%s', commit]) : null,
     commit_at: commit ? git(['log', '-1', '--format=%cI', commit]) : null,
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
-    // A baseline measured on a dirty tree is not a baseline of that commit.
+    // A baseline measured on a dirty tree is not a baseline of that commit —
+    // but only where the dirt could change a test result. An uncommitted note
+    // under docs/ cannot, and treating it as drift would fire the warning on
+    // every run that also wrote a note, which is how an honest warning becomes
+    // one people learn to ignore. `measured_tree_clean` is the one that gates.
     tree_clean: git(['status', '--porcelain']) === '',
+    measured_tree_clean: git(['status', '--porcelain', '--', ...MEASURED_TREES]) === '',
     trees: treeHashes('HEAD'),
   }
 }
@@ -274,7 +279,9 @@ function ageOf(baseline) {
   if (ageHours === null) reasons.push('the baseline records no timestamp')
   else if (ageHours > DEFAULT_MAX_AGE_DAYS * 24) reasons.push(`it is ${(ageHours / 24).toFixed(1)} days old`)
   if (!reachable && base) reasons.push('its commit is not in this checkout, so drift cannot be measured')
-  if (baseline && baseline.tree_clean === false) reasons.push('it was measured on a DIRTY tree')
+  if (baseline && baseline.measured_tree_clean === false) reasons.push('it was measured with UNCOMMITTED changes to the code under test')
+  else if (baseline && baseline.measured_tree_clean === undefined && baseline.tree_clean === false) reasons.push('it was measured on a DIRTY tree')
+  else if (baseline && baseline.tree_clean === false) notes.push('the tree had uncommitted files at record time, but none of them were under test')
 
   const hostMatches = baseline?.machine?.host ? baseline.machine.host === os.hostname() : null
   if (hostMatches === false) reasons.push(`it was measured on ${baseline.machine.host}, not ${os.hostname()} — these failures are partly environmental, so treat that as drift`)
@@ -534,7 +541,7 @@ async function runNodeTestSuite(suiteName, targets, { concurrency, timeout, onPr
 
   return {
     suite: suiteName,
-    runner: suite.command,
+    runner: SUITES[suiteName].command,
     duration_ms: Date.now() - started,
     files: targets.map(relative),
     outcomes: [...outcomes.values()].sort((a, b) => a.id.localeCompare(b.id)),
@@ -633,10 +640,14 @@ async function cmdRecord(args) {
   const previous = (() => { try { return loadBaseline() } catch { return null } })()
   const provenance = gitProvenance()
 
-  if (!provenance.tree_clean && !args.force) {
-    console.error('refusing: the working tree is dirty, so this would not be a baseline of any commit.')
-    console.error('  commit or stash first, or pass --force and accept that tree_clean is recorded as false.')
+  if (!provenance.measured_tree_clean && !args.force) {
+    console.error('refusing: there are uncommitted changes to the code under test, so this would not be a baseline of any commit.')
+    console.error(`  dirty under: ${MEASURED_TREES.join(', ')}`)
+    console.error('  commit or stash first, or pass --force and accept that measured_tree_clean is recorded as false.')
     return 2
+  }
+  if (!provenance.tree_clean) {
+    console.error('note: the tree has uncommitted files, but none of them are under test. Recording.')
   }
   if (!args.force && provenance.branch && provenance.branch !== 'main' && !args.allowBranch) {
     console.error(`note: recording from branch ${provenance.branch}, not main. The commit is recorded either way.`)
@@ -790,6 +801,14 @@ async function cmdCompare(args) {
     const runResult = runs[suiteName]
     if (!runResult) continue
     const known = baselineFailures(baseline, suiteName)
+    if (!known) {
+      console.log(`── ${suiteName} ──`)
+      console.log(`   NOT IN THE BASELINE. Every failure here is counted against you, because`)
+      console.log(`   there is no record saying otherwise. Re-record: node tools/test-baseline.mjs record`)
+      console.log('')
+      newFailures += runResult.outcomes.filter(o => o.kind !== 'aggregate' && o.status === 'failed').length
+      continue
+    }
     const knownIds = new Set(baseline.suites[suiteName].known_test_ids ?? [])
     const leaves = runResult.outcomes.filter(o => o.kind !== 'aggregate')
     const failedNow = leaves.filter(o => o.status === 'failed')
