@@ -8,15 +8,38 @@ can silently become a hand-maintained exception.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
-from orgtree import events, events_fixtures
-
-
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = ROOT / "engine" / "backend"
 FIXTURE_DIR = ROOT / "apps" / "desktop" / "renderer" / "tests" / "fixtures" / "events"
+sys.path.insert(0, str(BACKEND_ROOT))
+
+
+def _assert_local_origin(origin: Path | None) -> None:
+    try:
+        if origin is None:
+            raise ValueError
+        origin.relative_to(BACKEND_ROOT)
+    except ValueError as exc:
+        raise RuntimeError(
+            "refusing to run: orgtree must resolve below "
+            f"{BACKEND_ROOT}, got {origin or '(no origin)'}"
+        ) from exc
+
+
+def _require_local_orgtree() -> None:
+    spec = importlib.util.find_spec("orgtree")
+    origin = Path(spec.origin).resolve() if spec and spec.origin else None
+    _assert_local_origin(origin)
+
+
+_require_local_orgtree()
+from orgtree import events, events_fixtures  # noqa: E402
 
 
 def fixture_text(variant: str) -> str:
