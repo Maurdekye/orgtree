@@ -2805,3 +2805,100 @@ uiTest('§E3 CONTROL — a name that is not an item says so, and renders no deta
       assert.doesNotMatch(paneText(el), /The problem, and then the plan for it/)
     } finally { unpinModal('docket', 'org1') }
   })
+
+// ============================================================ §F scope notice
+// W09 — "A docket item's description becomes permanently unwritable at the
+// scope-record cap". The freeze itself is a backend fix; THIS half is the one
+// that was nearly missed. An item whose description has stopped being the
+// complete scope used to render exactly like any other item, so the next
+// reader started at the description — the first thing in the pane — and had
+// no reason to look anywhere else. The sentence has to be here, above the
+// text it is a warning about, or it does not reach the person it protects.
+
+const SCOPE_RECT = { x: 40, y: 40, w: 760, h: 560 }
+
+const capped = (notice: WorkItem['objective_notice']) => mkItem({
+  slug: 'plan-the-migration', title: 'plan-the-migration',
+  objective: 'Plan this migration.',
+  objective_notice: notice,
+})
+
+uiTest('§F1 a FROZEN item warns, above the description, in the pane',
+  async (mount) => {
+    pinModal('docket', SCOPE_RECT, 'org1')
+    try {
+      mockWorkItems([capped({
+        kind: 'incomplete',
+        headline: 'This description is NOT the complete scope of this item.',
+        detail: 'this item stood at the scope cap under a build that REFUSED '
+          + 'every description change and every ruling',
+        at: '2026-09-16T10:00:00Z', rows: 100, archived: 0,
+      })])
+      const { el, render: re } = await mount(pinnedDocket())
+      await flush()
+      await re(pinnedDocket({ jumpTo: 'plan-the-migration', jumpSeq: 1 }))
+      await flush()
+
+      const text = paneText(el)
+      assert.match(text, /NOT the complete scope/)
+      assert.match(text, /REFUSED/)
+      // ⚠ ABOVE the description, not after it. A warning a reader meets only
+      // once they have finished reading the thing it warns about is no warning.
+      assert.ok(text.indexOf('NOT the complete scope')
+                  < text.indexOf('Plan this migration.'),
+        'the warning renders below the description it is about')
+      // and it is announced, because the reader may never reach it by eye
+      const box = pinnedWindow(el).querySelector('.docket-desc-notice')
+      assert.ok(box, 'no notice element in the pane')
+      assert.equal(box.getAttribute('role'), 'alert')
+      assert.ok(box.classList.contains('incomplete'))
+    } finally { unpinModal('docket', 'org1') }
+  })
+
+uiTest('§F2 a ROLLED-OVER item points at the archive and is NOT an alert',
+  async (mount) => {
+    pinModal('docket', SCOPE_RECT, 'org1')
+    try {
+      mockWorkItems([capped({
+        kind: 'rolled_over',
+        headline: 'This description is the complete current scope; part of '
+          + 'the record of how it got there has rolled over.',
+        detail: '12 earlier scope record(s) moved to `scope_archive`.',
+        at: null, rows: 100, archived: 12,
+      })])
+      const { el, render: re } = await mount(pinnedDocket())
+      await flush()
+      await re(pinnedDocket({ jumpTo: 'plan-the-migration', jumpSeq: 1 }))
+      await flush()
+
+      assert.match(paneText(el), /scope_archive/)
+      const box = pinnedWindow(el).querySelector('.docket-desc-notice')
+      assert.ok(box)
+      // nothing was LOST here, so it must not read as an error — the two
+      // kinds mean different things and are styled apart on purpose
+      assert.equal(box.getAttribute('role'), null)
+      assert.ok(box.classList.contains('rolled_over'))
+      assert.ok(!box.classList.contains('incomplete'))
+    } finally { unpinModal('docket', 'org1') }
+  })
+
+uiTest('§F3 CONTROL — an ordinary item renders no notice at all',
+  async (mount) => {
+    pinModal('docket', SCOPE_RECT, 'org1')
+    try {
+      // both shapes an ordinary item can arrive in: null, and absent entirely
+      // (an older backend that does not send the field)
+      mockWorkItems([capped(null), mkItem({ slug: 'older-backend',
+                                            title: 'older-backend' })])
+      const { el, render: re } = await mount(pinnedDocket())
+      await flush()
+      for (const slug of ['plan-the-migration', 'older-backend']) {
+        await re(pinnedDocket({ jumpTo: slug, jumpSeq: 1 }))
+        await flush()
+        assert.match(paneText(el), /DESCRIPTION/, 'the pane did not open')
+        assert.equal(
+          pinnedWindow(el).querySelector('.docket-desc-notice'), null,
+          `${slug} warns about a scope record it does not have`)
+      }
+    } finally { unpinModal('docket', 'org1') }
+  })

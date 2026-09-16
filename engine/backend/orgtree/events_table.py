@@ -218,14 +218,22 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         assigner=F("str", B, True), status=F(_STATUS, B, True),
         objective=F("str", B, True), done_so_far=F("[str]", B, True),
         working_on_next=F("[str]", B, True),
-        acceptance=F("[str]", B, True)),
+        acceptance=F("[str]", B, True),
+        # W09: one sentence saying the description above may not be the whole
+        # scope, rendered immediately before it. Null — and absent on an
+        # historical fixture — means it IS the whole scope, and renders
+        # nothing, so every existing body is unchanged.
+        objective_notice=F("str?", B, True)),
     # ---- family review
     "docket.review_requested": leaf(
         "review", "WorkItemRef",
         reviewer=F("str", B, True, _YOU), requested_by=F("str", B, True),
         owner=F("str", B, True), objective=F("str", B, True),
         done_so_far=F("[str]", B, True), acceptance=F("[str]", B, True),
-        revision=F("int", B, True), candidate=F("str?", B, True)),
+        revision=F("int", B, True), candidate=F("str?", B, True),
+        # W09 — see docket.assigned. A reviewer reads the description to judge
+        # the work against it, so they need this as much as the owner does.
+        objective_notice=F("str?", B, True)),
     "docket.review_changes": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),
@@ -450,7 +458,11 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     # ---- family context_change
     "docket.participant_added": leaf("context_change", "WorkItemRef",
                                      added_by=F("str", B, True), owner=F("str", B, True),
-                                     objective=F("str", B, True)),
+                                     objective=F("str", B, True),
+                                     # W09 — see docket.assigned. This mail
+                                     # carries the description too, so it
+                                     # carries the warning about it too.
+                                     objective_notice=F("str?", B, True)),
     "context.deep_reach": leaf("context_change", "NodeRef", node=F("str", B, True),
                                gist=F("str", B, True), kind=F("L[message|command]", B, True)),
     "context.notice_digest": leaf("context_change", None,

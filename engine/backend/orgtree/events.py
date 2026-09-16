@@ -343,6 +343,14 @@ def mint(variant: str, actor: Mapping[str, Any], object: Mapping[str, Any] | Non
     if variant in ("docket.assigned", "docket.review_requested") \
             and "acceptance" not in ev:
         ev["acceptance"] = []
+    # W09 added the "this description may not be the whole scope" sentence to
+    # the same two contexts, for the same reason and with the same rule: an
+    # older producer or a historical fixture did not carry it, and None
+    # faithfully means the description WAS the complete scope — which renders
+    # nothing, so every already-frozen body stays byte for byte what it was.
+    if variant in ("docket.assigned", "docket.review_requested",
+                   "docket.participant_added"):
+        ev.setdefault("objective_notice", None)
     # Review requests created before candidate-bound review metadata was
     # introduced remain valid fixtures and historical producers.  New rows
     # always carry the revision/candidate pair; an absent candidate is an
