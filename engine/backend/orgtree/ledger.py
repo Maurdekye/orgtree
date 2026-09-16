@@ -12122,6 +12122,14 @@ class Org:
     #: call in the tool takes this name as its argument.
     WORK_FIELDS_ALWAYS: Final = ("slug",)
 
+    #: ⚠ ACCEPTED IN `fields` AND NOT PRODUCED HERE. `ref` is stamped onto
+    #: every served item by the API layer, which is the only layer that knows
+    #: the org segment — so it is in every payload a caller has ever seen, and
+    #: asking for it back by name must not be refused as an unknown field. A
+    #: refusal there would be this package's own paper cut: a name the tool
+    #: showed you, rejected by the tool that showed it.
+    WORK_FIELDS_STAMPED: Final = ("ref",)
+
     @staticmethod
     def _work_fields_arg(fields: Any) -> list[str] | None:
         """The caller's `fields`, normalised. None when it asked for none.
@@ -12151,15 +12159,17 @@ class Org:
         `state` for `status` — is the same failure this whole package exists
         to end, one field smaller."""
         wanted = list(dict.fromkeys(list(Org.WORK_FIELDS_ALWAYS) + fields))
-        unknown = [f for f in wanted if f not in view]
+        unknown = [f for f in wanted
+                   if f not in view and f not in Org.WORK_FIELDS_STAMPED]
         if unknown:
+            known = sorted(set(view) | set(Org.WORK_FIELDS_STAMPED))
             raise LedgerError(
                 f"fields names {', '.join(sorted(unknown))}, which "
                 f"{'is not a field' if len(unknown) == 1 else 'are not fields'}"
                 f" of a docket item. The readable fields are: "
-                f"{', '.join(sorted(view))}. NOTHING WAS RETURNED rather than "
+                f"{', '.join(known)}. NOTHING WAS RETURNED rather than "
                 f"a payload quietly missing what you asked for")
-        out = {k: view[k] for k in wanted}
+        out = {k: view[k] for k in wanted if k in view}
         left = sorted(k for k in view if k not in out)
         out["omitted_fields"] = left
         out["omissions_how"] = (

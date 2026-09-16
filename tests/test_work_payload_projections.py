@@ -148,6 +148,17 @@ class WorkPayloadProjections(unittest.TestCase):
         self.assertIn("status", msg)
         self.assertIn("NOTHING WAS RETURNED", msg)
 
+    def test_ref_is_askable_even_though_the_api_layer_stamps_it(self) -> None:
+        # `ref` is in every payload a caller has ever seen, so asking for it
+        # back by name must not be refused as an unknown field — that would be
+        # a name the tool showed you, rejected by the tool that showed it
+        view = self.org.work_get(self.owner, self.wid, fields=["ref", "title"])
+        self.assertEqual(view["title"], "A worked item")
+        self.assertEqual(view["slug"], self.wid)
+        with self.assertRaises(LedgerError) as caught:
+            self.org.work_get(self.owner, self.wid, fields=["nope"])
+        self.assertIn("ref", str(caught.exception))
+
     def test_an_unknown_projection_is_refused(self) -> None:
         with self.assertRaises(LedgerError):
             self.org.work_get(self.owner, self.wid, projection="tiny")
