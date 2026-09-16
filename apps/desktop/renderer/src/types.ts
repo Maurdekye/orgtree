@@ -2363,6 +2363,29 @@ export interface WorkObjectiveNotice {
   archived: number
 }
 
+/** THE POST-COMPLETION ADDENDUM (ledger `work_addendum`).
+ *
+ *  A ticket completed at approval lands afterwards, so the two lists the user
+ *  reads froze one step before the truth. Correcting them used to mean
+ *  reopening the item, which clears its acceptance record — a false record, or
+ *  a damaged one. An addendum corrects the lists and leaves the outcome alone;
+ *  this is the stamp that says it happened, so the corrected summary is never
+ *  mistaken for the one that was accepted. */
+export interface WorkPostCompletion {
+  /** how many addenda this item has had; always ≥ 1 when the field is present */
+  count: number
+  /** the latest one */
+  at: string
+  by: WorkActor | 'user'
+  /** the status the item was — and still is — when it was amended */
+  status: string
+  /** why the finished summary changed. Required by the backend, never empty. */
+  note: string
+  /** the completion this came after, so the ordering reads without history */
+  accepted_at?: string | null
+  first_at?: string
+}
+
 export interface WorkItem {
   /** THE ONLY IDENTIFIER (user 2026-09-05: "uniquely and solely identifiable
    *  by their readable slugs, no more ids of any sort"). Derived from the
@@ -2452,6 +2475,15 @@ export interface WorkItem {
    *  markdown string to be parsed. */
   done_so_far: string[]
   working_on_next: string[]
+  /** WAS THIS FINISHED ITEM'S SUMMARY CORRECTED AFTER IT WAS FINISHED?
+   *  (ledger `work_addendum`.) Null on every ordinary item — the two lists
+   *  above are the ones its completion left. Present when a landing, or any
+   *  other fact that arrived after the outcome, was recorded onto a closed
+   *  item: the status, the acceptance record, the checks and the evidence are
+   *  untouched by that path, and this is the only thing that changed besides
+   *  the lists. Rendered beside them, because it is a statement about them.
+   *  Optional on the wire: an older backend does not send it. */
+  post_completion?: WorkPostCompletion | null
   /** time of the LATEST DOCKET UPDATE — the row's age and the archive rule
    *  both read THIS, not `updated_at` (any mutation moves that). Null
    *  before the item's first status update. */

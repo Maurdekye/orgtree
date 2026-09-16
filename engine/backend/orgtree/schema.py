@@ -872,6 +872,18 @@ class WorkItem(TypedDict):
     scope_frozen: NotRequired[dict[str, Any] | None]
     delivery: dict[str, WorkStage | None] | None   # keys = workitems.STAGES
     accepted: dict[str, Any] | None  # {at, by, note, via} — completion record: work_accept, a reviewer approval, or a done set through work_update (any collaborator, user 2026-09-10)
+    #: THE POST-COMPLETION ADDENDUM (W-post-done). What happened AFTER the item
+    #: was closed — the landing an approve-then-land ticket records once its
+    #: code is actually on main: {count, at, by, status, note, accepted_at}.
+    #: Written only by `Org.work_addendum`, which touches the two progress
+    #: lists and nothing else: `accepted`, the acceptance conditions, their
+    #: checks, `evidence`, `status` and every clock the archive runs on are
+    #: left exactly as completion left them. Its PRESENCE is what says the
+    #: summary above was corrected after the fact rather than during the work,
+    #: so it is never back-filled and never cleared. `accepted_at` pins the
+    #: completion the addendum came after, so a reader can see the ordering
+    #: without walking history.
+    post_completion: NotRequired[dict[str, Any] | None]
     # Nonterminal review state is separate from accepted completion. A
     # reviewer may approve an exact candidate while integration is pending.
     candidate_verdict: NotRequired[dict[str, Any] | None]

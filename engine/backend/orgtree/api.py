@@ -6988,6 +6988,22 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             review_evidence=a.get("review_evidence"),
             review_candidate=(a.get("review_candidate")
                               or a.get("candidate")))
+    if act == "addendum":
+        # ---- THE POST-COMPLETION CORRECTION (W-post-done). Deliberately a
+        # DIFFERENT action rather than a flag on `update`: everything `update`
+        # can do — move the status, raise attention, reopen, reassign — is
+        # unreachable from here, so a completed item has no route through this
+        # call back to being incomplete. The two lists and the required note
+        # are the whole of its surface.
+        return org.work_addendum(
+            nid, wid, str(a.get("note") or ""),
+            a.get("done_so_far"), a.get("working_on_next"),
+            keep_done=_arg_flag(a, "keep_done"),
+            keep_next=_arg_flag(a, "keep_next"),
+            done_append=a.get("done_append"),
+            next_append=a.get("next_append"),
+            expected_rev=(None if a.get("expected_rev") is None
+                          else _arg_int(a, "expected_rev", -1)))
     if act == "assign":
         return org.work_assign(nid, wid, str(a.get("owner") or ""))
     if act in ("handoff", "handoff_request"):
@@ -7107,7 +7123,8 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         # Authority and refusals live in the ledger (`work_delete`).
         return org.work_delete(nid, wid, _s("note"))
     raise LedgerError(
-        "action must be list|get|create|update|assign|handoff|review|participants|"
+        "action must be list|get|create|update|addendum|assign|handoff|review|"
+        "participants|"
         "evidence|decision|receipt|rangediff|receipts|artifact|artifact_read|"
         "grant|revoke|finding|dispose|claim|verify|check|accept|archive|"
         "supersede|move|delete")

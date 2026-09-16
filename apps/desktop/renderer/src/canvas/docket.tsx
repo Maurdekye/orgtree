@@ -2066,6 +2066,41 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
   )
 }
 
+/** THE SUMMARY WAS CORRECTED AFTER THE WORK WAS FINISHED (ledger
+ *  `work_addendum`).
+ *
+ *  ⚠ ABOVE THE TWO LISTS, for the same reason the scope notice sits above the
+ *  description: the reader this is for is reading the summary, and a sentence
+ *  underneath it is a sentence they meet after they have already drawn their
+ *  conclusion. The two lists below no longer say what they said when this item
+ *  was accepted — that is worth knowing before reading them, not after.
+ *
+ *  It says nothing about the OUTCOME, because an addendum changes none of it:
+ *  the status, the acceptance record, the checks and the evidence on this pane
+ *  are still exactly the ones the completion wrote. */
+function DocketPostCompletion({ item }: { item: WorkItem }) {
+  const pc = item.post_completion
+  if (!pc) return null
+  const who = typeof pc.by === 'string' ? pc.by : pc.by?.node
+  return (
+    <div className="docket-post-completion">
+      <div className="docket-post-completion-head">
+        Summary amended after completion
+        <span className="dim">
+          {' · ' + ago(pc.at)}
+          {who && ' · by ' + who}
+          {pc.count > 1 && ` · ${pc.count} addenda`}
+        </span>
+      </div>
+      <div className="docket-post-completion-detail">{pc.note}</div>
+      <div className="dim docket-post-completion-foot">
+        The lists below were corrected after this item was {pc.status}; its
+        acceptance record is unchanged.
+      </div>
+    </div>
+  )
+}
+
 /** W09 — acceptance is distinct from a receipt: show the latest explicit
  * classification and retain the complete check sequence for auditability.
  * In particular, a crash and an expected blocked-request control must not
@@ -2528,6 +2563,7 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         </DocketSection>
       )}
       <DocketReviewState item={item} />
+      <DocketPostCompletion item={item} />
       <DocketList heading="DONE SO FAR" items={item.done_so_far} mark="done"
         refIndex={refIndex} onGoToItem={onGoToItem} onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />

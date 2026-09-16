@@ -11734,6 +11734,13 @@ class Org:
             # the description IS the complete scope, which is the normal case
             # and is what gives the other two values their meaning.
             "objective_notice": self._work_objective_notice(it),
+            # ⚠ SERVED BESIDE THE TWO LISTS, because it is a statement ABOUT
+            # them (W-post-done): null on every item whose summary is the one
+            # its completion left, and present — with when, who and why — on
+            # one that recorded a landing afterwards. The reader who needs it
+            # is looking at the summary, so it travels wherever the summary
+            # does, in `get`, in `list` and through the compact projection.
+            "post_completion": it.get("post_completion") or None,
             # THE SCOPE RECORD (W03): every version of the description, with
             # its complete before and after, and every decision — in order,
             # with supersession. Served WHOLE to a viewer that may read the
@@ -13139,16 +13146,33 @@ class Org:
             raise LedgerError(
                 f"{wid} is ARCHIVED ({self._work_archived_why(it)}). If "
                 f"real work resumes, pass reopen=true with the new status; do "
-                f"not create a duplicate item")
+                f"not create a duplicate item. If the work is still finished "
+                f"and only its summary is out of date — the code landed after "
+                f"it was closed — use `addendum`, which corrects the two lists "
+                f"in place and leaves the outcome and its acceptance alone")
         if it.get("status") in self.WORK_CLOSED and not reopen:
             # a closed item is not resumed by accident: the acceptance (or the
             # supersede pointer) describes a completion that an ordinary
             # update would otherwise leave standing beside new work
+            #
+            # ⚠ AND `reopen` IS NO LONGER THE ONLY ROUTE OUT OF THIS REFUSAL
+            # (W-post-done). It used to be, and that made this message a trap:
+            # an item completed at approval and landed afterwards had a
+            # progress summary that was false, and the only way to correct the
+            # sentence was to reopen — which CLEARS the acceptance record of
+            # work that really was finished. Eleven agents chose between a
+            # false record and a damaged one. `addendum` is the third answer:
+            # the lists are corrected, the outcome is untouched, and the edit
+            # is stamped as having happened after completion.
             raise LedgerError(
-                f"{wid} is {it.get('status')} — to resume it pass reopen=true "
+                f"{wid} is {it.get('status')} — to RESUME it pass reopen=true "
                 f"with the new status (its acceptance is then cleared and kept "
-                f"in history); to report on finished work without resuming "
-                f"it, add `evidence` instead")
+                f"in history). If it is still finished and only the summary is "
+                f"wrong — the landing happened after it was closed — use "
+                f"`addendum` instead: it corrects done_so_far / "
+                f"working_on_next in place, keeps the item {it.get('status')}, "
+                f"and leaves the acceptance record untouched. To report on "
+                f"finished work without touching the summary, add `evidence`")
         if status is not None:
             if status not in self.WORK_AGENT_STATUSES and status != "done":
                 if status in self.WORK_LEGACY_STATUSES:
@@ -13642,6 +13666,195 @@ class Org:
                 "note": ("the standing attention flag was CLEARED by this "
                          "update (pass attention=true to keep one)"
                          if prev and attention is not True else None)}
+
+    # ================================================ the post-completion
+    # addendum (W-post-done). The two fields the user actually reads to know
+    # where a piece of work got to are `done_so_far` and `working_on_next` —
+    # and on every ticket that follows approve-then-land they were frozen ONE
+    # STEP BEFORE THE TRUTH, because the item is completed at approval and the
+    # code lands afterwards. `update` refuses on a closed item; `reopen=true`
+    # takes it, and CLEARS the acceptance record on the way. So the only two
+    # moves available were to leave a summary that was false, or to destroy the
+    # acceptance history of finished work in order to fix a sentence.
+    #
+    # ⚠ WHAT THIS IS NOT. It is not a way back into the work. It writes the two
+    # lists and the addendum stamp, and nothing else: no status, no
+    # `accepted`, no acceptance condition, no check, no evidence row, no
+    # verdict, no packet, no assignment, and none of the three clocks. A
+    # completed item cannot become incomplete through this path because this
+    # path has no expression for it — the guard at the end asserts that,
+    # rather than trusting the body above it to have stayed honest.
+    #
+    # ⚠ AND IT LEAVES THE ARCHIVE CLOCK ALONE ON PURPOSE. `docket_at` is what
+    # the one-hour auto-archive runs on. Moving it would pull a finished item
+    # back onto the user's main list every time somebody recorded a landing,
+    # and an already-archived item would keep clawing its way out. So the row
+    # stays where its outcome put it, and `post_completion` — served beside the
+    # lists — is what says the summary was corrected after the fact.
+    WORK_ADDENDUM_ASKS: Final = (
+        "what happened after this item was closed (the landing, the "
+        "correction, the fact the summary was missing)")
+
+    def work_addendum(self, actor: str, wid: str, note: str,
+                      done_so_far: Any = None, working_on_next: Any = None, *,
+                      keep_done: bool = False, keep_next: bool = False,
+                      done_append: Any = None, next_append: Any = None,
+                      expected_rev: int | None = None) -> dict[str, Any]:
+        """Correct or extend a CLOSED item's progress lists, in place.
+
+        THE ONE THING IT CHANGES is the pair of summary lists, plus the
+        `post_completion` stamp that says they were changed after the outcome.
+        The item keeps its status, its acceptance record, its checks, its
+        evidence, its verdicts and its owner. It does not archive, un-archive,
+        or move in the list: an addendum is a correction to a finished record,
+        not activity on live work.
+
+        ⚠ IT TOUCHES ONLY THE LISTS YOU NAME, and that is the deliberate
+        difference from `work_update`. An update states the COMPLETE current
+        summary, so a list it does not mention is cleared — the latest update
+        is the whole statement. That rule is right for live work and wrong
+        here: on a finished item the unnamed half is a record somebody already
+        accepted, and silently erasing it because a caller appended one line
+        about the landing would be a new version of the same harm this path
+        exists to remove. So an omitted list is preserved verbatim, and
+        clearing one is said outright (`working_on_next: []`).
+
+        A call must therefore CHANGE something: an addendum whose materialized
+        lists equal the stored ones is refused rather than written, because a
+        stamp saying a finished item was amended, on an item that was not, is
+        exactly the kind of false record this whole path is about.
+
+        `note` is required and is the durable reason — the history row and the
+        stamp both carry it entire. Anyone who may read the item may write
+        one, on the same footing as an update; unlike an update it CLAIMS
+        NOTHING, because correcting the text of finished work is not taking it
+        over.
+
+        Reopening still exists and still means what it meant: real work has
+        RESUMED, the outcome no longer stands, and the acceptance goes with it
+        (kept in history). What it stops being is the only way to fix a
+        sentence."""
+        self._work_require_live_agent_or_user(actor)
+        self._work_sweep()
+        it, phys = self._work_get_for(actor, wid)
+        # compare-and-set first of all, exactly as `work_update` does it: an
+        # addendum composed against a state that has since moved has nothing
+        # here worth validating, let alone writing
+        self._work_expect_rev(it, expected_rev)
+        status = str(it.get("status") or "")
+        if status not in self.WORK_CLOSED:
+            raise LedgerError(
+                f"{wid} is {status or 'open'}, not closed — an addendum "
+                f"records what happened AFTER an item was finished. While the "
+                f"work is live, `update` is the status update and states the "
+                f"complete current summary. NOTHING WAS WRITTEN")
+        reason = _prose(note)
+        if not reason:
+            raise LedgerError(
+                f"an addendum needs a nonblank `note`: {self.WORK_ADDENDUM_ASKS}. "
+                f"It is the durable reason the finished summary changed, and "
+                f"it is what a later reader has instead of guessing why a "
+                f"{status} item's text is not the text that was accepted")
+        # ---- THE LISTS. Named ones are materialized through the same helper
+        # `work_update` uses (whole / keep / append, with the same expected_rev
+        # requirement on the patch forms); unnamed ones are carried forward
+        # verbatim rather than cleared — see the docstring.
+        touched: list[str] = []
+        lists: dict[str, list[str]] = {}
+        for name, supplied, keep, append in (
+                ("done_so_far", done_so_far, keep_done, done_append),
+                ("working_on_next", working_on_next, keep_next, next_append)):
+            if supplied is None and not keep and append is None:
+                lists[name] = self._work_list_room(
+                    [str(x) for x in (it.get(name) or [])], name,
+                    " already stored")
+                continue
+            touched.append(name)
+            lists[name] = self._work_patch_list(it, name, supplied, keep,
+                                                append, expected_rev)
+        if not touched:
+            raise LedgerError(
+                "an addendum needs a list to correct: pass done_so_far or "
+                "working_on_next (or done_append / next_append / keep_done / "
+                "keep_next). ⚠ UNLIKE `update`, a list you do not name is kept "
+                "as it stands — on finished work the half you did not mention "
+                "is a record somebody accepted, so clearing one is said "
+                "outright with an empty list. NOTHING WAS WRITTEN")
+        done, nxt = lists["done_so_far"], lists["working_on_next"]
+        if not done and not nxt:
+            raise LedgerError(
+                "an addendum may not empty both lists — a finished item with "
+                "no summary at all is worse than the frozen one this corrects. "
+                "NOTHING WAS WRITTEN")
+        was_done = [str(x) for x in (it.get("done_so_far") or [])]
+        was_next = [str(x) for x in (it.get("working_on_next") or [])]
+        if done == was_done and nxt == was_next:
+            raise LedgerError(
+                "this addendum changes neither list, so there is nothing to "
+                "record — and stamping a finished item as amended when it was "
+                "not is itself a false record. Send the corrected text, or "
+                "use `evidence` to add a note that leaves the summary alone")
+        # ---- EVERYTHING THIS PATH PROMISES NOT TO TOUCH, snapshotted before
+        # the first write. The body below has no expression for changing any of
+        # it; this is the guard that keeps that true as the method is edited,
+        # rather than a claim in a docstring nobody re-checks.
+        sealed = ("status", "accepted", "acceptance", "evidence",
+                  "candidate_verdict", "candidate_verdicts", "review_packet",
+                  "review_packets", "superseded_by", "dropped_reason",
+                  "docket_at", "status_at", "last_updater", "owner",
+                  "archived_at", "manual_attention")
+        before = {k: json.dumps(it.get(k), sort_keys=True, default=str)
+                  for k in sealed}
+        it["done_so_far"] = done
+        it["working_on_next"] = nxt
+        prior = cast("dict[str, Any]", it.get("post_completion") or {})
+        accepted = cast("dict[str, Any]", it.get("accepted") or {})
+        stamp = {"count": int(prior.get("count") or 0) + 1,
+                 "at": now(), "by": self._work_actor(actor),
+                 "status": status, "note": reason,
+                 # the completion this addendum came AFTER, so the ordering is
+                 # readable without walking history
+                 "accepted_at": accepted.get("at") or None,
+                 "first_at": prior.get("first_at") or now()}
+        it["post_completion"] = stamp
+        # ⚠ THE HISTORY ROW CARRIES THE LISTS AS THEY WERE. This is the only
+        # place the summary that was accepted survives once it is corrected,
+        # and losing it would make the correction unauditable — which is the
+        # failure mode of the route this replaces, arriving one step later.
+        self._work_hist(it, actor, "addendum",
+                        {"status": status, "note": reason,
+                         "touched": list(touched),
+                         "after_completion": True,
+                         "accepted_at": accepted.get("at") or None,
+                         "done_was": was_done, "next_was": was_next,
+                         "done": len(done), "next": len(nxt)})
+        drift = [k for k in sealed
+                 if json.dumps(it.get(k), sort_keys=True,
+                                default=str) != before[k]]
+        if drift:
+            # unreachable by construction; if it ever fires, a later edit has
+            # given this path a way to alter an outcome, and refusing loudly is
+            # the only honest response
+            raise LedgerError(
+                f"INTERNAL: an addendum altered {', '.join(drift)} — this path "
+                f"may only touch the two progress lists. Refused")
+        self._log("work_addendum", actor,
+                  {"item": wid, "status": status,
+                   "touched": list(touched)}, [])
+        return {"addendum": wid, "rev": it["rev"], "status": it["status"],
+                # what was actually STORED, both lists, whether or not this
+                # call named them — the caller sees the whole corrected
+                # summary without a second read
+                "done_so_far": list(done), "working_on_next": list(nxt),
+                "touched": list(touched),
+                "post_completion": dict(stamp),
+                # PROOF, RETURNED: the acceptance record as it stands after the
+                # call is the same one that stood before it
+                "accepted": it.get("accepted"),
+                "archived": self._work_archived(it, phys, _time.time()),
+                "note": (f"recorded after completion — {wid} is still "
+                         f"{status}, its acceptance record is untouched, and "
+                         f"neither the row's age nor the archive clock moved")}
 
     # ---- ASSIGNMENT. User ruling 2026-09-05 21:02: ASSIGNMENT IS OWNERSHIP —
     # the `owner` field is the ONE meaning behind the docket's Assignment line,

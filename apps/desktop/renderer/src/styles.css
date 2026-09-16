@@ -4261,6 +4261,19 @@ span.ref-chip.ref-chip {
 .docket-desc-notice-head { font-weight: 600; }
 .docket-desc-notice.incomplete .docket-desc-notice-head { color: var(--warn, #e5c07b); }
 .docket-desc-notice-detail { margin-top: 3px; opacity: .8; }
+/* ⚠ "THIS SUMMARY WAS CORRECTED AFTER THE WORK WAS FINISHED" (W-post-done) —
+   above the two progress lists, the same placement argument as the scope
+   notice above. It is a QUIET pointer, never a warning: an addendum is the
+   record being made more true, not something going wrong, and the acceptance
+   record it sits beside is untouched. */
+.docket-post-completion {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.45;
+  border: 1px solid var(--line, #2a2e36); background: rgba(255, 255, 255, .03);
+}
+.docket-post-completion-head { font-weight: 600; }
+.docket-post-completion-detail { margin-top: 3px; white-space: pre-wrap; }
+.docket-post-completion-foot { margin-top: 3px; opacity: .8; }
 .docket-desc-body { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; }
 /* ⚠ MARKDOWN DECIDES ITS OWN WRAPPING. `pre-wrap` above is for the plain-text
    surfaces; a rendered description already carries its line breaks as <br>

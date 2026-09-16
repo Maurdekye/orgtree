@@ -536,6 +536,22 @@ TOOLS: list[dict[str, Any]] = [
             "reviewer is named by the update that enters status review "
             "(`reviewer`), may never be the owner, and gets read + evidence + "
             "that one decision — never ownership. "
+            "A FINISHED ITEM CAN STILL RECORD WHAT HAPPENED AFTER IT WAS "
+            "FINISHED — `addendum`. On every ticket that is completed at "
+            "approval and lands afterwards, the two lists the user reads "
+            "freeze one step before the truth, and `update` is refused on a "
+            "closed item. `addendum` corrects done_so_far / working_on_next "
+            "in place on a done (or dropped) item: it keeps the status, "
+            "leaves the acceptance record, the checks and the evidence "
+            "exactly as completion left them, never reassigns, never moves "
+            "the row's age or the archive clock, and stamps the item as "
+            "amended-after-completion so the edit reads as what it is. It "
+            "needs a `note` saying what happened, and — unlike `update`, "
+            "which states the complete current summary — it touches ONLY the "
+            "lists you name, so the half you do not mention is kept rather "
+            "than cleared. Use `reopen=true` only when work has genuinely "
+            "RESUMED: that clears the acceptance because the outcome no "
+            "longer stands. "
             "An update that does not pass "
             "attention:true CLEARS a standing attention flag; a user "
             "dismissal makes the item blocked and an exact repeat of the "
@@ -568,7 +584,8 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "action": {"type": "string",
-                           "enum": ["list", "get", "create", "update", "assign", "handoff",
+                           "enum": ["list", "get", "create", "update", "addendum",
+                           "assign", "handoff",
                            "review", "verdict", "candidate_verdict",
                            "integration_verdict", "review_verdict",
                            "review_grant", "review_grants",
@@ -616,9 +633,9 @@ TOOLS: list[dict[str, Any]] = [
                 "dependencies": {"type": "array", "items": {"type": "string"},
                                  "description": "create: names of items this one depends on"},
                 "done_so_far": {"type": "array", "items": {"type": "string"},
-                                "description": "update (required) / create: what is complete — individual entries, kept scannable." + _cap("done_so_far") + " Detail belongs in `evidence`, which has no limit."},
+                                "description": "update (required) / create / addendum: what is complete — individual entries, kept scannable." + _cap("done_so_far") + " Detail belongs in `evidence`, which has no limit."},
                 "working_on_next": {"type": "array", "items": {"type": "string"},
-                                    "description": "update (required) / create: what you are doing now and the next steps, kept scannable." + _cap("working_on_next") + " Detail belongs in `evidence`, which has no limit."},
+                                    "description": "update (required) / create / addendum: what you are doing now and the next steps, kept scannable." + _cap("working_on_next") + " Detail belongs in `evidence`, which has no limit."},
                 "status": {"type": "string",
                            "description": "create/update: backlogged|open|in_progress|blocked|review|deploy_ready|dropped — and on update also done (user 2026-09-10: any collaborator may complete directly; it writes the same acceptance record accept does). `review` = REVIEW BY AGENTS; asking the user to look at something is attention/orgtree_ask, not this status. `blocked` = cannot move until something outside this update happens — an answer, an event, another agent's work: it stays on your desk, counted as active, and is NEVER nudged by the idle reminder (user 2026-09-07); the answer or event itself, arriving as mail, is what resumes it, so the blocked_reason must say how you will hear of it. There is no `waiting` state any more (removed by the user 2026-09-07 — it duplicated blocked); a row recorded as waiting before then reads as blocked, with its reason, and carries legacy_status. `approved` = a reviewer approved an exact commit and it is NOT LANDED yet: active, still yours, and the next action is the push. YOU CANNOT ASSERT IT — it is reachable only through a reviewer's `approve_stage` verdict, because an owner writing `approved` onto its own item is the self-approval the review rules prohibit. You can always update an item that is IN it, and you leave it by recording the landing and completing the item with `done`. `deploy_ready` = implementation is COMPLETE and awaiting deployment/publication — not blocked (nothing outside the item is stuck) and not done (not live yet): it counts as active and IS nudged, because getting it deployed is still actionable work owed by the owner. `dropped` = the TERMINAL NON-SUCCESS outcome for work explicitly cancelled or failed unrecoverably: it needs a `dropped_reason`, archives AT ONCE (no one-hour grace — user 2026-09-07), and is never Done — never route dead work through review and acceptance instead"},
                 "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded." + _cap("blocked_reason")},
@@ -626,11 +643,11 @@ TOOLS: list[dict[str, Any]] = [
                 "attention": {"type": "boolean",
                               "description": "update: raise the manual attention flag (needs attention_reason)"},
                 "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
-                "reopen": {"type": "boolean", "description": "update: resume an archived/closed item. It may carry a TERMINAL status (done|dropped) in the same call, for work that was finished, then extended, then finished again — one call records both the reopening and its outcome, instead of passing through an in_progress state that was never true. A reopen to dropped owes a fresh dropped_reason: the one it just overturned goes with the outcome it described"},
+                "reopen": {"type": "boolean", "description": "update: RESUME an archived/closed item — real work has started again and the outcome no longer stands, so the acceptance record is cleared (kept in history). ⚠ It is NOT how you fix the text of work that is still finished: if only the summary is out of date because the code landed after the item was closed, use `addendum`, which corrects the lists, keeps the item done and leaves the acceptance untouched. It may carry a TERMINAL status (done|dropped) in the same call, for work that was finished, then extended, then finished again — one call records both the reopening and its outcome, instead of passing through an in_progress state that was never true. A reopen to dropped owes a fresh dropped_reason: the one it just overturned goes with the outcome it described"},
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
                 "ref": {"type": "string", "description": "claim: lowercase hex sha, 7-40 lowercase hex characters, nothing else accepted (a refusal echoes what you sent, exactly, and names the character at fault) · evidence: path/url/sha/log." + _cap("ref") + " Prose goes in `note`."},
-                "note": {"type": "string", "description": "claim/evidence/check/accept/review: free text - the durable record of what was checked, asked for or left standing." + _NOCAP},
+                "note": {"type": "string", "description": "claim/evidence/check/accept/review: free text - the durable record of what was checked, asked for or left standing. addendum: REQUIRED — what happened after the item was closed (the landing, the correction), kept on the item as the reason its finished summary changed." + _NOCAP},
                 "index": {"type": "integer", "description": "check: acceptance condition index (0-based)"},
                 "evidence_ref": {"type": "string", "description": "check: what shows the condition is met (path/url/sha/log)." + _cap("evidence_ref") + " Prose goes in `note`."},
                 "classification": {"type": "string", "enum": ["met", "not_exercised", "environment_limited", "known_negative"],
@@ -651,12 +668,12 @@ TOOLS: list[dict[str, Any]] = [
                 "supersedes": {"type": "integer", "description": "decision: the `seq` of an earlier scope record this ruling replaces. The superseded row keeps its own text forever and gains only a back-pointer, so the record shows both what was ruled and that it was later replaced"},
                 "expected_rev": {"type": "integer", "description": "update/evidence/receipt and every other mutating action: COMPARE-AND-SET. The item `rev` you composed this call against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ; and worth passing whenever you built something from a read — a receipt, a disposition — that must not land on a different item state"},
                 "objective_append": {"type": "string", "description": "update: text ADDED to the end of the description instead of replacing it — for a scope addition that arrived after the item was written, so the original wording is not lost to re-typing it by hand. Owner-level like `objective`, and mutually exclusive with it. Either route VERSIONS the description into the item's append-only `scope` record, which keeps the complete before and after" + _NOCAP},
-                "keep_done": {"type": "boolean", "description": "update: carry the stored done_so_far forward unchanged instead of re-sending it. Needs expected_rev. What is STORED is still the complete list — this changes who assembles it, not what is written"},
-                "keep_next": {"type": "boolean", "description": "update: carry the stored working_on_next forward unchanged instead of re-sending it. Needs expected_rev"},
+                "keep_done": {"type": "boolean", "description": "update/addendum: carry the stored done_so_far forward unchanged instead of re-sending it. Needs expected_rev. What is STORED is still the complete list — this changes who assembles it, not what is written"},
+                "keep_next": {"type": "boolean", "description": "update/addendum: carry the stored working_on_next forward unchanged instead of re-sending it. Needs expected_rev"},
                 "done_append": {"type": "array", "items": {"type": "string"},
-                                "description": "update: entries appended to the stored done_so_far. Needs expected_rev. The backend materializes and stores the COMPLETE merged list and returns it, so there is never a partial summary on the item; the 40-entry cap is measured on the merge"},
+                                "description": "update/addendum: entries appended to the stored done_so_far. Needs expected_rev. The backend materializes and stores the COMPLETE merged list and returns it, so there is never a partial summary on the item; the 40-entry cap is measured on the merge"},
                 "next_append": {"type": "array", "items": {"type": "string"},
-                                "description": "update: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
+                                "description": "update/addendum: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
                 "attention_amend": {"type": "boolean", "description": "update: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged"},
                 # ── W08: verification receipts, scoped artifacts, findings ──
                 "execution": {"type": "string",
