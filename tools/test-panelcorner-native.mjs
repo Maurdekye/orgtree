@@ -27,7 +27,7 @@ import { AgentSurfaceRoutesProvider } from './apps/desktop/renderer/src/canvas/p
 import { AgentGalleryModal } from './apps/desktop/renderer/src/canvas/gallery'
 import { AgentDocketModal } from './apps/desktop/renderer/src/canvas/agentdocket'
 import { NodeInboxModal } from './apps/desktop/renderer/src/canvas/mail'
-import { isModalPinned, pinnedModalBehind, raisePinnedModal } from './apps/desktop/renderer/src/canvas/modalpin'
+import { commitModalRect, isModalPinned, pinnedModalBehind, raisePinnedModal } from './apps/desktop/renderer/src/canvas/modalpin'
 import './apps/desktop/renderer/src/styles.css'
 
 // RECORD EVERY NATIVE WINDOW MovableSurface ASKS FOR, and hand back a stub.
@@ -109,6 +109,12 @@ function Shell() {
         }))))
 }
 createRoot(document.getElementById('root')).render(React.createElement(Shell))
+
+// DRAGGING A PINNED WINDOW'S EDGE, without a pointer. commitModalRect is the
+// very call the resize gesture ends on (canvas/modalpin.tsx), clamp and all, so
+// a narrow pinned panel reached this way is the same narrow pinned panel the
+// user reached by hand — which is where they photographed the overflow.
+window.__resizePin = (kind, rect) => commitModalRect(kind, rect, 'demo')
 
 // the desk's tab strip is the real one; drive it the way a click would
 window.__tab = (tab) => {

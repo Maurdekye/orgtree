@@ -2773,7 +2773,33 @@ button.cc-name:hover {
   border-right: 1px solid var(--line-soft); background: var(--panel-2);
   position: relative; z-index: 5;
 }
-.mailer-listtoggle { font-size: 15px; padding: 3px 5px; line-height: 1; }
+/* ⚠ SIZED FROM THE RAIL, NOT FROM A PADDING GUESS — and it has to be, because
+   a padding guess is exactly what failed here. This button used to ask for
+   `padding: 3px 5px`, which fits 34px comfortably, and that declaration NEVER
+   APPLIED ANYWHERE: the rail only exists inside a collapsible `.mailer`, every
+   collapsible `.mailer` is in a modal panel, and `.settings .iconbtn` (two
+   classes, further down the file) outranks it with `padding: 7px 11px`. The
+   result was a 40px button centred in a 34px rail — 3px proud of the panel's
+   rounded edge on each side, which is what the user photographed on
+   2.1.6-beta.4 (their shot: a collapsed inbox, hover red, the box crossing the
+   corner).
+
+   So the rail's width stops being something the button is trusted to fit
+   inside and becomes the thing the button is DERIVED FROM. `--listrail` is
+   already published on `.mailer.narrow-list` for exactly this reason — the
+   panel and the veil both start where it ends — and this is the third reader
+   of that one number. Whatever ambient rule sets padding or font-size next,
+   the box stays `--listrail` minus its margins, so this cannot come back.
+   The `.mailer.narrow-list` scope is not specificity for its own sake: it is
+   the only place this button is ever rendered (canvas/narrowlist.tsx), so the
+   selector now says where it lives and outranks `.settings .iconbtn` as a
+   consequence rather than as a trick. */
+.mailer.narrow-list .mailer-listtoggle {
+  box-sizing: border-box;
+  width: calc(var(--listrail) - 8px); height: calc(var(--listrail) - 8px);
+  padding: 0; font-size: 15px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 .mailer-listtoggle.on { background: var(--panel); color: var(--ink-strong); }
 .mailer-listveil {
   position: absolute; top: 0; bottom: 0; right: 0; left: var(--listrail);
