@@ -85,6 +85,12 @@ const DEFAULT_MAX_AGE_DAYS = 7
 
 const RENDERER_TESTS = path.join(REPO, 'apps', 'desktop', 'renderer', 'tests')
 
+// Mirrors FAILURE_PHASES in tools/run-python-verification.py. Every other phase
+// it reports — `pass`, `skip` — is a module that did not fail.
+const PYTHON_FAILURE_PHASES = new Set([
+  'assertion_failure', 'import_failure', 'teardown_failure', 'execution_failure', 'cleanup_error',
+])
+
 const SUITES = {
   'node-root': {
     title: 'Root/main-process suite',
@@ -264,7 +270,15 @@ function machineProvenance(concurrency) {
 // ---------------------------------------------------------------------------
 
 function ageOf(baseline) {
-  const recordedAt = baseline?.recorded_at ? Date.parse(baseline.recorded_at) : NaN
+  // A baseline is only as fresh as its STALEST suite. `record --suite X`
+  // re-measures one suite and carries the rest forward, so after a partial
+  // re-record the top-level timestamp is the newest moment — which is exactly
+  // the number that would flatter it.
+  const stamps = Object.values(baseline?.suites ?? {})
+    .map(suite => (suite.recorded_at ? Date.parse(suite.recorded_at) : NaN))
+    .filter(Number.isFinite)
+  const topLevel = baseline?.recorded_at ? Date.parse(baseline.recorded_at) : NaN
+  const recordedAt = stamps.length ? Math.min(...stamps) : topLevel
   const ageHours = Number.isFinite(recordedAt) ? (Date.now() - recordedAt) / 3_600_000 : null
   const head = git(['rev-parse', 'HEAD'])
   const base = baseline?.commit ?? null
@@ -415,16 +429,22 @@ async function runPythonSuite(suiteName, targets, { timeout }) {
     // Module granularity: the "test" name says so rather than pretending to
     // name a case the runner never reported.
     const name = `(whole module: ${record.phase})`
-    const passed = record.phase === 'pass'
-    const message = passed ? null : firstLine(lastMeaningfulLine(record.stderr ?? ''))
+    // ⚠ Use the runner's OWN definition of failure, not "anything that is not
+    // pass". Its non-failing phases include `skip`, and a module that skipped
+    // one case is a module that passed. Reading those as failures put five
+    // green modules into this baseline as known failures on the first run —
+    // and a baseline with false entries in it teaches people to ignore it,
+    // which is worse than having none.
+    const failed = PYTHON_FAILURE_PHASES.has(record.phase)
+    const message = failed ? firstLine(lastMeaningfulLine(record.stderr ?? '')) : null
     return {
       id: testId(suiteName, file, '(whole module)'),
       suite: suiteName,
       file,
       test: name,
-      status: record.phase === 'skipped' ? 'skipped' : passed ? 'passed' : 'failed',
+      status: failed ? 'failed' : record.phase === 'skip' || record.phase === 'skipped' ? 'skipped' : 'passed',
       kind: 'leaf',
-      failure_type: passed ? null : record.phase,
+      failure_type: failed ? record.phase : null,
       // The runner's own tolerate-list key, so a baseline entry can be fed
       // straight back to it as `--baseline`.
       failure_id: record.failure_id ?? null,
@@ -799,6 +819,14 @@ async function cmdRecord(args) {
       description: SUITES[suiteName].description,
       runner: SUITES[suiteName].command,
       granularity: SUITES[suiteName].granularity ?? 'test',
+      // PER-SUITE provenance. `record --suite X` re-measures one suite and
+      // keeps the others, which is the difference between re-recording a
+      // 14-minute suite and re-recording all three. That only stays honest if
+      // each suite says when and where IT was measured, because after a partial
+      // re-record they are no longer the same moment.
+      recorded_at: new Date().toISOString(),
+      commit: provenance.commit,
+      trees: provenance.trees,
       // A partial baseline must say so: without this, a filtered run reads as
       // if the unselected files had passed.
       partial: args.filter ? { filter: args.filter, warning: 'PARTIAL BASELINE — only files matching this filter were run; every other file is unmeasured, not passing.' } : null,
@@ -829,6 +857,20 @@ async function cmdRecord(args) {
       known_test_ids: result.outcomes.filter(o => o.kind !== 'aggregate').map(o => o.id),
     }
     console.error(`[baseline] ${suiteName}: ${counts.passed}/${counts.tests} passed, ${counts.failed} failed in ${(result.duration_ms / 1000).toFixed(0)}s`)
+  }
+
+  // Merge, never silently drop. Suites this run did not measure are carried
+  // forward from the previous baseline with their own older provenance intact.
+  const carried = []
+  if (previous?.suites) {
+    for (const [name, suite] of Object.entries(previous.suites)) {
+      if (suites[name]) continue
+      suites[name] = suite
+      carried.push(name)
+    }
+  }
+  if (carried.length) {
+    console.error(`[baseline] carried forward, NOT re-measured: ${carried.join(', ')} (their own recorded_at is kept)`)
   }
 
   const baseline = {
@@ -1052,6 +1094,12 @@ function cmdShow(args) {
   for (const [name, suite] of Object.entries(baseline.suites ?? {})) {
     console.log(`── ${name} — ${suite.title}`)
     console.log(`   ${suite.runner}`)
+    if (suite.granularity === 'module') {
+      console.log('   reports per MODULE, not per test — one verdict covers every case in the file')
+    }
+    if (suite.recorded_at && suite.recorded_at !== baseline.recorded_at) {
+      console.log(`   ! measured ${suite.recorded_at} at ${short(suite.commit)} — OLDER than the rest of this baseline`)
+    }
     if (suite.partial) console.log(`   ! ${suite.partial.warning} (filter: ${suite.partial.filter})`)
     if (suite.truncated) console.log(`   ! ${suite.truncation_note}`)
     console.log(`   ${suite.counts.passed}/${suite.counts.tests} passed · ${suite.counts.failed} known failures across ${suite.failing_files.length} file(s) · ${(suite.duration_ms / 1000).toFixed(0)}s`)
